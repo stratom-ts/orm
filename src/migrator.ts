@@ -4,9 +4,9 @@ import { alterTableSafe } from '@helpers/alter'
 import type { TableSchema } from '@helpers/table'
 import { getTableMetadata } from '@schemas/index'
 
-async function migrateTable(
-  db: Kysely<unknown>,
-  trx: Kysely<unknown>,
+async function migrateTable<T>(
+  db: Kysely<T>,
+  trx: Kysely<T>,
   schema: TableSchema,
   existingTables: TableMetadata[],
 ): Promise<void> {
@@ -30,8 +30,8 @@ async function migrateTable(
   }
 }
 
-export async function runMigrations(
-  db: Kysely<unknown>,
+export async function runMigrations<T>(
+  db: Kysely<T>,
   schemas: TableSchema[],
 ): Promise<void> {
   const existingTables = await db.introspection.getTables()

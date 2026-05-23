@@ -13,8 +13,8 @@ import type { CompiledQuery, Kysely } from 'kysely'
  * // Returns queries for creating users_email_idx and users_created_at_idx
  * ```
  */
-export function createIndexes(
-  db: Kysely<unknown>,
+export function createIndexes<T>(
+  db: Kysely<T>,
   table: string,
   indexes?: string[],
 ) {

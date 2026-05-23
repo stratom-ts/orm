@@ -1,9 +1,9 @@
-import type { ColumnMetadata, Kysely } from 'kysely'
-import type { TableSchema } from '@helpers/table'
-import { MigrationError } from '@utils/error'
 import { addColumn, checkColumnHasData, checkColumnHasNulls } from '@helpers/column'
 import type { ColumnDiff } from '@helpers/diff'
 import { diffTableSchema } from '@helpers/diff'
+import type { TableSchema } from '@helpers/table'
+import { MigrationError } from '@utils/error'
+import type { ColumnMetadata, Kysely } from 'kysely'
 
 /**
  * Safely alters a column in a table by updating its data type and nullability.
@@ -22,8 +22,8 @@ import { diffTableSchema } from '@helpers/diff'
  * })
  * ```
  */
-async function alterColumnSafe(
-  trx: Kysely<unknown>,
+async function alterColumnSafe<T>(
+  trx: Kysely<T>,
   tableName: string,
   column: ColumnDiff,
 ): Promise<void> {
@@ -76,8 +76,8 @@ async function alterColumnSafe(
  * await alterTableSafe(trx, userSchema, dbColumns)
  * ```
  */
-export async function alterTableSafe(
-  trx: Kysely<unknown>,
+export async function alterTableSafe<T>(
+  trx: Kysely<T>,
   schema: TableSchema,
   dbColumns: ColumnMetadata[],
 ): Promise<void> {
