@@ -18,9 +18,10 @@
     "build": "tsc && vite build",
     "dev": "vite",
     "test": "vitest",
+    "typecheck": "tsc",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "lint": "oxlint",
+    "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
     "prepare": "husky"
   },

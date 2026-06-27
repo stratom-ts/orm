@@ -29,17 +29,17 @@ describe('isNullable', () => {
   })
 
   it('should return true when nullable is in a pipe', () => {
-    const schema = pipe(string(), nullable(string()))
+    const schema = pipe(string(), nullable(string()) as never)
     expect(isNullable(schema)).toBe(true)
   })
 
   it('should return true when optional is in a pipe', () => {
-    const schema = pipe(string(), optional(string()))
+    const schema = pipe(string(), optional(string()) as never)
     expect(isNullable(schema)).toBe(true)
   })
 
   it('should return true when nullish is in a pipe', () => {
-    const schema = pipe(string(), nullish(string()))
+    const schema = pipe(string(), nullish(string()) as never)
     expect(isNullable(schema)).toBe(true)
   })
 
