@@ -1,7 +1,7 @@
 import { boolean, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { getColumnInfo } from '@helpers/column'
+import { getColumnInfo } from '@/helpers'
 
 describe('column.ts', () => {
   describe('getColumnInfo', () => {

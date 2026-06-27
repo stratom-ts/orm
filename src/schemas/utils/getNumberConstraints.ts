@@ -1,5 +1,5 @@
 import type { BaseIssue, BaseSchema } from 'valibot'
-import type { NumberConstraints } from '@typings/constraints'
+import type { NumberConstraints } from '@/types/constraints'
 
 /**
  * Extracts number constraints (minValue, maxValue, isInteger) from a schema.

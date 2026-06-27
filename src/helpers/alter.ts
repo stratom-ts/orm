@@ -1,8 +1,8 @@
-import { addColumn, checkColumnHasData, checkColumnHasNulls } from '@helpers/column'
-import type { ColumnDiff } from '@helpers/diff'
-import { diffTableSchema } from '@helpers/diff'
-import type { TableSchema } from '@helpers/table'
-import { MigrationError } from '@utils/error'
+import { addColumn, checkColumnHasData, checkColumnHasNulls } from './column'
+import type { ColumnDiff } from './diff'
+import { diffTableSchema } from './diff'
+import type { TableSchema } from './table'
+import { MigrationError } from '@/utils'
 import type { ColumnMetadata, Kysely } from 'kysely'
 
 /**

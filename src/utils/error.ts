@@ -1,4 +1,4 @@
-import type { Equals } from '@typings/equals'
+import type { Equals } from '@/types/equals'
 
 type ErrorHandlers<T> = {
   [K in Extract<T, { _tag: string }>['_tag']]?: (

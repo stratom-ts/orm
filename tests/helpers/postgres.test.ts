@@ -17,7 +17,7 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { inferPostgresType } from '@helpers/postgres'
+import { inferPostgresType } from '@/helpers'
 
 describe('postgres.ts', () => {
   describe('inferPostgresType - string schemas', () => {

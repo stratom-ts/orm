@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely'
 import { describe, expect, it, vi } from 'vitest'
 
-import { createIndexes } from '@helpers/indexes'
+import { createIndexes } from '@/helpers'
 
 function createMockDb() {
   const mockCompile = vi.fn()

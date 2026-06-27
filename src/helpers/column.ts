@@ -2,9 +2,9 @@ import type { Kysely } from 'kysely'
 import type { BaseIssue, BaseSchema } from 'valibot'
 import { inferPostgresType } from './postgres'
 import type { TableSchema } from './table'
-import { MigrationError } from '@utils/error'
-import { getColumnMetadata, getReferenceMetadata, isNullable } from '@schemas/index'
-import type { ColumnMetadata, ReferenceMetadata } from '@schemas/actions/types'
+import { MigrationError } from '@/utils'
+import { getColumnMetadata, getReferenceMetadata, isNullable } from '@/schemas'
+import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
 
 /**
  * Extracts column information from a schema definition.
@@ -70,7 +70,7 @@ export function getColumnInfo(
  * ```
  */
 export async function checkColumnHasData(
-  trx: Kysely<any>,
+  trx: Kysely<any>, // oxlint-disable-line typescript/no-explicit-any
   table: string,
   column: string,
 ): Promise<boolean> {
@@ -101,7 +101,7 @@ export async function checkColumnHasData(
  * ```
  */
 export async function checkColumnHasNulls(
-  trx: Kysely<any>,
+  trx: Kysely<any>, // oxlint-disable-line typescript/no-explicit-any
   table: string,
   column: string,
 ): Promise<boolean> {
@@ -133,7 +133,7 @@ export async function checkColumnHasNulls(
  * ```
  */
 export async function addColumn(
-  trx: Kysely<any>,
+  trx: Kysely<any>, // oxlint-disable-line typescript/no-explicit-any
   tableName: string,
   schema: TableSchema,
   columnName: string,

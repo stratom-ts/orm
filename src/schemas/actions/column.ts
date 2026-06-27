@@ -28,6 +28,8 @@ export function isColumnMetadata(
 export function getColumnMetadata(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
 ): ColumnMetadata | undefined {
-  const schemaMetadata = getMetadata(schema) as Record<string, unknown> | undefined
+  const schemaMetadata = getMetadata(schema) as
+    | Record<string, unknown>
+    | undefined
   return isColumnMetadata(schemaMetadata) ? schemaMetadata : undefined
 }

@@ -1,16 +1,16 @@
 import type { ColumnMetadata as DbColumnMetadata } from 'kysely'
 import type { BaseIssue, BaseSchema } from 'valibot'
-import { getColumnInfo } from '@helpers/column'
-import type { TableSchema } from '@helpers/table'
+import { getColumnInfo } from './column'
+import type { TableSchema } from './table'
 import {
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
-} from '@schemas/index'
+} from '@/schemas'
 import type {
   ColumnMetadata as LocalColumnMetadata,
   TableMetadata as LocalTableMetadata,
-} from '@schemas/actions/types'
+} from '@/schemas'
 
 export interface ColumnDiff {
   /** The name of the db column */

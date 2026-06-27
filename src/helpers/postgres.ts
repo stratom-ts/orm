@@ -10,12 +10,9 @@ import {
   getBaseSchema,
   getNumberConstraints,
   getStringConstraints,
-} from '@schemas/index'
-import { isNumber } from '@utils/isNumber'
-import type {
-  NumberConstraints,
-  StringConstraints,
-} from '@typings/constraints'
+} from '@/schemas'
+import { isNumber } from '@/utils'
+import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 
 /**
  * Infers the appropriate PostgreSQL column type for string constraints.
