@@ -10,3 +10,7 @@ export type InferRow<S extends TableSchema> = {
 export type InferDB<Schemas extends Record<string, TableSchema>> = {
   [K in keyof Schemas]: InferRow<Schemas[K]>
 }
+
+export type InferDBFromArray<T extends readonly TableSchema<string>[]> = {
+  [K in T[number] as K extends TableSchema<infer N> ? N : never]: InferRow<K>
+}
