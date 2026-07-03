@@ -33,6 +33,12 @@ export type ColumnMetadata = {
   unique?: boolean
   /** Column comment/documentation */
   comment?: string
+  /** Auto-generated identity column strategy */
+  generated?: 'byDefault' | 'always'
+  /** Immutable column — ColumnType<T, T, never> */
+  readonly?: boolean
+  /** SQL ON UPDATE expression (e.g. 'now()') */
+  onUpdate?: string
 }
 
 /**
