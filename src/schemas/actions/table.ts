@@ -7,9 +7,12 @@ import type { TableMetadata } from './types'
  * @param config - Table metadata configuration
  * @returns A Valibot MetadataAction that can be used in a pipe
  */
-export function table<TInput = unknown>(
-  config: Omit<TableMetadata, 'kind'>,
-): MetadataAction<TInput, TableMetadata> {
+export function table<
+  TInput = unknown,
+  const TConfig extends { name: string; primaryKey: string; indexes?: string[]; schema?: string } = { name: string; primaryKey: string },
+>(
+  config: TConfig,
+): MetadataAction<TInput, TableMetadata<TConfig['name']>> {
   return metadata({ ...config, kind: 'table' })
 }
 

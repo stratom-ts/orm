@@ -4,11 +4,11 @@ import type { ColumnDataType } from 'kysely'
  * Table metadata configuration for database table type definitions.
  * This ensures all necessary information is provided to generate migrations.
  */
-export type TableMetadata = {
+export type TableMetadata<N extends string = string> = {
   /** The kind of metadata - used to distinguish from other metadata types */
   kind: 'table'
   /** The name of the table in the database */
-  name: string
+  name: N
   /** The column name that serves as the primary key */
   primaryKey: string
   /** Array of column names to create indexes on */

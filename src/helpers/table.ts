@@ -17,11 +17,11 @@ import {
 } from '@/schemas'
 import type { TableMetadata as TableMetadataType } from '@/schemas'
 
-export type TableSchema = SchemaWithPipe<
+export type TableSchema<N extends string = string> = SchemaWithPipe<
   readonly [
     ObjectSchema<ObjectEntries, undefined>,
     TitleAction<unknown, string>,
-    MetadataAction<unknown, TableMetadataType>,
+    MetadataAction<unknown, TableMetadataType<N>>,
   ]
 >
 
