@@ -31,10 +31,13 @@ function unwrapWrapper(
  * @param config - Column metadata configuration
  * @returns A Valibot MetadataAction that can be used in a pipe
  */
-export function column<TInput = unknown>(
-  config: Omit<ColumnMetadata, 'kind'>,
-): MetadataAction<TInput, ColumnMetadata> {
-  return metadata({ ...config, kind: 'column' })
+export function column<
+  TInput = unknown,
+  TConfig extends Omit<ColumnMetadata, 'kind'> = Omit<ColumnMetadata, 'kind'>,
+>(
+  config: TConfig,
+): MetadataAction<TInput, TConfig & { kind: 'column' }> {
+  return metadata({ ...config, kind: 'column' }) as MetadataAction<TInput, TConfig & { kind: 'column' }>
 }
 
 /**

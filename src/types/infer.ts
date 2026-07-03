@@ -79,12 +79,23 @@ type ApplyColumnType<T, Config extends KyselyColumnConfig | NoColumnConfig, Sche
   Config extends { readonly: true } ? ColumnType<T, T, never> :
   Config extends { json: true } ? WrapJson<T> :
   Config extends { dateAsString: true } ? ColumnType<Date, string, string> :
-  HasExplicitKeys<Config & KyselyColumnConfig> extends true ? T :
+  HasExplicitKeys<Config> extends true ? T :
+  UnwrapSchema<Schema> extends { pipe: readonly [...unknown[], { kind: 'metadata'; metadata: { kind: 'column'; readonly: true } }] } ? ColumnType<T, T, never> :
+  UnwrapSchema<Schema> extends { pipe: readonly [...unknown[], { kind: 'metadata'; metadata: { kind: 'column'; generated: 'byDefault' | 'always' } }] } ? Generated<T> :
   IsObjectSchema<Schema> extends true ? WrapJson<T> :
   T
 
 /** JSONColumnType requires T extends object | null, so guard it. */
 type WrapJson<T> = T extends object | null ? JSONColumnType<T> : T
+
+// ---------------------------------------------------------------------------
+// Effective config: merge user-provided config with schema metadata
+// ---------------------------------------------------------------------------
+
+type ConfigForKey<C, K> =
+  K extends keyof C
+    ? ([C[K]] extends [never] ? NoColumnConfig : C[K])
+    : NoColumnConfig
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -93,11 +104,6 @@ type WrapJson<T> = T extends object | null ? JSONColumnType<T> : T
 export type InferRow<S extends TableSchema> = {
   [K in keyof S['entries']]-?: DBType<InferOutput<S['entries'][K]>>
 }
-
-type ConfigForKey<C, K> =
-  K extends keyof C
-    ? ([C[K]] extends [never] ? NoColumnConfig : C[K])
-    : NoColumnConfig
 
 export type InferTable<
   S extends TableSchema,
