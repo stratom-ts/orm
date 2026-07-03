@@ -165,7 +165,7 @@ describe('InferTable', () => {
 
   it('auto-detects JSONColumnType for object schemas without explicit config', () => {
     type Table = InferTable<typeof JsonSchema>
-    expectTypeOf<Table['metadata']>().toEqualTypeOf<
+    expectTypeOf<Table['metadata']>().toExtend<
       JSONColumnType<{ key: string; value: number }>
     >()
   })

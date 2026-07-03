@@ -51,9 +51,10 @@ type IsObjectSchema<S> =
 
 /**
  * Whether any KyselyColumnConfig key was explicitly set (as opposed
- * to the default empty object `{}`).
+ * to the default empty object or NoColumnConfig sentinel).
  */
-type HasExplicitKeys<C extends KyselyColumnConfig> =
+type HasExplicitKeys<C> =
+  [C] extends [NoColumnConfig] ? false :
   C extends { generated?: never; readonly?: never; json?: never; dateAsString?: never }
     ? false
     : true
@@ -67,12 +68,18 @@ type HasExplicitKeys<C extends KyselyColumnConfig> =
  * 2. If user set any config flag explicitly (even `false`), skip auto-detection
  * 3. Auto-detect: Valibot object schemas that aren't references → JSONColumnType<T>
  */
-type ApplyColumnType<T, Config extends KyselyColumnConfig, Schema> =
+/**
+ * Sentinel type used when a column has no config entry.
+ * Never matches any KyselyColumnConfig flag, so auto-detection fires.
+ */
+export type NoColumnConfig = { readonly __sentinel__: true }
+
+type ApplyColumnType<T, Config extends KyselyColumnConfig | NoColumnConfig, Schema> =
   Config extends { generated: true } ? Generated<T> :
   Config extends { readonly: true } ? ColumnType<T, T, never> :
   Config extends { json: true } ? WrapJson<T> :
   Config extends { dateAsString: true } ? ColumnType<Date, string, string> :
-  HasExplicitKeys<Config> extends true ? T :
+  HasExplicitKeys<Config & KyselyColumnConfig> extends true ? T :
   IsObjectSchema<Schema> extends true ? WrapJson<T> :
   T
 
@@ -87,6 +94,11 @@ export type InferRow<S extends TableSchema> = {
   [K in keyof S['entries']]-?: DBType<InferOutput<S['entries'][K]>>
 }
 
+type ConfigForKey<C, K> =
+  K extends keyof C
+    ? ([C[K]] extends [never] ? NoColumnConfig : C[K])
+    : NoColumnConfig
+
 export type InferTable<
   S extends TableSchema,
   C extends Record<string, KyselyColumnConfig> = Record<string, never>,
@@ -94,7 +106,7 @@ export type InferTable<
   [K in keyof S['entries']]-?:
     ApplyColumnType<
       DBType<InferOutput<S['entries'][K]>>,
-      K extends keyof C ? C[K] : Record<string, never>,
+      ConfigForKey<C, K>,
       S['entries'][K]
     >
 }

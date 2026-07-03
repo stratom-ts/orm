@@ -24,7 +24,7 @@ export type ColumnMetadata = {
   /** The kind of metadata - used to distinguish from other metadata types */
   kind: 'column'
   /** The database column type (e.g., 'text', 'varchar(255)', 'integer', 'timestamp') */
-  type: ColumnDataType
+  type?: ColumnDataType
   /** Default value for the column */
   default?: string | number | boolean | null
   /** Whether the column is auto-incrementing */
