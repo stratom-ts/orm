@@ -27,10 +27,10 @@ import { column, table, runMigrations } from 'schema-orm'
 
 const UserSchema = pipe(
   object({
-    id: pipe(string(), column({ type: 'uuid', autoIncrement: false })),
-    name: pipe(string(), column({ type: 'varchar(255)', nullable: false })),
+    id: pipe(string(), column({ type: 'uuid' })),
+    name: pipe(string(), column({ type: 'varchar(255)' })),
     email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
-    age: pipe(number(), column({ type: 'integer', nullable: true })),
+    age: pipe(number(), column({ type: 'integer' })),
   }),
   title('users'),
   table({ name: 'users', primaryKey: 'id' }),

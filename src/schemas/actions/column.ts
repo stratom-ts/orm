@@ -2,6 +2,30 @@ import type { BaseIssue, BaseSchema, MetadataAction } from 'valibot'
 import { getMetadata, metadata } from 'valibot'
 import type { ColumnMetadata } from './types'
 
+interface WrapperSchema {
+  wrapped: BaseSchema<unknown, unknown, BaseIssue<unknown>>
+}
+
+/**
+ * Unwraps Valibot wrapper schemas (optional, nullable, nullish) to find
+ * the inner schema. Unlike getBaseSchema, this preserves pipe structures.
+ */
+function unwrapWrapper(
+  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
+  if (
+    schema.type === 'optional' ||
+    schema.type === 'nullable' ||
+    schema.type === 'nullish' ||
+    schema.type === 'non_optional' ||
+    schema.type === 'non_nullable' ||
+    schema.type === 'non_nullish'
+  ) {
+    return unwrapWrapper((schema as unknown as WrapperSchema).wrapped)
+  }
+  return schema
+}
+
 /**
  * A metadata action for column definitions.
  * @param config - Column metadata configuration
@@ -24,11 +48,14 @@ export function isColumnMetadata(
 
 /**
  * Extracts column metadata from a schema if it exists.
+ *
+ * Unwraps Valibot wrapper schemas (optional, nullable, nullish) to find
+ * column metadata inside them.
  */
 export function getColumnMetadata(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
 ): ColumnMetadata | undefined {
-  const schemaMetadata = getMetadata(schema) as
+  const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
     | Record<string, unknown>
     | undefined
   return isColumnMetadata(schemaMetadata) ? schemaMetadata : undefined

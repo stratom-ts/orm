@@ -15,7 +15,6 @@ describe('column action', () => {
   it('should create column with all options', () => {
     const action = column({
       type: 'integer',
-      nullable: true,
       default: 0,
       autoIncrement: true,
       unique: true,
@@ -24,7 +23,6 @@ describe('column action', () => {
     expect(metadata).toMatchObject({
       kind: 'column',
       type: 'integer',
-      nullable: true,
       default: 0,
       autoIncrement: true,
       unique: true,
@@ -48,11 +46,10 @@ describe('getColumnMetadata', () => {
   it('should return the correct type from metadata', () => {
     const schema = pipe(
       string(),
-      column({ type: 'varchar(255)', nullable: true }),
+      column({ type: 'varchar(255)' }),
     )
     const metadata = getColumnMetadata(schema)
     expect(metadata).toBeDefined()
     expect(metadata!.type).toBe('varchar(255)')
-    expect(metadata!.nullable).toBe(true)
   })
 })

@@ -13,6 +13,30 @@ import { isTableMetadata } from './table'
 import { getColumnMetadata } from './column'
 import type { ReferenceMetadata } from './types'
 
+interface WrapperSchema {
+  wrapped: BaseSchema<unknown, unknown, BaseIssue<unknown>>
+}
+
+/**
+ * Unwraps Valibot wrapper schemas (optional, nullable, nullish) to find
+ * the inner schema. Unlike getBaseSchema, this preserves pipe structures.
+ */
+function unwrapWrapper(
+  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
+  if (
+    schema.type === 'optional' ||
+    schema.type === 'nullable' ||
+    schema.type === 'nullish' ||
+    schema.type === 'non_optional' ||
+    schema.type === 'non_nullable' ||
+    schema.type === 'non_nullish'
+  ) {
+    return unwrapWrapper((schema as unknown as WrapperSchema).wrapped)
+  }
+  return schema
+}
+
 /**
  * A metadata action for references definitions.
  * @param schema - The schema to reference
@@ -78,7 +102,7 @@ export function isReferenceMetadata(
 export function getReferenceMetadata(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
 ): ReferenceMetadata | undefined {
-  const schemaMetadata = getMetadata(schema) as
+  const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
     | Record<string, unknown>
     | undefined
   return isReferenceMetadata(schemaMetadata) ? schemaMetadata : undefined
