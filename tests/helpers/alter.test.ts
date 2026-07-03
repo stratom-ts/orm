@@ -56,6 +56,7 @@ describe('alter.ts', () => {
       expect(mockDiffTableSchema).toHaveBeenCalledWith(
         mockSchema,
         mockDbColumns,
+        expect.anything(),
       )
     })
 

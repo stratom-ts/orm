@@ -6,6 +6,8 @@ import type {
   SchemaWithPipe,
   TitleAction,
 } from 'valibot'
+import type { DialectAdapter } from '@/dialects'
+import { postgresAdapter } from '@/dialects'
 import { getColumnInfo } from './column'
 import { MigrationError } from '@/utils'
 import {
@@ -53,7 +55,11 @@ export type TableSchema = SchemaWithPipe<
  * // Returns compiled CREATE TABLE query
  * ```
  */
-export function createTableFromSchema<T>(db: Kysely<T>, schema: TableSchema) {
+export function createTableFromSchema<T>(
+  db: Kysely<T>,
+  schema: TableSchema,
+  adapter: DialectAdapter = postgresAdapter,
+) {
   const metadata = getTableMetadata(schema)
   if (!metadata) {
     throw new MigrationError({
@@ -70,7 +76,7 @@ export function createTableFromSchema<T>(db: Kysely<T>, schema: TableSchema) {
     const columnMetadata = getColumnMetadata(columnSchema)
     const referenceMetadata = getReferenceMetadata(columnSchema)
     const { dataType, nullable, defaultValue, unique, autoIncrement } =
-      getColumnInfo(columnSchema, columnMetadata, referenceMetadata)
+      getColumnInfo(columnSchema, columnMetadata, referenceMetadata, adapter)
 
     table = table.addColumn(column, dataType, (columnBuilder) => {
       let col = columnBuilder

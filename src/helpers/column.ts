@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely'
 import type { BaseIssue, BaseSchema } from 'valibot'
-import { inferPostgresType } from './postgres'
+import type { DialectAdapter } from '@/dialects'
+import { postgresAdapter } from '@/dialects'
 import type { TableSchema } from './table'
 import { MigrationError } from '@/utils'
 import { getColumnMetadata, getReferenceMetadata, isNullable } from '@/schemas'
@@ -36,13 +37,14 @@ export function getColumnInfo(
   columnSchema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
   columnMetadata: ColumnMetadata | undefined,
   referenceMetadata: ReferenceMetadata | undefined,
+  adapter: DialectAdapter = postgresAdapter,
 ) {
   const columnMetadataType = columnMetadata?.type
   const referenceMetadataType = referenceMetadata?.dataType
   const dataType =
     columnMetadataType ||
     referenceMetadataType ||
-    inferPostgresType(columnSchema)
+    adapter.inferColumnType(columnSchema)
   const nullable = columnMetadata?.nullable || isNullable(columnSchema)
   const defaultValue: string | number | boolean | null | undefined =
     columnMetadata?.default
@@ -137,6 +139,7 @@ export async function addColumn(
   tableName: string,
   schema: TableSchema,
   columnName: string,
+  adapter: DialectAdapter = postgresAdapter,
 ): Promise<void> {
   const entries = schema.entries as Record<string, unknown>
   const columnSchema = entries[columnName]
@@ -148,7 +151,7 @@ export async function addColumn(
   const columnMetadata = getColumnMetadata(columnSchema as never)
   const referenceMetadata = getReferenceMetadata(columnSchema as never)
   const { dataType, nullable, defaultValue, unique, autoIncrement } =
-    getColumnInfo(columnSchema as never, columnMetadata, referenceMetadata)
+    getColumnInfo(columnSchema as never, columnMetadata, referenceMetadata, adapter)
 
   const columnBuilder = trx.schema
     .alterTable(tableName)
