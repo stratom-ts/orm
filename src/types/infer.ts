@@ -29,20 +29,13 @@ type UnwrapSchema<S> =
     ? UnwrapSchema<W>
   : S
 
-/**
- * Whether a schema (after unwrapping optional/nullable/nullish) has
- * a MetadataAction whose metadata.kind is 'reference' anywhere in
- * its pipe.
- */
+/** `true` if the unwrapped schema pipe ends with reference metadata. */
 type HasReferenceMetadata<S> =
   UnwrapSchema<S> extends { pipe: readonly [...unknown[], { kind: 'metadata'; metadata: { kind: 'reference' } }] }
     ? true
     : false
 
-/**
- * Whether the base (unwrapped) schema is a Valibot object schema
- * that is NOT a reference column.
- */
+/** `true` if the base schema is a non-reference Valibot object. */
 type IsObjectSchema<S> =
   HasReferenceMetadata<S> extends true
     ? false
@@ -54,10 +47,7 @@ type IsObjectSchema<S> =
     ? true
     : false
 
-/**
- * Whether any KyselyColumnConfig key was explicitly set (as opposed
- * to the default empty object or NoColumnConfig sentinel).
- */
+/** `true` if any `KyselyColumnConfig` flag was set (not the empty/sentinel case). */
 type HasExplicitKeys<C> =
   [C] extends [NoColumnConfig] ? false :
   C extends { generated?: never; readonly?: never; json?: never; dateAsString?: never }
@@ -65,20 +55,11 @@ type HasExplicitKeys<C> =
     : true
 
 /**
- * Applies Kysely column type wrapping based on explicit config flags
- * and automatic schema detection.
- *
- * Priority:
- * 1. Explicit config flags always win
- * 2. If user set any config flag explicitly (even `false`), skip auto-detection
- * 3. Auto-detect: Valibot object schemas that aren't references → JSONColumnType<T>
- */
-/**
- * Sentinel type used when a column has no config entry.
- * Never matches any KyselyColumnConfig flag, so auto-detection fires.
+ * Sentinel when a column has no config entry so auto-detection can run.
  */
 export type NoColumnConfig = { readonly __sentinel__: true }
 
+/** Applies Generated / JSON / readonly wrapping from config and schema metadata. */
 type ApplyColumnType<T, Config extends KyselyColumnConfig | NoColumnConfig, Schema> =
   Config extends { generated: true } ? Generated<T> :
   Config extends { readonly: true } ? ColumnType<T, T, never> :
@@ -91,26 +72,35 @@ type ApplyColumnType<T, Config extends KyselyColumnConfig | NoColumnConfig, Sche
   IsObjectSchema<Schema> extends true ? WrapJson<T> :
   T
 
-/** JSONColumnType requires T extends object | null, so guard it. */
+/** Guards `JSONColumnType` to object | null. */
 type WrapJson<T> = T extends object | null ? JSONColumnType<T> : T
-
-// ---------------------------------------------------------------------------
-// Effective config: merge user-provided config with schema metadata
-// ---------------------------------------------------------------------------
 
 type ConfigForKey<C, K> =
   K extends keyof C
     ? ([C[K]] extends [never] ? NoColumnConfig : C[K])
     : NoColumnConfig
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
+/**
+ * Plain row type from a table schema (`InferOutput` per column).
+ *
+ * @example
+ * ```ts
+ * type User = InferRow<typeof UserSchema>
+ * ```
+ */
 export type InferRow<S extends TableSchema> = {
   [K in keyof S['entries']]-?: DBType<InferOutput<S['entries'][K]>>
 }
 
+/**
+ * Kysely table type with Generated/JSON/readonly wrapping applied.
+ *
+ * @example
+ * ```ts
+ * type Users = InferTable<typeof UserSchema>
+ * type Users = InferTable<typeof UserSchema, { id: { generated: true } }>
+ * ```
+ */
 export type InferTable<
   S extends TableSchema,
   C extends Record<string, KyselyColumnConfig> = Record<string, never>,
@@ -123,6 +113,14 @@ export type InferTable<
     >
 }
 
+/**
+ * Kysely database type from a record of table schemas.
+ *
+ * @example
+ * ```ts
+ * type DB = InferDB<{ users: typeof UserSchema; posts: typeof PostSchema }>
+ * ```
+ */
 export type InferDB<
   Schemas extends Record<string, TableSchema>,
   Configs extends Record<string, Record<string, KyselyColumnConfig>> = Record<string, never>,
@@ -131,6 +129,14 @@ export type InferDB<
     InferTable<Schemas[K], K extends keyof Configs ? Configs[K] : Record<string, never>>
 }
 
+/**
+ * Kysely database type from a schema array, keyed by `table({ name })`.
+ *
+ * @example
+ * ```ts
+ * type DB = InferDBFromArray<readonly [typeof UserSchema, typeof PostSchema]>
+ * ```
+ */
 export type InferDBFromArray<T extends readonly TableSchema<string>[]> = {
   [K in T[number] as K extends TableSchema<infer N> ? N : never]: InferTable<K>
 }
