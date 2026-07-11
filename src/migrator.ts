@@ -5,6 +5,15 @@ import { alterTableSafe, createIndexes, createTableFromSchema } from '@/helpers'
 import type { TableSchema } from '@/helpers'
 import { getTableMetadata } from '@/schemas'
 
+/**
+ * Creates or alters a single table, then ensures its indexes exist.
+ *
+ * @param db - Kysely instance (used for compile-time query building)
+ * @param trx - Transaction used to apply DDL
+ * @param schema - Table schema to migrate
+ * @param existingTables - Current database tables from introspection
+ * @param adapter - Dialect adapter for type inference and normalization
+ */
 async function migrateTable<T>(
   db: Kysely<T>,
   trx: Kysely<T>,
@@ -31,6 +40,18 @@ async function migrateTable<T>(
   }
 }
 
+/**
+ * Migrates the database to match the given table schemas in a transaction.
+ *
+ * @param db - Kysely instance
+ * @param schemas - Table schemas to create or alter
+ * @param adapter - Dialect adapter for type inference and normalization
+ *
+ * @example
+ * ```ts
+ * await runMigrations(db, [UserSchema, PostSchema])
+ * ```
+ */
 export async function runMigrations<T>(
   db: Kysely<T>,
   schemas: TableSchema[],
