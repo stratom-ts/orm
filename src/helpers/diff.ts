@@ -145,11 +145,7 @@ function isColumnModified(
 ): boolean {
   const localNorm = adapter.normalizeDataType(local.dataType)
   const currentNorm = adapter.normalizeDataType(current.dataType)
-  if (localNorm !== currentNorm) {
-    const localBase = localNorm.replace(/\(\d+\)/, '')
-    const currentBase = currentNorm.replace(/\(\d+\)/, '')
-    if (localBase !== currentBase) return true
-  }
+  if (localNorm !== currentNorm) return true
   const localNullable = local.nullable ?? false
   if (localNullable !== current.isNullable) return true
   const localAutoIncrement = local.autoIncrement ?? false

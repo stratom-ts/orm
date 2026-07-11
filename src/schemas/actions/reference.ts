@@ -9,6 +9,7 @@ import type {
   TitleAction,
 } from 'valibot'
 import { getMetadata, getTitle, metadata, pipe } from 'valibot'
+import { postgresAdapter } from '@/dialects'
 import { isTableMetadata } from './table'
 import { getColumnMetadata } from './column'
 import type { ReferenceMetadata } from './types'
@@ -73,7 +74,11 @@ export function references<
     ? getColumnMetadata(referencedColumnSchema)
     : undefined
 
-  const dataType = referencedColumnMetadata?.type || 'varchar(255)'
+  const dataType =
+    referencedColumnMetadata?.type ||
+    (referencedColumnSchema
+      ? postgresAdapter.inferColumnType(referencedColumnSchema)
+      : 'varchar(255)')
 
   return pipe(
     schema['entries'][key as string] as T['entries'][K],

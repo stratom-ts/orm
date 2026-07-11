@@ -21,10 +21,9 @@ async function migrateTable<T>(
 
   if (!existingTable) {
     await trx.executeQuery(createTableFromSchema(db, schema, adapter))
-    return
+  } else {
+    await alterTableSafe(trx, schema, existingTable.columns, adapter)
   }
-
-  await alterTableSafe(trx, schema, existingTable.columns, adapter)
 
   const indexQueries = createIndexes(db, table.name, table.indexes)
   for (const query of indexQueries) {

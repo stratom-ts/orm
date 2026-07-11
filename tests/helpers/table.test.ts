@@ -33,10 +33,14 @@ function createMockDb() {
     compile: mockCompile,
   }
 
+  const schemaModule = {
+    createTable: vi.fn().mockReturnValue(mockTableBuilder),
+    withSchema: vi.fn().mockReturnThis(),
+  }
+  schemaModule.withSchema = vi.fn().mockReturnValue(schemaModule)
+
   return {
-    schema: {
-      createTable: vi.fn().mockReturnValue(mockTableBuilder),
-    },
+    schema: schemaModule,
   } as unknown as Kysely<unknown>
 }
 

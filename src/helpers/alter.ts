@@ -28,7 +28,7 @@ async function alterColumnSafe<T>(
   trx: Kysely<T>,
   tableName: string,
   column: ColumnDiff,
-  _adapter: DialectAdapter = postgresAdapter,
+  adapter: DialectAdapter = postgresAdapter,
 ): Promise<void> {
   if (!column.current) return
   const nullable = column.local.nullable ?? true
@@ -42,7 +42,9 @@ async function alterColumnSafe<T>(
     }
   }
 
-  if (column.local.dataType !== column.current.dataType) {
+  const localNorm = adapter.normalizeDataType(column.local.dataType)
+  const currentNorm = adapter.normalizeDataType(column.current.dataType)
+  if (localNorm !== currentNorm) {
     await trx.schema
       .alterTable(tableName)
       .alterColumn(column.name, (ac) =>
@@ -105,7 +107,7 @@ export async function alterTableSafe<T>(
 
   if (diff.added.length > 0) {
     for (const column of diff.added) {
-      await addColumn(trx, diff.tableName, schema, column.name)
+      await addColumn(trx, diff.tableName, schema, column.name, adapter)
     }
   }
 

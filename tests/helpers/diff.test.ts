@@ -277,6 +277,31 @@ describe('diff.ts', () => {
       expect(result).toBeNull()
     })
 
+    it('should detect length-only type changes', () => {
+      const schemaWithLongerVarchar = pipe(
+        object({
+          name: pipe(string(), column({ type: 'varchar(255)' })),
+        }),
+        title('test_table'),
+        table({ name: 'test_table', primaryKey: 'id' }),
+      )
+
+      const dbColumns: DbColumnMetadata[] = [
+        {
+          name: 'name',
+          dataType: 'varchar(100)',
+          ...dbColumnBase,
+        },
+      ]
+
+      const result = diffTableSchema(schemaWithLongerVarchar, dbColumns)
+
+      expect(result).not.toBeNull()
+      const r = result!
+      expect(r.modified).toHaveLength(1)
+      expect(r.modified[0]!.local.dataType).toBe('varchar(255)')
+    })
+
     it('should normalize PostgreSQL data types - bool to boolean', () => {
       const schemaWithBoolean = pipe(
         object({

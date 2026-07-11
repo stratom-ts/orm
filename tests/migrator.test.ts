@@ -63,6 +63,16 @@ describe('runMigrations', () => {
     expect(alterTableSafe).not.toHaveBeenCalled()
   })
 
+  it('should create indexes after creating a new table', async () => {
+    ;(
+      mockDb.introspection.getTables as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([])
+
+    await runMigrations(mockDb, [UserSchema])
+
+    expect(createIndexes).toHaveBeenCalled()
+  })
+
   it('should alter an existing table', async () => {
     const existingTables = [{ name: 'users' }] as TableMetadata[]
     ;(
