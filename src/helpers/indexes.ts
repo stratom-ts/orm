@@ -1,16 +1,17 @@
 import type { CompiledQuery, Kysely } from 'kysely'
 
 /**
- * Creates database index creation queries for specified columns.
+ * Builds `CREATE INDEX IF NOT EXISTS` queries for the given columns.
  *
- * @param db - The Kysely database instance
- * @param table - The name of the database table
- * @param indexes - Optional array of column names to create indexes for
- * @returns Array of compiled index creation queries
+ * @param db - Kysely instance
+ * @param table - Table name
+ * @param indexes - Column names to index
+ * @returns Compiled index creation queries
+ *
  * @example
  * ```ts
  * const queries = createIndexes(db, 'users', ['email', 'created_at'])
- * // Returns queries for creating users_email_idx and users_created_at_idx
+ * // users_email_idx, users_created_at_idx
  * ```
  */
 export function createIndexes<T>(

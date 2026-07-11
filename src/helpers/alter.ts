@@ -8,19 +8,20 @@ import { MigrationError } from '@/utils'
 import type { ColumnMetadata, Kysely } from 'kysely'
 
 /**
- * Safely alters a column in a table by updating its data type and nullability.
- * Throws a MigrationError if the column has NULL values when trying to set NOT NULL.
+ * Updates a column's data type and nullability with data-integrity checks.
  *
- * @param trx - The Kysely database transaction instance
- * @param tableName - The name of the table containing the column
- * @param column - The column diff object containing current and local column metadata
+ * @param trx - Kysely transaction
+ * @param tableName - Table containing the column
+ * @param column - Diff between local and database column definitions
+ * @param adapter - Dialect adapter for type normalization
+ * @throws MigrationError - When setting NOT NULL on a column that has NULL values
  *
  * @example
  * ```ts
  * await alterColumnSafe(trx, 'users', {
  *   name: 'email',
  *   local: { dataType: 'varchar(255)', nullable: false },
- *   current: { dataType: 'varchar(100)', isNullable: true }
+ *   current: { dataType: 'varchar(100)', isNullable: true },
  * })
  * ```
  */
@@ -67,18 +68,18 @@ async function alterColumnSafe<T>(
 }
 
 /**
- * Safely alters a table schema by comparing the desired schema with the current database columns.
- * Handles column additions, modifications, and removals while validating data integrity.
- * Throws MigrationError if attempting to drop columns with existing data or set NOT NULL on columns with NULL values.
+ * Applies schema diffs to a table: add, modify, and drop columns safely.
  *
- * @param trx - The Kysely database transaction instance
- * @param schema - The desired table schema definition
- * @param dbColumns - The current column metadata from the database
+ * @param trx - Kysely transaction
+ * @param schema - Desired table schema
+ * @param dbColumns - Current database column metadata
+ * @param adapter - Dialect adapter for type inference and normalization
+ * @throws MigrationError - When dropping a column with data or setting NOT NULL on NULLs
  *
  * @example
  * ```ts
- * const dbColumns = await trx.introspection.getTableColumns('users')
- * await alterTableSafe(trx, userSchema, dbColumns)
+ * const dbColumns = await trx.introspection.getTables()
+ * await alterTableSafe(trx, userSchema, dbColumns[0].columns)
  * ```
  */
 export async function alterTableSafe<T>(

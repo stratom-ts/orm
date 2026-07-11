@@ -1,60 +1,59 @@
 import type { ColumnDataType } from 'kysely'
 
 /**
- * Table metadata configuration for database table type definitions.
- * This ensures all necessary information is provided to generate migrations.
+ * Table-level metadata attached via `table()`.
  */
 export type TableMetadata<N extends string = string> = {
-  /** The kind of metadata - used to distinguish from other metadata types */
+  /** Discriminant for table metadata */
   kind: 'table'
-  /** The name of the table in the database */
+  /** Database table name */
   name: N
-  /** The column name that serves as the primary key */
+  /** Primary key column name */
   primaryKey: string
-  /** Array of column names to create indexes on */
+  /** Columns to index */
   indexes?: string[]
-  /** Optional schema name for multi-schema databases */
+  /** Database schema (multi-schema DBs) */
   schema?: string
 }
 
 /**
- * Column metadata configuration for database column type definitions.
+ * Column-level metadata attached via `column()`.
  */
 export type ColumnMetadata = {
-  /** The kind of metadata - used to distinguish from other metadata types */
+  /** Discriminant for column metadata */
   kind: 'column'
-  /** The database column type (e.g., 'text', 'varchar(255)', 'integer', 'timestamp') */
+  /** SQL column type (e.g. `'text'`, `'varchar(255)'`, `'integer'`) */
   type?: ColumnDataType
-  /** Default value for the column */
+  /** Default value */
   default?: string | number | boolean | null
-  /** Whether the column is auto-incrementing */
+  /** Auto-increment column */
   autoIncrement?: boolean
-  /** Whether the column is unique */
+  /** Unique constraint */
   unique?: boolean
-  /** Column comment/documentation */
+  /** Column comment */
   comment?: string
-  /** Auto-generated identity column strategy */
+  /** Identity generation strategy */
   generated?: 'byDefault' | 'always'
-  /** Immutable column — ColumnType<T, T, never> */
+  /** Immutable after insert (`ColumnType<T, T, never>`) */
   readonly?: boolean
-  /** SQL ON UPDATE expression (e.g. 'now()') */
+  /** SQL ON UPDATE expression (e.g. `'now()'`) */
   onUpdate?: string
 }
 
 /**
- * Reference metadata configuration for database foreign key relationships.
+ * Foreign-key metadata attached via `references()`.
  */
 export type ReferenceMetadata = {
-  /** The kind of metadata - used to distinguish from other metadata types */
+  /** Discriminant for reference metadata */
   kind: 'reference'
-  /** The schema that is being referenced */
+  /** Referenced schema title */
   schema: string
-  /** The table that is being referenced */
+  /** Referenced table name */
   table: string
-  /** The key/column that is being referenced */
+  /** Referenced column name */
   key: string
-  /** The data type of the referenced column */
+  /** Referenced column data type */
   dataType?: ColumnDataType
-  /** Action to take on cascade delete */
+  /** ON DELETE action */
   onDelete?: 'cascade' | 'restrict' | 'no action' | 'set null' | 'set default'
 }

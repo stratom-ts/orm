@@ -17,6 +17,7 @@ import {
 } from '@/schemas'
 import type { TableMetadata as TableMetadataType } from '@/schemas'
 
+/** Valibot object schema with `title()` and `table()` metadata. */
 export type TableSchema<N extends string = string> = SchemaWithPipe<
   readonly [
     ObjectSchema<ObjectEntries, undefined>,
@@ -26,33 +27,25 @@ export type TableSchema<N extends string = string> = SchemaWithPipe<
 >
 
 /**
- * Creates a database table from a Valibot schema with table metadata.
+ * Compiles a `CREATE TABLE` query from a Valibot table schema.
  *
- * Extracts table and column metadata from the schema to build a complete
- * table definition including columns, primary key, foreign keys, constraints,
- * and default values.
+ * @param db - Kysely instance
+ * @param schema - Table schema with `table()` metadata
+ * @param adapter - Dialect adapter for type inference
+ * @returns Compiled create-table query
+ * @throws MigrationError - When table metadata is missing
  *
- * @param db - The Kysely database instance
- * @param schema - The Valibot schema with table metadata
- * @returns Compiled query for creating the database table
- * @throws MigrationError if schema does not provide table metadata
  * @example
  * ```ts
- * import { pipe, object, string, title } from 'valibot'
- * import { table, column } from 'schema-orm'
- *
  * const UserSchema = pipe(
  *   object({
  *     id: pipe(string(), column({ type: 'uuid' })),
  *     email: pipe(string(), column({ type: 'varchar(255)' })),
- *     name: pipe(string(), column({ type: 'text' })),
  *   }),
  *   title('users'),
  *   table({ name: 'users', primaryKey: 'id' }),
  * )
- *
  * const query = createTableFromSchema(db, UserSchema)
- * // Returns compiled CREATE TABLE query
  * ```
  */
 export function createTableFromSchema<T>(

@@ -15,38 +15,37 @@ import { getColumnInfo } from './column'
 import type { TableSchema } from './table'
 
 export interface ColumnDiff {
-  /** The name of the db column */
+  /** Column name */
   name: string
-  /** The local schema column definition */
+  /** Local schema column definition */
   local: LocalColumnMetadata & { dataType: string; nullable: boolean }
-  /** The db schema column definition */
+  /** Database column definition, or `null` if the column is new */
   current: DbColumnMetadata | null
 }
 
 export interface TableDiff {
-  /** The name of the db table */
+  /** Table name */
   tableName: string
-  /** Columns added to the local schema */
+  /** Columns present locally but not in the database */
   added: ColumnDiff[]
-  /** Columns modified in the local schema */
+  /** Columns whose definition differs from the database */
   modified: ColumnDiff[]
-  /** Columns removed from the local schema */
+  /** Column names present in the database but not locally */
   removed: string[]
 }
 
 /**
- * Compares a local table schema definition against the current database schema
- * to identify added, modified, or removed columns.
+ * Diffs a local table schema against database column metadata.
  *
- * @param schema - The local table schema definition from the schema files
- * @param dbColumns - The current column metadata from the database
- * @returns A TableDiff object if there are differences, or null if schemas match
+ * @param schema - Local table schema
+ * @param dbColumns - Current database columns
+ * @param adapter - Dialect adapter for type normalization
+ * @returns Diff of added, modified, and removed columns, or `null` if unchanged
+ *
  * @example
- * ```typescript
- * const diff = diffTableSchema(userTableSchema, dbColumns)
- * if (diff) {
- *   console.log(`Added: ${diff.added.length}, Modified: ${diff.modified.length}, Removed: ${diff.removed.length}`)
- * }
+ * ```ts
+ * const diff = diffTableSchema(UserSchema, dbColumns)
+ * if (diff) console.log(diff.added, diff.modified, diff.removed)
  * ```
  */
 export function diffTableSchema(
@@ -80,17 +79,17 @@ export function diffTableSchema(
 }
 
 /**
- * Extracts column metadata from a local table schema and maps it to a searchable format.
+ * Builds a map of local column definitions from a table schema.
  *
- * @param schema - The local table schema definition
- * @param _metadata - The table metadata (unused but kept for signature consistency)
- * @returns A Map of column names to their metadata including data type, nullable, default, unique, and autoIncrement
+ * @param schema - Local table schema
+ * @param _metadata - Table metadata (unused; kept for call-site consistency)
+ * @param adapter - Dialect adapter for type inference
+ * @returns Map of column name to resolved column metadata
+ *
  * @example
- * ```typescript
- * const columns = getLocalColumns(userTableSchema, metadata)
- * for (const [name, meta] of columns) {
- *   console.log(`${name}: ${meta.dataType}`)
- * }
+ * ```ts
+ * const columns = getLocalColumns(UserSchema, metadata, adapter)
+ * for (const [name, meta] of columns) console.log(name, meta.dataType)
  * ```
  */
 function getLocalColumns(
@@ -124,17 +123,17 @@ function getLocalColumns(
 }
 
 /**
- * Compares a local schema column with the db column schema
- * to determine if it has been modified.
+ * Returns whether a local column definition differs from the database.
  *
- * @param local - The local column metadata including data type
- * @param current - The current database column metadata
- * @returns true if the column has been modified, false otherwise
+ * @param local - Local column metadata
+ * @param current - Database column metadata
+ * @param adapter - Dialect adapter for type normalization
+ * @returns `true` if type, nullability, auto-increment, or default differs
+ *
  * @example
- * ```typescript
- * const modified = isColumnModified(localColumn, dbColumn)
- * if (modified) {
- *   console.log('Column definition has changed')
+ * ```ts
+ * if (isColumnModified(localCol, dbCol, adapter)) {
+ *   // column needs ALTER
  * }
  * ```
  */
