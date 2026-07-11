@@ -2,12 +2,16 @@ import type { BaseIssue, BaseSchema } from 'valibot'
 import type { StringConstraints } from '@/types/constraints'
 
 /**
- * Extracts string constraints (minLength, maxLength) from a schema.
+ * Reads min/max length constraints from a string schema pipe.
  *
- * Parses the schema's pipe to find length constraints for string types.
+ * @param schema - String schema that may include length actions
+ * @returns Extracted `minLength` and `maxLength` if present
  *
- * @param schema - The schema to extract constraints from
- * @returns Object containing minLength and maxLength constraints if defined
+ * @example
+ * ```ts
+ * const c = getStringConstraints(pipe(string(), maxLength(255)))
+ * // { maxLength: 255 }
+ * ```
  */
 export function getStringConstraints(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,

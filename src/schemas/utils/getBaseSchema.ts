@@ -5,13 +5,16 @@ interface WrapperSchema {
 }
 
 /**
- * Get the base schema from wrapper schemas (optional, nullable, nullish, etc.).
+ * Unwraps optional/nullable/nullish wrappers and pipes to the base schema.
  *
- * Recursively unwraps wrapper schemas to find the underlying base schema type.
- * Handles wrapper types like optional, nullable, nullish, and their non-* variants.
+ * @param schema - Schema that may be wrapped or piped
+ * @returns Innermost base schema type
  *
- * @param schema - The schema to extract the base type from
- * @returns The unwrapped base schema
+ * @example
+ * ```ts
+ * const base = getBaseSchema(optional(pipe(string(), minLength(1))))
+ * // string schema
+ * ```
  */
 export function getBaseSchema(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
