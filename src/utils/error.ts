@@ -109,4 +109,44 @@ export function catchTags<T, E extends ErrorHandlers<T>>(
  */
 export class MigrationError extends TaggedError('MigrationError')<{
   message: string
+  cause?: unknown
+}> {}
+
+/**
+ * Error thrown when table/column metadata is invalid or incomplete.
+ *
+ * @example
+ * ```ts
+ * throw new SchemaError({ message: 'table() metadata is required' })
+ * ```
+ */
+export class SchemaError extends TaggedError('SchemaError')<{
+  message: string
+}> {}
+
+/**
+ * Error thrown when a query cannot be executed (closed client, driver failure, etc.).
+ *
+ * @example
+ * ```ts
+ * throw new QueryError({ message: 'Database has been closed' })
+ * ```
+ */
+export class QueryError extends TaggedError('QueryError')<{
+  message: string
+  cause?: unknown
+}> {}
+
+/**
+ * Error thrown when insert/update payloads fail Valibot validation.
+ *
+ * @example
+ * ```ts
+ * throw new ValidationError({ message: 'Invalid insert payload', issues: result.issues })
+ * ```
+ */
+export class ValidationError extends TaggedError('ValidationError')<{
+  message: string
+  issues?: unknown
+  cause?: unknown
 }> {}
