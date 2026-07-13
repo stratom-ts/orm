@@ -6,11 +6,25 @@ import { createMigrateBuilder } from '@/ddl'
 import type { MigrateBuilder } from '@/ddl'
 import {
   createDb0Executor,
+  createDeleteBuilder,
+  createInsertBuilder,
   createTableBuilder,
+  createUpdateBuilder,
   createValueMapper,
+  validateInsertRow,
+  validateUpdatePatch,
 } from '@/query'
-import type { QueryBuilder, ValueMapConfig } from '@/query'
+import type {
+  DeleteBuilder,
+  InsertBuilder,
+  InsertValuesBuilder,
+  QueryBuilder,
+  UpdateBuilder,
+  UpdateSetBuilder,
+  ValueMapConfig,
+} from '@/query'
 import { QueryError, SchemaError } from '@/utils/error'
+import type { InferSelect } from '@/types/views'
 import { tableKey } from '@/utils/tableKey'
 import { createDatabase } from 'db0'
 import type { Connector, Database } from 'db0'
@@ -52,6 +66,40 @@ export type Db<
    * Start a query rooted on a registered table handle.
    */
   from<THandle extends TableHandle>(handle: THandle): QueryBuilder<THandle>
+  /**
+   * Insert rows into a registered table.
+   *
+   * @example
+   * ```ts
+   * await db.insert(User).values({ name: 'Alice' }).executeTakeFirstOrThrow()
+   * ```
+   */
+  insert<THandle extends TableHandle>(
+    handle: THandle,
+  ): InsertValuesBuilder<THandle>
+  /**
+   * Update rows in a registered table.
+   *
+   * @example
+   * ```ts
+   * await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
+   * ```
+   */
+  update<THandle extends TableHandle>(
+    handle: THandle,
+  ): UpdateSetBuilder<THandle>
+  /**
+   * Delete rows from a registered table.
+   * Returns all deleted rows by default.
+   *
+   * @example
+   * ```ts
+   * const deleted = await db.delete(User).where(User.id, 'eq', 1).executeTakeFirstOrThrow()
+   * ```
+   */
+  delete<THandle extends TableHandle>(
+    handle: THandle,
+  ): DeleteBuilder<THandle, InferSelect<THandle>>
   /**
    * Desired-state migrations for registered table handles.
    */
@@ -104,7 +152,7 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  *   schemas: [User],
  * })
  * await db.transaction(async (trx) => {
- *   await trx.from(User).insert({ ... }).execute()
+ *   await trx.insert(User).values({ ... }).execute()
  * })
  * await db.close()
  * ```
@@ -174,6 +222,92 @@ export function createDb<
       return createTableBuilder({ handle, dialect, executor, mapper })
     }
 
+    const insert = <THandle extends TableHandle>(
+      handle: THandle,
+    ): InsertValuesBuilder<THandle> => {
+      ensureOpen()
+      if (!isTableHandle(handle)) {
+        throw new SchemaError({
+          message: 'db.insert() expects a table handle from defineTable()',
+        })
+      }
+      const key = tableKey(handle.schema, handle.name)
+      if (!registry.has(key)) {
+        throw new SchemaError({
+          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+        })
+      }
+      return {
+        values: (rowOrRows) => {
+          const list = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]
+          if (list.length === 0) {
+            throw new QueryError({
+              message: `insert into "${handle.name}" requires at least one row`,
+            })
+          }
+          const validated = list.map((row) => validateInsertRow(handle, row))
+          return createInsertBuilder({
+            handle,
+            dialect,
+            executor,
+            mapper,
+            rows: validated,
+            returning: { kind: 'all' },
+          }) as InsertBuilder<THandle, InferSelect<THandle>>
+        },
+      }
+    }
+
+    const validateHandle = (handle: TableHandle, method: string) => {
+      if (!isTableHandle(handle)) {
+        throw new SchemaError({
+          message: `db.${method}() expects a table handle from defineTable()`,
+        })
+      }
+      const key = tableKey(handle.schema, handle.name)
+      if (!registry.has(key)) {
+        throw new SchemaError({
+          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+        })
+      }
+    }
+
+    const update = <THandle extends TableHandle>(
+      handle: THandle,
+    ): UpdateSetBuilder<THandle> => {
+      ensureOpen()
+      validateHandle(handle, 'update')
+      return {
+        set: (patch) => {
+          const validated = validateUpdatePatch(handle, patch)
+          return createUpdateBuilder({
+            handle,
+            dialect,
+            executor,
+            mapper,
+            patch: validated,
+            allowAll: false,
+            returning: { kind: 'all' },
+          }) as UpdateBuilder<THandle, InferSelect<THandle>>
+        },
+      }
+    }
+
+    const delete_ = <THandle extends TableHandle>(
+      handle: THandle,
+    ): DeleteBuilder<THandle, InferSelect<THandle>> => {
+      ensureOpen()
+      validateHandle(handle, 'delete')
+      return createDeleteBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        allowAll: false,
+        returning: { kind: 'all' },
+      }) as DeleteBuilder<THandle, InferSelect<THandle>>
+    }
+
     const migrate = (): MigrateBuilder => {
       ensureOpen()
       return createMigrateBuilder({ schemas, dialect, executor })
@@ -235,6 +369,9 @@ export function createDb<
       schemas,
       ping,
       from,
+      insert,
+      update,
+      delete: delete_,
       migrate,
       transaction,
       close,

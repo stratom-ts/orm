@@ -106,8 +106,8 @@ describe('CRUD compile', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
     const compiled = db
-      .from(Users)
-      .insert({ email: 'a@b.com', displayName: 'Ada' })
+      .insert(Users)
+      .values({ email: 'a@b.com', displayName: 'Ada' })
       .compile()
     expect(compiled.sql.toLowerCase()).toContain('insert into')
     expect(compiled.sql).toContain('"public"')
@@ -122,8 +122,8 @@ describe('CRUD compile', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
     const compiled = db
-      .from(Users)
-      .insert([{ email: 'a@b.com' }, { email: 'b@c.com', displayName: 'Bob' }])
+      .insert(Users)
+      .values([{ email: 'a@b.com' }, { email: 'b@c.com', displayName: 'Bob' }])
       .compile()
     expect(compiled.sql.toLowerCase()).toContain('values')
     expect(compiled.sql.toLowerCase()).toMatch(/default/)
@@ -137,10 +137,9 @@ describe('CRUD compile', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
     const compiled = db
-      .from(Users)
-      .update({ displayName: 'X' })
+      .update(Users)
+      .set({ displayName: 'X' })
       .where(Users.email, 'eq', 'a@b.com')
-      .returningAll()
       .compile()
     expect(compiled.sql.toLowerCase()).toContain('update')
     expect(compiled.sql.toLowerCase()).toContain('set')
@@ -154,8 +153,7 @@ describe('CRUD compile', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
     const compiled = db
-      .from(Users)
-      .delete()
+      .delete(Users)
       .where({ email: 'a@b.com' })
       .returning([Users.id])
       .compile()
@@ -170,13 +168,13 @@ describe('CRUD safety and validation', () => {
   it('rejects update without where unless .all()', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
-    expect(() => db.from(Users).update({ displayName: 'x' }).compile()).toThrow(
+    expect(() => db.update(Users).set({ displayName: 'x' }).compile()).toThrow(
       QueryError,
     )
-    expect(() => db.from(Users).update({ displayName: 'x' }).compile()).toThrow(
+    expect(() => db.update(Users).set({ displayName: 'x' }).compile()).toThrow(
       /where|\.all\(\)/i,
     )
-    const ok = db.from(Users).update({ displayName: 'x' }).all().compile()
+    const ok = db.update(Users).set({ displayName: 'x' }).all().compile()
     expect(ok.sql.toLowerCase()).toContain('update')
     expect(ok.sql.toLowerCase()).not.toContain('where')
     await db.close()
@@ -185,8 +183,8 @@ describe('CRUD safety and validation', () => {
   it('rejects delete without where unless .all()', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
-    expect(() => db.from(Users).delete().compile()).toThrow(QueryError)
-    const ok = db.from(Users).delete().all().compile()
+    expect(() => db.delete(Users).compile()).toThrow(QueryError)
+    const ok = db.delete(Users).all().compile()
     expect(ok.sql.toLowerCase()).toContain('delete from')
     await db.close()
   })
@@ -196,8 +194,8 @@ describe('CRUD safety and validation', () => {
     const db = createDb({ connector, schemas: [Users] })
     expect(() =>
       db
-        .from(Users)
-        .insert({ email: 123 as never })
+        .insert(Users)
+        .values({ email: 123 as never })
         .compile(),
     ).toThrow(ValidationError)
     expect(connector.prepared).toHaveLength(0)
@@ -209,17 +207,17 @@ describe('CRUD safety and validation', () => {
     const db = createDb({ connector, schemas: [AlwaysId] })
     expect(() =>
       db
-        .from(AlwaysId)
-        .insert({ id: 1, label: 'x' } as never)
+        .insert(AlwaysId)
+        .values({ id: 1, label: 'x' } as never)
         .compile(),
     ).toThrow(ValidationError)
     expect(() =>
       db
-        .from(AlwaysId)
-        .insert({ id: 1, label: 'x' } as never)
+        .insert(AlwaysId)
+        .values({ id: 1, label: 'x' } as never)
         .compile(),
     ).toThrow(/non-insertable|unknown/i)
-    const ok = db.from(AlwaysId).insert({ label: 'x' }).compile()
+    const ok = db.insert(AlwaysId).values({ label: 'x' }).compile()
     expect(ok.sql.toLowerCase()).toContain('insert')
     expect(ok.params).toEqual(['x'])
     await db.close()
@@ -243,14 +241,14 @@ describe('CRUD safety and validation', () => {
     const db = createDb({ connector, schemas: [WithNullable] })
     expect(() =>
       db
-        .from(WithNullable)
-        .insert({} as never)
+        .insert(WithNullable)
+        .values({} as never)
         .compile(),
     ).toThrow(ValidationError)
-    const withNull = db.from(WithNullable).insert({ note: null }).compile()
+    const withNull = db.insert(WithNullable).values({ note: null }).compile()
     expect(withNull.sql.toLowerCase()).toContain('insert')
     expect(withNull.params).toEqual([null])
-    const withValue = db.from(WithNullable).insert({ note: 'hi' }).compile()
+    const withValue = db.insert(WithNullable).values({ note: 'hi' }).compile()
     expect(withValue.params).toEqual(['hi'])
     await db.close()
   })
@@ -260,8 +258,8 @@ describe('CRUD safety and validation', () => {
     const db = createDb({ connector, schemas: [Users] })
     expect(() =>
       db
-        .from(Users)
-        .update({ email: 9 as never })
+        .update(Users)
+        .set({ email: 9 as never })
         .where({ id: 1 })
         .compile(),
     ).toThrow(ValidationError)
@@ -278,7 +276,7 @@ describe('CRUD execute terminals', () => {
     })
     const db = createDb({ connector, schemas: [Users] })
     await expect(
-      db.from(Users).insert({ email: 'a@b.com' }).returningAll().execute(),
+      db.insert(Users).values({ email: 'a@b.com' }).returningAll().execute(),
     ).resolves.toEqual(rows)
     expect(connector.prepared.some((s) => /insert/i.test(s))).toBe(true)
     await db.close()
@@ -304,11 +302,12 @@ describe('CRUD execute terminals', () => {
     await db.close()
   })
 
-  it('write without returning uses run and returns rowCount object', async () => {
-    const connector = createMockConnector()
+  it('write with returning returns rows via execute', async () => {
+    const rows = [{ id: 1, email: 'a@b.com', displayName: null, active: true }]
+    const connector = createMockConnector({ rowsBySql: () => rows })
     const db = createDb({ connector, schemas: [Users] })
-    const result = await db.from(Users).insert({ email: 'a@b.com' }).execute()
-    expect(result).toEqual({ rowCount: 0 })
+    const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
+    expect(result).toEqual(rows)
     await db.close()
   })
 
@@ -318,20 +317,85 @@ describe('CRUD execute terminals', () => {
     const db = createDb({ connector, schemas: [Users] })
     await expect(
       db
-        .from(Users)
-        .update({ displayName: 'Z' })
+        .update(Users)
+        .set({ displayName: 'Z' })
         .where(Users.id, 'eq', 1)
-        .returningAll()
         .executeTakeFirst(),
     ).resolves.toEqual(row)
     await expect(
-      db
-        .from(Users)
-        .delete()
-        .where({ id: 1 })
-        .returningAll()
-        .executeTakeFirstOrThrow(),
+      db.delete(Users).where({ id: 1 }).executeTakeFirstOrThrow(),
     ).resolves.toEqual(row)
+    await db.close()
+  })
+})
+
+describe('db.insert()', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('compiles insert with values()', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const compiled = db
+      .insert(Users)
+      .values({ email: 'a@b.com', displayName: 'Ada' })
+      .compile()
+    expect(compiled.sql.toLowerCase()).toContain('insert into')
+    expect(compiled.sql).toContain('"public"')
+    expect(compiled.sql).toContain('"users"')
+    expect(compiled.sql).toMatch(/\$1/)
+    expect(compiled.params).toEqual(expect.arrayContaining(['a@b.com', 'Ada']))
+    expect(compiled.sql.toLowerCase()).not.toContain('a@b.com')
+    await db.close()
+  })
+
+  it('values().returningAll().execute returns rows', async () => {
+    const rows = [{ id: 1, email: 'a@b.com', displayName: null, active: true }]
+    const connector = createMockConnector({
+      rowsBySql: () => rows,
+    })
+    const db = createDb({ connector, schemas: [Users] })
+    await expect(
+      db.insert(Users).values({ email: 'a@b.com' }).returningAll().execute(),
+    ).resolves.toEqual(rows)
+    expect(connector.prepared.some((s) => /insert/i.test(s))).toBe(true)
+    await db.close()
+  })
+
+  it('values().execute() returns rows (returningAll is baked in)', async () => {
+    const rows = [{ id: 1, email: 'a@b.com', displayName: null, active: true }]
+    const connector = createMockConnector({ rowsBySql: () => rows })
+    const db = createDb({ connector, schemas: [Users] })
+    const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
+    expect(result).toEqual(rows)
+    await db.close()
+  })
+
+  it('rejects unregistered table for db.insert()', async () => {
+    const Other = defineTable(
+      pipe(
+        object({ id: pipe(string(), column({ type: 'text' })) }),
+        title('other'),
+        table({ name: 'other', primaryKey: 'id' }),
+      ),
+    )
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    expect(() => db.insert(Other)).toThrow(SchemaError)
+    await db.close()
+  })
+
+  it('rejects invalid data with ValidationError before SQL', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    expect(() =>
+      db
+        .insert(Users)
+        .values({ email: 123 as never })
+        .compile(),
+    ).toThrow(ValidationError)
+    expect(connector.prepared).toHaveLength(0)
     await db.close()
   })
 })
@@ -361,16 +425,16 @@ describe('CRUD integration (Postgres)', () => {
         `)
 
         const inserted = await db
-          .from(Users)
-          .insert({ email: 'crud@test.com', displayName: 'Crud' })
+          .insert(Users)
+          .values({ email: 'crud@test.com', displayName: 'Crud' })
           .returningAll()
           .executeTakeFirstOrThrow()
         expect(inserted.email).toBe('crud@test.com')
         expect(inserted.id).toEqual(expect.any(Number))
 
         const updated = await db
-          .from(Users)
-          .update({ displayName: 'Updated' })
+          .update(Users)
+          .set({ displayName: 'Updated' })
           .where(Users.email, 'eq', 'crud@test.com')
           .returning([Users.displayName, Users.email])
           .executeTakeFirstOrThrow()
@@ -380,10 +444,8 @@ describe('CRUD integration (Postgres)', () => {
         })
 
         const deleted = await db
-          .from(Users)
-          .delete()
+          .delete(Users)
           .where({ email: 'crud@test.com' })
-          .returningAll()
           .execute()
         expect(deleted).toHaveLength(1)
 

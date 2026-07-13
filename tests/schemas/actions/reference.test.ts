@@ -1,9 +1,9 @@
 import { object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { column, references, getReferenceMetadata, table } from '@/schemas'
+import { column, reference, getReferenceMetadata, table } from '@/schemas'
 
-describe('references action', () => {
+describe('reference action', () => {
   it('should create reference metadata with table and key from referenced schema', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ type: 'uuid' })) }),
@@ -11,7 +11,7 @@ describe('references action', () => {
       table({ name: 'users', primaryKey: 'id' }),
     )
 
-    const ref = references(UserSchema, 'id')
+    const ref = reference(UserSchema, 'id')
 
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
@@ -27,21 +27,21 @@ describe('references action', () => {
       table({ name: 'users', primaryKey: 'id' }),
     )
 
-    const ref = references(UserSchema, 'id')
+    const ref = reference(UserSchema, 'id')
 
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
     expect(metadata!.dataType).toBe('uuid')
   })
 
-  it('should handle references to tables without explicit column type', () => {
+  it('should handle reference to table without explicit column type', () => {
     const UserSchema = pipe(
       object({ id: string() }),
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
 
-    const ref = references(UserSchema, 'id')
+    const ref = reference(UserSchema, 'id')
 
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
@@ -55,7 +55,7 @@ describe('references action', () => {
       table({ name: 'users', primaryKey: 'id' }),
     )
 
-    const ref = references(UserSchema, 'id', {
+    const ref = reference(UserSchema, 'id', {
       onDelete: 'cascade',
       onUpdate: 'set null',
     })

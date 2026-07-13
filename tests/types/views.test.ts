@@ -86,7 +86,7 @@ describe('InferUpdate', () => {
 })
 
 describe('JSON-shaped nested objects', () => {
-  it('keeps plain object types for nested objects without references', () => {
+  it('keeps plain object types for nested objects without reference', () => {
     const Schema = pipe(
       object({
         id: pipe(string(), column({ type: 'uuid' })),

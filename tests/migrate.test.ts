@@ -3,7 +3,7 @@ import { defineTable } from '@/defineTable'
 import { buildCreateTableAst, planMigration } from '@/ddl'
 import { postgresDialect } from '@/dialects'
 import type { CatalogSnapshot } from '@/dialects'
-import { column, references, table } from '@/schemas'
+import { column, reference, table } from '@/schemas'
 import { MigrationError, SchemaError } from '@/utils/error'
 import type { Connector, Statement } from 'db0'
 import {
@@ -356,7 +356,7 @@ const Posts = defineTable(
   pipe(
     object({
       id: pipe(string(), column({ type: 'uuid' })),
-      authorId: references(Users, 'id', {
+      authorId: reference(Users, 'id', {
         onDelete: 'cascade',
         onUpdate: 'restrict',
       }),
@@ -398,7 +398,7 @@ const AppPosts = defineTable(
   pipe(
     object({
       id: pipe(string(), column({ type: 'uuid' })),
-      authorId: references(AppUsers, 'id', { onDelete: 'cascade' }),
+      authorId: reference(AppUsers, 'id', { onDelete: 'cascade' }),
     }),
     title('posts'),
     table({ name: 'posts', primaryKey: 'id', schema: 'app' }),
@@ -1319,7 +1319,7 @@ describe('db.migrate integration', () => {
         pipe(
           object({
             id: pipe(string(), column({ type: 'uuid' })),
-            authorId: references(UsersLive, 'id', { onDelete: 'cascade' }),
+            authorId: reference(UsersLive, 'id', { onDelete: 'cascade' }),
           }),
           title('posts'),
           table({

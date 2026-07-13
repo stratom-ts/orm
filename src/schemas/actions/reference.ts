@@ -18,7 +18,7 @@ interface WrapperSchema {
   wrapped: BaseSchema<unknown, unknown, BaseIssue<unknown>>
 }
 
-/** Minimal table-handle shape accepted by `references()` (avoids circular imports). */
+/** Minimal table-handle shape accepted by `reference()` (avoids circular imports). */
 type ReferenceTargetHandle = {
   readonly name: string
   readonly schema?: string
@@ -97,14 +97,14 @@ function isReferenceTargetHandle(
  * const PostSchema = pipe(
  *   object({
  *     id: pipe(string(), column({ type: 'uuid' })),
- *     authorId: references(UserSchema, 'id', { onDelete: 'cascade' }),
+ *     authorId: reference(UserSchema, 'id', { onDelete: 'cascade' }),
  *   }),
  *   title('posts'),
  *   table({ name: 'posts', primaryKey: 'id' }),
  * )
  * ```
  */
-export function references<
+export function reference<
   T extends ReferenceTarget,
   K extends T extends ReferenceTargetHandle
     ? keyof T['definition']['entries']
@@ -201,7 +201,7 @@ export function isReferenceMetadata(
 /**
  * Reads reference metadata from a schema, unwrapping nullability wrappers first.
  *
- * @param schema - Column schema that may include `references()` metadata
+ * @param schema - Column schema that may include `reference()` metadata
  * @returns Reference metadata, or `undefined` if none
  *
  * @example

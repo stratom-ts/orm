@@ -1,17 +1,17 @@
-import type { BaseIssue, BaseSchema, InferOutput, ObjectEntries } from 'valibot'
 import { postgresDialect } from '@/dialects'
-import {
-  getColumnMetadata,
-  getReferenceMetadata,
-  getTableMetadata,
-} from '@/schemas'
 import type {
   IndexConfig,
   TableIndex,
   TableMetadata,
   TableSchema,
 } from '@/schemas'
+import {
+  getColumnMetadata,
+  getReferenceMetadata,
+  getTableMetadata,
+} from '@/schemas'
 import { SchemaError } from '@/utils/error'
+import type { BaseIssue, BaseSchema, InferOutput, ObjectEntries } from 'valibot'
 
 const IDENTITY_BASE_TYPES = new Set([
   'smallint',

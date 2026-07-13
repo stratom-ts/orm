@@ -12,7 +12,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable, isTableHandle } from '@/defineTable'
 import type { ColumnRef, TableHandle } from '@/defineTable'
-import { column, getReferenceMetadata, references, table } from '@/schemas'
+import { column, getReferenceMetadata, reference, table } from '@/schemas'
 import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
 import { SchemaError } from '@/utils/error'
 
@@ -171,13 +171,13 @@ describe('defineTable', () => {
   })
 })
 
-describe('references with FK actions', () => {
+describe('reference with FK actions', () => {
   it('stores onDelete and onUpdate on reference metadata', () => {
     const User = defineTable(UserSchema)
     const PostSchema = pipe(
       object({
         id: pipe(string(), column({ type: 'uuid' })),
-        authorId: references(UserSchema, 'id', {
+        authorId: reference(UserSchema, 'id', {
           onDelete: 'cascade',
           onUpdate: 'restrict',
         }),
@@ -203,7 +203,7 @@ describe('references with FK actions', () => {
     const PostSchema = pipe(
       object({
         id: pipe(string(), column({ type: 'uuid' })),
-        authorId: references(User, 'id', { onDelete: 'set null' }),
+        authorId: reference(User, 'id', { onDelete: 'set null' }),
       }),
       title('posts'),
       table({ name: 'posts', primaryKey: 'id' }),
@@ -273,7 +273,7 @@ describe('InferSelect / InferInsert / InferUpdate', () => {
     expectTypeOf<Update>().not.toHaveProperty('createdAt')
   })
 
-  it('nested object columns without references stay JSON-shaped objects', () => {
+  it('nested object columns without reference stay JSON-shaped objects', () => {
     const JsonSchema = pipe(
       object({
         id: pipe(string(), column({ type: 'uuid' })),
