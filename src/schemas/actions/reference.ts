@@ -8,14 +8,42 @@ import type {
   SchemaWithPipe,
   TitleAction,
 } from 'valibot'
-import { getMetadata, getTitle, metadata, pipe } from 'valibot'
-import { postgresAdapter } from '@/dialects'
+import { getMetadata, metadata, pipe } from 'valibot'
+import { postgresDialect } from '@/dialects'
 import { isTableMetadata } from './table'
 import { getColumnMetadata } from './column'
-import type { ReferenceMetadata } from './types'
+import type { ReferenceMetadata, ReferentialAction } from './types'
 
 interface WrapperSchema {
   wrapped: BaseSchema<unknown, unknown, BaseIssue<unknown>>
+}
+
+/** Minimal table-handle shape accepted by `references()` (avoids circular imports). */
+type ReferenceTargetHandle = {
+  readonly name: string
+  readonly schema?: string
+  readonly definition: SchemaWithPipe<
+    readonly [
+      ObjectSchema<ObjectEntries, undefined>,
+      TitleAction<unknown, string>,
+      MetadataAction<unknown, Record<string, unknown>>,
+    ]
+  >
+}
+
+type ReferenceTargetSchema = SchemaWithPipe<
+  readonly [
+    ObjectSchema<ObjectEntries, undefined>,
+    TitleAction<unknown, string>,
+    MetadataAction<unknown, Record<string, unknown>>,
+  ]
+>
+
+export type ReferenceTarget = ReferenceTargetSchema | ReferenceTargetHandle
+
+export type ReferenceOptions = {
+  onDelete?: ReferentialAction
+  onUpdate?: ReferentialAction
 }
 
 /**
@@ -45,11 +73,23 @@ function unwrapWrapper(
   return schema
 }
 
+function isReferenceTargetHandle(
+  value: ReferenceTarget,
+): value is ReferenceTargetHandle {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'definition' in value &&
+    'name' in value
+  )
+}
+
 /**
- * Builds a foreign-key column schema from a referenced table schema and key.
+ * Builds a foreign-key column schema from a referenced table schema/handle and key.
  *
- * @param schema - Referenced table schema
+ * @param tableOrSchema - Referenced table schema or `defineTable` handle
  * @param key - Column on the referenced table
+ * @param options - Optional FK actions (`onDelete` / `onUpdate`)
  * @returns Piped schema for the FK column with reference metadata
  *
  * @example
@@ -57,7 +97,7 @@ function unwrapWrapper(
  * const PostSchema = pipe(
  *   object({
  *     id: pipe(string(), column({ type: 'uuid' })),
- *     authorId: references(UserSchema, 'id'),
+ *     authorId: references(UserSchema, 'id', { onDelete: 'cascade' }),
  *   }),
  *   title('posts'),
  *   table({ name: 'posts', primaryKey: 'id' }),
@@ -65,28 +105,43 @@ function unwrapWrapper(
  * ```
  */
 export function references<
-  T extends SchemaWithPipe<
-    readonly [
-      ObjectSchema<ObjectEntries, undefined>,
-      TitleAction<unknown, string>,
-      MetadataAction<unknown, Record<string, unknown>>,
-    ]
-  >,
-  K extends keyof T['entries'],
+  T extends ReferenceTarget,
+  K extends T extends ReferenceTargetHandle
+    ? keyof T['definition']['entries']
+    : T extends ReferenceTargetSchema
+      ? keyof T['entries']
+      : never,
 >(
-  schema: T,
+  tableOrSchema: T,
   key: K,
+  options?: ReferenceOptions,
 ): SchemaWithPipe<
   readonly [
-    T['entries'][K],
-    MetadataAction<InferOutput<T['entries'][K]>, ReferenceMetadata>,
+    T extends ReferenceTargetHandle
+      ? T['definition']['entries'][K & keyof T['definition']['entries']]
+      : T extends ReferenceTargetSchema
+        ? T['entries'][K & keyof T['entries']]
+        : never,
+    MetadataAction<
+      InferOutput<
+        T extends ReferenceTargetHandle
+          ? T['definition']['entries'][K & keyof T['definition']['entries']]
+          : T extends ReferenceTargetSchema
+            ? T['entries'][K & keyof T['entries']]
+            : never
+      >,
+      ReferenceMetadata
+    >,
   ]
 > {
-  const schemaTitle = getTitle(schema)
+  const schema: ReferenceTargetSchema = isReferenceTargetHandle(tableOrSchema)
+    ? tableOrSchema.definition
+    : tableOrSchema
+
   const schemaMetadata = getMetadata(schema) as Record<string, unknown>
   const tableMeta = isTableMetadata(schemaMetadata) ? schemaMetadata : null
 
-  const referencedColumnSchema = schema['entries'][key as string] as
+  const referencedColumnSchema = schema.entries[key as string] as
     | BaseSchema<unknown, unknown, BaseIssue<unknown>>
     | undefined
 
@@ -97,19 +152,33 @@ export function references<
   const dataType =
     referencedColumnMetadata?.type ||
     (referencedColumnSchema
-      ? postgresAdapter.inferColumnType(referencedColumnSchema)
+      ? postgresDialect.inferColumnType(referencedColumnSchema)
       : 'varchar(255)')
 
+  const tableName = isReferenceTargetHandle(tableOrSchema)
+    ? tableOrSchema.name
+    : tableMeta?.name || ''
+
+  const pgSchema = isReferenceTargetHandle(tableOrSchema)
+    ? tableOrSchema.schema
+    : tableMeta?.schema
+
   return pipe(
-    schema['entries'][key as string] as T['entries'][K],
+    schema.entries[key as string] as never,
     metadata({
       kind: 'reference',
-      schema: schemaTitle || '',
-      table: tableMeta?.name || '',
+      ...(pgSchema !== undefined ? { schema: pgSchema } : {}),
+      table: tableName,
       key: key as string,
       dataType,
+      ...(options?.onDelete !== undefined
+        ? { onDelete: options.onDelete }
+        : {}),
+      ...(options?.onUpdate !== undefined
+        ? { onUpdate: options.onUpdate }
+        : {}),
     }),
-  )
+  ) as never
 }
 
 /**
