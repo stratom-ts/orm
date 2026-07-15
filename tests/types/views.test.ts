@@ -14,19 +14,17 @@ import { defineTable } from '@/defineTable'
 import { column, table } from '@/schemas'
 import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
 
-const UserSchema = pipe(
-  object({
+const User = defineTable(
+  'users',
+  {
     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
     email: pipe(string(), column({ type: 'varchar(255)' })),
     age: nullable(pipe(number(), column({ type: 'integer' }))),
     bio: optional(pipe(string(), column({ type: 'text' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
-  }),
-  title('users'),
-  table({ name: 'users', primaryKey: 'id' }),
+  },
+  { primaryKey: 'id' },
 )
-
-const User = defineTable(UserSchema)
 
 describe('InferSelect', () => {
   it('returns full row types without Kysely wrappers', () => {

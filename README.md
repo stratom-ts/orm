@@ -4,7 +4,7 @@ A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desi
 
 ## Features
 
-- **Schema-defined tables** — Valibot + `column` / `table` / `reference`, wrapped with `defineTable`
+- **Schema-defined tables** — `defineTable(name, columns, options)` with Valibot `column` / `reference`
 - **db0 connector** — `createDb({ connector, schemas })` owns the connection lifecycle
 - **Desired-state migrations** — `db.migrate().dryRun()` / `.execute()` with safe defaults, allowlist, and advisory lock
 - **Typed CRUD** — `db.from(Table).select|insert|update|delete` with column refs
@@ -21,19 +21,17 @@ pnpm add schema-orm valibot db0
 ## Usage
 
 ```typescript
-import { createDb, defineTable, column, table, reference } from 'schema-orm'
+import { createDb, defineTable, column } from 'schema-orm'
 import { postgresql } from 'db0/connectors/postgresql'
-import { number, object, pipe, string, title } from 'valibot'
+import { number, pipe, string } from 'valibot'
 
 const User = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'text', unique: true })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id' }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'text', unique: true })),
+  },
+  { primaryKey: 'id' },
 )
 
 const db = createDb({

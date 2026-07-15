@@ -1,8 +1,8 @@
 import { createDb, eq } from '@/index'
 import { defineTable } from '@/defineTable'
-import { column, table } from '@/schemas'
+import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
-import { number, object, pipe, string, title } from 'valibot'
+import { number, pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
@@ -64,27 +64,23 @@ function createMockConnector(options?: {
 }
 
 const Users = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'text' })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 const Posts = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      title: pipe(string(), column({ type: 'text' })),
-      userId: pipe(number(), column({ type: 'integer' })),
-      score: pipe(number(), column({ type: 'integer', default: 0 })),
-    }),
-    title('posts'),
-    table({ name: 'posts', primaryKey: 'id', schema: 'public' }),
-  ),
+  'posts',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    title: pipe(string(), column({ type: 'text' })),
+    userId: pipe(number(), column({ type: 'integer' })),
+    score: pipe(number(), column({ type: 'integer', default: 0 })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 describe('joins compile', () => {

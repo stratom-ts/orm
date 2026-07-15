@@ -3,15 +3,18 @@ import type {
   IndexConfig,
   TableIndex,
   TableMetadata,
+  TableOptions,
   TableSchema,
 } from '@/schemas'
 import {
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
+  table,
 } from '@/schemas'
 import { SchemaError } from '@/utils/error'
 import type { BaseIssue, BaseSchema, InferOutput, ObjectEntries } from 'valibot'
+import { object, pipe, title } from 'valibot'
 
 const IDENTITY_BASE_TYPES = new Set([
   'smallint',
@@ -200,23 +203,8 @@ function validateTableMetadata(
  * @param schema - Valibot object schema with `title()` and `table()` metadata
  * @returns Table handle for registration, queries, and column references
  * @throws SchemaError - When metadata is missing or invalid
- *
- * @example
- * ```ts
- * const User = defineTable(
- *   pipe(
- *     object({
- *       id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
- *       email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
- *     }),
- *     title('users'),
- *     table({ name: 'users', primaryKey: 'id', schema: 'public' }),
- *   ),
- * )
- * User.email // column ref
- * ```
  */
-export function defineTable<S extends TableSchema>(schema: S): TableHandle<S> {
+function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
   const metadata = getTableMetadata(schema)
   if (!metadata) {
     throw new SchemaError({
@@ -273,6 +261,44 @@ export function defineTable<S extends TableSchema>(schema: S): TableHandle<S> {
   }
 
   return handle as TableHandle<S>
+}
+
+/**
+ * Defines a table from a name, column map, and table options.
+ *
+ * Column values are Valibot schemas carrying `column()` / `reference()`
+ * metadata. `primaryKey` and index `columns` are constrained to the declared
+ * column names, so referencing an unknown column is a compile error.
+ *
+ * @param name - Database table name (also the logical name on column refs)
+ * @param columns - Map of column name to Valibot column schema
+ * @param options - Primary key, optional DB schema, and indexes
+ * @returns Table handle for registration, queries, and column references
+ * @throws SchemaError - When the resulting metadata is invalid
+ *
+ * @example
+ * ```ts
+ * const User = defineTable(
+ *   'users',
+ *   {
+ *     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+ *     email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
+ *   },
+ *   {
+ *     schema: 'public',
+ *     primaryKey: 'id',
+ *     indexes: [{ columns: ['email'], unique: true }],
+ *   },
+ * )
+ * User.email // column ref
+ * ```
+ */
+export function defineTable<
+  const TName extends string,
+  TCols extends ObjectEntries,
+>(name: TName, columns: TCols, options: TableOptions<TCols>) {
+  const schema = pipe(object(columns), title(name), table({ name, ...options }))
+  return buildTableHandle(schema)
 }
 
 /**

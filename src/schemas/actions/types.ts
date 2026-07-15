@@ -1,3 +1,4 @@
+import type { ObjectEntries } from 'valibot'
 import type { SqlDataType } from '@/dialects/types'
 
 /**
@@ -41,6 +42,42 @@ export type TableMetadata<N extends string = string> = {
   indexes?: TableIndex[]
   /** Database schema (Postgres namespace) */
   schema?: string
+}
+
+/** Column property names of a table's Valibot entries. */
+export type ColumnKey<TCols extends ObjectEntries> = keyof TCols & string
+
+/**
+ * Named or composite index definition constrained to a table's own columns.
+ */
+export type IndexConfigOf<TCols extends ObjectEntries> = {
+  /** Explicit index name; dialect may generate one when omitted */
+  name?: string
+  /** Columns participating in the index (order preserved) */
+  columns: ColumnKey<TCols>[]
+  /** Whether the index enforces uniqueness */
+  unique?: boolean
+}
+
+/**
+ * Index entry constrained to a table's own columns: a single column name, or
+ * a full index config.
+ */
+export type TableIndexOf<TCols extends ObjectEntries> =
+  | ColumnKey<TCols>
+  | IndexConfigOf<TCols>
+
+/**
+ * Table-level options passed to `defineTable(name, columns, options)`.
+ * `primaryKey` and index `columns` are constrained to the declared columns.
+ */
+export type TableOptions<TCols extends ObjectEntries> = {
+  /** Primary key column name, or composite key column list */
+  primaryKey: ColumnKey<TCols> | readonly ColumnKey<TCols>[]
+  /** Database schema (Postgres namespace) */
+  schema?: string
+  /** Indexes (string = single-column non-unique; object = named/composite/unique) */
+  indexes?: TableIndexOf<TCols>[]
 }
 
 /**
