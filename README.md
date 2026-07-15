@@ -18,18 +18,20 @@ pnpm add schema-orm valibot db0
 # plus the driver required by your connector (e.g. pg for PostgreSQL)
 ```
 
-## Usage
+## Quick start
 
 ```typescript
 import { createDb, defineTable, column } from 'schema-orm'
 import { postgresql } from 'db0/connectors/postgresql'
-import { number, pipe, string } from 'valibot'
+import { boolean, number, pipe, string } from 'valibot'
 
 const User = defineTable(
   'users',
   {
     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
     email: pipe(string(), column({ type: 'text', unique: true })),
+    fullName: pipe(string(), column({ type: 'text' })),
+    active: pipe(boolean(), column({ type: 'boolean', default: true })),
   },
   { primaryKey: 'id' },
 )
@@ -42,31 +44,236 @@ const db = createDb({
 await db.migrate().execute()
 
 const user = await db
-  .from(User)
-  .insert({ email: 'a@b.com' })
+  .insert(User)
+  .values({ email: 'a@b.com', fullName: 'Ada Lovelace' })
   .returning([User.id, User.email])
   .executeTakeFirstOrThrow()
-
-const rows = await db
-  .from(User)
-  .select([User.id, User.email])
-  .where(User.email, 'eq', 'a@b.com')
-  .orderBy(User.email, 'asc')
-  .limit(10)
-  .execute()
-
-await db.transaction(async (trx) => {
-  await trx
-    .from(User)
-    .update({ email: 'b@c.com' })
-    .where(User.id, 'eq', user.id)
-    .execute()
-})
 
 await db.close()
 ```
 
-### Migrations
+## Defining tables
+
+`defineTable(name, columns, options)` builds a table handle from a table name, a
+map of Valibot column schemas, and table-level options. The handle is what you
+register with `createDb` and pass to every query method; it also exposes a typed
+column reference per property (`User.email`) for use in `where` / `select` /
+`orderBy` / joins.
+
+```typescript
+const Membership = defineTable(
+  'memberships',
+  {
+    orgId: pipe(string(), column({ type: 'uuid' })),
+    userId: pipe(string(), column({ type: 'uuid' })),
+    role: pipe(string(), column({ type: 'text', default: 'member' })),
+  },
+  {
+    schema: 'public', // Postgres namespace (optional; defaults to search_path)
+    primaryKey: ['orgId', 'userId'], // single column or composite
+    indexes: [
+      { columns: ['userId'] }, // non-unique
+      {
+        name: 'memberships_org_role_uidx',
+        columns: ['orgId', 'role'],
+        unique: true,
+      },
+    ],
+  },
+)
+```
+
+`primaryKey` and every index `columns` entry are constrained to the table's own
+column names, so a typo is a compile error:
+
+```typescript
+defineTable(
+  'users',
+  { id: pipe(number(), column({ type: 'integer' })) },
+  {
+    primaryKey: 'ide', // ✗ Type error: not assignable to 'id'
+  },
+)
+```
+
+> **Reserved column names.** `name`, `schema`, `metadata`, `definition`, and
+> `columns` are used by the table handle itself and cannot be column names —
+> `defineTable` throws a `SchemaError` if one collides.
+
+### Inferring column types from the schema
+
+`column({ type })` is optional. When it is omitted, schema-orm infers the SQL
+column type directly from the Valibot schema — including length and range
+refinements — so a table can be described purely in Valibot:
+
+```typescript
+import { defineTable } from 'schema-orm'
+import {
+  boolean,
+  date,
+  integer,
+  maxLength,
+  maxValue,
+  minValue,
+  nullable,
+  number,
+  pipe,
+  string,
+} from 'valibot'
+
+const Event = defineTable(
+  'events',
+  {
+    id: pipe(string(), maxLength(36)), // → varchar(36)
+    title: pipe(string(), maxLength(120)), // → varchar(120)
+    description: string(), // → text
+    attendees: pipe(number(), integer(), minValue(0), maxValue(100000)), // → integer
+    isPublic: boolean(), // → boolean
+    startsAt: date(), // → timestamp
+    endedAt: nullable(date()), // → timestamp, NULL allowed
+  },
+  { primaryKey: 'id' },
+)
+```
+
+The row type is inferred too — `InferSelect<typeof Event>` gives
+`{ id: string; title: string; description: string; attendees: number; isPublic: boolean; startsAt: Date; endedAt: Date | null }`.
+
+Inference rules (PostgreSQL):
+
+| Valibot schema                                              | Inferred type            |
+| ----------------------------------------------------------- | ------------------------ |
+| `string()`                                                  | `text`                   |
+| `pipe(string(), maxLength(n))` (n ≤ 255)                    | `varchar(n)`             |
+| `pipe(string(), minLength(n), maxLength(n))` (equal, ≤ 255) | `char(n)`                |
+| `number()`                                                  | `real`                   |
+| `pipe(number(), integer())` bounded to int2/int4 range      | `smallint` / `integer`   |
+| `pipe(number(), integer())` (unbounded)                     | `bigint`                 |
+| `boolean()`                                                 | `boolean`                |
+| `date()`                                                    | `timestamp`              |
+| `enum(...)` / `picklist([...])`                             | `varchar(255)`           |
+| `nullable(x)` / `optional(x)`                               | column becomes NULL-able |
+
+Reach for `column({ type })` when you need an exact SQL type the inference
+doesn't produce (e.g. `uuid`, `jsonb`, `timestamptz`, `numeric(10,2)`), an
+identity column (`generated`), a `unique` constraint, or a `default`.
+
+## Relations
+
+`reference(target, key, options?)` marks a column as a foreign key. The target
+is another table handle (or its raw schema) and the referenced column's type is
+inferred, so you don't repeat it:
+
+```typescript
+import { reference } from 'schema-orm'
+
+const Post = defineTable(
+  'posts',
+  {
+    id: pipe(string(), column({ type: 'uuid' })),
+    authorId: reference(User, 'id', { onDelete: 'cascade' }),
+    title: pipe(string(), maxLength(200)),
+  },
+  { primaryKey: 'id' },
+)
+```
+
+## Querying
+
+Reads start from `db.from(Table)`; the default execute path is `select *`.
+
+```typescript
+// select specific columns with a filter, ordering, and a limit
+const rows = await db
+  .from(User)
+  .select([User.id, User.email])
+  .where(User.email, 'eq', 'a@b.com')
+  .orderBy(User.fullName, 'asc')
+  .limit(10)
+  .execute()
+
+// object shorthand for equality filters
+const actives = await db.from(User).where({ active: true }).execute()
+
+// a single row (throws if none)
+const one = await db
+  .from(User)
+  .where(User.id, 'eq', user.id)
+  .executeTakeFirstOrThrow()
+```
+
+### Joins and aggregates
+
+```typescript
+import { countAll, eq, gt, sum } from 'schema-orm'
+
+const withAuthors = await db
+  .from(Post)
+  .innerJoin(User, eq(Post.authorId, User.id))
+  .select([Post.title, User.email])
+  .execute()
+
+const stats = await db
+  .from(User)
+  .select((b) => [
+    User.active,
+    b.as(countAll(), 'total'),
+    b.as(sum(User.id), 'idSum'),
+  ])
+  .groupBy(User.active)
+  .having(() => gt(User.id, 0))
+  .execute()
+```
+
+### Inserting, updating, deleting
+
+```typescript
+// bulk insert (returns all inserted rows by default)
+await db
+  .insert(User)
+  .values([
+    { email: 'a@b.com', fullName: 'A' },
+    { email: 'c@d.com', fullName: 'C' },
+  ])
+  .execute()
+
+// update requires where(...) or .all()
+await db
+  .update(User)
+  .set({ fullName: 'Ada L.' })
+  .where(User.id, 'eq', user.id)
+  .execute()
+
+// delete returns the deleted rows by default
+const deleted = await db
+  .delete(User)
+  .where(User.id, 'eq', user.id)
+  .returning([User.id])
+  .execute()
+```
+
+### Transactions
+
+The callback commits on success and rolls back on throw; nested calls use
+savepoints.
+
+```typescript
+await db.transaction(async (trx) => {
+  const u = await trx
+    .insert(User)
+    .values({ email: 'e@f.com', fullName: 'Grace' })
+    .executeTakeFirstOrThrow()
+  await trx
+    .insert(Post)
+    .values({ id: crypto.randomUUID(), authorId: u.id, title: 'Hello' })
+    .execute()
+})
+```
+
+## Migrations
+
+Migrations diff your registered handles against the live database. Destructive
+steps are refused unless explicitly allowed.
 
 ```typescript
 const plan = await db.migrate().dryRun()

@@ -1,5 +1,10 @@
 import {
   boolean,
+  date,
+  integer,
+  maxLength,
+  maxValue,
+  minValue,
   nullable,
   number,
   object,
@@ -80,6 +85,49 @@ describe('InferUpdate', () => {
     expectTypeOf<Update['age']>().toEqualTypeOf<number | null | undefined>()
     expectTypeOf<Update>().not.toHaveProperty('id')
     expectTypeOf<Update>().not.toHaveProperty('stamp')
+  })
+})
+
+describe('columns with inferred types (no column() metadata)', () => {
+  const Event = defineTable(
+    'events',
+    {
+      id: pipe(string(), maxLength(36)),
+      title: pipe(string(), maxLength(120)),
+      description: string(),
+      attendees: pipe(number(), integer(), minValue(0), maxValue(100000)),
+      isPublic: boolean(),
+      startsAt: date(),
+      endedAt: nullable(date()),
+    },
+    { primaryKey: 'id' },
+  )
+
+  it('includes inferred columns in the select view', () => {
+    type Row = InferSelect<typeof Event>
+    expectTypeOf<Row['title']>().toEqualTypeOf<string>()
+    expectTypeOf<Row['attendees']>().toEqualTypeOf<number>()
+    expectTypeOf<Row['isPublic']>().toEqualTypeOf<boolean>()
+    expectTypeOf<Row['startsAt']>().toEqualTypeOf<Date>()
+    expectTypeOf<Row['endedAt']>().toEqualTypeOf<Date | null>()
+  })
+
+  it('includes inferred columns in the insert view (regression: not dropped as generated-always)', () => {
+    type Insert = InferInsert<typeof Event>
+    expectTypeOf<Insert['id']>().toEqualTypeOf<string>()
+    expectTypeOf<Insert['title']>().toEqualTypeOf<string>()
+    expectTypeOf<Insert['attendees']>().toEqualTypeOf<number>()
+    expectTypeOf<Insert['isPublic']>().toEqualTypeOf<boolean>()
+    expectTypeOf<Insert['startsAt']>().toEqualTypeOf<Date>()
+    // nullable() → SQL NULL allowed, still required on insert
+    expectTypeOf<Insert['endedAt']>().toEqualTypeOf<Date | null>()
+  })
+
+  it('includes inferred columns in the update view', () => {
+    type Update = InferUpdate<typeof Event>
+    expectTypeOf<Update['title']>().toEqualTypeOf<string | undefined>()
+    expectTypeOf<Update['attendees']>().toEqualTypeOf<number | undefined>()
+    expectTypeOf<Update['endedAt']>().toEqualTypeOf<Date | null | undefined>()
   })
 })
 
