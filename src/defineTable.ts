@@ -12,8 +12,15 @@ import {
   getTableMetadata,
   table,
 } from '@/schemas'
+import type {
+  ColumnRef,
+  ColumnRefsOf,
+  SchemaNameOf,
+  TableHandle,
+} from '@/types'
+import { TABLE_HANDLE } from '@/types'
 import { SchemaError } from '@/utils/error'
-import type { BaseIssue, BaseSchema, InferOutput, ObjectEntries } from 'valibot'
+import type { BaseIssue, BaseSchema, ObjectEntries } from 'valibot'
 import { object, pipe, title } from 'valibot'
 
 const IDENTITY_BASE_TYPES = new Set([
@@ -25,54 +32,6 @@ const IDENTITY_BASE_TYPES = new Set([
   'int8',
 ])
 
-/** Runtime brand for table handles returned by `defineTable`. */
-export const TABLE_HANDLE = Symbol.for('stratom.TableHandle')
-
-/**
- * Stable typed reference to a table column (for where/select/join/orderBy).
- */
-export type ColumnRef<
-  TTable extends string = string,
-  TColumn extends string = string,
-  TType = unknown,
-  TSchema extends string | undefined = string | undefined,
-> = {
-  readonly table: TTable
-  readonly column: TColumn
-  readonly schema: TSchema
-  readonly __type: TType
-}
-
-type ColumnEntries<S extends TableSchema> = S['entries']
-
-type SchemaNameOf<S extends TableSchema> =
-  S extends TableSchema<infer N> ? N : string
-
-type ColumnRefsOf<S extends TableSchema> = {
-  readonly [K in keyof ColumnEntries<S> & string]: ColumnRef<
-    SchemaNameOf<S>,
-    K,
-    InferOutput<ColumnEntries<S>[K]>,
-    string | undefined
-  >
-}
-
-/**
- * Table handle produced by `defineTable` — the unit accepted by `createDb` / `db.from`.
- */
-export type TableHandle<S extends TableSchema = TableSchema> = {
-  readonly [TABLE_HANDLE]: true
-  /** Valibot table schema (source of validation + column metadata). */
-  readonly definition: S
-  /** Database table name from `table({ name })`. */
-  readonly name: SchemaNameOf<S>
-  /** Postgres schema namespace from `table({ schema })`, if any. */
-  readonly schema: string | undefined
-  /** Full table metadata. */
-  readonly metadata: TableMetadata<SchemaNameOf<S>>
-  /** Column refs keyed by property name. */
-  readonly columns: ColumnRefsOf<S>
-} & ColumnRefsOf<S>
 /** Handle fields that must not collide with column names. */
 const RESERVED_HANDLE_KEYS = new Set([
   'name',
@@ -86,6 +45,7 @@ function normalizeIndex(index: TableIndex): IndexConfig {
   if (typeof index === 'string') {
     return { columns: [index] }
   }
+
   return index
 }
 
@@ -98,6 +58,17 @@ function assertNonEmptyString(
   }
 }
 
+/**
+ * Asserts that table metadata is internally consistent before a handle is built.
+ *
+ * Checks the table name/schema, the primary key, every index, and each column's
+ * reference and identity/autoIncrement type against the declared columns.
+ *
+ * @param schema - Valibot object schema whose entries hold the column schemas
+ * @param metadata - Resolved `table()` metadata (name, schema, primaryKey, indexes)
+ * @param columnNames - Declared column names that primary keys and indexes must reference
+ * @throws SchemaError - When any name, key, index, reference, or identity type is invalid
+ */
 function validateTableMetadata(
   schema: TableSchema,
   metadata: TableMetadata,

@@ -1,4 +1,4 @@
-import type { ColumnRef } from '@/defineTable'
+import type { ColumnRef } from '@/types'
 import type {
   AggregateExprAst,
   ColumnExprAst,

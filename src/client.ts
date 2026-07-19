@@ -1,7 +1,7 @@
 import type { Dialect } from '@/dialects'
 import { postgresDialect } from '@/dialects'
 import { isTableHandle } from '@/defineTable'
-import type { TableHandle } from '@/defineTable'
+import type { TableHandle } from '@/types'
 import { createMigrateBuilder } from '@/ddl'
 import type { MigrateBuilder } from '@/ddl'
 import {
@@ -29,7 +29,7 @@ import { tableKey } from '@/utils/tableKey'
 import { createDatabase } from 'db0'
 import type { Connector, Database } from 'db0'
 
-export type { TableHandle } from '@/defineTable'
+export type { TableHandle } from '@/types'
 export type { ValueMapConfig } from '@/query'
 
 /** Options for {@link createDb}. */

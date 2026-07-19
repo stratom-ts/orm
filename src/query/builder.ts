@@ -1,4 +1,4 @@
-import type { ColumnRef, TableHandle } from '@/defineTable'
+import type { ColumnRef, TableHandle } from '@/types'
 import type {
   ComparisonOp,
   DeleteAst,

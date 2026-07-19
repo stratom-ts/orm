@@ -11,7 +11,7 @@ import {
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable, isTableHandle } from '@/defineTable'
-import type { ColumnRef, TableHandle } from '@/defineTable'
+import type { ColumnRef, TableHandle } from '@/types'
 import { column, getReferenceMetadata, reference, table } from '@/schemas'
 import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
 import { SchemaError } from '@/utils/error'

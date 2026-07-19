@@ -1,4 +1,4 @@
-import type { TableHandle } from '@/defineTable'
+import type { TableHandle } from '@/types'
 import { getColumnMetadata } from '@/schemas'
 import { ValidationError } from '@/utils/error'
 import type {

@@ -6,7 +6,7 @@ import type {
   Dialect,
   SqlAst,
 } from '@/dialects'
-import type { TableHandle } from '@/defineTable'
+import type { TableHandle } from '@/types'
 import type { Executor } from '@/query'
 import type { IndexConfig, TableIndex } from '@/schemas'
 import { MigrationError } from '@/utils/error'
