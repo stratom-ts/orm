@@ -1,16 +1,11 @@
 import { postgresDialect } from '@/dialects'
 import type { AnySchema } from '@/types/schema'
-import type {
-  IndexConfig,
-  TableIndex,
-  TableMetadata,
-  TableOptions,
-  TableSchema,
-} from '@/schemas'
+import type { TableMetadata, TableOptions, TableSchema } from '@/schemas'
 import {
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
+  normalizeIndex,
   table,
 } from '@/schemas'
 import type {
@@ -20,6 +15,7 @@ import type {
   TableHandle,
 } from '@/types'
 import { TABLE_HANDLE } from '@/types'
+import { assertNonEmptyString } from '@/utils/assertNonEmptyString'
 import { SchemaError } from '@/utils/error'
 import type { ObjectEntries } from 'valibot'
 import { object, pipe, title } from 'valibot'
@@ -42,20 +38,138 @@ const RESERVED_HANDLE_KEYS = new Set([
   'columns',
 ])
 
-function normalizeIndex(index: TableIndex): IndexConfig {
-  if (typeof index === 'string') {
-    return { columns: [index] }
+type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
+
+/**
+ * Asserts that the primary key names one or more declared columns.
+ *
+ * @throws SchemaError - When the key is empty or references an unknown column
+ */
+function validatePrimaryKey(
+  metadata: TableMetadata,
+  columnNames: string[],
+): void {
+  const primaryKeys = Array.isArray(metadata.primaryKey)
+    ? metadata.primaryKey
+    : [metadata.primaryKey]
+
+  if (primaryKeys.length === 0) {
+    throw new SchemaError({
+      message:
+        'primaryKey must be a column name or non-empty array of column names',
+    })
   }
 
-  return index
+  for (const pk of primaryKeys) {
+    assertNonEmptyString(pk, 'primaryKey column')
+    if (!columnNames.includes(pk)) {
+      throw new SchemaError({
+        message: `primaryKey column "${pk}" is not defined on table "${metadata.name}"`,
+      })
+    }
+  }
 }
 
-function assertNonEmptyString(
-  value: unknown,
-  label: string,
-): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new SchemaError({ message: `${label} must be a non-empty string` })
+/**
+ * Asserts every index has a valid name and references only declared columns.
+ *
+ * @throws SchemaError - When an index has no columns or references an unknown column
+ */
+function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
+  if (!metadata.indexes) {
+    return
+  }
+
+  for (const raw of metadata.indexes) {
+    const index = normalizeIndex(raw)
+    if (index.name !== undefined) {
+      assertNonEmptyString(index.name, 'index name')
+    }
+    if (!index.columns || index.columns.length === 0) {
+      throw new SchemaError({
+        message: `index on table "${metadata.name}" must list at least one column`,
+      })
+    }
+    for (const col of index.columns) {
+      assertNonEmptyString(col, 'index column')
+      if (!columnNames.includes(col)) {
+        throw new SchemaError({
+          message: `index column "${col}" is not defined on table "${metadata.name}"`,
+        })
+      }
+    }
+  }
+}
+
+/**
+ * Asserts a foreign-key reference names both a target table and key.
+ *
+ * @throws SchemaError - When the reference is missing a target table or key
+ */
+function validateColumnReference(
+  columnName: string,
+  ref: ReferenceMetadata,
+): void {
+  if (!ref) {
+    return
+  }
+  if (!ref.table) {
+    throw new SchemaError({
+      message: `reference on column "${columnName}" is missing a target table`,
+    })
+  }
+  if (!ref.key) {
+    throw new SchemaError({
+      message: `reference on column "${columnName}" is missing a target key`,
+    })
+  }
+}
+
+/**
+ * Asserts an identity/autoIncrement column resolves to a Postgres identity type.
+ *
+ * @throws SchemaError - When the resolved type is not smallint, integer, or bigint
+ */
+function validateIdentityColumn(
+  tableName: string,
+  columnName: string,
+  colSchema: AnySchema,
+  ref: ReferenceMetadata,
+): void {
+  const colMeta = getColumnMetadata(colSchema)
+  if (colMeta?.generated === undefined && !colMeta?.autoIncrement) {
+    return
+  }
+
+  const dataType = String(
+    colMeta.type || ref?.dataType || postgresDialect.inferColumnType(colSchema),
+  )
+  const base = postgresDialect
+    .normalizeDataType(dataType)
+    .toLowerCase()
+    .replace(/\(.*\)$/, '')
+    .trim()
+  if (!IDENTITY_BASE_TYPES.has(base)) {
+    throw new SchemaError({
+      message: `column "${columnName}" on table "${tableName}" uses identity/autoIncrement with type "${dataType}"; Postgres identity requires smallint, integer, or bigint`,
+    })
+  }
+}
+
+/**
+ * Asserts every declared column's reference and identity type are valid.
+ *
+ * @throws SchemaError - When a reference or identity/autoIncrement type is invalid
+ */
+function validateColumns(schema: TableSchema, tableName: string): void {
+  for (const [columnName, columnSchema] of Object.entries(schema.entries)) {
+    const colSchema = columnSchema as AnySchema
+    if (colSchema.kind !== 'schema') {
+      continue
+    }
+    const ref = getReferenceMetadata(colSchema)
+    validateColumnReference(columnName, ref)
+    validateIdentityColumn(tableName, columnName, colSchema, ref)
   }
 }
 
@@ -81,85 +195,9 @@ function validateTableMetadata(
     assertNonEmptyString(metadata.schema, 'table schema')
   }
 
-  const primaryKeys = Array.isArray(metadata.primaryKey)
-    ? metadata.primaryKey
-    : [metadata.primaryKey]
-
-  if (primaryKeys.length === 0) {
-    throw new SchemaError({
-      message:
-        'primaryKey must be a column name or non-empty array of column names',
-    })
-  }
-
-  for (const pk of primaryKeys) {
-    assertNonEmptyString(pk, 'primaryKey column')
-    if (!columnNames.includes(pk)) {
-      throw new SchemaError({
-        message: `primaryKey column "${pk}" is not defined on table "${metadata.name}"`,
-      })
-    }
-  }
-
-  if (metadata.indexes) {
-    for (const raw of metadata.indexes) {
-      const index = normalizeIndex(raw)
-      if (index.name !== undefined) {
-        assertNonEmptyString(index.name, 'index name')
-      }
-      if (!index.columns || index.columns.length === 0) {
-        throw new SchemaError({
-          message: `index on table "${metadata.name}" must list at least one column`,
-        })
-      }
-      for (const col of index.columns) {
-        assertNonEmptyString(col, 'index column')
-        if (!columnNames.includes(col)) {
-          throw new SchemaError({
-            message: `index column "${col}" is not defined on table "${metadata.name}"`,
-          })
-        }
-      }
-    }
-  }
-
-  for (const [columnName, columnSchema] of Object.entries(schema.entries)) {
-    if ((columnSchema as AnySchema).kind !== 'schema') {
-      continue
-    }
-    const colSchema = columnSchema as AnySchema
-    const ref = getReferenceMetadata(colSchema)
-    if (ref) {
-      if (!ref.table) {
-        throw new SchemaError({
-          message: `reference on column "${columnName}" is missing a target table`,
-        })
-      }
-      if (!ref.key) {
-        throw new SchemaError({
-          message: `reference on column "${columnName}" is missing a target key`,
-        })
-      }
-    }
-    const colMeta = getColumnMetadata(colSchema)
-    if (colMeta?.generated !== undefined || colMeta?.autoIncrement) {
-      const dataType = String(
-        colMeta.type ||
-          ref?.dataType ||
-          postgresDialect.inferColumnType(colSchema),
-      )
-      const base = postgresDialect
-        .normalizeDataType(dataType)
-        .toLowerCase()
-        .replace(/\(.*\)$/, '')
-        .trim()
-      if (!IDENTITY_BASE_TYPES.has(base)) {
-        throw new SchemaError({
-          message: `column "${columnName}" on table "${metadata.name}" uses identity/autoIncrement with type "${dataType}"; Postgres identity requires smallint, integer, or bigint`,
-        })
-      }
-    }
-  }
+  validatePrimaryKey(metadata, columnNames)
+  validateIndexes(metadata, columnNames)
+  validateColumns(schema, metadata.name)
 }
 
 /**
