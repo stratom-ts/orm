@@ -1,4 +1,5 @@
 import { postgresDialect } from '@/dialects'
+import type { AnySchema } from '@/types/schema'
 import type {
   IndexConfig,
   TableIndex,
@@ -20,7 +21,7 @@ import type {
 } from '@/types'
 import { TABLE_HANDLE } from '@/types'
 import { SchemaError } from '@/utils/error'
-import type { BaseIssue, BaseSchema, ObjectEntries } from 'valibot'
+import type { ObjectEntries } from 'valibot'
 import { object, pipe, title } from 'valibot'
 
 const IDENTITY_BASE_TYPES = new Set([
@@ -123,17 +124,10 @@ function validateTableMetadata(
   }
 
   for (const [columnName, columnSchema] of Object.entries(schema.entries)) {
-    if (
-      (columnSchema as BaseSchema<unknown, unknown, BaseIssue<unknown>>)
-        .kind !== 'schema'
-    ) {
+    if ((columnSchema as AnySchema).kind !== 'schema') {
       continue
     }
-    const colSchema = columnSchema as BaseSchema<
-      unknown,
-      unknown,
-      BaseIssue<unknown>
-    >
+    const colSchema = columnSchema as AnySchema
     const ref = getReferenceMetadata(colSchema)
     if (ref) {
       if (!ref.table) {
@@ -186,11 +180,7 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
 
   const entries = schema.entries as ObjectEntries
   const columnNames = Object.keys(entries).filter((key) => {
-    const entry = entries[key] as BaseSchema<
-      unknown,
-      unknown,
-      BaseIssue<unknown>
-    >
+    const entry = entries[key] as AnySchema
     return entry && entry.kind === 'schema'
   })
 

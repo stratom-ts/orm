@@ -1,4 +1,4 @@
-import type { BaseIssue, BaseSchema } from 'valibot'
+import type { AnySchema } from '@/types/schema'
 
 /** SQL type string produced by dialect type inference. */
 export type SqlDataType = string
@@ -317,9 +317,7 @@ export type SqlAst =
 export interface Dialect {
   readonly id: string
 
-  inferColumnType(
-    schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-  ): SqlDataType
+  inferColumnType(schema: AnySchema): SqlDataType
 
   normalizeDataType(dataType: string): string
 

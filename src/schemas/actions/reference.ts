@@ -1,6 +1,4 @@
 import type {
-  BaseIssue,
-  BaseSchema,
   InferOutput,
   MetadataAction,
   ObjectEntries,
@@ -10,12 +8,13 @@ import type {
 } from 'valibot'
 import { getMetadata, metadata, pipe } from 'valibot'
 import { postgresDialect } from '@/dialects'
+import type { AnySchema } from '@/types/schema'
 import { isTableMetadata } from './table'
 import { getColumnMetadata } from './column'
 import type { ReferenceMetadata, ReferentialAction } from './types'
 
 interface WrapperSchema {
-  wrapped: BaseSchema<unknown, unknown, BaseIssue<unknown>>
+  wrapped: AnySchema
 }
 
 /** Minimal table-handle shape accepted by `reference()` (avoids circular imports). */
@@ -57,9 +56,7 @@ export type ReferenceOptions = {
  * const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'uuid' }))))
  * ```
  */
-function unwrapWrapper(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
+function unwrapWrapper(schema: AnySchema): AnySchema {
   if (
     schema.type === 'optional' ||
     schema.type === 'nullable' ||
@@ -142,7 +139,7 @@ export function reference<
   const tableMeta = isTableMetadata(schemaMetadata) ? schemaMetadata : null
 
   const referencedColumnSchema = schema.entries[key as string] as
-    | BaseSchema<unknown, unknown, BaseIssue<unknown>>
+    | AnySchema
     | undefined
 
   const referencedColumnMetadata = referencedColumnSchema
@@ -211,7 +208,7 @@ export function isReferenceMetadata(
  * ```
  */
 export function getReferenceMetadata(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+  schema: AnySchema,
 ): ReferenceMetadata | undefined {
   const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
     | Record<string, unknown>

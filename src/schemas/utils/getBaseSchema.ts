@@ -1,7 +1,8 @@
-import type { BaseIssue, BaseSchema, PipeItem } from 'valibot'
+import type { BaseIssue, PipeItem } from 'valibot'
+import type { AnySchema } from '@/types/schema'
 
 interface WrapperSchema {
-  wrapped: BaseSchema<unknown, unknown, BaseIssue<unknown>>
+  wrapped: AnySchema
 }
 
 /**
@@ -16,9 +17,7 @@ interface WrapperSchema {
  * // string schema
  * ```
  */
-export function getBaseSchema(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
+export function getBaseSchema(schema: AnySchema): AnySchema {
   if (
     schema.type === 'optional' ||
     schema.type === 'nullable' ||
@@ -36,7 +35,7 @@ export function getBaseSchema(
   }
 
   const pipeSchema = schema.pipe as readonly [
-    BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+    AnySchema,
     ...PipeItem<unknown, unknown, BaseIssue<unknown>>[],
   ]
 
@@ -49,9 +48,7 @@ export function getBaseSchema(
     'kind' in baseSchema &&
     baseSchema.kind === 'schema'
   ) {
-    return getBaseSchema(
-      baseSchema as BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-    )
+    return getBaseSchema(baseSchema as AnySchema)
   }
 
   return schema

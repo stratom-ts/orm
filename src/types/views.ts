@@ -1,9 +1,8 @@
-import type { BaseIssue, BaseSchema, InferOutput } from 'valibot'
+import type { InferOutput } from 'valibot'
+import type { AnySchema } from './schema'
 import type { TableSchema } from '@/schemas'
 
 type DBType<T> = T extends undefined ? never : T
-
-type AnySchema = BaseSchema<unknown, unknown, BaseIssue<unknown>>
 
 // ---------------------------------------------------------------------------
 // Schema unwrapping utilities (type-level mirrors of the runtime helpers)
