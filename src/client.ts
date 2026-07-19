@@ -50,7 +50,7 @@ export type CreateDbConfig<
 }
 
 /**
- * schema-orm client: owns the db0 database lifecycle and table registry.
+ * Stratom client: owns the db0 database lifecycle and table registry.
  * Transaction clients (`trx`) share the same surface for from/transaction.
  */
 export type Db<
@@ -135,9 +135,9 @@ function assertHandles(schemas: readonly TableHandle[]): void {
 }
 
 /**
- * Creates a schema-orm client from a db0 connector and table handles.
+ * Creates a Stratom client from a db0 connector and table handles.
  *
- * schema-orm calls `createDatabase(connector)` and owns that instance.
+ * Stratom calls `createDatabase(connector)` and owns that instance.
  * No auto-migrate; no Kysely.
  *
  * @param config - Connector and registered schemas
