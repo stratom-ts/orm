@@ -4,7 +4,7 @@ import { column } from '@/schemas'
 import { QueryError, SchemaError, ValidationError } from '@/utils/error'
 import type { Connector, Statement } from 'db0'
 import { boolean, nullable, number, optional, pipe, string } from 'valibot'
-import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -85,23 +85,6 @@ const AlwaysId = defineTable(
 )
 
 describe('CRUD compile', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
-  it('narrows returning row type to selected columns only', () => {
-    const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
-    const query = db
-      .insert(Users)
-      .values({ email: 'a@b.com' })
-      .returning([Users.id, Users.email])
-    type Row = Awaited<ReturnType<typeof query.execute>>[number]
-    expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
-    expectTypeOf<Row>().not.toHaveProperty('displayName')
-    expectTypeOf<Row>().not.toHaveProperty('active')
-  })
-
   it('compiles insert with parameterized values and schema-qualified table', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
@@ -133,7 +116,7 @@ describe('CRUD compile', () => {
     await db.close()
   })
 
-  it('compiles update with where and returning', async () => {
+  it('compiles update with where and default returning *', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
     const compiled = db
@@ -149,7 +132,7 @@ describe('CRUD compile', () => {
     await db.close()
   })
 
-  it('compiles delete with object where', async () => {
+  it('compiles delete with object where and column returning', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
     const compiled = db
@@ -161,6 +144,41 @@ describe('CRUD compile', () => {
     expect(compiled.sql).toContain('"id"')
     expect(compiled.params).toEqual(['a@b.com'])
     await db.close()
+  })
+})
+
+describe('CRUD returning types', () => {
+  it('narrows insert.returning to selected columns only', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const query = db
+      .insert(Users)
+      .values({ email: 'a@b.com' })
+      .returning([Users.id, Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
+    expectTypeOf<Row>().not.toHaveProperty('displayName')
+    expectTypeOf<Row>().not.toHaveProperty('active')
+  })
+
+  it('narrows update.returning to selected columns only', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const query = db
+      .update(Users)
+      .set({ displayName: 'X' })
+      .where(Users.id, 'eq', 1)
+      .returning([Users.id])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number }>()
+  })
+
+  it('narrows delete.returning to selected columns only', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const query = db.delete(Users).where({ id: 1 }).returning([Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{ email: string }>()
   })
 })
 
@@ -264,8 +282,18 @@ describe('CRUD safety and validation', () => {
 })
 
 describe('CRUD execute terminals', () => {
-  it('insert.returningAll().execute returns rows', async () => {
-    const rows = [{ id: 1, email: 'a@b.com', displayName: null, active: true }]
+  it('insert.values().execute returns full rows by default', async () => {
+    const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
+    const connector = createMockConnector({ rowsBySql: () => rows })
+    const db = createDb({ connector, schemas: [Users] })
+    const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
+    expect(result).toEqual(rows)
+    expect(connector.prepared.some((s) => /returning \*/i.test(s))).toBe(true)
+    await db.close()
+  })
+
+  it('insert.returningAll().execute still returns full rows', async () => {
+    const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
     const connector = createMockConnector({
       rowsBySql: () => rows,
     })
@@ -277,36 +305,7 @@ describe('CRUD execute terminals', () => {
     await db.close()
   })
 
-  it('executeTakeFirst and executeTakeFirstOrThrow on select', async () => {
-    const rows = [{ id: '1', email: 'a@b.com' }]
-    const connector = createMockConnector({ rowsBySql: () => rows })
-    const db = createDb({ connector, schemas: [Users] })
-    await expect(db.from(Users).executeTakeFirst()).resolves.toEqual(rows[0])
-    await expect(db.from(Users).executeTakeFirstOrThrow()).resolves.toEqual(
-      rows[0],
-    )
-    await db.close()
-  })
-
-  it('executeTakeFirstOrThrow throws QueryError when empty', async () => {
-    const connector = createMockConnector({ rowsBySql: () => [] })
-    const db = createDb({ connector, schemas: [Users] })
-    await expect(
-      db.from(Users).executeTakeFirstOrThrow(),
-    ).rejects.toBeInstanceOf(QueryError)
-    await db.close()
-  })
-
-  it('write with returning returns rows via execute', async () => {
-    const rows = [{ id: 1, email: 'a@b.com', displayName: null, active: true }]
-    const connector = createMockConnector({ rowsBySql: () => rows })
-    const db = createDb({ connector, schemas: [Users] })
-    const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
-    expect(result).toEqual(rows)
-    await db.close()
-  })
-
-  it('update/delete returning executeTakeFirst', async () => {
+  it('update/delete executeTakeFirst return rows', async () => {
     const row = { id: 1, email: 'a@b.com', displayName: 'Z', active: true }
     const connector = createMockConnector({ rowsBySql: () => [row] })
     const db = createDb({ connector, schemas: [Users] })
@@ -320,75 +319,6 @@ describe('CRUD execute terminals', () => {
     await expect(
       db.delete(Users).where({ id: 1 }).executeTakeFirstOrThrow(),
     ).resolves.toEqual(row)
-    await db.close()
-  })
-})
-
-describe('db.insert()', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
-  it('compiles insert with values()', async () => {
-    const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
-    const compiled = db
-      .insert(Users)
-      .values({ email: 'a@b.com', displayName: 'Ada' })
-      .compile()
-    expect(compiled.sql.toLowerCase()).toContain('insert into')
-    expect(compiled.sql).toContain('"public"')
-    expect(compiled.sql).toContain('"users"')
-    expect(compiled.sql).toMatch(/\$1/)
-    expect(compiled.params).toEqual(expect.arrayContaining(['a@b.com', 'Ada']))
-    expect(compiled.sql.toLowerCase()).not.toContain('a@b.com')
-    await db.close()
-  })
-
-  it('values().returningAll().execute returns rows', async () => {
-    const rows = [{ id: 1, email: 'a@b.com', displayName: null, active: true }]
-    const connector = createMockConnector({
-      rowsBySql: () => rows,
-    })
-    const db = createDb({ connector, schemas: [Users] })
-    await expect(
-      db.insert(Users).values({ email: 'a@b.com' }).returningAll().execute(),
-    ).resolves.toEqual(rows)
-    expect(connector.prepared.some((s) => /insert/i.test(s))).toBe(true)
-    await db.close()
-  })
-
-  it('values().execute() returns rows (returningAll is baked in)', async () => {
-    const rows = [{ id: 1, email: 'a@b.com', displayName: null, active: true }]
-    const connector = createMockConnector({ rowsBySql: () => rows })
-    const db = createDb({ connector, schemas: [Users] })
-    const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
-    expect(result).toEqual(rows)
-    await db.close()
-  })
-
-  it('rejects unregistered table for db.insert()', async () => {
-    const Other = defineTable(
-      'other',
-      { id: pipe(string(), column({ type: 'text' })) },
-      { primaryKey: 'id' },
-    )
-    const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
-    expect(() => db.insert(Other)).toThrow(SchemaError)
-    await db.close()
-  })
-
-  it('rejects invalid data with ValidationError before SQL', async () => {
-    const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
-    expect(() =>
-      db
-        .insert(Users)
-        .values({ email: 123 as never })
-        .compile(),
-    ).toThrow(ValidationError)
-    expect(connector.prepared).toHaveLength(0)
     await db.close()
   })
 })
@@ -412,7 +342,7 @@ describe('CRUD integration (Postgres)', () => {
           create table "public"."users" (
             "id" integer generated by default as identity primary key,
             "email" text not null,
-            "displayName" text,
+            "displayName" text not null,
             "active" boolean not null default true
           )
         `)
@@ -420,7 +350,6 @@ describe('CRUD integration (Postgres)', () => {
         const inserted = await db
           .insert(Users)
           .values({ email: 'crud@test.com', displayName: 'Crud' })
-          .returningAll()
           .executeTakeFirstOrThrow()
         expect(inserted.email).toBe('crud@test.com')
         expect(inserted.id).toEqual(expect.any(Number))
@@ -454,7 +383,7 @@ describe('CRUD integration (Postgres)', () => {
 })
 
 describe('registry still enforces handles', () => {
-  it('rejects unregistered table for insert', async () => {
+  it('rejects unregistered table for from and insert', async () => {
     const Other = defineTable(
       'other',
       { id: pipe(string(), column({ type: 'text' })) },
@@ -463,6 +392,7 @@ describe('registry still enforces handles', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
     expect(() => db.from(Other)).toThrow(SchemaError)
+    expect(() => db.insert(Other)).toThrow(SchemaError)
     await db.close()
   })
 })

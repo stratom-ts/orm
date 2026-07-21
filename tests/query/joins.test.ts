@@ -3,7 +3,7 @@ import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
 import { number, pipe, string } from 'valibot'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -84,10 +84,6 @@ const Posts = defineTable(
 )
 
 describe('joins compile', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
   it('compiles innerJoin with column-ref on and selectAll(side)', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users, Posts] })
@@ -165,6 +161,18 @@ describe('joins compile', () => {
     ).resolves.toEqual(rows)
     await db.close()
   })
+
+  it('types cross-table selected columns as unknown on the root handle', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, Posts] })
+    const query = db
+      .from(Posts)
+      .innerJoin(Users, eq(Posts.userId, Users.id))
+      .select([Posts.title, Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    // Root handle is Posts; Users.email is not on InferSelect<Posts>.
+    expectTypeOf<Row>().toEqualTypeOf<{ title: string; email: unknown }>()
+  })
 })
 
 describe('joins integration (Postgres)', () => {
@@ -215,21 +223,18 @@ describe('joins integration (Postgres)', () => {
           ])
           .execute()
 
-        const inner = (await db
+        const inner = await db
           .from(Posts)
           .innerJoin(Users, eq(Posts.userId, Users.id))
           .select([Posts.title, Users.email, Posts.score])
           .where(Posts.score, 'gt', 10)
           .orderBy(Posts.score, 'desc')
           .limit(2)
-          .execute()) as {
-          title: string
-          email: string
-          score: number
-        }[]
+          .execute()
         expect(inner).toHaveLength(2)
         expect(inner[0]?.score).toBe(20)
-        expect(inner[0]?.email).toBe('bob@test.com')
+        // Cross-table email is typed unknown on the Posts root; assert at runtime.
+        expect((inner[0] as { email: string }).email).toBe('bob@test.com')
 
         // left join: post without matching filter still projects post side
         const left = await db

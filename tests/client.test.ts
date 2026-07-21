@@ -4,7 +4,7 @@ import { column } from '@/schemas'
 import { QueryError, SchemaError } from '@/utils/error'
 import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = [{ '?column?': 1 }]): Statement {
   const statement: Statement = {
@@ -49,10 +49,6 @@ function createMockConnector(options?: {
 }
 
 describe('createDb', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
   it('accepts a db0 connector and empty schemas', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [] })
@@ -103,7 +99,7 @@ describe('createDb', () => {
     await expect(db.ping()).rejects.toThrow(/closed/i)
   })
 
-  it('client module surface does not export Kysely symbols', async () => {
+  it('exports createDb and no stray dialect ORM symbols', async () => {
     const clientModule = await import('@/client')
     expect(clientModule.createDb).toBeTypeOf('function')
     expect(Object.keys(clientModule).join(',')).not.toMatch(/kysely/i)

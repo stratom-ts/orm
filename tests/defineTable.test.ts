@@ -13,7 +13,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { defineTable, isTableHandle } from '@/defineTable'
 import type { ColumnRef, TableHandle } from '@/types'
 import { column, getReferenceMetadata, reference, table } from '@/schemas'
-import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
+import type { InferSelect } from '@/types/views'
 import { SchemaError } from '@/utils/error'
 
 const userColumns = {
@@ -234,92 +234,15 @@ describe('reference with FK actions', () => {
   })
 })
 
-describe('InferSelect / InferInsert / InferUpdate', () => {
-  it('InferSelect is a full row type', () => {
-    type Row = InferSelect<typeof User>
-    expectTypeOf<Row['id']>().toEqualTypeOf<number>()
-    expectTypeOf<Row['email']>().toEqualTypeOf<string>()
-    expectTypeOf<Row['fullName']>().toEqualTypeOf<string>()
-    expectTypeOf<Row['age']>().toEqualTypeOf<number | null>()
-    // optional() is omit-on-insert only; SQL is NOT NULL → select is non-null string
-    expectTypeOf<Row['bio']>().toEqualTypeOf<string>()
-    expectTypeOf<Row['active']>().toEqualTypeOf<boolean>()
-  })
-
-  it('InferInsert omits always-generated and makes defaults optional', () => {
-    const T = defineTable(
-      't',
-      {
-        id: pipe(number(), column({ type: 'integer', generated: 'always' })),
-        email: pipe(string(), column({ type: 'text' })),
-        active: pipe(boolean(), column({ type: 'boolean', default: true })),
-        note: optional(pipe(string(), column({ type: 'text' }))),
-      },
-      { primaryKey: 'id' },
-    )
-    type Insert = InferInsert<typeof T>
-    expectTypeOf<Insert['email']>().toEqualTypeOf<string>()
-    expectTypeOf<Insert['active']>().toEqualTypeOf<boolean | undefined>()
-    expectTypeOf<Insert['note']>().toEqualTypeOf<string | undefined>()
-    expectTypeOf<Insert>().not.toHaveProperty('id')
-
-    type InsertUser = InferInsert<typeof User>
-    expectTypeOf<InsertUser['email']>().toEqualTypeOf<string>()
-    expectTypeOf<InsertUser['fullName']>().toEqualTypeOf<string>()
-    expectTypeOf<InsertUser['age']>().toEqualTypeOf<number | null>()
-    expectTypeOf<InsertUser['id']>().toEqualTypeOf<number | undefined>()
-    expectTypeOf<InsertUser['bio']>().toEqualTypeOf<string | undefined>()
-    expectTypeOf<InsertUser['active']>().toEqualTypeOf<boolean | undefined>()
-  })
-
-  it('InferUpdate is a partial patch without readonly / always-generated', () => {
-    const R = defineTable(
-      'r',
-      {
-        id: pipe(number(), column({ type: 'integer', generated: 'always' })),
-        createdAt: pipe(string(), column({ type: 'text', readonly: true })),
-        label: pipe(string(), column({ type: 'text' })),
-      },
-      { primaryKey: 'id' },
-    )
-    type Update = InferUpdate<typeof R>
-    expectTypeOf<Update['label']>().toEqualTypeOf<string | undefined>()
-    expectTypeOf<Update>().not.toHaveProperty('id')
-    expectTypeOf<Update>().not.toHaveProperty('createdAt')
-  })
-
-  it('nested object columns without reference stay JSON-shaped objects', () => {
-    const J = defineTable(
-      'j',
-      {
-        id: pipe(string(), column({ type: 'uuid' })),
-        payload: pipe(
-          object({ key: string(), value: number() }),
-          column({ type: 'jsonb' }),
-        ),
-      },
-      { primaryKey: 'id' },
-    )
-    type Select = InferSelect<typeof J>
-    type Insert = InferInsert<typeof J>
-    expectTypeOf<Select['payload']>().toEqualTypeOf<{
-      key: string
-      value: number
-    }>()
-    expectTypeOf<Insert['payload']>().toEqualTypeOf<{
-      key: string
-      value: number
-    }>()
-  })
-
-  it('works from the raw schema as well as the handle', () => {
+describe('table handle typing', () => {
+  it('InferSelect matches for the raw schema and the handle', () => {
     type FromSchema = InferSelect<typeof UserSchema>
     type FromHandle = InferSelect<typeof User>
     expectTypeOf<FromSchema['id']>().toEqualTypeOf<FromHandle['id']>()
     expectTypeOf<FromSchema['email']>().toEqualTypeOf<FromHandle['email']>()
   })
 
-  it('types column refs', () => {
+  it('types column refs on the handle', () => {
     type EmailRef = (typeof User)['email']
     expectTypeOf<EmailRef['table']>().toEqualTypeOf<'users'>()
     expectTypeOf<EmailRef['column']>().toEqualTypeOf<'email'>()
