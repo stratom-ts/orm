@@ -17,7 +17,12 @@ import { describe, expectTypeOf, it } from 'vitest'
 
 import { defineTable } from '@/defineTable'
 import { column, table } from '@/schemas'
-import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
+import type {
+  InferInsert,
+  InferSelect,
+  InferSelectedColumns,
+  InferUpdate,
+} from '@/types/views'
 
 const User = defineTable(
   'users',
@@ -40,6 +45,32 @@ describe('InferSelect', () => {
     // optional → NOT NULL in SQL; select is non-null
     expectTypeOf<Row['bio']>().toEqualTypeOf<string>()
     expectTypeOf<Row['active']>().toEqualTypeOf<boolean>()
+  })
+})
+
+describe('InferSelectedColumns', () => {
+  it('narrows to only the selected column keys as required fields', () => {
+    type Row = InferSelectedColumns<
+      typeof User,
+      readonly [typeof User.id, typeof User.email]
+    >
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
+    expectTypeOf<Row>().not.toHaveProperty('age')
+    expectTypeOf<Row>().not.toHaveProperty('bio')
+    expectTypeOf<Row>().not.toHaveProperty('active')
+  })
+
+  it('preserves select-view nullability for selected columns', () => {
+    type Row = InferSelectedColumns<
+      typeof User,
+      readonly [typeof User.age, typeof User.bio]
+    >
+    expectTypeOf<Row>().toEqualTypeOf<{ age: number | null; bio: string }>()
+  })
+
+  it('supports string column names', () => {
+    type Row = InferSelectedColumns<typeof User, readonly ['id', 'email']>
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
   })
 })
 

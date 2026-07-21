@@ -16,7 +16,7 @@ import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
 import { boolean, number, optional, pipe, string } from 'valibot'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -87,6 +87,27 @@ const Users = defineTable(
   },
   { primaryKey: 'id', schema: 'public' },
 )
+
+describe('select result types', () => {
+  it('narrows execute row type to selected columns only', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const query = db.from(Users).select([Users.id, Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
+    expectTypeOf<Row>().not.toHaveProperty('score')
+    expectTypeOf<Row>().not.toHaveProperty('displayName')
+    expectTypeOf<Row>().not.toHaveProperty('active')
+  })
+
+  it('keeps selected keys required (not Partial)', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const query = db.from(Users).select([Users.displayName])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{ displayName: string }>()
+  })
+})
 
 describe('select compile', () => {
   afterEach(() => {
