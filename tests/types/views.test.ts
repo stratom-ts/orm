@@ -76,12 +76,53 @@ describe('InferSelectedColumns', () => {
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
   })
 
-  it('types columns not on the source table as unknown', () => {
+  it('types columns not on the source table as unknown for bare strings', () => {
     type Row = InferSelectedColumns<
       typeof User,
       readonly [typeof User.id, 'missing']
     >
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; missing: unknown }>()
+  })
+
+  it('resolves cross-table ColumnRefs from the ref payload', () => {
+    const Post = defineTable(
+      'posts',
+      {
+        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+        title: pipe(string(), column({ type: 'text' })),
+        authorId: pipe(number(), column({ type: 'integer' })),
+      },
+      { primaryKey: 'id' },
+    )
+    type Row = InferSelectedColumns<
+      typeof Post,
+      readonly [typeof Post.title, typeof User.email, typeof User.age]
+    >
+    expectTypeOf<Row>().toEqualTypeOf<{
+      title: string
+      email: string
+      age: number | null
+    }>()
+  })
+
+  it('widens outer-join nullable tables with | null', () => {
+    const Post = defineTable(
+      'posts',
+      {
+        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+        title: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id' },
+    )
+    type Row = InferSelectedColumns<
+      typeof Post,
+      readonly [typeof Post.title, typeof User.email],
+      'users'
+    >
+    expectTypeOf<Row>().toEqualTypeOf<{
+      title: string
+      email: string | null
+    }>()
   })
 })
 

@@ -1,6 +1,7 @@
-import { createDb, eq } from '@/index'
 import { defineTable } from '@/defineTable'
+import { createDb, eq } from '@/index'
 import { column } from '@/schemas'
+import type { InferSelect } from '@/types/views'
 import type { Connector, Statement } from 'db0'
 import { number, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
@@ -162,7 +163,7 @@ describe('joins compile', () => {
     await db.close()
   })
 
-  it('types cross-table selected columns as unknown on the root handle', () => {
+  it('types cross-table selected columns from the ColumnRef', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users, Posts] })
     const query = db
@@ -170,8 +171,66 @@ describe('joins compile', () => {
       .innerJoin(Users, eq(Posts.userId, Users.id))
       .select([Posts.title, Users.email])
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
-    // Root handle is Posts; Users.email is not on InferSelect<Posts>.
-    expectTypeOf<Row>().toEqualTypeOf<{ title: string; email: unknown }>()
+    expectTypeOf<Row>().toEqualTypeOf<{ title: string; email: string }>()
+  })
+
+  it('widens left-joined columns with | null', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, Posts] })
+    const query = db
+      .from(Posts)
+      .leftJoin(Users, eq(Posts.userId, Users.id))
+      .select([Posts.title, Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{
+      title: string
+      email: string | null
+    }>()
+  })
+
+  it('widens root columns with | null after rightJoin', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, Posts] })
+    const query = db
+      .from(Posts)
+      .rightJoin(Users, eq(Posts.userId, Users.id))
+      .select([Posts.title, Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{
+      title: string | null
+      email: string
+    }>()
+  })
+
+  it('merges chained selectAll(side) with a later column select', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, Posts] })
+    const query = db
+      .from(Posts)
+      .innerJoin(Users, eq(Posts.userId, Users.id))
+      .selectAll(Posts)
+      .select([Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<
+      InferSelect<typeof Posts> & { email: string }
+    >()
+  })
+
+  it('nulls left-joined selectAll(side) fields', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, Posts] })
+    const query = db
+      .from(Posts)
+      .leftJoin(Users, eq(Posts.userId, Users.id))
+      .select([Posts.title])
+      .selectAll(Users)
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<
+      { title: string } & {
+        id: number | null
+        email: string | null
+      }
+    >()
   })
 })
 
@@ -233,8 +292,7 @@ describe('joins integration (Postgres)', () => {
           .execute()
         expect(inner).toHaveLength(2)
         expect(inner[0]?.score).toBe(20)
-        // Cross-table email is typed unknown on the Posts root; assert at runtime.
-        expect((inner[0] as { email: string }).email).toBe('bob@test.com')
+        expect(inner[0]?.email).toBe('bob@test.com')
 
         // left join: post without matching filter still projects post side
         const left = await db
