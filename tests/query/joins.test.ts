@@ -232,6 +232,36 @@ describe('joins compile', () => {
       }
     >()
   })
+
+  it('merges all joined table columns for implicit select *', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, Posts] })
+    const inner = db.from(Posts).innerJoin(Users, eq(Posts.userId, Users.id))
+    type InnerRow = Awaited<ReturnType<typeof inner.execute>>[number]
+    expectTypeOf<InnerRow>().toEqualTypeOf<
+      InferSelect<typeof Posts> & InferSelect<typeof Users>
+    >()
+
+    const left = db.from(Posts).leftJoin(Users, eq(Posts.userId, Users.id))
+    type LeftRow = Awaited<ReturnType<typeof left.execute>>[number]
+    expectTypeOf<LeftRow>().toEqualTypeOf<
+      InferSelect<typeof Posts> & {
+        id: number | null
+        email: string | null
+      }
+    >()
+
+    const right = db.from(Posts).rightJoin(Users, eq(Posts.userId, Users.id))
+    type RightRow = Awaited<ReturnType<typeof right.execute>>[number]
+    expectTypeOf<RightRow>().toEqualTypeOf<
+      {
+        id: number | null
+        title: string | null
+        userId: number | null
+        score: number | null
+      } & InferSelect<typeof Users>
+    >()
+  })
 })
 
 describe('joins integration (Postgres)', () => {
