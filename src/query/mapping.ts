@@ -25,7 +25,7 @@ function resolveColumnDataType(
   columnName: string,
   dialect: Dialect,
 ): string | undefined {
-  const entries = handle.definition.entries as Record<
+  const entries = handle.getSchema().entries as Record<
     string,
     { kind?: string } | undefined
   >
@@ -46,7 +46,7 @@ function columnMeta(
   handle: TableHandle,
   columnName: string,
 ): ColumnMetadata | undefined {
-  const entries = handle.definition.entries as Record<
+  const entries = handle.getSchema().entries as Record<
     string,
     { kind?: string } | undefined
   >
@@ -70,7 +70,7 @@ export function createValueMapper(
     const cached = typeCache.get(handle)
     if (cached) return cached
     const types: Record<string, string> = {}
-    for (const name of Object.keys(handle.definition.entries)) {
+    for (const name of Object.keys(handle.getSchema().entries)) {
       const dt = resolveColumnDataType(handle, name, dialect)
       if (dt !== undefined) types[name] = dt
     }

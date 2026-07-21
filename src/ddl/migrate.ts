@@ -6,9 +6,9 @@ import type {
   Dialect,
   SqlAst,
 } from '@/dialects'
-import type { TableHandle } from '@/types'
 import type { Executor } from '@/query'
 import { normalizeIndex } from '@/schemas'
+import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 import { DEFAULT_PG_SCHEMA, effectiveSchema, tableKey } from '@/utils/tableKey'
 import { buildCreateTableAst } from './createTable'
@@ -145,9 +145,10 @@ function quoteIdent(ident: string): string {
 
 function desiredIndexNames(handle: TableHandle): Set<string> {
   const names = new Set<string>()
-  for (const raw of handle.metadata.indexes ?? []) {
+  const info = handle.getTableMetadata()
+  for (const raw of info.indexes ?? []) {
     const index = normalizeIndex(raw)
-    const name = index.name ?? defaultIndexName(handle.name, index.columns)
+    const name = index.name ?? defaultIndexName(info.name, index.columns)
     names.add(name)
   }
   return names
@@ -234,9 +235,10 @@ export function planMigration(
   const ownedSchemas = new Set<string>()
 
   for (const handle of schemas) {
-    const key = tableKey(handle.schema, handle.name)
+    const info = handle.getTableMetadata()
+    const key = tableKey(info.schema, info.name)
     registeredKeys.add(key)
-    const schemaName = effectiveSchema(handle.schema)
+    const schemaName = effectiveSchema(info.schema)
     ownedSchemas.add(schemaName)
     const live = existing.get(key)
     const createAst = buildCreateTableAst(handle, dialect)
@@ -249,17 +251,17 @@ export function planMigration(
 
       steps.push({
         kind: 'create_table',
-        ...schemaField(handle.schema),
-        table: handle.name,
+        ...schemaField(info.schema),
+        table: info.name,
       })
 
-      for (const raw of handle.metadata.indexes ?? []) {
+      for (const raw of info.indexes ?? []) {
         const index = normalizeIndex(raw)
-        const name = index.name ?? defaultIndexName(handle.name, index.columns)
+        const name = index.name ?? defaultIndexName(info.name, index.columns)
         steps.push({
           kind: 'create_index',
-          ...schemaField(handle.schema),
-          table: handle.name,
+          ...schemaField(info.schema),
+          table: info.name,
           index: name,
           columns: [...index.columns],
           unique: index.unique ?? false,
@@ -278,8 +280,8 @@ export function planMigration(
       if (!current) {
         steps.push({
           kind: 'add_column',
-          ...schemaField(handle.schema),
-          table: handle.name,
+          ...schemaField(info.schema),
+          table: info.name,
           column: desired.name,
           dataType: desired.dataType,
           notNull: desired.notNull,
@@ -315,8 +317,8 @@ export function planMigration(
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',
-          ...schemaField(handle.schema),
-          table: handle.name,
+          ...schemaField(info.schema),
+          table: info.name,
           column: desired.name,
           dataType: desired.dataType,
         })
@@ -325,15 +327,15 @@ export function planMigration(
       if (desired.notNull && current.isNullable) {
         steps.push({
           kind: 'set_not_null',
-          ...schemaField(handle.schema),
-          table: handle.name,
+          ...schemaField(info.schema),
+          table: info.name,
           column: desired.name,
         })
       } else if (!desired.notNull && !current.isNullable) {
         steps.push({
           kind: 'drop_not_null',
-          ...schemaField(handle.schema),
-          table: handle.name,
+          ...schemaField(info.schema),
+          table: info.name,
           column: desired.name,
         })
       }
@@ -345,8 +347,8 @@ export function planMigration(
       if (allowed.has('dropColumn')) {
         steps.push({
           kind: 'drop_column',
-          ...schemaField(handle.schema),
-          table: handle.name,
+          ...schemaField(info.schema),
+          table: info.name,
           column: liveCol.name,
         })
       }
@@ -354,14 +356,14 @@ export function planMigration(
     }
 
     const desiredIndexes = desiredIndexNames(handle)
-    for (const raw of handle.metadata.indexes ?? []) {
+    for (const raw of info.indexes ?? []) {
       const index = normalizeIndex(raw)
-      const name = index.name ?? defaultIndexName(handle.name, index.columns)
+      const name = index.name ?? defaultIndexName(info.name, index.columns)
       if (indexExists(live.indexes, name)) continue
       steps.push({
         kind: 'create_index',
-        ...schemaField(handle.schema),
-        table: handle.name,
+        ...schemaField(info.schema),
+        table: info.name,
         index: name,
         columns: [...index.columns],
         unique: index.unique ?? false,
@@ -374,8 +376,8 @@ export function planMigration(
         if (desiredIndexes.has(liveIdx.name)) continue
         steps.push({
           kind: 'drop_index',
-          ...schemaField(handle.schema),
-          table: handle.name,
+          ...schemaField(info.schema),
+          table: info.name,
           index: liveIdx.name,
         })
       }
@@ -423,7 +425,8 @@ async function planUnsafeDropColumns(
   const extra: MigrationStep[] = []
 
   for (const handle of schemas) {
-    const key = tableKey(handle.schema, handle.name)
+    const info = handle.getTableMetadata()
+    const key = tableKey(info.schema, info.name)
     const live = existing.get(key)
     if (!live) continue
     const createAst = buildCreateTableAst(handle, dialect)
@@ -433,8 +436,8 @@ async function planUnsafeDropColumns(
       if (desiredColumnNames.has(liveCol.name)) continue
       const step: Extract<MigrationStep, { kind: 'drop_column' }> = {
         kind: 'drop_column',
-        ...schemaField(handle.schema),
-        table: handle.name,
+        ...schemaField(info.schema),
+        table: info.name,
         column: liveCol.name,
       }
       // Data-safe empty column: allow drop without allowlist
@@ -587,7 +590,8 @@ export function createMigrateBuilder(options: {
   const { schemas, dialect, executor } = options
   const handles = new Map<string, TableHandle>()
   for (const handle of schemas) {
-    handles.set(tableKey(handle.schema, handle.name), handle)
+    const info = handle.getTableMetadata()
+    handles.set(tableKey(info.schema, info.name), handle)
   }
 
   const allowed = new Set<MigrationAllow>()

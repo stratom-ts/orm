@@ -1,5 +1,4 @@
 import { postgresDialect } from '@/dialects'
-import type { AnySchema } from '@/types/schema'
 import type { TableMetadata, TableOptions, TableSchema } from '@/schemas'
 import {
   getColumnMetadata,
@@ -15,6 +14,7 @@ import type {
   TableHandle,
 } from '@/types'
 import { TABLE_HANDLE } from '@/types'
+import type { AnySchema } from '@/types/schema'
 import { assertNonEmptyString } from '@/utils/assertNonEmptyString'
 import { SchemaError } from '@/utils/error'
 import type { ObjectEntries } from 'valibot'
@@ -29,14 +29,8 @@ const IDENTITY_BASE_TYPES = new Set([
   'int8',
 ])
 
-/** Handle fields that must not collide with column names. */
-const RESERVED_HANDLE_KEYS = new Set([
-  'name',
-  'schema',
-  'metadata',
-  'definition',
-  'columns',
-])
+/** Handle methods that must not collide with column names. */
+const RESERVED_HANDLE_KEYS = new Set(['getSchema', 'getTableMetadata'])
 
 type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
 
@@ -231,7 +225,7 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
   for (const columnName of columnNames) {
     if (RESERVED_HANDLE_KEYS.has(columnName)) {
       throw new SchemaError({
-        message: `column name "${columnName}" is reserved on table handles; rename the column`,
+        message: `column name "${columnName}" is reserved as a table handle method; rename the column`,
       })
     }
   }
@@ -248,15 +242,12 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
     }
   }
 
-  // Column refs first; reserved handle fields win if a column reuses those names.
+  // Column refs first; reserved handle methods win if a column reuses those names.
   const handle = {
     ...(columns as ColumnRefsOf<S>),
     [TABLE_HANDLE]: true as const,
-    definition: schema,
-    name: metadata.name as SchemaNameOf<S>,
-    schema: metadata.schema,
-    metadata: metadata as TableMetadata<SchemaNameOf<S>>,
-    columns: columns as ColumnRefsOf<S>,
+    getSchema: () => schema,
+    getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
   }
 
   return handle as TableHandle<S>

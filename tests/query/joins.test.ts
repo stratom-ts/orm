@@ -1,4 +1,5 @@
 import { defineTable } from '@/defineTable'
+import type { Prettify } from '@/index'
 import { createDb, eq } from '@/index'
 import { column } from '@/schemas'
 import type { InferSelect } from '@/types/views'
@@ -212,7 +213,7 @@ describe('joins compile', () => {
       .select([Users.email])
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
     expectTypeOf<Row>().toEqualTypeOf<
-      InferSelect<typeof Posts> & { email: string }
+      Prettify<InferSelect<typeof Posts> & { email: string }>
     >()
   })
 
@@ -226,10 +227,12 @@ describe('joins compile', () => {
       .selectAll(Users)
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
     expectTypeOf<Row>().toEqualTypeOf<
-      { title: string } & {
-        id: number | null
-        email: string | null
-      }
+      Prettify<
+        { title: string } & {
+          id: number | null
+          email: string | null
+        }
+      >
     >()
   })
 
@@ -239,27 +242,31 @@ describe('joins compile', () => {
     const inner = db.from(Posts).innerJoin(Users, eq(Posts.userId, Users.id))
     type InnerRow = Awaited<ReturnType<typeof inner.execute>>[number]
     expectTypeOf<InnerRow>().toEqualTypeOf<
-      InferSelect<typeof Posts> & InferSelect<typeof Users>
+      Prettify<InferSelect<typeof Posts> & InferSelect<typeof Users>>
     >()
 
     const left = db.from(Posts).leftJoin(Users, eq(Posts.userId, Users.id))
     type LeftRow = Awaited<ReturnType<typeof left.execute>>[number]
     expectTypeOf<LeftRow>().toEqualTypeOf<
-      InferSelect<typeof Posts> & {
-        id: number | null
-        email: string | null
-      }
+      Prettify<
+        InferSelect<typeof Posts> & {
+          id: number | null
+          email: string | null
+        }
+      >
     >()
 
     const right = db.from(Posts).rightJoin(Users, eq(Posts.userId, Users.id))
     type RightRow = Awaited<ReturnType<typeof right.execute>>[number]
     expectTypeOf<RightRow>().toEqualTypeOf<
-      {
-        id: number | null
-        title: string | null
-        userId: number | null
-        score: number | null
-      } & InferSelect<typeof Users>
+      Prettify<
+        {
+          id: number | null
+          title: string | null
+          userId: number | null
+          score: number | null
+        } & InferSelect<typeof Users>
+      >
     >()
   })
 })

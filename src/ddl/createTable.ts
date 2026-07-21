@@ -1,11 +1,11 @@
 import type { CreateTableAst, Dialect } from '@/dialects'
-import type { TableHandle } from '@/types'
+import type { ReferentialAction } from '@/schemas'
 import {
   getColumnMetadata,
   getReferenceMetadata,
   isSqlNullable,
 } from '@/schemas'
-import type { ReferentialAction } from '@/schemas'
+import type { TableHandle } from '@/types'
 import { MigrationError, SchemaError } from '@/utils/error'
 
 export type ColumnReferenceAst = {
@@ -42,7 +42,7 @@ export function buildCreateTableAst(
   handle: TableHandle,
   dialect: Dialect,
 ): CreateTableAst {
-  const metadata = handle.metadata
+  const metadata = handle.getTableMetadata()
   const primaryKey = Array.isArray(metadata.primaryKey)
     ? [...metadata.primaryKey]
     : [metadata.primaryKey]
@@ -56,7 +56,7 @@ export function buildCreateTableAst(
   const columns: ColumnDefAst[] = []
 
   for (const [columnName, columnSchema] of Object.entries(
-    handle.definition.entries,
+    handle.getSchema().entries,
   )) {
     if (!columnSchema || columnSchema.kind !== 'schema') continue
 

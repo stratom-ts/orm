@@ -11,8 +11,8 @@ import {
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable, isTableHandle } from '@/defineTable'
-import type { ColumnRef, TableHandle } from '@/types'
 import { column, getReferenceMetadata, reference, table } from '@/schemas'
+import type { ColumnRef, TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { SchemaError } from '@/utils/error'
 
@@ -51,28 +51,43 @@ const UserSchema = pipe(
 )
 
 describe('defineTable', () => {
-  it('returns a table handle with name, schema, and metadata', () => {
+  it('returns a table handle with getSchema and getTableMetadata', () => {
     expect(isTableHandle(User)).toBe(true)
-    expect(User.name).toBe('users')
-    expect(User.schema).toBe('public')
-    expect(User.metadata).toMatchObject({
+    expect(User.getTableMetadata()).toMatchObject({
       kind: 'table',
       name: 'users',
       schema: 'public',
       primaryKey: 'id',
     })
-    expect(User.definition.entries.email).toBeDefined()
+    expect(User.getSchema().entries.email).toBeDefined()
   })
 
-  it('exposes column refs on the handle and under .columns', () => {
+  it('exposes column refs on the handle', () => {
     expect(User.email).toEqual({
       table: 'users',
       column: 'email',
       schema: 'public',
       __type: undefined,
     })
-    expect(User.columns.email).toEqual(User.email)
     expect(User.id.column).toBe('id')
+  })
+
+  it('allows column names that used to be reserved handle fields', () => {
+    const Named = defineTable(
+      'named',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        name: pipe(string(), column({ type: 'text' })),
+        schema: pipe(string(), column({ type: 'text' })),
+        metadata: pipe(string(), column({ type: 'text' })),
+        definition: pipe(string(), column({ type: 'text' })),
+        columns: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id' },
+    )
+    expect(Named.name.column).toBe('name')
+    expect(Named.schema.column).toBe('schema')
+    expect(Named.getTableMetadata().name).toBe('named')
   })
 
   it('supports composite primary keys and index configs', () => {
@@ -91,8 +106,11 @@ describe('defineTable', () => {
         ],
       },
     )
-    expect(Membership.metadata.primaryKey).toEqual(['orgId', 'userId'])
-    expect(Membership.metadata.indexes).toEqual([
+    expect(Membership.getTableMetadata().primaryKey).toEqual([
+      'orgId',
+      'userId',
+    ])
+    expect(Membership.getTableMetadata().indexes).toEqual([
       { name: 'memberships_role_idx', columns: ['role'] },
       { columns: ['orgId', 'role'], unique: true },
     ])
@@ -107,7 +125,7 @@ describe('defineTable', () => {
       },
       { primaryKey: 'id', indexes: ['label'] },
     )
-    expect(Tag.metadata.indexes).toEqual(['label'])
+    expect(Tag.getTableMetadata().indexes).toEqual(['label'])
   })
 
   it('throws SchemaError when primaryKey column is missing', () => {
@@ -150,13 +168,13 @@ describe('defineTable', () => {
     ).toThrow(SchemaError)
   })
 
-  it('throws SchemaError when a column name collides with a reserved handle field', () => {
+  it('throws SchemaError when a column name collides with a reserved handle method', () => {
     expect(() =>
       defineTable(
         'bad',
         {
           id: pipe(string(), column({ type: 'uuid' })),
-          name: pipe(string(), column({ type: 'text' })),
+          getSchema: pipe(string(), column({ type: 'text' })),
         },
         { primaryKey: 'id' },
       ),
@@ -166,7 +184,7 @@ describe('defineTable', () => {
         'bad',
         {
           id: pipe(string(), column({ type: 'uuid' })),
-          name: pipe(string(), column({ type: 'text' })),
+          getTableMetadata: pipe(string(), column({ type: 'text' })),
         },
         { primaryKey: 'id' },
       ),
@@ -208,7 +226,7 @@ describe('reference with FK actions', () => {
       },
       { primaryKey: 'id' },
     )
-    const meta = getReferenceMetadata(Post.definition.entries.authorId)
+    const meta = getReferenceMetadata(Post.getSchema().entries.authorId)
     expect(meta).toMatchObject({
       kind: 'reference',
       schema: 'public',
@@ -228,7 +246,7 @@ describe('reference with FK actions', () => {
       },
       { primaryKey: 'id' },
     )
-    const meta = getReferenceMetadata(Post.definition.entries.authorId)
+    const meta = getReferenceMetadata(Post.getSchema().entries.authorId)
     expect(meta?.table).toBe('users')
     expect(meta?.onDelete).toBe('set null')
   })

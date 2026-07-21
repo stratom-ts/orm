@@ -1,7 +1,8 @@
+import type { TableSchema } from '@/schemas'
+import type { Prettify } from '@/types/prettify'
 import type { InferOutput } from 'valibot'
 import type { AnySchema } from './schema'
 import type { ColumnRef } from './tableHandle'
-import type { TableSchema } from '@/schemas'
 
 type DBType<T> = T extends undefined ? never : T
 
@@ -156,8 +157,8 @@ export type InferUpdateFromSchema<S extends TableSchema> = {
       : K]?: InsertColumnValue<S['entries'][K]>
 }
 
-/** Resolve a table schema from a handle (`definition`) or raw Valibot table schema. */
-type SchemaOf<T> = T extends { definition: infer D }
+/** Resolve a table schema from a handle (`getSchema`) or raw Valibot table schema. */
+type SchemaOf<T> = T extends { getSchema(): infer D }
   ? D extends TableSchema
     ? D
     : never
@@ -170,21 +171,21 @@ type SchemaOf<T> = T extends { definition: infer D }
  */
 export type InferSelect<T> = [SchemaOf<T>] extends [never]
   ? never
-  : InferSelectFromSchema<SchemaOf<T>>
+  : Prettify<InferSelectFromSchema<SchemaOf<T>>>
 
 /**
  * Insert input type for a table handle or Valibot table schema.
  */
 export type InferInsert<T> = [SchemaOf<T>] extends [never]
   ? never
-  : InferInsertFromSchema<SchemaOf<T>>
+  : Prettify<InferInsertFromSchema<SchemaOf<T>>>
 
 /**
  * Update patch type for a table handle or Valibot table schema.
  */
 export type InferUpdate<T> = [SchemaOf<T>] extends [never]
   ? never
-  : InferUpdateFromSchema<SchemaOf<T>>
+  : Prettify<InferUpdateFromSchema<SchemaOf<T>>>
 
 /** Column name from a `ColumnRef` or string literal used in select/returning lists. */
 type SelectedColumnName<C> =
@@ -194,8 +195,12 @@ type SelectedColumnName<C> =
       ? C
       : never
 
-/** Table name on a handle (`name`) when available. */
-type TableNameOf<T> = T extends { name: infer N extends string } ? N : never
+/** Table name on a handle (`getTableMetadata().name`) when available. */
+export type TableNameOf<T> = T extends {
+  getTableMetadata(): { name: infer N extends string }
+}
+  ? N
+  : never
 
 /** Every field of `T` widened with `| null` (outer-join side). */
 export type NullableFields<T> = {
