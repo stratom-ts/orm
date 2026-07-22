@@ -178,4 +178,21 @@ describe('registry and from()', () => {
       }),
     ).toThrow(SchemaError)
   })
+
+  it('should resolve dialect from connector.dialect', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const compiled = db.from(Users).compile()
+    expect(compiled.sql).toContain('"public"')
+    expect(compiled.sql).toContain('"users"')
+  })
+
+  it('should reject unsupported connector dialects', () => {
+    const connector = createMockConnector()
+    ;(connector as { dialect: string }).dialect = 'sqlite'
+    expect(() => createDb({ connector, schemas: [] })).toThrow(SchemaError)
+    expect(() => createDb({ connector, schemas: [] })).toThrow(
+      /unsupported connector dialect/i,
+    )
+  })
 })
