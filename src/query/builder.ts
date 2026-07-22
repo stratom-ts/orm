@@ -30,14 +30,7 @@ import { QueryError } from '@/utils/error'
 
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
-import {
-  and,
-  cmp,
-  columnName,
-  columnTable,
-  eb,
-  toQualified,
-} from './expressions'
+import { and, cmp, columnName, columnTable, eb, toQualified } from './expressions'
 import type { ValueMapper } from './mapping'
 
 /** Result when a write runs without `returning`. */
@@ -74,11 +67,7 @@ function mapJoinsParams(
   }))
 }
 
-function toJoinAst(
-  type: JoinAst['type'],
-  table: TableHandle,
-  on: JoinOnInput,
-): JoinAst {
+function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): JoinAst {
   const info = table.getTableMetadata()
   return {
     type,
@@ -121,9 +110,7 @@ function mergeWhere(
   return existing ? and(existing, next) : next
 }
 
-function resolveReturningColumns(
-  columns: readonly (ColumnRef | string)[],
-): string[] {
+function resolveReturningColumns(columns: readonly (ColumnRef | string)[]): string[] {
   return columns.map((c) => columnName(c))
 }
 
@@ -153,11 +140,7 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
         return { kind: 'column', column: item }
       }
       if (typeof item === 'object' && item !== null && 'kind' in item) {
-        if (
-          item.kind === 'all' ||
-          item.kind === 'column' ||
-          item.kind === 'expr'
-        ) {
+        if (item.kind === 'all' || item.kind === 'column' || item.kind === 'expr') {
           return item as SelectItemAst
         }
       }
@@ -262,8 +245,7 @@ async function runQuery<T>(
   } catch (cause) {
     if (cause instanceof QueryError) throw cause
     throw new QueryError({
-      message:
-        cause instanceof Error ? cause.message : 'Query execution failed',
+      message: cause instanceof Error ? cause.message : 'Query execution failed',
       cause,
     })
   }
@@ -288,8 +270,7 @@ async function runWrite(
   } catch (cause) {
     if (cause instanceof QueryError) throw cause
     throw new QueryError({
-      message:
-        cause instanceof Error ? cause.message : 'Query execution failed',
+      message: cause instanceof Error ? cause.message : 'Query execution failed',
       cause,
     })
   }
@@ -320,9 +301,7 @@ export type InsertBuilder<
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
   >
-  executeTakeFirstOrThrow(): Promise<
-    TResult extends WriteResult ? WriteResult : TResult
-  >
+  executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
 export function createInsertBuilder<THandle extends TableHandle>(options: {
@@ -372,8 +351,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
 
   const compile = () => dialect.compile(buildAst())
 
-  const execute = async () =>
-    runWrite(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
   const executeTakeFirst = async () => {
     const result = await execute()
@@ -386,10 +364,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
-      return takeFirstOrThrow(
-        result as unknown[],
-        'No rows returned from insert',
-      )
+      return takeFirstOrThrow(result as unknown[], 'No rows returned from insert')
     }
     return result
   }
@@ -462,15 +437,11 @@ export type UpdateBuilder<
     columns: TCols,
   ): UpdateBuilder<THandle, InferSelectedColumns<THandle, TCols>>
   compile(): CompiledQuery
-  execute(): Promise<
-    Prettify<TResult extends WriteResult ? WriteResult : TResult>[]
-  >
+  execute(): Promise<Prettify<TResult extends WriteResult ? WriteResult : TResult>[]>
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
   >
-  executeTakeFirstOrThrow(): Promise<
-    TResult extends WriteResult ? WriteResult : TResult
-  >
+  executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
 export function createUpdateBuilder<THandle extends TableHandle>(options: {
@@ -483,16 +454,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   allowAll: boolean
   returning?: ReturningAst
 }): UpdateBuilder<THandle, unknown> {
-  const {
-    handle,
-    dialect,
-    executor,
-    mapper,
-    patch,
-    where,
-    allowAll,
-    returning,
-  } = options
+  const { handle, dialect, executor, mapper, patch, where, allowAll, returning } = options
 
   const buildAst = (): UpdateAst => {
     const info = handle.getTableMetadata()
@@ -519,8 +481,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
 
   const compile = () => dialect.compile(buildAst())
 
-  const execute = async () =>
-    runWrite(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
   const executeTakeFirst = async () => {
     const result = await execute()
@@ -531,10 +492,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
-      return takeFirstOrThrow(
-        result as unknown[],
-        'No rows returned from update',
-      )
+      return takeFirstOrThrow(result as unknown[], 'No rows returned from update')
     }
     return result
   }
@@ -635,9 +593,7 @@ export type DeleteBuilder<
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
   >
-  executeTakeFirstOrThrow(): Promise<
-    TResult extends WriteResult ? WriteResult : TResult
-  >
+  executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
 export function createDeleteBuilder<THandle extends TableHandle>(options: {
@@ -649,8 +605,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   allowAll: boolean
   returning?: ReturningAst
 }): DeleteBuilder<THandle, unknown> {
-  const { handle, dialect, executor, mapper, where, allowAll, returning } =
-    options
+  const { handle, dialect, executor, mapper, where, allowAll, returning } = options
 
   const buildAst = (): DeleteAst => {
     const info = handle.getTableMetadata()
@@ -671,8 +626,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
 
   const compile = () => dialect.compile(buildAst())
 
-  const execute = async () =>
-    runWrite(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
   const executeTakeFirst = async () => {
     const result = await execute()
@@ -683,10 +637,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
-      return takeFirstOrThrow(
-        result as unknown[],
-        'No rows returned from delete',
-      )
+      return takeFirstOrThrow(result as unknown[], 'No rows returned from delete')
     }
     return result
   }
@@ -769,11 +720,7 @@ export type SelectBuilder<
 > = {
   selectAll(): SelectBuilder<
     THandle,
-    MergeSelection<
-      HasSelection,
-      TResult,
-      InferSelectAllSide<THandle, TNullable>
-    >,
+    MergeSelection<HasSelection, TResult, InferSelectAllSide<THandle, TNullable>>,
     true,
     TNullable
   >
@@ -823,9 +770,7 @@ export type SelectBuilder<
     direction?: 'asc' | 'desc',
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
   limit(count: number): SelectBuilder<THandle, TResult, HasSelection, TNullable>
-  offset(
-    count: number,
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  offset(count: number): SelectBuilder<THandle, TResult, HasSelection, TNullable>
   groupBy(
     columns: readonly (ColumnRef | string)[] | ColumnRef | string,
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
@@ -855,9 +800,7 @@ export type SelectBuilder<
     on: JoinOnInput,
   ): SelectBuilder<
     THandle,
-    HasSelection extends true
-      ? TResult
-      : RightJoinStarResult<THandle, TResult, TSide>,
+    HasSelection extends true ? TResult : RightJoinStarResult<THandle, TResult, TSide>,
     HasSelection,
     TNullable | TableNameOf<THandle>
   >
@@ -893,14 +836,11 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
       kind: 'select',
       table: info.name,
       ...(info.schema !== undefined ? { schema: info.schema } : {}),
-      selection:
-        state.selection.length === 0 ? [{ kind: 'all' }] : state.selection,
+      selection: state.selection.length === 0 ? [{ kind: 'all' }] : state.selection,
       ...(state.joins.length > 0
         ? { joins: mapJoinsParams(handle, mapper, state.joins) }
         : {}),
-      ...(state.where
-        ? { where: mapPredicateParams(handle, mapper, state.where) }
-        : {}),
+      ...(state.where ? { where: mapPredicateParams(handle, mapper, state.where) } : {}),
       ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
       ...(state.limit !== undefined ? { limit: state.limit } : {}),
       ...(state.offset !== undefined ? { offset: state.offset } : {}),
@@ -931,8 +871,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
 
   const compile = () => dialect.compile(buildAst())
 
-  const execute = async () =>
-    runQuery(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => runQuery(dialect, executor, handle, mapper, buildAst())
 
   const executeTakeFirst = async () => {
     const rows = (await execute()) as unknown[]
@@ -1002,9 +941,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
         ],
       }) as never
     },
-    having(
-      input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
-    ) {
+    having(input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)) {
       const pred = typeof input === 'function' ? input(eb) : input
       return next({
         having: state.having ? and(state.having, pred) : pred,
@@ -1068,12 +1005,7 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   innerJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
-  ): SelectBuilder<
-    THandle,
-    InferSelect<THandle> & InferSelect<TSide>,
-    false,
-    never
-  >
+  ): SelectBuilder<THandle, InferSelect<THandle> & InferSelect<TSide>, false, never>
   leftJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
@@ -1107,12 +1039,8 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
   ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
-  limit(
-    count: number,
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
-  offset(
-    count: number,
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
+  limit(count: number): SelectBuilder<THandle, InferSelect<THandle>, false, never>
+  offset(count: number): SelectBuilder<THandle, InferSelect<THandle>, false, never>
   groupBy(
     columns: readonly (ColumnRef | string)[] | ColumnRef | string,
   ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
@@ -1130,9 +1058,7 @@ function emptySelectState(): SelectState {
   }
 }
 
-/**
- * Creates a table-scoped query builder (select + insert/update/delete).
- */
+/** Creates a table-scoped query builder (select + insert/update/delete). */
 export function createTableBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
@@ -1163,9 +1089,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     compile: () => defaultSelect.compile(),
     execute: () => defaultSelect.execute() as Promise<InferSelect<THandle>[]>,
     executeTakeFirst: () =>
-      defaultSelect.executeTakeFirst() as Promise<
-        InferSelect<THandle> | undefined
-      >,
+      defaultSelect.executeTakeFirst() as Promise<InferSelect<THandle> | undefined>,
     executeTakeFirstOrThrow: () =>
       defaultSelect.executeTakeFirstOrThrow() as Promise<InferSelect<THandle>>,
     selectAll(tableHandle?: TableHandle) {
@@ -1184,9 +1108,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
       return rootSelect().rightJoin(table, on) as never
     },
     where(...args: unknown[]) {
-      return (rootSelect().where as (...a: unknown[]) => SelectBuilder)(
-        ...args,
-      ) as never
+      return (rootSelect().where as (...a: unknown[]) => SelectBuilder)(...args) as never
     },
     orderBy(column, direction) {
       return rootSelect().orderBy(column, direction) as never
@@ -1200,17 +1122,13 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     groupBy(columns) {
       return rootSelect().groupBy(columns) as never
     },
-    having(
-      input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
-    ) {
+    having(input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)) {
       return rootSelect().having(input as never) as never
     },
   }
 }
 
-/**
- * @deprecated Use {@link createTableBuilder}. Kept for compatibility.
- */
+/** @deprecated Use {@link createTableBuilder}. Kept for compatibility. */
 export function createSelectAllBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect

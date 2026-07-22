@@ -10,9 +10,7 @@ export type Executor = {
   run(query: CompiledQuery): Promise<void>
 }
 
-/**
- * Runs parameterized SQL through a db0 database instance.
- */
+/** Runs parameterized SQL through a db0 database instance. */
 export function createDb0Executor(database: Database): Executor {
   const runPrepared = async (query: CompiledQuery) => {
     const statement = database.prepare(query.sql)
@@ -29,8 +27,7 @@ export function createDb0Executor(database: Database): Executor {
         return await statement.all()
       } catch (cause) {
         throw new QueryError({
-          message:
-            cause instanceof Error ? cause.message : 'Query execution failed',
+          message: cause instanceof Error ? cause.message : 'Query execution failed',
           cause,
         })
       }
@@ -42,10 +39,7 @@ export function createDb0Executor(database: Database): Executor {
         await statement.run()
       } catch (cause) {
         throw new QueryError({
-          message:
-            cause instanceof Error
-              ? cause.message
-              : 'Statement execution failed',
+          message: cause instanceof Error ? cause.message : 'Statement execution failed',
           cause,
         })
       }

@@ -5,9 +5,7 @@ import type { TableMetadata, TableSchema } from '@/schemas'
 /** Runtime brand for table handles returned by `defineTable`. */
 export const TABLE_HANDLE = Symbol.for('stratom.TableHandle')
 
-/**
- * Stable typed reference to a table column (for where/select/join/orderBy).
- */
+/** Stable typed reference to a table column (for where/select/join/orderBy). */
 export type ColumnRef<
   TTable extends string = string,
   TColumn extends string = string,
@@ -34,9 +32,7 @@ export type ColumnRefsOf<S extends TableSchema> = {
   >
 }
 
-/**
- * Table handle produced by `defineTable` — the unit accepted by `createDb` / `db.from`.
- */
+/** Table handle produced by `defineTable` — the unit accepted by `createDb` / `db.from`. */
 export type TableHandle<S extends TableSchema = TableSchema> = {
   readonly [TABLE_HANDLE]: true
   /** Underlying Valibot table schema (source of validation + column metadata). */

@@ -1,10 +1,6 @@
 import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 
-import {
-  getBaseSchema,
-  getNumberConstraints,
-  getStringConstraints,
-} from '@/schemas'
+import { getBaseSchema, getNumberConstraints, getStringConstraints } from '@/schemas'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
@@ -47,7 +43,8 @@ type IntrospectExecutor = {
  * length — `char` is blank-padded with surprising comparison semantics, so an
  * exact-length column is better expressed as `varchar(n)`.
  *
- * @param constraints - min/max length from the schema pipe
+ * @param constraints - Min/max length from the schema pipe.
+ *
  * @returns `varchar(n)` or `text`
  */
 function inferPostgresStringType(constraints: StringConstraints): SqlDataType {
@@ -71,7 +68,8 @@ const INT32_MAX = 2147483647
  * only when both bounds sit inside the int16 range, and widens to `bigint` only
  * when a declared bound falls outside the int32 range.
  *
- * @param constraints - min/max value and integer flags
+ * @param constraints - Min/max value and integer flags.
+ *
  * @returns `smallint`, `integer`, `bigint`, or `double precision`
  */
 function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
@@ -79,10 +77,7 @@ function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
 
   const { minValue: min, maxValue: max } = constraints
 
-  if (
-    (isNumber(min) && min < INT32_MIN) ||
-    (isNumber(max) && max > INT32_MAX)
-  ) {
+  if ((isNumber(min) && min < INT32_MIN) || (isNumber(max) && max > INT32_MAX)) {
     return 'bigint'
   }
   if (isNumber(min) && min >= INT16_MIN && isNumber(max) && max <= INT16_MAX) {
@@ -94,7 +89,8 @@ function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
 /**
  * Maps a Valibot literal value to a PostgreSQL column type.
  *
- * @param literal - Literal value from the schema
+ * @param literal - Literal value from the schema.
+ *
  * @returns Inferred column type for the literal
  */
 function inferPostgresLiteralType(literal: Literal) {
@@ -122,14 +118,15 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
 /**
  * Infers a PostgreSQL column type from a Valibot schema.
  *
- * @param schema - Column schema (may be wrapped or piped)
- * @returns PostgreSQL column data type
- *
  * @example
- * ```ts
- * inferPostgresColumnType(string()) // 'text'
- * inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
- * ```
+ *   ;```ts
+ *   inferPostgresColumnType(string()) // 'text'
+ *   inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
+ *   ```
+ *
+ * @param schema - Column schema (may be wrapped or piped)
+ *
+ * @returns PostgreSQL column data type
  */
 export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
   const baseSchema = getBaseSchema(schema)
@@ -174,6 +171,7 @@ export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
  * Normalizes PostgreSQL type names and aliases for comparison.
  *
  * @param dataType - Raw type string (e.g. `int4`, `character varying`)
+ *
  * @returns Canonical type (e.g. `integer`, `varchar`)
  */
 function normalizePostgresDataType(dataType: string): string {
@@ -252,19 +250,14 @@ function formatPostgresCatalogDataType(row: ColumnRow): string {
   const precision = toNumberOrNull(row.numeric_precision)
   const scale = toNumberOrNull(row.numeric_scale)
 
-  if (
-    dataType === 'character varying' ||
-    dataType === 'varchar' ||
-    udt === 'varchar'
-  ) {
+  if (dataType === 'character varying' || dataType === 'varchar' || udt === 'varchar') {
     return maxLen !== null ? `varchar(${maxLen})` : 'varchar'
   }
   if (dataType === 'character' || dataType === 'char' || udt === 'bpchar') {
     return maxLen !== null ? `char(${maxLen})` : 'char'
   }
   if (dataType === 'numeric' || dataType === 'decimal') {
-    if (precision !== null && scale !== null)
-      return `numeric(${precision},${scale})`
+    if (precision !== null && scale !== null) return `numeric(${precision},${scale})`
     if (precision !== null) return `numeric(${precision})`
     return 'numeric'
   }
@@ -323,9 +316,7 @@ function isTruthyFlag(value: unknown): boolean {
   return false
 }
 
-/**
- * PostgreSQL dialect plugin for the db0 stack.
- */
+/** PostgreSQL dialect plugin for the db0 stack. */
 export const postgresDialect: Dialect = {
   id: 'postgres',
 
@@ -415,10 +406,7 @@ export const postgresDialect: Dialect = {
     }
 
     for (const row of columnRows) {
-      if (
-        typeof row.table_name !== 'string' ||
-        typeof row.column_name !== 'string'
-      ) {
+      if (typeof row.table_name !== 'string' || typeof row.column_name !== 'string') {
         continue
       }
       const schema = typeof row.schema === 'string' ? row.schema : 'public'
@@ -445,10 +433,7 @@ export const postgresDialect: Dialect = {
     }
 
     for (const row of indexRows) {
-      if (
-        typeof row.table_name !== 'string' ||
-        typeof row.index_name !== 'string'
-      ) {
+      if (typeof row.table_name !== 'string' || typeof row.index_name !== 'string') {
         continue
       }
       const schema = typeof row.schema === 'string' ? row.schema : 'public'
@@ -573,13 +558,8 @@ function postgresBaseType(dataType: string): string {
     .trim()
 }
 
-/**
- * Default Postgres → JS mapping for common result types.
- */
-export function mapPostgresResultValue(
-  dataType: string,
-  value: unknown,
-): unknown {
+/** Default Postgres → JS mapping for common result types. */
+export function mapPostgresResultValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
   const base = postgresBaseType(dataType)
 
@@ -610,13 +590,8 @@ export function mapPostgresResultValue(
   return value
 }
 
-/**
- * Default JS → Postgres param mapping for common types.
- */
-export function mapPostgresParamValue(
-  dataType: string,
-  value: unknown,
-): unknown {
+/** Default JS → Postgres param mapping for common types. */
+export function mapPostgresParamValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
   const base = postgresBaseType(dataType)
 
@@ -641,10 +616,7 @@ function quoteIdent(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
 }
 
-function qualifyPostgresTable(
-  schema: string | undefined,
-  table: string,
-): string {
+function qualifyPostgresTable(schema: string | undefined, table: string): string {
   // Always qualify so default public and explicit public match.
   const schemaName = schema ?? 'public'
   return `${quoteIdent(schemaName)}.${quoteIdent(table)}`
@@ -700,14 +672,12 @@ function compilePredicate(pred: PredicateAst, params: unknown[]): string {
     }
     case 'and': {
       if (pred.preds.length === 0) return 'true'
-      if (pred.preds.length === 1)
-        return compilePredicate(pred.preds[0]!, params)
+      if (pred.preds.length === 1) return compilePredicate(pred.preds[0]!, params)
       return `(${pred.preds.map((p) => compilePredicate(p, params)).join(' and ')})`
     }
     case 'or': {
       if (pred.preds.length === 0) return 'false'
-      if (pred.preds.length === 1)
-        return compilePredicate(pred.preds[0]!, params)
+      if (pred.preds.length === 1) return compilePredicate(pred.preds[0]!, params)
       return `(${pred.preds.map((p) => compilePredicate(p, params)).join(' or ')})`
     }
     case 'not':
@@ -719,10 +689,7 @@ function compilePredicate(pred: PredicateAst, params: unknown[]): string {
   }
 }
 
-function compileWhereClause(
-  where: PredicateAst | undefined,
-  params: unknown[],
-): string {
+function compileWhereClause(where: PredicateAst | undefined, params: unknown[]): string {
   if (!where) return ''
   return ` where ${compilePredicate(where, params)}`
 }
@@ -946,6 +913,7 @@ const ALLOWED_DEFAULT_EXPRESSIONS = new Set([
 
 /**
  * Validates and returns a safe SQL type fragment for DDL.
+ *
  * @throws Error when the type is not on the Postgres allowlist
  */
 export function assertSafePostgresDataType(dataType: string): string {
@@ -979,13 +947,12 @@ export function assertSafePostgresDataType(dataType: string): string {
 
 /**
  * Formats a column default for DDL.
- * - number / boolean / null → SQL literals
- * - allowlisted expressions (`now()`, `gen_random_uuid()`, …) → raw SQL
- * - other strings → single-quoted literals (escaped)
+ *
+ * - Number / boolean / null → SQL literals
+ * - Allowlisted expressions (`now()`, `gen_random_uuid()`, …) → raw SQL
+ * - Other strings → single-quoted literals (escaped)
  */
-export function formatPostgresDefault(
-  value: string | number | boolean | null,
-): string {
+export function formatPostgresDefault(value: string | number | boolean | null): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') {
@@ -1035,10 +1002,7 @@ function compileColumnDefinition(col: CreateTableColumnAst): string {
   }
 
   if (col.references) {
-    const refTable = qualifyPostgresTable(
-      col.references.schema,
-      col.references.table,
-    )
+    const refTable = qualifyPostgresTable(col.references.schema, col.references.table)
     const refCol = quoteIdent(col.references.column)
     let ref = `references ${refTable} (${refCol})`
     if (col.references.onDelete) {
@@ -1077,19 +1041,12 @@ function compileCreateTable(node: CreateTableAst): string {
       parts.push('primary key')
       if (col.unique) parts.push('unique')
 
-      if (
-        col.defaultValue !== undefined &&
-        !col.generated &&
-        !col.autoIncrement
-      ) {
+      if (col.defaultValue !== undefined && !col.generated && !col.autoIncrement) {
         parts.push(`default ${formatPostgresDefault(col.defaultValue)}`)
       }
 
       if (col.references) {
-        const refTable = qualifyPostgresTable(
-          col.references.schema,
-          col.references.table,
-        )
+        const refTable = qualifyPostgresTable(col.references.schema, col.references.table)
         const refCol = quoteIdent(col.references.column)
         let ref = `references ${refTable} (${refCol})`
         if (col.references.onDelete) {
@@ -1107,9 +1064,7 @@ function compileCreateTable(node: CreateTableAst): string {
   })
 
   if (primaryKey.length > 1) {
-    columnSql.push(
-      `primary key (${primaryKey.map((c) => quoteIdent(c)).join(', ')})`,
-    )
+    columnSql.push(`primary key (${primaryKey.map((c) => quoteIdent(c)).join(', ')})`)
   }
 
   return `create table ${tableSql} (${columnSql.join(', ')})`

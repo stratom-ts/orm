@@ -37,10 +37,5 @@ export {
   sum,
   upper,
 } from '@/query'
-export type {
-  MigrateBuilder,
-  MigrationAllow,
-  MigrationPlan,
-  MigrationStep,
-} from '@/ddl'
+export type { MigrateBuilder, MigrationAllow, MigrationPlan, MigrationStep } from '@/ddl'
 export { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from '@/ddl'

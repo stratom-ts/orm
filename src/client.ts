@@ -37,7 +37,7 @@ export type { TableHandle } from '@/types'
 export type CreateDbConfig<
   TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 > = {
-  /** db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
+  /** Db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
   connector: Connector
   /** Registered table handles; may be empty. */
   schemas: TSchemas
@@ -54,65 +54,54 @@ export type CreateDbConfig<
  * Stratom client: owns the db0 database lifecycle and table registry.
  * Transaction clients (`trx`) share the same surface for from/transaction.
  */
-export type Db<
-  TSchemas extends readonly TableHandle[] = readonly TableHandle[],
-> = {
+export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
   /** Registered table handles from `createDb`. */
   readonly schemas: TSchemas
-  /**
-   * Trivial connectivity check (`SELECT 1` via the owned db0 instance).
-   */
+  /** Trivial connectivity check (`SELECT 1` via the owned db0 instance). */
   ping(): Promise<void>
-  /**
-   * Start a query rooted on a registered table handle.
-   */
+  /** Start a query rooted on a registered table handle. */
   from<THandle extends TableHandle>(handle: THandle): QueryBuilder<THandle>
   /**
    * Insert rows into a registered table.
    *
    * @example
-   * ```ts
-   * await db.insert(User).values({ name: 'Alice' }).executeTakeFirstOrThrow()
-   * ```
+   *   ;```ts
+   *   await db.insert(User).values({ name: 'Alice' }).executeTakeFirstOrThrow()
+   *   ```
    */
-  insert<THandle extends TableHandle>(
-    handle: THandle,
-  ): InsertValuesBuilder<THandle>
+  insert<THandle extends TableHandle>(handle: THandle): InsertValuesBuilder<THandle>
   /**
    * Update rows in a registered table.
    *
    * @example
-   * ```ts
-   * await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
-   * ```
+   *   ;```ts
+   *   await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
+   *   ```
    */
-  update<THandle extends TableHandle>(
-    handle: THandle,
-  ): UpdateSetBuilder<THandle>
+  update<THandle extends TableHandle>(handle: THandle): UpdateSetBuilder<THandle>
   /**
    * Delete rows from a registered table.
    * Returns all deleted rows by default.
    *
    * @example
-   * ```ts
-   * const deleted = await db.delete(User).where(User.id, 'eq', 1).executeTakeFirstOrThrow()
-   * ```
+   *   ;```ts
+   *   const deleted = await db
+   *     .delete(User)
+   *     .where(User.id, 'eq', 1)
+   *     .executeTakeFirstOrThrow()
+   *   ```
    */
   delete<THandle extends TableHandle>(
     handle: THandle,
   ): DeleteBuilder<THandle, InferSelect<THandle>>
-  /**
-   * Desired-state migrations for registered table handles.
-   */
+  /** Desired-state migrations for registered table handles. */
   migrate(): MigrateBuilder
   /**
    * Callback transaction: commits on success, rolls back on error.
    * Nested calls use SAVEPOINT / ROLLBACK TO / RELEASE.
    */
   transaction<T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T>
-  /**
-   * Releases underlying connection resources. Idempotent after first call.
-   */
+  /** Releases underlying connection resources. Idempotent after first call. */
   close(): Promise<void>
   [Symbol.asyncDispose](): Promise<void>
 }
@@ -142,22 +131,23 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  * Stratom calls `createDatabase(connector)` and owns that instance.
  * No auto-migrate; no Kysely.
  *
- * @param config - Connector and registered schemas
- * @returns Client with registry, `from`, `transaction`, `ping`, `close`
- *
  * @example
- * ```ts
- * import { postgresql } from 'db0/connectors/postgresql'
+ *   ;```ts
+ *   import { postgresql } from 'db0/connectors/postgresql'
  *
- * const db = createDb({
+ *   const db = createDb({
  *   connector: postgresql({ url: process.env.DATABASE_URL! }),
  *   schemas: [User],
- * })
- * await db.transaction(async (trx) => {
+ *   })
+ *   await db.transaction(async (trx) => {
  *   await trx.insert(User).values({ ... }).execute()
- * })
- * await db.close()
- * ```
+ *   })
+ *   await db.close()
+ *   ```
+ *
+ * @param config - Connector and registered schemas.
+ *
+ * @returns Client with registry, `from`, `transaction`, `ping`, `close`
  */
 export function createDb<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],
@@ -197,16 +187,13 @@ export function createDb<
       await database.sql`select 1`
     } catch (cause) {
       throw new QueryError({
-        message:
-          cause instanceof Error ? cause.message : 'Connectivity check failed',
+        message: cause instanceof Error ? cause.message : 'Connectivity check failed',
         cause,
       })
     }
   }
 
-  const createClient = (
-    executor: ReturnType<typeof createDb0Executor>,
-  ): Db<TSchemas> => {
+  const createClient = (executor: ReturnType<typeof createDb0Executor>): Db<TSchemas> => {
     const from = <THandle extends TableHandle>(
       handle: THandle,
     ): QueryBuilder<THandle> => {
@@ -319,9 +306,7 @@ export function createDb<
       return createMigrateBuilder({ schemas, dialect, executor })
     }
 
-    const transaction = async <T>(
-      fn: (trx: Db<TSchemas>) => Promise<T>,
-    ): Promise<T> => {
+    const transaction = async <T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T> => {
       ensureOpen()
       const isOuter = txDepth === 0
       const savepointName = isOuter ? undefined : `sp_${txDepth}`

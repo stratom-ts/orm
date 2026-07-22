@@ -70,7 +70,7 @@ type HasDefaultValue<S> = [ColumnMetaOf<S>] extends [never]
         : true
     : false
 
-/** optional / nullish → omit-on-insert (not necessarily SQL NULL). */
+/** Optional / nullish → omit-on-insert (not necessarily SQL NULL). */
 type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }
   ? true
   : S extends { kind: 'schema'; type: 'nullish' }
@@ -139,18 +139,14 @@ type OptionalInsertKeys<S extends TableSchema> = {
       : never
 }[keyof S['entries']]
 
-/**
- * Insert view: omit always-generated; optional defaults / byDefault / optional wrappers.
- */
+/** Insert view: omit always-generated; optional defaults / byDefault / optional wrappers. */
 export type InferInsertFromSchema<S extends TableSchema> = {
   [K in RequiredInsertKeys<S>]-?: InsertColumnValue<S['entries'][K]>
 } & {
   [K in OptionalInsertKeys<S>]?: InsertColumnValue<S['entries'][K]>
 }
 
-/**
- * Update view: partial patch; omit readonly and always-generated columns.
- */
+/** Update view: partial patch; omit readonly and always-generated columns. */
 export type InferUpdateFromSchema<S extends TableSchema> = {
   [K in keyof S['entries'] as IsGeneratedAlways<S['entries'][K]> extends true
     ? never
@@ -168,34 +164,24 @@ type SchemaOf<T> = T extends { getSchema(): infer D }
     ? T
     : never
 
-/**
- * Select row type for a table handle or Valibot table schema.
- */
+/** Select row type for a table handle or Valibot table schema. */
 export type InferSelect<T> = [SchemaOf<T>] extends [never]
   ? never
   : Prettify<InferSelectFromSchema<SchemaOf<T>>>
 
-/**
- * Insert input type for a table handle or Valibot table schema.
- */
+/** Insert input type for a table handle or Valibot table schema. */
 export type InferInsert<T> = [SchemaOf<T>] extends [never]
   ? never
   : Prettify<InferInsertFromSchema<SchemaOf<T>>>
 
-/**
- * Update patch type for a table handle or Valibot table schema.
- */
+/** Update patch type for a table handle or Valibot table schema. */
 export type InferUpdate<T> = [SchemaOf<T>] extends [never]
   ? never
   : Prettify<InferUpdateFromSchema<SchemaOf<T>>>
 
 /** Column name from a `ColumnRef` or string literal used in select/returning lists. */
 type SelectedColumnName<C> =
-  C extends ColumnRef<string, infer N extends string>
-    ? N
-    : C extends string
-      ? C
-      : never
+  C extends ColumnRef<string, infer N extends string> ? N : C extends string ? C : never
 
 /** Table name on a handle (`getTableMetadata().name`) when available. */
 export type TableNameOf<T> = T extends {
@@ -238,11 +224,7 @@ type SelectedColumnValue<T, C, TNullable extends string = never> =
   C extends ColumnRef<infer TTable, string, unknown>
     ? MaybeJoinNullable<SelectedColumnBaseValue<T, C>, TTable, TNullable>
     : C extends string
-      ? MaybeJoinNullable<
-          SelectedColumnBaseValue<T, C>,
-          TableNameOf<T>,
-          TNullable
-        >
+      ? MaybeJoinNullable<SelectedColumnBaseValue<T, C>, TableNameOf<T>, TNullable>
       : never
 
 /**

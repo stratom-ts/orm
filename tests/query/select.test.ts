@@ -59,8 +59,7 @@ function createMockConnector(options?: {
     prepare: (sql: string) => {
       prepared.push(sql)
       const base =
-        options?.onPrepare?.(sql) ??
-        createMockStatement(options?.rowsBySql?.(sql) ?? [])
+        options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
       return {
         bind(...params: unknown[]) {
           binds.push(params)
@@ -166,10 +165,7 @@ describe('select compile', () => {
     const composed = db
       .from(Users)
       .where(
-        and(
-          eq(Users.active, true),
-          or(gt(Users.score, 10), not(eq(Users.email, 'x'))),
-        ),
+        and(eq(Users.active, true), or(gt(Users.score, 10), not(eq(Users.email, 'x')))),
       )
       .compile()
     expect(composed.sql.toLowerCase()).toMatch(/and/)
@@ -268,9 +264,7 @@ describe('select execute terminals', () => {
 
     const db = createDb({ connector, schemas: [Users] })
     await expect(db.from(Users).executeTakeFirst()).resolves.toEqual(rows[0])
-    await expect(db.from(Users).executeTakeFirstOrThrow()).resolves.toEqual(
-      rows[0],
-    )
+    await expect(db.from(Users).executeTakeFirstOrThrow()).resolves.toEqual(rows[0])
 
     await db.close()
   })
@@ -279,9 +273,9 @@ describe('select execute terminals', () => {
     const connector = createMockConnector({ rowsBySql: () => [] })
     const db = createDb({ connector, schemas: [Users] })
 
-    await expect(
-      db.from(Users).executeTakeFirstOrThrow(),
-    ).rejects.toBeInstanceOf(QueryError)
+    await expect(db.from(Users).executeTakeFirstOrThrow()).rejects.toBeInstanceOf(
+      QueryError,
+    )
 
     await db.close()
   })

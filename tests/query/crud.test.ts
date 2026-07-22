@@ -47,8 +47,7 @@ function createMockConnector(options?: {
     prepare: (sql: string) => {
       prepared.push(sql)
       const base =
-        options?.onPrepare?.(sql) ??
-        createMockStatement(options?.rowsBySql?.(sql) ?? [])
+        options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
       return {
         bind(...params: unknown[]) {
           binds.push(params)
@@ -210,9 +209,7 @@ describe('CRUD safety and validation', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
 
-    expect(() => db.update(Users).set({ displayName: 'x' }).compile()).toThrow(
-      QueryError,
-    )
+    expect(() => db.update(Users).set({ displayName: 'x' }).compile()).toThrow(QueryError)
 
     expect(() => db.update(Users).set({ displayName: 'x' }).compile()).toThrow(
       /where|\.all\(\)/i,
@@ -421,10 +418,7 @@ describe('CRUD integration (Postgres)', () => {
           email: 'crud@test.com',
         })
 
-        const deleted = await db
-          .delete(Users)
-          .where({ email: 'crud@test.com' })
-          .execute()
+        const deleted = await db.delete(Users).where({ email: 'crud@test.com' }).execute()
         expect(deleted).toHaveLength(1)
 
         const remaining = await db.from(Users).execute()

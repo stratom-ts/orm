@@ -58,9 +58,7 @@ describe('InferSelectedColumns', () => {
     >
 
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
-    expectTypeOf<Row>().not.toEqualTypeOf<
-      Partial<{ id: number; email: string }>
-    >()
+    expectTypeOf<Row>().not.toEqualTypeOf<Partial<{ id: number; email: string }>>()
 
     expectTypeOf<Row>().not.toHaveProperty('age')
     expectTypeOf<Row>().not.toHaveProperty('bio')
@@ -81,10 +79,7 @@ describe('InferSelectedColumns', () => {
   })
 
   it('should type columns not on the source table as unknown for bare strings', () => {
-    type Row = InferSelectedColumns<
-      typeof User,
-      readonly [typeof User.id, 'missing']
-    >
+    type Row = InferSelectedColumns<typeof User, readonly [typeof User.id, 'missing']>
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; missing: unknown }>()
   })
 

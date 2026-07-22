@@ -47,8 +47,7 @@ function createMockConnector(options?: {
     prepare: (sql: string) => {
       prepared.push(sql)
       const base =
-        options?.onPrepare?.(sql) ??
-        createMockStatement(options?.rowsBySql?.(sql) ?? [])
+        options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
       return {
         bind(...params: unknown[]) {
           binds.push(params)

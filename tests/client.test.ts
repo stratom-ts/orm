@@ -149,9 +149,7 @@ describe('registry and from()', () => {
     const db = createDb({ connector, schemas: [Users] })
     await expect(db.from(Users).execute()).resolves.toEqual(rows)
 
-    expect(
-      connector.prepared.some((sql) => /select\s+\*\s+from/i.test(sql)),
-    ).toBe(true)
+    expect(connector.prepared.some((sql) => /select\s+\*\s+from/i.test(sql))).toBe(true)
 
     await db.close()
   })

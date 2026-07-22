@@ -1,13 +1,4 @@
-import {
-  nullable,
-  nullish,
-  number,
-  object,
-  optional,
-  pipe,
-  string,
-  title,
-} from 'valibot'
+import { nullable, nullish, number, object, optional, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { getBaseSchema } from '@/schemas'

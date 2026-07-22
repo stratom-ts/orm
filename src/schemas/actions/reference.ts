@@ -49,13 +49,14 @@ export type ReferenceOptions = {
 /**
  * Unwraps optional/nullable/nullish wrappers while preserving pipes.
  *
- * @param schema - Schema that may be wrapped
- * @returns Inner schema with pipe structure intact
- *
  * @example
- * ```ts
- * const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'uuid' }))))
- * ```
+ *   ;```ts
+ *   const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'uuid' }))))
+ *   ```
+ *
+ * @param schema - Schema that may be wrapped.
+ *
+ * @returns Inner schema with pipe structure intact
  */
 function unwrapWrapper(schema: AnySchema): AnySchema {
   if (
@@ -71,9 +72,7 @@ function unwrapWrapper(schema: AnySchema): AnySchema {
   return schema
 }
 
-function isReferenceTargetHandle(
-  value: ReferenceTarget,
-): value is ReferenceTargetHandle {
+function isReferenceTargetHandle(value: ReferenceTarget): value is ReferenceTargetHandle {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -85,22 +84,23 @@ function isReferenceTargetHandle(
 /**
  * Builds a foreign-key column schema from a referenced table schema/handle and key.
  *
- * @param tableOrSchema - Referenced table schema or `defineTable` handle
- * @param key - Column on the referenced table
- * @param options - Optional FK actions (`onDelete` / `onUpdate`)
- * @returns Piped schema for the FK column with reference metadata
- *
  * @example
- * ```ts
- * const PostSchema = pipe(
- *   object({
- *     id: pipe(string(), column({ type: 'uuid' })),
- *     authorId: reference(UserSchema, 'id', { onDelete: 'cascade' }),
- *   }),
- *   title('posts'),
- *   table({ name: 'posts', primaryKey: 'id' }),
- * )
- * ```
+ *   ;```ts
+ *   const PostSchema = pipe(
+ *     object({
+ *       id: pipe(string(), column({ type: 'uuid' })),
+ *       authorId: reference(UserSchema, 'id', { onDelete: 'cascade' }),
+ *     }),
+ *     title('posts'),
+ *     table({ name: 'posts', primaryKey: 'id' }),
+ *   )
+ *   ```
+ *
+ * @param tableOrSchema - Referenced table schema or `defineTable` handle.
+ * @param key - Column on the referenced table.
+ * @param options - Optional FK actions (`onDelete` / `onUpdate`)
+ *
+ * @returns Piped schema for the FK column with reference metadata
  */
 type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
   T['getSchema']
@@ -120,16 +120,14 @@ export function reference<
 ): SchemaWithPipe<
   readonly [
     T extends ReferenceTargetHandle
-      ? ReferenceHandleSchemaEntries<T>[K &
-          keyof ReferenceHandleSchemaEntries<T>]
+      ? ReferenceHandleSchemaEntries<T>[K & keyof ReferenceHandleSchemaEntries<T>]
       : T extends ReferenceTargetSchema
         ? T['entries'][K & keyof T['entries']]
         : never,
     MetadataAction<
       InferOutput<
         T extends ReferenceTargetHandle
-          ? ReferenceHandleSchemaEntries<T>[K &
-              keyof ReferenceHandleSchemaEntries<T>]
+          ? ReferenceHandleSchemaEntries<T>[K & keyof ReferenceHandleSchemaEntries<T>]
           : T extends ReferenceTargetSchema
             ? T['entries'][K & keyof T['entries']]
             : never
@@ -145,9 +143,7 @@ export function reference<
   const schemaMetadata = getMetadata(schema) as Record<string, unknown>
   const tableMeta = isTableMetadata(schemaMetadata) ? schemaMetadata : null
 
-  const referencedColumnSchema = schema.entries[key as string] as
-    | AnySchema
-    | undefined
+  const referencedColumnSchema = schema.entries[key as string] as AnySchema | undefined
 
   const referencedColumnMetadata = referencedColumnSchema
     ? getColumnMetadata(referencedColumnSchema)
@@ -175,12 +171,8 @@ export function reference<
       table: tableName,
       key: key as string,
       dataType,
-      ...(options?.onDelete !== undefined
-        ? { onDelete: options.onDelete }
-        : {}),
-      ...(options?.onUpdate !== undefined
-        ? { onUpdate: options.onUpdate }
-        : {}),
+      ...(options?.onDelete !== undefined ? { onDelete: options.onDelete } : {}),
+      ...(options?.onUpdate !== undefined ? { onUpdate: options.onUpdate } : {}),
     }),
   ) as never
 }
@@ -188,13 +180,14 @@ export function reference<
 /**
  * Type guard for reference metadata (`kind: 'reference'`).
  *
- * @param metadata - Value to check
- * @returns `true` if `metadata` is `ReferenceMetadata`
- *
  * @example
- * ```ts
- * if (isReferenceMetadata(meta)) console.log(meta.table, meta.key)
- * ```
+ *   ;```ts
+ *   if (isReferenceMetadata(meta)) console.log(meta.table, meta.key)
+ *   ```
+ *
+ * @param metadata - Value to check.
+ *
+ * @returns `true` if `metadata` is `ReferenceMetadata`
  */
 export function isReferenceMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -205,18 +198,17 @@ export function isReferenceMetadata(
 /**
  * Reads reference metadata from a schema, unwrapping nullability wrappers first.
  *
- * @param schema - Column schema that may include `reference()` metadata
- * @returns Reference metadata, or `undefined` if none
- *
  * @example
- * ```ts
- * const meta = getReferenceMetadata(PostSchema.entries.authorId)
- * // { kind: 'reference', table: 'users', key: 'id', ... }
- * ```
+ *   ;```ts
+ *   const meta = getReferenceMetadata(PostSchema.entries.authorId)
+ *   // { kind: 'reference', table: 'users', key: 'id', ... }
+ *   ```
+ *
+ * @param schema - Column schema that may include `reference()` metadata.
+ *
+ * @returns Reference metadata, or `undefined` if none
  */
-export function getReferenceMetadata(
-  schema: AnySchema,
-): ReferenceMetadata | undefined {
+export function getReferenceMetadata(schema: AnySchema): ReferenceMetadata | undefined {
   const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
     | Record<string, unknown>
     | undefined

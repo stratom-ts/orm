@@ -9,14 +9,15 @@ type ErrorHandlers<T> = {
 /**
  * Creates a tagged `Error` subclass with a fixed `_tag` discriminant.
  *
- * @param tag - Discriminant string stored on instances as `_tag`
- * @returns Error constructor that accepts optional payload fields
- *
  * @example
- * ```ts
- * class NotFound extends TaggedError('NotFound')<{ id: string }> {}
- * throw new NotFound({ id: '42' })
- * ```
+ *   ;```ts
+ *   class NotFound extends TaggedError('NotFound')<{ id: string }> {}
+ *   throw new NotFound({ id: '42' })
+ *   ```
+ *
+ * @param tag - Discriminant string stored on instances as `_tag`
+ *
+ * @returns Error constructor that accepts optional payload fields
  */
 export function TaggedError<Tag extends string>(
   tag: Tag,
@@ -48,15 +49,16 @@ export function TaggedError<Tag extends string>(
 /**
  * Handles a tagged error when `value._tag` matches `tag`; otherwise returns `value`.
  *
- * @param value - Result or error that may carry `_tag`
- * @param tag - Tag to match
- * @param callback - Handler invoked with the matching error
- * @returns Callback result, or `value` with that tag excluded from the type
- *
  * @example
- * ```ts
- * const result = catchTag(err, 'MigrationError', (e) => e.message)
- * ```
+ *   ;```ts
+ *   const result = catchTag(err, 'MigrationError', (e) => e.message)
+ *   ```
+ *
+ * @param value - Result or error that may carry `_tag`
+ * @param tag - Tag to match.
+ * @param callback - Handler invoked with the matching error.
+ *
+ * @returns Callback result, or `value` with that tag excluded from the type
  */
 export function catchTag<T, E extends Extract<T, { _tag: string }>['_tag'], V>(
   value: T,
@@ -73,21 +75,19 @@ export function catchTag<T, E extends Extract<T, { _tag: string }>['_tag'], V>(
 /**
  * Dispatches a tagged error to a matching handler by `_tag`.
  *
- * @param value - Result or error that may carry `_tag`
- * @param handlers - Map of tag to handler
- * @returns Handler result, or `value` if no tag matched
- *
  * @example
- * ```ts
- * const result = catchTags(err, {
- *   MigrationError: (e) => e.message,
- * })
- * ```
+ *   ;```ts
+ *   const result = catchTags(err, {
+ *     MigrationError: (e) => e.message,
+ *   })
+ *   ```
+ *
+ * @param value - Result or error that may carry `_tag`
+ * @param handlers - Map of tag to handler.
+ *
+ * @returns Handler result, or `value` if no tag matched
  */
-export function catchTags<T, E extends ErrorHandlers<T>>(
-  value: T,
-  handlers: E,
-) {
+export function catchTags<T, E extends ErrorHandlers<T>>(value: T, handlers: E) {
   for (const [tag, callback] of Object.entries<(error: unknown) => unknown>(
     handlers as Record<string, (error: unknown) => unknown>,
   )) {
@@ -103,9 +103,9 @@ export function catchTags<T, E extends ErrorHandlers<T>>(
  * Error thrown when a migration cannot be applied safely.
  *
  * @example
- * ```ts
- * throw new MigrationError({ message: 'Cannot drop column with data' })
- * ```
+ *   ;```ts
+ *   throw new MigrationError({ message: 'Cannot drop column with data' })
+ *   ```
  */
 export class MigrationError extends TaggedError('MigrationError')<{
   message: string
@@ -116,9 +116,9 @@ export class MigrationError extends TaggedError('MigrationError')<{
  * Error thrown when table/column metadata is invalid or incomplete.
  *
  * @example
- * ```ts
- * throw new SchemaError({ message: 'table() metadata is required' })
- * ```
+ *   ;```ts
+ *   throw new SchemaError({ message: 'table() metadata is required' })
+ *   ```
  */
 export class SchemaError extends TaggedError('SchemaError')<{
   message: string
@@ -128,9 +128,9 @@ export class SchemaError extends TaggedError('SchemaError')<{
  * Error thrown when a query cannot be executed (closed client, driver failure, etc.).
  *
  * @example
- * ```ts
- * throw new QueryError({ message: 'Database has been closed' })
- * ```
+ *   ;```ts
+ *   throw new QueryError({ message: 'Database has been closed' })
+ *   ```
  */
 export class QueryError extends TaggedError('QueryError')<{
   message: string
@@ -141,9 +141,12 @@ export class QueryError extends TaggedError('QueryError')<{
  * Error thrown when insert/update payloads fail Valibot validation.
  *
  * @example
- * ```ts
- * throw new ValidationError({ message: 'Invalid insert payload', issues: result.issues })
- * ```
+ *   ;```ts
+ *   throw new ValidationError({
+ *     message: 'Invalid insert payload',
+ *     issues: result.issues,
+ *   })
+ *   ```
  */
 export class ValidationError extends TaggedError('ValidationError')<{
   message: string

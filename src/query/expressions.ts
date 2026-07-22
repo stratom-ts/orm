@@ -37,9 +37,7 @@ function columnTable(column: ColumnRef | string): string | undefined {
 
 function toQualified(column: ColumnRef | string): QualifiedColumnAst {
   const table = columnTable(column)
-  return table
-    ? { column: columnName(column), table }
-    : { column: columnName(column) }
+  return table ? { column: columnName(column), table } : { column: columnName(column) }
 }
 
 function cmpLeaf(
@@ -152,10 +150,7 @@ export function now(): DateFnExprAst {
   return { kind: 'now' }
 }
 
-export function dateTrunc(
-  unit: string,
-  column: ColumnRef | string,
-): DateFnExprAst {
+export function dateTrunc(unit: string, column: ColumnRef | string): DateFnExprAst {
   return { kind: 'date_trunc', unit, arg: colRef(column) }
 }
 
