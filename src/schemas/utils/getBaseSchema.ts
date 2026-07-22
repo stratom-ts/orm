@@ -9,15 +9,14 @@ interface WrapperSchema {
 /**
  * Unwraps optional/nullable/nullish wrappers and pipes to the base schema.
  *
- * @example
- *   ;```ts
- *   const base = getBaseSchema(optional(pipe(string(), minLength(1))))
- *   // string schema
- *   ```
- *
  * @param schema - Schema that may be wrapped or piped.
  *
  * @returns Innermost base schema type
+ *
+ * @example```ts
+ * const base = getBaseSchema(optional(pipe(string(), minLength(1))))
+ *   // string schema
+ * ```
  */
 export function getBaseSchema(schema: AnySchema): AnySchema {
   if (

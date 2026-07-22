@@ -67,7 +67,7 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * @example
    *   ;```ts
    *   await db.insert(User).values({ name: 'Alice' }).executeTakeFirstOrThrow()
-   *   ```
+   * ```
    */
   insert<THandle extends TableHandle>(handle: THandle): InsertValuesBuilder<THandle>
   /**
@@ -76,7 +76,7 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * @example
    *   ;```ts
    *   await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
-   *   ```
+   * ```
    */
   update<THandle extends TableHandle>(handle: THandle): UpdateSetBuilder<THandle>
   /**
@@ -89,7 +89,7 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    *     .delete(User)
    *     .where(User.id, 'eq', 1)
    *     .executeTakeFirstOrThrow()
-   *   ```
+   * ```
    */
   delete<THandle extends TableHandle>(
     handle: THandle,
@@ -131,9 +131,12 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  * Stratom calls `createDatabase(connector)` and owns that instance.
  * No auto-migrate; no Kysely.
  *
- * @example
- *   ;```ts
- *   import { postgresql } from 'db0/connectors/postgresql'
+ * @param config - Connector and registered schemas.
+ *
+ * @returns Client with registry, `from`, `transaction`, `ping`, `close`
+ *
+ * @example```ts
+ * import { postgresql } from 'db0/connectors/postgresql'
  *
  *   const db = createDb({
  *   connector: postgresql({ url: process.env.DATABASE_URL! }),
@@ -143,11 +146,7 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  *   await trx.insert(User).values({ ... }).execute()
  *   })
  *   await db.close()
- *   ```
- *
- * @param config - Connector and registered schemas.
- *
- * @returns Client with registry, `from`, `transaction`, `ping`, `close`
+ * ```
  */
 export function createDb<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],

@@ -3,15 +3,14 @@ import type { AnySchema } from '@/types/schema'
 /**
  * Returns whether a schema allows null or undefined values.
  *
- * @example
- *   ;```ts
- *   isNullable(optional(string())) // true
- *   isNullable(string()) // false
- *   ```
- *
  * @param schema - Schema to inspect.
  *
  * @returns `true` if optional, nullable, or nullish
+ *
+ * @example```ts
+ * isNullable(optional(string())) // true
+ *   isNullable(string()) // false
+ * ```
  */
 export function isNullable(schema: AnySchema): boolean {
   if (schema.type === 'optional' || schema.type === 'nullish') {
