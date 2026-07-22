@@ -4,5 +4,15 @@
   "singleQuote": true,
   "semi": false,
   "trailingComma": "all",
-  "printWidth": 80
+  "printWidth": 80,
+  "sortImports": {
+    "groups": [
+      ["type-import", "value-builtin", "value-external"],
+      ["type-internal", "value-internal"],
+      ["type-parent", "value-parent"],
+      ["type-index", "value-index"],
+      ["type-sibling", "value-sibling"],
+      "unknown"
+    ]
+  }
 }

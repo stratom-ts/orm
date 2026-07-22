@@ -1,4 +1,3 @@
-import type { ColumnRef } from '@/types'
 import type {
   AggregateExprAst,
   ColumnExprAst,
@@ -9,6 +8,7 @@ import type {
   SqlExprAst,
   StringFnExprAst,
 } from '@/dialects'
+import type { ColumnRef } from '@/types'
 
 function isColumnRef(value: unknown): value is ColumnRef {
   return (

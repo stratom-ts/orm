@@ -1,5 +1,6 @@
-import type { CompiledQuery } from '@/dialects'
 import type { Database } from 'db0'
+
+import type { CompiledQuery } from '@/dialects'
 import { QueryError } from '@/utils/error'
 
 export type Executor = {

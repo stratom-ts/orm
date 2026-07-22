@@ -11,6 +11,7 @@ import { normalizeIndex } from '@/schemas'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 import { DEFAULT_PG_SCHEMA, effectiveSchema, tableKey } from '@/utils/tableKey'
+
 import { buildCreateTableAst } from './createTable'
 
 /** Destructive migrate operations that require an explicit allowlist. */

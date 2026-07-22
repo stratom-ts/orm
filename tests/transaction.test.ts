@@ -1,9 +1,10 @@
-import { createDb } from '@/client'
-import { defineTable } from '@/defineTable'
-import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
 import { date, pipe, string, unknown } from 'valibot'
 import { describe, expect, it } from 'vitest'
+
+import { createDb } from '@/client'
+import { defineTable } from '@/defineTable'
+import { column } from '@/schemas'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {

@@ -1,4 +1,5 @@
 import type { ObjectEntries } from 'valibot'
+
 import type { SqlDataType } from '@/dialects/types'
 
 /**

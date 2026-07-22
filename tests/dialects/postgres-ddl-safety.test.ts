@@ -1,3 +1,6 @@
+import { pipe, string } from 'valibot'
+import { describe, expect, it } from 'vitest'
+
 import { buildCreateTableAst } from '@/ddl'
 import { defineTable } from '@/defineTable'
 import {
@@ -6,8 +9,6 @@ import {
   postgresDialect,
 } from '@/dialects'
 import { column } from '@/schemas'
-import { pipe, string } from 'valibot'
-import { describe, expect, it } from 'vitest'
 
 describe('assertSafePostgresDataType', () => {
   it('should accept common types and length/precision forms', () => {

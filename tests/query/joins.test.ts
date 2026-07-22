@@ -1,11 +1,12 @@
+import type { Connector, Statement } from 'db0'
+import { number, pipe, string } from 'valibot'
+import { describe, expect, expectTypeOf, it } from 'vitest'
+
 import { defineTable } from '@/defineTable'
 import type { Prettify } from '@/index'
 import { createDb, eq } from '@/index'
 import { column } from '@/schemas'
 import type { InferSelect } from '@/types/views'
-import type { Connector, Statement } from 'db0'
-import { number, pipe, string } from 'valibot'
-import { describe, expect, expectTypeOf, it } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {

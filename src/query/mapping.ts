@@ -1,7 +1,7 @@
 import type { Dialect } from '@/dialects'
-import type { TableHandle } from '@/types'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { ColumnMetadata } from '@/schemas'
+import type { TableHandle } from '@/types'
 
 /** createDb-level value mapping overrides. */
 export type ValueMapConfig = {

@@ -1,3 +1,6 @@
+import type { ObjectEntries } from 'valibot'
+import { object, pipe, title } from 'valibot'
+
 import { postgresDialect } from '@/dialects'
 import type { TableMetadata, TableOptions, TableSchema } from '@/schemas'
 import {
@@ -17,8 +20,6 @@ import { TABLE_HANDLE } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { assertNonEmptyString } from '@/utils/assertNonEmptyString'
 import { SchemaError } from '@/utils/error'
-import type { ObjectEntries } from 'valibot'
-import { object, pipe, title } from 'valibot'
 
 const IDENTITY_BASE_TYPES = new Set([
   'smallint',

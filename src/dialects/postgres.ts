@@ -1,3 +1,5 @@
+import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
+
 import {
   getBaseSchema,
   getNumberConstraints,
@@ -7,7 +9,7 @@ import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
 import { SchemaError } from '@/utils/error'
-import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
+
 import type {
   CatalogColumn,
   CatalogIndex,
@@ -24,11 +26,11 @@ import type {
   OrderByAst,
   PredicateAst,
   QualifiedColumnAst,
-  SqlDataType,
   ReturningAst,
   SelectAst,
   SelectItemAst,
   SqlAst,
+  SqlDataType,
   SqlExprAst,
   UpdateAst,
 } from './types'

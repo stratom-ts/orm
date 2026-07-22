@@ -75,11 +75,18 @@
     "import/no-duplicates": "error",
     "import/no-mutable-exports": "error",
     "import/no-named-default": "error",
-    "import/consistent-type-specifier-style": ["warn", "prefer-top-level"]
+    "import/consistent-type-specifier-style": ["warn", "prefer-top-level"],
+    "sort-imports": [
+      "warn",
+      {
+        "allowSeparatedGroups": true,
+        "ignoreDeclarationSort": true
+      }
+    ]
   },
   "overrides": [
     {
-      "files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+      "files": ["**/*.ts", "**/*.test.ts"],
       "rules": {
         "constructor-super": "off",
         "getter-return": "off",
@@ -145,14 +152,6 @@
         "@typescript-eslint/prefer-literal-enum-member": "error",
         "@typescript-eslint/unified-signatures": "error",
         "valid-typeof": "off",
-        "@typescript-eslint/consistent-type-imports": [
-          "warn",
-          {
-            "disallowTypeAnnotations": true,
-            "fixStyle": "separate-type-imports",
-            "prefer": "type-imports"
-          }
-        ],
         "@typescript-eslint/no-import-type-side-effects": "error"
       },
       "plugins": ["typescript"]

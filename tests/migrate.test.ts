@@ -1,3 +1,7 @@
+import type { Connector, Statement } from 'db0'
+import { boolean, nullable, number, optional, pipe, string } from 'valibot'
+import { describe, expect, it } from 'vitest'
+
 import { createDb } from '@/client'
 import { buildCreateTableAst, planMigration } from '@/ddl'
 import { defineTable } from '@/defineTable'
@@ -5,9 +9,6 @@ import type { CatalogSnapshot } from '@/dialects'
 import { postgresDialect } from '@/dialects'
 import { column, reference } from '@/schemas'
 import { MigrationError, SchemaError } from '@/utils/error'
-import type { Connector, Statement } from 'db0'
-import { boolean, nullable, number, optional, pipe, string } from 'valibot'
-import { describe, expect, it } from 'vitest'
 
 type LiveColumn = {
   name: string
