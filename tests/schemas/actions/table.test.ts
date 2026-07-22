@@ -7,6 +7,7 @@ describe('table action', () => {
   it('should create table metadata action with correct kind', () => {
     const action = table({ name: 'users', primaryKey: 'id' })
     expect(action.type).toBe('metadata')
+
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata.kind).toBe('table')
     expect(metadata.name).toBe('users')
@@ -20,6 +21,7 @@ describe('table action', () => {
       indexes: ['title', 'created_at'],
       schema: 'public',
     })
+
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata).toMatchObject({
       kind: 'table',
@@ -32,6 +34,7 @@ describe('table action', () => {
 
   it('should create table without optional fields', () => {
     const action = table({ name: 'tags', primaryKey: 'id' })
+
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata.indexes).toBeUndefined()
     expect(metadata.schema).toBeUndefined()
@@ -47,6 +50,7 @@ describe('table action', () => {
       ],
       schema: 'app',
     })
+
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata).toMatchObject({
       kind: 'table',
@@ -73,6 +77,7 @@ describe('getTableMetadata', () => {
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
+
     const metadata = getTableMetadata(schema)
     expect(metadata).toBeDefined()
     expect(metadata!.name).toBe('users')

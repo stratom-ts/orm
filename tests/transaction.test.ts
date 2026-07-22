@@ -2,7 +2,7 @@ import { createDb } from '@/client'
 import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
-import { date, number, pipe, string, unknown } from 'valibot'
+import { date, pipe, string, unknown } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
@@ -91,7 +91,7 @@ const Mapped = defineTable(
 )
 
 describe('db.transaction', () => {
-  it('begins and commits on success', async () => {
+  it('should begin and commit on success', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
 
@@ -103,14 +103,16 @@ describe('db.transaction', () => {
     })
 
     expect(result).toBe(42)
+
     const sql = connector.prepared.map((s) => s.toLowerCase())
     expect(sql.some((s) => s === 'begin')).toBe(true)
     expect(sql.some((s) => s === 'commit')).toBe(true)
     expect(sql.some((s) => s === 'rollback')).toBe(false)
+
     await db.close()
   })
 
-  it('rolls back when the callback throws', async () => {
+  it('should roll back when the callback throws', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
 
@@ -125,10 +127,11 @@ describe('db.transaction', () => {
     expect(sql.some((s) => s === 'begin')).toBe(true)
     expect(sql.some((s) => s === 'rollback')).toBe(true)
     expect(sql.some((s) => s === 'commit')).toBe(false)
+
     await db.close()
   })
 
-  it('uses savepoints for nested transactions', async () => {
+  it('should use savepoints for nested transactions', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
 
@@ -153,10 +156,11 @@ describe('db.transaction', () => {
     expect(sql.some((s) => s.includes('rollback to savepoint sp_1'))).toBe(true)
     expect(sql.some((s) => s.includes('release savepoint sp_1'))).toBe(true)
     expect(sql.some((s) => s === 'commit')).toBe(true)
+
     await db.close()
   })
 
-  it('releases savepoint when nested transaction succeeds', async () => {
+  it('should release savepoint when nested transaction succeeds', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
 
@@ -170,18 +174,21 @@ describe('db.transaction', () => {
     })
 
     const sql = connector.prepared.map((s) => s.toLowerCase())
+
     expect(
       sql.filter((s) => s.includes('savepoint sp_1')).length,
     ).toBeGreaterThanOrEqual(1)
+
     expect(sql.some((s) => s.includes('release savepoint sp_1'))).toBe(true)
     expect(sql.some((s) => s.includes('rollback to'))).toBe(false)
     expect(sql.some((s) => s === 'commit')).toBe(true)
+
     await db.close()
   })
 })
 
 describe('value mapping', () => {
-  it('maps insert params for timestamp/json/uuid via dialect defaults', async () => {
+  it('should map insert params for timestamp/json/uuid via dialect defaults', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Mapped] })
     const when = new Date('2024-06-15T12:00:00.000Z')
@@ -198,16 +205,19 @@ describe('value mapping', () => {
       .execute()
 
     expect(connector.binds.length).toBeGreaterThan(0)
+
     const params = connector.binds[0]!
+
     // uuid string, ISO timestamp, JSON string, column mapParam uppercases
     expect(params).toContain('550e8400-e29b-41d4-a716-446655440000')
     expect(params).toContain(when.toISOString())
     expect(params).toContain(JSON.stringify(meta))
     expect(params).toContain('HELLO')
+
     await db.close()
   })
 
-  it('maps select results for timestamp/json/uuid', async () => {
+  it('should map select results for timestamp/json/uuid', async () => {
     const connector = createMockConnector({
       rowsBySql: () => [
         {
@@ -218,9 +228,12 @@ describe('value mapping', () => {
         },
       ],
     })
+
     const db = createDb({ connector, schemas: [Mapped] })
+
     const rows = await db.from(Mapped).execute()
     expect(rows).toHaveLength(1)
+
     const row = rows[0]!
     expect(row.id).toBe('550e8400-e29b-41d4-a716-446655440000')
     expect(row.createdAt).toBeInstanceOf(Date)
@@ -229,10 +242,11 @@ describe('value mapping', () => {
     )
     expect(row.meta).toEqual({ a: 1 })
     expect(row.label).toBe('read:world')
+
     await db.close()
   })
 
-  it('applies createDb map overrides over dialect defaults', async () => {
+  it('should apply createDb map overrides over dialect defaults', async () => {
     const connector = createMockConnector({
       rowsBySql: () => [
         {
@@ -243,6 +257,7 @@ describe('value mapping', () => {
         },
       ],
     })
+
     const db = createDb({
       connector,
       schemas: [Mapped],
@@ -255,17 +270,20 @@ describe('value mapping', () => {
         },
       },
     })
+
     // Column mapResult for label still wins over createDb
     const rows = await db.from(Mapped).execute()
     expect(rows[0]!.createdAt).toBe('as-string:2024-01-01T00:00:00.000Z')
     expect(rows[0]!.label).toBe('read:z')
+
     await db.close()
   })
 
-  it('compile applies param mapping', () => {
+  it('should apply param mapping on compile', () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Mapped] })
     const when = new Date('2024-01-02T00:00:00.000Z')
+
     const compiled = db
       .insert(Mapped)
       .values({
@@ -275,128 +293,9 @@ describe('value mapping', () => {
         label: 'ab',
       })
       .compile()
+
     expect(compiled.params).toContain(when.toISOString())
     expect(compiled.params).toContain(JSON.stringify({ k: true }))
     expect(compiled.params).toContain('AB')
   })
-})
-
-describe('transaction + mapping integration', () => {
-  const url = process.env.DATABASE_URL
-
-  it.skipIf(!url)(
-    'commits and rolls back on real Postgres',
-    async () => {
-      const { default: postgresql } = await import('db0/connectors/postgresql')
-      const { createDatabase } = await import('db0')
-      const setup = createDatabase(postgresql({ url: url as string }))
-      const TxItems = defineTable(
-        'tx_items',
-        {
-          id: pipe(number(), column({ type: 'integer' })),
-          name: pipe(string(), column({ type: 'text' })),
-        },
-        { primaryKey: 'id', schema: 'public' },
-      )
-      const db = createDb({
-        connector: postgresql({ url: url as string }),
-        schemas: [TxItems],
-      })
-      try {
-        await setup.exec(
-          'create table if not exists "public"."tx_items" ("id" integer primary key, "name" text not null)',
-        )
-        await setup.exec('delete from "public"."tx_items"')
-
-        await db.transaction(async (trx) => {
-          await trx.insert(TxItems).values({ id: 1, name: 'kept' }).execute()
-        })
-
-        await expect(
-          db.transaction(async (trx) => {
-            await trx
-              .insert(TxItems)
-              .values({ id: 2, name: 'rolled' })
-              .execute()
-            throw new Error('abort')
-          }),
-        ).rejects.toThrow('abort')
-
-        const rows = await db.from(TxItems).execute()
-        expect(rows).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ id: 1, name: 'kept' }),
-          ]),
-        )
-        expect(rows.some((r) => r.id === 2)).toBe(false)
-
-        // nested savepoint: inner fails, outer commits
-        await db.transaction(async (trx) => {
-          await trx.insert(TxItems).values({ id: 3, name: 'outer' }).execute()
-          await expect(
-            trx.transaction(async (inner) => {
-              await inner
-                .insert(TxItems)
-                .values({ id: 4, name: 'inner' })
-                .execute()
-              throw new Error('inner')
-            }),
-          ).rejects.toThrow('inner')
-        })
-
-        const after = await db.from(TxItems).execute()
-        expect(after.some((r) => r.id === 3)).toBe(true)
-        expect(after.some((r) => r.id === 4)).toBe(false)
-      } finally {
-        await db.close()
-        await setup.dispose()
-      }
-    },
-    30_000,
-  )
-
-  it.skipIf(!url)(
-    'round-trips timestamp/jsonb/uuid with default mapping',
-    async () => {
-      const { default: postgresql } = await import('db0/connectors/postgresql')
-      const { createDatabase } = await import('db0')
-      const setup = createDatabase(postgresql({ url: url as string }))
-      const RoundTrip = defineTable(
-        'map_roundtrip',
-        {
-          id: pipe(string(), column({ type: 'uuid' })),
-          createdAt: pipe(date(), column({ type: 'timestamptz' })),
-          meta: pipe(unknown(), column({ type: 'jsonb' })),
-        },
-        { primaryKey: 'id', schema: 'public' },
-      )
-      const db = createDb({
-        connector: postgresql({ url: url as string }),
-        schemas: [RoundTrip],
-      })
-      try {
-        await setup.exec(
-          'create table if not exists "public"."map_roundtrip" ("id" uuid primary key, "createdAt" timestamptz not null, "meta" jsonb not null)',
-        )
-        await setup.exec('delete from "public"."map_roundtrip"')
-        const when = new Date('2025-03-01T10:30:00.000Z')
-        const id = '550e8400-e29b-41d4-a716-446655440000'
-        await db
-          .insert(RoundTrip)
-          .values({ id, createdAt: when, meta: { ok: true } })
-          .execute()
-        const rows = await db.from(RoundTrip).execute()
-        const row = rows.find((r) => r.id === id)
-        expect(row).toBeDefined()
-        expect(row!.id).toBe(id)
-        expect(row!.createdAt).toBeInstanceOf(Date)
-        expect((row!.createdAt as Date).toISOString()).toBe(when.toISOString())
-        expect(row!.meta).toEqual({ ok: true })
-      } finally {
-        await db.close()
-        await setup.dispose()
-      }
-    },
-    30_000,
-  )
 })

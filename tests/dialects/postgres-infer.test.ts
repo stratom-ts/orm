@@ -157,6 +157,7 @@ describe('postgres.ts', () => {
 
     it('should throw for a schema type it cannot map', () => {
       const schema = union([string(), number()])
+
       expect(() => inferPostgresColumnType(schema)).toThrow(SchemaError)
       expect(() => inferPostgresColumnType(schema)).toThrow(
         /cannot infer a SQL column type/,
