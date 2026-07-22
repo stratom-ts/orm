@@ -317,7 +317,7 @@ function isTruthyFlag(value: unknown): boolean {
 
 /** PostgreSQL dialect plugin for the db0 stack. */
 export const postgresDialect: Dialect = {
-  id: 'postgres',
+  id: 'postgresql',
 
   inferColumnType(schema) {
     return inferPostgresColumnType(schema)
