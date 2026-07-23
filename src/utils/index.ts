@@ -1,4 +1,6 @@
 export * from './assertNonEmptyString'
 export * from './error'
 export * from './isNumber'
+export * from './isTruthyFlag'
 export * from './tableKey'
+export * from './toNumberOrNull'
