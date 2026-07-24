@@ -11,11 +11,14 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/stratom.js"
+      "import": "./dist/stratom.js",
+      "require": "./dist/stratom.umd.cjs",
+      "default": "./dist/stratom.js"
     }
   },
   "scripts": {
     "build": "vite build",
+    "build:check": "pnpm build && node scripts/check-package.mjs",
     "dev": "vite",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -24,7 +27,8 @@
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "prepack": "pnpm build"
   },
   "dependencies": {
     "db0": "^0.3.4",
