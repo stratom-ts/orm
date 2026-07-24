@@ -90,6 +90,16 @@ const AlwaysId = defineTable(
   { primaryKey: 'id' },
 )
 
+const NestedWrappers = defineTable(
+  'nested_wrappers',
+  {
+    id: pipe(string(), column({ type: 'text' })),
+    optionalNullable: optional(nullable(pipe(string(), column({ type: 'text' })))),
+    nullableOptional: nullable(optional(pipe(string(), column({ type: 'text' })))),
+  },
+  { primaryKey: 'id' },
+)
+
 describe('CRUD compile', () => {
   it('should compile insert with parameterized values and schema-qualified table', async () => {
     const connector = createMockConnector()
@@ -160,6 +170,23 @@ describe('CRUD compile', () => {
     expect(compiled.sql.toLowerCase()).toContain('delete from')
     expect(compiled.sql).toContain('"id"')
     expect(compiled.params).toEqual(['a@b.com'])
+
+    await db.close()
+  })
+
+  it('should reject empty returning projections', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    expect(() => db.insert(Users).values({ email: 'a@b.com' }).returning([])).toThrow(
+      /requires at least one column/,
+    )
+    expect(() => db.update(Users).set({ active: false }).all().returning([])).toThrow(
+      /requires at least one column/,
+    )
+    expect(() => db.delete(Users).all().returning([])).toThrow(
+      /requires at least one column/,
+    )
 
     await db.close()
   })
@@ -305,6 +332,22 @@ describe('CRUD safety and validation', () => {
 
     const withValue = db.insert(WithNullable).values({ note: 'hi' }).compile()
     expect(withValue.params).toEqual(['hi'])
+
+    await db.close()
+  })
+
+  it('should accept omitted and null nested wrapper values', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [NestedWrappers] })
+
+    const omitted = db.insert(NestedWrappers).values({ id: '1' }).compile()
+    expect(omitted.params).toEqual(['1'])
+
+    const withNull = db
+      .insert(NestedWrappers)
+      .values({ id: '1', optionalNullable: null, nullableOptional: null })
+      .compile()
+    expect(withNull.params).toEqual(['1', null, null])
 
     await db.close()
   })

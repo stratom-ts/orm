@@ -155,6 +155,9 @@ function mergeWhere(
 }
 
 function resolveReturningColumns(columns: readonly (ColumnRef | string)[]): string[] {
+  if (columns.length === 0) {
+    throw new QueryError({ message: 'returning(...) requires at least one column' })
+  }
   return columns.map((c) => columnName(c))
 }
 
@@ -183,9 +186,10 @@ function selectionColumn(column: ColumnRef | string): SelectItemAst {
 }
 
 function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
+  let selection: SelectItemAst[]
   if (typeof input === 'function') {
     const items = input(eb)
-    return items.map((item): SelectItemAst => {
+    selection = items.map((item): SelectItemAst => {
       if (typeof item === 'string') {
         return { kind: 'column', column: item }
       }
@@ -208,8 +212,13 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
       }
       return selectionColumn(item as ColumnRef)
     })
+  } else {
+    selection = input.map((c) => selectionColumn(c))
   }
-  return input.map((c) => selectionColumn(c))
+  if (selection.length === 0) {
+    throw new QueryError({ message: 'select(...) requires at least one item' })
+  }
+  return selection
 }
 
 /**

@@ -15,8 +15,9 @@ describe('isSqlNullable', () => {
     expect(isSqlNullable(nullish(string()))).toBe(true)
   })
 
-  it('should return true for optional wrapping nullable', () => {
+  it('should find nullable storage through nested wrappers', () => {
     expect(isSqlNullable(optional(nullable(string())))).toBe(true)
     expect(isSqlNullable(optional(nullish(string())))).toBe(true)
+    expect(isSqlNullable(nullable(optional(string())))).toBe(true)
   })
 })

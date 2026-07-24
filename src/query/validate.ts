@@ -8,6 +8,14 @@ import { ValidationError } from '@/utils/error'
 
 /** Optional / nullish → omit-on-insert OK (not bare nullable). */
 function isOmitOptionalSchema(schema: AnySchema): boolean {
+  if (schema.type === 'optional' || schema.type === 'nullish') return true
+  if (schema.type === 'non_optional' || schema.type === 'non_nullish') return false
+  return 'wrapped' in schema && schema.wrapped
+    ? isOmitOptionalSchema(schema.wrapped as AnySchema)
+    : false
+}
+
+function isDirectlyOmitOptionalSchema(schema: AnySchema): boolean {
   return schema.type === 'optional' || schema.type === 'nullish'
 }
 
@@ -46,7 +54,7 @@ export function buildInsertSchema(
     if (meta?.generated === 'always') continue
 
     if (isInsertOptional(columnSchema)) {
-      insertEntries[name] = isOmitOptionalSchema(columnSchema)
+      insertEntries[name] = isDirectlyOmitOptionalSchema(columnSchema)
         ? columnSchema
         : optional(columnSchema)
     } else {
@@ -82,7 +90,7 @@ export function buildUpdateSchema(
     if (meta?.generated === 'always') continue
     if (meta?.readonly) continue
     // All updatable fields are optional patches (including bare nullable)
-    updateEntries[name] = isOmitOptionalSchema(columnSchema)
+    updateEntries[name] = isDirectlyOmitOptionalSchema(columnSchema)
       ? columnSchema
       : optional(columnSchema)
   }
