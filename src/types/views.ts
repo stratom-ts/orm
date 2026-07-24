@@ -34,19 +34,32 @@ type ColumnMetaOf<S> =
     ? M
     : never
 
-type IsGeneratedAlways<S> =
-  ColumnMetaOf<S> extends { kind: 'column'; generated: 'always' } ? true : false
-
-type IsGeneratedByDefault<S> =
-  ColumnMetaOf<S> extends { kind: 'column'; generated: 'byDefault' }
+// NOTE: `[ColumnMetaOf<S>] extends [never]` guards against columns with no
+// `column()` metadata. Without the guard, `ColumnMetaOf<S>` is `never`, and
+// `never extends X` is `true`, so metadata-less (type-inferred) columns would
+// be misclassified — e.g. treated as generated-always and dropped from the
+// insert/update views.
+type IsGeneratedAlways<S> = [ColumnMetaOf<S>] extends [never]
+  ? false
+  : ColumnMetaOf<S> extends { kind: 'column'; generated: 'always' }
     ? true
     : false
 
-type IsReadonlyColumn<S> =
-  ColumnMetaOf<S> extends { kind: 'column'; readonly: true } ? true : false
+type IsGeneratedByDefault<S> = [ColumnMetaOf<S>] extends [never]
+  ? false
+  : ColumnMetaOf<S> extends { kind: 'column'; generated: 'byDefault' }
+    ? true
+    : false
 
-type HasDefaultValue<S> =
-  ColumnMetaOf<S> extends { kind: 'column'; default: infer D }
+type IsReadonlyColumn<S> = [ColumnMetaOf<S>] extends [never]
+  ? false
+  : ColumnMetaOf<S> extends { kind: 'column'; readonly: true }
+    ? true
+    : false
+
+type HasDefaultValue<S> = [ColumnMetaOf<S>] extends [never]
+  ? false
+  : ColumnMetaOf<S> extends { kind: 'column'; default: infer D }
     ? [D] extends [never]
       ? false
       : D extends undefined
