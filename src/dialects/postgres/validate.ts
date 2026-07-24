@@ -152,3 +152,15 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
 
   return `'${value.replaceAll("'", "''")}'`
 }
+
+/** Canonicalizes PostgreSQL catalog default expressions for migration comparison. */
+export function normalizePostgresDefaultExpression(expression: string): string {
+  let normalized = expression.trim()
+  while (normalized.startsWith('(') && normalized.endsWith(')')) {
+    normalized = normalized.slice(1, -1).trim()
+  }
+  return normalized.replace(
+    /::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?$/i,
+    '',
+  )
+}

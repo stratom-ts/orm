@@ -16,6 +16,8 @@ type LiveColumn = {
   isNullable: boolean
   hasDefault?: boolean
   isIdentity?: boolean
+  defaultExpression?: string | null
+  identityGeneration?: 'always' | 'byDefault' | null
 }
 
 type LiveIndex = {
@@ -29,6 +31,17 @@ type LiveTable = {
   name: string
   columns?: LiveColumn[]
   indexes?: LiveIndex[]
+  primaryKey?: string[]
+  uniqueConstraints?: { name: string; columns: string[] }[]
+  foreignKeys?: {
+    name: string
+    columns: string[]
+    referencedSchema?: string
+    referencedTable: string
+    referencedColumns: string[]
+    onDelete?: string
+    onUpdate?: string
+  }[]
 }
 
 function createMockStatement(rows: unknown[] = []): Statement {
@@ -63,6 +76,11 @@ function createMockConnector(options?: {
     ...t,
     columns: t.columns ? [...t.columns] : t.columns,
     indexes: t.indexes ? [...t.indexes] : t.indexes,
+    primaryKey:
+      t.primaryKey ??
+      (t.columns?.some((column) => column.name === 'id') ? ['id'] : undefined),
+    uniqueConstraints: t.uniqueConstraints ? [...t.uniqueConstraints] : undefined,
+    foreignKeys: t.foreignKeys ? [...t.foreignKeys] : undefined,
   }))
 
   const connector = {
@@ -130,11 +148,60 @@ function createMockConnector(options?: {
             numeric_precision: null,
             numeric_scale: null,
             is_nullable: c.isNullable ? 'YES' : 'NO',
-            column_default: c.hasDefault ? 'true' : null,
-            is_identity: c.isIdentity ? 'YES' : 'NO',
+            column_default: c.defaultExpression ?? (c.hasDefault ? 'true' : null),
+            is_identity:
+              c.isIdentity ||
+              c.identityGeneration !== undefined ||
+              (c.name === 'id' && t.primaryKey?.includes('id'))
+                ? 'YES'
+                : 'NO',
+            identity_generation:
+              c.identityGeneration === 'always'
+                ? 'ALWAYS'
+                : c.isIdentity ||
+                    c.identityGeneration === 'byDefault' ||
+                    (c.name === 'id' && t.primaryKey?.includes('id'))
+                  ? 'BY DEFAULT'
+                  : null,
           })),
         )
 
+        return createMockStatement(rows)
+      }
+
+      if (normalized.includes('con.contype as constraint_type')) {
+        const rows = liveTables.flatMap((t) => [
+          ...(t.primaryKey
+            ? [
+                {
+                  schema: t.schema,
+                  table_name: t.name,
+                  constraint_name: `${t.name}_pkey`,
+                  constraint_type: 'p',
+                  columns: t.primaryKey,
+                },
+              ]
+            : []),
+          ...(t.uniqueConstraints ?? []).map((constraint) => ({
+            schema: t.schema,
+            table_name: t.name,
+            constraint_name: constraint.name,
+            constraint_type: 'u',
+            columns: constraint.columns,
+          })),
+          ...(t.foreignKeys ?? []).map((constraint) => ({
+            schema: t.schema,
+            table_name: t.name,
+            constraint_name: constraint.name,
+            constraint_type: 'f',
+            columns: constraint.columns,
+            referenced_schema: constraint.referencedSchema ?? 'public',
+            referenced_table: constraint.referencedTable,
+            referenced_columns: constraint.referencedColumns,
+            on_delete: constraint.onDelete ?? 'no action',
+            on_update: constraint.onUpdate ?? 'no action',
+          })),
+        ])
         return createMockStatement(rows)
       }
 
@@ -161,11 +228,33 @@ function createMockConnector(options?: {
           const schema = match[1] ?? 'public'
           const name = match[2]!
           if (!liveTables.some((t) => t.schema === schema && t.name === name)) {
+            const uniqueConstraints = [
+              ...sql.matchAll(/"([^"]+)"\s+[^,]*\bunique\b/gi),
+            ].map((match) => ({
+              name: `${name}_${match[1]}_key`,
+              columns: [match[1]!],
+            }))
+            const foreignKeys = [
+              ...sql.matchAll(
+                /"([^"]+)"\s+[^,]*references\s+"([^"]+)"\."([^"]+)"\s+\("([^"]+)"\)(?:\s+on delete\s+(cascade|restrict|no action|set null|set default))?(?:\s+on update\s+(cascade|restrict|no action|set null|set default))?/gi,
+              ),
+            ].map((match) => ({
+              name: `${name}_${match[1]}_fkey`,
+              columns: [match[1]!],
+              referencedSchema: match[2]!,
+              referencedTable: match[3]!,
+              referencedColumns: [match[4]!],
+              ...(match[5] ? { onDelete: match[5].toLowerCase() } : {}),
+              ...(match[6] ? { onUpdate: match[6].toLowerCase() } : {}),
+            }))
             liveTables.push({
               schema,
               name,
               columns: [],
               indexes: [],
+              primaryKey: /primary key/i.test(sql) ? ['id'] : undefined,
+              uniqueConstraints,
+              foreignKeys,
             })
           }
         }
@@ -277,6 +366,10 @@ function createMockConnector(options?: {
           const schema = match[2] ?? 'public'
           const tableName = match[3]!
           const unique = /create\s+unique\s+index/i.test(sql)
+          const columnsMatch = sql.match(/\(([^)]+)\)\s*$/)
+          const columns = columnsMatch
+            ? [...columnsMatch[1]!.matchAll(/"([^"]+)"/g)].map((column) => column[1]!)
+            : []
 
           let table = liveTables.find((t) => t.schema === schema && t.name === tableName)
 
@@ -289,7 +382,7 @@ function createMockConnector(options?: {
           if (!table.indexes.some((i) => i.name === indexName)) {
             table.indexes.push({
               name: indexName,
-              columns: [],
+              columns,
               unique,
             })
           }
@@ -599,8 +692,14 @@ describe('db.migrate().execute()', () => {
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
             { name: 'bio', dataType: 'text', isNullable: false },
-            { name: 'active', dataType: 'boolean', isNullable: false },
+            {
+              name: 'active',
+              dataType: 'boolean',
+              isNullable: false,
+              defaultExpression: 'true',
+            },
           ],
+          uniqueConstraints: [{ name: 'users_email_key', columns: ['email'] }],
         },
       ],
     })
@@ -796,6 +895,7 @@ describe('db.migrate().dryRun()', () => {
               dataType: 'integer',
               isNullable: false,
               isIdentity: true,
+              identityGeneration: 'byDefault',
             },
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
@@ -805,8 +905,10 @@ describe('db.migrate().dryRun()', () => {
               dataType: 'boolean',
               isNullable: false,
               hasDefault: true,
+              defaultExpression: 'true',
             },
           ],
+          uniqueConstraints: [{ name: 'users_email_key', columns: ['email'] }],
         },
       ],
     })
@@ -1002,7 +1104,8 @@ describe('db.migrate().dryRun()', () => {
               numeric_scale: null,
               is_nullable: 'NO',
               column_default: null,
-              is_identity: 'NO',
+              is_identity: 'YES',
+              identity_generation: 'BY DEFAULT',
             },
             {
               schema: 'public',
@@ -1016,6 +1119,17 @@ describe('db.migrate().dryRun()', () => {
               is_nullable: 'YES',
               column_default: null,
               is_identity: 'NO',
+            },
+          ])
+        }
+        if (normalized.includes('con.contype as constraint_type')) {
+          return createMockStatement([
+            {
+              schema: 'public',
+              table_name: 'users',
+              constraint_name: 'users_pkey',
+              constraint_type: 'p',
+              columns: ['id'],
             },
           ])
         }
@@ -1044,6 +1158,180 @@ describe('db.migrate().dryRun()', () => {
     expect(setNotNullSql).toHaveLength(0)
 
     await db.close()
+  })
+})
+
+describe('managed migration drift detection', () => {
+  function matchingUsersCatalog(): CatalogSnapshot {
+    return {
+      tables: [
+        {
+          schema: 'public',
+          name: 'users',
+          columns: [
+            {
+              name: 'id',
+              dataType: 'integer',
+              isNullable: false,
+              defaultExpression: null,
+              identityGeneration: 'byDefault',
+            },
+            {
+              name: 'email',
+              dataType: 'varchar(255)',
+              isNullable: false,
+              defaultExpression: null,
+              identityGeneration: null,
+            },
+            {
+              name: 'age',
+              dataType: 'integer',
+              isNullable: true,
+              defaultExpression: null,
+              identityGeneration: null,
+            },
+            {
+              name: 'bio',
+              dataType: 'text',
+              isNullable: false,
+              defaultExpression: null,
+              identityGeneration: null,
+            },
+            {
+              name: 'active',
+              dataType: 'boolean',
+              isNullable: false,
+              defaultExpression: 'true',
+              identityGeneration: null,
+            },
+          ],
+          indexes: [],
+          primaryKey: { name: 'users_pkey', columns: ['id'] },
+          uniqueConstraints: [{ name: 'users_email_key', columns: ['email'] }],
+          foreignKeys: [],
+        },
+      ],
+    }
+  }
+
+  it('should converge only when all managed properties match', () => {
+    expect(planMigration([Users], matchingUsersCatalog(), postgresDialect).steps).toEqual(
+      [],
+    )
+  })
+
+  it.each([
+    [
+      'default',
+      (catalog: CatalogSnapshot) => {
+        catalog.tables[0]!.columns.find(
+          (column) => column.name === 'active',
+        )!.defaultExpression = 'false'
+      },
+    ],
+    [
+      'identity',
+      (catalog: CatalogSnapshot) => {
+        catalog.tables[0]!.columns.find(
+          (column) => column.name === 'id',
+        )!.identityGeneration = 'always'
+      },
+    ],
+    [
+      'primary key',
+      (catalog: CatalogSnapshot) => {
+        catalog.tables[0]!.primaryKey = { name: 'users_pkey', columns: ['email'] }
+      },
+    ],
+    [
+      'unique constraint',
+      (catalog: CatalogSnapshot) => {
+        catalog.tables[0]!.uniqueConstraints = []
+      },
+    ],
+    [
+      'foreign key',
+      (catalog: CatalogSnapshot) => {
+        catalog.tables[0]!.foreignKeys = [
+          {
+            name: 'users_email_fkey',
+            columns: ['email'],
+            referencedSchema: 'public',
+            referencedTable: 'accounts',
+            referencedColumns: ['email'],
+            onDelete: 'no action',
+            onUpdate: 'no action',
+          },
+        ]
+      },
+    ],
+  ])('should reject unsupported %s drift', (property, mutate) => {
+    const catalog = matchingUsersCatalog()
+    mutate(catalog)
+    expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
+      new RegExp(property, 'i'),
+    )
+  })
+
+  it('should compare same-named index columns and uniqueness', () => {
+    const catalog: CatalogSnapshot = {
+      tables: [
+        {
+          schema: 'public',
+          name: 'users',
+          columns: [
+            { name: 'id', dataType: 'integer', isNullable: false },
+            { name: 'email', dataType: 'text', isNullable: false },
+            { name: 'orgId', dataType: 'uuid', isNullable: false },
+          ],
+          indexes: [
+            { name: 'users_email_idx', columns: ['orgId'], unique: false },
+            {
+              name: 'users_org_email_uidx',
+              columns: ['orgId', 'email'],
+              unique: false,
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(() => planMigration([UsersWithIndex], catalog, postgresDialect)).toThrow(
+      /index definition change/i,
+    )
+  })
+
+  it('should compare foreign-key targets and actions', () => {
+    const catalog: CatalogSnapshot = {
+      tables: [
+        {
+          schema: 'public',
+          name: 'posts',
+          columns: [
+            { name: 'id', dataType: 'uuid', isNullable: false },
+            { name: 'authorId', dataType: 'integer', isNullable: false },
+            { name: 'title', dataType: 'text', isNullable: false },
+          ],
+          primaryKey: { name: 'posts_pkey', columns: ['id'] },
+          uniqueConstraints: [],
+          foreignKeys: [
+            {
+              name: 'posts_authorId_fkey',
+              columns: ['authorId'],
+              referencedSchema: 'public',
+              referencedTable: 'users',
+              referencedColumns: ['id'],
+              onDelete: 'restrict',
+              onUpdate: 'restrict',
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(() => planMigration([Posts], catalog, postgresDialect)).toThrow(
+      /foreign key change/i,
+    )
   })
 })
 
@@ -1124,9 +1412,21 @@ describe('db.migrate() allowlist + safety', () => {
               numeric_scale: null,
               is_nullable: c.isNullable ? 'YES' : 'NO',
               column_default: null,
-              is_identity: 'NO',
+              is_identity: c.name === 'id' ? 'YES' : 'NO',
+              identity_generation: c.name === 'id' ? 'BY DEFAULT' : null,
             })),
           )
+        }
+        if (normalized.includes('con.contype as constraint_type')) {
+          return createMockStatement([
+            {
+              schema: 'public',
+              table_name: 'users',
+              constraint_name: 'users_pkey',
+              constraint_type: 'p',
+              columns: ['id'],
+            },
+          ])
         }
         if (normalized.includes('pg_index') || normalized.includes('index_name')) {
           return createMockStatement([])
