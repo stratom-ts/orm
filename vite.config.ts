@@ -3,7 +3,7 @@ import dts from 'vite-plugin-dts'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [dts({ tsconfigPath: './tsconfig.build.json' })],
+  plugins: [dts({ include: ['src/**/*.ts'] })],
   test: {
     globals: true,
     environment: 'node',
