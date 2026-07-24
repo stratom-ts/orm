@@ -10,12 +10,7 @@ import {
   normalizeIndex,
   table,
 } from '@/schemas'
-import type {
-  ColumnRef,
-  ColumnRefsOf,
-  SchemaNameOf,
-  TableHandle,
-} from '@/types'
+import type { ColumnRef, ColumnRefsOf, SchemaNameOf, TableHandle } from '@/types'
 import { TABLE_HANDLE } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { assertNonEmptyString } from '@/utils/assertNonEmptyString'
@@ -40,18 +35,14 @@ type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
  *
  * @throws SchemaError - When the key is empty or references an unknown column
  */
-function validatePrimaryKey(
-  metadata: TableMetadata,
-  columnNames: string[],
-): void {
+function validatePrimaryKey(metadata: TableMetadata, columnNames: string[]): void {
   const primaryKeys = Array.isArray(metadata.primaryKey)
     ? metadata.primaryKey
     : [metadata.primaryKey]
 
   if (primaryKeys.length === 0) {
     throw new SchemaError({
-      message:
-        'primaryKey must be a column name or non-empty array of column names',
+      message: 'primaryKey must be a column name or non-empty array of column names',
     })
   }
 
@@ -101,10 +92,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
  *
  * @throws SchemaError - When the reference is missing a target table or key
  */
-function validateColumnReference(
-  columnName: string,
-  ref: ReferenceMetadata,
-): void {
+function validateColumnReference(columnName: string, ref: ReferenceMetadata): void {
   if (!ref) {
     return
   }
@@ -174,9 +162,11 @@ function validateColumns(schema: TableSchema, tableName: string): void {
  * Checks the table name/schema, the primary key, every index, and each column's
  * reference and identity/autoIncrement type against the declared columns.
  *
- * @param schema - Valibot object schema whose entries hold the column schemas
+ * @param schema - Valibot object schema whose entries hold the column schemas.
  * @param metadata - Resolved `table()` metadata (name, schema, primaryKey, indexes)
- * @param columnNames - Declared column names that primary keys and indexes must reference
+ * @param columnNames - Declared column names that primary keys and indexes must
+ *   reference.
+ *
  * @throws SchemaError - When any name, key, index, reference, or identity type is invalid
  */
 function validateTableMetadata(
@@ -198,16 +188,17 @@ function validateTableMetadata(
 /**
  * Validates Valibot table metadata and returns a table handle with typed column refs.
  *
- * @param schema - Valibot object schema with `title()` and `table()` metadata
+ * @param schema - Valibot object schema with `title()` and `table()` metadata.
+ *
  * @returns Table handle for registration, queries, and column references
+ *
  * @throws SchemaError - When metadata is missing or invalid
  */
 function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
   const metadata = getTableMetadata(schema)
   if (!metadata) {
     throw new SchemaError({
-      message:
-        'defineTable requires table() metadata (name, primaryKey) on the schema',
+      message: 'defineTable requires table() metadata (name, primaryKey) on the schema',
     })
   }
 
@@ -261,44 +252,41 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
  * metadata. `primaryKey` and index `columns` are constrained to the declared
  * column names, so referencing an unknown column is a compile error.
  *
- * @param name - Database table name (also the logical name on column refs)
- * @param columns - Map of column name to Valibot column schema
- * @param options - Primary key, optional DB schema, and indexes
- * @returns Table handle for registration, queries, and column references
- * @throws SchemaError - When the resulting metadata is invalid
- *
  * @example
- * ```ts
- * const User = defineTable(
- *   'users',
- *   {
- *     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
- *     email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
- *   },
- *   {
- *     schema: 'public',
- *     primaryKey: 'id',
- *     indexes: [{ columns: ['email'], unique: true }],
- *   },
- * )
- * User.email // column ref
- * ```
+ *   ;```ts
+ *   const User = defineTable(
+ *     'users',
+ *     {
+ *       id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+ *       email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
+ *     },
+ *     {
+ *       schema: 'public',
+ *       primaryKey: 'id',
+ *       indexes: [{ columns: ['email'], unique: true }],
+ *     },
+ *   )
+ *   User.email // column ref
+ *   ```
+ *
+ * @param name - Database table name (also the logical name on column refs)
+ * @param columns - Map of column name to Valibot column schema.
+ * @param options - Primary key, optional DB schema, and indexes.
+ *
+ * @returns Table handle for registration, queries, and column references
+ *
+ * @throws SchemaError - When the resulting metadata is invalid
  */
-export function defineTable<
-  const TName extends string,
-  TCols extends ObjectEntries,
->(name: TName, columns: TCols, options: TableOptions<TCols>) {
+export function defineTable<const TName extends string, TCols extends ObjectEntries>(
+  name: TName,
+  columns: TCols,
+  options: TableOptions<TCols>,
+) {
   const schema = pipe(object(columns), title(name), table({ name, ...options }))
   return buildTableHandle(schema)
 }
 
-/**
- * Type guard for values produced by `defineTable`.
- */
+/** Type guard for values produced by `defineTable`. */
 export function isTableHandle(value: unknown): value is TableHandle {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    TABLE_HANDLE in (value as object)
-  )
+  return typeof value === 'object' && value !== null && TABLE_HANDLE in (value as object)
 }

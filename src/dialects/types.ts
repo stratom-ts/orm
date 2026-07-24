@@ -34,9 +34,7 @@ export type CatalogTable = {
   indexes?: CatalogIndex[]
 }
 
-/**
- * Catalog snapshot for desired-state migrations.
- */
+/** Catalog snapshot for desired-state migrations. */
 export type CatalogSnapshot = {
   tables: CatalogTable[]
 }
@@ -312,7 +310,7 @@ export type SqlAst =
 /**
  * Dialect plugin: type mapping, introspection, and AST compilation.
  *
- * v1 ships Postgres only; introspect may be a stub until migrate tickets.
+ * V1 ships Postgres only; introspect may be a stub until migrate tickets.
  */
 export interface Dialect {
   readonly id: string

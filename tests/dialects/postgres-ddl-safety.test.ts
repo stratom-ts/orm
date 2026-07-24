@@ -58,10 +58,7 @@ describe('create table compile uses safe type/default paths', () => {
       'events',
       {
         id: pipe(string(), column({ type: 'uuid' })),
-        createdAt: pipe(
-          string(),
-          column({ type: 'timestamptz', default: 'now()' }),
-        ),
+        createdAt: pipe(string(), column({ type: 'timestamptz', default: 'now()' })),
       },
       { primaryKey: 'id' },
     )

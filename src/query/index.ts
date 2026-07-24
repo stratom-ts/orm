@@ -48,11 +48,7 @@ export {
   type ExpressionBuilder,
 } from './expressions'
 export { createDb0Executor, type Executor } from './executor'
-export {
-  createValueMapper,
-  type ValueMapConfig,
-  type ValueMapper,
-} from './mapping'
+export { createValueMapper, type ValueMapConfig, type ValueMapper } from './mapping'
 export {
   buildInsertSchema,
   buildUpdateSchema,

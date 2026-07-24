@@ -12,13 +12,14 @@ interface WrapperSchema {
 /**
  * Unwraps optional/nullable/nullish wrappers while preserving pipes.
  *
- * @param schema - Schema that may be wrapped
- * @returns Inner schema with pipe structure intact
- *
  * @example
- * ```ts
- * const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'text' }))))
- * ```
+ *   ;```ts
+ *   const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'text' }))))
+ *   ```
+ *
+ * @param schema - Schema that may be wrapped.
+ *
+ * @returns Inner schema with pipe structure intact
  */
 function unwrapWrapper(schema: AnySchema): AnySchema {
   if (
@@ -37,13 +38,14 @@ function unwrapWrapper(schema: AnySchema): AnySchema {
 /**
  * Attaches column metadata to a Valibot schema for migrations and typing.
  *
- * @param config - Column options (type, default, unique, generated, etc.)
- * @returns Metadata action for use in a `pipe`
- *
  * @example
- * ```ts
- * const email = pipe(string(), column({ type: 'varchar(255)', unique: true }))
- * ```
+ *   ;```ts
+ *   const email = pipe(string(), column({ type: 'varchar(255)', unique: true }))
+ *   ```
+ *
+ * @param config - Column options (type, default, unique, generated, etc.)
+ *
+ * @returns Metadata action for use in a `pipe`
  */
 export function column<
   TInput = unknown,
@@ -58,13 +60,14 @@ export function column<
 /**
  * Type guard for column metadata (`kind: 'column'`).
  *
- * @param metadata - Value to check
- * @returns `true` if `metadata` is `ColumnMetadata`
- *
  * @example
- * ```ts
- * if (isColumnMetadata(meta)) console.log(meta.type)
- * ```
+ *   ;```ts
+ *   if (isColumnMetadata(meta)) console.log(meta.type)
+ *   ```
+ *
+ * @param metadata - Value to check.
+ *
+ * @returns `true` if `metadata` is `ColumnMetadata`
  */
 export function isColumnMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -75,18 +78,17 @@ export function isColumnMetadata(
 /**
  * Reads column metadata from a schema, unwrapping nullability wrappers first.
  *
- * @param schema - Column schema that may include `column()` metadata
- * @returns Column metadata, or `undefined` if none
- *
  * @example
- * ```ts
- * const meta = getColumnMetadata(pipe(string(), column({ type: 'text' })))
- * // { kind: 'column', type: 'text' }
- * ```
+ *   ;```ts
+ *   const meta = getColumnMetadata(pipe(string(), column({ type: 'text' })))
+ *   // { kind: 'column', type: 'text' }
+ *   ```
+ *
+ * @param schema - Column schema that may include `column()` metadata.
+ *
+ * @returns Column metadata, or `undefined` if none
  */
-export function getColumnMetadata(
-  schema: AnySchema,
-): ColumnMetadata | undefined {
+export function getColumnMetadata(schema: AnySchema): ColumnMetadata | undefined {
   const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
     | Record<string, unknown>
     | undefined

@@ -4,14 +4,15 @@ import type { AnySchema } from '@/types/schema'
 /**
  * Reads min/max value and integer constraints from a number schema pipe.
  *
- * @param schema - Number schema that may include constraint actions
- * @returns Extracted `minValue`, `maxValue`, and `isInteger` if present
- *
  * @example
- * ```ts
- * const c = getNumberConstraints(pipe(number(), minValue(0), integer()))
- * // { minValue: 0, isInteger: true }
- * ```
+ *   ;```ts
+ *   const c = getNumberConstraints(pipe(number(), minValue(0), integer()))
+ *   // { minValue: 0, isInteger: true }
+ *   ```
+ *
+ * @param schema - Number schema that may include constraint actions.
+ *
+ * @returns Extracted `minValue`, `maxValue`, and `isInteger` if present
  */
 export function getNumberConstraints(schema: AnySchema): NumberConstraints {
   const constraints: NumberConstraints = {}
@@ -26,10 +27,7 @@ export function getNumberConstraints(schema: AnySchema): NumberConstraints {
           constraints.minValue = action.requirement
         } else if (action.type === 'max_value') {
           constraints.maxValue = action.requirement
-        } else if (
-          action.type === 'integer' ||
-          action.type === 'safe_integer'
-        ) {
+        } else if (action.type === 'integer' || action.type === 'safe_integer') {
           constraints.isInteger = true
         }
       }

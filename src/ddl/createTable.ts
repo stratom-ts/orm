@@ -1,10 +1,6 @@
 import type { CreateTableAst, Dialect } from '@/dialects'
 import type { ReferentialAction } from '@/schemas'
-import {
-  getColumnMetadata,
-  getReferenceMetadata,
-  isSqlNullable,
-} from '@/schemas'
+import { getColumnMetadata, getReferenceMetadata, isSqlNullable } from '@/schemas'
 import type { TableHandle } from '@/types'
 import { MigrationError, SchemaError } from '@/utils/error'
 
@@ -35,9 +31,7 @@ function isIdentityCompatibleType(dataType: string, dialect: Dialect): boolean {
   return IDENTITY_BASE_TYPES.has(base)
 }
 
-/**
- * Builds a create-table AST from a table handle and dialect type inference.
- */
+/** Builds a create-table AST from a table handle and dialect type inference. */
 export function buildCreateTableAst(
   handle: TableHandle,
   dialect: Dialect,
@@ -55,9 +49,7 @@ export function buildCreateTableAst(
 
   const columns: ColumnDefAst[] = []
 
-  for (const [columnName, columnSchema] of Object.entries(
-    handle.getSchema().entries,
-  )) {
+  for (const [columnName, columnSchema] of Object.entries(handle.getSchema().entries)) {
     if (!columnSchema || columnSchema.kind !== 'schema') continue
 
     const columnMetadata = getColumnMetadata(columnSchema)
@@ -91,12 +83,8 @@ export function buildCreateTableAst(
         ...(referenceMetadata.schema !== undefined
           ? { schema: referenceMetadata.schema }
           : {}),
-        ...(referenceMetadata.onDelete
-          ? { onDelete: referenceMetadata.onDelete }
-          : {}),
-        ...(referenceMetadata.onUpdate
-          ? { onUpdate: referenceMetadata.onUpdate }
-          : {}),
+        ...(referenceMetadata.onDelete ? { onDelete: referenceMetadata.onDelete } : {}),
+        ...(referenceMetadata.onUpdate ? { onUpdate: referenceMetadata.onUpdate } : {}),
       }
     }
 

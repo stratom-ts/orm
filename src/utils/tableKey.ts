@@ -9,9 +9,7 @@ export function tableKey(schema: string | undefined, name: string): string {
   return `${schema ?? DEFAULT_PG_SCHEMA}.${name}`
 }
 
-/**
- * Effective Postgres schema for a table handle or metadata.
- */
+/** Effective Postgres schema for a table handle or metadata. */
 export function effectiveSchema(schema: string | undefined): string {
   return schema ?? DEFAULT_PG_SCHEMA
 }

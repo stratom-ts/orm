@@ -45,8 +45,7 @@ function createMockConnector(options?: {
     prepare: (sql: string) => {
       prepared.push(sql)
       const base =
-        options?.onPrepare?.(sql) ??
-        createMockStatement(options?.rowsBySql?.(sql) ?? [])
+        options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
       return {
         bind(...params: unknown[]) {
           binds.push(params)
@@ -140,10 +139,7 @@ describe('db.transaction', () => {
       await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
       await expect(
         trx.transaction(async (inner) => {
-          await inner
-            .insert(Users)
-            .values({ id: '2', email: 'b@b.com' })
-            .execute()
+          await inner.insert(Users).values({ id: '2', email: 'b@b.com' }).execute()
           throw new Error('inner fail')
         }),
       ).rejects.toThrow('inner fail')
@@ -167,18 +163,15 @@ describe('db.transaction', () => {
 
     await db.transaction(async (trx) => {
       await trx.transaction(async (inner) => {
-        await inner
-          .insert(Users)
-          .values({ id: '1', email: 'a@b.com' })
-          .execute()
+        await inner.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
       })
     })
 
     const sql = connector.prepared.map((s) => s.toLowerCase())
 
-    expect(
-      sql.filter((s) => s.includes('savepoint sp_1')).length,
-    ).toBeGreaterThanOrEqual(1)
+    expect(sql.filter((s) => s.includes('savepoint sp_1')).length).toBeGreaterThanOrEqual(
+      1,
+    )
 
     expect(sql.some((s) => s.includes('release savepoint sp_1'))).toBe(true)
     expect(sql.some((s) => s.includes('rollback to'))).toBe(false)
@@ -238,9 +231,7 @@ describe('value mapping', () => {
     const row = rows[0]!
     expect(row.id).toBe('550e8400-e29b-41d4-a716-446655440000')
     expect(row.createdAt).toBeInstanceOf(Date)
-    expect((row.createdAt as Date).toISOString()).toBe(
-      '2024-06-15T12:00:00.000Z',
-    )
+    expect((row.createdAt as Date).toISOString()).toBe('2024-06-15T12:00:00.000Z')
     expect(row.meta).toEqual({ a: 1 })
     expect(row.label).toBe('read:world')
 

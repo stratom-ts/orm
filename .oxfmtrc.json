@@ -4,7 +4,13 @@
   "singleQuote": true,
   "semi": false,
   "trailingComma": "all",
-  "printWidth": 80,
+  "printWidth": 90,
+  "jsdoc": {
+    "descriptionWithDot": true,
+    "lineWrappingStyle": "balance",
+    "preferCodeFences": true,
+    "separateTagGroups": true
+  },
   "sortImports": {
     "groups": [
       ["type-import", "value-builtin", "value-external"],

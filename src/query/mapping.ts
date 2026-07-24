@@ -3,7 +3,7 @@ import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { ColumnMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
 
-/** createDb-level value mapping overrides. */
+/** CreateDb-level value mapping overrides. */
 export type ValueMapConfig = {
   mapResultValue?(dataType: string, value: unknown): unknown
   mapParamValue?(dataType: string, value: unknown): unknown
@@ -13,10 +13,7 @@ export type ValueMapper = {
   /** SQL data type per column name for a table. */
   columnTypes(handle: TableHandle): Record<string, string>
   mapParam(handle: TableHandle, column: string, value: unknown): unknown
-  mapResultRow(
-    handle: TableHandle,
-    row: Record<string, unknown>,
-  ): Record<string, unknown>
+  mapResultRow(handle: TableHandle, row: Record<string, unknown>): Record<string, unknown>
   mapResultRows(handle: TableHandle, rows: unknown[]): unknown[]
 }
 
@@ -42,28 +39,18 @@ function resolveColumnDataType(
   )
 }
 
-function columnMeta(
-  handle: TableHandle,
-  columnName: string,
-): ColumnMetadata | undefined {
+function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | undefined {
   const entries = handle.getSchema().entries as Record<
     string,
     { kind?: string } | undefined
   >
   const columnSchema = entries[columnName]
   if (!columnSchema || columnSchema.kind !== 'schema') return undefined
-  return getColumnMetadata(
-    columnSchema as Parameters<typeof getColumnMetadata>[0],
-  )
+  return getColumnMetadata(columnSchema as Parameters<typeof getColumnMetadata>[0])
 }
 
-/**
- * Builds a value mapper: column override → createDb map → dialect defaults.
- */
-export function createValueMapper(
-  dialect: Dialect,
-  map?: ValueMapConfig,
-): ValueMapper {
+/** Builds a value mapper: column override → createDb map → dialect defaults. */
+export function createValueMapper(dialect: Dialect, map?: ValueMapConfig): ValueMapper {
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
 
   const columnTypes = (handle: TableHandle): Record<string, string> => {
@@ -78,11 +65,7 @@ export function createValueMapper(
     return types
   }
 
-  const mapParam = (
-    handle: TableHandle,
-    column: string,
-    value: unknown,
-  ): unknown => {
+  const mapParam = (handle: TableHandle, column: string, value: unknown): unknown => {
     if (value === undefined) return value
     const meta = columnMeta(handle, column)
     if (meta?.mapParam) return meta.mapParam(value)

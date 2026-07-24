@@ -31,27 +31,21 @@ describe('postgres.ts', () => {
     })
 
     it('should return varchar with maxLength for string with maxLength <= 255', () => {
-      expect(inferPostgresColumnType(pipe(string(), maxLength(100)))).toBe(
-        'varchar(100)',
-      )
+      expect(inferPostgresColumnType(pipe(string(), maxLength(100)))).toBe('varchar(100)')
     })
 
     it('should return text for string with maxLength > 255', () => {
-      expect(inferPostgresColumnType(pipe(string(), maxLength(500)))).toBe(
-        'text',
-      )
+      expect(inferPostgresColumnType(pipe(string(), maxLength(500)))).toBe('text')
     })
 
     it('should return varchar (not char) for fixed length string', () => {
-      expect(inferPostgresColumnType(pipe(string(), length(10)))).toBe(
-        'varchar(10)',
-      )
+      expect(inferPostgresColumnType(pipe(string(), length(10)))).toBe('varchar(10)')
     })
 
     it('should return varchar for string with both minLength and maxLength within 255', () => {
-      expect(
-        inferPostgresColumnType(pipe(string(), minLength(5), maxLength(10))),
-      ).toBe('varchar(10)')
+      expect(inferPostgresColumnType(pipe(string(), minLength(5), maxLength(10)))).toBe(
+        'varchar(10)',
+      )
     })
   })
 
@@ -62,9 +56,9 @@ describe('postgres.ts', () => {
 
     it('should return double precision for a bounded but non-integer number', () => {
       // No integer() → a float in the range is valid, so it must not narrow.
-      expect(
-        inferPostgresColumnType(pipe(number(), minValue(0), maxValue(100))),
-      ).toBe('double precision')
+      expect(inferPostgresColumnType(pipe(number(), minValue(0), maxValue(100)))).toBe(
+        'double precision',
+      )
     })
 
     it('should default integer() to integer', () => {
@@ -72,28 +66,21 @@ describe('postgres.ts', () => {
     })
 
     it('should keep integer for a single-sided bound within int32', () => {
-      expect(
-        inferPostgresColumnType(pipe(number(), integer(), maxValue(1000000))),
-      ).toBe('integer')
+      expect(inferPostgresColumnType(pipe(number(), integer(), maxValue(1000000)))).toBe(
+        'integer',
+      )
     })
 
     it('should narrow to smallint only when both bounds fit int16', () => {
       expect(
-        inferPostgresColumnType(
-          pipe(number(), integer(), minValue(0), maxValue(32767)),
-        ),
+        inferPostgresColumnType(pipe(number(), integer(), minValue(0), maxValue(32767))),
       ).toBe('smallint')
     })
 
     it('should widen to bigint when a bound falls outside int32', () => {
       expect(
         inferPostgresColumnType(
-          pipe(
-            number(),
-            integer(),
-            minValue(-10000000000),
-            maxValue(10000000000),
-          ),
+          pipe(number(), integer(), minValue(-10000000000), maxValue(10000000000)),
         ),
       ).toBe('bigint')
     })
@@ -136,15 +123,13 @@ describe('postgres.ts', () => {
     })
 
     it('should return text for picklist schema', () => {
-      expect(
-        inferPostgresColumnType(picklist(['active', 'inactive', 'pending'])),
-      ).toBe('text')
+      expect(inferPostgresColumnType(picklist(['active', 'inactive', 'pending']))).toBe(
+        'text',
+      )
     })
 
     it('should return jsonb for object schemas', () => {
-      expect(
-        inferPostgresColumnType(object({ a: string(), b: number() })),
-      ).toBe('jsonb')
+      expect(inferPostgresColumnType(object({ a: string(), b: number() }))).toBe('jsonb')
     })
 
     it('should return jsonb for array schemas', () => {

@@ -490,9 +490,7 @@ function stepToAst(
           notNull: step.notNull,
           unique: step.unique ?? false,
           autoIncrement: step.autoIncrement ?? false,
-          ...(step.defaultValue !== undefined
-            ? { defaultValue: step.defaultValue }
-            : {}),
+          ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
           ...(step.generated ? { generated: step.generated } : {}),
           ...(step.references ? { references: step.references } : {}),
         },
@@ -616,8 +614,7 @@ export function createMigrateBuilder(options: {
       } catch (cause) {
         if (cause instanceof MigrationError) throw cause
         throw new MigrationError({
-          message:
-            cause instanceof Error ? cause.message : 'Migration dry-run failed',
+          message: cause instanceof Error ? cause.message : 'Migration dry-run failed',
           ...(cause !== undefined ? { cause } : {}),
         })
       }
@@ -643,8 +640,7 @@ export function createMigrateBuilder(options: {
         } catch (cause) {
           if (cause instanceof MigrationError) throw cause
           throw new MigrationError({
-            message:
-              cause instanceof Error ? cause.message : 'Migration failed',
+            message: cause instanceof Error ? cause.message : 'Migration failed',
             ...(cause !== undefined ? { cause } : {}),
           })
         }

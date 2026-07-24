@@ -74,11 +74,7 @@ describe('ValidationError', () => {
 describe('catchTag', () => {
   it('should catch a tagged error and return the callback result', () => {
     const error = new MigrationError({ message: 'fail' })
-    const result = catchTag(
-      error,
-      'MigrationError',
-      (e) => `caught: ${e.message}`,
-    )
+    const result = catchTag(error, 'MigrationError', (e) => `caught: ${e.message}`)
     expect(result).toBe('caught: fail')
   })
 
@@ -95,11 +91,7 @@ describe('catchTag', () => {
 
   it('should pass through a matching tag on non-Error objects', () => {
     const value = { _tag: 'MigrationError' as const, message: 'test' }
-    const result = catchTag(
-      value,
-      'MigrationError',
-      (e) => `caught: ${e.message}`,
-    )
+    const result = catchTag(value, 'MigrationError', (e) => `caught: ${e.message}`)
     expect(result).toBe(value)
   })
 })

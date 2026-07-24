@@ -3,8 +3,9 @@ import { SchemaError } from '@/utils/error'
 /**
  * Asserts that a value is a non-empty string.
  *
- * @param value - Value to check
- * @param label - Human-readable name used in the error message
+ * @param value - Value to check.
+ * @param label - Human-readable name used in the error message.
+ *
  * @throws SchemaError - When `value` is not a string or is empty
  */
 export function assertNonEmptyString(

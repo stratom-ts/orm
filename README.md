@@ -206,10 +206,7 @@ const rows = await db
 const actives = await db.from(User).where({ active: true }).execute()
 
 // a single row (throws if none)
-const one = await db
-  .from(User)
-  .where(User.id, 'eq', user.id)
-  .executeTakeFirstOrThrow()
+const one = await db.from(User).where(User.id, 'eq', user.id).executeTakeFirstOrThrow()
 ```
 
 ### Joins and aggregates
@@ -225,11 +222,7 @@ const withAuthors = await db
 
 const stats = await db
   .from(User)
-  .select((b) => [
-    User.active,
-    b.as(countAll(), 'total'),
-    b.as(sum(User.id), 'idSum'),
-  ])
+  .select((b) => [User.active, b.as(countAll(), 'total'), b.as(sum(User.id), 'idSum')])
   .groupBy(User.active)
   .having(() => gt(User.id, 0))
   .execute()
@@ -248,11 +241,7 @@ await db
   .execute()
 
 // update requires where(...) or .all()
-await db
-  .update(User)
-  .set({ fullName: 'Ada L.' })
-  .where(User.id, 'eq', user.id)
-  .execute()
+await db.update(User).set({ fullName: 'Ada L.' }).where(User.id, 'eq', user.id).execute()
 
 // delete returns the deleted rows by default
 const deleted = await db

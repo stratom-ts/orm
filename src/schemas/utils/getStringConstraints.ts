@@ -4,14 +4,15 @@ import type { AnySchema } from '@/types/schema'
 /**
  * Reads min/max length constraints from a string schema pipe.
  *
- * @param schema - String schema that may include length actions
- * @returns Extracted `minLength` and `maxLength` if present
- *
  * @example
- * ```ts
- * const c = getStringConstraints(pipe(string(), maxLength(255)))
- * // { maxLength: 255 }
- * ```
+ *   ;```ts
+ *   const c = getStringConstraints(pipe(string(), maxLength(255)))
+ *   // { maxLength: 255 }
+ *   ```
+ *
+ * @param schema - String schema that may include length actions.
+ *
+ * @returns Extracted `minLength` and `maxLength` if present
  */
 export function getStringConstraints(schema: AnySchema): StringConstraints {
   const constraints: StringConstraints = {}

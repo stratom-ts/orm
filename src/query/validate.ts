@@ -6,7 +6,7 @@ import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { ValidationError } from '@/utils/error'
 
-/** optional / nullish → omit-on-insert OK (not bare nullable). */
+/** Optional / nullish → omit-on-insert OK (not bare nullable). */
 function isOmitOptionalSchema(schema: AnySchema): boolean {
   return schema.type === 'optional' || schema.type === 'nullish'
 }
@@ -90,9 +90,7 @@ function formatIssues(issues: readonly BaseIssue<unknown>[]): string {
     .join('; ')
 }
 
-/**
- * Validates a single insert row; throws {@link ValidationError} on failure.
- */
+/** Validates a single insert row; throws {@link ValidationError} on failure. */
 export function validateInsertRow(
   handle: TableHandle,
   row: unknown,

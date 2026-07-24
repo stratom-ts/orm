@@ -1,13 +1,4 @@
-import {
-  boolean,
-  nullable,
-  number,
-  object,
-  optional,
-  pipe,
-  string,
-  title,
-} from 'valibot'
+import { boolean, nullable, number, object, optional, pipe, string, title } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable, isTableHandle } from '@/defineTable'
@@ -91,10 +82,7 @@ describe('defineTable', () => {
         ],
       },
     )
-    expect(Membership.getTableMetadata().primaryKey).toEqual([
-      'orgId',
-      'userId',
-    ])
+    expect(Membership.getTableMetadata().primaryKey).toEqual(['orgId', 'userId'])
     expect(Membership.getTableMetadata().indexes).toEqual([
       { name: 'memberships_role_idx', columns: ['role'] },
       { columns: ['orgId', 'role'], unique: true },

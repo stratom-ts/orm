@@ -1,12 +1,4 @@
-import {
-  nullable,
-  nullish,
-  object,
-  optional,
-  pipe,
-  string,
-  title,
-} from 'valibot'
+import { nullable, nullish, object, optional, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { isNullable } from '@/schemas'

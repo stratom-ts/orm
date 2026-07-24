@@ -8,22 +8,23 @@ import type { TableIndex, TableMetadata } from './types'
 /**
  * Attaches table metadata to a Valibot object schema for migrations.
  *
- * @param config - Table name, primary key(s), optional indexes and DB schema
- * @returns Metadata action for use in a `pipe` after `title()`
- *
  * @example
- * ```ts
- * const UserSchema = pipe(
- *   object({ id: pipe(string(), column({ type: 'uuid' })) }),
- *   title('users'),
- *   table({
- *     name: 'users',
- *     primaryKey: 'id',
- *     indexes: [{ columns: ['email'], unique: true }],
- *     schema: 'public',
- *   }),
- * )
- * ```
+ *   ;```ts
+ *   const UserSchema = pipe(
+ *     object({ id: pipe(string(), column({ type: 'uuid' })) }),
+ *     title('users'),
+ *     table({
+ *       name: 'users',
+ *       primaryKey: 'id',
+ *       indexes: [{ columns: ['email'], unique: true }],
+ *       schema: 'public',
+ *     }),
+ *   )
+ *   ```
+ *
+ * @param config - Table name, primary key(s), optional indexes and DB schema.
+ *
+ * @returns Metadata action for use in a `pipe` after `title()`
  */
 export function table<
   TInput = unknown,
@@ -50,13 +51,14 @@ export function table<
 /**
  * Type guard for table metadata (`kind: 'table'`).
  *
- * @param metadata - Value to check
- * @returns `true` if `metadata` is `TableMetadata`
- *
  * @example
- * ```ts
- * if (isTableMetadata(meta)) console.log(meta.primaryKey)
- * ```
+ *   ;```ts
+ *   if (isTableMetadata(meta)) console.log(meta.primaryKey)
+ *   ```
+ *
+ * @param metadata - Value to check.
+ *
+ * @returns `true` if `metadata` is `TableMetadata`
  */
 export function isTableMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -67,18 +69,17 @@ export function isTableMetadata(
 /**
  * Reads table metadata from a schema, if present.
  *
- * @param schema - Schema that may include `table()` metadata
- * @returns Table metadata, or `undefined` if none
- *
  * @example
- * ```ts
- * const meta = getTableMetadata(UserSchema)
- * // { kind: 'table', name: 'users', primaryKey: 'id' }
- * ```
+ *   ;```ts
+ *   const meta = getTableMetadata(UserSchema)
+ *   // { kind: 'table', name: 'users', primaryKey: 'id' }
+ *   ```
+ *
+ * @param schema - Schema that may include `table()` metadata.
+ *
+ * @returns Table metadata, or `undefined` if none
  */
 export function getTableMetadata(schema: AnySchema): TableMetadata | undefined {
-  const schemaMetadata = getMetadata(schema) as
-    | Record<string, unknown>
-    | undefined
+  const schemaMetadata = getMetadata(schema) as Record<string, unknown> | undefined
   return isTableMetadata(schemaMetadata) ? schemaMetadata : undefined
 }
