@@ -37,7 +37,7 @@ const User = defineTable(
 )
 
 describe('InferSelect', () => {
-  it('returns full row types without Kysely wrappers', () => {
+  it('returns full row types with SQL nullability rules', () => {
     type Row = InferSelect<typeof User>
     expectTypeOf<Row['id']>().toEqualTypeOf<number>()
     expectTypeOf<Row['email']>().toEqualTypeOf<string>()
@@ -55,6 +55,9 @@ describe('InferSelectedColumns', () => {
       readonly [typeof User.id, typeof User.email]
     >
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
+    expectTypeOf<Row>().not.toEqualTypeOf<
+      Partial<{ id: number; email: string }>
+    >()
     expectTypeOf<Row>().not.toHaveProperty('age')
     expectTypeOf<Row>().not.toHaveProperty('bio')
     expectTypeOf<Row>().not.toHaveProperty('active')
@@ -71,6 +74,14 @@ describe('InferSelectedColumns', () => {
   it('supports string column names', () => {
     type Row = InferSelectedColumns<typeof User, readonly ['id', 'email']>
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
+  })
+
+  it('types columns not on the source table as unknown', () => {
+    type Row = InferSelectedColumns<
+      typeof User,
+      readonly [typeof User.id, 'missing']
+    >
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number; missing: unknown }>()
   })
 })
 

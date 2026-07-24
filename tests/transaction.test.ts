@@ -3,7 +3,7 @@ import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
 import { date, number, pipe, string, unknown } from 'valibot'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -91,10 +91,6 @@ const Mapped = defineTable(
 )
 
 describe('db.transaction', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs()
-  })
-
   it('begins and commits on success', async () => {
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
