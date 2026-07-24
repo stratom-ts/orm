@@ -155,7 +155,8 @@ Inference rules (PostgreSQL):
 | `date()`                                                 | `timestamptz`                    |
 | `enum(...)` / `picklist([...])`                          | `text`                           |
 | `object(...)` / `array(...)` / `record(...)`             | `jsonb`                          |
-| `nullable(x)` / `optional(x)`                            | wrapped column becomes NULL-able |
+| `nullable(x)` / `nullish(x)`                             | wrapped column becomes NULL-able |
+| `optional(x)`                                            | may be omitted; remains NOT NULL |
 
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),
@@ -167,6 +168,11 @@ explicit `column({ type })` for those.
 Reach for `column({ type })` when you need an exact SQL type the inference
 doesn't produce (e.g. `uuid`, `numeric(10,2)`, `char(n)`), an identity column
 (`generated`), a `unique` constraint, or a `default`.
+
+An `optional(x)` column is still `NOT NULL` in PostgreSQL. It must declare a
+non-null `column({ default })`, use identity generation, or provide a Valibot
+optional default so every insert has a value. Use `nullable(x)` or `nullish(x)`
+when the stored value itself may be `NULL`.
 
 ## Relations
 
