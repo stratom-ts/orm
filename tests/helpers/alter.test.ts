@@ -112,6 +112,7 @@ describe('alter.ts', () => {
         'users',
         mockSchema,
         'new_column',
+        expect.anything(),
       )
     })
 
@@ -124,7 +125,7 @@ describe('alter.ts', () => {
         },
         current: {
           name: 'email',
-          type: 'varchar',
+          dataType: 'varchar',
           isNullable: true,
           isAutoIncrementing: false,
           hasDefaultValue: false,
@@ -180,7 +181,7 @@ describe('alter.ts', () => {
         },
         current: {
           name: 'email',
-          type: 'text',
+          dataType: 'text',
           isNullable: true,
           isAutoIncrementing: false,
           hasDefaultValue: false,
@@ -209,7 +210,7 @@ describe('alter.ts', () => {
         },
         current: {
           name: 'email',
-          type: 'text',
+          dataType: 'text',
           isNullable: false,
           isAutoIncrementing: false,
           hasDefaultValue: false,
@@ -248,7 +249,7 @@ describe('alter.ts', () => {
             },
             current: {
               name: 'email',
-              type: 'varchar',
+              dataType: 'varchar',
               isNullable: true,
               isAutoIncrementing: false,
               hasDefaultValue: false,

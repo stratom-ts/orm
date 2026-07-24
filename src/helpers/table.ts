@@ -68,7 +68,10 @@ export function createTableFromSchema<T>(
     })
   }
   const tableName = metadata.name
-  let table = db.schema.createTable(tableName)
+  const schemaModule = metadata.schema
+    ? db.schema.withSchema(metadata.schema)
+    : db.schema
+  let table = schemaModule.createTable(tableName)
 
   for (const [column, columnSchema] of Object.entries(schema.entries)) {
     if (columnSchema.kind !== 'schema') continue
@@ -82,12 +85,18 @@ export function createTableFromSchema<T>(
       let col = columnBuilder
       if (!nullable) col = col.notNull()
       if (column === metadata.primaryKey) col = col.primaryKey()
-      if (referenceMetadata?.table && referenceMetadata.key)
+      if (referenceMetadata?.table && referenceMetadata.key) {
         col = col.references(
           `${referenceMetadata.table}.${referenceMetadata.key}`,
         )
+        if (referenceMetadata.onDelete) col = col.onDelete(referenceMetadata.onDelete)
+      }
       if (unique && column !== metadata.primaryKey) col = col.unique()
       if (autoIncrement) col = col.autoIncrement()
+      if (columnMetadata?.generated === 'always')
+        col = col.generatedAlwaysAsIdentity()
+      else if (columnMetadata?.generated === 'byDefault')
+        col = col.generatedByDefaultAsIdentity()
       if (defaultValue !== undefined && defaultValue !== null)
         col = col.defaultTo(defaultValue)
       return col

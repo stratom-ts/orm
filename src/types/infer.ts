@@ -1,4 +1,9 @@
-import type { ColumnType, Generated, JSONColumnType } from 'kysely'
+import type {
+  ColumnType,
+  Generated,
+  GeneratedAlways,
+  JSONColumnType,
+} from 'kysely'
 import type { InferOutput } from 'valibot'
 import type { TableSchema } from '@/helpers/table'
 import type { KyselyColumnConfig } from './kysely'
@@ -81,7 +86,8 @@ type ApplyColumnType<T, Config extends KyselyColumnConfig | NoColumnConfig, Sche
   Config extends { dateAsString: true } ? ColumnType<Date, string, string> :
   HasExplicitKeys<Config> extends true ? T :
   UnwrapSchema<Schema> extends { pipe: readonly [...unknown[], { kind: 'metadata'; metadata: { kind: 'column'; readonly: true } }] } ? ColumnType<T, T, never> :
-  UnwrapSchema<Schema> extends { pipe: readonly [...unknown[], { kind: 'metadata'; metadata: { kind: 'column'; generated: 'byDefault' | 'always' } }] } ? Generated<T> :
+  UnwrapSchema<Schema> extends { pipe: readonly [...unknown[], { kind: 'metadata'; metadata: { kind: 'column'; generated: 'always' } }] } ? GeneratedAlways<T> :
+  UnwrapSchema<Schema> extends { pipe: readonly [...unknown[], { kind: 'metadata'; metadata: { kind: 'column'; generated: 'byDefault' } }] } ? Generated<T> :
   IsObjectSchema<Schema> extends true ? WrapJson<T> :
   T
 
@@ -126,5 +132,5 @@ export type InferDB<
 }
 
 export type InferDBFromArray<T extends readonly TableSchema<string>[]> = {
-  [K in T[number] as K extends TableSchema<infer N> ? N : never]: InferRow<K>
+  [K in T[number] as K extends TableSchema<infer N> ? N : never]: InferTable<K>
 }

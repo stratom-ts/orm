@@ -45,7 +45,7 @@ describe('references action', () => {
 
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
-    expect(metadata!.dataType).toBe('varchar(255)')
+    expect(metadata!.dataType).toBe('text')
   })
 })
 

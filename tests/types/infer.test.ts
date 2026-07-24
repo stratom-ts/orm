@@ -1,5 +1,15 @@
-import type { ColumnType, Generated, JSONColumnType } from 'kysely'
-import type { InferRow, InferTable, InferDB } from '@/types/infer'
+import type {
+  ColumnType,
+  Generated,
+  GeneratedAlways,
+  JSONColumnType,
+} from 'kysely'
+import type {
+  InferRow,
+  InferTable,
+  InferDB,
+  InferDBFromArray,
+} from '@/types/infer'
 import {
   boolean,
   nullable,
@@ -156,6 +166,15 @@ const GeneratedSchema = pipe(
   table({ name: 'gen_test', primaryKey: 'id' }),
 )
 
+const GeneratedAlwaysSchema = pipe(
+  object({
+    id: pipe(string(), column({ type: 'uuid', generated: 'always' })),
+    label: pipe(string(), column({ type: 'text' })),
+  }),
+  title('gen_always_test'),
+  table({ name: 'gen_always_test', primaryKey: 'id' }),
+)
+
 describe('InferTable', () => {
   it('without config defaults to same as InferRow', () => {
     type Table = InferTable<typeof UserSchema>
@@ -169,9 +188,15 @@ describe('InferTable', () => {
     expectTypeOf<Table['name']>().toEqualTypeOf<string>()
   })
 
-  it('infers Generated<T> from column({ generated: true }) metadata', () => {
+  it('infers Generated<T> from column({ generated: byDefault }) metadata', () => {
     type Table = InferTable<typeof GeneratedSchema>
     expectTypeOf<Table['id']>().toEqualTypeOf<Generated<string>>()
+    expectTypeOf<Table['label']>().toEqualTypeOf<string>()
+  })
+
+  it('infers GeneratedAlways<T> from column({ generated: always }) metadata', () => {
+    type Table = InferTable<typeof GeneratedAlwaysSchema>
+    expectTypeOf<Table['id']>().toEqualTypeOf<GeneratedAlways<string>>()
     expectTypeOf<Table['label']>().toEqualTypeOf<string>()
   })
 
@@ -236,6 +261,20 @@ describe('InferTable', () => {
     type Table = InferTable<typeof JsonRefSchema>
     expectTypeOf<Table['refToMetadata']>().not.toEqualTypeOf<
       JSONColumnType<{ key: string; value: number }>
+    >()
+  })
+})
+
+describe('InferDBFromArray', () => {
+  it('uses InferTable wrappers for generated columns', () => {
+    type DB = InferDBFromArray<readonly [typeof GeneratedSchema]>
+    expectTypeOf<DB['gen_test']['id']>().toEqualTypeOf<Generated<string>>()
+  })
+
+  it('uses InferTable wrappers for generated always columns', () => {
+    type DB = InferDBFromArray<readonly [typeof GeneratedAlwaysSchema]>
+    expectTypeOf<DB['gen_always_test']['id']>().toEqualTypeOf<
+      GeneratedAlways<string>
     >()
   })
 })

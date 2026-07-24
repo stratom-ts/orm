@@ -4,7 +4,12 @@ import type { DialectAdapter } from '@/dialects'
 import { postgresAdapter } from '@/dialects'
 import type { TableSchema } from './table'
 import { MigrationError } from '@/utils'
-import { getColumnMetadata, getReferenceMetadata, isNullable } from '@/schemas'
+import {
+  getColumnMetadata,
+  getReferenceMetadata,
+  getTableMetadata,
+  isNullable,
+} from '@/schemas'
 import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
 
 /**
@@ -149,15 +154,33 @@ export async function addColumn(
   const columnMetadata = getColumnMetadata(columnSchema as never)
   const referenceMetadata = getReferenceMetadata(columnSchema as never)
   const { dataType, nullable, defaultValue, unique, autoIncrement } =
-    getColumnInfo(columnSchema as never, columnMetadata, referenceMetadata, adapter)
+    getColumnInfo(
+      columnSchema as never,
+      columnMetadata,
+      referenceMetadata,
+      adapter,
+    )
+  const tableMetadata = getTableMetadata(schema)
 
   const columnBuilder = trx.schema
     .alterTable(tableName)
     .addColumn(columnName, dataType, (cb) => {
       let col = cb
       if (!nullable) col = col.notNull()
+      if (tableMetadata && columnName === tableMetadata.primaryKey)
+        col = col.primaryKey()
+      if (referenceMetadata?.table && referenceMetadata.key) {
+        col = col.references(
+          `${referenceMetadata.table}.${referenceMetadata.key}`,
+        )
+        if (referenceMetadata.onDelete) col = col.onDelete(referenceMetadata.onDelete)
+      }
+      if (unique && columnName !== tableMetadata?.primaryKey) col = col.unique()
       if (autoIncrement) col = col.autoIncrement()
-      if (unique) col = col.unique()
+      if (columnMetadata?.generated === 'always')
+        col = col.generatedAlwaysAsIdentity()
+      else if (columnMetadata?.generated === 'byDefault')
+        col = col.generatedByDefaultAsIdentity()
       if (defaultValue !== undefined && defaultValue !== null)
         col = col.defaultTo(defaultValue)
       return col
