@@ -118,15 +118,14 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
 /**
  * Infers a PostgreSQL column type from a Valibot schema.
  *
- * @example
- *   ;```ts
- *   inferPostgresColumnType(string()) // 'text'
- *   inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
- *   ```
- *
  * @param schema - Column schema (may be wrapped or piped)
  *
  * @returns PostgreSQL column data type
+ *
+ * @example```ts
+ * inferPostgresColumnType(string()) // 'text'
+ *   inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
+ * ```
  */
 export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
   const baseSchema = getBaseSchema(schema)

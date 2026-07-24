@@ -252,9 +252,16 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
  * metadata. `primaryKey` and index `columns` are constrained to the declared
  * column names, so referencing an unknown column is a compile error.
  *
- * @example
- *   ;```ts
- *   const User = defineTable(
+ * @param name - Database table name (also the logical name on column refs)
+ * @param columns - Map of column name to Valibot column schema.
+ * @param options - Primary key, optional DB schema, and indexes.
+ *
+ * @returns Table handle for registration, queries, and column references
+ *
+ * @throws SchemaError - When the resulting metadata is invalid
+ *
+ * @example```ts
+ * const User = defineTable(
  *     'users',
  *     {
  *       id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
@@ -267,15 +274,7 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
  *     },
  *   )
  *   User.email // column ref
- *   ```
- *
- * @param name - Database table name (also the logical name on column refs)
- * @param columns - Map of column name to Valibot column schema.
- * @param options - Primary key, optional DB schema, and indexes.
- *
- * @returns Table handle for registration, queries, and column references
- *
- * @throws SchemaError - When the resulting metadata is invalid
+ * ```
  */
 export function defineTable<const TName extends string, TCols extends ObjectEntries>(
   name: TName,

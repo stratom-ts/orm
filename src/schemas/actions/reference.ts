@@ -49,14 +49,13 @@ export type ReferenceOptions = {
 /**
  * Unwraps optional/nullable/nullish wrappers while preserving pipes.
  *
- * @example
- *   ;```ts
- *   const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'uuid' }))))
- *   ```
- *
  * @param schema - Schema that may be wrapped.
  *
  * @returns Inner schema with pipe structure intact
+ *
+ * @example```ts
+ * const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'uuid' }))))
+ * ```
  */
 function unwrapWrapper(schema: AnySchema): AnySchema {
   if (
@@ -84,9 +83,14 @@ function isReferenceTargetHandle(value: ReferenceTarget): value is ReferenceTarg
 /**
  * Builds a foreign-key column schema from a referenced table schema/handle and key.
  *
- * @example
- *   ;```ts
- *   const PostSchema = pipe(
+ * @param tableOrSchema - Referenced table schema or `defineTable` handle.
+ * @param key - Column on the referenced table.
+ * @param options - Optional FK actions (`onDelete` / `onUpdate`)
+ *
+ * @returns Piped schema for the FK column with reference metadata
+ *
+ * @example```ts
+ * const PostSchema = pipe(
  *     object({
  *       id: pipe(string(), column({ type: 'uuid' })),
  *       authorId: reference(UserSchema, 'id', { onDelete: 'cascade' }),
@@ -94,13 +98,7 @@ function isReferenceTargetHandle(value: ReferenceTarget): value is ReferenceTarg
  *     title('posts'),
  *     table({ name: 'posts', primaryKey: 'id' }),
  *   )
- *   ```
- *
- * @param tableOrSchema - Referenced table schema or `defineTable` handle.
- * @param key - Column on the referenced table.
- * @param options - Optional FK actions (`onDelete` / `onUpdate`)
- *
- * @returns Piped schema for the FK column with reference metadata
+ * ```
  */
 type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
   T['getSchema']
@@ -180,14 +178,13 @@ export function reference<
 /**
  * Type guard for reference metadata (`kind: 'reference'`).
  *
- * @example
- *   ;```ts
- *   if (isReferenceMetadata(meta)) console.log(meta.table, meta.key)
- *   ```
- *
  * @param metadata - Value to check.
  *
  * @returns `true` if `metadata` is `ReferenceMetadata`
+ *
+ * @example```ts
+ * if (isReferenceMetadata(meta)) console.log(meta.table, meta.key)
+ * ```
  */
 export function isReferenceMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -198,15 +195,14 @@ export function isReferenceMetadata(
 /**
  * Reads reference metadata from a schema, unwrapping nullability wrappers first.
  *
- * @example
- *   ;```ts
- *   const meta = getReferenceMetadata(PostSchema.entries.authorId)
- *   // { kind: 'reference', table: 'users', key: 'id', ... }
- *   ```
- *
  * @param schema - Column schema that may include `reference()` metadata.
  *
  * @returns Reference metadata, or `undefined` if none
+ *
+ * @example```ts
+ * const meta = getReferenceMetadata(PostSchema.entries.authorId)
+ *   // { kind: 'reference', table: 'users', key: 'id', ... }
+ * ```
  */
 export function getReferenceMetadata(schema: AnySchema): ReferenceMetadata | undefined {
   const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
