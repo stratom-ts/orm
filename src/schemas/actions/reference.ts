@@ -1,3 +1,5 @@
+import { postgresDialect } from '@/dialects'
+import type { AnySchema } from '@/types/schema'
 import type {
   InferOutput,
   MetadataAction,
@@ -7,10 +9,8 @@ import type {
   TitleAction,
 } from 'valibot'
 import { getMetadata, metadata, pipe } from 'valibot'
-import { postgresDialect } from '@/dialects'
-import type { AnySchema } from '@/types/schema'
-import { isTableMetadata } from './table'
 import { getColumnMetadata } from './column'
+import { isTableMetadata } from './table'
 import type { ReferenceMetadata, ReferentialAction } from './types'
 
 interface WrapperSchema {
@@ -19,15 +19,14 @@ interface WrapperSchema {
 
 /** Minimal table-handle shape accepted by `reference()` (avoids circular imports). */
 type ReferenceTargetHandle = {
-  readonly name: string
-  readonly schema?: string
-  readonly definition: SchemaWithPipe<
+  getSchema(): SchemaWithPipe<
     readonly [
       ObjectSchema<ObjectEntries, undefined>,
       TitleAction<unknown, string>,
       MetadataAction<unknown, Record<string, unknown>>,
     ]
   >
+  getTableMetadata(): { name: string; schema?: string }
 }
 
 type ReferenceTargetSchema = SchemaWithPipe<
@@ -76,8 +75,8 @@ function isReferenceTargetHandle(
   return (
     typeof value === 'object' &&
     value !== null &&
-    'definition' in value &&
-    'name' in value
+    typeof (value as ReferenceTargetHandle).getSchema === 'function' &&
+    typeof (value as ReferenceTargetHandle).getTableMetadata === 'function'
   )
 }
 
@@ -101,10 +100,14 @@ function isReferenceTargetHandle(
  * )
  * ```
  */
+type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
+  T['getSchema']
+>['entries']
+
 export function reference<
   T extends ReferenceTarget,
   K extends T extends ReferenceTargetHandle
-    ? keyof T['definition']['entries']
+    ? keyof ReferenceHandleSchemaEntries<T>
     : T extends ReferenceTargetSchema
       ? keyof T['entries']
       : never,
@@ -115,14 +118,16 @@ export function reference<
 ): SchemaWithPipe<
   readonly [
     T extends ReferenceTargetHandle
-      ? T['definition']['entries'][K & keyof T['definition']['entries']]
+      ? ReferenceHandleSchemaEntries<T>[K &
+          keyof ReferenceHandleSchemaEntries<T>]
       : T extends ReferenceTargetSchema
         ? T['entries'][K & keyof T['entries']]
         : never,
     MetadataAction<
       InferOutput<
         T extends ReferenceTargetHandle
-          ? T['definition']['entries'][K & keyof T['definition']['entries']]
+          ? ReferenceHandleSchemaEntries<T>[K &
+              keyof ReferenceHandleSchemaEntries<T>]
           : T extends ReferenceTargetSchema
             ? T['entries'][K & keyof T['entries']]
             : never
@@ -132,7 +137,7 @@ export function reference<
   ]
 > {
   const schema: ReferenceTargetSchema = isReferenceTargetHandle(tableOrSchema)
-    ? tableOrSchema.definition
+    ? tableOrSchema.getSchema()
     : tableOrSchema
 
   const schemaMetadata = getMetadata(schema) as Record<string, unknown>
@@ -152,13 +157,13 @@ export function reference<
       ? postgresDialect.inferColumnType(referencedColumnSchema)
       : 'varchar(255)')
 
-  const tableName = isReferenceTargetHandle(tableOrSchema)
-    ? tableOrSchema.name
-    : tableMeta?.name || ''
+  const tableInfo = isReferenceTargetHandle(tableOrSchema)
+    ? tableOrSchema.getTableMetadata()
+    : null
 
-  const pgSchema = isReferenceTargetHandle(tableOrSchema)
-    ? tableOrSchema.schema
-    : tableMeta?.schema
+  const tableName = tableInfo?.name ?? tableMeta?.name ?? ''
+
+  const pgSchema = tableInfo ? tableInfo.schema : tableMeta?.schema
 
   return pipe(
     schema.entries[key as string] as never,

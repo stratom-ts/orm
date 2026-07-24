@@ -1,9 +1,17 @@
+import type { MigrateBuilder } from '@/ddl'
+import { createMigrateBuilder } from '@/ddl'
+import { isTableHandle } from '@/defineTable'
 import type { Dialect } from '@/dialects'
 import { postgresDialect } from '@/dialects'
-import { isTableHandle } from '@/defineTable'
-import type { TableHandle } from '@/types'
-import { createMigrateBuilder } from '@/ddl'
-import type { MigrateBuilder } from '@/ddl'
+import type {
+  DeleteBuilder,
+  InsertBuilder,
+  InsertValuesBuilder,
+  QueryBuilder,
+  UpdateBuilder,
+  UpdateSetBuilder,
+  ValueMapConfig,
+} from '@/query'
 import {
   createDb0Executor,
   createDeleteBuilder,
@@ -14,23 +22,15 @@ import {
   validateInsertRow,
   validateUpdatePatch,
 } from '@/query'
-import type {
-  DeleteBuilder,
-  InsertBuilder,
-  InsertValuesBuilder,
-  QueryBuilder,
-  UpdateBuilder,
-  UpdateSetBuilder,
-  ValueMapConfig,
-} from '@/query'
-import { QueryError, SchemaError } from '@/utils/error'
+import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
+import { QueryError, SchemaError } from '@/utils/error'
 import { tableKey } from '@/utils/tableKey'
-import { createDatabase } from 'db0'
 import type { Connector, Database } from 'db0'
+import { createDatabase } from 'db0'
 
-export type { TableHandle } from '@/types'
 export type { ValueMapConfig } from '@/query'
+export type { TableHandle } from '@/types'
 
 /** Options for {@link createDb}. */
 export type CreateDbConfig<
@@ -124,7 +124,8 @@ function assertHandles(schemas: readonly TableHandle[]): void {
         message: 'createDb schemas must be table handles from defineTable()',
       })
     }
-    const key = tableKey(schema.schema, schema.name)
+    const info = schema.getTableMetadata()
+    const key = tableKey(info.schema, info.name)
     if (seen.has(key)) {
       throw new SchemaError({
         message: `duplicate table registration for "${key}"`,
@@ -167,7 +168,8 @@ export function createDb<
   const schemas = config.schemas
   const registry = new Map<string, TableHandle>()
   for (const handle of schemas) {
-    registry.set(tableKey(handle.schema, handle.name), handle)
+    const info = handle.getTableMetadata()
+    registry.set(tableKey(info.schema, info.name), handle)
   }
 
   const rootExecutor = createDb0Executor(database)
@@ -213,7 +215,8 @@ export function createDb<
           message: 'db.from() expects a table handle from defineTable()',
         })
       }
-      const key = tableKey(handle.schema, handle.name)
+      const info = handle.getTableMetadata()
+      const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
           message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
@@ -231,7 +234,8 @@ export function createDb<
           message: 'db.insert() expects a table handle from defineTable()',
         })
       }
-      const key = tableKey(handle.schema, handle.name)
+      const info = handle.getTableMetadata()
+      const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
           message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
@@ -242,7 +246,7 @@ export function createDb<
           const list = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]
           if (list.length === 0) {
             throw new QueryError({
-              message: `insert into "${handle.name}" requires at least one row`,
+              message: `insert into "${info.name}" requires at least one row`,
             })
           }
           const validated = list.map((row) => validateInsertRow(handle, row))
@@ -264,7 +268,8 @@ export function createDb<
           message: `db.${method}() expects a table handle from defineTable()`,
         })
       }
-      const key = tableKey(handle.schema, handle.name)
+      const info = handle.getTableMetadata()
+      const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
           message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,

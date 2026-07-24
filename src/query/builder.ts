@@ -1,4 +1,3 @@
-import type { ColumnRef, TableHandle } from '@/types'
 import type {
   ComparisonOp,
   DeleteAst,
@@ -14,6 +13,7 @@ import type {
   SqlExprAst,
   UpdateAst,
 } from '@/dialects'
+import type { ColumnRef, Prettify, TableHandle } from '@/types'
 import type {
   InferInsert,
   InferSelect,
@@ -24,6 +24,7 @@ import type {
   MergeSelection,
   NullableFields,
   RightJoinStarResult,
+  TableNameOf,
 } from '@/types/views'
 import { QueryError } from '@/utils/error'
 import type { Executor } from './executor'
@@ -77,10 +78,11 @@ function toJoinAst(
   table: TableHandle,
   on: JoinOnInput,
 ): JoinAst {
+  const info = table.getTableMetadata()
   return {
     type,
-    table: table.name,
-    ...(table.schema !== undefined ? { schema: table.schema } : {}),
+    table: info.name,
+    ...(info.schema !== undefined ? { schema: info.schema } : {}),
     on: resolveOn(on),
   }
 }
@@ -344,9 +346,10 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
         }
       }
     }
+    const info = handle.getTableMetadata()
     if (columnSet.length === 0) {
       throw new QueryError({
-        message: `insert into "${handle.name}" requires at least one column`,
+        message: `insert into "${info.name}" requires at least one column`,
       })
     }
 
@@ -358,8 +361,8 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
 
     return {
       kind: 'insert',
-      table: handle.name,
-      ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
+      table: info.name,
+      ...(info.schema !== undefined ? { schema: info.schema } : {}),
       columns: columnSet,
       values,
       ...(returning ? { returning } : {}),
@@ -458,7 +461,9 @@ export type UpdateBuilder<
     columns: TCols,
   ): UpdateBuilder<THandle, InferSelectedColumns<THandle, TCols>>
   compile(): CompiledQuery
-  execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  execute(): Promise<
+    Prettify<TResult extends WriteResult ? WriteResult : TResult>[]
+  >
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
   >
@@ -489,9 +494,10 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   } = options
 
   const buildAst = (): UpdateAst => {
+    const info = handle.getTableMetadata()
     if (!where && !allowAll) {
       throw new QueryError({
-        message: `update on "${handle.name}" requires where(...) or .all()`,
+        message: `update on "${info.name}" requires where(...) or .all()`,
       })
     }
     const set = mapSetParams(
@@ -501,8 +507,8 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
     )
     return {
       kind: 'update',
-      table: handle.name,
-      ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
+      table: info.name,
+      ...(info.schema !== undefined ? { schema: info.schema } : {}),
       set,
       ...(where ? { where: mapPredicateParams(handle, mapper, where) } : {}),
       allowAll,
@@ -646,15 +652,16 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
     options
 
   const buildAst = (): DeleteAst => {
+    const info = handle.getTableMetadata()
     if (!where && !allowAll) {
       throw new QueryError({
-        message: `delete from "${handle.name}" requires where(...) or .all()`,
+        message: `delete from "${info.name}" requires where(...) or .all()`,
       })
     }
     return {
       kind: 'delete',
-      table: handle.name,
-      ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
+      table: info.name,
+      ...(info.schema !== undefined ? { schema: info.schema } : {}),
       ...(where ? { where: mapPredicateParams(handle, mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
@@ -840,7 +847,7 @@ export type SelectBuilder<
     THandle,
     MergeJoinStar<HasSelection, TResult, NullableFields<InferSelect<TSide>>>,
     HasSelection,
-    TNullable | TSide['name']
+    TNullable | TableNameOf<TSide>
   >
   rightJoin<TSide extends TableHandle>(
     table: TSide,
@@ -851,10 +858,10 @@ export type SelectBuilder<
       ? TResult
       : RightJoinStarResult<THandle, TResult, TSide>,
     HasSelection,
-    TNullable | THandle['name']
+    TNullable | TableNameOf<THandle>
   >
   compile(): CompiledQuery
-  execute(): Promise<TResult[]>
+  execute(): Promise<Prettify<TResult>[]>
   executeTakeFirst(): Promise<TResult | undefined>
   executeTakeFirstOrThrow(): Promise<TResult>
 }
@@ -879,26 +886,29 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
 }): SelectBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, state } = options
 
-  const buildAst = (): SelectAst => ({
-    kind: 'select',
-    table: handle.name,
-    ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
-    selection:
-      state.selection.length === 0 ? [{ kind: 'all' }] : state.selection,
-    ...(state.joins.length > 0
-      ? { joins: mapJoinsParams(handle, mapper, state.joins) }
-      : {}),
-    ...(state.where
-      ? { where: mapPredicateParams(handle, mapper, state.where) }
-      : {}),
-    ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
-    ...(state.limit !== undefined ? { limit: state.limit } : {}),
-    ...(state.offset !== undefined ? { offset: state.offset } : {}),
-    ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
-    ...(state.having
-      ? { having: mapPredicateParams(handle, mapper, state.having) }
-      : {}),
-  })
+  const buildAst = (): SelectAst => {
+    const info = handle.getTableMetadata()
+    return {
+      kind: 'select',
+      table: info.name,
+      ...(info.schema !== undefined ? { schema: info.schema } : {}),
+      selection:
+        state.selection.length === 0 ? [{ kind: 'all' }] : state.selection,
+      ...(state.joins.length > 0
+        ? { joins: mapJoinsParams(handle, mapper, state.joins) }
+        : {}),
+      ...(state.where
+        ? { where: mapPredicateParams(handle, mapper, state.where) }
+        : {}),
+      ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
+      ...(state.limit !== undefined ? { limit: state.limit } : {}),
+      ...(state.offset !== undefined ? { offset: state.offset } : {}),
+      ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
+      ...(state.having
+        ? { having: mapPredicateParams(handle, mapper, state.having) }
+        : {}),
+    }
+  }
 
   const next = (patch: Partial<SelectState>) =>
     createSelectBuilder({
@@ -936,7 +946,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
   return {
     selectAll(side?: TableHandle) {
       const item: SelectItemAst = side
-        ? { kind: 'all', table: side.name }
+        ? { kind: 'all', table: side.getTableMetadata().name }
         : { kind: 'all' }
       return next({ selection: [...state.selection, item] }) as never
     },
@@ -1070,7 +1080,7 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     THandle,
     InferSelect<THandle> & NullableFields<InferSelect<TSide>>,
     false,
-    TSide['name']
+    TableNameOf<TSide>
   >
   rightJoin<TSide extends TableHandle>(
     table: TSide,
@@ -1079,7 +1089,7 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     THandle,
     NullableFields<InferSelect<THandle>> & InferSelect<TSide>,
     false,
-    THandle['name']
+    TableNameOf<THandle>
   >
   where<TCol extends ColumnRef | string>(
     column: TCol,

@@ -38,14 +38,8 @@ export type ColumnRefsOf<S extends TableSchema> = {
  */
 export type TableHandle<S extends TableSchema = TableSchema> = {
   readonly [TABLE_HANDLE]: true
-  /** Valibot table schema (source of validation + column metadata). */
-  readonly definition: S
-  /** Database table name from `table({ name })`. */
-  readonly name: SchemaNameOf<S>
-  /** Postgres schema namespace from `table({ schema })`, if any. */
-  readonly schema: string | undefined
-  /** Full table metadata. */
-  readonly metadata: TableMetadata<SchemaNameOf<S>>
-  /** Column refs keyed by property name. */
-  readonly columns: ColumnRefsOf<S>
+  /** Underlying Valibot table schema (source of validation + column metadata). */
+  getSchema(): S
+  /** Table metadata from `table()` / `getTableMetadata()`. */
+  getTableMetadata(): TableMetadata<SchemaNameOf<S>>
 } & ColumnRefsOf<S>

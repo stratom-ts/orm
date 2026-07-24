@@ -96,9 +96,10 @@ defineTable(
 )
 ```
 
-> **Reserved column names.** `name`, `schema`, `metadata`, `definition`, and
-> `columns` are used by the table handle itself and cannot be column names —
-> `defineTable` throws a `SchemaError` if one collides.
+> **Reserved column names.** `getSchema` and `getTableMetadata` are methods on
+> the table handle and cannot be column names — `defineTable` throws a
+> `SchemaError` if one collides. Use `User.getSchema()` for the Valibot schema
+> and `User.getTableMetadata()` for table metadata.
 
 ### Inferring column types from the schema
 

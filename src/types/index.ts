@@ -1,4 +1,5 @@
 export * from './constraints'
 export * from './equals'
+export * from './prettify'
 export * from './tableHandle'
 export * from './views'

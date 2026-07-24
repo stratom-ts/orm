@@ -1,6 +1,6 @@
+import { getColumnMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
-import { getColumnMetadata } from '@/schemas'
 import { ValidationError } from '@/utils/error'
 import type { BaseIssue, ObjectEntries, ObjectSchema } from 'valibot'
 import { object, optional, safeParse } from 'valibot'
@@ -28,7 +28,7 @@ function isInsertOptional(schema: AnySchema): boolean {
 export function buildInsertSchema(
   handle: TableHandle,
 ): ObjectSchema<ObjectEntries, undefined> {
-  const entries = handle.definition.entries as Record<string, AnySchema>
+  const entries = handle.getSchema().entries as Record<string, AnySchema>
   const insertEntries: ObjectEntries = {}
 
   for (const [name, columnSchema] of Object.entries(entries)) {
@@ -56,7 +56,7 @@ export function buildInsertSchema(
 export function buildUpdateSchema(
   handle: TableHandle,
 ): ObjectSchema<ObjectEntries, undefined> {
-  const entries = handle.definition.entries as Record<string, AnySchema>
+  const entries = handle.getSchema().entries as Record<string, AnySchema>
   const updateEntries: ObjectEntries = {}
 
   for (const [name, columnSchema] of Object.entries(entries)) {
@@ -98,7 +98,7 @@ export function validateInsertRow(
 ): Record<string, unknown> {
   if (row === null || typeof row !== 'object' || Array.isArray(row)) {
     throw new ValidationError({
-      message: `Invalid insert into "${handle.name}": expected a plain object row`,
+      message: `Invalid insert into "${handle.getTableMetadata().name}": expected a plain object row`,
     })
   }
 
@@ -107,7 +107,7 @@ export function validateInsertRow(
   for (const key of Object.keys(row as object)) {
     if (!allowed.has(key)) {
       throw new ValidationError({
-        message: `Invalid insert into "${handle.name}": unknown or non-insertable column "${key}"`,
+        message: `Invalid insert into "${handle.getTableMetadata().name}": unknown or non-insertable column "${key}"`,
       })
     }
   }
@@ -115,7 +115,7 @@ export function validateInsertRow(
   const result = safeParse(schema, row)
   if (!result.success) {
     throw new ValidationError({
-      message: `Invalid insert into "${handle.name}": ${formatIssues(result.issues)}`,
+      message: `Invalid insert into "${handle.getTableMetadata().name}": ${formatIssues(result.issues)}`,
       issues: result.issues,
     })
   }
@@ -146,7 +146,7 @@ export function validateUpdatePatch(
 ): Record<string, unknown> {
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
     throw new ValidationError({
-      message: `Invalid update on "${handle.name}": expected a plain object patch`,
+      message: `Invalid update on "${handle.getTableMetadata().name}": expected a plain object patch`,
     })
   }
 
@@ -154,7 +154,7 @@ export function validateUpdatePatch(
   const result = safeParse(schema, patch)
   if (!result.success) {
     throw new ValidationError({
-      message: `Invalid update on "${handle.name}": ${formatIssues(result.issues)}`,
+      message: `Invalid update on "${handle.getTableMetadata().name}": ${formatIssues(result.issues)}`,
       issues: result.issues,
     })
   }
@@ -171,14 +171,14 @@ export function validateUpdatePatch(
   for (const key of Object.keys(patch as object)) {
     if (!allowed.has(key)) {
       throw new ValidationError({
-        message: `Invalid update on "${handle.name}": unknown or non-updatable column "${key}"`,
+        message: `Invalid update on "${handle.getTableMetadata().name}": unknown or non-updatable column "${key}"`,
       })
     }
   }
 
   if (Object.keys(cleaned).length === 0) {
     throw new ValidationError({
-      message: `Invalid update on "${handle.name}": patch must include at least one column`,
+      message: `Invalid update on "${handle.getTableMetadata().name}": patch must include at least one column`,
     })
   }
 
