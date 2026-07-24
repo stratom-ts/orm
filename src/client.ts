@@ -27,7 +27,7 @@ import {
 } from '@/query'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
-import { QueryError, SchemaError } from '@/utils/error'
+import { MigrationError, QueryError, SchemaError } from '@/utils/error'
 import { tableKey } from '@/utils/tableKey'
 
 export type { ValueMapConfig } from '@/query'
@@ -172,6 +172,7 @@ export function createDb<
   const baseExecutor = createDb0Executor(database)
   const mapper = createValueMapper(dialect, config.map)
   let closed = false
+  let transactionActive = false
   let connectionQueue = Promise.resolve()
 
   const ensureOpen = () => {
@@ -353,7 +354,18 @@ export function createDb<
 
     const migrate = (): MigrateBuilder => {
       ensureClientOpen()
-      return createMigrateBuilder({ schemas, dialect, executor: clientExecutor })
+      return createMigrateBuilder({
+        schemas,
+        dialect,
+        executor: clientExecutor,
+        assertCanExecute() {
+          if (transactionScope || transactionActive) {
+            throw new MigrationError({
+              message: 'Cannot execute migrations inside a transaction',
+            })
+          }
+        },
+      })
     }
 
     const transaction = async <T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T> => {
@@ -363,6 +375,7 @@ export function createDb<
         return schedule(async () => {
           ensureOpen()
           await baseExecutor.run({ sql: 'begin', params: [] })
+          transactionActive = true
           const scope: TransactionScope = {
             active: true,
             context: { nextSavepointId: 1 },
@@ -371,6 +384,7 @@ export function createDb<
             const result = await fn(createClient(baseExecutor, scope))
             scope.active = false
             await baseExecutor.run({ sql: 'commit', params: [] })
+            transactionActive = false
             return result
           } catch (error) {
             scope.active = false
@@ -378,6 +392,8 @@ export function createDb<
               await baseExecutor.run({ sql: 'rollback', params: [] })
             } catch {
               // ignore rollback failures; rethrow original
+            } finally {
+              transactionActive = false
             }
             throw error
           }
