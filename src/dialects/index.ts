@@ -6,6 +6,7 @@ export {
   mapPostgresResultValue,
   postgresDialect,
 } from './postgres'
+export { resolveDialect } from './resolve'
 export type {
   AggregateExprAst,
   AlterColumnTypeAst,

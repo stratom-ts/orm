@@ -4,8 +4,7 @@ import { createDatabase } from 'db0'
 import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
-import type { Dialect } from '@/dialects'
-import { postgresDialect } from '@/dialects'
+import { resolveDialect } from '@/dialects'
 import type {
   DeleteBuilder,
   InsertBuilder,
@@ -41,8 +40,6 @@ export type CreateDbConfig<
   connector: Connector
   /** Registered table handles; may be empty. */
   schemas: TSchemas
-  /** Dialect plugin; defaults to Postgres. */
-  dialect?: Dialect
   /**
    * Global JS↔SQL value mapping overrides (applied after column metadata,
    * before dialect defaults when column overrides are absent).
@@ -154,7 +151,7 @@ export function createDb<
   assertHandles(config.schemas)
 
   const database: Database = createDatabase(config.connector)
-  const dialect = config.dialect ?? postgresDialect
+  const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
   const registry = new Map<string, TableHandle>()
   for (const handle of schemas) {
