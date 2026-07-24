@@ -351,6 +351,30 @@ function createMockConnector(options?: {
           }
         }
 
+        const addForeignKeyMatch = sql.match(
+          /alter table\s+(?:"([^"]+)"\.)?"([^"]+)"\s+add foreign key\s+\("([^"]+)"\)\s+references\s+(?:"([^"]+)"\.)?"([^"]+)"\s+\("([^"]+)"\)(?:\s+on delete\s+(cascade|restrict|no action|set null|set default))?(?:\s+on update\s+(cascade|restrict|no action|set null|set default))?/i,
+        )
+        if (addForeignKeyMatch) {
+          const schema = addForeignKeyMatch[1] ?? 'public'
+          const tableName = addForeignKeyMatch[2]!
+          const column = addForeignKeyMatch[3]!
+          const table = liveTables.find(
+            (candidate) => candidate.schema === schema && candidate.name === tableName,
+          )
+          if (table) {
+            table.foreignKeys = table.foreignKeys ?? []
+            table.foreignKeys.push({
+              name: `${tableName}_${column}_fkey`,
+              columns: [column],
+              referencedSchema: addForeignKeyMatch[4] ?? 'public',
+              referencedTable: addForeignKeyMatch[5]!,
+              referencedColumns: [addForeignKeyMatch[6]!],
+              onDelete: addForeignKeyMatch[7]?.toLowerCase() ?? 'no action',
+              onUpdate: addForeignKeyMatch[8]?.toLowerCase() ?? 'no action',
+            })
+          }
+        }
+
         return createMockStatement()
       }
 
