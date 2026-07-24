@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { TaggedError, catchTag, catchTags, MigrationError } from '@/utils'
+import { catchTag, catchTags, MigrationError, TaggedError } from '@/utils'
 
 describe('TaggedError', () => {
   it('should create a tagged error class with the given tag', () => {
@@ -46,12 +46,12 @@ describe('catchTag', () => {
 
   it('should pass through a non-matching error', () => {
     const error = new Error('generic')
-    const result = catchTag(error, 'MigrationError', () => 'caught')
+    const result = catchTag(error, 'MigrationError' as never, () => 'caught')
     expect(result).toBe(error)
   })
 
   it('should pass through a non-error value', () => {
-    const result = catchTag('hello', 'MigrationError', () => 'caught')
+    const result = catchTag('hello', 'MigrationError' as never, () => 'caught')
     expect(result).toBe('hello')
   })
 
@@ -68,11 +68,13 @@ describe('catchTag', () => {
 
 describe('catchTags', () => {
   it('should catch an error matching one of the handlers', () => {
-    const MyError = TaggedError('MyError')<{ message: string }>
+    class MyError extends TaggedError('MigrationError')<{
+      message: string
+    }> {}
     const error = new MyError({ message: 'custom error' })
     const result = catchTags(error, {
-      MyError: (e) => `handled: ${e.message}`,
-    })
+      MigrationError: (e: MyError) => `handled: ${e.message}`,
+    } as never)
     expect(result).toBe('handled: custom error')
   })
 

@@ -10,10 +10,14 @@ export function TaggedError<Tag extends string>(
   tag: Tag,
 ): {
   new <A extends Record<string, unknown> = Record<string, unknown>>(
-    args: Equals<A, Record<string, unknown>> extends true
-      ? never
-      : { readonly [P in keyof A as P extends '_tag' ? never : P]: A[P] },
-  ): { readonly _tag: Tag } & Readonly<A>
+    ...args: Equals<A, Record<string, unknown>> extends true
+      ? []
+      : [
+          args: {
+            readonly [P in keyof A as P extends '_tag' ? never : P]: A[P]
+          },
+        ]
+  ): Error & { readonly _tag: Tag } & Readonly<A>
 } {
   class BaseError extends Error {
     readonly _tag = tag
