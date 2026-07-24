@@ -106,11 +106,11 @@ type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
 
 export function reference<
   T extends ReferenceTarget,
-  K extends T extends ReferenceTargetHandle
+  K extends (T extends ReferenceTargetHandle
     ? keyof ReferenceHandleSchemaEntries<T>
     : T extends ReferenceTargetSchema
       ? keyof T['entries']
-      : never,
+      : never),
 >(
   tableOrSchema: T,
   key: K,
