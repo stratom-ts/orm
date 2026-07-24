@@ -21,13 +21,15 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
-    "lint:fix": "oxlint --type-aware --fix"
+    "lint:fix": "oxlint --type-aware --fix",
+    "prepare": "husky"
   },
   "dependencies": {
     "valibot": "^1.4.1"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
+    "husky": "^9.1.7",
     "kysely": "^0.29.2",
     "oxfmt": "^0.56.0",
     "oxlint": "^1.71.0",
