@@ -7,6 +7,10 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "files": [
+        "dist",
+        "src"
+      ],
       "types": "./dist/index.d.ts",
       "import": "./dist/schema-orm.js"
     },
@@ -41,7 +45,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "kysely": "^0.28.0",
+    "kysely": "^0.29.2",
     "oxfmt": "^0.35.0",
     "oxlint": "^1.54.0",
     "oxlint-tsgolint": "^0.23.0",

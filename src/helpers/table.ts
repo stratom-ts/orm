@@ -53,8 +53,8 @@ export type TableSchema = SchemaWithPipe<
  * // Returns compiled CREATE TABLE query
  * ```
  */
-export function createTableFromSchema(
-  db: Kysely<unknown>,
+export function createTableFromSchema<T>(
+  db: Kysely<T>,
   schema: TableSchema,
 ) {
   const metadata = getTableMetadata(schema)

@@ -70,7 +70,7 @@ export function getColumnInfo(
  * ```
  */
 export async function checkColumnHasData(
-  trx: Kysely<unknown>,
+  trx: Kysely<any>,
   table: string,
   column: string,
 ): Promise<boolean> {
@@ -101,7 +101,7 @@ export async function checkColumnHasData(
  * ```
  */
 export async function checkColumnHasNulls(
-  trx: Kysely<unknown>,
+  trx: Kysely<any>,
   table: string,
   column: string,
 ): Promise<boolean> {
@@ -133,7 +133,7 @@ export async function checkColumnHasNulls(
  * ```
  */
 export async function addColumn(
-  trx: Kysely<unknown>,
+  trx: Kysely<any>,
   tableName: string,
   schema: TableSchema,
   columnName: string,
