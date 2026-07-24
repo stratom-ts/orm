@@ -7,6 +7,7 @@ import { isTableHandle } from '@/defineTable'
 import { resolveDialect } from '@/dialects'
 import type {
   DeleteBuilder,
+  Executor,
   InsertBuilder,
   InsertValuesBuilder,
   QueryBuilder,
@@ -31,6 +32,15 @@ import { tableKey } from '@/utils/tableKey'
 
 export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'
+
+type TransactionContext = {
+  nextSavepointId: number
+}
+
+type TransactionScope = {
+  active: boolean
+  context: TransactionContext
+}
 
 /** Options for {@link createDb}. */
 export type CreateDbConfig<
@@ -159,11 +169,10 @@ export function createDb<
     registry.set(tableKey(info.schema, info.name), handle)
   }
 
-  const rootExecutor = createDb0Executor(database)
+  const baseExecutor = createDb0Executor(database)
   const mapper = createValueMapper(dialect, config.map)
   let closed = false
-  /** Depth of open transactions/savepoints on this client (0 = none). */
-  let txDepth = 0
+  let connectionQueue = Promise.resolve()
 
   const ensureOpen = () => {
     if (closed) {
@@ -171,29 +180,74 @@ export function createDb<
     }
   }
 
+  const schedule = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = connectionQueue.then(operation)
+    connectionQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  const rootExecutor: Executor = {
+    execute(query) {
+      ensureOpen()
+      return schedule(() => baseExecutor.execute(query))
+    },
+    run(query) {
+      ensureOpen()
+      return schedule(() => baseExecutor.run(query))
+    },
+  }
+
   const close = async (): Promise<void> => {
     if (closed) return
     closed = true
+    await connectionQueue
     await database.dispose()
   }
 
-  const ping = async (): Promise<void> => {
-    ensureOpen()
-    try {
-      await database.sql`select 1`
-    } catch (cause) {
-      throw new QueryError({
-        message: cause instanceof Error ? cause.message : 'Connectivity check failed',
-        cause,
-      })
+  const createClient = (
+    executor: Executor,
+    transactionScope?: TransactionScope,
+  ): Db<TSchemas> => {
+    const ensureClientOpen = () => {
+      ensureOpen()
+      if (transactionScope && !transactionScope.active) {
+        throw new QueryError({ message: 'Transaction client is no longer active' })
+      }
     }
-  }
 
-  const createClient = (executor: ReturnType<typeof createDb0Executor>): Db<TSchemas> => {
+    const clientExecutor: Executor = transactionScope
+      ? {
+          execute(query) {
+            ensureClientOpen()
+            return executor.execute(query)
+          },
+          run(query) {
+            ensureClientOpen()
+            return executor.run(query)
+          },
+        }
+      : executor
+
+    const ping = async (): Promise<void> => {
+      ensureClientOpen()
+      try {
+        await clientExecutor.execute({ sql: 'select 1', params: [] })
+      } catch (cause) {
+        if (cause instanceof QueryError) throw cause
+        throw new QueryError({
+          message: cause instanceof Error ? cause.message : 'Connectivity check failed',
+          cause,
+        })
+      }
+    }
+
     const from = <THandle extends TableHandle>(
       handle: THandle,
     ): QueryBuilder<THandle> => {
-      ensureOpen()
+      ensureClientOpen()
       if (!isTableHandle(handle)) {
         throw new SchemaError({
           message: 'db.from() expects a table handle from defineTable()',
@@ -206,13 +260,13 @@ export function createDb<
           message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
         })
       }
-      return createTableBuilder({ handle, dialect, executor, mapper })
+      return createTableBuilder({ handle, dialect, executor: clientExecutor, mapper })
     }
 
     const insert = <THandle extends TableHandle>(
       handle: THandle,
     ): InsertValuesBuilder<THandle> => {
-      ensureOpen()
+      ensureClientOpen()
       if (!isTableHandle(handle)) {
         throw new SchemaError({
           message: 'db.insert() expects a table handle from defineTable()',
@@ -237,7 +291,7 @@ export function createDb<
           return createInsertBuilder({
             handle,
             dialect,
-            executor,
+            executor: clientExecutor,
             mapper,
             rows: validated,
             returning: { kind: 'all' },
@@ -264,7 +318,7 @@ export function createDb<
     const update = <THandle extends TableHandle>(
       handle: THandle,
     ): UpdateSetBuilder<THandle> => {
-      ensureOpen()
+      ensureClientOpen()
       validateHandle(handle, 'update')
       return {
         set: (patch) => {
@@ -272,7 +326,7 @@ export function createDb<
           return createUpdateBuilder({
             handle,
             dialect,
-            executor,
+            executor: clientExecutor,
             mapper,
             patch: validated,
             allowAll: false,
@@ -285,12 +339,12 @@ export function createDb<
     const delete_ = <THandle extends TableHandle>(
       handle: THandle,
     ): DeleteBuilder<THandle, InferSelect<THandle>> => {
-      ensureOpen()
+      ensureClientOpen()
       validateHandle(handle, 'delete')
       return createDeleteBuilder({
         handle,
         dialect,
-        executor,
+        executor: clientExecutor,
         mapper,
         allowAll: false,
         returning: { kind: 'all' },
@@ -298,58 +352,76 @@ export function createDb<
     }
 
     const migrate = (): MigrateBuilder => {
-      ensureOpen()
-      return createMigrateBuilder({ schemas, dialect, executor })
+      ensureClientOpen()
+      return createMigrateBuilder({ schemas, dialect, executor: clientExecutor })
     }
 
     const transaction = async <T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T> => {
-      ensureOpen()
-      const isOuter = txDepth === 0
-      const savepointName = isOuter ? undefined : `sp_${txDepth}`
+      ensureClientOpen()
 
-      if (isOuter) {
-        await executor.run({ sql: 'begin', params: [] })
-      } else {
-        await executor.run({
-          sql: `savepoint ${savepointName}`,
-          params: [],
+      if (!transactionScope) {
+        return schedule(async () => {
+          ensureOpen()
+          await baseExecutor.run({ sql: 'begin', params: [] })
+          const scope: TransactionScope = {
+            active: true,
+            context: { nextSavepointId: 1 },
+          }
+          try {
+            const result = await fn(createClient(baseExecutor, scope))
+            scope.active = false
+            await baseExecutor.run({ sql: 'commit', params: [] })
+            return result
+          } catch (error) {
+            scope.active = false
+            try {
+              await baseExecutor.run({ sql: 'rollback', params: [] })
+            } catch {
+              // ignore rollback failures; rethrow original
+            }
+            throw error
+          }
         })
       }
-      txDepth += 1
 
+      const savepointName = `sp_${transactionScope.context.nextSavepointId++}`
+      await clientExecutor.run({ sql: `savepoint ${savepointName}`, params: [] })
+      const nestedScope: TransactionScope = {
+        active: true,
+        context: transactionScope.context,
+      }
       try {
-        const trx = createClient(executor)
-        const result = await fn(trx)
-        if (isOuter) {
-          await executor.run({ sql: 'commit', params: [] })
-        } else {
-          await executor.run({
+        const result = await fn(createClient(baseExecutor, nestedScope))
+        nestedScope.active = false
+        await clientExecutor.run({
+          sql: `release savepoint ${savepointName}`,
+          params: [],
+        })
+        return result
+      } catch (error) {
+        nestedScope.active = false
+        try {
+          await clientExecutor.run({
+            sql: `rollback to savepoint ${savepointName}`,
+            params: [],
+          })
+          await clientExecutor.run({
             sql: `release savepoint ${savepointName}`,
             params: [],
           })
-        }
-        return result
-      } catch (error) {
-        try {
-          if (isOuter) {
-            await executor.run({ sql: 'rollback', params: [] })
-          } else {
-            await executor.run({
-              sql: `rollback to savepoint ${savepointName}`,
-              params: [],
-            })
-            await executor.run({
-              sql: `release savepoint ${savepointName}`,
-              params: [],
-            })
-          }
         } catch {
           // ignore rollback failures; rethrow original
         }
         throw error
-      } finally {
-        txDepth -= 1
       }
+    }
+
+    const closeClient = async (): Promise<void> => {
+      if (transactionScope) {
+        ensureClientOpen()
+        throw new QueryError({ message: 'Transaction clients cannot close the database' })
+      }
+      await close()
     }
 
     return {
@@ -361,8 +433,8 @@ export function createDb<
       delete: delete_,
       migrate,
       transaction,
-      close,
-      [Symbol.asyncDispose]: close,
+      close: closeClient,
+      [Symbol.asyncDispose]: closeClient,
     }
   }
 
