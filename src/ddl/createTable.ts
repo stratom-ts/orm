@@ -1,5 +1,5 @@
 import type { CreateTableAst, Dialect } from '@/dialects'
-import type { TableHandle } from '@/defineTable'
+import type { TableHandle } from '@/types'
 import {
   getColumnMetadata,
   getReferenceMetadata,

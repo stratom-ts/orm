@@ -3,13 +3,7 @@ export * from '@/schemas'
 export * from '@/types'
 export * from '@/utils'
 export * from '@/dialects'
-export {
-  defineTable,
-  isTableHandle,
-  TABLE_HANDLE,
-  type ColumnRef,
-  type TableHandle,
-} from './defineTable'
+export { defineTable, isTableHandle } from './defineTable'
 export type {
   DeleteBuilder,
   ExpressionBuilder,
