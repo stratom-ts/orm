@@ -1,0 +1,1157 @@
+import type {
+  ComparisonOp,
+  DeleteAst,
+  Dialect,
+  InsertAst,
+  JoinAst,
+  OrderByAst,
+  PredicateAst,
+  QualifiedColumnAst,
+  ReturningAst,
+  SelectAst,
+  SelectItemAst,
+  SqlExprAst,
+  UpdateAst,
+} from '@/dialects'
+import type { ColumnRef, TableHandle } from '@/defineTable'
+import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
+import { QueryError } from '@/utils/error'
+import type { Executor } from './executor'
+import type { ExpressionBuilder } from './expressions'
+import {
+  and,
+  cmp,
+  columnName,
+  columnTable,
+  eb,
+  toQualified,
+} from './expressions'
+import type { ValueMapper } from './mapping'
+import { validateInsertRow, validateUpdatePatch } from './validate'
+
+/** Result when a write runs without `returning`. */
+export type WriteResult = {
+  rowCount: number
+}
+
+export type CompiledQuery = { sql: string; params: unknown[] }
+
+type WhereInput =
+  | PredicateAst
+  | Record<string, unknown>
+  | [column: ColumnRef | string, op: ComparisonOp, value: unknown]
+
+type JoinOnInput = PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)
+
+function resolveOn(on: JoinOnInput): PredicateAst {
+  return typeof on === 'function' ? on(eb) : on
+}
+
+function mapJoinsParams(
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  joins: readonly JoinAst[] | undefined,
+): readonly JoinAst[] | undefined {
+  if (!joins || joins.length === 0) return joins
+  return joins.map((join) => ({
+    ...join,
+    on: mapPredicateParams(handle, mapper, join.on)!,
+  }))
+}
+
+function toJoinAst(
+  type: JoinAst['type'],
+  table: TableHandle,
+  on: JoinOnInput,
+): JoinAst {
+  return {
+    type,
+    table: table.name,
+    ...(table.schema !== undefined ? { schema: table.schema } : {}),
+    on: resolveOn(on),
+  }
+}
+
+function isPredicateAst(value: unknown): value is PredicateAst {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'kind' in value &&
+    (value as { kind: string }).kind !== undefined &&
+    ['cmp', 'and', 'or', 'not'].includes((value as { kind: string }).kind)
+  )
+}
+
+function normalizeWhere(input: WhereInput): PredicateAst {
+  if (Array.isArray(input)) {
+    const [column, op, value] = input
+    return cmp(column, op, value)
+  }
+  if (isPredicateAst(input)) {
+    return input
+  }
+  const entries = Object.entries(input)
+  if (entries.length === 0) {
+    throw new QueryError({ message: 'where({}) requires at least one key' })
+  }
+  const preds = entries.map(([column, value]) => cmp(column, 'eq', value))
+  return preds.length === 1 ? preds[0]! : and(...preds)
+}
+
+function mergeWhere(
+  existing: PredicateAst | undefined,
+  next: PredicateAst,
+): PredicateAst {
+  return existing ? and(existing, next) : next
+}
+
+function resolveReturningColumns(
+  columns: readonly (ColumnRef | string)[],
+): string[] {
+  return columns.map((c) => columnName(c))
+}
+
+type SelectSelectionInput =
+  | readonly (ColumnRef | string)[]
+  | ((
+      builder: ExpressionBuilder,
+    ) => readonly (
+      | ColumnRef
+      | string
+      | { expr: SqlExprAst; alias: string }
+      | SelectItemAst
+    )[])
+
+function selectionColumn(column: ColumnRef | string): SelectItemAst {
+  const table = columnTable(column)
+  return table
+    ? { kind: 'column', column: columnName(column), table }
+    : { kind: 'column', column: columnName(column) }
+}
+
+function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
+  if (typeof input === 'function') {
+    const items = input(eb)
+    return items.map((item): SelectItemAst => {
+      if (typeof item === 'string') {
+        return { kind: 'column', column: item }
+      }
+      if (typeof item === 'object' && item !== null && 'kind' in item) {
+        if (
+          item.kind === 'all' ||
+          item.kind === 'column' ||
+          item.kind === 'expr'
+        ) {
+          return item as SelectItemAst
+        }
+      }
+      if (
+        typeof item === 'object' &&
+        item !== null &&
+        'expr' in item &&
+        'alias' in item
+      ) {
+        return {
+          kind: 'expr',
+          expr: (item as { expr: SqlExprAst }).expr,
+          alias: (item as { alias: string }).alias,
+        }
+      }
+      return selectionColumn(item as ColumnRef)
+    })
+  }
+  return input.map((c) => selectionColumn(c))
+}
+
+function mapWriteParams(
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  columns: readonly string[],
+  values: readonly (readonly unknown[])[],
+): readonly (readonly unknown[])[] {
+  if (!mapper) return values
+  return values.map((row) =>
+    row.map((value, i) => {
+      const col = columns[i]!
+      return mapper.mapParam(handle, col, value)
+    }),
+  )
+}
+
+function mapSetParams(
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  set: readonly { readonly column: string; readonly value: unknown }[],
+): readonly { readonly column: string; readonly value: unknown }[] {
+  if (!mapper) return set
+  return set.map((item) => ({
+    column: item.column,
+    value: mapper.mapParam(handle, item.column, item.value),
+  }))
+}
+
+function mapPredicateParams(
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  pred: PredicateAst | undefined,
+): PredicateAst | undefined {
+  if (!pred || !mapper) return pred
+  switch (pred.kind) {
+    case 'cmp':
+      // Column-vs-column join/on predicates have no bound params.
+      if (pred.right) return pred
+      return {
+        ...pred,
+        value: mapper.mapParam(handle, pred.column, pred.value),
+      }
+    case 'and':
+      return {
+        kind: 'and',
+        preds: pred.preds.map((p) => mapPredicateParams(handle, mapper, p)!),
+      }
+    case 'or':
+      return {
+        kind: 'or',
+        preds: pred.preds.map((p) => mapPredicateParams(handle, mapper, p)!),
+      }
+    case 'not':
+      return {
+        kind: 'not',
+        pred: mapPredicateParams(handle, mapper, pred.pred)!,
+      }
+    default: {
+      const _exhaustive: never = pred
+      return _exhaustive
+    }
+  }
+}
+
+async function runQuery<T>(
+  dialect: Dialect,
+  executor: Executor,
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
+): Promise<T> {
+  const compiled = dialect.compile(ast)
+  try {
+    const rows = await executor.execute(compiled)
+    if (mapper && ast.kind === 'select') {
+      return mapper.mapResultRows(handle, rows) as T
+    }
+    if (mapper && 'returning' in ast && ast.returning) {
+      return mapper.mapResultRows(handle, rows) as T
+    }
+    return rows as T
+  } catch (cause) {
+    if (cause instanceof QueryError) throw cause
+    throw new QueryError({
+      message:
+        cause instanceof Error ? cause.message : 'Query execution failed',
+      cause,
+    })
+  }
+}
+
+async function runWrite(
+  dialect: Dialect,
+  executor: Executor,
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  ast: InsertAst | UpdateAst | DeleteAst,
+): Promise<unknown[] | WriteResult> {
+  const compiled = dialect.compile(ast)
+  try {
+    if (ast.returning) {
+      const rows = await executor.execute(compiled)
+      return mapper ? mapper.mapResultRows(handle, rows) : rows
+    }
+    await executor.run(compiled)
+    // db0 does not expose affected-row counts portably
+    return { rowCount: 0 }
+  } catch (cause) {
+    if (cause instanceof QueryError) throw cause
+    throw new QueryError({
+      message:
+        cause instanceof Error ? cause.message : 'Query execution failed',
+      cause,
+    })
+  }
+}
+
+function takeFirstOrThrow<T>(rows: T[], message: string): T {
+  const row = rows[0]
+  if (row === undefined) {
+    throw new QueryError({ message })
+  }
+  return row
+}
+
+// ---------------------------------------------------------------------------
+// Insert builder
+// ---------------------------------------------------------------------------
+
+export type InsertBuilder<
+  THandle extends TableHandle = TableHandle,
+  TResult = WriteResult,
+> = {
+  returningAll(): InsertBuilder<THandle, InferSelect<THandle>>
+  returning(
+    columns: readonly (ColumnRef | string)[],
+  ): InsertBuilder<THandle, Partial<InferSelect<THandle>>>
+  compile(): CompiledQuery
+  execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  executeTakeFirst(): Promise<
+    TResult extends WriteResult ? WriteResult : TResult | undefined
+  >
+  executeTakeFirstOrThrow(): Promise<
+    TResult extends WriteResult ? WriteResult : TResult
+  >
+}
+
+function createInsertBuilder<THandle extends TableHandle>(options: {
+  handle: THandle
+  dialect: Dialect
+  executor: Executor
+  mapper?: ValueMapper
+  rows: Record<string, unknown>[]
+  returning?: ReturningAst
+}): InsertBuilder<THandle, unknown> {
+  const { handle, dialect, executor, mapper, rows, returning } = options
+
+  const buildAst = (): InsertAst => {
+    // Union of keys across rows (stable order: first row keys, then extras)
+    const columnSet: string[] = []
+    const seen = new Set<string>()
+    for (const row of rows) {
+      for (const key of Object.keys(row)) {
+        if (!seen.has(key)) {
+          seen.add(key)
+          columnSet.push(key)
+        }
+      }
+    }
+    if (columnSet.length === 0) {
+      throw new QueryError({
+        message: `insert into "${handle.name}" requires at least one column`,
+      })
+    }
+
+    // Missing keys become undefined → dialect emits DEFAULT (not NULL).
+    const rawValues = rows.map((row) =>
+      columnSet.map((col) => (Object.hasOwn(row, col) ? row[col] : undefined)),
+    )
+    const values = mapWriteParams(handle, mapper, columnSet, rawValues)
+
+    return {
+      kind: 'insert',
+      table: handle.name,
+      ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
+      columns: columnSet,
+      values,
+      ...(returning ? { returning } : {}),
+    }
+  }
+
+  const compile = () => dialect.compile(buildAst())
+
+  const execute = async () =>
+    runWrite(dialect, executor, handle, mapper, buildAst())
+
+  const executeTakeFirst = async () => {
+    const result = await execute()
+    if (returning) {
+      return (result as unknown[])[0]
+    }
+    return result
+  }
+
+  const executeTakeFirstOrThrow = async () => {
+    const result = await execute()
+    if (returning) {
+      return takeFirstOrThrow(
+        result as unknown[],
+        'No rows returned from insert',
+      )
+    }
+    return result
+  }
+
+  return {
+    returningAll() {
+      return createInsertBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        rows,
+        returning: { kind: 'all' },
+      }) as never
+    },
+    returning(columns) {
+      return createInsertBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        rows,
+        returning: {
+          kind: 'columns',
+          columns: resolveReturningColumns(columns),
+        },
+      }) as never
+    },
+    compile,
+    execute: execute as never,
+    executeTakeFirst: executeTakeFirst as never,
+    executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Update builder
+// ---------------------------------------------------------------------------
+
+export type UpdateBuilder<
+  THandle extends TableHandle = TableHandle,
+  TResult = WriteResult,
+> = {
+  where(
+    column: ColumnRef | string,
+    op: ComparisonOp,
+    value: unknown,
+  ): UpdateBuilder<THandle, TResult>
+  where(
+    predicate: Record<string, unknown> | PredicateAst,
+  ): UpdateBuilder<THandle, TResult>
+  /** Opt into full-table update (no where). */
+  all(): UpdateBuilder<THandle, TResult>
+  returningAll(): UpdateBuilder<THandle, InferSelect<THandle>>
+  returning(
+    columns: readonly (ColumnRef | string)[],
+  ): UpdateBuilder<THandle, Partial<InferSelect<THandle>>>
+  compile(): CompiledQuery
+  execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  executeTakeFirst(): Promise<
+    TResult extends WriteResult ? WriteResult : TResult | undefined
+  >
+  executeTakeFirstOrThrow(): Promise<
+    TResult extends WriteResult ? WriteResult : TResult
+  >
+}
+
+function createUpdateBuilder<THandle extends TableHandle>(options: {
+  handle: THandle
+  dialect: Dialect
+  executor: Executor
+  mapper?: ValueMapper
+  patch: Record<string, unknown>
+  where?: PredicateAst
+  allowAll: boolean
+  returning?: ReturningAst
+}): UpdateBuilder<THandle, unknown> {
+  const {
+    handle,
+    dialect,
+    executor,
+    mapper,
+    patch,
+    where,
+    allowAll,
+    returning,
+  } = options
+
+  const buildAst = (): UpdateAst => {
+    if (!where && !allowAll) {
+      throw new QueryError({
+        message: `update on "${handle.name}" requires where(...) or .all()`,
+      })
+    }
+    const set = mapSetParams(
+      handle,
+      mapper,
+      Object.entries(patch).map(([column, value]) => ({ column, value })),
+    )
+    return {
+      kind: 'update',
+      table: handle.name,
+      ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
+      set,
+      ...(where ? { where: mapPredicateParams(handle, mapper, where) } : {}),
+      allowAll,
+      ...(returning ? { returning } : {}),
+    }
+  }
+
+  const compile = () => dialect.compile(buildAst())
+
+  const execute = async () =>
+    runWrite(dialect, executor, handle, mapper, buildAst())
+
+  const executeTakeFirst = async () => {
+    const result = await execute()
+    if (returning) return (result as unknown[])[0]
+    return result
+  }
+
+  const executeTakeFirstOrThrow = async () => {
+    const result = await execute()
+    if (returning) {
+      return takeFirstOrThrow(
+        result as unknown[],
+        'No rows returned from update',
+      )
+    }
+    return result
+  }
+
+  const withWhere = (input: WhereInput) =>
+    createUpdateBuilder({
+      handle,
+      dialect,
+      executor,
+      mapper,
+      patch,
+      where: mergeWhere(where, normalizeWhere(input)),
+      allowAll,
+      returning,
+    })
+
+  return {
+    where(...args: unknown[]) {
+      if (args.length === 1) {
+        return withWhere(args[0] as WhereInput) as never
+      }
+      return withWhere([
+        args[0] as ColumnRef | string,
+        args[1] as ComparisonOp,
+        args[2],
+      ]) as never
+    },
+    all() {
+      return createUpdateBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        patch,
+        where,
+        allowAll: true,
+        returning,
+      }) as never
+    },
+    returningAll() {
+      return createUpdateBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        patch,
+        where,
+        allowAll,
+        returning: { kind: 'all' },
+      }) as never
+    },
+    returning(columns) {
+      return createUpdateBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        patch,
+        where,
+        allowAll,
+        returning: {
+          kind: 'columns',
+          columns: resolveReturningColumns(columns),
+        },
+      }) as never
+    },
+    compile,
+    execute: execute as never,
+    executeTakeFirst: executeTakeFirst as never,
+    executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Delete builder
+// ---------------------------------------------------------------------------
+
+export type DeleteBuilder<
+  THandle extends TableHandle = TableHandle,
+  TResult = WriteResult,
+> = {
+  where(
+    column: ColumnRef | string,
+    op: ComparisonOp,
+    value: unknown,
+  ): DeleteBuilder<THandle, TResult>
+  where(
+    predicate: Record<string, unknown> | PredicateAst,
+  ): DeleteBuilder<THandle, TResult>
+  /** Opt into full-table delete (no where). */
+  all(): DeleteBuilder<THandle, TResult>
+  returningAll(): DeleteBuilder<THandle, InferSelect<THandle>>
+  returning(
+    columns: readonly (ColumnRef | string)[],
+  ): DeleteBuilder<THandle, Partial<InferSelect<THandle>>>
+  compile(): CompiledQuery
+  execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  executeTakeFirst(): Promise<
+    TResult extends WriteResult ? WriteResult : TResult | undefined
+  >
+  executeTakeFirstOrThrow(): Promise<
+    TResult extends WriteResult ? WriteResult : TResult
+  >
+}
+
+function createDeleteBuilder<THandle extends TableHandle>(options: {
+  handle: THandle
+  dialect: Dialect
+  executor: Executor
+  mapper?: ValueMapper
+  where?: PredicateAst
+  allowAll: boolean
+  returning?: ReturningAst
+}): DeleteBuilder<THandle, unknown> {
+  const { handle, dialect, executor, mapper, where, allowAll, returning } =
+    options
+
+  const buildAst = (): DeleteAst => {
+    if (!where && !allowAll) {
+      throw new QueryError({
+        message: `delete from "${handle.name}" requires where(...) or .all()`,
+      })
+    }
+    return {
+      kind: 'delete',
+      table: handle.name,
+      ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
+      ...(where ? { where: mapPredicateParams(handle, mapper, where) } : {}),
+      allowAll,
+      ...(returning ? { returning } : {}),
+    }
+  }
+
+  const compile = () => dialect.compile(buildAst())
+
+  const execute = async () =>
+    runWrite(dialect, executor, handle, mapper, buildAst())
+
+  const executeTakeFirst = async () => {
+    const result = await execute()
+    if (returning) return (result as unknown[])[0]
+    return result
+  }
+
+  const executeTakeFirstOrThrow = async () => {
+    const result = await execute()
+    if (returning) {
+      return takeFirstOrThrow(
+        result as unknown[],
+        'No rows returned from delete',
+      )
+    }
+    return result
+  }
+
+  const withWhere = (input: WhereInput) =>
+    createDeleteBuilder({
+      handle,
+      dialect,
+      executor,
+      mapper,
+      where: mergeWhere(where, normalizeWhere(input)),
+      allowAll,
+      returning,
+    })
+
+  return {
+    where(...args: unknown[]) {
+      if (args.length === 1) {
+        return withWhere(args[0] as WhereInput) as never
+      }
+      return withWhere([
+        args[0] as ColumnRef | string,
+        args[1] as ComparisonOp,
+        args[2],
+      ]) as never
+    },
+    all() {
+      return createDeleteBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        where,
+        allowAll: true,
+        returning,
+      }) as never
+    },
+    returningAll() {
+      return createDeleteBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        where,
+        allowAll,
+        returning: { kind: 'all' },
+      }) as never
+    },
+    returning(columns) {
+      return createDeleteBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        where,
+        allowAll,
+        returning: {
+          kind: 'columns',
+          columns: resolveReturningColumns(columns),
+        },
+      }) as never
+    },
+    compile,
+    execute: execute as never,
+    executeTakeFirst: executeTakeFirst as never,
+    executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Select builder
+// ---------------------------------------------------------------------------
+
+export type SelectBuilder<
+  THandle extends TableHandle = TableHandle,
+  TResult = InferSelect<THandle>,
+> = {
+  selectAll(): SelectBuilder<THandle, InferSelect<THandle>>
+  selectAll<TSide extends TableHandle>(
+    handle: TSide,
+  ): SelectBuilder<THandle, InferSelect<TSide>>
+  select(
+    columns: readonly (ColumnRef | string)[],
+  ): SelectBuilder<THandle, Partial<InferSelect<THandle>>>
+  select(
+    callback: (
+      builder: ExpressionBuilder,
+    ) => readonly (
+      | ColumnRef
+      | string
+      | { expr: SqlExprAst; alias: string }
+      | SelectItemAst
+    )[],
+  ): SelectBuilder<THandle, Record<string, unknown>>
+  where(
+    column: ColumnRef | string,
+    op: ComparisonOp,
+    value: unknown,
+  ): SelectBuilder<THandle, TResult>
+  where(
+    predicate:
+      | Record<string, unknown>
+      | PredicateAst
+      | ((builder: ExpressionBuilder) => PredicateAst),
+  ): SelectBuilder<THandle, TResult>
+  orderBy(
+    column: ColumnRef | string,
+    direction?: 'asc' | 'desc',
+  ): SelectBuilder<THandle, TResult>
+  limit(count: number): SelectBuilder<THandle, TResult>
+  offset(count: number): SelectBuilder<THandle, TResult>
+  groupBy(
+    columns: readonly (ColumnRef | string)[] | ColumnRef | string,
+  ): SelectBuilder<THandle, TResult>
+  having(
+    predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
+  ): SelectBuilder<THandle, TResult>
+  innerJoin(
+    table: TableHandle,
+    on: JoinOnInput,
+  ): SelectBuilder<THandle, TResult>
+  leftJoin(table: TableHandle, on: JoinOnInput): SelectBuilder<THandle, TResult>
+  rightJoin(
+    table: TableHandle,
+    on: JoinOnInput,
+  ): SelectBuilder<THandle, TResult>
+  compile(): CompiledQuery
+  execute(): Promise<TResult[]>
+  executeTakeFirst(): Promise<TResult | undefined>
+  executeTakeFirstOrThrow(): Promise<TResult>
+}
+
+type SelectState = {
+  selection: SelectItemAst[]
+  joins: JoinAst[]
+  where?: PredicateAst
+  orderBy: OrderByAst[]
+  limit?: number
+  offset?: number
+  groupBy: QualifiedColumnAst[]
+  having?: PredicateAst
+}
+
+function createSelectBuilder<THandle extends TableHandle>(options: {
+  handle: THandle
+  dialect: Dialect
+  executor: Executor
+  mapper?: ValueMapper
+  state: SelectState
+}): SelectBuilder<THandle, unknown> {
+  const { handle, dialect, executor, mapper, state } = options
+
+  const buildAst = (): SelectAst => ({
+    kind: 'select',
+    table: handle.name,
+    ...(handle.schema !== undefined ? { schema: handle.schema } : {}),
+    selection:
+      state.selection.length === 0 ? [{ kind: 'all' }] : state.selection,
+    ...(state.joins.length > 0
+      ? { joins: mapJoinsParams(handle, mapper, state.joins) }
+      : {}),
+    ...(state.where
+      ? { where: mapPredicateParams(handle, mapper, state.where) }
+      : {}),
+    ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
+    ...(state.limit !== undefined ? { limit: state.limit } : {}),
+    ...(state.offset !== undefined ? { offset: state.offset } : {}),
+    ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
+    ...(state.having
+      ? { having: mapPredicateParams(handle, mapper, state.having) }
+      : {}),
+  })
+
+  const next = (patch: Partial<SelectState>) =>
+    createSelectBuilder({
+      handle,
+      dialect,
+      executor,
+      mapper,
+      state: {
+        selection: patch.selection ?? state.selection,
+        joins: patch.joins ?? state.joins,
+        where: 'where' in patch ? patch.where : state.where,
+        orderBy: patch.orderBy ?? state.orderBy,
+        limit: 'limit' in patch ? patch.limit : state.limit,
+        offset: 'offset' in patch ? patch.offset : state.offset,
+        groupBy: patch.groupBy ?? state.groupBy,
+        having: 'having' in patch ? patch.having : state.having,
+      },
+    })
+
+  const compile = () => dialect.compile(buildAst())
+
+  const execute = async () =>
+    runQuery(dialect, executor, handle, mapper, buildAst())
+
+  const executeTakeFirst = async () => {
+    const rows = (await execute()) as unknown[]
+    return rows[0]
+  }
+
+  const executeTakeFirstOrThrow = async () => {
+    const rows = (await execute()) as unknown[]
+    return takeFirstOrThrow(rows, 'No rows returned from select')
+  }
+
+  return {
+    selectAll(side?: TableHandle) {
+      const item: SelectItemAst = side
+        ? { kind: 'all', table: side.name }
+        : { kind: 'all' }
+      return next({ selection: [...state.selection, item] }) as never
+    },
+    select(input: SelectSelectionInput) {
+      return next({
+        selection: [...state.selection, ...normalizeSelection(input)],
+      }) as never
+    },
+    where(...args: unknown[]) {
+      let pred: PredicateAst
+      if (args.length === 1) {
+        const arg = args[0]
+        if (typeof arg === 'function') {
+          pred = (arg as (builder: ExpressionBuilder) => PredicateAst)(eb)
+        } else {
+          pred = normalizeWhere(arg as WhereInput)
+        }
+      } else {
+        pred = normalizeWhere([
+          args[0] as ColumnRef | string,
+          args[1] as ComparisonOp,
+          args[2],
+        ])
+      }
+      return next({ where: mergeWhere(state.where, pred) }) as never
+    },
+    orderBy(column, direction: 'asc' | 'desc' = 'asc') {
+      const q = toQualified(column)
+      return next({
+        orderBy: [
+          ...state.orderBy,
+          {
+            column: q.column,
+            ...(q.table !== undefined ? { table: q.table } : {}),
+            direction,
+          },
+        ],
+      }) as never
+    },
+    limit(count) {
+      return next({ limit: count }) as never
+    },
+    offset(count) {
+      return next({ offset: count }) as never
+    },
+    groupBy(columns) {
+      const list = Array.isArray(columns) ? columns : [columns]
+      return next({
+        groupBy: [
+          ...state.groupBy,
+          ...list.map((c) => toQualified(c as ColumnRef | string)),
+        ],
+      }) as never
+    },
+    having(
+      input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
+    ) {
+      const pred = typeof input === 'function' ? input(eb) : input
+      return next({
+        having: state.having ? and(state.having, pred) : pred,
+      }) as never
+    },
+    innerJoin(table, on) {
+      return next({
+        joins: [...state.joins, toJoinAst('inner', table, on)],
+      }) as never
+    },
+    leftJoin(table, on) {
+      return next({
+        joins: [...state.joins, toJoinAst('left', table, on)],
+      }) as never
+    },
+    rightJoin(table, on) {
+      return next({
+        joins: [...state.joins, toJoinAst('right', table, on)],
+      }) as never
+    },
+    compile,
+    execute: execute as never,
+    executeTakeFirst: executeTakeFirst as never,
+    executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Root table query builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Fluent query builder rooted on a registered table handle.
+ * Default terminal path is `select *`; use insert/update/delete for writes.
+ */
+export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
+  /** Compile `select * from table` (default read path). */
+  compile(): CompiledQuery
+  /** Execute `select * from table`. */
+  execute(): Promise<InferSelect<THandle>[]>
+  executeTakeFirst(): Promise<InferSelect<THandle> | undefined>
+  executeTakeFirstOrThrow(): Promise<InferSelect<THandle>>
+  /** Explicit select-all (same as default execute path). */
+  selectAll(): SelectBuilder<THandle, InferSelect<THandle>>
+  selectAll<TSide extends TableHandle>(
+    handle: TSide,
+  ): SelectBuilder<THandle, InferSelect<TSide>>
+  select(
+    columns: readonly (ColumnRef | string)[],
+  ): SelectBuilder<THandle, Partial<InferSelect<THandle>>>
+  select(
+    callback: (
+      builder: ExpressionBuilder,
+    ) => readonly (
+      | ColumnRef
+      | string
+      | { expr: SqlExprAst; alias: string }
+      | SelectItemAst
+    )[],
+  ): SelectBuilder<THandle, Record<string, unknown>>
+  innerJoin(
+    table: TableHandle,
+    on: JoinOnInput,
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  leftJoin(
+    table: TableHandle,
+    on: JoinOnInput,
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  rightJoin(
+    table: TableHandle,
+    on: JoinOnInput,
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  where(
+    column: ColumnRef | string,
+    op: ComparisonOp,
+    value: unknown,
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  where(
+    predicate:
+      | Record<string, unknown>
+      | PredicateAst
+      | ((builder: ExpressionBuilder) => PredicateAst),
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  orderBy(
+    column: ColumnRef | string,
+    direction?: 'asc' | 'desc',
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  limit(count: number): SelectBuilder<THandle, InferSelect<THandle>>
+  offset(count: number): SelectBuilder<THandle, InferSelect<THandle>>
+  groupBy(
+    columns: readonly (ColumnRef | string)[] | ColumnRef | string,
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  having(
+    predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  insert(
+    row: InferInsert<THandle> | InferInsert<THandle>[],
+  ): InsertBuilder<THandle, WriteResult>
+  update(patch: InferUpdate<THandle>): UpdateBuilder<THandle, WriteResult>
+  delete(): DeleteBuilder<THandle, WriteResult>
+}
+
+function emptySelectState(): SelectState {
+  return {
+    selection: [],
+    joins: [],
+    orderBy: [],
+    groupBy: [],
+  }
+}
+
+/**
+ * Creates a table-scoped query builder (select + insert/update/delete).
+ */
+export function createTableBuilder<THandle extends TableHandle>(options: {
+  handle: THandle
+  dialect: Dialect
+  executor: Executor
+  mapper?: ValueMapper
+}): QueryBuilder<THandle> {
+  const { handle, dialect, executor, mapper } = options
+
+  const rootSelect = () =>
+    createSelectBuilder({
+      handle,
+      dialect,
+      executor,
+      mapper,
+      state: emptySelectState(),
+    })
+
+  // Default path: select * with no filters (terminals on QueryBuilder)
+  const defaultSelect = createSelectBuilder({
+    handle,
+    dialect,
+    executor,
+    mapper,
+    state: emptySelectState(),
+  })
+
+  return {
+    compile: () => defaultSelect.compile(),
+    execute: () => defaultSelect.execute() as Promise<InferSelect<THandle>[]>,
+    executeTakeFirst: () =>
+      defaultSelect.executeTakeFirst() as Promise<
+        InferSelect<THandle> | undefined
+      >,
+    executeTakeFirstOrThrow: () =>
+      defaultSelect.executeTakeFirstOrThrow() as Promise<InferSelect<THandle>>,
+    selectAll(tableHandle?: TableHandle) {
+      return rootSelect().selectAll(tableHandle as never) as never
+    },
+    select(input: SelectSelectionInput) {
+      return rootSelect().select(input as never) as never
+    },
+    innerJoin(table, on) {
+      return rootSelect().innerJoin(table, on) as never
+    },
+    leftJoin(table, on) {
+      return rootSelect().leftJoin(table, on) as never
+    },
+    rightJoin(table, on) {
+      return rootSelect().rightJoin(table, on) as never
+    },
+    where(...args: unknown[]) {
+      return (rootSelect().where as (...a: unknown[]) => SelectBuilder)(
+        ...args,
+      ) as never
+    },
+    orderBy(column, direction) {
+      return rootSelect().orderBy(column, direction) as never
+    },
+    limit(count) {
+      return rootSelect().limit(count) as never
+    },
+    offset(count) {
+      return rootSelect().offset(count) as never
+    },
+    groupBy(columns) {
+      return rootSelect().groupBy(columns) as never
+    },
+    having(
+      input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
+    ) {
+      return rootSelect().having(input as never) as never
+    },
+    insert(rowOrRows) {
+      const list = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]
+      if (list.length === 0) {
+        throw new QueryError({
+          message: `insert into "${handle.name}" requires at least one row`,
+        })
+      }
+      const validated = list.map((row) => validateInsertRow(handle, row))
+      return createInsertBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        rows: validated,
+      }) as InsertBuilder<THandle, WriteResult>
+    },
+    update(patch) {
+      const validated = validateUpdatePatch(handle, patch)
+      return createUpdateBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        patch: validated,
+        allowAll: false,
+      }) as UpdateBuilder<THandle, WriteResult>
+    },
+    delete() {
+      return createDeleteBuilder({
+        handle,
+        dialect,
+        executor,
+        mapper,
+        allowAll: false,
+      }) as DeleteBuilder<THandle, WriteResult>
+    },
+  }
+}
+
+/**
+ * @deprecated Use {@link createTableBuilder}. Kept for compatibility.
+ */
+export function createSelectAllBuilder<THandle extends TableHandle>(options: {
+  handle: THandle
+  dialect: Dialect
+  executor: Executor
+  mapper?: ValueMapper
+}): QueryBuilder<THandle> {
+  return createTableBuilder(options)
+}
