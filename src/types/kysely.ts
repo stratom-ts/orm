@@ -1,10 +1,13 @@
+/**
+ * Per-column flags for Kysely type wrapping in `InferTable` / `InferDB`.
+ */
 export type KyselyColumnConfig = {
-  /** Auto-generated — wrapped in Generated<T> */
+  /** Wrap as `Generated<T>` */
   generated?: boolean
-  /** Immutable after insert — ColumnType<T, T, never> */
+  /** Immutable after insert (`ColumnType<T, T, never>`) */
   readonly?: boolean
-  /** Object stored as JSON — JSONColumnType<T> */
+  /** Store as JSON (`JSONColumnType<T>`) */
   json?: boolean
-  /** Date values serialized as strings — ColumnType<Date, string, string> */
+  /** Date as string I/O (`ColumnType<Date, string, string>`) */
   dateAsString?: boolean
 }
