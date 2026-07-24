@@ -268,3 +268,24 @@ export type MergeSelection<
   TResult,
   TNew,
 > = HasSelection extends true ? TResult & TNew : TNew
+
+/**
+ * Implicit `select *` after a join includes the joined table's columns.
+ * Once the consumer has narrowed with `.select` / `.selectAll`, joins only
+ * affect row filtering / nullability tracking — not the projection type.
+ */
+export type MergeJoinStar<
+  HasSelection extends boolean,
+  TResult,
+  TSideRow,
+> = HasSelection extends true ? TResult : TResult & TSideRow
+
+/**
+ * Right join with implicit `*`: root columns become nullable, the joined side
+ * is added, and any previously merged non-root fields are preserved.
+ */
+export type RightJoinStarResult<THandle, TResult, TSide> = NullableFields<
+  InferSelect<THandle>
+> &
+  Omit<TResult, keyof InferSelect<THandle>> &
+  InferSelect<TSide>

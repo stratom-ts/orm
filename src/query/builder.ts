@@ -20,8 +20,10 @@ import type {
   InferSelectAllSide,
   InferSelectedColumns,
   InferUpdate,
+  MergeJoinStar,
   MergeSelection,
   NullableFields,
+  RightJoinStarResult,
 } from '@/types/views'
 import { QueryError } from '@/utils/error'
 import type { Executor } from './executor'
@@ -822,20 +824,32 @@ export type SelectBuilder<
   having(
     predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
-  innerJoin(
-    table: TableHandle,
-    on: JoinOnInput,
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
-  leftJoin<TSide extends TableHandle>(
+  innerJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable | TSide['name']>
-  rightJoin(
-    table: TableHandle,
     on: JoinOnInput,
   ): SelectBuilder<
     THandle,
-    HasSelection extends true ? TResult : NullableFields<InferSelect<THandle>>,
+    MergeJoinStar<HasSelection, TResult, InferSelect<TSide>>,
+    HasSelection,
+    TNullable
+  >
+  leftJoin<TSide extends TableHandle>(
+    table: TSide,
+    on: JoinOnInput,
+  ): SelectBuilder<
+    THandle,
+    MergeJoinStar<HasSelection, TResult, NullableFields<InferSelect<TSide>>>,
+    HasSelection,
+    TNullable | TSide['name']
+  >
+  rightJoin<TSide extends TableHandle>(
+    table: TSide,
+    on: JoinOnInput,
+  ): SelectBuilder<
+    THandle,
+    HasSelection extends true
+      ? TResult
+      : RightJoinStarResult<THandle, TResult, TSide>,
     HasSelection,
     TNullable | THandle['name']
   >
@@ -1040,20 +1054,30 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
       | SelectItemAst
     )[],
   ): SelectBuilder<THandle, Record<string, unknown>, true, never>
-  innerJoin(
-    table: TableHandle,
-    on: JoinOnInput,
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
-  leftJoin<TSide extends TableHandle>(
+  innerJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, TSide['name']>
-  rightJoin(
-    table: TableHandle,
     on: JoinOnInput,
   ): SelectBuilder<
     THandle,
-    NullableFields<InferSelect<THandle>>,
+    InferSelect<THandle> & InferSelect<TSide>,
+    false,
+    never
+  >
+  leftJoin<TSide extends TableHandle>(
+    table: TSide,
+    on: JoinOnInput,
+  ): SelectBuilder<
+    THandle,
+    InferSelect<THandle> & NullableFields<InferSelect<TSide>>,
+    false,
+    TSide['name']
+  >
+  rightJoin<TSide extends TableHandle>(
+    table: TSide,
+    on: JoinOnInput,
+  ): SelectBuilder<
+    THandle,
+    NullableFields<InferSelect<THandle>> & InferSelect<TSide>,
     false,
     THandle['name']
   >
