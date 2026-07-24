@@ -1,9 +1,10 @@
-import type { BaseIssue, BaseSchema, MetadataAction } from 'valibot'
+import type { MetadataAction } from 'valibot'
+import type { AnySchema } from '@/types/schema'
 import { getMetadata, metadata } from 'valibot'
 import type { ColumnMetadata } from './types'
 
 interface WrapperSchema {
-  wrapped: BaseSchema<unknown, unknown, BaseIssue<unknown>>
+  wrapped: AnySchema
 }
 
 /**
@@ -17,9 +18,7 @@ interface WrapperSchema {
  * const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'text' }))))
  * ```
  */
-function unwrapWrapper(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): BaseSchema<unknown, unknown, BaseIssue<unknown>> {
+function unwrapWrapper(schema: AnySchema): AnySchema {
   if (
     schema.type === 'optional' ||
     schema.type === 'nullable' ||
@@ -84,7 +83,7 @@ export function isColumnMetadata(
  * ```
  */
 export function getColumnMetadata(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
+  schema: AnySchema,
 ): ColumnMetadata | undefined {
   const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
     | Record<string, unknown>

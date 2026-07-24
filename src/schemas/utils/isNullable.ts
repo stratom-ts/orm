@@ -1,4 +1,4 @@
-import type { BaseIssue, BaseSchema } from 'valibot'
+import type { AnySchema } from '@/types/schema'
 
 /**
  * Returns whether a schema allows null or undefined values.
@@ -12,9 +12,7 @@ import type { BaseIssue, BaseSchema } from 'valibot'
  * isNullable(string()) // false
  * ```
  */
-export function isNullable(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): boolean {
+export function isNullable(schema: AnySchema): boolean {
   if (schema.type === 'optional' || schema.type === 'nullish') {
     return true
   }

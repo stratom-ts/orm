@@ -4,15 +4,10 @@ import {
   getStringConstraints,
 } from '@/schemas'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
+import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
 import { SchemaError } from '@/utils/error'
-import type {
-  BaseIssue,
-  BaseSchema,
-  ErrorMessage,
-  Literal,
-  LiteralSchema,
-} from 'valibot'
+import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 import type {
   CatalogColumn,
   CatalogIndex,
@@ -134,9 +129,7 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
  * inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
  * ```
  */
-export function inferPostgresColumnType(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): SqlDataType {
+export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
   const baseSchema = getBaseSchema(schema)
   switch (baseSchema.type) {
     case 'string': {

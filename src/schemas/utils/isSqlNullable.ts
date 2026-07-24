@@ -1,4 +1,4 @@
-import type { BaseIssue, BaseSchema } from 'valibot'
+import type { AnySchema } from '@/types/schema'
 
 /**
  * Returns whether a column schema should map to SQL NULL-capable storage.
@@ -7,9 +7,7 @@ import type { BaseIssue, BaseSchema } from 'valibot'
  * - `optional` alone → not SQL nullable (omit-on-insert only; use a DB default
  *   or `nullable`/`nullish` when the column may store NULL)
  */
-export function isSqlNullable(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): boolean {
+export function isSqlNullable(schema: AnySchema): boolean {
   if (schema.type === 'nullish' || schema.type === 'nullable') {
     return true
   }
@@ -34,9 +32,7 @@ export function isSqlNullable(
     schema.wrapped &&
     typeof schema.wrapped === 'object'
   ) {
-    return isSqlNullable(
-      schema.wrapped as BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-    )
+    return isSqlNullable(schema.wrapped as AnySchema)
   }
 
   return false

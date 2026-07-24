@@ -1,15 +1,9 @@
 import type { TableHandle } from '@/types'
+import type { AnySchema } from '@/types/schema'
 import { getColumnMetadata } from '@/schemas'
 import { ValidationError } from '@/utils/error'
-import type {
-  BaseIssue,
-  BaseSchema,
-  ObjectEntries,
-  ObjectSchema,
-} from 'valibot'
+import type { BaseIssue, ObjectEntries, ObjectSchema } from 'valibot'
 import { object, optional, safeParse } from 'valibot'
-
-type AnySchema = BaseSchema<unknown, unknown, BaseIssue<unknown>>
 
 /** optional / nullish → omit-on-insert OK (not bare nullable). */
 function isOmitOptionalSchema(schema: AnySchema): boolean {

@@ -1,5 +1,5 @@
-import type { BaseIssue, BaseSchema } from 'valibot'
 import type { NumberConstraints } from '@/types/constraints'
+import type { AnySchema } from '@/types/schema'
 
 /**
  * Reads min/max value and integer constraints from a number schema pipe.
@@ -13,9 +13,7 @@ import type { NumberConstraints } from '@/types/constraints'
  * // { minValue: 0, isInteger: true }
  * ```
  */
-export function getNumberConstraints(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): NumberConstraints {
+export function getNumberConstraints(schema: AnySchema): NumberConstraints {
   const constraints: NumberConstraints = {}
 
   if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {

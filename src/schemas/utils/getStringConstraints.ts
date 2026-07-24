@@ -1,5 +1,5 @@
-import type { BaseIssue, BaseSchema } from 'valibot'
 import type { StringConstraints } from '@/types/constraints'
+import type { AnySchema } from '@/types/schema'
 
 /**
  * Reads min/max length constraints from a string schema pipe.
@@ -13,9 +13,7 @@ import type { StringConstraints } from '@/types/constraints'
  * // { maxLength: 255 }
  * ```
  */
-export function getStringConstraints(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): StringConstraints {
+export function getStringConstraints(schema: AnySchema): StringConstraints {
   const constraints: StringConstraints = {}
 
   if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {

@@ -1,4 +1,5 @@
-import type { BaseIssue, BaseSchema, MetadataAction } from 'valibot'
+import type { MetadataAction } from 'valibot'
+import type { AnySchema } from '@/types/schema'
 import { getMetadata, metadata } from 'valibot'
 import type { TableIndex, TableMetadata } from './types'
 
@@ -73,9 +74,7 @@ export function isTableMetadata(
  * // { kind: 'table', name: 'users', primaryKey: 'id' }
  * ```
  */
-export function getTableMetadata(
-  schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
-): TableMetadata | undefined {
+export function getTableMetadata(schema: AnySchema): TableMetadata | undefined {
   const schemaMetadata = getMetadata(schema) as
     | Record<string, unknown>
     | undefined
