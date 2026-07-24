@@ -8,7 +8,7 @@ import type {
 } from '@/dialects'
 import type { TableHandle } from '@/types'
 import type { Executor } from '@/query'
-import type { IndexConfig, TableIndex } from '@/schemas'
+import { normalizeIndex } from '@/schemas'
 import { MigrationError } from '@/utils/error'
 import { DEFAULT_PG_SCHEMA, effectiveSchema, tableKey } from '@/utils/tableKey'
 import { buildCreateTableAst } from './createTable'
@@ -122,13 +122,6 @@ function schemasPresentInCatalog(catalog: CatalogSnapshot): Set<string> {
     schemas.add(effectiveSchema(table.schema))
   }
   return schemas
-}
-
-function normalizeIndex(index: TableIndex): IndexConfig {
-  if (typeof index === 'string') {
-    return { columns: [index] }
-  }
-  return index
 }
 
 function defaultIndexName(table: string, columns: string[]): string {
