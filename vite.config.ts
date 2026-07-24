@@ -1,6 +1,6 @@
-import { defineConfig } from 'vitest/config'
 import { resolve } from 'path'
 import dts from 'vite-plugin-dts'
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   plugins: [dts()],
@@ -10,7 +10,6 @@ export default defineConfig({
   },
   resolve: {
     alias: [
-
       { find: /^@helpers\/(.*)/, replacement: resolve(__dirname, 'src/helpers/$1') },
       { find: /^@schemas\/(.*)/, replacement: resolve(__dirname, 'src/schemas/$1') },
       { find: /^@typings\/(.*)/, replacement: resolve(__dirname, 'src/types/$1') },
