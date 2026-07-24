@@ -138,11 +138,46 @@ const JsonRefSchema = pipe(
   table({ name: 'json_ref_test', primaryKey: 'id' }),
 )
 
+const ReadonlySchema = pipe(
+  object({
+    id: pipe(string(), column({ type: 'uuid', readonly: true })),
+    name: pipe(string(), column({ type: 'text' })),
+  }),
+  title('readonly_test'),
+  table({ name: 'readonly_test', primaryKey: 'id' }),
+)
+
+const GeneratedSchema = pipe(
+  object({
+    id: pipe(string(), column({ type: 'uuid', generated: 'byDefault' })),
+    label: pipe(string(), column({ type: 'text' })),
+  }),
+  title('gen_test'),
+  table({ name: 'gen_test', primaryKey: 'id' }),
+)
+
 describe('InferTable', () => {
   it('without config defaults to same as InferRow', () => {
     type Table = InferTable<typeof UserSchema>
     type Row = InferRow<typeof UserSchema>
     expectTypeOf<Table>().toEqualTypeOf<Row>()
+  })
+
+  it('infers ColumnType<T,T,never> from column({ readonly: true }) metadata', () => {
+    type Table = InferTable<typeof ReadonlySchema>
+    expectTypeOf<Table['id']>().toEqualTypeOf<ColumnType<string, string, never>>()
+    expectTypeOf<Table['name']>().toEqualTypeOf<string>()
+  })
+
+  it('infers Generated<T> from column({ generated: true }) metadata', () => {
+    type Table = InferTable<typeof GeneratedSchema>
+    expectTypeOf<Table['id']>().toEqualTypeOf<Generated<string>>()
+    expectTypeOf<Table['label']>().toEqualTypeOf<string>()
+  })
+
+  it('explicit config overrides schema metadata', () => {
+    type Table = InferTable<typeof ReadonlySchema, { id: { generated: true } }>
+    expectTypeOf<Table['id']>().toEqualTypeOf<Generated<string>>()
   })
 
   it('wraps with Generated<T> when generated: true', () => {
