@@ -1,5 +1,3 @@
-import { postgresDialect } from '@/dialects'
-import type { AnySchema } from '@/types/schema'
 import type {
   InferOutput,
   MetadataAction,
@@ -9,6 +7,10 @@ import type {
   TitleAction,
 } from 'valibot'
 import { getMetadata, metadata, pipe } from 'valibot'
+
+import { postgresDialect } from '@/dialects'
+import type { AnySchema } from '@/types/schema'
+
 import { getColumnMetadata } from './column'
 import { isTableMetadata } from './table'
 import type { ReferenceMetadata, ReferentialAction } from './types'

@@ -5,6 +5,7 @@ import type {
   SchemaWithPipe,
   TitleAction,
 } from 'valibot'
+
 import type { TableMetadata } from './actions/types'
 
 /** Valibot object schema with `title()` and `table()` metadata. */

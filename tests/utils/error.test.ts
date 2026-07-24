@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  catchTag,
-  catchTags,
   MigrationError,
   QueryError,
   SchemaError,
   TaggedError,
   ValidationError,
+  catchTag,
+  catchTags,
 } from '@/utils'
 
 describe('TaggedError', () => {

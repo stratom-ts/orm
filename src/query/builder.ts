@@ -27,6 +27,7 @@ import type {
   TableNameOf,
 } from '@/types/views'
 import { QueryError } from '@/utils/error'
+
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import {

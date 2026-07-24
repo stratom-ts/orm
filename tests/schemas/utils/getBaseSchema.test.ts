@@ -1,7 +1,7 @@
 import {
   nullable,
-  number,
   nullish,
+  number,
   object,
   optional,
   pipe,

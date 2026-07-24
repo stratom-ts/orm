@@ -1,5 +1,6 @@
-import type { TableMetadata, TableSchema } from '@/schemas'
 import type { InferOutput } from 'valibot'
+
+import type { TableMetadata, TableSchema } from '@/schemas'
 
 /** Runtime brand for table handles returned by `defineTable`. */
 export const TABLE_HANDLE = Symbol.for('stratom.TableHandle')

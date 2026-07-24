@@ -1,3 +1,6 @@
+import type { Connector, Database } from 'db0'
+import { createDatabase } from 'db0'
+
 import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
@@ -26,8 +29,6 @@ import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { QueryError, SchemaError } from '@/utils/error'
 import { tableKey } from '@/utils/tableKey'
-import type { Connector, Database } from 'db0'
-import { createDatabase } from 'db0'
 
 export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'

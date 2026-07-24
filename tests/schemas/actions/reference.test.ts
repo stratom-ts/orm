@@ -1,7 +1,7 @@
 import { object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { column, reference, getReferenceMetadata, table } from '@/schemas'
+import { column, getReferenceMetadata, reference, table } from '@/schemas'
 
 describe('reference action', () => {
   it('should create reference metadata with table and key from referenced schema', () => {

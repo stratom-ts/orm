@@ -1,3 +1,7 @@
+import type { Connector, Statement } from 'db0'
+import { boolean, number, optional, pipe, string } from 'valibot'
+import { describe, expect, expectTypeOf, it } from 'vitest'
+
 import { defineTable } from '@/defineTable'
 import {
   and,
@@ -15,9 +19,6 @@ import {
 } from '@/index'
 import { column } from '@/schemas'
 import { QueryError } from '@/utils/error'
-import type { Connector, Statement } from 'db0'
-import { boolean, number, optional, pipe, string } from 'valibot'
-import { describe, expect, expectTypeOf, it } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {

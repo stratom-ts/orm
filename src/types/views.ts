@@ -1,6 +1,8 @@
+import type { InferOutput } from 'valibot'
+
 import type { TableSchema } from '@/schemas'
 import type { Prettify } from '@/types/prettify'
-import type { InferOutput } from 'valibot'
+
 import type { AnySchema } from './schema'
 import type { ColumnRef } from './tableHandle'
 

@@ -1,6 +1,8 @@
 import type { MetadataAction } from 'valibot'
-import type { AnySchema } from '@/types/schema'
 import { getMetadata, metadata } from 'valibot'
+
+import type { AnySchema } from '@/types/schema'
+
 import type { ColumnMetadata } from './types'
 
 interface WrapperSchema {
