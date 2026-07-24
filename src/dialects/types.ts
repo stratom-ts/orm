@@ -1,3 +1,5 @@
+import { SQLDialect } from 'db0'
+
 import type { AnySchema } from '@/types/schema'
 
 /** SQL type string produced by dialect type inference. */
@@ -313,7 +315,7 @@ export type SqlAst =
  * V1 ships Postgres only; introspect may be a stub until migrate tickets.
  */
 export interface Dialect {
-  readonly id: string
+  readonly id: SQLDialect
 
   inferColumnType(schema: AnySchema): SqlDataType
 
