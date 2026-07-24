@@ -62,6 +62,19 @@ export type MigrationStep =
       dataType: string
     }
   | {
+      kind: 'add_foreign_key'
+      schema?: string
+      table: string
+      column: string
+      references: {
+        table: string
+        column: string
+        schema?: string
+        onDelete?: string
+        onUpdate?: string
+      }
+    }
+  | {
       kind: 'set_not_null'
       schema?: string
       table: string
@@ -229,6 +242,7 @@ export function planMigration(
   allowed: ReadonlySet<MigrationAllow> = new Set(),
 ): MigrationPlan {
   const steps: MigrationStep[] = []
+  const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
   const existing = catalogTableMap(catalog)
   const ensuredSchemas = schemasPresentInCatalog(catalog)
   const registeredKeys = new Set<string>()
@@ -268,6 +282,17 @@ export function planMigration(
           unique: index.unique ?? false,
         })
       }
+
+      for (const column of createAst.columns) {
+        if (!column.references) continue
+        deferredForeignKeys.push({
+          kind: 'add_foreign_key',
+          ...schemaField(info.schema),
+          table: info.name,
+          column: column.name,
+          references: { ...column.references },
+        })
+      }
       continue
     }
 
@@ -279,6 +304,15 @@ export function planMigration(
     for (const desired of createAst.columns) {
       const current = liveColumns.get(desired.name)
       if (!current) {
+        if (desired.references) {
+          deferredForeignKeys.push({
+            kind: 'add_foreign_key',
+            ...schemaField(info.schema),
+            table: info.name,
+            column: desired.name,
+            references: { ...desired.references },
+          })
+        }
         steps.push({
           kind: 'add_column',
           ...schemaField(info.schema),
@@ -292,23 +326,6 @@ export function planMigration(
             : {}),
           ...(desired.generated ? { generated: desired.generated } : {}),
           ...(desired.autoIncrement ? { autoIncrement: true } : {}),
-          ...(desired.references
-            ? {
-                references: {
-                  table: desired.references.table,
-                  column: desired.references.column,
-                  ...(desired.references.schema !== undefined
-                    ? { schema: desired.references.schema }
-                    : {}),
-                  ...(desired.references.onDelete
-                    ? { onDelete: desired.references.onDelete }
-                    : {}),
-                  ...(desired.references.onUpdate
-                    ? { onUpdate: desired.references.onUpdate }
-                    : {}),
-                },
-              }
-            : {}),
         })
         continue
       }
@@ -384,6 +401,8 @@ export function planMigration(
       }
     }
   }
+
+  steps.push(...deferredForeignKeys)
 
   // Orphan tables in owned schemas only — never drop tables in schemas no
   // registered handle uses (shared DBs may hold unrelated apps/tools).
@@ -477,7 +496,11 @@ function stepToAst(
           message: `cannot create table "${key}": handle not registered`,
         })
       }
-      return buildCreateTableAst(handle, dialect)
+      const ast = buildCreateTableAst(handle, dialect)
+      return {
+        ...ast,
+        columns: ast.columns.map((column) => ({ ...column, references: undefined })),
+      }
     }
     case 'add_column':
       return {
@@ -502,6 +525,14 @@ function stepToAst(
         table: step.table,
         column: step.column,
         dataType: step.dataType,
+      }
+    case 'add_foreign_key':
+      return {
+        kind: 'add_foreign_key',
+        ...schemaField(step.schema),
+        table: step.table,
+        column: step.column,
+        references: step.references,
       }
     case 'set_not_null':
       return {
