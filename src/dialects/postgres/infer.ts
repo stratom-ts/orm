@@ -1,6 +1,11 @@
 import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 
-import { getBaseSchema, getNumberConstraints, getStringConstraints } from '@/schemas'
+import {
+  getBaseSchema,
+  getNumberConstraints,
+  getStringConstraints,
+  unwrapDeep,
+} from '@/schemas'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
@@ -25,28 +30,6 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
   'strict_tuple',
   'tuple_with_rest',
 ])
-
-/**
- * Unwraps optional/nullable/nullish wrappers while preserving the pipe.
- *
- * @param schema - Schema that may be wrapped.
- *
- * @returns Inner schema with pipe intact for constraint extraction
- */
-function unwrapWrappers(schema: AnySchema): AnySchema {
-  if (
-    schema.type === 'optional' ||
-    schema.type === 'nullable' ||
-    schema.type === 'nullish' ||
-    schema.type === 'non_optional' ||
-    schema.type === 'non_nullable' ||
-    schema.type === 'non_nullish'
-  ) {
-    const wrapped = (schema as unknown as { wrapped: AnySchema }).wrapped
-    return unwrapWrappers(wrapped)
-  }
-  return schema
-}
 
 /**
  * Maps string length constraints to a PostgreSQL string type.
@@ -107,16 +90,16 @@ function inferPostgresLiteralType(literal: Literal) {
  * @throws SchemaError when the schema type cannot be inferred
  *
  * @example```ts
- * inferPostgresColumnType(string())                    // 'text'
+ * inferPostgresColumnType(string()) // 'text'
  * inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
  * inferPostgresColumnType(optional(pipe(string(), maxLength(50)))) // 'varchar(50)'
- * inferPostgresColumnType(number())                    // 'double precision'
- * inferPostgresColumnType(integer())                   // 'integer'
+ * inferPostgresColumnType(number()) // 'double precision'
+ * inferPostgresColumnType(integer()) // 'integer'
  * ```
  */
 export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
   const baseSchema = getBaseSchema(schema)
-  const unwrapped = unwrapWrappers(schema)
+  const unwrapped = unwrapDeep(schema)
   switch (baseSchema.type) {
     case 'string': {
       const constraints = getStringConstraints(unwrapped)
