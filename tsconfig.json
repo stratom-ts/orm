@@ -8,20 +8,16 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
+    "emitDeclarationOnly": true,
+    "declarationDir": "./dist",
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "declaration": true,
-    "declarationDir": "./dist",
-    "outDir": "./dist",
+    "baseUrl": ".",
     "paths": {
-
-      "@helpers/*": ["./src/helpers/*"],
-      "@schemas/*": ["./src/schemas/*"],
-      "@typings/*": ["./src/types/*"],
-      "@utils/*": ["./src/utils/*"]
+      "@/*": ["src/*"]
     }
   },
   "include": ["src", "tests"]

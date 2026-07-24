@@ -2,8 +2,8 @@ import type { ColumnMetadata as DbColumnMetadata } from 'kysely'
 import { boolean, object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { diffTableSchema } from '@helpers/diff'
-import { column, table } from '@schemas/index'
+import { diffTableSchema } from '@/helpers'
+import { column, table } from '@/schemas'
 
 const validSchema = pipe(
   object({

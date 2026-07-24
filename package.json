@@ -1,34 +1,17 @@
 {
   "name": "schema-orm",
   "version": "0.1.0",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "main": "./dist/schema-orm.umd.cjs",
   "module": "./dist/schema-orm.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "files": [
-        "dist",
-        "src"
-      ],
       "types": "./dist/index.d.ts",
       "import": "./dist/schema-orm.js"
-    },
-    "./helpers": {
-      "types": "./src/helpers/index.ts",
-      "import": "./src/helpers/index.ts"
-    },
-    "./schemas": {
-      "types": "./src/schemas/index.ts",
-      "import": "./src/schemas/index.ts"
-    },
-    "./types": {
-      "types": "./src/types/constraints.ts",
-      "import": "./src/types/constraints.ts"
-    },
-    "./utils": {
-      "types": "./src/utils/isNumber.ts",
-      "import": "./src/utils/isNumber.ts"
     }
   },
   "scripts": {

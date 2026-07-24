@@ -9,12 +9,7 @@ export default defineConfig({
     environment: 'node',
   },
   resolve: {
-    alias: [
-      { find: /^@helpers\/(.*)/, replacement: resolve(__dirname, 'src/helpers/$1') },
-      { find: /^@schemas\/(.*)/, replacement: resolve(__dirname, 'src/schemas/$1') },
-      { find: /^@typings\/(.*)/, replacement: resolve(__dirname, 'src/types/$1') },
-      { find: /^@utils\/(.*)/, replacement: resolve(__dirname, 'src/utils/$1') },
-    ],
+    alias: [{ find: /^@\/(.*)/, replacement: resolve(__dirname, 'src/$1') }],
   },
   build: {
     lib: {

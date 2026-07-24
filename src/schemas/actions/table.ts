@@ -28,6 +28,8 @@ export function isTableMetadata(
 export function getTableMetadata(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
 ): TableMetadata | undefined {
-  const schemaMetadata = getMetadata(schema) as Record<string, unknown> | undefined
+  const schemaMetadata = getMetadata(schema) as
+    | Record<string, unknown>
+    | undefined
   return isTableMetadata(schemaMetadata) ? schemaMetadata : undefined
 }

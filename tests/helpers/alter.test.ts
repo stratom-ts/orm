@@ -1,23 +1,23 @@
 import type { ColumnMetadata } from 'kysely'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { alterTableSafe } from '@helpers/alter'
 import {
   addColumn,
+  alterTableSafe,
   checkColumnHasData,
   checkColumnHasNulls,
-} from '@helpers/column'
-import { diffTableSchema } from '@helpers/diff'
-import type { TableSchema } from '@helpers/table'
-import { MigrationError } from '@utils/error'
+  diffTableSchema,
+} from '@/helpers'
+import type { TableSchema } from '@/helpers'
+import { MigrationError } from '@/utils'
 
-vi.mock('@helpers/column', () => ({
+vi.mock('@/helpers/column', () => ({
   addColumn: vi.fn().mockResolvedValue(undefined),
   checkColumnHasData: vi.fn().mockResolvedValue(false),
   checkColumnHasNulls: vi.fn().mockResolvedValue(false),
 }))
 
-vi.mock('@helpers/diff', () => ({
+vi.mock('@/helpers/diff', () => ({
   diffTableSchema: vi.fn(),
 }))
 

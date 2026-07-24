@@ -1,5 +1,5 @@
 import type { BaseIssue, BaseSchema } from 'valibot'
-import type { StringConstraints } from '@typings/constraints'
+import type { StringConstraints } from '@/types/constraints'
 
 /**
  * Extracts string constraints (minLength, maxLength) from a schema.

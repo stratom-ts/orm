@@ -1,8 +1,7 @@
 import type { Kysely, TableMetadata } from 'kysely'
-import { createIndexes, createTableFromSchema } from '@helpers/index'
-import { alterTableSafe } from '@helpers/alter'
-import type { TableSchema } from '@helpers/table'
-import { getTableMetadata } from '@schemas/index'
+import { alterTableSafe, createIndexes, createTableFromSchema } from '@/helpers'
+import type { TableSchema } from '@/helpers'
+import { getTableMetadata } from '@/schemas'
 
 async function migrateTable<T>(
   db: Kysely<T>,

@@ -6,14 +6,14 @@ import type {
   SchemaWithPipe,
   TitleAction,
 } from 'valibot'
-import { getColumnInfo } from '@helpers/column'
-import { MigrationError } from '@utils/error'
-import type { TableMetadata as TableMetadataType } from '@schemas/actions/types'
+import { getColumnInfo } from './column'
+import { MigrationError } from '@/utils'
 import {
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
-} from '@schemas/index'
+} from '@/schemas'
+import type { TableMetadata as TableMetadataType } from '@/schemas'
 
 export type TableSchema = SchemaWithPipe<
   readonly [
@@ -53,10 +53,7 @@ export type TableSchema = SchemaWithPipe<
  * // Returns compiled CREATE TABLE query
  * ```
  */
-export function createTableFromSchema<T>(
-  db: Kysely<T>,
-  schema: TableSchema,
-) {
+export function createTableFromSchema<T>(db: Kysely<T>, schema: TableSchema) {
   const metadata = getTableMetadata(schema)
   if (!metadata) {
     throw new MigrationError({

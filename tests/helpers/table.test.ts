@@ -2,10 +2,10 @@ import type { Kysely } from 'kysely'
 import { boolean, number, object, pipe, string, title, uuid } from 'valibot'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createTableFromSchema } from '@helpers/table'
-import { column, table } from '@schemas/index'
+import { createTableFromSchema } from '@/helpers'
+import { column, table } from '@/schemas'
 
-vi.mock('@helpers/column', () => ({
+vi.mock('@/helpers/column', () => ({
   getColumnInfo: vi.fn().mockReturnValue({
     dataType: 'text',
     nullable: false,
