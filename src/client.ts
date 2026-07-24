@@ -26,7 +26,7 @@ import {
 } from '@/query'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
-import { QueryError, SchemaError } from '@/utils/error'
+import { MigrationError, QueryError, SchemaError } from '@/utils/error'
 import { tableKey } from '@/utils/tableKey'
 
 export type { ValueMapConfig } from '@/query'
@@ -299,7 +299,18 @@ export function createDb<
 
     const migrate = (): MigrateBuilder => {
       ensureOpen()
-      return createMigrateBuilder({ schemas, dialect, executor })
+      return createMigrateBuilder({
+        schemas,
+        dialect,
+        executor,
+        assertCanExecute() {
+          if (txDepth > 0) {
+            throw new MigrationError({
+              message: 'Cannot execute migrations inside a transaction',
+            })
+          }
+        },
+      })
     }
 
     const transaction = async <T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T> => {
