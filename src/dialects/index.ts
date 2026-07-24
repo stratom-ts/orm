@@ -1,3 +1,6 @@
+export { PostgresDialect } from 'kysely'
+export type { Dialect } from 'kysely'
+
 export {
   inferPostgresColumnType as inferPostgresType,
   postgresAdapter,
