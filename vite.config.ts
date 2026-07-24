@@ -14,8 +14,8 @@ export default defineConfig({
   build: {
     lib: {
       entry: ['src/index.ts'],
-      name: 'SchemaORM',
-      fileName: 'schema-orm',
+      name: 'Stratom',
+      fileName: 'stratom',
       formats: ['es', 'umd'],
     },
     rollupOptions: {

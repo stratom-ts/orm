@@ -26,7 +26,7 @@ const IDENTITY_BASE_TYPES = new Set([
 ])
 
 /** Runtime brand for table handles returned by `defineTable`. */
-export const TABLE_HANDLE = Symbol.for('schema-orm.TableHandle')
+export const TABLE_HANDLE = Symbol.for('stratom.TableHandle')
 
 /**
  * Stable typed reference to a table column (for where/select/join/orderBy).

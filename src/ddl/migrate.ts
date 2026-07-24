@@ -17,7 +17,7 @@ import { buildCreateTableAst } from './createTable'
 export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
 
 /**
- * Stable Postgres session advisory lock keys for schema-orm migrate execute.
+ * Stable Postgres session advisory lock keys for Stratom migrate execute.
  * Two-int form so values stay within safe 32-bit integers in JS.
  */
 export const MIGRATE_ADVISORY_LOCK_CLASS = 0x7363_686d // 'schm'

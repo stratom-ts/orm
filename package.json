@@ -1,17 +1,17 @@
 {
-  "name": "schema-orm",
+  "name": "stratom",
   "version": "0.1.0",
   "files": [
     "dist"
   ],
   "type": "module",
-  "main": "./dist/schema-orm.umd.cjs",
-  "module": "./dist/schema-orm.js",
+  "main": "./dist/stratom.umd.cjs",
+  "module": "./dist/stratom.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/schema-orm.js"
+      "import": "./dist/stratom.js"
     }
   },
   "scripts": {

@@ -1,6 +1,6 @@
-# schema-orm
+# stratom
 
-A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desired-state migrations, and a typed query builder. Transport is [db0](https://db0.unjs.io/); app code uses schema-orm only.
+A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desired-state migrations, and a typed query builder. Transport is [db0](https://db0.unjs.io/); app code uses stratom only.
 
 ## Features
 
@@ -14,14 +14,14 @@ A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desi
 ## Installation
 
 ```bash
-pnpm add schema-orm valibot db0
+pnpm add stratom valibot db0
 # plus the driver required by your connector (e.g. pg for PostgreSQL)
 ```
 
 ## Quick start
 
 ```typescript
-import { createDb, defineTable, column } from 'schema-orm'
+import { createDb, defineTable, column } from 'stratom'
 import { postgresql } from 'db0/connectors/postgresql'
 import { boolean, number, pipe, string } from 'valibot'
 
@@ -102,12 +102,12 @@ defineTable(
 
 ### Inferring column types from the schema
 
-`column({ type })` is optional. When it is omitted, schema-orm infers the SQL
+`column({ type })` is optional. When it is omitted, stratom infers the SQL
 column type directly from the Valibot schema — including length and range
 refinements — so a table can be described purely in Valibot:
 
 ```typescript
-import { defineTable } from 'schema-orm'
+import { defineTable } from 'stratom'
 import {
   boolean,
   date,
@@ -174,7 +174,7 @@ is another table handle (or its raw schema) and the referenced column's type is
 inferred, so you don't repeat it:
 
 ```typescript
-import { reference } from 'schema-orm'
+import { reference } from 'stratom'
 
 const Post = defineTable(
   'posts',
@@ -214,7 +214,7 @@ const one = await db
 ### Joins and aggregates
 
 ```typescript
-import { countAll, eq, gt, sum } from 'schema-orm'
+import { countAll, eq, gt, sum } from 'stratom'
 
 const withAuthors = await db
   .from(Post)
