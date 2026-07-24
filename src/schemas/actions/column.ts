@@ -7,8 +7,15 @@ interface WrapperSchema {
 }
 
 /**
- * Unwraps Valibot wrapper schemas (optional, nullable, nullish) to find
- * the inner schema. Unlike getBaseSchema, this preserves pipe structures.
+ * Unwraps optional/nullable/nullish wrappers while preserving pipes.
+ *
+ * @param schema - Schema that may be wrapped
+ * @returns Inner schema with pipe structure intact
+ *
+ * @example
+ * ```ts
+ * const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'text' }))))
+ * ```
  */
 function unwrapWrapper(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
@@ -27,9 +34,15 @@ function unwrapWrapper(
 }
 
 /**
- * A metadata action for column definitions.
- * @param config - Column metadata configuration
- * @returns A Valibot MetadataAction that can be used in a pipe
+ * Attaches column metadata to a Valibot schema for migrations and typing.
+ *
+ * @param config - Column options (type, default, unique, generated, etc.)
+ * @returns Metadata action for use in a `pipe`
+ *
+ * @example
+ * ```ts
+ * const email = pipe(string(), column({ type: 'varchar(255)', unique: true }))
+ * ```
  */
 export function column<
   TInput = unknown,
@@ -41,7 +54,15 @@ export function column<
 }
 
 /**
- * Type guard to check if metadata is column metadata.
+ * Type guard for column metadata (`kind: 'column'`).
+ *
+ * @param metadata - Value to check
+ * @returns `true` if `metadata` is `ColumnMetadata`
+ *
+ * @example
+ * ```ts
+ * if (isColumnMetadata(meta)) console.log(meta.type)
+ * ```
  */
 export function isColumnMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -50,10 +71,16 @@ export function isColumnMetadata(
 }
 
 /**
- * Extracts column metadata from a schema if it exists.
+ * Reads column metadata from a schema, unwrapping nullability wrappers first.
  *
- * Unwraps Valibot wrapper schemas (optional, nullable, nullish) to find
- * column metadata inside them.
+ * @param schema - Column schema that may include `column()` metadata
+ * @returns Column metadata, or `undefined` if none
+ *
+ * @example
+ * ```ts
+ * const meta = getColumnMetadata(pipe(string(), column({ type: 'text' })))
+ * // { kind: 'column', type: 'text' }
+ * ```
  */
 export function getColumnMetadata(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,

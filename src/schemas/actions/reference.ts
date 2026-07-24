@@ -19,8 +19,15 @@ interface WrapperSchema {
 }
 
 /**
- * Unwraps Valibot wrapper schemas (optional, nullable, nullish) to find
- * the inner schema. Unlike getBaseSchema, this preserves pipe structures.
+ * Unwraps optional/nullable/nullish wrappers while preserving pipes.
+ *
+ * @param schema - Schema that may be wrapped
+ * @returns Inner schema with pipe structure intact
+ *
+ * @example
+ * ```ts
+ * const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'uuid' }))))
+ * ```
  */
 function unwrapWrapper(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
@@ -39,10 +46,23 @@ function unwrapWrapper(
 }
 
 /**
- * A metadata action for references definitions.
- * @param schema - The schema to reference
- * @param key - The key to reference
- * @returns A Valibot MetadataAction that can be used in a pipe
+ * Builds a foreign-key column schema from a referenced table schema and key.
+ *
+ * @param schema - Referenced table schema
+ * @param key - Column on the referenced table
+ * @returns Piped schema for the FK column with reference metadata
+ *
+ * @example
+ * ```ts
+ * const PostSchema = pipe(
+ *   object({
+ *     id: pipe(string(), column({ type: 'uuid' })),
+ *     authorId: references(UserSchema, 'id'),
+ *   }),
+ *   title('posts'),
+ *   table({ name: 'posts', primaryKey: 'id' }),
+ * )
+ * ```
  */
 export function references<
   T extends SchemaWithPipe<
@@ -93,7 +113,15 @@ export function references<
 }
 
 /**
- * Type guard to check if metadata is reference metadata.
+ * Type guard for reference metadata (`kind: 'reference'`).
+ *
+ * @param metadata - Value to check
+ * @returns `true` if `metadata` is `ReferenceMetadata`
+ *
+ * @example
+ * ```ts
+ * if (isReferenceMetadata(meta)) console.log(meta.table, meta.key)
+ * ```
  */
 export function isReferenceMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -102,7 +130,16 @@ export function isReferenceMetadata(
 }
 
 /**
- * Extracts reference metadata from a schema if it exists.
+ * Reads reference metadata from a schema, unwrapping nullability wrappers first.
+ *
+ * @param schema - Column schema that may include `references()` metadata
+ * @returns Reference metadata, or `undefined` if none
+ *
+ * @example
+ * ```ts
+ * const meta = getReferenceMetadata(PostSchema.entries.authorId)
+ * // { kind: 'reference', table: 'users', key: 'id', ... }
+ * ```
  */
 export function getReferenceMetadata(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,

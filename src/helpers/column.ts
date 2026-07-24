@@ -13,27 +13,19 @@ import {
 import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
 
 /**
- * Extracts column information from a schema definition.
+ * Resolves column config from schema, metadata, and dialect type inference.
  *
- * Combines metadata from the schema (column metadata, reference metadata)
- * with inferred type information to produce complete column configuration.
- *
- * @param columnSchema - The Valibot schema for the column
- * @param columnMetadata - Optional metadata from the column definition
- * @param referenceMetadata - Optional metadata from a reference definition
- * @returns Object containing column type, nullability, default value, uniqueness, and auto-increment settings
+ * @param columnSchema - Valibot schema for the column
+ * @param columnMetadata - Column metadata, if present
+ * @param referenceMetadata - Reference metadata, if present
+ * @param adapter - Dialect adapter for type inference
+ * @returns Resolved data type, nullability, default, unique, and autoIncrement
  *
  * @example
- * ```typescript
- * import { string, pipe } from 'valibot'
- * import { column } from 'schema-orm'
- *
- * const schema = pipe(
- *   string(),
- *   column({ type: 'varchar', unique: true }),
- * )
- *
- * const info = getColumnInfo(schema, schema.metadata?.column, undefined)
+ * ```ts
+ * const meta = getColumnMetadata(emailSchema)
+ * const info = getColumnInfo(emailSchema, meta, undefined)
+ * // { dataType: 'varchar(255)', nullable: false, ... }
  * ```
  */
 export function getColumnInfo(
@@ -57,20 +49,17 @@ export function getColumnInfo(
 }
 
 /**
- * Checks if a column has any non-null data in a table.
+ * Returns whether a column has any non-null values.
  *
- * Used to verify if a column can be safely dropped - if it has data,
- * the migration should fail to prevent data loss.
+ * @param trx - Kysely instance or transaction
+ * @param table - Table name
+ * @param column - Column name
+ * @returns `true` if any non-null values exist
  *
- * @param trx - The database transaction instance
- * @param table - The name of the table
- * @param column - The name of the column to check
- * @returns True if the column has any non-null data, false otherwise
  * @example
  * ```ts
- * const hasData = await checkColumnHasData(db, 'users', 'email')
- * if (hasData) {
- *   console.log('Cannot drop column - it contains data')
+ * if (await checkColumnHasData(db, 'users', 'email')) {
+ *   // unsafe to drop
  * }
  * ```
  */
@@ -88,20 +77,17 @@ export async function checkColumnHasData(
 }
 
 /**
- * Checks if a column has any null values in a table.
+ * Returns whether a column has any NULL values.
  *
- * Used to verify if a column can be safely set as NOT NULL - if it has
- * null values, the migration should fail.
+ * @param trx - Kysely instance or transaction
+ * @param table - Table name
+ * @param column - Column name
+ * @returns `true` if any NULL values exist
  *
- * @param trx - The database transaction instance
- * @param table - The name of the table
- * @param column - The name of the column to check
- * @returns True if the column has any null values, false otherwise
  * @example
  * ```ts
- * const hasNulls = await checkColumnHasNulls(db, 'users', 'email')
- * if (hasNulls) {
- *   console.log('Cannot set NOT NULL - column has null values')
+ * if (await checkColumnHasNulls(db, 'users', 'email')) {
+ *   // unsafe to set NOT NULL
  * }
  * ```
  */
@@ -119,22 +105,18 @@ export async function checkColumnHasNulls(
 }
 
 /**
- * Adds a new column to an existing database table.
+ * Adds a column to an existing table using its schema definition.
  *
- * Extracts column metadata from the schema and applies the appropriate
- * constraints including nullability, uniqueness, default values,
- * and auto-increment settings.
+ * @param trx - Kysely instance or transaction
+ * @param tableName - Target table
+ * @param schema - Table schema containing the column
+ * @param columnName - Column to add
+ * @param adapter - Dialect adapter for type inference
+ * @throws MigrationError - When the column is missing from the schema
  *
- * @param trx - The database transaction instance
- * @param tableName - The name of the table to add the column to
- * @param schema - The Valibot schema containing the column definition
- * @param columnName - The name of the column to add
- * @returns Promise that resolves when the column is added
- * @throws MigrationError if the column is not found in the schema
  * @example
  * ```ts
  * await addColumn(db, 'users', UserSchema, 'phone')
- * // Adds 'phone' column to 'users' table with constraints from schema
  * ```
  */
 export async function addColumn(
