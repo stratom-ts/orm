@@ -72,7 +72,7 @@ export type ColumnMetadata = {
 }
 
 /**
- * Foreign-key metadata attached via `references()`.
+ * Foreign-key metadata attached via `reference()`.
  */
 export type ReferenceMetadata = {
   /** Discriminant for reference metadata */

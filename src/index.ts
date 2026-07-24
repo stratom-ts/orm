@@ -14,9 +14,11 @@ export type {
   DeleteBuilder,
   ExpressionBuilder,
   InsertBuilder,
+  InsertValuesBuilder,
   QueryBuilder,
   SelectBuilder,
   UpdateBuilder,
+  UpdateSetBuilder,
   WriteResult,
 } from '@/query'
 export {

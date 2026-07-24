@@ -1,3 +1,4 @@
+import type { ColumnRef, TableHandle } from '@/defineTable'
 import type {
   ComparisonOp,
   DeleteAst,
@@ -13,7 +14,6 @@ import type {
   SqlExprAst,
   UpdateAst,
 } from '@/dialects'
-import type { ColumnRef, TableHandle } from '@/defineTable'
 import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
 import { QueryError } from '@/utils/error'
 import type { Executor } from './executor'
@@ -27,7 +27,6 @@ import {
   toQualified,
 } from './expressions'
 import type { ValueMapper } from './mapping'
-import { validateInsertRow, validateUpdatePatch } from './validate'
 
 /** Result when a write runs without `returning`. */
 export type WriteResult = {
@@ -42,6 +41,10 @@ type WhereInput =
   | [column: ColumnRef | string, op: ComparisonOp, value: unknown]
 
 type JoinOnInput = PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)
+
+/** Extract the JS type from a ColumnRef. Falls back to `unknown` for bare strings. */
+type InferColumnValue<T> =
+  T extends ColumnRef<string, string, infer TType> ? TType : unknown
 
 function resolveOn(on: JoinOnInput): PredicateAst {
   return typeof on === 'function' ? on(eb) : on
@@ -309,7 +312,7 @@ export type InsertBuilder<
   >
 }
 
-function createInsertBuilder<THandle extends TableHandle>(options: {
+export function createInsertBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
   executor: Executor
@@ -409,17 +412,31 @@ function createInsertBuilder<THandle extends TableHandle>(options: {
 }
 
 // ---------------------------------------------------------------------------
+// Insert-values builder (db.insert(table).values(row))
+// ---------------------------------------------------------------------------
+
+export type InsertValuesBuilder<THandle extends TableHandle = TableHandle> = {
+  values(
+    row: InferInsert<THandle> | InferInsert<THandle>[],
+  ): InsertBuilder<THandle, InferSelect<THandle>>
+}
+
+// ---------------------------------------------------------------------------
 // Update builder
 // ---------------------------------------------------------------------------
+
+export type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
+  set(patch: InferUpdate<THandle>): UpdateBuilder<THandle, InferSelect<THandle>>
+}
 
 export type UpdateBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = WriteResult,
 > = {
-  where(
-    column: ColumnRef | string,
+  where<TCol extends ColumnRef | string>(
+    column: TCol,
     op: ComparisonOp,
-    value: unknown,
+    value: InferColumnValue<TCol>,
   ): UpdateBuilder<THandle, TResult>
   where(
     predicate: Record<string, unknown> | PredicateAst,
@@ -440,7 +457,7 @@ export type UpdateBuilder<
   >
 }
 
-function createUpdateBuilder<THandle extends TableHandle>(options: {
+export function createUpdateBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
   executor: Executor
@@ -582,10 +599,10 @@ export type DeleteBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = WriteResult,
 > = {
-  where(
-    column: ColumnRef | string,
+  where<TCol extends ColumnRef | string>(
+    column: TCol,
     op: ComparisonOp,
-    value: unknown,
+    value: InferColumnValue<TCol>,
   ): DeleteBuilder<THandle, TResult>
   where(
     predicate: Record<string, unknown> | PredicateAst,
@@ -606,7 +623,7 @@ export type DeleteBuilder<
   >
 }
 
-function createDeleteBuilder<THandle extends TableHandle>(options: {
+export function createDeleteBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
   executor: Executor
@@ -746,10 +763,10 @@ export type SelectBuilder<
       | SelectItemAst
     )[],
   ): SelectBuilder<THandle, Record<string, unknown>>
-  where(
-    column: ColumnRef | string,
+  where<TCol extends ColumnRef | string>(
+    column: TCol,
     op: ComparisonOp,
-    value: unknown,
+    value: InferColumnValue<TCol>,
   ): SelectBuilder<THandle, TResult>
   where(
     predicate:
@@ -991,10 +1008,10 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     table: TableHandle,
     on: JoinOnInput,
   ): SelectBuilder<THandle, InferSelect<THandle>>
-  where(
-    column: ColumnRef | string,
+  where<TCol extends ColumnRef | string>(
+    column: TCol,
     op: ComparisonOp,
-    value: unknown,
+    value: InferColumnValue<TCol>,
   ): SelectBuilder<THandle, InferSelect<THandle>>
   where(
     predicate:
@@ -1014,11 +1031,6 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   having(
     predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, InferSelect<THandle>>
-  insert(
-    row: InferInsert<THandle> | InferInsert<THandle>[],
-  ): InsertBuilder<THandle, WriteResult>
-  update(patch: InferUpdate<THandle>): UpdateBuilder<THandle, WriteResult>
-  delete(): DeleteBuilder<THandle, WriteResult>
 }
 
 function emptySelectState(): SelectState {
@@ -1104,42 +1116,6 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
       input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
     ) {
       return rootSelect().having(input as never) as never
-    },
-    insert(rowOrRows) {
-      const list = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]
-      if (list.length === 0) {
-        throw new QueryError({
-          message: `insert into "${handle.name}" requires at least one row`,
-        })
-      }
-      const validated = list.map((row) => validateInsertRow(handle, row))
-      return createInsertBuilder({
-        handle,
-        dialect,
-        executor,
-        mapper,
-        rows: validated,
-      }) as InsertBuilder<THandle, WriteResult>
-    },
-    update(patch) {
-      const validated = validateUpdatePatch(handle, patch)
-      return createUpdateBuilder({
-        handle,
-        dialect,
-        executor,
-        mapper,
-        patch: validated,
-        allowAll: false,
-      }) as UpdateBuilder<THandle, WriteResult>
-    },
-    delete() {
-      return createDeleteBuilder({
-        handle,
-        dialect,
-        executor,
-        mapper,
-        allowAll: false,
-      }) as DeleteBuilder<THandle, WriteResult>
     },
   }
 }

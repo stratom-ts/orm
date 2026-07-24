@@ -10,13 +10,18 @@ export type {
   SqlExprAst,
 } from './ast'
 export {
+  createDeleteBuilder,
+  createInsertBuilder,
   createSelectAllBuilder,
   createTableBuilder,
+  createUpdateBuilder,
   type DeleteBuilder,
   type InsertBuilder,
+  type InsertValuesBuilder,
   type QueryBuilder,
   type SelectBuilder,
   type UpdateBuilder,
+  type UpdateSetBuilder,
   type WriteResult,
 } from './builder'
 export {

@@ -203,16 +203,16 @@ describe('joins integration (Postgres)', () => {
         `)
 
         const users = await db
-          .from(Users)
-          .insert([{ email: 'alice@test.com' }, { email: 'bob@test.com' }])
+          .insert(Users)
+          .values([{ email: 'alice@test.com' }, { email: 'bob@test.com' }])
           .returningAll()
           .execute()
         const alice = users[0]!
         const bob = users[1]!
 
         await db
-          .from(Posts)
-          .insert([
+          .insert(Posts)
+          .values([
             { title: 'A1', userId: alice.id, score: 5 },
             { title: 'A2', userId: alice.id, score: 15 },
             { title: 'B1', userId: bob.id, score: 20 },

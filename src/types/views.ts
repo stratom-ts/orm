@@ -101,7 +101,7 @@ type InsertColumnValue<S> =
 
 /**
  * Select view: full row as returned from the database.
- * Nested object columns without `references` remain plain object (JSON-shaped).
+ * Nested object columns without `reference` remain plain object (JSON-shaped).
  */
 export type InferSelectFromSchema<S extends TableSchema> = {
   [K in keyof S['entries']]-?: SelectColumnValue<S['entries'][K]>

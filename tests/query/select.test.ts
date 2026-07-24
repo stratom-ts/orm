@@ -231,8 +231,8 @@ describe('select integration (Postgres)', () => {
         `)
 
         await db
-          .from(Users)
-          .insert([
+          .insert(Users)
+          .values([
             { email: 'a@test.com', displayName: 'A', score: 5 },
             { email: 'b@test.com', displayName: 'B', score: 15, active: true },
             { email: 'c@test.com', displayName: 'C', score: 25, active: false },

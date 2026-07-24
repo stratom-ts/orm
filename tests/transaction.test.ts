@@ -106,7 +106,7 @@ describe('db.transaction', () => {
     const result = await db.transaction(async (trx) => {
       expect(typeof trx.from).toBe('function')
       expect(typeof trx.transaction).toBe('function')
-      await trx.from(Users).insert({ id: '1', email: 'a@b.com' }).execute()
+      await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
       return 42
     })
 
@@ -124,7 +124,7 @@ describe('db.transaction', () => {
 
     await expect(
       db.transaction(async (trx) => {
-        await trx.from(Users).insert({ id: '1', email: 'a@b.com' }).execute()
+        await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
         throw new Error('boom')
       }),
     ).rejects.toThrow('boom')
@@ -141,18 +141,18 @@ describe('db.transaction', () => {
     const db = createDb({ connector, schemas: [Users] })
 
     await db.transaction(async (trx) => {
-      await trx.from(Users).insert({ id: '1', email: 'a@b.com' }).execute()
+      await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
       await expect(
         trx.transaction(async (inner) => {
           await inner
-            .from(Users)
-            .insert({ id: '2', email: 'b@b.com' })
+            .insert(Users)
+            .values({ id: '2', email: 'b@b.com' })
             .execute()
           throw new Error('inner fail')
         }),
       ).rejects.toThrow('inner fail')
       // outer continues after inner rollback to savepoint
-      await trx.from(Users).insert({ id: '3', email: 'c@b.com' }).execute()
+      await trx.insert(Users).values({ id: '3', email: 'c@b.com' }).execute()
     })
 
     const sql = connector.prepared.map((s) => s.toLowerCase())
@@ -170,7 +170,10 @@ describe('db.transaction', () => {
 
     await db.transaction(async (trx) => {
       await trx.transaction(async (inner) => {
-        await inner.from(Users).insert({ id: '1', email: 'a@b.com' }).execute()
+        await inner
+          .insert(Users)
+          .values({ id: '1', email: 'a@b.com' })
+          .execute()
       })
     })
 
@@ -193,8 +196,8 @@ describe('value mapping', () => {
     const meta = { a: 1 }
 
     await db
-      .from(Mapped)
-      .insert({
+      .insert(Mapped)
+      .values({
         id: '550e8400-e29b-41d4-a716-446655440000',
         createdAt: when,
         meta,
@@ -272,8 +275,8 @@ describe('value mapping', () => {
     const db = createDb({ connector, schemas: [Mapped] })
     const when = new Date('2024-01-02T00:00:00.000Z')
     const compiled = db
-      .from(Mapped)
-      .insert({
+      .insert(Mapped)
+      .values({
         id: 'u',
         createdAt: when,
         meta: { k: true },
@@ -316,12 +319,15 @@ describe('transaction + mapping integration', () => {
         await setup.exec('delete from "public"."tx_items"')
 
         await db.transaction(async (trx) => {
-          await trx.from(TxItems).insert({ id: 1, name: 'kept' }).execute()
+          await trx.insert(TxItems).values({ id: 1, name: 'kept' }).execute()
         })
 
         await expect(
           db.transaction(async (trx) => {
-            await trx.from(TxItems).insert({ id: 2, name: 'rolled' }).execute()
+            await trx
+              .insert(TxItems)
+              .values({ id: 2, name: 'rolled' })
+              .execute()
             throw new Error('abort')
           }),
         ).rejects.toThrow('abort')
@@ -336,12 +342,12 @@ describe('transaction + mapping integration', () => {
 
         // nested savepoint: inner fails, outer commits
         await db.transaction(async (trx) => {
-          await trx.from(TxItems).insert({ id: 3, name: 'outer' }).execute()
+          await trx.insert(TxItems).values({ id: 3, name: 'outer' }).execute()
           await expect(
             trx.transaction(async (inner) => {
               await inner
-                .from(TxItems)
-                .insert({ id: 4, name: 'inner' })
+                .insert(TxItems)
+                .values({ id: 4, name: 'inner' })
                 .execute()
               throw new Error('inner')
             }),
@@ -392,8 +398,8 @@ describe('transaction + mapping integration', () => {
         const when = new Date('2025-03-01T10:30:00.000Z')
         const id = '550e8400-e29b-41d4-a716-446655440000'
         await db
-          .from(RoundTrip)
-          .insert({ id, createdAt: when, meta: { ok: true } })
+          .insert(RoundTrip)
+          .values({ id, createdAt: when, meta: { ok: true } })
           .execute()
         const rows = await db.from(RoundTrip).execute()
         const row = rows.find((r) => r.id === id)

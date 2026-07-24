@@ -4,7 +4,7 @@ A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desi
 
 ## Features
 
-- **Schema-defined tables** — Valibot + `column` / `table` / `references`, wrapped with `defineTable`
+- **Schema-defined tables** — Valibot + `column` / `table` / `reference`, wrapped with `defineTable`
 - **db0 connector** — `createDb({ connector, schemas })` owns the connection lifecycle
 - **Desired-state migrations** — `db.migrate().dryRun()` / `.execute()` with safe defaults, allowlist, and advisory lock
 - **Typed CRUD** — `db.from(Table).select|insert|update|delete` with column refs
@@ -21,7 +21,7 @@ pnpm add schema-orm valibot db0
 ## Usage
 
 ```typescript
-import { createDb, defineTable, column, table, references } from 'schema-orm'
+import { createDb, defineTable, column, table, reference } from 'schema-orm'
 import { postgresql } from 'db0/connectors/postgresql'
 import { number, object, pipe, string, title } from 'valibot'
 
