@@ -129,8 +129,8 @@ const Event = defineTable(
     description: string(), // → text
     attendees: pipe(number(), integer(), minValue(0), maxValue(100000)), // → integer
     isPublic: boolean(), // → boolean
-    startsAt: date(), // → timestamp
-    endedAt: nullable(date()), // → timestamp, NULL allowed
+    startsAt: date(), // → timestamptz
+    endedAt: nullable(date()), // → timestamptz, NULL allowed
   },
   { primaryKey: 'id' },
 )
@@ -141,22 +141,31 @@ The row type is inferred too — `InferSelect<typeof Event>` gives
 
 Inference rules (PostgreSQL):
 
-| Valibot schema                                              | Inferred type            |
-| ----------------------------------------------------------- | ------------------------ |
-| `string()`                                                  | `text`                   |
-| `pipe(string(), maxLength(n))` (n ≤ 255)                    | `varchar(n)`             |
-| `pipe(string(), minLength(n), maxLength(n))` (equal, ≤ 255) | `char(n)`                |
-| `number()`                                                  | `real`                   |
-| `pipe(number(), integer())` bounded to int2/int4 range      | `smallint` / `integer`   |
-| `pipe(number(), integer())` (unbounded)                     | `bigint`                 |
-| `boolean()`                                                 | `boolean`                |
-| `date()`                                                    | `timestamp`              |
-| `enum(...)` / `picklist([...])`                             | `varchar(255)`           |
-| `nullable(x)` / `optional(x)`                               | column becomes NULL-able |
+| Valibot schema                                           | Inferred type                    |
+| -------------------------------------------------------- | -------------------------------- |
+| `string()`                                               | `text`                           |
+| `pipe(string(), maxLength(n))` (n ≤ 255)                 | `varchar(n)`                     |
+| `number()`                                               | `double precision`               |
+| `pipe(number(), integer())`                              | `integer`                        |
+| `pipe(number(), integer(), minValue, maxValue)` in int16 | `smallint`                       |
+| `pipe(number(), integer())` with a bound outside int32   | `bigint`                         |
+| `boolean()`                                              | `boolean`                        |
+| `bigint()`                                               | `bigint`                         |
+| `date()`                                                 | `timestamptz`                    |
+| `enum(...)` / `picklist([...])`                          | `text`                           |
+| `object(...)` / `array(...)` / `record(...)`             | `jsonb`                          |
+| `nullable(x)` / `optional(x)`                            | wrapped column becomes NULL-able |
+
+The defaults favour safe, unsurprising types: a JS `number` is a double, so
+`number()` maps to `double precision` (not `real`, which would lose precision),
+and integer widths only narrow/widen when an `integer()` constraint and bounds
+justify it. A schema type with no sensible mapping (e.g. a `union`) throws a
+`SchemaError` at build time rather than silently becoming `text` — add an
+explicit `column({ type })` for those.
 
 Reach for `column({ type })` when you need an exact SQL type the inference
-doesn't produce (e.g. `uuid`, `jsonb`, `timestamptz`, `numeric(10,2)`), an
-identity column (`generated`), a `unique` constraint, or a `default`.
+doesn't produce (e.g. `uuid`, `numeric(10,2)`, `char(n)`), an identity column
+(`generated`), a `unique` constraint, or a `default`.
 
 ## Relations
 

@@ -1,4 +1,5 @@
 import {
+  array,
   bigint,
   boolean,
   date,
@@ -11,130 +12,155 @@ import {
   minLength,
   minValue,
   number,
+  object,
   picklist,
   pipe,
+  record,
   string,
+  union,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { inferPostgresColumnType } from '@/dialects/postgres'
+import { SchemaError } from '@/utils/error'
 
 describe('postgres.ts', () => {
   describe('inferPostgresType - string schemas', () => {
     it('should return text for string schema without constraints', () => {
-      const schema = string()
-      expect(inferPostgresColumnType(schema)).toBe('text')
+      expect(inferPostgresColumnType(string())).toBe('text')
     })
 
     it('should return varchar with maxLength for string with maxLength <= 255', () => {
-      const schema = pipe(string(), maxLength(100))
-      expect(inferPostgresColumnType(schema)).toBe('varchar(100)')
+      expect(inferPostgresColumnType(pipe(string(), maxLength(100)))).toBe(
+        'varchar(100)',
+      )
     })
 
     it('should return text for string with maxLength > 255', () => {
-      const schema = pipe(string(), maxLength(500))
-      expect(inferPostgresColumnType(schema)).toBe('text')
+      expect(inferPostgresColumnType(pipe(string(), maxLength(500)))).toBe(
+        'text',
+      )
     })
 
-    it('should return char for fixed length string (minLength === maxLength)', () => {
-      const schema = pipe(string(), length(10))
-      expect(inferPostgresColumnType(schema)).toBe('char(10)')
+    it('should return varchar (not char) for fixed length string', () => {
+      expect(inferPostgresColumnType(pipe(string(), length(10)))).toBe(
+        'varchar(10)',
+      )
     })
 
     it('should return varchar for string with both minLength and maxLength within 255', () => {
-      const schema = pipe(string(), minLength(5), maxLength(10))
-      expect(inferPostgresColumnType(schema)).toBe('varchar(10)')
+      expect(
+        inferPostgresColumnType(pipe(string(), minLength(5), maxLength(10))),
+      ).toBe('varchar(10)')
     })
   })
 
   describe('inferPostgresType - number schemas', () => {
-    it('should return real for number without constraints', () => {
-      const schema = number()
-      expect(inferPostgresColumnType(schema)).toBe('real')
+    it('should return double precision for a plain number (JS numbers are doubles)', () => {
+      expect(inferPostgresColumnType(number())).toBe('double precision')
     })
 
-    it('should return smallint for numbers in smallint range', () => {
-      const schema = pipe(number(), minValue(0), maxValue(100))
-      const result = inferPostgresColumnType(schema)
-      expect(result).toBe('smallint')
+    it('should return double precision for a bounded but non-integer number', () => {
+      // No integer() → a float in the range is valid, so it must not narrow.
+      expect(
+        inferPostgresColumnType(pipe(number(), minValue(0), maxValue(100))),
+      ).toBe('double precision')
     })
 
-    it('should return integer for numbers in integer range', () => {
-      const schema = pipe(number(), minValue(-1000000), maxValue(1000000))
-      expect(inferPostgresColumnType(schema)).toBe('integer')
+    it('should default integer() to integer', () => {
+      expect(inferPostgresColumnType(pipe(number(), integer()))).toBe('integer')
     })
 
-    it('should return smallint for numbers in smallint range', () => {
-      const schema = pipe(number(), minValue(0), maxValue(32767))
-      expect(inferPostgresColumnType(schema)).toBe('smallint')
+    it('should keep integer for a single-sided bound within int32', () => {
+      expect(
+        inferPostgresColumnType(pipe(number(), integer(), maxValue(1000000))),
+      ).toBe('integer')
     })
 
-    it('should return bigint for integer numbers outside integer range', () => {
-      const schema = pipe(
-        number(),
-        integer(),
-        minValue(-10000000000),
-        maxValue(10000000000),
-      )
-      expect(inferPostgresColumnType(schema)).toBe('bigint')
+    it('should narrow to smallint only when both bounds fit int16', () => {
+      expect(
+        inferPostgresColumnType(
+          pipe(number(), integer(), minValue(0), maxValue(32767)),
+        ),
+      ).toBe('smallint')
+    })
+
+    it('should widen to bigint when a bound falls outside int32', () => {
+      expect(
+        inferPostgresColumnType(
+          pipe(
+            number(),
+            integer(),
+            minValue(-10000000000),
+            maxValue(10000000000),
+          ),
+        ),
+      ).toBe('bigint')
     })
   })
 
   describe('inferPostgresType - literal schemas', () => {
     it('should return text for string literal', () => {
-      const schema = literal('active')
-      expect(inferPostgresColumnType(schema)).toBe('text')
+      expect(inferPostgresColumnType(literal('active'))).toBe('text')
     })
 
     it('should return integer for integer literal', () => {
-      const schema = literal(42)
-      expect(inferPostgresColumnType(schema)).toBe('integer')
+      expect(inferPostgresColumnType(literal(42))).toBe('integer')
     })
 
-    it('should return real for float literal', () => {
-      const schema = literal(3.14)
-      expect(inferPostgresColumnType(schema)).toBe('real')
+    it('should return double precision for float literal', () => {
+      expect(inferPostgresColumnType(literal(3.14))).toBe('double precision')
     })
 
     it('should return boolean for boolean literal', () => {
-      const schema = literal(true)
-      expect(inferPostgresColumnType(schema)).toBe('boolean')
+      expect(inferPostgresColumnType(literal(true))).toBe('boolean')
     })
   })
 
   describe('inferPostgresType - other types', () => {
-    it('should return timestamp for date schema', () => {
-      const schema = date()
-      expect(inferPostgresColumnType(schema)).toBe('timestamp')
+    it('should return timestamptz for date schema', () => {
+      expect(inferPostgresColumnType(date())).toBe('timestamptz')
     })
 
     it('should return bigint for bigint schema', () => {
-      const schema = bigint()
-      expect(inferPostgresColumnType(schema)).toBe('bigint')
+      expect(inferPostgresColumnType(bigint())).toBe('bigint')
     })
 
     it('should return boolean for boolean schema', () => {
-      const schema = boolean()
-      expect(inferPostgresColumnType(schema)).toBe('boolean')
+      expect(inferPostgresColumnType(boolean())).toBe('boolean')
     })
 
-    it('should return varchar(255) for enum schema', () => {
+    it('should return text for enum schema', () => {
       const DirectionEnum = { Left: 'LEFT', Right: 'RIGHT' } as const
-      const schema = enumSchema(DirectionEnum)
-      expect(inferPostgresColumnType(schema)).toBe('varchar(255)')
+      expect(inferPostgresColumnType(enumSchema(DirectionEnum))).toBe('text')
     })
 
-    it('should return varchar(255) for picklist schema', () => {
-      const schema = picklist(['active', 'inactive', 'pending'])
-      expect(inferPostgresColumnType(schema)).toBe('varchar(255)')
+    it('should return text for picklist schema', () => {
+      expect(
+        inferPostgresColumnType(picklist(['active', 'inactive', 'pending'])),
+      ).toBe('text')
     })
 
-    it('should return text for unknown schema type (default case)', () => {
-      const schema = string()
-      const result = inferPostgresColumnType(
-        schema as unknown as Parameters<typeof inferPostgresColumnType>[0],
+    it('should return jsonb for object schemas', () => {
+      expect(
+        inferPostgresColumnType(object({ a: string(), b: number() })),
+      ).toBe('jsonb')
+    })
+
+    it('should return jsonb for array schemas', () => {
+      expect(inferPostgresColumnType(array(string()))).toBe('jsonb')
+    })
+
+    it('should return jsonb for record schemas', () => {
+      expect(inferPostgresColumnType(record(string(), number()))).toBe('jsonb')
+    })
+
+    it('should throw for a schema type it cannot map', () => {
+      const schema = union([string(), number()])
+      expect(() => inferPostgresColumnType(schema)).toThrow(SchemaError)
+      expect(() => inferPostgresColumnType(schema)).toThrow(
+        /cannot infer a SQL column type/,
       )
-      expect(result).toBe('text')
     })
   })
 })

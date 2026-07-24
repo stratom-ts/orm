@@ -5,6 +5,7 @@ import {
 } from '@/schemas'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import { isNumber } from '@/utils'
+import { SchemaError } from '@/utils/error'
 import type {
   BaseIssue,
   BaseSchema,
@@ -44,43 +45,53 @@ type IntrospectExecutor = {
 /**
  * Maps string length constraints to a PostgreSQL string type.
  *
+ * A `maxLength` up to 255 becomes `varchar(n)`; anything larger (or unbounded)
+ * becomes `text`. We deliberately do not infer `char(n)` for equal min/max
+ * length — `char` is blank-padded with surprising comparison semantics, so an
+ * exact-length column is better expressed as `varchar(n)`.
+ *
  * @param constraints - min/max length from the schema pipe
- * @returns `char(n)`, `varchar(n)`, or `text`
+ * @returns `varchar(n)` or `text`
  */
 function inferPostgresStringType(constraints: StringConstraints): SqlDataType {
   if (constraints.maxLength === undefined) return 'text'
-  if (
-    constraints.maxLength <= 255 &&
-    constraints.minLength === constraints.maxLength
-  )
-    return `char(${constraints.maxLength})`
   if (constraints.maxLength <= 255) return `varchar(${constraints.maxLength})`
   return 'text'
 }
 
+const INT16_MIN = -32768
+const INT16_MAX = 32767
+const INT32_MIN = -2147483648
+const INT32_MAX = 2147483647
+
 /**
  * Maps number constraints to a PostgreSQL numeric type.
  *
+ * A JavaScript `number` is a double, so a plain `number()` (no `integer()`)
+ * maps to `double precision` — `real` would silently lose precision. Integer
+ * types require an `integer()` constraint (otherwise a bounded float range
+ * could be truncated). An integer defaults to `integer`, narrows to `smallint`
+ * only when both bounds sit inside the int16 range, and widens to `bigint` only
+ * when a declared bound falls outside the int32 range.
+ *
  * @param constraints - min/max value and integer flags
- * @returns `smallint`, `integer`, `bigint`, or `real`
+ * @returns `smallint`, `integer`, `bigint`, or `double precision`
  */
-function inferPostgresNumberType(constraints: NumberConstraints) {
+function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
+  if (!constraints.isInteger) return 'double precision'
+
+  const { minValue: min, maxValue: max } = constraints
+
   if (
-    isNumber(constraints.minValue) &&
-    constraints.minValue >= -32768 &&
-    isNumber(constraints.maxValue) &&
-    constraints.maxValue <= 32767
-  )
+    (isNumber(min) && min < INT32_MIN) ||
+    (isNumber(max) && max > INT32_MAX)
+  ) {
+    return 'bigint'
+  }
+  if (isNumber(min) && min >= INT16_MIN && isNumber(max) && max <= INT16_MAX) {
     return 'smallint'
-  if (
-    isNumber(constraints.minValue) &&
-    constraints.minValue >= -2147483648 &&
-    isNumber(constraints.maxValue) &&
-    constraints.maxValue <= 2147483647
-  )
-    return 'integer'
-  if (constraints.isInteger) return 'bigint'
-  return 'real'
+  }
+  return 'integer'
 }
 
 /**
@@ -92,10 +103,24 @@ function inferPostgresNumberType(constraints: NumberConstraints) {
 function inferPostgresLiteralType(literal: Literal) {
   if (typeof literal === 'string') return 'text'
   if (typeof literal === 'number')
-    return Number.isInteger(literal) ? 'integer' : 'real'
+    return Number.isInteger(literal) ? 'integer' : 'double precision'
   if (typeof literal === 'boolean') return 'boolean'
   return 'text'
 }
+
+/** Valibot base schema types that hold JSON-shaped data → `jsonb`. */
+const JSON_SHAPED_SCHEMA_TYPES = new Set([
+  'object',
+  'loose_object',
+  'strict_object',
+  'object_with_rest',
+  'record',
+  'array',
+  'tuple',
+  'loose_tuple',
+  'strict_tuple',
+  'tuple_with_rest',
+])
 
 /**
  * Infers a PostgreSQL column type from a Valibot schema.
@@ -129,17 +154,24 @@ export function inferPostgresColumnType(
       >
       return inferPostgresLiteralType(literalSchema.literal)
     }
+    // A JS Date is a UTC instant; timestamptz preserves that, timestamp drops it.
     case 'date':
-      return 'timestamp'
+      return 'timestamptz'
+    // Store the label as text; the allowed set is still enforced by Valibot.
     case 'enum':
     case 'picklist':
-      return 'varchar(255)'
-    case 'bigint':
-    case 'boolean':
-    case 'uuid':
-      return baseSchema.type
-    default:
       return 'text'
+    case 'bigint':
+      return 'bigint'
+    case 'boolean':
+      return 'boolean'
+    default:
+      if (JSON_SHAPED_SCHEMA_TYPES.has(baseSchema.type)) return 'jsonb'
+      // Fail loudly rather than silently defaulting to text: an unmapped type
+      // (union, record of scalars, custom, unknown, …) needs an explicit type.
+      throw new SchemaError({
+        message: `cannot infer a SQL column type for a "${baseSchema.type}" schema; specify it explicitly with column({ type: ... })`,
+      })
   }
 }
 
