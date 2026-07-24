@@ -14,7 +14,12 @@ import type {
   SqlExprAst,
   UpdateAst,
 } from '@/dialects'
-import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
+import type {
+  InferInsert,
+  InferSelect,
+  InferSelectedColumns,
+  InferUpdate,
+} from '@/types/views'
 import { QueryError } from '@/utils/error'
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
@@ -299,9 +304,9 @@ export type InsertBuilder<
   TResult = WriteResult,
 > = {
   returningAll(): InsertBuilder<THandle, InferSelect<THandle>>
-  returning(
-    columns: readonly (ColumnRef | string)[],
-  ): InsertBuilder<THandle, Partial<InferSelect<THandle>>>
+  returning<const TCols extends readonly (ColumnRef | string)[]>(
+    columns: TCols,
+  ): InsertBuilder<THandle, InferSelectedColumns<THandle, TCols>>
   compile(): CompiledQuery
   execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
   executeTakeFirst(): Promise<
@@ -444,9 +449,9 @@ export type UpdateBuilder<
   /** Opt into full-table update (no where). */
   all(): UpdateBuilder<THandle, TResult>
   returningAll(): UpdateBuilder<THandle, InferSelect<THandle>>
-  returning(
-    columns: readonly (ColumnRef | string)[],
-  ): UpdateBuilder<THandle, Partial<InferSelect<THandle>>>
+  returning<const TCols extends readonly (ColumnRef | string)[]>(
+    columns: TCols,
+  ): UpdateBuilder<THandle, InferSelectedColumns<THandle, TCols>>
   compile(): CompiledQuery
   execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
   executeTakeFirst(): Promise<
@@ -610,9 +615,9 @@ export type DeleteBuilder<
   /** Opt into full-table delete (no where). */
   all(): DeleteBuilder<THandle, TResult>
   returningAll(): DeleteBuilder<THandle, InferSelect<THandle>>
-  returning(
-    columns: readonly (ColumnRef | string)[],
-  ): DeleteBuilder<THandle, Partial<InferSelect<THandle>>>
+  returning<const TCols extends readonly (ColumnRef | string)[]>(
+    columns: TCols,
+  ): DeleteBuilder<THandle, InferSelectedColumns<THandle, TCols>>
   compile(): CompiledQuery
   execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
   executeTakeFirst(): Promise<
@@ -750,9 +755,9 @@ export type SelectBuilder<
   selectAll<TSide extends TableHandle>(
     handle: TSide,
   ): SelectBuilder<THandle, InferSelect<TSide>>
-  select(
-    columns: readonly (ColumnRef | string)[],
-  ): SelectBuilder<THandle, Partial<InferSelect<THandle>>>
+  select<const TCols extends readonly (ColumnRef | string)[]>(
+    columns: TCols,
+  ): SelectBuilder<THandle, InferSelectedColumns<THandle, TCols>>
   select(
     callback: (
       builder: ExpressionBuilder,
@@ -983,9 +988,9 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   selectAll<TSide extends TableHandle>(
     handle: TSide,
   ): SelectBuilder<THandle, InferSelect<TSide>>
-  select(
-    columns: readonly (ColumnRef | string)[],
-  ): SelectBuilder<THandle, Partial<InferSelect<THandle>>>
+  select<const TCols extends readonly (ColumnRef | string)[]>(
+    columns: TCols,
+  ): SelectBuilder<THandle, InferSelectedColumns<THandle, TCols>>
   select(
     callback: (
       builder: ExpressionBuilder,

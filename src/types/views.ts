@@ -1,5 +1,6 @@
 import type { InferOutput } from 'valibot'
 import type { AnySchema } from './schema'
+import type { ColumnRef } from './tableHandle'
 import type { TableSchema } from '@/schemas'
 
 type DBType<T> = T extends undefined ? never : T
@@ -184,3 +185,26 @@ export type InferInsert<T> = [SchemaOf<T>] extends [never]
 export type InferUpdate<T> = [SchemaOf<T>] extends [never]
   ? never
   : InferUpdateFromSchema<SchemaOf<T>>
+
+/** Column name from a `ColumnRef` or string literal used in select/returning lists. */
+type SelectedColumnName<C> =
+  C extends ColumnRef<string, infer N extends string>
+    ? N
+    : C extends string
+      ? C
+      : never
+
+/**
+ * Row type for a column-list `select` / `returning`: only the selected keys,
+ * each required, with the same value types as {@link InferSelect}.
+ *
+ * Columns not present on `T` (e.g. cross-table refs) are typed as `unknown`.
+ */
+export type InferSelectedColumns<
+  T,
+  TCols extends readonly (ColumnRef | string)[],
+> = {
+  [K in SelectedColumnName<TCols[number]>]-?: K extends keyof InferSelect<T>
+    ? InferSelect<T>[K]
+    : unknown
+}

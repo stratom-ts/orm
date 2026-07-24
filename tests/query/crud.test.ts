@@ -4,7 +4,7 @@ import { column } from '@/schemas'
 import { QueryError, SchemaError, ValidationError } from '@/utils/error'
 import type { Connector, Statement } from 'db0'
 import { boolean, nullable, number, optional, pipe, string } from 'valibot'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -87,6 +87,19 @@ const AlwaysId = defineTable(
 describe('CRUD compile', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+  })
+
+  it('narrows returning row type to selected columns only', () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const query = db
+      .insert(Users)
+      .values({ email: 'a@b.com' })
+      .returning([Users.id, Users.email])
+    type Row = Awaited<ReturnType<typeof query.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
+    expectTypeOf<Row>().not.toHaveProperty('displayName')
+    expectTypeOf<Row>().not.toHaveProperty('active')
   })
 
   it('compiles insert with parameterized values and schema-qualified table', async () => {
