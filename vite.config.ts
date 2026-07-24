@@ -19,11 +19,11 @@ export default defineConfig({
       formats: ['es', 'umd'],
     },
     rollupOptions: {
-      external: ['valibot', 'kysely'],
+      external: ['valibot', 'db0'],
       output: {
         globals: {
           valibot: 'valibot',
-          kysely: 'kysely',
+          db0: 'db0',
         },
       },
     },

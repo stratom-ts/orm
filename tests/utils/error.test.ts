@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { catchTag, catchTags, MigrationError, TaggedError } from '@/utils'
+import {
+  catchTag,
+  catchTags,
+  MigrationError,
+  QueryError,
+  SchemaError,
+  TaggedError,
+  ValidationError,
+} from '@/utils'
 
 describe('TaggedError', () => {
   it('should create a tagged error class with the given tag', () => {
@@ -30,6 +38,36 @@ describe('MigrationError', () => {
     expect(error).toBeInstanceOf(Error)
     expect(error._tag).toBe('MigrationError')
     expect(error.message).toBe('migration failed')
+  })
+})
+
+describe('SchemaError', () => {
+  it('should be a TaggedError with tag SchemaError', () => {
+    const error = new SchemaError({ message: 'invalid metadata' })
+    expect(error).toBeInstanceOf(Error)
+    expect(error._tag).toBe('SchemaError')
+    expect(error.message).toBe('invalid metadata')
+  })
+})
+
+describe('QueryError', () => {
+  it('should be a TaggedError with tag QueryError', () => {
+    const error = new QueryError({ message: 'closed' })
+    expect(error._tag).toBe('QueryError')
+    expect(error.message).toBe('closed')
+  })
+})
+
+describe('ValidationError', () => {
+  it('should be a TaggedError with tag ValidationError', () => {
+    const error = new ValidationError({
+      message: 'bad insert',
+      issues: [{ message: 'required' }],
+    })
+    expect(error).toBeInstanceOf(Error)
+    expect(error._tag).toBe('ValidationError')
+    expect(error.message).toBe('bad insert')
+    expect(error.issues).toEqual([{ message: 'required' }])
   })
 })
 
