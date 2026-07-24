@@ -194,17 +194,77 @@ type SelectedColumnName<C> =
       ? C
       : never
 
+/** Table name on a handle (`name`) when available. */
+type TableNameOf<T> = T extends { name: infer N extends string } ? N : never
+
+/** Every field of `T` widened with `| null` (outer-join side). */
+export type NullableFields<T> = {
+  [K in keyof T]: T[K] | null
+}
+
+type MaybeJoinNullable<
+  TValue,
+  TTable extends string,
+  TNullable extends string,
+> = TTable extends TNullable ? TValue | null : TValue
+
+type SelectedColumnBaseValue<T, C> =
+  C extends ColumnRef<infer TTable, infer N extends string, infer TType>
+    ? [TableNameOf<T>] extends [TTable]
+      ? N extends keyof InferSelect<T>
+        ? InferSelect<T>[N]
+        : Exclude<TType, undefined>
+      : Exclude<TType, undefined>
+    : C extends string
+      ? C extends keyof InferSelect<T>
+        ? InferSelect<T>[C]
+        : unknown
+      : never
+
+/**
+ * Value type for one selected column item.
+ * Same-table refs/strings use {@link InferSelect}; cross-table `ColumnRef`s use
+ * the ref's payload (minus `undefined` from optional wrappers). Outer-join
+ * nullable tables widen the value with `| null`.
+ */
+type SelectedColumnValue<T, C, TNullable extends string = never> =
+  C extends ColumnRef<infer TTable, string, unknown>
+    ? MaybeJoinNullable<SelectedColumnBaseValue<T, C>, TTable, TNullable>
+    : C extends string
+      ? MaybeJoinNullable<
+          SelectedColumnBaseValue<T, C>,
+          TableNameOf<T>,
+          TNullable
+        >
+      : never
+
 /**
  * Row type for a column-list `select` / `returning`: only the selected keys,
- * each required, with the same value types as {@link InferSelect}.
- *
- * Columns not present on `T` (e.g. cross-table refs) are typed as `unknown`.
+ * each required. Same-table columns match {@link InferSelect}; cross-table
+ * `ColumnRef`s resolve from the ref; bare string names unknown on `T` stay
+ * `unknown`. Pass `TNullable` (table-name union) for outer-join sides.
  */
 export type InferSelectedColumns<
   T,
   TCols extends readonly (ColumnRef | string)[],
+  TNullable extends string = never,
 > = {
-  [K in SelectedColumnName<TCols[number]>]-?: K extends keyof InferSelect<T>
-    ? InferSelect<T>[K]
-    : unknown
+  [K in SelectedColumnName<TCols[number]>]-?: SelectedColumnValue<
+    T,
+    Extract<TCols[number], ColumnRef<string, K> | K>,
+    TNullable
+  >
 }
+
+/** `selectAll(side)` row fragment, nullable when that side is outer-joined. */
+export type InferSelectAllSide<TSide, TNullable extends string = never> =
+  TableNameOf<TSide> extends TNullable
+    ? NullableFields<InferSelect<TSide>>
+    : InferSelect<TSide>
+
+/** Merge an additional selection into `TResult` once an explicit select exists. */
+export type MergeSelection<
+  HasSelection extends boolean,
+  TResult,
+  TNew,
+> = HasSelection extends true ? TResult & TNew : TNew
