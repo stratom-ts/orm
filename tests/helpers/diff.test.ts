@@ -1,5 +1,5 @@
 import type { ColumnMetadata as DbColumnMetadata } from 'kysely'
-import { boolean, object, pipe, string, title } from 'valibot'
+import { boolean, nullable, object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { diffTableSchema } from '@/helpers'
@@ -8,7 +8,7 @@ import { column, table } from '@/schemas'
 const validSchema = pipe(
   object({
     id: pipe(string(), column({ type: 'varchar' })),
-    name: pipe(string(), column({ type: 'varchar', nullable: true })),
+    name: nullable(pipe(string(), column({ type: 'varchar' }))),
   }),
   title('test_table'),
   table({ name: 'test_table', primaryKey: 'id' }),
@@ -143,7 +143,7 @@ describe('diff.ts', () => {
     it('should detect modified nullable from true to false', () => {
       const schemaNotNullable = pipe(
         object({
-          id: pipe(string(), column({ type: 'varchar', nullable: false })),
+          id: pipe(string(), column({ type: 'varchar' })),
         }),
         title('test_table'),
         table({ name: 'test_table', primaryKey: 'id' }),
@@ -171,7 +171,7 @@ describe('diff.ts', () => {
     it('should detect modified nullable from false to true', () => {
       const schemaNullable = pipe(
         object({
-          id: pipe(string(), column({ type: 'varchar', nullable: true })),
+          id: nullable(pipe(string(), column({ type: 'varchar' }))),
         }),
         title('test_table'),
         table({ name: 'test_table', primaryKey: 'id' }),

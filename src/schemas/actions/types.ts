@@ -25,8 +25,6 @@ export type ColumnMetadata = {
   kind: 'column'
   /** The database column type (e.g., 'text', 'varchar(255)', 'integer', 'timestamp') */
   type: ColumnDataType
-  /** Whether the column allows NULL values */
-  nullable?: boolean
   /** Default value for the column */
   default?: string | number | boolean | null
   /** Whether the column is auto-incrementing */

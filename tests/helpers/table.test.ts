@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely'
-import { boolean, number, object, pipe, string, title, uuid } from 'valibot'
+import { boolean, nullable, number, object, pipe, string, title, uuid } from 'valibot'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createTableFromSchema } from '@/helpers'
@@ -80,7 +80,7 @@ describe('table.ts', () => {
           id: pipe(string(), uuid(), column({ type: 'uuid' })),
           email: pipe(string(), column({ type: 'varchar(255)' })),
           name: pipe(string(), column({ type: 'text' })),
-          age: pipe(number(), column({ type: 'integer', nullable: true })),
+          age: nullable(pipe(number(), column({ type: 'integer' }))),
           active: pipe(boolean(), column({ type: 'boolean', default: true })),
         }),
         title('users'),
@@ -179,7 +179,7 @@ describe('table.ts', () => {
       const UserSchema = pipe(
         object({
           id: pipe(string(), uuid(), column({ type: 'uuid' })),
-          bio: pipe(string(), column({ type: 'text', nullable: true })),
+          bio: nullable(pipe(string(), column({ type: 'text' }))),
         }),
         title('users'),
         table({

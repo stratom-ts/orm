@@ -1,24 +1,24 @@
-import type { ColumnMetadata as DbColumnMetadata } from 'kysely'
-import type { BaseIssue, BaseSchema } from 'valibot'
 import type { DialectAdapter } from '@/dialects'
 import { postgresAdapter } from '@/dialects'
-import { getColumnInfo } from './column'
-import type { TableSchema } from './table'
+import type {
+  ColumnMetadata as LocalColumnMetadata,
+  TableMetadata as LocalTableMetadata,
+} from '@/schemas'
 import {
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
 } from '@/schemas'
-import type {
-  ColumnMetadata as LocalColumnMetadata,
-  TableMetadata as LocalTableMetadata,
-} from '@/schemas'
+import type { ColumnMetadata as DbColumnMetadata } from 'kysely'
+import type { BaseIssue, BaseSchema } from 'valibot'
+import { getColumnInfo } from './column'
+import type { TableSchema } from './table'
 
 export interface ColumnDiff {
   /** The name of the db column */
   name: string
   /** The local schema column definition */
-  local: LocalColumnMetadata & { dataType: string }
+  local: LocalColumnMetadata & { dataType: string; nullable: boolean }
   /** The db schema column definition */
   current: DbColumnMetadata | null
 }
@@ -97,8 +97,11 @@ function getLocalColumns(
   schema: TableSchema,
   _metadata: LocalTableMetadata,
   adapter: DialectAdapter,
-): Map<string, LocalColumnMetadata & { dataType: string }> {
-  const columns = new Map<string, LocalColumnMetadata & { dataType: string }>()
+): Map<string, LocalColumnMetadata & { dataType: string; nullable: boolean }> {
+  const columns = new Map<
+    string,
+    LocalColumnMetadata & { dataType: string; nullable: boolean }
+  >()
   const entries = schema.entries as Record<
     string,
     BaseSchema<unknown, unknown, BaseIssue<unknown>>
@@ -115,7 +118,7 @@ function getLocalColumns(
       unique,
       autoIncrement,
       dataType,
-    } as LocalColumnMetadata & { dataType: string })
+    } as LocalColumnMetadata & { dataType: string; nullable: boolean })
   }
   return columns
 }
@@ -136,7 +139,7 @@ function getLocalColumns(
  * ```
  */
 function isColumnModified(
-  local: LocalColumnMetadata & { dataType: string },
+  local: LocalColumnMetadata & { dataType: string; nullable: boolean },
   current: DbColumnMetadata,
   adapter: DialectAdapter,
 ): boolean {
@@ -155,5 +158,3 @@ function isColumnModified(
   if (localHasDefault !== current.hasDefaultValue) return true
   return false
 }
-
-

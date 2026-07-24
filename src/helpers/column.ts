@@ -25,12 +25,10 @@ import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
  *
  * const schema = pipe(
  *   string(),
- *   column({ type: 'varchar', nullable: false, unique: true }),
+ *   column({ type: 'varchar', unique: true }),
  * )
  *
  * const info = getColumnInfo(schema, schema.metadata?.column, undefined)
- * // Returns:
- * // { dataType: 'varchar', nullable: false, defaultValue: undefined, unique: true, autoIncrement: false }
  * ```
  */
 export function getColumnInfo(
@@ -45,7 +43,7 @@ export function getColumnInfo(
     columnMetadataType ||
     referenceMetadataType ||
     adapter.inferColumnType(columnSchema)
-  const nullable = columnMetadata?.nullable || isNullable(columnSchema)
+  const nullable = isNullable(columnSchema)
   const defaultValue: string | number | boolean | null | undefined =
     columnMetadata?.default
   const unique = columnMetadata?.unique ?? false
