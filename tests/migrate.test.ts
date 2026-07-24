@@ -3,19 +3,10 @@ import { defineTable } from '@/defineTable'
 import { buildCreateTableAst, planMigration } from '@/ddl'
 import { postgresDialect } from '@/dialects'
 import type { CatalogSnapshot } from '@/dialects'
-import { column, reference, table } from '@/schemas'
+import { column, reference } from '@/schemas'
 import { MigrationError, SchemaError } from '@/utils/error'
 import type { Connector, Statement } from 'db0'
-import {
-  boolean,
-  nullable,
-  number,
-  object,
-  optional,
-  pipe,
-  string,
-  title,
-} from 'valibot'
+import { boolean, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 type LiveColumn = {
@@ -303,106 +294,90 @@ function createMockConnector(options?: {
 }
 
 const Users = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
-      age: nullable(pipe(number(), column({ type: 'integer' }))),
-      bio: optional(pipe(string(), column({ type: 'text' }))),
-      active: pipe(boolean(), column({ type: 'boolean', default: true })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
+    age: nullable(pipe(number(), column({ type: 'integer' }))),
+    bio: optional(pipe(string(), column({ type: 'text' }))),
+    active: pipe(boolean(), column({ type: 'boolean', default: true })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 const UsersWithIndex = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'text' })),
-      orgId: pipe(string(), column({ type: 'uuid' })),
-    }),
-    title('users'),
-    table({
-      name: 'users',
-      primaryKey: 'id',
-      schema: 'public',
-      indexes: [
-        'email',
-        {
-          name: 'users_org_email_uidx',
-          columns: ['orgId', 'email'],
-          unique: true,
-        },
-      ],
-    }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'text' })),
+    orgId: pipe(string(), column({ type: 'uuid' })),
+  },
+  {
+    primaryKey: 'id',
+    schema: 'public',
+    indexes: [
+      'email',
+      {
+        name: 'users_org_email_uidx',
+        columns: ['orgId', 'email'],
+        unique: true,
+      },
+    ],
+  },
 )
 
 const UsersWithNickname = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'text' })),
-      nickname: pipe(string(), column({ type: 'text' })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'text' })),
+    nickname: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 const Posts = defineTable(
-  pipe(
-    object({
-      id: pipe(string(), column({ type: 'uuid' })),
-      authorId: reference(Users, 'id', {
-        onDelete: 'cascade',
-        onUpdate: 'restrict',
-      }),
-      title: pipe(string(), column({ type: 'text' })),
+  'posts',
+  {
+    id: pipe(string(), column({ type: 'uuid' })),
+    authorId: reference(Users, 'id', {
+      onDelete: 'cascade',
+      onUpdate: 'restrict',
     }),
-    title('posts'),
-    table({ name: 'posts', primaryKey: 'id', schema: 'public' }),
-  ),
+    title: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 const Memberships = defineTable(
-  pipe(
-    object({
-      orgId: pipe(string(), column({ type: 'uuid' })),
-      userId: pipe(string(), column({ type: 'uuid' })),
-      role: pipe(string(), column({ type: 'text' })),
-    }),
-    title('memberships'),
-    table({
-      name: 'memberships',
-      primaryKey: ['orgId', 'userId'],
-      schema: 'app',
-    }),
-  ),
+  'memberships',
+  {
+    orgId: pipe(string(), column({ type: 'uuid' })),
+    userId: pipe(string(), column({ type: 'uuid' })),
+    role: pipe(string(), column({ type: 'text' })),
+  },
+  {
+    primaryKey: ['orgId', 'userId'],
+    schema: 'app',
+  },
 )
 
 const AppUsers = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'text' })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'app' }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'app' },
 )
 
 const AppPosts = defineTable(
-  pipe(
-    object({
-      id: pipe(string(), column({ type: 'uuid' })),
-      authorId: reference(AppUsers, 'id', { onDelete: 'cascade' }),
-    }),
-    title('posts'),
-    table({ name: 'posts', primaryKey: 'id', schema: 'app' }),
-  ),
+  'posts',
+  {
+    id: pipe(string(), column({ type: 'uuid' })),
+    authorId: reference(AppUsers, 'id', { onDelete: 'cascade' }),
+  },
+  { primaryKey: 'id', schema: 'app' },
 )
 
 describe('buildCreateTableAst', () => {
@@ -609,18 +584,14 @@ describe('db.migrate().execute()', () => {
 
   it('treats omitted schema and public as the same registry key', () => {
     const Bare = defineTable(
-      pipe(
-        object({ id: pipe(string(), column({ type: 'text' })) }),
-        title('items'),
-        table({ name: 'items', primaryKey: 'id' }),
-      ),
+      'items',
+      { id: pipe(string(), column({ type: 'text' })) },
+      { primaryKey: 'id' },
     )
     const Public = defineTable(
-      pipe(
-        object({ id: pipe(string(), column({ type: 'text' })) }),
-        title('items'),
-        table({ name: 'items', primaryKey: 'id', schema: 'public' }),
-      ),
+      'items',
+      { id: pipe(string(), column({ type: 'text' })) },
+      { primaryKey: 'id', schema: 'public' },
     )
     const connector = createMockConnector()
     expect(() => createDb({ connector, schemas: [Bare, Public] })).toThrow(
@@ -848,17 +819,12 @@ describe('db.migrate().dryRun()', () => {
 
   it('execute refuses set_not_null when column has NULL rows', async () => {
     const NotNullEmail = defineTable(
-      pipe(
-        object({
-          id: pipe(
-            number(),
-            column({ type: 'integer', generated: 'byDefault' }),
-          ),
-          email: pipe(string(), column({ type: 'text' })),
-        }),
-        title('users'),
-        table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-      ),
+      'users',
+      {
+        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+        email: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id', schema: 'public' },
     )
     const connector = createMockConnector({
       tables: [
@@ -952,14 +918,12 @@ describe('db.migrate().dryRun()', () => {
 
 describe('db.migrate() allowlist + safety', () => {
   const UsersBase = defineTable(
-    pipe(
-      object({
-        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-        email: pipe(string(), column({ type: 'text' })),
-      }),
-      title('users'),
-      table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-    ),
+    'users',
+    {
+      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+      email: pipe(string(), column({ type: 'text' })),
+    },
+    { primaryKey: 'id', schema: 'public' },
   )
 
   const UsersWithExtraLive = {
@@ -1291,43 +1255,37 @@ describe('db.migrate integration', () => {
       const schemaName = `so_test_${suffix}`
 
       const UsersLive = defineTable(
-        pipe(
-          object({
-            id: pipe(
-              number(),
-              column({ type: 'integer', generated: 'byDefault' }),
-            ),
-            email: pipe(string(), column({ type: 'text', unique: true })),
-          }),
-          title('users'),
-          table({
-            name: 'users',
-            primaryKey: 'id',
-            schema: schemaName,
-            indexes: [
-              {
-                columns: ['email'],
-                unique: true,
-                name: `users_email_${suffix}`,
-              },
-            ],
-          }),
-        ),
+        'users',
+        {
+          id: pipe(
+            number(),
+            column({ type: 'integer', generated: 'byDefault' }),
+          ),
+          email: pipe(string(), column({ type: 'text', unique: true })),
+        },
+        {
+          primaryKey: 'id',
+          schema: schemaName,
+          indexes: [
+            {
+              columns: ['email'],
+              unique: true,
+              name: `users_email_${suffix}`,
+            },
+          ],
+        },
       )
 
       const PostsLive = defineTable(
-        pipe(
-          object({
-            id: pipe(string(), column({ type: 'uuid' })),
-            authorId: reference(UsersLive, 'id', { onDelete: 'cascade' }),
-          }),
-          title('posts'),
-          table({
-            name: 'posts',
-            primaryKey: 'id',
-            schema: schemaName,
-          }),
-        ),
+        'posts',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          authorId: reference(UsersLive, 'id', { onDelete: 'cascade' }),
+        },
+        {
+          primaryKey: 'id',
+          schema: schemaName,
+        },
       )
 
       const { createDatabase } = await import('db0')
@@ -1401,46 +1359,40 @@ describe('db.migrate integration', () => {
       const schemaName = `so_alt_${suffix}`
 
       const Base = defineTable(
-        pipe(
-          object({
-            id: pipe(
-              number(),
-              column({ type: 'integer', generated: 'byDefault' }),
-            ),
-            email: pipe(string(), column({ type: 'text' })),
-          }),
-          title('people'),
-          table({
-            name: 'people',
-            primaryKey: 'id',
-            schema: schemaName,
-          }),
-        ),
+        'people',
+        {
+          id: pipe(
+            number(),
+            column({ type: 'integer', generated: 'byDefault' }),
+          ),
+          email: pipe(string(), column({ type: 'text' })),
+        },
+        {
+          primaryKey: 'id',
+          schema: schemaName,
+        },
       )
 
       const Expanded = defineTable(
-        pipe(
-          object({
-            id: pipe(
-              number(),
-              column({ type: 'integer', generated: 'byDefault' }),
-            ),
-            email: pipe(string(), column({ type: 'text' })),
-            nickname: pipe(string(), column({ type: 'text' })),
-          }),
-          title('people'),
-          table({
-            name: 'people',
-            primaryKey: 'id',
-            schema: schemaName,
-            indexes: [
-              {
-                name: `people_email_${suffix}`,
-                columns: ['email'],
-              },
-            ],
-          }),
-        ),
+        'people',
+        {
+          id: pipe(
+            number(),
+            column({ type: 'integer', generated: 'byDefault' }),
+          ),
+          email: pipe(string(), column({ type: 'text' })),
+          nickname: pipe(string(), column({ type: 'text' })),
+        },
+        {
+          primaryKey: 'id',
+          schema: schemaName,
+          indexes: [
+            {
+              name: `people_email_${suffix}`,
+              columns: ['email'],
+            },
+          ],
+        },
       )
 
       const setup = createDatabase(postgresql({ url: url as string }))

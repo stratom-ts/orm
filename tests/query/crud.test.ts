@@ -1,18 +1,9 @@
 import { createDb } from '@/client'
 import { defineTable } from '@/defineTable'
-import { column, table } from '@/schemas'
+import { column } from '@/schemas'
 import { QueryError, SchemaError, ValidationError } from '@/utils/error'
 import type { Connector, Statement } from 'db0'
-import {
-  boolean,
-  nullable,
-  number,
-  object,
-  optional,
-  pipe,
-  string,
-  title,
-} from 'valibot'
+import { boolean, nullable, number, optional, pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
@@ -74,27 +65,23 @@ function createMockConnector(options?: {
 }
 
 const Users = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'text' })),
-      displayName: optional(pipe(string(), column({ type: 'text' }))),
-      active: pipe(boolean(), column({ type: 'boolean', default: true })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'text' })),
+    displayName: optional(pipe(string(), column({ type: 'text' }))),
+    active: pipe(boolean(), column({ type: 'boolean', default: true })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 const AlwaysId = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'always' })),
-      label: pipe(string(), column({ type: 'text' })),
-    }),
-    title('always_id'),
-    table({ name: 'always_id', primaryKey: 'id' }),
-  ),
+  'always_id',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'always' })),
+    label: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id' },
 )
 
 describe('CRUD compile', () => {
@@ -225,17 +212,12 @@ describe('CRUD safety and validation', () => {
 
   it('requires bare nullable columns on insert but accepts null', async () => {
     const WithNullable = defineTable(
-      pipe(
-        object({
-          id: pipe(
-            number(),
-            column({ type: 'integer', generated: 'byDefault' }),
-          ),
-          note: nullable(pipe(string(), column({ type: 'text' }))),
-        }),
-        title('with_nullable'),
-        table({ name: 'with_nullable', primaryKey: 'id' }),
-      ),
+      'with_nullable',
+      {
+        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+        note: nullable(pipe(string(), column({ type: 'text' }))),
+      },
+      { primaryKey: 'id' },
     )
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [WithNullable] })
@@ -374,11 +356,9 @@ describe('db.insert()', () => {
 
   it('rejects unregistered table for db.insert()', async () => {
     const Other = defineTable(
-      pipe(
-        object({ id: pipe(string(), column({ type: 'text' })) }),
-        title('other'),
-        table({ name: 'other', primaryKey: 'id' }),
-      ),
+      'other',
+      { id: pipe(string(), column({ type: 'text' })) },
+      { primaryKey: 'id' },
     )
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
@@ -463,11 +443,9 @@ describe('CRUD integration (Postgres)', () => {
 describe('registry still enforces handles', () => {
   it('rejects unregistered table for insert', async () => {
     const Other = defineTable(
-      pipe(
-        object({ id: pipe(string(), column({ type: 'text' })) }),
-        title('other'),
-        table({ name: 'other', primaryKey: 'id' }),
-      ),
+      'other',
+      { id: pipe(string(), column({ type: 'text' })) },
+      { primaryKey: 'id' },
     )
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })

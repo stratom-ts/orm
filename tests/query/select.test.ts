@@ -13,9 +13,9 @@ import {
   upper,
 } from '@/index'
 import { defineTable } from '@/defineTable'
-import { column, table } from '@/schemas'
+import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
-import { boolean, number, object, optional, pipe, string, title } from 'valibot'
+import { boolean, number, optional, pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
@@ -77,17 +77,15 @@ function createMockConnector(options?: {
 }
 
 const Users = defineTable(
-  pipe(
-    object({
-      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-      email: pipe(string(), column({ type: 'text' })),
-      displayName: optional(pipe(string(), column({ type: 'text' }))),
-      active: pipe(boolean(), column({ type: 'boolean', default: true })),
-      score: pipe(number(), column({ type: 'integer', default: 0 })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-  ),
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+    email: pipe(string(), column({ type: 'text' })),
+    displayName: optional(pipe(string(), column({ type: 'text' }))),
+    active: pipe(boolean(), column({ type: 'boolean', default: true })),
+    score: pipe(number(), column({ type: 'integer', default: 0 })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 describe('select compile', () => {

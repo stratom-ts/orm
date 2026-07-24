@@ -5,8 +5,8 @@ import {
 } from '@/dialects'
 import { buildCreateTableAst } from '@/ddl'
 import { defineTable } from '@/defineTable'
-import { column, table } from '@/schemas'
-import { object, pipe, string, title } from 'valibot'
+import { column } from '@/schemas'
+import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 describe('assertSafePostgresDataType', () => {
@@ -54,17 +54,15 @@ describe('formatPostgresDefault', () => {
 describe('create table compile uses safe type/default paths', () => {
   it('compiles now() default without string quotes', () => {
     const T = defineTable(
-      pipe(
-        object({
-          id: pipe(string(), column({ type: 'uuid' })),
-          createdAt: pipe(
-            string(),
-            column({ type: 'timestamptz', default: 'now()' }),
-          ),
-        }),
-        title('events'),
-        table({ name: 'events', primaryKey: 'id' }),
-      ),
+      'events',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        createdAt: pipe(
+          string(),
+          column({ type: 'timestamptz', default: 'now()' }),
+        ),
+      },
+      { primaryKey: 'id' },
     )
     const sql = postgresDialect
       .compile(buildCreateTableAst(T, postgresDialect))
@@ -75,13 +73,11 @@ describe('create table compile uses safe type/default paths', () => {
 
   it('throws when column type is not allowlisted', () => {
     const T = defineTable(
-      pipe(
-        object({
-          id: pipe(string(), column({ type: 'text' })),
-        }),
-        title('t'),
-        table({ name: 't', primaryKey: 'id' }),
-      ),
+      't',
+      {
+        id: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id' },
     )
     const ast = buildCreateTableAst(T, postgresDialect)
     const bad = {

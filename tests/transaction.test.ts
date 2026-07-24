@@ -1,8 +1,8 @@
 import { createDb } from '@/client'
 import { defineTable } from '@/defineTable'
-import { column, table } from '@/schemas'
+import { column } from '@/schemas'
 import type { Connector, Statement } from 'db0'
-import { date, number, object, pipe, string, title, unknown } from 'valibot'
+import { date, number, pipe, string, unknown } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = []): Statement {
@@ -64,34 +64,30 @@ function createMockConnector(options?: {
 }
 
 const Users = defineTable(
-  pipe(
-    object({
-      id: pipe(string(), column({ type: 'text' })),
-      email: pipe(string(), column({ type: 'text' })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-  ),
+  'users',
+  {
+    id: pipe(string(), column({ type: 'text' })),
+    email: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 const Mapped = defineTable(
-  pipe(
-    object({
-      id: pipe(string(), column({ type: 'uuid' })),
-      createdAt: pipe(date(), column({ type: 'timestamptz' })),
-      meta: pipe(unknown(), column({ type: 'jsonb' })),
-      label: pipe(
-        string(),
-        column({
-          type: 'text',
-          mapParam: (v) => String(v).toUpperCase(),
-          mapResult: (v) => `read:${String(v)}`,
-        }),
-      ),
-    }),
-    title('mapped'),
-    table({ name: 'mapped', primaryKey: 'id', schema: 'public' }),
-  ),
+  'mapped',
+  {
+    id: pipe(string(), column({ type: 'uuid' })),
+    createdAt: pipe(date(), column({ type: 'timestamptz' })),
+    meta: pipe(unknown(), column({ type: 'jsonb' })),
+    label: pipe(
+      string(),
+      column({
+        type: 'text',
+        mapParam: (v) => String(v).toUpperCase(),
+        mapResult: (v) => `read:${String(v)}`,
+      }),
+    ),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 describe('db.transaction', () => {
@@ -299,14 +295,12 @@ describe('transaction + mapping integration', () => {
       const { createDatabase } = await import('db0')
       const setup = createDatabase(postgresql({ url: url as string }))
       const TxItems = defineTable(
-        pipe(
-          object({
-            id: pipe(number(), column({ type: 'integer' })),
-            name: pipe(string(), column({ type: 'text' })),
-          }),
-          title('tx_items'),
-          table({ name: 'tx_items', primaryKey: 'id', schema: 'public' }),
-        ),
+        'tx_items',
+        {
+          id: pipe(number(), column({ type: 'integer' })),
+          name: pipe(string(), column({ type: 'text' })),
+        },
+        { primaryKey: 'id', schema: 'public' },
       )
       const db = createDb({
         connector: postgresql({ url: url as string }),
@@ -372,19 +366,13 @@ describe('transaction + mapping integration', () => {
       const { createDatabase } = await import('db0')
       const setup = createDatabase(postgresql({ url: url as string }))
       const RoundTrip = defineTable(
-        pipe(
-          object({
-            id: pipe(string(), column({ type: 'uuid' })),
-            createdAt: pipe(date(), column({ type: 'timestamptz' })),
-            meta: pipe(unknown(), column({ type: 'jsonb' })),
-          }),
-          title('map_roundtrip'),
-          table({
-            name: 'map_roundtrip',
-            primaryKey: 'id',
-            schema: 'public',
-          }),
-        ),
+        'map_roundtrip',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          createdAt: pipe(date(), column({ type: 'timestamptz' })),
+          meta: pipe(unknown(), column({ type: 'jsonb' })),
+        },
+        { primaryKey: 'id', schema: 'public' },
       )
       const db = createDb({
         connector: postgresql({ url: url as string }),

@@ -16,15 +16,28 @@ import { column, getReferenceMetadata, reference, table } from '@/schemas'
 import type { InferInsert, InferSelect, InferUpdate } from '@/types/views'
 import { SchemaError } from '@/utils/error'
 
+const userColumns = {
+  id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+  email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
+  fullName: pipe(string(), column({ type: 'text' })),
+  age: nullable(pipe(number(), column({ type: 'integer' }))),
+  bio: optional(pipe(string(), column({ type: 'text' }))),
+  active: pipe(boolean(), column({ type: 'boolean', default: true })),
+}
+
+const User = defineTable('users', userColumns, {
+  schema: 'public',
+  primaryKey: 'id',
+  indexes: [
+    { columns: ['email'], unique: true },
+    { name: 'users_full_name_idx', columns: ['fullName'] },
+  ],
+})
+
+// Raw-schema form (built from the primitives) still works for reference()
+// targets and Infer* helpers that accept a schema rather than a handle.
 const UserSchema = pipe(
-  object({
-    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-    email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
-    fullName: pipe(string(), column({ type: 'text' })),
-    age: nullable(pipe(number(), column({ type: 'integer' }))),
-    bio: optional(pipe(string(), column({ type: 'text' }))),
-    active: pipe(boolean(), column({ type: 'boolean', default: true })),
-  }),
+  object(userColumns),
   title('users'),
   table({
     name: 'users',
@@ -39,7 +52,6 @@ const UserSchema = pipe(
 
 describe('defineTable', () => {
   it('returns a table handle with name, schema, and metadata', () => {
-    const User = defineTable(UserSchema)
     expect(isTableHandle(User)).toBe(true)
     expect(User.name).toBe('users')
     expect(User.schema).toBe('public')
@@ -49,11 +61,10 @@ describe('defineTable', () => {
       schema: 'public',
       primaryKey: 'id',
     })
-    expect(User.definition).toBe(UserSchema)
+    expect(User.definition.entries.email).toBeDefined()
   })
 
   it('exposes column refs on the handle and under .columns', () => {
-    const User = defineTable(UserSchema)
     expect(User.email).toEqual({
       table: 'users',
       column: 'email',
@@ -65,23 +76,21 @@ describe('defineTable', () => {
   })
 
   it('supports composite primary keys and index configs', () => {
-    const MembershipSchema = pipe(
-      object({
+    const Membership = defineTable(
+      'memberships',
+      {
         orgId: pipe(string(), column({ type: 'uuid' })),
         userId: pipe(string(), column({ type: 'uuid' })),
         role: pipe(string(), column({ type: 'text' })),
-      }),
-      title('memberships'),
-      table({
-        name: 'memberships',
+      },
+      {
         primaryKey: ['orgId', 'userId'],
         indexes: [
           { name: 'memberships_role_idx', columns: ['role'] },
           { columns: ['orgId', 'role'], unique: true },
         ],
-      }),
+      },
     )
-    const Membership = defineTable(MembershipSchema)
     expect(Membership.metadata.primaryKey).toEqual(['orgId', 'userId'])
     expect(Membership.metadata.indexes).toEqual([
       { name: 'memberships_role_idx', columns: ['role'] },
@@ -90,102 +99,115 @@ describe('defineTable', () => {
   })
 
   it('accepts string indexes for backward compatibility', () => {
-    const TagSchema = pipe(
-      object({
+    const Tag = defineTable(
+      'tags',
+      {
         id: pipe(string(), column({ type: 'uuid' })),
         label: pipe(string(), column({ type: 'text' })),
-      }),
-      title('tags'),
-      table({ name: 'tags', primaryKey: 'id', indexes: ['label'] }),
+      },
+      { primaryKey: 'id', indexes: ['label'] },
     )
-    const Tag = defineTable(TagSchema)
     expect(Tag.metadata.indexes).toEqual(['label'])
   })
 
-  it('throws SchemaError when table metadata is missing', () => {
-    const Bad = pipe(object({ id: string() }), title('bad'))
-    expect(() => defineTable(Bad as never)).toThrow(SchemaError)
-    try {
-      defineTable(Bad as never)
-    } catch (e) {
-      expect(e).toBeInstanceOf(SchemaError)
-      expect((e as SchemaError)._tag).toBe('SchemaError')
-    }
-  })
-
   it('throws SchemaError when primaryKey column is missing', () => {
-    const Bad = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
-      title('bad'),
-      table({ name: 'bad', primaryKey: 'missing' }),
-    )
-    expect(() => defineTable(Bad)).toThrow(SchemaError)
-    expect(() => defineTable(Bad)).toThrow(/primaryKey column "missing"/)
+    expect(() =>
+      defineTable(
+        'bad',
+        { id: pipe(string(), column({ type: 'uuid' })) },
+        // @ts-expect-error - 'missing' is not a declared column
+        { primaryKey: 'missing' },
+      ),
+    ).toThrow(SchemaError)
+    expect(() =>
+      defineTable(
+        'bad',
+        { id: pipe(string(), column({ type: 'uuid' })) },
+        // @ts-expect-error - 'missing' is not a declared column
+        { primaryKey: 'missing' },
+      ),
+    ).toThrow(/primaryKey column "missing"/)
   })
 
   it('throws SchemaError when index column is missing', () => {
-    const Bad = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
-      title('bad'),
-      table({
-        name: 'bad',
-        primaryKey: 'id',
-        indexes: [{ columns: ['nope'] }],
-      }),
-    )
-    expect(() => defineTable(Bad)).toThrow(/index column "nope"/)
+    expect(() =>
+      defineTable(
+        'bad',
+        { id: pipe(string(), column({ type: 'uuid' })) },
+        // @ts-expect-error - 'nope' is not a declared column
+        { primaryKey: 'id', indexes: [{ columns: ['nope'] }] },
+      ),
+    ).toThrow(/index column "nope"/)
   })
 
   it('throws SchemaError for empty composite primary key', () => {
-    const Bad = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
-      title('bad'),
-      table({ name: 'bad', primaryKey: [] }),
-    )
-    expect(() => defineTable(Bad)).toThrow(SchemaError)
+    expect(() =>
+      defineTable(
+        'bad',
+        { id: pipe(string(), column({ type: 'uuid' })) },
+        { primaryKey: [] },
+      ),
+    ).toThrow(SchemaError)
   })
 
   it('throws SchemaError when a column name collides with a reserved handle field', () => {
-    const Bad = pipe(
-      object({
-        id: pipe(string(), column({ type: 'uuid' })),
-        name: pipe(string(), column({ type: 'text' })),
-      }),
-      title('bad'),
-      table({ name: 'bad', primaryKey: 'id' }),
-    )
-    expect(() => defineTable(Bad)).toThrow(SchemaError)
-    expect(() => defineTable(Bad)).toThrow(/reserved/)
+    expect(() =>
+      defineTable(
+        'bad',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          name: pipe(string(), column({ type: 'text' })),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(SchemaError)
+    expect(() =>
+      defineTable(
+        'bad',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          name: pipe(string(), column({ type: 'text' })),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/reserved/)
   })
 
   it('throws SchemaError when identity is used on a non-integer type', () => {
-    const Bad = pipe(
-      object({
-        id: pipe(string(), column({ type: 'uuid', generated: 'byDefault' })),
-      }),
-      title('bad'),
-      table({ name: 'bad', primaryKey: 'id' }),
-    )
-    expect(() => defineTable(Bad)).toThrow(SchemaError)
-    expect(() => defineTable(Bad)).toThrow(/identity/)
+    expect(() =>
+      defineTable(
+        'bad',
+        {
+          id: pipe(string(), column({ type: 'uuid', generated: 'byDefault' })),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(SchemaError)
+    expect(() =>
+      defineTable(
+        'bad',
+        {
+          id: pipe(string(), column({ type: 'uuid', generated: 'byDefault' })),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/identity/)
   })
 })
 
 describe('reference with FK actions', () => {
   it('stores onDelete and onUpdate on reference metadata', () => {
-    const User = defineTable(UserSchema)
-    const PostSchema = pipe(
-      object({
+    const Post = defineTable(
+      'posts',
+      {
         id: pipe(string(), column({ type: 'uuid' })),
         authorId: reference(UserSchema, 'id', {
           onDelete: 'cascade',
           onUpdate: 'restrict',
         }),
-      }),
-      title('posts'),
-      table({ name: 'posts', primaryKey: 'id' }),
+      },
+      { primaryKey: 'id' },
     )
-    const Post = defineTable(PostSchema)
     const meta = getReferenceMetadata(Post.definition.entries.authorId)
     expect(meta).toMatchObject({
       kind: 'reference',
@@ -195,20 +217,17 @@ describe('reference with FK actions', () => {
       onDelete: 'cascade',
       onUpdate: 'restrict',
     })
-    expect(User).toBeDefined()
   })
 
   it('accepts a table handle as reference target', () => {
-    const User = defineTable(UserSchema)
-    const PostSchema = pipe(
-      object({
+    const Post = defineTable(
+      'posts',
+      {
         id: pipe(string(), column({ type: 'uuid' })),
         authorId: reference(User, 'id', { onDelete: 'set null' }),
-      }),
-      title('posts'),
-      table({ name: 'posts', primaryKey: 'id' }),
+      },
+      { primaryKey: 'id' },
     )
-    const Post = defineTable(PostSchema)
     const meta = getReferenceMetadata(Post.definition.entries.authorId)
     expect(meta?.table).toBe('users')
     expect(meta?.onDelete).toBe('set null')
@@ -216,8 +235,6 @@ describe('reference with FK actions', () => {
 })
 
 describe('InferSelect / InferInsert / InferUpdate', () => {
-  const User = defineTable(UserSchema)
-
   it('InferSelect is a full row type', () => {
     type Row = InferSelect<typeof User>
     expectTypeOf<Row['id']>().toEqualTypeOf<number>()
@@ -230,17 +247,16 @@ describe('InferSelect / InferInsert / InferUpdate', () => {
   })
 
   it('InferInsert omits always-generated and makes defaults optional', () => {
-    const AlwaysSchema = pipe(
-      object({
+    const T = defineTable(
+      't',
+      {
         id: pipe(number(), column({ type: 'integer', generated: 'always' })),
         email: pipe(string(), column({ type: 'text' })),
         active: pipe(boolean(), column({ type: 'boolean', default: true })),
         note: optional(pipe(string(), column({ type: 'text' }))),
-      }),
-      title('t'),
-      table({ name: 't', primaryKey: 'id' }),
+      },
+      { primaryKey: 'id' },
     )
-    const T = defineTable(AlwaysSchema)
     type Insert = InferInsert<typeof T>
     expectTypeOf<Insert['email']>().toEqualTypeOf<string>()
     expectTypeOf<Insert['active']>().toEqualTypeOf<boolean | undefined>()
@@ -257,16 +273,15 @@ describe('InferSelect / InferInsert / InferUpdate', () => {
   })
 
   it('InferUpdate is a partial patch without readonly / always-generated', () => {
-    const ReadonlySchema = pipe(
-      object({
+    const R = defineTable(
+      'r',
+      {
         id: pipe(number(), column({ type: 'integer', generated: 'always' })),
         createdAt: pipe(string(), column({ type: 'text', readonly: true })),
         label: pipe(string(), column({ type: 'text' })),
-      }),
-      title('r'),
-      table({ name: 'r', primaryKey: 'id' }),
+      },
+      { primaryKey: 'id' },
     )
-    const R = defineTable(ReadonlySchema)
     type Update = InferUpdate<typeof R>
     expectTypeOf<Update['label']>().toEqualTypeOf<string | undefined>()
     expectTypeOf<Update>().not.toHaveProperty('id')
@@ -274,18 +289,17 @@ describe('InferSelect / InferInsert / InferUpdate', () => {
   })
 
   it('nested object columns without reference stay JSON-shaped objects', () => {
-    const JsonSchema = pipe(
-      object({
+    const J = defineTable(
+      'j',
+      {
         id: pipe(string(), column({ type: 'uuid' })),
         payload: pipe(
           object({ key: string(), value: number() }),
           column({ type: 'jsonb' }),
         ),
-      }),
-      title('j'),
-      table({ name: 'j', primaryKey: 'id' }),
+      },
+      { primaryKey: 'id' },
     )
-    const J = defineTable(JsonSchema)
     type Select = InferSelect<typeof J>
     type Insert = InferInsert<typeof J>
     expectTypeOf<Select['payload']>().toEqualTypeOf<{

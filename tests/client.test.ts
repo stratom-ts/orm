@@ -1,9 +1,9 @@
 import { createDb } from '@/client'
 import { defineTable } from '@/defineTable'
-import { column, table } from '@/schemas'
+import { column } from '@/schemas'
 import { QueryError, SchemaError } from '@/utils/error'
 import type { Connector, Statement } from 'db0'
-import { object, pipe, string, title } from 'valibot'
+import { pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 function createMockStatement(rows: unknown[] = [{ '?column?': 1 }]): Statement {
@@ -114,14 +114,12 @@ describe('createDb', () => {
 })
 
 const Users = defineTable(
-  pipe(
-    object({
-      id: pipe(string(), column({ type: 'text' })),
-      email: pipe(string(), column({ type: 'text' })),
-    }),
-    title('users'),
-    table({ name: 'users', primaryKey: 'id', schema: 'public' }),
-  ),
+  'users',
+  {
+    id: pipe(string(), column({ type: 'text' })),
+    email: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'public' },
 )
 
 describe('registry and from()', () => {
@@ -158,11 +156,9 @@ describe('registry and from()', () => {
 
   it('rejects unregistered handles with SchemaError', async () => {
     const Other = defineTable(
-      pipe(
-        object({ id: pipe(string(), column({ type: 'text' })) }),
-        title('other'),
-        table({ name: 'other', primaryKey: 'id' }),
-      ),
+      'other',
+      { id: pipe(string(), column({ type: 'text' })) },
+      { primaryKey: 'id' },
     )
     const connector = createMockConnector()
     const db = createDb({ connector, schemas: [Users] })
