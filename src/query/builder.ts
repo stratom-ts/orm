@@ -30,7 +30,15 @@ import { QueryError } from '@/utils/error'
 
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
-import { and, cmp, columnName, columnTable, eb, toQualified } from './expressions'
+import {
+  and,
+  cmp,
+  columnName,
+  columnSchema,
+  columnTable,
+  eb,
+  toQualified,
+} from './expressions'
 import type { ValueMapper } from './mapping'
 
 /** Result when a write runs without `returning`. */
@@ -56,14 +64,14 @@ function resolveOn(on: JoinOnInput): PredicateAst {
 }
 
 function mapJoinsParams(
-  handle: TableHandle,
+  handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
   joins: readonly JoinAst[] | undefined,
 ): readonly JoinAst[] | undefined {
   if (!joins || joins.length === 0) return joins
   return joins.map((join) => ({
     ...join,
-    on: mapPredicateParams(handle, mapper, join.on)!,
+    on: mapPredicateParams(handles, mapper, join.on)!,
   }))
 }
 
@@ -127,8 +135,14 @@ type SelectSelectionInput =
 
 function selectionColumn(column: ColumnRef | string): SelectItemAst {
   const table = columnTable(column)
+  const schema = columnSchema(column)
   return table
-    ? { kind: 'column', column: columnName(column), table }
+    ? {
+        kind: 'column',
+        column: columnName(column),
+        table,
+        ...(schema !== undefined ? { schema } : {}),
+      }
     : { kind: 'column', column: columnName(column) }
 }
 
@@ -190,33 +204,35 @@ function mapSetParams(
 }
 
 function mapPredicateParams(
-  handle: TableHandle,
+  handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
   pred: PredicateAst | undefined,
 ): PredicateAst | undefined {
   if (!pred || !mapper) return pred
   switch (pred.kind) {
-    case 'cmp':
+    case 'cmp': {
       // Column-vs-column join/on predicates have no bound params.
-      if (pred.right) return pred
+      if (pred.right || pred.value === null) return pred
+      const handle = findHandle(handles, pred.table, pred.schema) ?? handles[0]!
       return {
         ...pred,
         value: mapper.mapParam(handle, pred.column, pred.value),
       }
+    }
     case 'and':
       return {
         kind: 'and',
-        preds: pred.preds.map((p) => mapPredicateParams(handle, mapper, p)!),
+        preds: pred.preds.map((p) => mapPredicateParams(handles, mapper, p)!),
       }
     case 'or':
       return {
         kind: 'or',
-        preds: pred.preds.map((p) => mapPredicateParams(handle, mapper, p)!),
+        preds: pred.preds.map((p) => mapPredicateParams(handles, mapper, p)!),
       }
     case 'not':
       return {
         kind: 'not',
-        pred: mapPredicateParams(handle, mapper, pred.pred)!,
+        pred: mapPredicateParams(handles, mapper, pred.pred)!,
       }
     default: {
       const _exhaustive: never = pred
@@ -225,18 +241,108 @@ function mapPredicateParams(
   }
 }
 
+function findHandle(
+  handles: readonly TableHandle[],
+  table: string | undefined,
+  schema: string | undefined,
+): TableHandle | undefined {
+  if (!table) return handles[0]
+  const effectiveSchema = schema ?? 'public'
+  return handles.find((handle) => {
+    const metadata = handle.getTableMetadata()
+    return metadata.name === table && (metadata.schema ?? 'public') === effectiveSchema
+  })
+}
+
+type ResultColumn = { handle: TableHandle; column: string }
+
+function resultColumnsForSelection(
+  handles: readonly TableHandle[],
+  selection: readonly SelectItemAst[],
+): Map<string, ResultColumn> {
+  const columns = new Map<string, ResultColumn>()
+  const outputNames = new Set<string>()
+
+  const add = (outputName: string, mapping?: ResultColumn) => {
+    if (outputNames.has(outputName)) {
+      throw new QueryError({
+        message: `select output column "${outputName}" is ambiguous; alias one of the selected columns`,
+      })
+    }
+    outputNames.add(outputName)
+    if (mapping) columns.set(outputName, mapping)
+  }
+
+  const addAll = (handle: TableHandle) => {
+    for (const column of Object.keys(handle.getSchema().entries)) {
+      add(column, { handle, column })
+    }
+  }
+
+  for (const item of selection) {
+    if (item.kind === 'all') {
+      if (!item.table) {
+        for (const handle of handles) addAll(handle)
+      } else {
+        const handle = findHandle(handles, item.table, item.schema)
+        if (!handle) {
+          throw new QueryError({
+            message: `selected table "${item.table}" is not joined`,
+          })
+        }
+        addAll(handle)
+      }
+    } else if (item.kind === 'column') {
+      const handle = findHandle(handles, item.table, item.schema)
+      add(item.alias ?? item.column, handle ? { handle, column: item.column } : undefined)
+    } else {
+      const expression = item.expr
+      const handle =
+        expression.kind === 'column'
+          ? findHandle(handles, expression.table, expression.schema)
+          : undefined
+      add(
+        item.alias,
+        handle && expression.kind === 'column'
+          ? { handle, column: expression.column }
+          : undefined,
+      )
+    }
+  }
+  return columns
+}
+
+function mapSelectedRows(
+  mapper: ValueMapper,
+  rows: unknown[],
+  columns: ReadonlyMap<string, ResultColumn>,
+): unknown[] {
+  return rows.map((row) => {
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
+    const output: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(row)) {
+      const mapping = columns.get(key)
+      output[key] = mapping
+        ? mapper.mapResultValue(mapping.handle, mapping.column, value)
+        : value
+    }
+    return output
+  })
+}
+
 async function runQuery<T>(
   dialect: Dialect,
   executor: Executor,
   handle: TableHandle,
   mapper: ValueMapper | undefined,
+  resultColumns: ReadonlyMap<string, ResultColumn>,
   ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
 ): Promise<T> {
   const compiled = dialect.compile(ast)
   try {
     const rows = await executor.execute(compiled)
     if (mapper && ast.kind === 'select') {
-      return mapper.mapResultRows(handle, rows) as T
+      return mapSelectedRows(mapper, rows, resultColumns) as T
     }
     if (mapper && 'returning' in ast && ast.returning) {
       return mapper.mapResultRows(handle, rows) as T
@@ -473,7 +579,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
       table: info.name,
       ...(info.schema !== undefined ? { schema: info.schema } : {}),
       set,
-      ...(where ? { where: mapPredicateParams(handle, mapper, where) } : {}),
+      ...(where ? { where: mapPredicateParams([handle], mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
     }
@@ -618,7 +724,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
       kind: 'delete',
       table: info.name,
       ...(info.schema !== undefined ? { schema: info.schema } : {}),
-      ...(where ? { where: mapPredicateParams(handle, mapper, where) } : {}),
+      ...(where ? { where: mapPredicateParams([handle], mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
     }
@@ -813,6 +919,7 @@ export type SelectBuilder<
 type SelectState = {
   selection: SelectItemAst[]
   joins: JoinAst[]
+  joinedHandles: TableHandle[]
   where?: PredicateAst
   orderBy: OrderByAst[]
   limit?: number
@@ -832,21 +939,25 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
 
   const buildAst = (): SelectAst => {
     const info = handle.getTableMetadata()
+    const handles = [handle, ...state.joinedHandles]
+    const selection =
+      state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
+    resultColumnsForSelection(handles, selection)
     return {
       kind: 'select',
       table: info.name,
       ...(info.schema !== undefined ? { schema: info.schema } : {}),
-      selection: state.selection.length === 0 ? [{ kind: 'all' }] : state.selection,
+      selection,
       ...(state.joins.length > 0
-        ? { joins: mapJoinsParams(handle, mapper, state.joins) }
+        ? { joins: mapJoinsParams(handles, mapper, state.joins) }
         : {}),
-      ...(state.where ? { where: mapPredicateParams(handle, mapper, state.where) } : {}),
+      ...(state.where ? { where: mapPredicateParams(handles, mapper, state.where) } : {}),
       ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
       ...(state.limit !== undefined ? { limit: state.limit } : {}),
       ...(state.offset !== undefined ? { offset: state.offset } : {}),
       ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
       ...(state.having
-        ? { having: mapPredicateParams(handle, mapper, state.having) }
+        ? { having: mapPredicateParams(handles, mapper, state.having) }
         : {}),
     }
   }
@@ -860,6 +971,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
       state: {
         selection: patch.selection ?? state.selection,
         joins: patch.joins ?? state.joins,
+        joinedHandles: patch.joinedHandles ?? state.joinedHandles,
         where: 'where' in patch ? patch.where : state.where,
         orderBy: patch.orderBy ?? state.orderBy,
         limit: 'limit' in patch ? patch.limit : state.limit,
@@ -871,7 +983,14 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
 
   const compile = () => dialect.compile(buildAst())
 
-  const execute = async () => runQuery(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => {
+    const ast = buildAst()
+    const resultColumns = resultColumnsForSelection(
+      [handle, ...state.joinedHandles],
+      ast.selection,
+    )
+    return runQuery(dialect, executor, handle, mapper, resultColumns, ast)
+  }
 
   const executeTakeFirst = async () => {
     const rows = (await execute()) as unknown[]
@@ -885,8 +1004,13 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
 
   return {
     selectAll(side?: TableHandle) {
-      const item: SelectItemAst = side
-        ? { kind: 'all', table: side.getTableMetadata().name }
+      const metadata = side?.getTableMetadata()
+      const item: SelectItemAst = metadata
+        ? {
+            kind: 'all',
+            table: metadata.name,
+            schema: metadata.schema ?? 'public',
+          }
         : { kind: 'all' }
       return next({ selection: [...state.selection, item] }) as never
     },
@@ -921,6 +1045,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
           {
             column: q.column,
             ...(q.table !== undefined ? { table: q.table } : {}),
+            ...(q.schema !== undefined ? { schema: q.schema } : {}),
             direction,
           },
         ],
@@ -950,16 +1075,19 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     innerJoin(table, on) {
       return next({
         joins: [...state.joins, toJoinAst('inner', table, on)],
+        joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
     leftJoin(table, on) {
       return next({
         joins: [...state.joins, toJoinAst('left', table, on)],
+        joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
     rightJoin(table, on) {
       return next({
         joins: [...state.joins, toJoinAst('right', table, on)],
+        joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
     compile,
@@ -1053,6 +1181,7 @@ function emptySelectState(): SelectState {
   return {
     selection: [],
     joins: [],
+    joinedHandles: [],
     orderBy: [],
     groupBy: [],
   }

@@ -1,5 +1,5 @@
 import type { Connector, Statement } from 'db0'
-import { number, pipe, string } from 'valibot'
+import { date, number, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable } from '@/defineTable'
@@ -70,6 +70,7 @@ const Users = defineTable(
   {
     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
     email: pipe(string(), column({ type: 'text' })),
+    createdAt: pipe(date(), column({ type: 'timestamptz' })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -83,6 +84,15 @@ const Posts = defineTable(
     score: pipe(number(), column({ type: 'integer', default: 0 })),
   },
   { primaryKey: 'id', schema: 'public' },
+)
+
+const AppUsers = defineTable(
+  'users',
+  {
+    id: pipe(number(), column({ type: 'integer' })),
+    email: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'app' },
 )
 
 describe('joins compile', () => {
@@ -105,9 +115,9 @@ describe('joins compile', () => {
 
     expect(sql).toMatch(/on/)
 
-    expect(compiled.sql).toMatch(/"posts"\."userId"/)
-    expect(compiled.sql).toMatch(/"users"\."id"/)
-    expect(compiled.sql).toMatch(/"posts"\.\*/)
+    expect(compiled.sql).toMatch(/"public\.posts"\."userId"/)
+    expect(compiled.sql).toMatch(/"public\.users"\."id"/)
+    expect(compiled.sql).toMatch(/"public\.posts"\.\*/)
     expect(compiled.sql).toContain('"email"')
     expect(compiled.params).toEqual([])
 
@@ -124,8 +134,8 @@ describe('joins compile', () => {
       .select([Posts.title, Users.email])
       .compile()
     expect(left.sql.toLowerCase()).toContain('left join')
-    expect(left.sql).toMatch(/"posts"\."title"/)
-    expect(left.sql).toMatch(/"users"\."email"/)
+    expect(left.sql).toMatch(/"public\.posts"\."title"/)
+    expect(left.sql).toMatch(/"public\.users"\."email"/)
 
     const right = db
       .from(Posts)
@@ -156,7 +166,7 @@ describe('joins compile', () => {
     expect(sql).toContain('limit')
 
     expect(compiled.params).toEqual([10, 5])
-    expect(compiled.sql).toMatch(/"users"\."email"/)
+    expect(compiled.sql).toMatch(/"public\.users"\."email"/)
 
     await db.close()
   })
@@ -173,6 +183,58 @@ describe('joins compile', () => {
         .select([Posts.title, Users.email])
         .execute(),
     ).resolves.toEqual(rows)
+
+    await db.close()
+  })
+
+  it('should map joined-table parameters and results with the owning schema', async () => {
+    const when = new Date('2026-01-02T03:04:05.000Z')
+    const connector = createMockConnector({
+      rowsBySql: () => [{ title: 'Hello', createdAt: when.toISOString() }],
+    })
+    const db = createDb({ connector, schemas: [Users, Posts] })
+
+    const query = db
+      .from(Posts)
+      .innerJoin(Users, eq(Posts.userId, Users.id))
+      .select([Posts.title, Users.createdAt])
+      .where(Users.createdAt, 'eq', when)
+
+    expect(query.compile().params).toEqual([when.toISOString()])
+    const rows = await query.execute()
+    expect(rows[0]!.createdAt).toBeInstanceOf(Date)
+    expect(rows[0]!.createdAt.toISOString()).toBe(when.toISOString())
+
+    await db.close()
+  })
+
+  it('should qualify same-named tables by schema', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, AppUsers] })
+
+    const compiled = db
+      .from(Users)
+      .innerJoin(AppUsers, eq(Users.id, AppUsers.id))
+      .select((builder) => [
+        builder.as(builder.ref(Users.id), 'publicId'),
+        builder.as(builder.ref(AppUsers.id), 'appId'),
+      ])
+      .compile()
+
+    expect(compiled.sql).toContain('"public"."users" as "public.users"')
+    expect(compiled.sql).toContain('"app"."users" as "app.users"')
+    expect(compiled.sql).toContain('"public.users"."id" = "app.users"."id"')
+
+    await db.close()
+  })
+
+  it('should reject duplicate flat output names', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users, Posts] })
+
+    expect(() =>
+      db.from(Posts).innerJoin(Users, eq(Posts.userId, Users.id)).compile(),
+    ).toThrow(/output column "id" is ambiguous/)
 
     await db.close()
   })
@@ -254,6 +316,7 @@ describe('joins compile', () => {
         { title: string } & {
           id: number | null
           email: string | null
+          createdAt: Date | null
         }
       >
     >()
@@ -276,6 +339,7 @@ describe('joins compile', () => {
         InferSelect<typeof Posts> & {
           id: number | null
           email: string | null
+          createdAt: Date | null
         }
       >
     >()

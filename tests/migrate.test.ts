@@ -992,7 +992,7 @@ describe('db.migrate() allowlist + safety', () => {
     await db.close()
   })
 
-  it('should refuse drop_column with non-null data without allow on execute', async () => {
+  it('should not add hidden drop_column work during execute', async () => {
     const connector = createMockConnector({
       tables: [UsersWithExtraLive],
       onPrepare: (sql) => {
@@ -1049,11 +1049,17 @@ describe('db.migrate() allowlist + safety', () => {
 
     const db = createDb({ connector, schemas: [UsersBase] })
 
-    await expect(db.migrate().execute()).rejects.toThrow(MigrationError)
-    await expect(db.migrate().execute()).rejects.toThrow(/drop column|non-null data/i)
+    const plan = await db.migrate().dryRun()
+    expect(plan.steps.some((step) => step.kind === 'drop_column')).toBe(false)
+    await expect(db.migrate().execute()).resolves.toBeUndefined()
 
     const drops = connector.prepared.filter((s) => /drop column/i.test(s))
     expect(drops).toHaveLength(0)
+    expect(
+      connector.prepared.some(
+        (sql) => /count\(\*\)/i.test(sql) && /is not null/i.test(sql),
+      ),
+    ).toBe(false)
 
     await db.close()
   })

@@ -1,5 +1,5 @@
 import type { Connector, Statement } from 'db0'
-import { boolean, number, optional, pipe, string } from 'valibot'
+import { boolean, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable } from '@/defineTable'
@@ -85,6 +85,7 @@ const Users = defineTable(
     displayName: optional(pipe(string(), column({ type: 'text' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
     score: pipe(number(), column({ type: 'integer', default: 0 })),
+    deletedAt: nullable(pipe(string(), column({ type: 'text' }))),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -172,6 +173,25 @@ describe('select compile', () => {
     expect(composed.sql.toLowerCase()).toMatch(/or/)
     expect(composed.sql.toLowerCase()).toMatch(/not/)
     expect(composed.params).toEqual([true, 10, 'x'])
+
+    await db.close()
+  })
+
+  it('should compile null equality without bound parameters', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+
+    const equal = db.from(Users).where(Users.deletedAt, 'eq', null).compile()
+    expect(equal.sql).toContain('"public.users"."deletedAt" is null')
+    expect(equal.params).toEqual([])
+
+    const notEqual = db.from(Users).where(Users.deletedAt, 'neq', null).compile()
+    expect(notEqual.sql).toContain('"public.users"."deletedAt" is not null')
+    expect(notEqual.params).toEqual([])
+
+    expect(() => db.from(Users).where(Users.deletedAt, 'gt', null).compile()).toThrow(
+      /does not accept null/,
+    )
 
     await db.close()
   })

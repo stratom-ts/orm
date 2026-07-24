@@ -179,30 +179,6 @@ async function assertColumnHasNoNulls(
   }
 }
 
-/**
- * Refuse DROP COLUMN when the column has any non-null data unless allowed.
- * When allow('dropColumn') is set, skip this check.
- */
-async function assertColumnHasNoData(
-  executor: Executor,
-  step: Extract<MigrationStep, { kind: 'drop_column' }>,
-): Promise<void> {
-  const schemaName = effectiveSchema(step.schema)
-  const tableSql = `${quoteIdent(schemaName)}.${quoteIdent(step.table)}`
-  const columnSql = quoteIdent(step.column)
-  const rows = await executor.execute({
-    sql: `select count(*)::int as count from ${tableSql} where ${columnSql} is not null`,
-    params: [],
-  })
-  const raw = rows[0] as { count?: unknown } | undefined
-  const count = Number(raw?.count ?? 0)
-  if (count > 0) {
-    throw new MigrationError({
-      message: `Cannot drop column '${schemaName}.${step.table}.${step.column}' - column has non-null data. Use allow('dropColumn') or migrate data first.`,
-    })
-  }
-}
-
 function allowForStep(step: MigrationStep): MigrationAllow | null {
   switch (step.kind) {
     case 'drop_column':
@@ -219,8 +195,7 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
 /**
  * Diff registered handles against a catalog snapshot into structured plan steps.
  * Destructive drops are included only when the corresponding allow flag is set.
- * Without allow, drop_column with data is refused at execute; orphan tables/indexes
- * are never planned unless allow('dropTable'|'dropIndex').
+ * Without allow, columns, tables, and indexes are left unchanged.
  */
 export function planMigration(
   schemas: readonly TableHandle[],
@@ -404,58 +379,6 @@ export function planMigration(
   return { steps }
 }
 
-/**
- * When drop_column is needed but not allowed, surface MigrationError on execute
- * if the column still has data. Empty columns could be dropped safely without
- * allow per design ("Only if data-safe"), so we plan those only at execute time
- * after data check — for dryRun without allow we omit destructive steps.
- *
- * For execute without allow: after building the safe plan, scan live columns
- * removed from registry and either drop if empty or throw MigrationError.
- */
-async function planUnsafeDropColumns(
-  schemas: readonly TableHandle[],
-  catalog: CatalogSnapshot,
-  dialect: Dialect,
-  executor: Executor,
-  allowed: ReadonlySet<MigrationAllow>,
-): Promise<MigrationStep[]> {
-  if (allowed.has('dropColumn')) return []
-
-  const existing = catalogTableMap(catalog)
-  const extra: MigrationStep[] = []
-
-  for (const handle of schemas) {
-    const info = handle.getTableMetadata()
-    const key = tableKey(info.schema, info.name)
-    const live = existing.get(key)
-    if (!live) continue
-    const createAst = buildCreateTableAst(handle, dialect)
-    const desiredColumnNames = new Set(createAst.columns.map((c) => c.name))
-
-    for (const liveCol of live.columns ?? []) {
-      if (desiredColumnNames.has(liveCol.name)) continue
-      const step: Extract<MigrationStep, { kind: 'drop_column' }> = {
-        kind: 'drop_column',
-        ...schemaField(info.schema),
-        table: info.name,
-        column: liveCol.name,
-      }
-      // Data-safe empty column: allow drop without allowlist
-      // Non-null data: refuse with MigrationError
-      try {
-        await assertColumnHasNoData(executor, step)
-        extra.push(step)
-      } catch (error) {
-        if (error instanceof MigrationError) throw error
-        throw error
-      }
-    }
-  }
-
-  return extra
-}
-
 function stepToAst(
   step: MigrationStep,
   handles: Map<string, TableHandle>,
@@ -626,26 +549,7 @@ export function createMigrateBuilder(options: {
         const catalog = await dialect.introspect(executor)
         const plan = planMigration(schemas, catalog, dialect, allowed)
 
-        // Without allow('dropColumn'): data-safe empty drops may still apply;
-        // columns with data throw MigrationError.
-        let extraDrops: MigrationStep[] = []
-        try {
-          extraDrops = await planUnsafeDropColumns(
-            schemas,
-            catalog,
-            dialect,
-            executor,
-            allowed,
-          )
-        } catch (cause) {
-          if (cause instanceof MigrationError) throw cause
-          throw new MigrationError({
-            message: cause instanceof Error ? cause.message : 'Migration failed',
-            ...(cause !== undefined ? { cause } : {}),
-          })
-        }
-
-        const steps = [...plan.steps, ...extraDrops]
+        const steps = plan.steps
         if (steps.length === 0) return
 
         await executor.run({ sql: 'begin', params: [] })
@@ -654,14 +558,9 @@ export function createMigrateBuilder(options: {
             if (step.kind === 'set_not_null') {
               await assertColumnHasNoNulls(executor, step)
             }
-            if (step.kind === 'drop_column' && allowed.has('dropColumn')) {
-              // allowed: skip data check
-            } else if (step.kind === 'drop_column') {
-              await assertColumnHasNoData(executor, step)
-            }
-            // Guard: never apply destructive without allow except data-safe drop_column
+            // Guard: never apply destructive work absent from the dry-run allowlist.
             const need = allowForStep(step)
-            if (need && !allowed.has(need) && !(step.kind === 'drop_column')) {
+            if (need && !allowed.has(need)) {
               throw new MigrationError({
                 message: `Destructive migration step '${step.kind}' requires allow('${need}')`,
               })

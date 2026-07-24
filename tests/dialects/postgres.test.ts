@@ -51,6 +51,17 @@ function col(
 const { inferColumnType, compile } = postgresDialect
 
 describe('@/dialects/postgres', () => {
+  describe('normalizeDataType', () => {
+    it('should keep real and double precision distinct', () => {
+      expect(postgresDialect.normalizeDataType('float4')).toBe('real')
+      expect(postgresDialect.normalizeDataType('real')).toBe('real')
+      expect(postgresDialect.normalizeDataType('float8')).toBe('double precision')
+      expect(postgresDialect.normalizeDataType('double precision')).toBe(
+        'double precision',
+      )
+    })
+  })
+
   describe('inferColumnType - string schemas', () => {
     it('should return text for string schema without constraints', () => {
       expect(inferColumnType(string())).toBe('text')

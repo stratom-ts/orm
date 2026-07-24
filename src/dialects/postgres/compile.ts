@@ -43,6 +43,10 @@ function qualifyPostgresTable(schema: string | undefined, table: string): string
   return `${quoteIdent(schemaName)}.${quoteIdent(table)}`
 }
 
+function postgresTableAlias(schema: string | undefined, table: string): string {
+  return `${schema ?? 'public'}.${table}`
+}
+
 /**
  * Maps a comparison operator to its SQL symbol.
  *
@@ -93,9 +97,9 @@ function compileReturning(returning: ReturningAst | undefined): string {
  *
  * @returns Qualified column reference (e.g. `"users"."id"`)
  */
-function qualifyColumn(column: string, table?: string): string {
+function qualifyColumn(column: string, table?: string, schema?: string): string {
   const col = quoteIdent(column)
-  return table ? `${quoteIdent(table)}.${col}` : col
+  return table ? `${quoteIdent(postgresTableAlias(schema, table))}.${col}` : col
 }
 
 /**
@@ -106,7 +110,7 @@ function qualifyColumn(column: string, table?: string): string {
  * @returns SQL column reference
  */
 function compileQualifiedColumn(col: QualifiedColumnAst): string {
-  return qualifyColumn(col.column, col.table)
+  return qualifyColumn(col.column, col.table, col.schema)
 }
 
 /**
@@ -120,10 +124,15 @@ function compileQualifiedColumn(col: QualifiedColumnAst): string {
 function compilePredicate(pred: PredicateAst, params: unknown[]): string {
   switch (pred.kind) {
     case 'cmp': {
-      const left = qualifyColumn(pred.column, pred.table)
+      const left = qualifyColumn(pred.column, pred.table, pred.schema)
       const op = comparisonSql(pred.op)
       if (pred.right) {
         return `${left} ${op} ${compileQualifiedColumn(pred.right)}`
+      }
+      if (pred.value === null) {
+        if (pred.op === 'eq') return `${left} is null`
+        if (pred.op === 'neq') return `${left} is not null`
+        throw new Error(`comparison '${pred.op}' does not accept null`)
       }
       params.push(pred.value)
       return `${left} ${op} $${params.length}`
@@ -171,7 +180,7 @@ function compileWhereClause(where: PredicateAst | undefined, params: unknown[]):
 function compileExpr(expr: SqlExprAst, params: unknown[]): string {
   switch (expr.kind) {
     case 'column':
-      return qualifyColumn(expr.column, expr.table)
+      return qualifyColumn(expr.column, expr.table, expr.schema)
     case 'count_all':
       return 'count(*)'
     case 'count':
@@ -213,9 +222,11 @@ function compileExpr(expr: SqlExprAst, params: unknown[]): string {
 function compileSelectItem(item: SelectItemAst, params: unknown[]): string {
   switch (item.kind) {
     case 'all':
-      return item.table ? `${quoteIdent(item.table)}.*` : '*'
+      return item.table
+        ? `${quoteIdent(postgresTableAlias(item.schema, item.table))}.*`
+        : '*'
     case 'column': {
-      const col = qualifyColumn(item.column, item.table)
+      const col = qualifyColumn(item.column, item.table, item.schema)
       return item.alias ? `${col} as ${quoteIdent(item.alias)}` : col
     }
     case 'expr':
@@ -238,7 +249,7 @@ function compileOrderBy(orderBy: readonly OrderByAst[] | undefined): string {
   if (!orderBy || orderBy.length === 0) return ''
   const parts = orderBy.map(
     (o) =>
-      `${qualifyColumn(o.column, o.table)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
+      `${qualifyColumn(o.column, o.table, o.schema)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
   )
   return ` order by ${parts.join(', ')}`
 }
@@ -253,6 +264,7 @@ function compileOrderBy(orderBy: readonly OrderByAst[] | undefined): string {
  */
 function compileJoin(join: JoinAst, params: unknown[]): string {
   const tableSql = qualifyPostgresTable(join.schema, join.table)
+  const tableAlias = quoteIdent(postgresTableAlias(join.schema, join.table))
 
   let type: string
   switch (join.type) {
@@ -267,7 +279,7 @@ function compileJoin(join: JoinAst, params: unknown[]): string {
       break
   }
 
-  return ` ${type} ${tableSql} on ${compilePredicate(join.on, params)}`
+  return ` ${type} ${tableSql} as ${tableAlias} on ${compilePredicate(join.on, params)}`
 }
 
 /**
@@ -279,12 +291,13 @@ function compileJoin(join: JoinAst, params: unknown[]): string {
  */
 function compileSelect(node: SelectAst): CompiledQuery {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
+  const tableAlias = quoteIdent(postgresTableAlias(node.schema, node.table))
   const params: unknown[] = []
   const selection =
     !node.selection || node.selection.length === 0
       ? '*'
       : node.selection.map((item) => compileSelectItem(item, params)).join(', ')
-  let sql = `select ${selection} from ${tableSql}`
+  let sql = `select ${selection} from ${tableSql} as ${tableAlias}`
   if (node.joins) {
     for (const join of node.joins) {
       sql += compileJoin(join, params)
