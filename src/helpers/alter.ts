@@ -1,3 +1,5 @@
+import type { DialectAdapter } from '@/dialects'
+import { postgresAdapter } from '@/dialects'
 import { addColumn, checkColumnHasData, checkColumnHasNulls } from './column'
 import type { ColumnDiff } from './diff'
 import { diffTableSchema } from './diff'
@@ -26,6 +28,7 @@ async function alterColumnSafe<T>(
   trx: Kysely<T>,
   tableName: string,
   column: ColumnDiff,
+  _adapter: DialectAdapter = postgresAdapter,
 ): Promise<void> {
   if (!column.current) return
   const nullable = column.local.nullable ?? true
@@ -80,8 +83,9 @@ export async function alterTableSafe<T>(
   trx: Kysely<T>,
   schema: TableSchema,
   dbColumns: ColumnMetadata[],
+  adapter: DialectAdapter = postgresAdapter,
 ): Promise<void> {
-  const diff = diffTableSchema(schema, dbColumns)
+  const diff = diffTableSchema(schema, dbColumns, adapter)
   if (!diff) return
 
   if (diff.removed.length > 0) {
@@ -107,7 +111,7 @@ export async function alterTableSafe<T>(
 
   if (diff.modified.length > 0) {
     for (const column of diff.modified) {
-      await alterColumnSafe(trx, diff.tableName, column)
+      await alterColumnSafe(trx, diff.tableName, column, adapter)
     }
   }
 }
