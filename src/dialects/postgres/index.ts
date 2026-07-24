@@ -6,13 +6,6 @@ import { introspectPostgres } from './introspect'
 import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
 import { normalizePostgresDataType } from './normalize'
 
-export { compilePostgres } from './compile'
-export { inferPostgresColumnType } from './infer'
-export { introspectPostgres } from './introspect'
-export { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
-export { normalizePostgresDataType, postgresBaseType } from './normalize'
-export { assertSafePostgresDataType, formatPostgresDefault } from './validate'
-
 /**
  * PostgreSQL dialect plugin for the db0 stack.
  *
