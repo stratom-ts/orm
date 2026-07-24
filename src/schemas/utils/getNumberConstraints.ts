@@ -2,12 +2,16 @@ import type { BaseIssue, BaseSchema } from 'valibot'
 import type { NumberConstraints } from '@/types/constraints'
 
 /**
- * Extracts number constraints (minValue, maxValue, isInteger) from a schema.
+ * Reads min/max value and integer constraints from a number schema pipe.
  *
- * Parses the schema's pipe to find numeric constraints for number types.
+ * @param schema - Number schema that may include constraint actions
+ * @returns Extracted `minValue`, `maxValue`, and `isInteger` if present
  *
- * @param schema - The schema to extract constraints from
- * @returns Object containing minValue, maxValue, and isInteger constraints if defined
+ * @example
+ * ```ts
+ * const c = getNumberConstraints(pipe(number(), minValue(0), integer()))
+ * // { minValue: 0, isInteger: true }
+ * ```
  */
 export function getNumberConstraints(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,

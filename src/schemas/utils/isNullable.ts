@@ -1,13 +1,16 @@
 import type { BaseIssue, BaseSchema } from 'valibot'
 
 /**
- * Determines if a schema allows null values.
+ * Returns whether a schema allows null or undefined values.
  *
- * Checks for nullable, optional, and nullish wrapper types, as well as
- * pipe actions that indicate nullability.
+ * @param schema - Schema to inspect
+ * @returns `true` if optional, nullable, or nullish
  *
- * @param schema - The schema to check for nullability
- * @returns True if the schema allows null values
+ * @example
+ * ```ts
+ * isNullable(optional(string())) // true
+ * isNullable(string()) // false
+ * ```
  */
 export function isNullable(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,

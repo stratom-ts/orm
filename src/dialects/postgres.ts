@@ -15,6 +15,12 @@ import type {
 } from 'valibot'
 import type { DialectAdapter } from './types'
 
+/**
+ * Maps string length constraints to a PostgreSQL string type.
+ *
+ * @param constraints - min/max length from the schema pipe
+ * @returns `char(n)`, `varchar(n)`, or `text`
+ */
 function inferPostgresStringType(
   constraints: StringConstraints,
 ): ColumnDataType {
@@ -28,6 +34,12 @@ function inferPostgresStringType(
   return 'text'
 }
 
+/**
+ * Maps number constraints to a PostgreSQL numeric type.
+ *
+ * @param constraints - min/max value and integer flags
+ * @returns `smallint`, `integer`, `bigint`, or `real`
+ */
 function inferPostgresNumberType(constraints: NumberConstraints) {
   if (
     isNumber(constraints.minValue) &&
@@ -47,6 +59,12 @@ function inferPostgresNumberType(constraints: NumberConstraints) {
   return 'real'
 }
 
+/**
+ * Maps a Valibot literal value to a PostgreSQL column type.
+ *
+ * @param literal - Literal value from the schema
+ * @returns Inferred column type for the literal
+ */
 function inferPostgresLiteralType(literal: Literal) {
   if (typeof literal === 'string') return 'text'
   if (typeof literal === 'number')
@@ -55,6 +73,18 @@ function inferPostgresLiteralType(literal: Literal) {
   return 'text'
 }
 
+/**
+ * Infers a PostgreSQL column type from a Valibot schema.
+ *
+ * @param schema - Column schema (may be wrapped or piped)
+ * @returns PostgreSQL column data type
+ *
+ * @example
+ * ```ts
+ * inferPostgresColumnType(string()) // 'text'
+ * inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
+ * ```
+ */
 export function inferPostgresColumnType(
   schema: BaseSchema<unknown, unknown, BaseIssue<unknown>>,
 ): ColumnDataType {
@@ -89,6 +119,12 @@ export function inferPostgresColumnType(
   }
 }
 
+/**
+ * Normalizes PostgreSQL type names and aliases for comparison.
+ *
+ * @param dataType - Raw type string (e.g. `int4`, `character varying`)
+ * @returns Canonical type (e.g. `integer`, `varchar`)
+ */
 function normalizePostgresDataType(dataType: string): string {
   const normalized = dataType.toLowerCase().trim()
   const typeMappings: Record<string, string> = {
@@ -124,6 +160,14 @@ function normalizePostgresDataType(dataType: string): string {
   return normalized
 }
 
+/**
+ * PostgreSQL dialect adapter for type inference and normalization.
+ *
+ * @example
+ * ```ts
+ * await runMigrations(db, schemas, postgresAdapter)
+ * ```
+ */
 export const postgresAdapter: DialectAdapter = {
   inferColumnType(schema) {
     return inferPostgresColumnType(schema)
