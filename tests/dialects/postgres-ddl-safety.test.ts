@@ -1,16 +1,16 @@
+import { buildCreateTableAst } from '@/ddl'
+import { defineTable } from '@/defineTable'
 import {
   assertSafePostgresDataType,
   formatPostgresDefault,
   postgresDialect,
 } from '@/dialects'
-import { buildCreateTableAst } from '@/ddl'
-import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 describe('assertSafePostgresDataType', () => {
-  it('accepts common types and length/precision forms', () => {
+  it('should accept common types and length/precision forms', () => {
     expect(assertSafePostgresDataType('text')).toBe('text')
     expect(assertSafePostgresDataType('UUID')).toBe('uuid')
     expect(assertSafePostgresDataType('varchar(255)')).toBe('varchar(255)')
@@ -20,7 +20,7 @@ describe('assertSafePostgresDataType', () => {
     )
   })
 
-  it('rejects injection and unknown types', () => {
+  it('should reject injection and unknown types', () => {
     expect(() => assertSafePostgresDataType('text; drop table users')).toThrow(
       /unsafe|unsupported/,
     )
@@ -31,28 +31,28 @@ describe('assertSafePostgresDataType', () => {
 })
 
 describe('formatPostgresDefault', () => {
-  it('formats scalars as SQL literals', () => {
+  it('should format scalars as SQL literals', () => {
     expect(formatPostgresDefault(null)).toBe('null')
     expect(formatPostgresDefault(true)).toBe('true')
     expect(formatPostgresDefault(42)).toBe('42')
     expect(formatPostgresDefault("O'Brien")).toBe("'O''Brien'")
   })
 
-  it('emits allowlisted expressions unquoted', () => {
+  it('should emit allowlisted expressions unquoted', () => {
     expect(formatPostgresDefault('now()')).toBe('now()')
     expect(formatPostgresDefault('NOW()')).toBe('now()')
     expect(formatPostgresDefault('current_timestamp')).toBe('current_timestamp')
     expect(formatPostgresDefault('gen_random_uuid()')).toBe('gen_random_uuid()')
   })
 
-  it('quotes unknown strings so they are not executed as SQL', () => {
+  it('should quote unknown strings so they are not executed as SQL', () => {
     expect(formatPostgresDefault('drop table users')).toBe("'drop table users'")
     expect(formatPostgresDefault('now(); select 1')).toBe("'now(); select 1'")
   })
 })
 
 describe('create table compile uses safe type/default paths', () => {
-  it('compiles now() default without string quotes', () => {
+  it('should compile now() default without string quotes', () => {
     const T = defineTable(
       'events',
       {
@@ -64,14 +64,16 @@ describe('create table compile uses safe type/default paths', () => {
       },
       { primaryKey: 'id' },
     )
+
     const sql = postgresDialect
       .compile(buildCreateTableAst(T, postgresDialect))
       .sql.toLowerCase()
+
     expect(sql).toContain('default now()')
     expect(sql).not.toContain("default 'now()'")
   })
 
-  it('throws when column type is not allowlisted', () => {
+  it('should throw when column type is not allowlisted', () => {
     const T = defineTable(
       't',
       {
@@ -79,11 +81,14 @@ describe('create table compile uses safe type/default paths', () => {
       },
       { primaryKey: 'id' },
     )
+
     const ast = buildCreateTableAst(T, postgresDialect)
+
     const bad = {
       ...ast,
       columns: [{ ...ast.columns[0]!, dataType: 'evil(); drop table x' }],
     }
+
     expect(() => postgresDialect.compile(bad)).toThrow(/unsafe|unsupported/)
   })
 })

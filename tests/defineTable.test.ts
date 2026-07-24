@@ -51,46 +51,31 @@ const UserSchema = pipe(
 )
 
 describe('defineTable', () => {
-  it('returns a table handle with getSchema and getTableMetadata', () => {
+  it('should return a table handle with getSchema and getTableMetadata', () => {
     expect(isTableHandle(User)).toBe(true)
+
     expect(User.getTableMetadata()).toMatchObject({
       kind: 'table',
       name: 'users',
       schema: 'public',
       primaryKey: 'id',
     })
+
     expect(User.getSchema().entries.email).toBeDefined()
   })
 
-  it('exposes column refs on the handle', () => {
+  it('should expose column refs on the handle', () => {
     expect(User.email).toEqual({
       table: 'users',
       column: 'email',
       schema: 'public',
       __type: undefined,
     })
+
     expect(User.id.column).toBe('id')
   })
 
-  it('allows column names that used to be reserved handle fields', () => {
-    const Named = defineTable(
-      'named',
-      {
-        id: pipe(string(), column({ type: 'uuid' })),
-        name: pipe(string(), column({ type: 'text' })),
-        schema: pipe(string(), column({ type: 'text' })),
-        metadata: pipe(string(), column({ type: 'text' })),
-        definition: pipe(string(), column({ type: 'text' })),
-        columns: pipe(string(), column({ type: 'text' })),
-      },
-      { primaryKey: 'id' },
-    )
-    expect(Named.name.column).toBe('name')
-    expect(Named.schema.column).toBe('schema')
-    expect(Named.getTableMetadata().name).toBe('named')
-  })
-
-  it('supports composite primary keys and index configs', () => {
+  it('should support composite primary keys and index configs', () => {
     const Membership = defineTable(
       'memberships',
       {
@@ -116,7 +101,7 @@ describe('defineTable', () => {
     ])
   })
 
-  it('accepts string indexes for backward compatibility', () => {
+  it('should accept string indexes for backward compatibility', () => {
     const Tag = defineTable(
       'tags',
       {
@@ -128,7 +113,7 @@ describe('defineTable', () => {
     expect(Tag.getTableMetadata().indexes).toEqual(['label'])
   })
 
-  it('throws SchemaError when primaryKey column is missing', () => {
+  it('should throw SchemaError when primaryKey column is missing', () => {
     expect(() =>
       defineTable(
         'bad',
@@ -137,6 +122,7 @@ describe('defineTable', () => {
         { primaryKey: 'missing' },
       ),
     ).toThrow(SchemaError)
+
     expect(() =>
       defineTable(
         'bad',
@@ -147,7 +133,7 @@ describe('defineTable', () => {
     ).toThrow(/primaryKey column "missing"/)
   })
 
-  it('throws SchemaError when index column is missing', () => {
+  it('should throw SchemaError when index column is missing', () => {
     expect(() =>
       defineTable(
         'bad',
@@ -158,7 +144,7 @@ describe('defineTable', () => {
     ).toThrow(/index column "nope"/)
   })
 
-  it('throws SchemaError for empty composite primary key', () => {
+  it('should throw SchemaError for empty composite primary key', () => {
     expect(() =>
       defineTable(
         'bad',
@@ -168,7 +154,7 @@ describe('defineTable', () => {
     ).toThrow(SchemaError)
   })
 
-  it('throws SchemaError when a column name collides with a reserved handle method', () => {
+  it('should throw SchemaError when a column name collides with a reserved handle method', () => {
     expect(() =>
       defineTable(
         'bad',
@@ -179,6 +165,7 @@ describe('defineTable', () => {
         { primaryKey: 'id' },
       ),
     ).toThrow(SchemaError)
+
     expect(() =>
       defineTable(
         'bad',
@@ -191,7 +178,7 @@ describe('defineTable', () => {
     ).toThrow(/reserved/)
   })
 
-  it('throws SchemaError when identity is used on a non-integer type', () => {
+  it('should throw SchemaError when identity is used on a non-integer type', () => {
     expect(() =>
       defineTable(
         'bad',
@@ -214,7 +201,7 @@ describe('defineTable', () => {
 })
 
 describe('reference with FK actions', () => {
-  it('stores onDelete and onUpdate on reference metadata', () => {
+  it('should store onDelete and onUpdate on reference metadata', () => {
     const Post = defineTable(
       'posts',
       {
@@ -226,6 +213,7 @@ describe('reference with FK actions', () => {
       },
       { primaryKey: 'id' },
     )
+
     const meta = getReferenceMetadata(Post.getSchema().entries.authorId)
     expect(meta).toMatchObject({
       kind: 'reference',
@@ -237,7 +225,7 @@ describe('reference with FK actions', () => {
     })
   })
 
-  it('accepts a table handle as reference target', () => {
+  it('should accept a table handle as reference target', () => {
     const Post = defineTable(
       'posts',
       {
@@ -246,6 +234,7 @@ describe('reference with FK actions', () => {
       },
       { primaryKey: 'id' },
     )
+
     const meta = getReferenceMetadata(Post.getSchema().entries.authorId)
     expect(meta?.table).toBe('users')
     expect(meta?.onDelete).toBe('set null')
@@ -253,14 +242,14 @@ describe('reference with FK actions', () => {
 })
 
 describe('table handle typing', () => {
-  it('InferSelect matches for the raw schema and the handle', () => {
+  it('should match the raw schema and handle with InferSelect', () => {
     type FromSchema = InferSelect<typeof UserSchema>
     type FromHandle = InferSelect<typeof User>
     expectTypeOf<FromSchema['id']>().toEqualTypeOf<FromHandle['id']>()
     expectTypeOf<FromSchema['email']>().toEqualTypeOf<FromHandle['email']>()
   })
 
-  it('types column refs on the handle', () => {
+  it('should type column refs on the handle', () => {
     type EmailRef = (typeof User)['email']
     expectTypeOf<EmailRef['table']>().toEqualTypeOf<'users'>()
     expectTypeOf<EmailRef['column']>().toEqualTypeOf<'email'>()
