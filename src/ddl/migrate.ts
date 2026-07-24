@@ -585,8 +585,9 @@ export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
   dialect: Dialect
   executor: Executor
+  assertCanExecute?: () => void
 }): MigrateBuilder {
-  const { schemas, dialect, executor } = options
+  const { schemas, dialect, executor, assertCanExecute } = options
   const handles = new Map<string, TableHandle>()
   for (const handle of schemas) {
     const info = handle.getTableMetadata()
@@ -621,6 +622,7 @@ export function createMigrateBuilder(options: {
     },
 
     async execute() {
+      assertCanExecute?.()
       await acquireMigrateLock(executor)
       try {
         const catalog = await dialect.introspect(executor)
