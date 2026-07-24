@@ -1,44 +1,91 @@
 # schema-orm
 
-A schema-driven ORM for PostgreSQL, built on [Valibot](https://valibot.dev/) and [Kysely](https://kysely.dev/).
-
-Define your database schema using Valibot schemas with custom metadata actions, and schema-orm handles type inference, schema diffing, and safe migrations.
+A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desired-state migrations, and a typed query builder. Transport is [db0](https://db0.unjs.io/); app code uses schema-orm only.
 
 ## Features
 
-- **Schema-defined tables** — Define tables and columns using Valibot schemas with metadata actions
-- **PostgreSQL type inference** — Automatically maps Valibot types (string, number, boolean, date, etc.) to PostgreSQL column types
-- **Schema diffing** — Compare local schema definitions against live database schemas
-- **Safe migrations** — Generate and run ALTER TABLE migrations with data integrity checks (prevents dropping columns with data, setting NOT NULL on columns with NULL values)
-- **Index management** — Create indexes from table metadata
-- **Foreign key references** — Define relationships using the `references()` helper
+- **Schema-defined tables** — Valibot + `column` / `table` / `references`, wrapped with `defineTable`
+- **db0 connector** — `createDb({ connector, schemas })` owns the connection lifecycle
+- **Desired-state migrations** — `db.migrate().dryRun()` / `.execute()` with safe defaults, allowlist, and advisory lock
+- **Typed CRUD** — `db.from(Table).select|insert|update|delete` with column refs
+- **Transactions** — callback API; nested calls use savepoints
+- **Tagged errors** — `MigrationError`, `QueryError`, `ValidationError`, `SchemaError`
 
 ## Installation
 
 ```bash
-pnpm add schema-orm valibot kysely
+pnpm add schema-orm valibot db0
+# plus the driver required by your connector (e.g. pg for PostgreSQL)
 ```
 
 ## Usage
 
 ```typescript
-import { pipe, object, string, number, title } from 'valibot'
-import { column, table, runMigrations } from 'schema-orm'
+import { createDb, defineTable, column, table, references } from 'schema-orm'
+import { postgresql } from 'db0/connectors/postgresql'
+import { number, object, pipe, string, title } from 'valibot'
 
-const UserSchema = pipe(
-  object({
-    id: pipe(string(), column({ type: 'uuid' })),
-    name: pipe(string(), column({ type: 'varchar(255)' })),
-    email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
-    age: pipe(number(), column({ type: 'integer' })),
-  }),
-  title('users'),
-  table({ name: 'users', primaryKey: 'id' }),
+const User = defineTable(
+  pipe(
+    object({
+      id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+      email: pipe(string(), column({ type: 'text', unique: true })),
+    }),
+    title('users'),
+    table({ name: 'users', primaryKey: 'id' }),
+  ),
 )
 
-// Run migrations against your database
-await runMigrations(db, [UserSchema])
+const db = createDb({
+  connector: postgresql({ url: process.env.DATABASE_URL! }),
+  schemas: [User],
+})
+
+await db.migrate().execute()
+
+const user = await db
+  .from(User)
+  .insert({ email: 'a@b.com' })
+  .returning([User.id, User.email])
+  .executeTakeFirstOrThrow()
+
+const rows = await db
+  .from(User)
+  .select([User.id, User.email])
+  .where(User.email, 'eq', 'a@b.com')
+  .orderBy(User.email, 'asc')
+  .limit(10)
+  .execute()
+
+await db.transaction(async (trx) => {
+  await trx
+    .from(User)
+    .update({ email: 'b@c.com' })
+    .where(User.id, 'eq', user.id)
+    .execute()
+})
+
+await db.close()
 ```
+
+### Migrations
+
+```typescript
+const plan = await db.migrate().dryRun()
+await db.migrate().execute()
+await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
+```
+
+### Errors
+
+| Error             | When                                               |
+| ----------------- | -------------------------------------------------- |
+| `MigrationError`  | Unsafe migration, lock failure, unsupported diff   |
+| `QueryError`      | Execution / closed client / driver failures        |
+| `ValidationError` | Insert/update Valibot validation failures          |
+| `SchemaError`     | Invalid `defineTable` / metadata / registry misuse |
+
+Use `catchTag` / `catchTags` for tagged handling.
 
 ## License
 

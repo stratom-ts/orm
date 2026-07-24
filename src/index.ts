@@ -1,9 +1,50 @@
-export type { ColumnType, Generated, GeneratedAlways, JSONColumnType } from 'kysely'
-
-export * from '@/helpers'
-export * from './migrator'
-export * from '@/schemas'
 export * from './client'
+export * from '@/schemas'
 export * from '@/types'
 export * from '@/utils'
 export * from '@/dialects'
+export {
+  defineTable,
+  isTableHandle,
+  TABLE_HANDLE,
+  type ColumnRef,
+  type TableHandle,
+} from './defineTable'
+export type {
+  DeleteBuilder,
+  ExpressionBuilder,
+  InsertBuilder,
+  QueryBuilder,
+  SelectBuilder,
+  UpdateBuilder,
+  WriteResult,
+} from '@/query'
+export {
+  and,
+  count,
+  countAll,
+  dateTrunc,
+  eb,
+  eq,
+  gt,
+  gte,
+  length,
+  lower,
+  lt,
+  lte,
+  max,
+  min,
+  neq,
+  not,
+  now,
+  or,
+  sum,
+  upper,
+} from '@/query'
+export type {
+  MigrateBuilder,
+  MigrationAllow,
+  MigrationPlan,
+  MigrationStep,
+} from '@/ddl'
+export { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from '@/ddl'
