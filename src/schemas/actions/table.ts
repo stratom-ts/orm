@@ -1,11 +1,11 @@
 import type { BaseIssue, BaseSchema, MetadataAction } from 'valibot'
 import { getMetadata, metadata } from 'valibot'
-import type { TableMetadata } from './types'
+import type { TableIndex, TableMetadata } from './types'
 
 /**
  * Attaches table metadata to a Valibot object schema for migrations.
  *
- * @param config - Table name, primary key, optional indexes and DB schema
+ * @param config - Table name, primary key(s), optional indexes and DB schema
  * @returns Metadata action for use in a `pipe` after `title()`
  *
  * @example
@@ -13,17 +13,35 @@ import type { TableMetadata } from './types'
  * const UserSchema = pipe(
  *   object({ id: pipe(string(), column({ type: 'uuid' })) }),
  *   title('users'),
- *   table({ name: 'users', primaryKey: 'id', indexes: ['email'] }),
+ *   table({
+ *     name: 'users',
+ *     primaryKey: 'id',
+ *     indexes: [{ columns: ['email'], unique: true }],
+ *     schema: 'public',
+ *   }),
  * )
  * ```
  */
 export function table<
   TInput = unknown,
-  const TConfig extends { name: string; primaryKey: string; indexes?: string[]; schema?: string } = { name: string; primaryKey: string },
->(
-  config: TConfig,
-): MetadataAction<TInput, TableMetadata<TConfig['name']>> {
-  return metadata({ ...config, kind: 'table' })
+  const TConfig extends {
+    name: string
+    primaryKey: string | readonly string[]
+    indexes?: TableIndex[]
+    schema?: string
+  } = { name: string; primaryKey: string },
+>(config: TConfig): MetadataAction<TInput, TableMetadata<TConfig['name']>> {
+  const primaryKey = Array.isArray(config.primaryKey)
+    ? [...config.primaryKey]
+    : config.primaryKey
+
+  return metadata({
+    kind: 'table',
+    name: config.name,
+    primaryKey,
+    ...(config.indexes !== undefined ? { indexes: config.indexes } : {}),
+    ...(config.schema !== undefined ? { schema: config.schema } : {}),
+  }) as MetadataAction<TInput, TableMetadata<TConfig['name']>>
 }
 
 /**

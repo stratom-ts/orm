@@ -47,6 +47,28 @@ describe('references action', () => {
     expect(metadata).toBeDefined()
     expect(metadata!.dataType).toBe('text')
   })
+
+  it('should attach onDelete and onUpdate options', () => {
+    const UserSchema = pipe(
+      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      title('users'),
+      table({ name: 'users', primaryKey: 'id' }),
+    )
+
+    const ref = references(UserSchema, 'id', {
+      onDelete: 'cascade',
+      onUpdate: 'set null',
+    })
+
+    const metadata = getReferenceMetadata(ref)
+    expect(metadata).toMatchObject({
+      kind: 'reference',
+      table: 'users',
+      key: 'id',
+      onDelete: 'cascade',
+      onUpdate: 'set null',
+    })
+  })
 })
 
 describe('getReferenceMetadata', () => {

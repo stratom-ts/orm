@@ -36,6 +36,29 @@ describe('table action', () => {
     expect(metadata.indexes).toBeUndefined()
     expect(metadata.schema).toBeUndefined()
   })
+
+  it('should accept composite primary keys and index configs', () => {
+    const action = table({
+      name: 'memberships',
+      primaryKey: ['orgId', 'userId'],
+      indexes: [
+        { name: 'memberships_role_idx', columns: ['role'] },
+        { columns: ['orgId', 'role'], unique: true },
+      ],
+      schema: 'app',
+    })
+    const metadata = action.metadata as Record<string, unknown>
+    expect(metadata).toMatchObject({
+      kind: 'table',
+      name: 'memberships',
+      primaryKey: ['orgId', 'userId'],
+      schema: 'app',
+      indexes: [
+        { name: 'memberships_role_idx', columns: ['role'] },
+        { columns: ['orgId', 'role'], unique: true },
+      ],
+    })
+  })
 })
 
 describe('getTableMetadata', () => {

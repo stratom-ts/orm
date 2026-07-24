@@ -47,10 +47,11 @@ function unwrapWrapper(
 export function column<
   TInput = unknown,
   TConfig extends Omit<ColumnMetadata, 'kind'> = Omit<ColumnMetadata, 'kind'>,
->(
-  config: TConfig,
-): MetadataAction<TInput, TConfig & { kind: 'column' }> {
-  return metadata({ ...config, kind: 'column' }) as MetadataAction<TInput, TConfig & { kind: 'column' }>
+>(config: TConfig): MetadataAction<TInput, TConfig & { kind: 'column' }> {
+  return metadata({ ...config, kind: 'column' }) as MetadataAction<
+    TInput,
+    TConfig & { kind: 'column' }
+  >
 }
 
 /**

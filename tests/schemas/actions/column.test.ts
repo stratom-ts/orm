@@ -44,10 +44,7 @@ describe('getColumnMetadata', () => {
   })
 
   it('should return the correct type from metadata', () => {
-    const schema = pipe(
-      string(),
-      column({ type: 'varchar(255)' }),
-    )
+    const schema = pipe(string(), column({ type: 'varchar(255)' }))
     const metadata = getColumnMetadata(schema)
     expect(metadata).toBeDefined()
     expect(metadata!.type).toBe('varchar(255)')
