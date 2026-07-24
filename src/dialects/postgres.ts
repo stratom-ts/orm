@@ -3,12 +3,10 @@ import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 import { getBaseSchema, getNumberConstraints, getStringConstraints } from '@/schemas'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
-import { isNumber } from '@/utils'
+import { isNumber, isTruthyFlag, toNumberOrNull } from '@/utils'
 import { SchemaError } from '@/utils/error'
 
 import type {
-  CatalogColumn,
-  CatalogIndex,
   CatalogSnapshot,
   CatalogTable,
   ComparisonOp,
@@ -236,12 +234,6 @@ type IndexRow = {
   columns?: unknown
 }
 
-function toNumberOrNull(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null
-  const n = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(n) ? n : null
-}
-
 function formatPostgresCatalogDataType(row: ColumnRow): string {
   const dataType = (row.data_type ?? row.udt_name ?? 'text').toLowerCase()
   const udt = (row.udt_name ?? '').toLowerCase()
@@ -303,16 +295,6 @@ function parseIndexColumns(value: unknown): string[] {
     }
   }
   return []
-}
-
-function isTruthyFlag(value: unknown): boolean {
-  if (typeof value === 'boolean') return value
-  if (typeof value === 'number') return value !== 0
-  if (typeof value === 'string') {
-    const lower = value.toLowerCase()
-    return lower === 'yes' || lower === 'true' || lower === 't' || lower === '1'
-  }
-  return false
 }
 
 /** PostgreSQL dialect plugin for the db0 stack. */
@@ -392,153 +374,126 @@ export const postgresDialect: Dialect = {
 
     const tables = new Map<string, CatalogTable>()
 
+    function getOrCreateTable(name: string, schema: string): CatalogTable {
+      const key = `${schema}.${name}`
+      let table = tables.get(key)
+      if (!table) {
+        table = { name, schema, columns: [], indexes: [] }
+        tables.set(key, table)
+      }
+      return table
+    }
+
     for (const row of tableRows) {
       if (typeof row.name !== 'string') continue
       const schema = typeof row.schema === 'string' ? row.schema : 'public'
-      const key = `${schema}.${row.name}`
-      tables.set(key, {
-        name: row.name,
-        schema,
-        columns: [],
-        indexes: [],
-      })
+      getOrCreateTable(row.name, schema)
     }
 
     for (const row of columnRows) {
-      if (typeof row.table_name !== 'string' || typeof row.column_name !== 'string') {
+      if (typeof row.table_name !== 'string' || typeof row.column_name !== 'string')
         continue
-      }
       const schema = typeof row.schema === 'string' ? row.schema : 'public'
-      const key = `${schema}.${row.table_name}`
-      let table = tables.get(key)
-      if (!table) {
-        table = {
-          name: row.table_name,
-          schema,
-          columns: [],
-          indexes: [],
-        }
-        tables.set(key, table)
-      }
+      const table = getOrCreateTable(row.table_name, schema)
 
-      const column: CatalogColumn = {
+      table.columns.push({
         name: row.column_name,
         dataType: formatPostgresCatalogDataType(row),
         isNullable: (row.is_nullable ?? 'YES').toUpperCase() === 'YES',
         hasDefault: row.column_default != null,
         isIdentity: (row.is_identity ?? 'NO').toUpperCase() === 'YES',
-      }
-      table.columns.push(column)
+      })
     }
 
     for (const row of indexRows) {
-      if (typeof row.table_name !== 'string' || typeof row.index_name !== 'string') {
+      if (typeof row.table_name !== 'string' || typeof row.index_name !== 'string')
         continue
-      }
       const schema = typeof row.schema === 'string' ? row.schema : 'public'
-      const key = `${schema}.${row.table_name}`
-      let table = tables.get(key)
-      if (!table) {
-        table = {
-          name: row.table_name,
-          schema,
-          columns: [],
-          indexes: [],
-        }
-        tables.set(key, table)
-      }
-      const index: CatalogIndex = {
+      const table = getOrCreateTable(row.table_name, schema)
+
+      table.indexes!.push({
         name: row.index_name,
         columns: parseIndexColumns(row.columns),
         unique: isTruthyFlag(row.is_unique),
-      }
-      table.indexes = table.indexes ?? []
-      table.indexes.push(index)
+      })
     }
 
-    return {
-      tables: [...tables.values()],
-    }
+    return { tables: [...tables.values()] }
   },
 
   compile(node: SqlAst): CompiledQuery {
-    if (node.kind === 'select_all') {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return { sql: `select * from ${tableSql}`, params: [] }
-    }
-    if (node.kind === 'select') {
-      return compileSelect(node)
-    }
-    if (node.kind === 'insert') {
-      return compileInsert(node)
-    }
-    if (node.kind === 'update') {
-      return compileUpdate(node)
-    }
-    if (node.kind === 'delete') {
-      return compileDelete(node)
-    }
-    if (node.kind === 'create_schema') {
-      return {
-        sql: `create schema if not exists ${quoteIdent(node.schema)}`,
-        params: [],
+    switch (node.kind) {
+      case 'select_all': {
+        const tableSql = qualifyPostgresTable(node.schema, node.table)
+        return { sql: `select * from ${tableSql}`, params: [] }
+      }
+      case 'select':
+        return compileSelect(node)
+      case 'insert':
+        return compileInsert(node)
+      case 'update':
+        return compileUpdate(node)
+      case 'delete':
+        return compileDelete(node)
+      case 'create_schema':
+        return {
+          sql: `create schema if not exists ${quoteIdent(node.schema)}`,
+          params: [],
+        }
+      case 'create_table':
+        return { sql: compileCreateTable(node), params: [] }
+      case 'create_index':
+        return { sql: compileCreateIndex(node), params: [] }
+      case 'add_column':
+        return { sql: compileAddColumn(node), params: [] }
+      case 'alter_column_type': {
+        const tableSql = qualifyPostgresTable(node.schema, node.table)
+        const safeType = assertSafePostgresDataType(node.dataType)
+        return {
+          sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} type ${safeType}`,
+          params: [],
+        }
+      }
+      case 'set_not_null': {
+        const tableSql = qualifyPostgresTable(node.schema, node.table)
+        return {
+          sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} set not null`,
+          params: [],
+        }
+      }
+      case 'drop_not_null': {
+        const tableSql = qualifyPostgresTable(node.schema, node.table)
+        return {
+          sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} drop not null`,
+          params: [],
+        }
+      }
+      case 'drop_column': {
+        const tableSql = qualifyPostgresTable(node.schema, node.table)
+        return {
+          sql: `alter table ${tableSql} drop column ${quoteIdent(node.column)}`,
+          params: [],
+        }
+      }
+      case 'drop_table': {
+        const tableSql = qualifyPostgresTable(node.schema, node.table)
+        return {
+          sql: `drop table ${tableSql}`,
+          params: [],
+        }
+      }
+      case 'drop_index': {
+        const schemaName = node.schema ?? 'public'
+        return {
+          sql: `drop index ${quoteIdent(schemaName)}.${quoteIdent(node.index)}`,
+          params: [],
+        }
+      }
+      default: {
+        const _exhaustive: never = node
+        return _exhaustive
       }
     }
-    if (node.kind === 'create_table') {
-      return { sql: compileCreateTable(node), params: [] }
-    }
-    if (node.kind === 'create_index') {
-      return { sql: compileCreateIndex(node), params: [] }
-    }
-    if (node.kind === 'add_column') {
-      return { sql: compileAddColumn(node), params: [] }
-    }
-    if (node.kind === 'alter_column_type') {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      const safeType = assertSafePostgresDataType(node.dataType)
-      return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} type ${safeType}`,
-        params: [],
-      }
-    }
-    if (node.kind === 'set_not_null') {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} set not null`,
-        params: [],
-      }
-    }
-    if (node.kind === 'drop_not_null') {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} drop not null`,
-        params: [],
-      }
-    }
-    if (node.kind === 'drop_column') {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return {
-        sql: `alter table ${tableSql} drop column ${quoteIdent(node.column)}`,
-        params: [],
-      }
-    }
-    if (node.kind === 'drop_table') {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return {
-        sql: `drop table ${tableSql}`,
-        params: [],
-      }
-    }
-    if (node.kind === 'drop_index') {
-      const schemaName = node.schema ?? 'public'
-      return {
-        sql: `drop index ${quoteIdent(schemaName)}.${quoteIdent(node.index)}`,
-        params: [],
-      }
-    }
-    throw new Error(
-      `postgresDialect.compile: unsupported AST kind "${(node as { kind: string }).kind}"`,
-    )
   },
 
   mapResultValue(dataType, value) {
@@ -551,35 +506,29 @@ export const postgresDialect: Dialect = {
 }
 
 function postgresBaseType(dataType: string): string {
-  return normalizePostgresDataType(dataType)
-    .toLowerCase()
-    .replace(/\(.*\)$/, '')
-    .trim()
+  return normalizePostgresDataType(dataType).replace(/\(.*\)$/, '')
 }
 
 /** Default Postgres → JS mapping for common result types. */
 export function mapPostgresResultValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
+
   const base = postgresBaseType(dataType)
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value
-    if (typeof value === 'string' || typeof value === 'number') {
-      const date = new Date(value)
-      return Number.isNaN(date.getTime()) ? value : date
-    }
-    return value
+    if (typeof value !== 'string' && typeof value !== 'number') return value
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? value : date
   }
 
   if (base === 'json' || base === 'jsonb') {
-    if (typeof value === 'string') {
-      try {
-        return JSON.parse(value) as unknown
-      } catch {
-        return value
-      }
+    if (typeof value !== 'string') return value
+    try {
+      return JSON.parse(value) as unknown
+    } catch {
+      return value
     }
-    return value
   }
 
   if (base === 'uuid') {
@@ -592,6 +541,7 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
 /** Default JS → Postgres param mapping for common types. */
 export function mapPostgresParamValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
+
   const base = postgresBaseType(dataType)
 
   if (base === 'timestamp' || base === 'timestamptz') {
@@ -600,8 +550,8 @@ export function mapPostgresParamValue(dataType: string, value: unknown): unknown
   }
 
   if (base === 'json' || base === 'jsonb') {
-    if (typeof value === 'string') return value
-    return JSON.stringify(value)
+    if (typeof value !== 'string') return JSON.stringify(value)
+    return value
   }
 
   if (base === 'uuid') {
@@ -755,12 +705,20 @@ function compileOrderBy(orderBy: readonly OrderByAst[] | undefined): string {
 
 function compileJoin(join: JoinAst, params: unknown[]): string {
   const tableSql = qualifyPostgresTable(join.schema, join.table)
-  const type =
-    join.type === 'inner'
-      ? 'inner join'
-      : join.type === 'left'
-        ? 'left join'
-        : 'right join'
+
+  let type: string
+  switch (join.type) {
+    case 'inner':
+      type = 'inner join'
+      break
+    case 'left':
+      type = 'left join'
+      break
+    case 'right':
+      type = 'right join'
+      break
+  }
+
   return ` ${type} ${tableSql} on ${compilePredicate(join.on, params)}`
 }
 
@@ -964,8 +922,6 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
   const trimmed = value.trim()
   const collapsed = trimmed.toLowerCase().replace(/\s+/g, ' ')
   if (ALLOWED_DEFAULT_EXPRESSIONS.has(collapsed)) {
-    // Prefer canonical lowercase keywords / function form
-    if (collapsed.endsWith('()')) return collapsed
     return collapsed
   }
 
@@ -981,7 +937,10 @@ function formatReferentialAction(action: string): string {
   return action.toUpperCase()
 }
 
-function compileColumnDefinition(col: CreateTableColumnAst): string {
+function compileColumnDefinition(
+  col: CreateTableColumnAst,
+  isPrimaryKey = false,
+): string {
   const safeType = assertSafePostgresDataType(col.dataType)
   const parts: string[] = [quoteIdent(col.name), safeType]
 
@@ -994,6 +953,7 @@ function compileColumnDefinition(col: CreateTableColumnAst): string {
   }
 
   if (col.notNull) parts.push('not null')
+  if (isPrimaryKey) parts.push('primary key')
   if (col.unique) parts.push('unique')
 
   if (col.defaultValue !== undefined && !col.generated && !col.autoIncrement) {
@@ -1022,44 +982,10 @@ function compileCreateTable(node: CreateTableAst): string {
   const singlePk = primaryKey.length === 1 ? primaryKey[0] : undefined
 
   const columnSql = node.columns.map((col) => {
-    const def = compileColumnDefinition(col)
     if (singlePk && col.name === singlePk) {
-      // insert primary key before unique/default/references for readability
-      const safeType = assertSafePostgresDataType(col.dataType)
-      const parts: string[] = [quoteIdent(col.name), safeType]
-
-      if (col.generated === 'always') {
-        parts.push('generated always as identity')
-      } else if (col.generated === 'byDefault') {
-        parts.push('generated by default as identity')
-      } else if (col.autoIncrement) {
-        parts.push('generated by default as identity')
-      }
-
-      if (col.notNull) parts.push('not null')
-      parts.push('primary key')
-      if (col.unique) parts.push('unique')
-
-      if (col.defaultValue !== undefined && !col.generated && !col.autoIncrement) {
-        parts.push(`default ${formatPostgresDefault(col.defaultValue)}`)
-      }
-
-      if (col.references) {
-        const refTable = qualifyPostgresTable(col.references.schema, col.references.table)
-        const refCol = quoteIdent(col.references.column)
-        let ref = `references ${refTable} (${refCol})`
-        if (col.references.onDelete) {
-          ref += ` on delete ${formatReferentialAction(col.references.onDelete)}`
-        }
-        if (col.references.onUpdate) {
-          ref += ` on update ${formatReferentialAction(col.references.onUpdate)}`
-        }
-        parts.push(ref)
-      }
-
-      return parts.join(' ')
+      return compileColumnDefinition(col, true)
     }
-    return def
+    return compileColumnDefinition(col)
   })
 
   if (primaryKey.length > 1) {
