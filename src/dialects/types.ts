@@ -272,6 +272,20 @@ export type AlterTableAddColumnAst = {
   readonly column: CreateTableColumnAst
 }
 
+export type AddForeignKeyAst = {
+  readonly kind: 'add_foreign_key'
+  readonly table: string
+  readonly schema?: string
+  readonly column: string
+  readonly references: {
+    readonly table: string
+    readonly column: string
+    readonly schema?: string
+    readonly onDelete?: string
+    readonly onUpdate?: string
+  }
+}
+
 export type AlterColumnTypeAst = {
   readonly kind: 'alter_column_type'
   readonly table: string
@@ -324,6 +338,7 @@ export type SqlAst =
   | CreateSchemaAst
   | CreateIndexAst
   | AlterTableAddColumnAst
+  | AddForeignKeyAst
   | AlterColumnTypeAst
   | SetNotNullAst
   | DropNotNullAst

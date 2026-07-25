@@ -351,6 +351,30 @@ function createMockConnector(options?: {
           }
         }
 
+        const addForeignKeyMatch = sql.match(
+          /alter table\s+(?:"([^"]+)"\.)?"([^"]+)"\s+add foreign key\s+\("([^"]+)"\)\s+references\s+(?:"([^"]+)"\.)?"([^"]+)"\s+\("([^"]+)"\)(?:\s+on delete\s+(cascade|restrict|no action|set null|set default))?(?:\s+on update\s+(cascade|restrict|no action|set null|set default))?/i,
+        )
+        if (addForeignKeyMatch) {
+          const schema = addForeignKeyMatch[1] ?? 'public'
+          const tableName = addForeignKeyMatch[2]!
+          const column = addForeignKeyMatch[3]!
+          const table = liveTables.find(
+            (candidate) => candidate.schema === schema && candidate.name === tableName,
+          )
+          if (table) {
+            table.foreignKeys = table.foreignKeys ?? []
+            table.foreignKeys.push({
+              name: `${tableName}_${column}_fkey`,
+              columns: [column],
+              referencedSchema: addForeignKeyMatch[4] ?? 'public',
+              referencedTable: addForeignKeyMatch[5]!,
+              referencedColumns: [addForeignKeyMatch[6]!],
+              onDelete: addForeignKeyMatch[7]?.toLowerCase() ?? 'no action',
+              onUpdate: addForeignKeyMatch[8]?.toLowerCase() ?? 'no action',
+            })
+          }
+        }
+
         return createMockStatement()
       }
 
@@ -618,6 +642,27 @@ describe('postgresDialect.compile create_table', () => {
     expect(sql.toLowerCase()).toContain('text')
     expect(sql.toLowerCase()).toContain('not null')
   })
+
+  it('should emit alter table add foreign key', () => {
+    const { sql } = postgresDialect.compile({
+      kind: 'add_foreign_key',
+      schema: 'public',
+      table: 'posts',
+      column: 'authorId',
+      references: {
+        schema: 'public',
+        table: 'users',
+        column: 'id',
+        onDelete: 'cascade',
+        onUpdate: 'restrict',
+      },
+    })
+
+    expect(sql).toContain('alter table "public"."posts" add foreign key ("authorId")')
+    expect(sql).toContain('references "public"."users" ("id")')
+    expect(sql.toLowerCase()).toContain('on delete cascade')
+    expect(sql.toLowerCase()).toContain('on update restrict')
+  })
 })
 
 describe('db.migrate().execute()', () => {
@@ -759,6 +804,76 @@ describe('db.migrate().execute()', () => {
         /alter table "public"\."users" add column "nickname"/i.test(s),
       ),
     ).toBe(true)
+
+    await db.close()
+  })
+
+  it('should create foreign keys after all tables regardless of registration order', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Posts, Users] })
+
+    const plan = await db.migrate().dryRun()
+    const lastCreate = plan.steps
+      .map((step) => step.kind === 'create_table')
+      .lastIndexOf(true)
+    const foreignKey = plan.steps.findIndex((step) => step.kind === 'add_foreign_key')
+    expect(lastCreate).toBeGreaterThanOrEqual(0)
+    expect(foreignKey).toBeGreaterThan(lastCreate)
+
+    await db.migrate().execute()
+
+    const createSql = connector.runSql.filter((sql) => /^create table/i.test(sql))
+    expect(createSql).toHaveLength(2)
+    expect(createSql.every((sql) => !/references/i.test(sql))).toBe(true)
+    const lastCreateSql = connector.runSql
+      .map((sql) => /^create table/i.test(sql))
+      .lastIndexOf(true)
+    const foreignKeySql = connector.runSql.findIndex((sql) =>
+      /add foreign key/i.test(sql),
+    )
+    expect(foreignKeySql).toBeGreaterThan(lastCreateSql)
+
+    await db.close()
+  })
+
+  it('should create cyclic foreign keys in a deferred second phase', async () => {
+    const BTarget = defineTable(
+      'cycle_b',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const A = defineTable(
+      'cycle_a',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        bId: reference(BTarget, 'id'),
+      },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const B = defineTable(
+      'cycle_b',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        aId: reference(A, 'id'),
+      },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [A, B] })
+
+    const plan = await db.migrate().dryRun()
+    expect(plan.steps.filter((step) => step.kind === 'add_foreign_key')).toHaveLength(2)
+
+    await db.migrate().execute()
+
+    const lastCreate = connector.runSql
+      .map((sql) => /^create table/i.test(sql))
+      .lastIndexOf(true)
+    const foreignKeys = connector.runSql
+      .map((sql, index) => ({ sql, index }))
+      .filter(({ sql }) => /add foreign key/i.test(sql))
+    expect(foreignKeys).toHaveLength(2)
+    expect(foreignKeys.every(({ index }) => index > lastCreate)).toBe(true)
 
     await db.close()
   })
