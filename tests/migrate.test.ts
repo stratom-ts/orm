@@ -252,7 +252,19 @@ function createMockConnector(options?: {
               name,
               columns: [],
               indexes: [],
-              primaryKey: /primary key/i.test(sql) ? ['id'] : undefined,
+              primaryKey: (() => {
+                const compositeMatch = sql.match(/primary key\s*\(([^)]+)\)/i)
+                if (compositeMatch) {
+                  return [...compositeMatch[1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]!)
+                }
+                const inlineMatch = sql.match(
+                  /(?:[(,])\s*"([^"]+)"\s+\S+(?:\s+[^,(]*?)?\s+primary key\b/i,
+                )
+                if (inlineMatch) {
+                  return [inlineMatch[1]!]
+                }
+                return undefined
+              })(),
               uniqueConstraints,
               foreignKeys,
             })
