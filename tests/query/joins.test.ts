@@ -4,7 +4,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable } from '@/defineTable'
 import type { Prettify } from '@/index'
-import { createDb, eq } from '@/index'
+import { createDatabase, eq } from '@/index'
 import { column } from '@/schemas'
 import type { InferSelect } from '@/types/views'
 
@@ -88,7 +88,7 @@ const Posts = defineTable(
 describe('joins compile', () => {
   it('should compile innerJoin with column-ref on and selectAll(side)', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const compiled = db
       .from(Posts)
@@ -116,7 +116,7 @@ describe('joins compile', () => {
 
   it('should compile leftJoin and rightJoin with on callback', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const left = db
       .from(Posts)
@@ -139,7 +139,7 @@ describe('joins compile', () => {
 
   it('should compile joins with where/order/limit', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
     const compiled = db
       .from(Posts)
       .innerJoin(Users, eq(Posts.userId, Users.id))
@@ -164,7 +164,7 @@ describe('joins compile', () => {
   it('should return flat mock rows after join on execute', async () => {
     const rows = [{ title: 'Hello', email: 'a@b.com' }]
     const connector = createMockConnector({ rowsBySql: () => rows })
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     await expect(
       db
@@ -179,7 +179,7 @@ describe('joins compile', () => {
 
   it('should type cross-table selected columns from the ColumnRef', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const query = db
       .from(Posts)
@@ -192,7 +192,7 @@ describe('joins compile', () => {
 
   it('should widen left-joined columns with | null', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const query = db
       .from(Posts)
@@ -208,7 +208,7 @@ describe('joins compile', () => {
 
   it('should widen root columns with | null after rightJoin', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const query = db
       .from(Posts)
@@ -224,7 +224,7 @@ describe('joins compile', () => {
 
   it('should merge chained selectAll(side) with a later column select', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const query = db
       .from(Posts)
@@ -240,7 +240,7 @@ describe('joins compile', () => {
 
   it('should nullify left-joined selectAll(side) fields', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const query = db
       .from(Posts)
@@ -261,7 +261,7 @@ describe('joins compile', () => {
 
   it('should merge all joined table columns for implicit select *', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
     const inner = db.from(Posts).innerJoin(Users, eq(Posts.userId, Users.id))
 
     type InnerRow = Awaited<ReturnType<typeof inner.execute>>[number]

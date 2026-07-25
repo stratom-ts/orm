@@ -32,7 +32,10 @@ export type ColumnRefsOf<S extends TableSchema> = {
   >
 }
 
-/** Table handle produced by `defineTable` — the unit accepted by `createDb` / `db.from`. */
+/**
+ * Table handle produced by `defineTable` — the unit accepted by `createDatabase` /
+ * `db.from`.
+ */
 export type TableHandle<S extends TableSchema = TableSchema> = {
   readonly [TABLE_HANDLE]: true
   /** Underlying Valibot table schema (source of validation + column metadata). */

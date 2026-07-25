@@ -2,7 +2,7 @@ import type { Connector, Statement } from 'db0'
 import { boolean, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { createDb } from '@/client'
+import { createDatabase } from '@/client'
 import { buildCreateTableAst, planMigration } from '@/ddl'
 import { defineTable } from '@/defineTable'
 import type { CatalogSnapshot } from '@/dialects'
@@ -668,7 +668,7 @@ describe('postgresDialect.compile create_table', () => {
 describe('db.migrate().execute()', () => {
   it('should create missing tables and be idempotent on re-run', async () => {
     const connector = createMockConnector()
-    const db = createDb({
+    const db = createDatabase({
       connector,
       schemas: [Users, Posts],
     })
@@ -691,7 +691,7 @@ describe('db.migrate().execute()', () => {
 
   it('should create schema-qualified tables and emit create schema if needed', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Memberships] })
+    const db = createDatabase({ connector, schemas: [Memberships] })
     await db.migrate().execute()
 
     expect(
@@ -728,7 +728,7 @@ describe('db.migrate().execute()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
     await db.migrate().execute()
 
     const creates = connector.runSql.filter((s) => /create table/i.test(s))
@@ -753,16 +753,18 @@ describe('db.migrate().execute()', () => {
 
     const connector = createMockConnector()
 
-    expect(() => createDb({ connector, schemas: [Bare, Public] })).toThrow(SchemaError)
+    expect(() => createDatabase({ connector, schemas: [Bare, Public] })).toThrow(
+      SchemaError,
+    )
 
-    expect(() => createDb({ connector, schemas: [Bare, Public] })).toThrow(
+    expect(() => createDatabase({ connector, schemas: [Bare, Public] })).toThrow(
       /duplicate table registration/,
     )
   })
 
   it('should create indexes from handle metadata idempotently', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [UsersWithIndex] })
+    const db = createDatabase({ connector, schemas: [UsersWithIndex] })
 
     await db.migrate().execute()
 
@@ -796,7 +798,7 @@ describe('db.migrate().execute()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersWithNickname] })
+    const db = createDatabase({ connector, schemas: [UsersWithNickname] })
     await db.migrate().execute()
 
     expect(
@@ -810,7 +812,7 @@ describe('db.migrate().execute()', () => {
 
   it('should create foreign keys after all tables regardless of registration order', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Posts, Users] })
+    const db = createDatabase({ connector, schemas: [Posts, Users] })
 
     const plan = await db.migrate().dryRun()
     const lastCreate = plan.steps
@@ -859,7 +861,7 @@ describe('db.migrate().execute()', () => {
       { primaryKey: 'id', schema: 'public' },
     )
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [A, B] })
+    const db = createDatabase({ connector, schemas: [A, B] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps.filter((step) => step.kind === 'add_foreign_key')).toHaveLength(2)
@@ -882,7 +884,7 @@ describe('db.migrate().execute()', () => {
 describe('db.migrate().dryRun()', () => {
   it('should return structured steps without applying DDL', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps.length).toBeGreaterThan(0)
@@ -937,7 +939,7 @@ describe('db.migrate().dryRun()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps).toEqual([])
@@ -947,7 +949,7 @@ describe('db.migrate().dryRun()', () => {
 
   it('should allow multi-schema create_schema + create_table on plan', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Memberships] })
+    const db = createDatabase({ connector, schemas: [Memberships] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps).toEqual(
@@ -980,7 +982,7 @@ describe('db.migrate().dryRun()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersWithIndex] })
+    const db = createDatabase({ connector, schemas: [UsersWithIndex] })
 
     const plan = await db.migrate().dryRun()
 
@@ -1167,7 +1169,7 @@ describe('db.migrate().dryRun()', () => {
       },
     })
 
-    const db = createDb({ connector, schemas: [NotNullEmail] })
+    const db = createDatabase({ connector, schemas: [NotNullEmail] })
 
     const plan = await db.migrate().dryRun()
 
@@ -1382,7 +1384,7 @@ describe('db.migrate() allowlist + safety', () => {
 
   it('should omit drop_column without allow and include it with allow on dryRun', async () => {
     const connector = createMockConnector({ tables: [UsersWithExtraLive] })
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const denied = await db.migrate().dryRun()
     expect(denied.steps.some((s) => s.kind === 'drop_column')).toBe(false)
@@ -1462,7 +1464,7 @@ describe('db.migrate() allowlist + safety', () => {
       },
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     await expect(db.migrate().execute()).rejects.toThrow(MigrationError)
     await expect(db.migrate().execute()).rejects.toThrow(/drop column|non-null data/i)
@@ -1488,7 +1490,7 @@ describe('db.migrate() allowlist + safety', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
     await db.migrate().allow('dropColumn').execute()
 
     expect(connector.runSql.some((s) => /drop column "legacy"/i.test(s))).toBe(true)
@@ -1515,7 +1517,7 @@ describe('db.migrate() allowlist + safety', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
     const plan = await db.migrate().dryRun()
     expect(plan.steps.some((s) => s.kind === 'drop_table')).toBe(false)
 
@@ -1551,7 +1553,7 @@ describe('db.migrate() allowlist + safety', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps.some((s) => s.kind === 'drop_index')).toBe(false)
@@ -1578,7 +1580,7 @@ describe('db.migrate() allowlist + safety', () => {
 
   it('should acquire and release advisory lock on execute but not on dryRun', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     await db.migrate().dryRun()
     expect(connector.runSql.some((s) => /pg_advisory_lock/i.test(s))).toBe(false)
