@@ -156,11 +156,32 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
 /** Canonicalizes PostgreSQL catalog default expressions for migration comparison. */
 export function normalizePostgresDefaultExpression(expression: string): string {
   let normalized = expression.trim()
-  while (normalized.startsWith('(') && normalized.endsWith(')')) {
-    normalized = normalized.slice(1, -1).trim()
+  let changed = true
+  while (changed) {
+    changed = false
+    if (
+      normalized.length >= 2 &&
+      normalized[0] === '(' &&
+      normalized[normalized.length - 1] === ')'
+    ) {
+      let depth = 0
+      let fullyEnclosed = true
+      for (let i = 0; i < normalized.length; i++) {
+        if (normalized[i] === '(') depth++
+        else if (normalized[i] === ')') depth--
+        if (depth === 0 && i < normalized.length - 1) {
+          fullyEnclosed = false
+          break
+        }
+      }
+      if (fullyEnclosed && depth === 0) {
+        normalized = normalized.slice(1, -1).trim()
+        changed = true
+      }
+    }
   }
   return normalized.replace(
-    /::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?$/i,
+    /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
     '',
   )
 }
