@@ -1,11 +1,13 @@
 /**
- * Type guard for truthy flag values (booleans, non-zero numbers, truthy strings).
+ * Type guard for truthy flag values (booleans, finite non-zero numbers, truthy strings).
  *
  * @example
  *   isTruthyFlag(true) // true
  *   isTruthyFlag('yes') // true
- *   isTruthyFlag('false') // false
+ *   isTruthyFlag(42) // true
  *   isTruthyFlag(0) // false
+ *   isTruthyFlag(NaN) // false
+ *   isTruthyFlag('false') // false
  *
  * @param value - Value to check.
  *
