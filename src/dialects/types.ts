@@ -1,5 +1,6 @@
 import { SQLDialect } from 'db0'
 
+import type { ReferentialAction } from '@/schemas/actions/types'
 import type { AnySchema } from '@/types/schema'
 
 /** SQL type string produced by dialect type inference. */
@@ -18,6 +19,23 @@ export type CatalogColumn = {
   isNullable: boolean
   hasDefault?: boolean
   isIdentity?: boolean
+  /** Normalized SQL expression; null means no default, undefined means unknown. */
+  defaultExpression?: string | null
+  /** Null means not an identity, undefined means unknown. */
+  identityGeneration?: 'always' | 'byDefault' | null
+}
+
+export type CatalogKeyConstraint = {
+  name: string
+  columns: string[]
+}
+
+export type CatalogForeignKey = CatalogKeyConstraint & {
+  referencedSchema?: string
+  referencedTable: string
+  referencedColumns: string[]
+  onDelete: ReferentialAction
+  onUpdate: ReferentialAction
 }
 
 /** Live index entry from dialect introspection. */
@@ -34,6 +52,10 @@ export type CatalogTable = {
   schema?: string
   columns: CatalogColumn[]
   indexes?: CatalogIndex[]
+  /** Undefined means the dialect did not introspect this managed property. */
+  primaryKey?: CatalogKeyConstraint | null
+  uniqueConstraints?: CatalogKeyConstraint[]
+  foreignKeys?: CatalogForeignKey[]
 }
 
 /** Catalog snapshot for desired-state migrations. */
@@ -320,6 +342,9 @@ export interface Dialect {
   inferColumnType(schema: AnySchema): SqlDataType
 
   normalizeDataType(dataType: string): string
+
+  /** Canonical SQL expression used to compare a declared column default. */
+  normalizeDefaultValue?(value: string | number | boolean | null): string
 
   introspect(executor: unknown): Promise<CatalogSnapshot>
 
