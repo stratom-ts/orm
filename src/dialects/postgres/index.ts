@@ -13,13 +13,12 @@ import { formatPostgresDefault, normalizePostgresDefaultExpression } from './val
  * Provides type inference, SQL compilation, introspection, and value mapping
  * for PostgreSQL databases.
  *
- * @example```ts
- * import { postgresDialect } from '@/dialects/postgres'
- * import { resolveDialect } from '@/dialects'
+ * @example
+ *   import { postgresDialect } from '@/dialects/postgres'
+ *   import { resolveDialect } from '@/dialects'
  *
- * const dialect = resolveDialect('postgresql')
- * const query = dialect.compile({ kind: 'select_all', table: 'users' })
- * ```
+ *   const dialect = resolveDialect('postgresql')
+ *   const query = dialect.compile({ kind: 'select_all', table: 'users' })
  */
 export const postgresDialect: Dialect = {
   id: 'postgresql',

@@ -8,12 +8,8 @@ import type { TableIndex, TableMetadata } from './types'
 /**
  * Attaches table metadata to a Valibot object schema for migrations.
  *
- * @param config - Table name, primary key(s), optional indexes and DB schema.
- *
- * @returns Metadata action for use in a `pipe` after `title()`
- *
- * @example```ts
- * const UserSchema = pipe(
+ * @example
+ *   const UserSchema = pipe(
  *     object({ id: pipe(string(), column({ type: 'uuid' })) }),
  *     title('users'),
  *     table({
@@ -23,7 +19,10 @@ import type { TableIndex, TableMetadata } from './types'
  *       schema: 'public',
  *     }),
  *   )
- * ```
+ *
+ * @param config - Table name, primary key(s), optional indexes and DB schema.
+ *
+ * @returns Metadata action for use in a `pipe` after `title()`
  */
 export function table<
   TInput = unknown,
@@ -50,13 +49,12 @@ export function table<
 /**
  * Type guard for table metadata (`kind: 'table'`).
  *
+ * @example
+ *   if (isTableMetadata(meta)) console.log(meta.primaryKey)
+ *
  * @param metadata - Value to check.
  *
  * @returns `true` if `metadata` is `TableMetadata`
- *
- * @example```ts
- * if (isTableMetadata(meta)) console.log(meta.primaryKey)
- * ```
  */
 export function isTableMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -67,14 +65,13 @@ export function isTableMetadata(
 /**
  * Reads table metadata from a schema, if present.
  *
+ * @example
+ *   const meta = getTableMetadata(UserSchema)
+ *   // { kind: 'table', name: 'users', primaryKey: 'id' }
+ *
  * @param schema - Schema that may include `table()` metadata.
  *
  * @returns Table metadata, or `undefined` if none
- *
- * @example```ts
- * const meta = getTableMetadata(UserSchema)
- *   // { kind: 'table', name: 'users', primaryKey: 'id' }
- * ```
  */
 export function getTableMetadata(schema: AnySchema): TableMetadata | undefined {
   const schemaMetadata = getMetadata(schema) as Record<string, unknown> | undefined

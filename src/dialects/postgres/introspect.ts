@@ -131,16 +131,15 @@ function parseIndexColumns(value: unknown): string[] {
  * Queries `information_schema` and `pg_catalog` to discover tables, columns,
  * and indexes in the connected database.
  *
+ * @example
+ *   const snapshot = await introspectPostgres(db)
+ *   for (const table of snapshot.tables) {
+ *     console.log(`${table.schema}.${table.name}: ${table.columns.length} columns`)
+ *   }
+ *
  * @param executor - Database executor capable of running compiled queries.
  *
  * @returns Catalog snapshot with all user tables, columns, and indexes
- *
- * @example```ts
- * const snapshot = await introspectPostgres(db)
- * for (const table of snapshot.tables) {
- *   console.log(`${table.schema}.${table.name}: ${table.columns.length} columns`)
- * }
- * ```
  */
 export async function introspectPostgres(executor: unknown): Promise<CatalogSnapshot> {
   const exec = executor as IntrospectExecutor

@@ -523,14 +523,13 @@ function compileAddForeignKey(node: {
 /**
  * Compiles a PostgreSQL AST node to a parameterized SQL query.
  *
+ * @example
+ *   compilePostgres({ kind: 'select_all', table: 'users' })
+ *   // { sql: 'select * from "public"."users"', params: [] }
+ *
  * @param node - SQL AST node.
  *
  * @returns Compiled query with SQL string and bound parameters
- *
- * @example```ts
- * compilePostgres({ kind: 'select_all', table: 'users' })
- * // { sql: 'select * from "public"."users"', params: [] }
- * ```
  */
 export function compilePostgres(node: SqlAst): CompiledQuery {
   switch (node.kind) {
