@@ -31,7 +31,20 @@ function isIdentityCompatibleType(dataType: string, dialect: Dialect): boolean {
   return IDENTITY_BASE_TYPES.has(base)
 }
 
-/** Builds a create-table AST from a table handle and dialect type inference. */
+/**
+ * Builds a create-table AST from a table handle and dialect type inference.
+ *
+ * @example
+ *   const ast = buildCreateTableAst(User, postgresDialect)
+ *   // { kind: 'create_table', table: 'users', columns: [...], primaryKey: ['id'] }
+ *
+ * @param handle - Table handle with schema and metadata.
+ * @param dialect - SQL dialect for column type inference.
+ *
+ * @returns Create-table AST node
+ *
+ * @throws MigrationError - When the table has no columns or invalid identity types
+ */
 export function buildCreateTableAst(
   handle: TableHandle,
   dialect: Dialect,

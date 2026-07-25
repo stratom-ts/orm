@@ -10,7 +10,17 @@ export type Executor = {
   run(query: CompiledQuery): Promise<void>
 }
 
-/** Runs parameterized SQL through a db0 database instance. */
+/**
+ * Runs parameterized SQL through a db0 database instance.
+ *
+ * @example
+ *   const executor = createDb0Executor(database)
+ *   const rows = await executor.execute({ sql: 'SELECT 1', params: [] })
+ *
+ * @param database - Db0 database instance.
+ *
+ * @returns Executor with `execute` and `run` methods
+ */
 export function createDb0Executor(database: Database): Executor {
   const runPrepared = async (query: CompiledQuery) => {
     const statement = database.prepare(query.sql)

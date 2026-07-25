@@ -110,6 +110,16 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
   [Symbol.asyncDispose](): Promise<void>
 }
 
+/**
+ * Asserts that all schemas are valid table handles with unique keys.
+ *
+ * @example
+ *   assertHandles([User, Post])
+ *
+ * @param schemas - Array of table handles to validate.
+ *
+ * @throws SchemaError - When a value is not a table handle or keys are duplicated
+ */
 function assertHandles(schemas: readonly TableHandle[]): void {
   const seen = new Set<string>()
   for (const schema of schemas) {

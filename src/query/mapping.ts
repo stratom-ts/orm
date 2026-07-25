@@ -49,7 +49,19 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
   return getColumnMetadata(columnSchema as Parameters<typeof getColumnMetadata>[0])
 }
 
-/** Builds a value mapper: column override → createDb map → dialect defaults. */
+/**
+ * Builds a value mapper: column override → createDb map → dialect defaults.
+ *
+ * @example
+ *   const mapper = createValueMapper(dialect, { mapResultValue: ... })
+ *   mapper.mapParam(handle, 'createdAt', new Date())
+ *
+ * @param dialect - SQL dialect providing default value mapping.
+ * @param map - Optional global value mapping overrides.
+ *
+ * @returns Value mapper with `columnTypes`, `mapParam`, `mapResultRow`, and
+ *   `mapResultRows`
+ */
 export function createValueMapper(dialect: Dialect, map?: ValueMapConfig): ValueMapper {
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
 

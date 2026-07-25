@@ -48,6 +48,10 @@ type ConstraintRow = {
 /**
  * Formats a column's data type from catalog metadata rows.
  *
+ * @example
+ *   formatPostgresCatalogDataType({ udt_name: 'varchar', character_maximum_length: 255 })
+ *   // 'varchar(255)'
+ *
  * @param row - Column row from information_schema queries.
  *
  * @returns Normalized PostgreSQL data type string
@@ -95,6 +99,10 @@ function formatPostgresCatalogDataType(row: ColumnRow): string {
  *
  * Handles PostgreSQL array literals (`{a,b,c}`), JSON arrays (`["a","b"]`),
  * and native arrays.
+ *
+ * @example
+ *   parseIndexColumns('{email,name}') // ['email', 'name']
+ *   parseIndexColumns('["id"]') // ['id']
  *
  * @param value - Raw column value from catalog query.
  *

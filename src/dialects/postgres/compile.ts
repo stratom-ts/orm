@@ -493,6 +493,16 @@ function compileAddColumn(node: {
   return `alter table ${tableSql} add column ${compileColumnDefinition(node.column)}`
 }
 
+/**
+ * Compiles an ADD FOREIGN KEY AST node to DDL SQL.
+ *
+ * @example
+ *   compileAddForeignKey({ table: 'posts', column: 'author_id', references: { table: 'users', column: 'id' } })
+ *
+ * @param node - Add foreign key definition.
+ *
+ * @returns ALTER TABLE ADD FOREIGN KEY DDL statement
+ */
 function compileAddForeignKey(node: {
   schema?: string
   table: string

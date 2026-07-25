@@ -70,6 +70,18 @@ function unwrapWrapper(schema: AnySchema): AnySchema {
   return schema
 }
 
+/**
+ * Type guard for table handle objects (checks for `getSchema` and `getTableMetadata`).
+ *
+ * @example
+ *   if (isReferenceTargetHandle(value)) {
+ *     const meta = value.getTableMetadata()
+ *   }
+ *
+ * @param value - Value to check.
+ *
+ * @returns `true` if `value` is a reference target handle
+ */
 function isReferenceTargetHandle(value: ReferenceTarget): value is ReferenceTargetHandle {
   return (
     typeof value === 'object' &&
