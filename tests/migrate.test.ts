@@ -715,7 +715,7 @@ describe('db.migrate().execute()', () => {
             { name: 'id', dataType: 'integer', isNullable: false },
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             {
               name: 'active',
               dataType: 'boolean',
@@ -923,7 +923,7 @@ describe('db.migrate().dryRun()', () => {
             },
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             {
               name: 'active',
               dataType: 'boolean',
@@ -1013,7 +1013,7 @@ describe('db.migrate().dryRun()', () => {
             { name: 'id', dataType: 'int4', isNullable: false },
             { name: 'email', dataType: 'text', isNullable: true },
             { name: 'age', dataType: 'integer', isNullable: false },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             { name: 'active', dataType: 'boolean', isNullable: false },
           ],
         },
@@ -1218,7 +1218,7 @@ describe('managed migration drift detection', () => {
               name: 'bio',
               dataType: 'text',
               isNullable: false,
-              defaultExpression: null,
+              defaultExpression: "''",
               identityGeneration: null,
             },
             {

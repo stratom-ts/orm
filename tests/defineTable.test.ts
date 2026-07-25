@@ -223,6 +223,30 @@ describe('defineTable', () => {
     expect(validateInsertRow(SchemaDefault, {})).toEqual({ id: 'new' })
   })
 
+  it('should accept generated and autoIncrement value sources for optional columns', () => {
+    expect(() =>
+      defineTable(
+        'optional_generated',
+        {
+          id: optional(
+            pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).not.toThrow()
+
+    expect(() =>
+      defineTable(
+        'optional_auto_increment',
+        {
+          id: optional(pipe(number(), column({ type: 'integer', autoIncrement: true }))),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).not.toThrow()
+  })
+
   it('should reject unsupported column metadata', () => {
     expect(() =>
       defineTable(
