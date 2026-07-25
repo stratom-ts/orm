@@ -5,6 +5,9 @@ import type { AnySchema } from '@/types/schema'
 /**
  * Recursively unwraps optional/nullable/nullish wrappers.
  *
+ * @example
+ *   const inner = unwrapDeep(optional(pipe(string(), column({ type: 'uuid' }))))
+ *
  * @param schema - Schema that may be wrapped.
  *
  * @returns Innermost schema with pipes intact

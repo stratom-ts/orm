@@ -34,6 +34,12 @@ type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
 /**
  * Asserts that the primary key names one or more declared columns.
  *
+ * @example
+ *   validatePrimaryKey({ name: 'users', primaryKey: 'id' }, ['id', 'name'])
+ *
+ * @param metadata - Table metadata containing the primary key definition.
+ * @param columnNames - Declared column names on the table.
+ *
  * @throws SchemaError - When the key is empty or references an unknown column
  */
 function validatePrimaryKey(metadata: TableMetadata, columnNames: string[]): void {
@@ -59,6 +65,12 @@ function validatePrimaryKey(metadata: TableMetadata, columnNames: string[]): voi
 
 /**
  * Asserts every index has a valid name and references only declared columns.
+ *
+ * @example
+ *   validateIndexes({ name: 'users', indexes: [{ columns: ['email'] }] }, ['id', 'email'])
+ *
+ * @param metadata - Table metadata containing index definitions.
+ * @param columnNames - Declared column names on the table.
  *
  * @throws SchemaError - When an index has no columns or references an unknown column
  */
@@ -96,6 +108,18 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
   }
 }
 
+/**
+ * Asserts column-level options (comment, onUpdate, default+generated) are valid.
+ *
+ * @example
+ *   validateColumnOptions('users', 'name', stringSchema)
+ *
+ * @param tableName - Table name for error context.
+ * @param columnName - Column name for error context.
+ * @param colSchema - Column schema to validate.
+ *
+ * @throws SchemaError - When unsupported column options are set
+ */
 function validateColumnOptions(
   tableName: string,
   columnName: string,
@@ -126,6 +150,12 @@ function validateColumnOptions(
 /**
  * Asserts a foreign-key reference names both a target table and key.
  *
+ * @example
+ *   validateColumnReference('authorId', { table: 'users', key: 'id' })
+ *
+ * @param columnName - Column name for error context.
+ * @param ref - Reference metadata to validate.
+ *
  * @throws SchemaError - When the reference is missing a target table or key
  */
 function validateColumnReference(columnName: string, ref: ReferenceMetadata): void {
@@ -144,6 +174,19 @@ function validateColumnReference(columnName: string, ref: ReferenceMetadata): vo
   }
 }
 
+/**
+ * Checks whether a column has a value source (default, generated, autoIncrement, or
+ * schema default).
+ *
+ * @example
+ *   hasValueSource({ default: 0 }, undefined) // true
+ *   hasValueSource(undefined, undefined) // false
+ *
+ * @param metadata - Column metadata that may contain default/generated/autoIncrement.
+ * @param schemaDefault - Default value from the Valibot schema.
+ *
+ * @returns `true` when the column has any value source
+ */
 function hasValueSource(
   metadata: ColumnMetadata | undefined,
   schemaDefault: unknown,
@@ -156,6 +199,18 @@ function hasValueSource(
   )
 }
 
+/**
+ * Asserts optional NOT NULL columns have a default or generated value.
+ *
+ * @example
+ *   validateOptionalColumn('users', 'status', optional(string()))
+ *
+ * @param tableName - Table name for error context.
+ * @param columnName - Column name for error context.
+ * @param colSchema - Column schema to validate.
+ *
+ * @throws SchemaError - When an optional NOT NULL column lacks a value source
+ */
 function validateOptionalColumn(
   tableName: string,
   columnName: string,
@@ -180,6 +235,14 @@ function validateOptionalColumn(
 
 /**
  * Asserts an identity/autoIncrement column resolves to a Postgres identity type.
+ *
+ * @example
+ *   validateIdentityColumn('users', 'id', integerSchema, null)
+ *
+ * @param tableName - Table name for error context.
+ * @param columnName - Column name for error context.
+ * @param colSchema - Column schema to validate.
+ * @param ref - Reference metadata (may be `null`).
  *
  * @throws SchemaError - When the resolved type is not smallint, integer, or bigint
  */
@@ -212,6 +275,12 @@ function validateIdentityColumn(
 /**
  * Asserts every declared column's reference and identity type are valid.
  *
+ * @example
+ *   validateColumns(schema, 'users')
+ *
+ * @param schema - Valibot object schema with column entries.
+ * @param tableName - Table name for error context.
+ *
  * @throws SchemaError - When a reference or identity/autoIncrement type is invalid
  */
 function validateColumns(schema: TableSchema, tableName: string): void {
@@ -233,6 +302,9 @@ function validateColumns(schema: TableSchema, tableName: string): void {
  *
  * Checks the table name/schema, the primary key, every index, and each column's
  * reference and identity/autoIncrement type against the declared columns.
+ *
+ * @example
+ *   validateTableMetadata(schema, metadata, ['id', 'name'])
  *
  * @param schema - Valibot object schema whose entries hold the column schemas.
  * @param metadata - Resolved `table()` metadata (name, schema, primaryKey, indexes)
@@ -259,6 +331,10 @@ function validateTableMetadata(
 
 /**
  * Validates Valibot table metadata and returns a table handle with typed column refs.
+ *
+ * @example
+ *   const handle = buildTableHandle(schema)
+ *   handle.getSchema() // the original schema
  *
  * @param schema - Valibot object schema with `title()` and `table()` metadata.
  *
@@ -324,16 +400,8 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
  * metadata. `primaryKey` and index `columns` are constrained to the declared
  * column names, so referencing an unknown column is a compile error.
  *
- * @param name - Database table name (also the logical name on column refs)
- * @param columns - Map of column name to Valibot column schema.
- * @param options - Primary key, optional DB schema, and indexes.
- *
- * @returns Table handle for registration, queries, and column references
- *
- * @throws SchemaError - When the resulting metadata is invalid
- *
- * @example```ts
- * const User = defineTable(
+ * @example
+ *   const User = defineTable(
  *     'users',
  *     {
  *       id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
@@ -346,7 +414,14 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
  *     },
  *   )
  *   User.email // column ref
- * ```
+ *
+ * @param name - Database table name (also the logical name on column refs)
+ * @param columns - Map of column name to Valibot column schema.
+ * @param options - Primary key, optional DB schema, and indexes.
+ *
+ * @returns Table handle for registration, queries, and column references
+ *
+ * @throws SchemaError - When the resulting metadata is invalid
  */
 export function defineTable<const TName extends string, TCols extends ObjectEntries>(
   name: TName,
@@ -357,7 +432,18 @@ export function defineTable<const TName extends string, TCols extends ObjectEntr
   return buildTableHandle(schema)
 }
 
-/** Type guard for values produced by `defineTable`. */
+/**
+ * Type guard for values produced by `defineTable`.
+ *
+ * @example
+ *   if (isTableHandle(value)) {
+ *     const info = value.getTableMetadata()
+ *   }
+ *
+ * @param value - Value to check.
+ *
+ * @returns `true` if `value` is a table handle from `defineTable`
+ */
 export function isTableHandle(value: unknown): value is TableHandle {
   return typeof value === 'object' && value !== null && TABLE_HANDLE in (value as object)
 }

@@ -493,6 +493,16 @@ function compileAddColumn(node: {
   return `alter table ${tableSql} add column ${compileColumnDefinition(node.column)}`
 }
 
+/**
+ * Compiles an ADD FOREIGN KEY AST node to DDL SQL.
+ *
+ * @example
+ *   compileAddForeignKey({ table: 'posts', column: 'author_id', references: { table: 'users', column: 'id' } })
+ *
+ * @param node - Add foreign key definition.
+ *
+ * @returns ALTER TABLE ADD FOREIGN KEY DDL statement
+ */
 function compileAddForeignKey(node: {
   schema?: string
   table: string
@@ -523,14 +533,13 @@ function compileAddForeignKey(node: {
 /**
  * Compiles a PostgreSQL AST node to a parameterized SQL query.
  *
+ * @example
+ *   compilePostgres({ kind: 'select_all', table: 'users' })
+ *   // { sql: 'select * from "public"."users"', params: [] }
+ *
  * @param node - SQL AST node.
  *
  * @returns Compiled query with SQL string and bound parameters
- *
- * @example```ts
- * compilePostgres({ kind: 'select_all', table: 'users' })
- * // { sql: 'select * from "public"."users"', params: [] }
- * ```
  */
 export function compilePostgres(node: SqlAst): CompiledQuery {
   switch (node.kind) {

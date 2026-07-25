@@ -12,6 +12,13 @@ const DIALECTS: Partial<Record<SQLDialect, Dialect>> = {
 /**
  * Resolves a db0 connector dialect id to a stratom dialect plugin.
  *
+ * @example
+ *   const dialect = resolveDialect('postgresql')
+ *
+ * @param id - Database dialect identifier from the db0 connector.
+ *
+ * @returns Dialect plugin for the given connector
+ *
  * @throws SchemaError - When the connector dialect is not supported
  */
 export function resolveDialect(id: SQLDialect): Dialect {

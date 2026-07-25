@@ -73,16 +73,15 @@ const ALLOWED_DEFAULT_EXPRESSIONS = new Set([
 /**
  * Validates and returns a safe SQL type fragment for DDL.
  *
+ * @example
+ *   assertSafePostgresDataType('varchar(255)') // 'varchar(255)'
+ *   assertSafePostgresDataType('INTEGER') // 'integer'
+ *
  * @param dataType - SQL data type string to validate (e.g. `varchar(255)`, `integer`)
  *
  * @returns Normalized, safe type string for use in DDL
  *
  * @throws Error when the type is not on the Postgres allowlist
- *
- * @example```ts
- * assertSafePostgresDataType('varchar(255)') // 'varchar(255)'
- * assertSafePostgresDataType('INTEGER')      // 'integer'
- * ```
  */
 export function assertSafePostgresDataType(dataType: string): string {
   const trimmed = dataType.trim()
@@ -117,18 +116,17 @@ export function assertSafePostgresDataType(dataType: string): string {
  * - Allowlisted expressions (`now()`, `gen_random_uuid()`, …) → raw SQL
  * - Other strings → single-quoted literals (escaped)
  *
+ * @example
+ *   formatPostgresDefault(null) // 'null'
+ *   formatPostgresDefault(42) // '42'
+ *   formatPostgresDefault('now()') // 'now()'
+ *   formatPostgresDefault("O'Brien") // 'O''Brien'
+ *
  * @param value - Default value to format.
  *
  * @returns SQL default expression
  *
  * @throws Error when value is a non-finite number
- *
- * @example```ts
- * formatPostgresDefault(null)       // 'null'
- * formatPostgresDefault(42)         // '42'
- * formatPostgresDefault('now()')    // 'now()'
- * formatPostgresDefault("O'Brien")  // '''O''Brien'''
- * ```
  */
 export function formatPostgresDefault(value: string | number | boolean | null): string {
   if (value === null) return 'null'
@@ -179,15 +177,14 @@ function stripEnclosingParens(s: string): string {
  * parentheses, and removing trailing `::type` casts (including chained
  * casts such as `::text::varchar`).
  *
+ * @example
+ *   normalizePostgresDefaultExpression('(now())') // 'now()'
+ *   normalizePostgresDefaultExpression("('a') || ('b')") // "('a') || ('b')"
+ *   normalizePostgresDefaultExpression("'x'::text::varchar") // "'x'"
+ *
  * @param expression - Raw default expression from `pg_catalog`.
  *
  * @returns Normalized expression suitable for drift comparison.
- *
- * @example```ts
- * normalizePostgresDefaultExpression('(now())')         // 'now()'
- * normalizePostgresDefaultExpression("('a') || ('b')")  // "('a') || ('b')"
- * normalizePostgresDefaultExpression("'x'::text::varchar") // "'x'"
- * ```
  */
 export function normalizePostgresDefaultExpression(expression: string): string {
   let normalized = expression.trim()

@@ -25,6 +25,14 @@ function isInsertOptional(schema: AnySchema): boolean {
  * Builds a Valibot object schema matching {@link InferInsert} rules:
  * always-generated omitted; byDefault / default / optional / nullish optional;
  * bare nullable stays required (accepts null).
+ *
+ * @example
+ *   const schema = buildInsertSchema(User)
+ *   safeParse(schema, { name: 'Alice' })
+ *
+ * @param handle - Table handle to derive the insert schema from.
+ *
+ * @returns Valibot object schema for insert validation
  */
 export function buildInsertSchema(
   handle: TableHandle,
@@ -53,6 +61,14 @@ export function buildInsertSchema(
 /**
  * Builds a Valibot object schema matching {@link InferUpdate} rules:
  * partial patch; omits readonly and always-generated columns.
+ *
+ * @example
+ *   const schema = buildUpdateSchema(User)
+ *   safeParse(schema, { name: 'Bob' })
+ *
+ * @param handle - Table handle to derive the update schema from.
+ *
+ * @returns Valibot object schema for update patch validation
  */
 export function buildUpdateSchema(
   handle: TableHandle,
@@ -90,7 +106,19 @@ function formatIssues(issues: readonly BaseIssue<unknown>[]): string {
     .join('; ')
 }
 
-/** Validates a single insert row; throws {@link ValidationError} on failure. */
+/**
+ * Validates a single insert row; throws {@link ValidationError} on failure.
+ *
+ * @example
+ *   const cleaned = validateInsertRow(User, { name: 'Alice', email: 'a@b.com' })
+ *
+ * @param handle - Table handle for schema derivation.
+ * @param row - Raw row object to validate.
+ *
+ * @returns Cleaned row with only insertable columns
+ *
+ * @throws ValidationError - When the row fails validation
+ */
 export function validateInsertRow(
   handle: TableHandle,
   row: unknown,
@@ -138,6 +166,16 @@ export function validateInsertRow(
 /**
  * Validates an update patch; throws {@link ValidationError} on failure.
  * Rejects empty patches and unknown keys via schema parse.
+ *
+ * @example
+ *   const cleaned = validateUpdatePatch(User, { name: 'Bob' })
+ *
+ * @param handle - Table handle for schema derivation.
+ * @param patch - Raw patch object to validate.
+ *
+ * @returns Cleaned patch with only updatable columns
+ *
+ * @throws ValidationError - When the patch fails validation
  */
 export function validateUpdatePatch(
   handle: TableHandle,

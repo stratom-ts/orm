@@ -1,15 +1,14 @@
 /**
  * Normalizes PostgreSQL type names and aliases for comparison.
  *
+ * @example
+ *   normalizePostgresDataType('int4') // 'integer'
+ *   normalizePostgresDataType('character varying') // 'varchar'
+ *   normalizePostgresDataType('varchar(255)') // 'varchar(255)'
+ *
  * @param dataType - Raw type string (e.g. `int4`, `character varying`)
  *
  * @returns Canonical type (e.g. `integer`, `varchar`)
- *
- * @example```ts
- * normalizePostgresDataType('int4')                // 'integer'
- * normalizePostgresDataType('character varying')   // 'varchar'
- * normalizePostgresDataType('varchar(255)')        // 'varchar(255)'
- * ```
  */
 export function normalizePostgresDataType(dataType: string): string {
   const normalized = dataType.toLowerCase().trim()
@@ -55,15 +54,14 @@ export function normalizePostgresDataType(dataType: string): string {
 /**
  * Extracts the base PostgreSQL type without length/precision suffix.
  *
+ * @example
+ *   postgresBaseType('varchar(255)') // 'varchar'
+ *   postgresBaseType('numeric(10,2)') // 'numeric'
+ *   postgresBaseType('text') // 'text'
+ *
  * @param dataType - SQL data type string (e.g. `varchar(255)`, `numeric(10,2)`)
  *
  * @returns Base type name (e.g. `varchar`, `numeric`)
- *
- * @example```ts
- * postgresBaseType('varchar(255)')   // 'varchar'
- * postgresBaseType('numeric(10,2)')  // 'numeric'
- * postgresBaseType('text')           // 'text'
- * ```
  */
 export function postgresBaseType(dataType: string): string {
   return normalizePostgresDataType(dataType).replace(/\(.*\)$/, '')

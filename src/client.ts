@@ -72,18 +72,14 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * Insert rows into a registered table.
    *
    * @example
-   *   ;```ts
    *   await db.insert(User).values({ name: 'Alice' }).executeTakeFirstOrThrow()
-   * ```
    */
   insert<THandle extends TableHandle>(handle: THandle): InsertValuesBuilder<THandle>
   /**
    * Update rows in a registered table.
    *
    * @example
-   *   ;```ts
    *   await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
-   * ```
    */
   update<THandle extends TableHandle>(handle: THandle): UpdateSetBuilder<THandle>
   /**
@@ -91,12 +87,10 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * Returns all deleted rows by default.
    *
    * @example
-   *   ;```ts
    *   const deleted = await db
    *     .delete(User)
    *     .where(User.id, 'eq', 1)
    *     .executeTakeFirstOrThrow()
-   * ```
    */
   delete<THandle extends TableHandle>(
     handle: THandle,
@@ -113,6 +107,16 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
   [Symbol.asyncDispose](): Promise<void>
 }
 
+/**
+ * Asserts that all schemas are valid table handles with unique keys.
+ *
+ * @example
+ *   assertHandles([User, Post])
+ *
+ * @param schemas - Array of table handles to validate.
+ *
+ * @throws SchemaError - When a value is not a table handle or keys are duplicated
+ */
 function assertHandles(schemas: readonly TableHandle[]): void {
   const seen = new Set<string>()
   for (const schema of schemas) {
@@ -138,12 +142,8 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  * Stratom calls `createDatabase(connector)` and owns that instance.
  * No auto-migrate; no Kysely.
  *
- * @param config - Connector and registered schemas.
- *
- * @returns Client with registry, `from`, `transaction`, `ping`, `close`
- *
- * @example```ts
- * import { postgresql } from 'db0/connectors/postgresql'
+ * @example
+ *   import { postgresql } from 'db0/connectors/postgresql'
  *
  *   const db = createDb({
  *   connector: postgresql({ url: process.env.DATABASE_URL! }),
@@ -153,7 +153,11 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  *   await trx.insert(User).values({ ... }).execute()
  *   })
  *   await db.close()
- * ```
+ *
+ * @param config - Connector and registered schemas.
+ *
+ * @returns Client with `schemas`, `from`, `insert`, `update`, `delete`, `migrate`,
+ *   `transaction`, `ping`, and `close`
  */
 export function createDb<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],
