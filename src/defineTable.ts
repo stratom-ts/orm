@@ -2,11 +2,12 @@ import type { ObjectEntries } from 'valibot'
 import { object, pipe, title } from 'valibot'
 
 import { postgresDialect } from '@/dialects'
-import type { TableMetadata, TableOptions, TableSchema } from '@/schemas'
+import type { ColumnMetadata, TableMetadata, TableOptions, TableSchema } from '@/schemas'
 import {
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
+  isSqlNullable,
   normalizeIndex,
   table,
 } from '@/schemas'
@@ -143,6 +144,40 @@ function validateColumnReference(columnName: string, ref: ReferenceMetadata): vo
   }
 }
 
+function hasValueSource(
+  metadata: ColumnMetadata | undefined,
+  schemaDefault: unknown,
+): boolean {
+  return (
+    metadata?.default !== undefined ||
+    metadata?.generated !== undefined ||
+    Boolean(metadata?.autoIncrement) ||
+    schemaDefault !== undefined
+  )
+}
+
+function validateOptionalColumn(
+  tableName: string,
+  columnName: string,
+  colSchema: AnySchema,
+): void {
+  if (colSchema.type !== 'optional' || isSqlNullable(colSchema)) return
+
+  const metadata = getColumnMetadata(colSchema)
+  const schemaDefault = (colSchema as AnySchema & { default?: unknown }).default
+  if (metadata?.default === null || schemaDefault === null) {
+    throw new SchemaError({
+      message: `optional NOT NULL column "${columnName}" on table "${tableName}" cannot default to null`,
+    })
+  }
+
+  if (!hasValueSource(metadata, schemaDefault)) {
+    throw new SchemaError({
+      message: `optional NOT NULL column "${columnName}" on table "${tableName}" requires a default or generated value`,
+    })
+  }
+}
+
 /**
  * Asserts an identity/autoIncrement column resolves to a Postgres identity type.
  *
@@ -186,6 +221,7 @@ function validateColumns(schema: TableSchema, tableName: string): void {
       continue
     }
     const ref = getReferenceMetadata(colSchema)
+    validateOptionalColumn(tableName, columnName, colSchema)
     validateColumnOptions(tableName, columnName, colSchema)
     validateColumnReference(columnName, ref)
     validateIdentityColumn(tableName, columnName, colSchema, ref)

@@ -71,7 +71,7 @@ const Users = defineTable(
   {
     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
     email: pipe(string(), column({ type: 'text' })),
-    displayName: optional(pipe(string(), column({ type: 'text' }))),
+    displayName: optional(pipe(string(), column({ type: 'text', default: '' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
   },
   { primaryKey: 'id', schema: 'public' },

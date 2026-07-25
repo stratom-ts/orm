@@ -151,7 +151,7 @@ function createMockConnector(options?: {
             column_default: c.defaultExpression ?? (c.hasDefault ? 'true' : null),
             is_identity:
               c.isIdentity ||
-              c.identityGeneration !== undefined ||
+              c.identityGeneration != null ||
               (c.name === 'id' && t.primaryKey?.includes('id'))
                 ? 'YES'
                 : 'NO',
@@ -428,7 +428,7 @@ const Users = defineTable(
     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
     email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
     age: nullable(pipe(number(), column({ type: 'integer' }))),
-    bio: optional(pipe(string(), column({ type: 'text' }))),
+    bio: optional(pipe(string(), column({ type: 'text', default: '' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
   },
   { primaryKey: 'id', schema: 'public' },
@@ -715,7 +715,7 @@ describe('db.migrate().execute()', () => {
             { name: 'id', dataType: 'integer', isNullable: false },
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             {
               name: 'active',
               dataType: 'boolean',
@@ -923,7 +923,7 @@ describe('db.migrate().dryRun()', () => {
             },
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             {
               name: 'active',
               dataType: 'boolean',
@@ -1013,7 +1013,7 @@ describe('db.migrate().dryRun()', () => {
             { name: 'id', dataType: 'int4', isNullable: false },
             { name: 'email', dataType: 'text', isNullable: true },
             { name: 'age', dataType: 'integer', isNullable: false },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             { name: 'active', dataType: 'boolean', isNullable: false },
           ],
         },
@@ -1218,7 +1218,7 @@ describe('managed migration drift detection', () => {
               name: 'bio',
               dataType: 'text',
               isNullable: false,
-              defaultExpression: null,
+              defaultExpression: "''",
               identityGeneration: null,
             },
             {

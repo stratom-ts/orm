@@ -30,7 +30,7 @@ const User = defineTable(
     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
     email: pipe(string(), column({ type: 'varchar(255)' })),
     age: nullable(pipe(number(), column({ type: 'integer' }))),
-    bio: optional(pipe(string(), column({ type: 'text' }))),
+    bio: optional(pipe(string(), column({ type: 'text', default: '' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
   },
   { primaryKey: 'id' },

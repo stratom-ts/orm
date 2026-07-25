@@ -12,7 +12,7 @@ export function isSqlNullable(schema: AnySchema): boolean {
     return true
   }
   if (schema.type === 'optional') {
-    return false
+    return 'wrapped' in schema && isSqlNullable(schema.wrapped as AnySchema)
   }
 
   if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {
