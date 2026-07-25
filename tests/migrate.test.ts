@@ -151,7 +151,7 @@ function createMockConnector(options?: {
             column_default: c.defaultExpression ?? (c.hasDefault ? 'true' : null),
             is_identity:
               c.isIdentity ||
-              c.identityGeneration !== undefined ||
+              c.identityGeneration != null ||
               (c.name === 'id' && t.primaryKey?.includes('id'))
                 ? 'YES'
                 : 'NO',
