@@ -53,7 +53,7 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
  * Builds a value mapper: column override → createDb map → dialect defaults.
  *
  * @example
- *   const mapper = createValueMapper(dialect, { mapResultValue: ... })
+ *   const mapper = createValueMapper(dialect, { mapParamValue: ... })
  *   mapper.mapParam(handle, 'createdAt', new Date())
  *
  * @param dialect - SQL dialect providing default value mapping.

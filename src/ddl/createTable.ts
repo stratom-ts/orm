@@ -43,7 +43,8 @@ function isIdentityCompatibleType(dataType: string, dialect: Dialect): boolean {
  *
  * @returns Create-table AST node
  *
- * @throws MigrationError - When the table has no columns or invalid identity types
+ * @throws MigrationError - When the table has no columns or no primary key
+ * @throws SchemaError - When identity/autoIncrement is used with an incompatible type
  */
 export function buildCreateTableAst(
   handle: TableHandle,

@@ -10,7 +10,7 @@ import { postgresBaseType } from './normalize'
  *
  * @example
  *   mapPostgresResultValue('timestamptz', '2024-01-15T10:30:00Z')
- *   // Date(2024-01-15T10:30:00Z)
+ *   // new Date('2024-01-15T10:30:00Z')
  *
  *   mapPostgresResultValue('jsonb', '{"key":"value"}')
  *   // { key: 'value' }

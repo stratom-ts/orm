@@ -72,7 +72,6 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * Insert rows into a registered table.
    *
    * @example
-   *   ;```ts
    *   await db.insert(User).values({ name: 'Alice' }).executeTakeFirstOrThrow()
    */
   insert<THandle extends TableHandle>(handle: THandle): InsertValuesBuilder<THandle>
@@ -80,7 +79,6 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * Update rows in a registered table.
    *
    * @example
-   *   ;```ts
    *   await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
    */
   update<THandle extends TableHandle>(handle: THandle): UpdateSetBuilder<THandle>
@@ -89,11 +87,10 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * Returns all deleted rows by default.
    *
    * @example
-   *   ;```ts
    *   const deleted = await db
-   *   .delete(User)
-   *   .where(User.id, 'eq', 1)
-   *   .executeTakeFirstOrThrow()
+   *     .delete(User)
+   *     .where(User.id, 'eq', 1)
+   *     .executeTakeFirstOrThrow()
    */
   delete<THandle extends TableHandle>(
     handle: THandle,
@@ -159,7 +156,8 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  *
  * @param config - Connector and registered schemas.
  *
- * @returns Client with registry, `from`, `transaction`, `ping`, `close`
+ * @returns Client with `schemas`, `from`, `insert`, `update`, `delete`, `migrate`,
+ *   `transaction`, `ping`, and `close`
  */
 export function createDb<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],

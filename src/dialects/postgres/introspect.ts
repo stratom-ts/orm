@@ -140,7 +140,7 @@ function parseIndexColumns(value: unknown): string[] {
  * and indexes in the connected database.
  *
  * @example
- *   const snapshot = await introspectPostgres(db)
+ *   const snapshot = await introspectPostgres(executor)
  *   for (const table of snapshot.tables) {
  *     console.log(`${table.schema}.${table.name}: ${table.columns.length} columns`)
  *   }

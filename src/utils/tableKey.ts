@@ -19,7 +19,7 @@ export function tableKey(schema: string | undefined, name: string): string {
 }
 
 /**
- * Effective Postgres schema for a table handle or metadata.
+ * Effective Postgres schema for a schema name or `undefined`.
  *
  * @example
  *   effectiveSchema('my_schema') // 'my_schema'

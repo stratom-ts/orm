@@ -120,7 +120,7 @@ export function assertSafePostgresDataType(dataType: string): string {
  *   formatPostgresDefault(null) // 'null'
  *   formatPostgresDefault(42) // '42'
  *   formatPostgresDefault('now()') // 'now()'
- *   formatPostgresDefault("O'Brien") // '''O''Brien'''
+ *   formatPostgresDefault("O'Brien") // 'O''Brien'
  *
  * @param value - Default value to format.
  *
