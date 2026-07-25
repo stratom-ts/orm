@@ -173,6 +173,7 @@ export function createDb<
   const mapper = createValueMapper(dialect, config.map)
   let closed = false
   let transactionActive = false
+  let rootClientBlocked = false
   let connectionQueue = Promise.resolve()
 
   const ensureOpen = () => {
@@ -193,10 +194,22 @@ export function createDb<
   const rootExecutor: Executor = {
     execute(query) {
       ensureOpen()
+      if (rootClientBlocked) {
+        throw new QueryError({
+          message:
+            'Cannot use the root database client inside a transaction callback; use the transaction client (trx) instead',
+        })
+      }
       return schedule(() => baseExecutor.execute(query))
     },
     run(query) {
       ensureOpen()
+      if (rootClientBlocked) {
+        throw new QueryError({
+          message:
+            'Cannot use the root database client inside a transaction callback; use the transaction client (trx) instead',
+        })
+      }
       return schedule(() => baseExecutor.run(query))
     },
   }
@@ -374,8 +387,15 @@ export function createDb<
       if (!transactionScope) {
         return schedule(async () => {
           ensureOpen()
+          if (rootClientBlocked) {
+            throw new QueryError({
+              message:
+                'Cannot start a nested transaction on the root client inside a transaction callback; use the transaction client (trx) instead',
+            })
+          }
           await baseExecutor.run({ sql: 'begin', params: [] })
           transactionActive = true
+          rootClientBlocked = true
           const scope: TransactionScope = {
             active: true,
             context: { nextSavepointId: 1 },
@@ -383,11 +403,13 @@ export function createDb<
           try {
             const result = await fn(createClient(baseExecutor, scope))
             scope.active = false
+            rootClientBlocked = false
             await baseExecutor.run({ sql: 'commit', params: [] })
             transactionActive = false
             return result
           } catch (error) {
             scope.active = false
+            rootClientBlocked = false
             try {
               await baseExecutor.run({ sql: 'rollback', params: [] })
             } catch {
