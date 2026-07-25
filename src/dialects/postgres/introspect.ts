@@ -1,3 +1,4 @@
+import type { ReferentialAction } from '@/schemas/actions/types'
 import { isTruthyFlag, toNumberOrNull } from '@/utils'
 
 import type { CatalogSnapshot, CatalogTable, CompiledQuery } from '../types'
@@ -320,9 +321,13 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
 
     if (row.constraint_type === 'p') {
       table.primaryKey = constraint
-    } else if (row.constraint_type === 'u') {
+      continue
+    }
+    if (row.constraint_type === 'u') {
       table.uniqueConstraints!.push(constraint)
-    } else if (row.constraint_type === 'f' && typeof row.referenced_table === 'string') {
+      continue
+    }
+    if (row.constraint_type === 'f' && typeof row.referenced_table === 'string') {
       table.foreignKeys!.push({
         ...constraint,
         ...(typeof row.referenced_schema === 'string'
@@ -330,8 +335,8 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
           : {}),
         referencedTable: row.referenced_table,
         referencedColumns: parseIndexColumns(row.referenced_columns),
-        onDelete: row.on_delete ?? 'no action',
-        onUpdate: row.on_update ?? 'no action',
+        onDelete: (row.on_delete ?? 'no action') as ReferentialAction,
+        onUpdate: (row.on_update ?? 'no action') as ReferentialAction,
       })
     }
   }

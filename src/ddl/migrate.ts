@@ -1,8 +1,10 @@
 import type {
+  CatalogColumn,
   CatalogIndex,
   CatalogSnapshot,
   CatalogTable,
   CreateSchemaAst,
+  CreateTableColumnAst,
   Dialect,
   SqlAst,
 } from '@/dialects'
@@ -146,6 +148,45 @@ function normalizeAction(action: string | undefined): string {
   return action?.toLowerCase() ?? 'no action'
 }
 
+function assertDefaultMatch(
+  tableName: string,
+  columnName: string,
+  live: CatalogColumn,
+  desired: CreateTableColumnAst,
+  dialect: Dialect,
+): void {
+  if (live.defaultExpression === undefined) return
+  const expected =
+    desired.defaultValue === undefined
+      ? null
+      : dialect.normalizeDefaultValue?.(desired.defaultValue)
+  if (desired.defaultValue !== undefined && expected === undefined) {
+    throw new MigrationError({
+      message: `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`,
+    })
+  }
+  if (live.defaultExpression !== expected) {
+    throw new MigrationError({
+      message: `Unsupported default change for '${tableName}.${columnName}'`,
+    })
+  }
+}
+
+function assertIdentityMatch(
+  tableName: string,
+  columnName: string,
+  live: CatalogColumn,
+  desired: CreateTableColumnAst,
+): void {
+  if (live.identityGeneration === undefined) return
+  const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
+  if (live.identityGeneration !== expected) {
+    throw new MigrationError({
+      message: `Unsupported identity change for '${tableName}.${columnName}'`,
+    })
+  }
+}
+
 function assertManagedPropertiesMatch(
   live: CatalogTable,
   desired: ReturnType<typeof buildCreateTableAst>,
@@ -157,32 +198,8 @@ function assertManagedPropertiesMatch(
   for (const column of desired.columns) {
     const current = liveColumns.get(column.name)
     if (!current) continue
-
-    if (current.defaultExpression !== undefined) {
-      const expected =
-        column.defaultValue === undefined
-          ? null
-          : dialect.normalizeDefaultValue?.(column.defaultValue)
-      if (column.defaultValue !== undefined && expected === undefined) {
-        throw new MigrationError({
-          message: `Cannot compare default for '${tableName}.${column.name}': dialect does not normalize defaults`,
-        })
-      }
-      if (current.defaultExpression !== expected) {
-        throw new MigrationError({
-          message: `Unsupported default change for '${tableName}.${column.name}'`,
-        })
-      }
-    }
-
-    if (current.identityGeneration !== undefined) {
-      const expected = column.generated ?? (column.autoIncrement ? 'byDefault' : null)
-      if (current.identityGeneration !== expected) {
-        throw new MigrationError({
-          message: `Unsupported identity change for '${tableName}.${column.name}'`,
-        })
-      }
-    }
+    assertDefaultMatch(tableName, column.name, current, column, dialect)
+    assertIdentityMatch(tableName, column.name, current, column)
   }
 
   if (live.primaryKey !== undefined) {
@@ -473,25 +490,25 @@ export function planMigration(
       const index = normalizeIndex(raw)
       const name = index.name ?? defaultIndexName(info.name, index.columns)
       const current = findIndex(live.indexes, name)
-      if (current) {
-        if (
-          current.unique !== (index.unique ?? false) ||
-          !arraysEqual(current.columns, index.columns)
-        ) {
-          throw new MigrationError({
-            message: `Unsupported index definition change for '${schemaName}.${name}'`,
-          })
-        }
+      if (!current) {
+        steps.push({
+          kind: 'create_index',
+          ...schemaField(info.schema),
+          table: info.name,
+          index: name,
+          columns: [...index.columns],
+          unique: index.unique ?? false,
+        })
         continue
       }
-      steps.push({
-        kind: 'create_index',
-        ...schemaField(info.schema),
-        table: info.name,
-        index: name,
-        columns: [...index.columns],
-        unique: index.unique ?? false,
-      })
+      if (
+        current.unique !== (index.unique ?? false) ||
+        !arraysEqual(current.columns, index.columns)
+      ) {
+        throw new MigrationError({
+          message: `Unsupported index definition change for '${schemaName}.${name}'`,
+        })
+      }
     }
 
     // Live indexes not in metadata → drop_index (if allowed)

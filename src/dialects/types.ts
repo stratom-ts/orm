@@ -1,5 +1,6 @@
 import { SQLDialect } from 'db0'
 
+import type { ReferentialAction } from '@/schemas/actions/types'
 import type { AnySchema } from '@/types/schema'
 
 /** SQL type string produced by dialect type inference. */
@@ -33,8 +34,8 @@ export type CatalogForeignKey = CatalogKeyConstraint & {
   referencedSchema?: string
   referencedTable: string
   referencedColumns: string[]
-  onDelete: string
-  onUpdate: string
+  onDelete: ReferentialAction
+  onUpdate: ReferentialAction
 }
 
 /** Live index entry from dialect introspection. */
