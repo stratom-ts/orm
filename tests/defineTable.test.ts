@@ -222,6 +222,52 @@ describe('defineTable', () => {
     )
     expect(validateInsertRow(SchemaDefault, {})).toEqual({ id: 'new' })
   })
+
+  it('should reject unsupported column metadata', () => {
+    expect(() =>
+      defineTable(
+        'commented',
+        { id: pipe(string(), column({ type: 'text', comment: 'unsupported' })) },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/comments are not supported/)
+
+    expect(() =>
+      defineTable(
+        'updated',
+        { id: pipe(string(), column({ type: 'text', onUpdate: 'now()' })) },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/onUpdate expressions are not supported/)
+  })
+
+  it('should reject defaults combined with identity generation', () => {
+    expect(() =>
+      defineTable(
+        'bad_identity',
+        {
+          id: pipe(
+            number(),
+            column({ type: 'integer', generated: 'byDefault', default: 1 }),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/cannot combine a default with identity/)
+  })
+
+  it('should reject duplicate generated or explicit index names', () => {
+    expect(() =>
+      defineTable(
+        'indexed',
+        {
+          id: pipe(string(), column({ type: 'text' })),
+          email: pipe(string(), column({ type: 'text' })),
+        },
+        { primaryKey: 'id', indexes: ['email', { columns: ['email'] }] },
+      ),
+    ).toThrow(/duplicate index name/)
+  })
 })
 
 describe('reference with FK actions', () => {

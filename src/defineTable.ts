@@ -67,6 +67,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
     return
   }
 
+  const names = new Set<string>()
   for (const raw of metadata.indexes) {
     const index = normalizeIndex(raw)
     if (index.name !== undefined) {
@@ -85,6 +86,40 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
         })
       }
     }
+    const name = index.name ?? `${metadata.name}_${index.columns.join('_')}_idx`
+    if (names.has(name)) {
+      throw new SchemaError({
+        message: `duplicate index name "${name}" on table "${metadata.name}"`,
+      })
+    }
+    names.add(name)
+  }
+}
+
+function validateColumnOptions(
+  tableName: string,
+  columnName: string,
+  colSchema: AnySchema,
+): void {
+  const metadata = getColumnMetadata(colSchema)
+  if (!metadata) return
+  if (metadata.comment !== undefined) {
+    throw new SchemaError({
+      message: `column comments are not supported on "${tableName}.${columnName}"`,
+    })
+  }
+  if (metadata.onUpdate !== undefined) {
+    throw new SchemaError({
+      message: `column onUpdate expressions are not supported on "${tableName}.${columnName}"`,
+    })
+  }
+  if (
+    metadata.default !== undefined &&
+    (metadata.generated !== undefined || metadata.autoIncrement)
+  ) {
+    throw new SchemaError({
+      message: `column "${columnName}" on table "${tableName}" cannot combine a default with identity generation`,
+    })
   }
 }
 
@@ -180,6 +215,7 @@ function validateColumns(schema: TableSchema, tableName: string): void {
     }
     const ref = getReferenceMetadata(colSchema)
     validateOptionalColumn(tableName, columnName, colSchema)
+    validateColumnOptions(tableName, columnName, colSchema)
     validateColumnReference(columnName, ref)
     validateIdentityColumn(tableName, columnName, colSchema, ref)
   }

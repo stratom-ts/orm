@@ -22,6 +22,7 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { postgresDialect } from '@/dialects/postgres'
+import { normalizePostgresDefaultExpression } from '@/dialects/postgres/validate'
 import type { CreateTableAst, CreateTableColumnAst } from '@/dialects/types'
 import { SchemaError } from '@/utils/error'
 
@@ -329,6 +330,30 @@ describe('@/dialects/postgres', () => {
       ).sql
 
       expect(sql).toContain("default 'now(); select 1'")
+    })
+  })
+
+  describe('normalizePostgresDefaultExpression', () => {
+    it('should strip fully enclosing parentheses', () => {
+      expect(normalizePostgresDefaultExpression('(now())')).toBe('now()')
+    })
+
+    it('should not strip parentheses that do not fully enclose the expression', () => {
+      expect(normalizePostgresDefaultExpression("('a') || ('b')")).toBe("('a') || ('b')")
+    })
+
+    it('should strip multiple layers of enclosing parentheses', () => {
+      expect(normalizePostgresDefaultExpression('((gen_random_uuid()))')).toBe(
+        'gen_random_uuid()',
+      )
+    })
+
+    it('should remove a single trailing cast', () => {
+      expect(normalizePostgresDefaultExpression("'hello'::text")).toBe("'hello'")
+    })
+
+    it('should remove chained trailing casts', () => {
+      expect(normalizePostgresDefaultExpression("'hello'::text::varchar")).toBe("'hello'")
     })
   })
 })

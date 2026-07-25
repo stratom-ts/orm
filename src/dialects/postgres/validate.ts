@@ -152,3 +152,52 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
 
   return `'${value.replaceAll("'", "''")}'`
 }
+
+/**
+ * Strips a pair of outer parentheses only when they fully enclose the
+ * expression (balanced depth reaches zero at the final character).
+ *
+ * @param s - Input string that may be wrapped in parentheses.
+ *
+ * @returns The string with one outer layer removed, or the original string
+ *   when the outer parens do not form a matching pair.
+ */
+function stripEnclosingParens(s: string): string {
+  if (s.length < 2 || s[0] !== '(' || s[s.length - 1] !== ')') return s
+  let depth = 0
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++
+    else if (s[i] === ')') depth--
+    if (depth === 0 && i < s.length - 1) return s
+  }
+  return depth === 0 ? s.slice(1, -1).trim() : s
+}
+
+/**
+ * Canonicalizes a PostgreSQL catalog default expression for migration
+ * comparison by normalizing whitespace, stripping balanced enclosing
+ * parentheses, and removing trailing `::type` casts (including chained
+ * casts such as `::text::varchar`).
+ *
+ * @param expression - Raw default expression from `pg_catalog`.
+ *
+ * @returns Normalized expression suitable for drift comparison.
+ *
+ * @example```ts
+ * normalizePostgresDefaultExpression('(now())')         // 'now()'
+ * normalizePostgresDefaultExpression("('a') || ('b')")  // "('a') || ('b')"
+ * normalizePostgresDefaultExpression("'x'::text::varchar") // "'x'"
+ * ```
+ */
+export function normalizePostgresDefaultExpression(expression: string): string {
+  let normalized = expression.trim()
+  let prev: string
+  do {
+    prev = normalized
+    normalized = stripEnclosingParens(normalized)
+  } while (normalized !== prev)
+  return normalized.replace(
+    /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
+    '',
+  )
+}

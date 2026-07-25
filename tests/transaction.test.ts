@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { createDb } from '@/client'
 import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
+import { MigrationError, QueryError } from '@/utils/error'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -176,6 +177,105 @@ describe('db.transaction', () => {
     expect(sql.some((s) => s.includes('release savepoint sp_1'))).toBe(true)
     expect(sql.some((s) => s.includes('rollback to'))).toBe(false)
     expect(sql.some((s) => s === 'commit')).toBe(true)
+
+    await db.close()
+  })
+
+  it('should serialize concurrent top-level transactions', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    let releaseFirst!: () => void
+    let markFirstStarted!: () => void
+    const firstCanFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve
+    })
+
+    const first = db.transaction(async () => {
+      markFirstStarted()
+      await firstCanFinish
+      throw new Error('first failed')
+    })
+    await firstStarted
+
+    const second = db.transaction(async (trx) => {
+      await trx.insert(Users).values({ id: '2', email: 'second@example.com' }).execute()
+      return 'second committed'
+    })
+
+    await Promise.resolve()
+    expect(
+      connector.prepared.filter((sql) => sql.toLowerCase() === 'begin'),
+    ).toHaveLength(1)
+
+    releaseFirst()
+    await expect(first).rejects.toThrow('first failed')
+    await expect(second).resolves.toBe('second committed')
+
+    const transactionSql = connector.prepared
+      .map((sql) => sql.toLowerCase())
+      .filter((sql) => ['begin', 'commit', 'rollback'].includes(sql))
+    expect(transactionSql).toEqual(['begin', 'rollback', 'begin', 'commit'])
+    await db.close()
+  })
+
+  it('should reject migrations inside a transaction before acquiring a lock', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    const migrationCreatedBeforeTransaction = db.migrate()
+
+    await expect(
+      db.transaction(async (trx) => {
+        await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
+        await migrationCreatedBeforeTransaction.execute()
+      }),
+    ).rejects.toBeInstanceOf(MigrationError)
+
+    const sql = connector.prepared.map((s) => s.toLowerCase())
+    expect(sql).toContain('begin')
+    expect(sql).toContain('rollback')
+    expect(sql).not.toContain('commit')
+    expect(sql.some((s) => s.includes('pg_advisory_lock'))).toBe(false)
+
+    await db.close()
+  })
+
+  it('should expire transaction clients and builders after their callback', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+    let escapedQuery: ReturnType<typeof db.from> | undefined
+    let useEscapedClient: (() => void) | undefined
+
+    await db.transaction(async (trx) => {
+      escapedQuery = trx.from(Users)
+      useEscapedClient = () => {
+        trx.from(Users)
+      }
+    })
+
+    expect(useEscapedClient).toBeDefined()
+    expect(() => useEscapedClient!()).toThrow(QueryError)
+    await expect(escapedQuery!.execute()).rejects.toBeInstanceOf(QueryError)
+    await db.close()
+  })
+
+  it('should reject migrations from nested transaction clients', async () => {
+    const connector = createMockConnector()
+    const db = createDb({ connector, schemas: [Users] })
+
+    await db.transaction(async (trx) => {
+      await expect(trx.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
+      await trx.transaction(async (nested) => {
+        await expect(nested.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
+      })
+    })
+
+    const sql = connector.prepared.map((s) => s.toLowerCase())
+    expect(sql.some((s) => s.includes('pg_advisory_lock'))).toBe(false)
+    expect(sql.some((s) => s.includes('savepoint sp_1'))).toBe(true)
+    expect(sql).toContain('commit')
 
     await db.close()
   })

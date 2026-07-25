@@ -1,6 +1,9 @@
+import type { ReferentialAction } from '@/schemas/actions/types'
 import { isTruthyFlag, toNumberOrNull } from '@/utils'
 
 import type { CatalogSnapshot, CatalogTable, CompiledQuery } from '../types'
+
+import { normalizePostgresDefaultExpression } from './validate'
 
 type IntrospectExecutor = {
   execute(query: CompiledQuery): Promise<unknown[]>
@@ -18,6 +21,7 @@ type ColumnRow = {
   is_nullable?: string
   column_default?: string | null
   is_identity?: string
+  identity_generation?: string | null
 }
 
 type IndexRow = {
@@ -26,6 +30,19 @@ type IndexRow = {
   index_name?: string
   is_unique?: boolean | string | number
   columns?: unknown
+}
+
+type ConstraintRow = {
+  schema?: string
+  table_name?: string
+  constraint_name?: string
+  constraint_type?: 'p' | 'u' | 'f'
+  columns?: unknown
+  referenced_schema?: string
+  referenced_table?: string
+  referenced_columns?: unknown
+  on_delete?: string
+  on_update?: string
 }
 
 /**
@@ -151,7 +168,8 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
         c.numeric_scale as numeric_scale,
         c.is_nullable as is_nullable,
         c.column_default as column_default,
-        c.is_identity as is_identity
+        c.is_identity as is_identity,
+        c.identity_generation as identity_generation
       from information_schema.columns c
       join information_schema.tables t
         on c.table_schema = t.table_schema
@@ -162,6 +180,50 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
     `,
     params: [],
   })) as ColumnRow[]
+
+  const constraintRows = (await exec.execute({
+    sql: `
+      select
+        n.nspname as schema,
+        tbl.relname as table_name,
+        con.conname as constraint_name,
+        con.contype as constraint_type,
+        (
+          select coalesce(array_agg(a.attname order by x.ordinality), '{}')
+          from unnest(con.conkey) with ordinality as x(attnum, ordinality)
+          join pg_attribute a on a.attrelid = tbl.oid and a.attnum = x.attnum
+        ) as columns,
+        ref_n.nspname as referenced_schema,
+        ref_tbl.relname as referenced_table,
+        (
+          select coalesce(array_agg(a.attname order by x.ordinality), '{}')
+          from unnest(con.confkey) with ordinality as x(attnum, ordinality)
+          join pg_attribute a on a.attrelid = ref_tbl.oid and a.attnum = x.attnum
+        ) as referenced_columns,
+        case con.confdeltype
+          when 'c' then 'cascade'
+          when 'r' then 'restrict'
+          when 'n' then 'set null'
+          when 'd' then 'set default'
+          else 'no action'
+        end as on_delete,
+        case con.confupdtype
+          when 'c' then 'cascade'
+          when 'r' then 'restrict'
+          when 'n' then 'set null'
+          when 'd' then 'set default'
+          else 'no action'
+        end as on_update
+      from pg_constraint con
+      join pg_class tbl on tbl.oid = con.conrelid
+      join pg_namespace n on n.oid = tbl.relnamespace
+      left join pg_class ref_tbl on ref_tbl.oid = con.confrelid
+      left join pg_namespace ref_n on ref_n.oid = ref_tbl.relnamespace
+      where con.contype in ('p', 'u', 'f')
+        and n.nspname not in ('pg_catalog', 'information_schema')
+    `,
+    params: [],
+  })) as ConstraintRow[]
 
   const indexRows = (await exec.execute({
     sql: `
@@ -184,6 +246,9 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       where n.nspname not in ('pg_catalog', 'information_schema')
         and tbl.relkind = 'r'
         and not i.indisprimary
+        and not exists (
+          select 1 from pg_constraint con where con.conindid = i.indexrelid
+        )
     `,
     params: [],
   })) as IndexRow[]
@@ -194,7 +259,15 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
     const key = `${schema}.${name}`
     let table = tables.get(key)
     if (!table) {
-      table = { name, schema, columns: [], indexes: [] }
+      table = {
+        name,
+        schema,
+        columns: [],
+        indexes: [],
+        primaryKey: null,
+        uniqueConstraints: [],
+        foreignKeys: [],
+      }
       tables.set(key, table)
     }
     return table
@@ -218,7 +291,54 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       isNullable: (row.is_nullable ?? 'YES').toUpperCase() === 'YES',
       hasDefault: row.column_default != null,
       isIdentity: (row.is_identity ?? 'NO').toUpperCase() === 'YES',
+      defaultExpression:
+        row.column_default == null
+          ? null
+          : normalizePostgresDefaultExpression(row.column_default),
+      identityGeneration:
+        (row.is_identity ?? 'NO').toUpperCase() === 'YES'
+          ? (row.identity_generation ?? '').toUpperCase() === 'ALWAYS'
+            ? 'always'
+            : 'byDefault'
+          : null,
     })
+  }
+
+  for (const row of constraintRows) {
+    if (
+      typeof row.table_name !== 'string' ||
+      typeof row.constraint_name !== 'string' ||
+      typeof row.constraint_type !== 'string'
+    ) {
+      continue
+    }
+    const schema = typeof row.schema === 'string' ? row.schema : 'public'
+    const table = getOrCreateTable(row.table_name, schema)
+    const constraint = {
+      name: row.constraint_name,
+      columns: parseIndexColumns(row.columns),
+    }
+
+    if (row.constraint_type === 'p') {
+      table.primaryKey = constraint
+      continue
+    }
+    if (row.constraint_type === 'u') {
+      table.uniqueConstraints!.push(constraint)
+      continue
+    }
+    if (row.constraint_type === 'f' && typeof row.referenced_table === 'string') {
+      table.foreignKeys!.push({
+        ...constraint,
+        ...(typeof row.referenced_schema === 'string'
+          ? { referencedSchema: row.referenced_schema }
+          : {}),
+        referencedTable: row.referenced_table,
+        referencedColumns: parseIndexColumns(row.referenced_columns),
+        onDelete: (row.on_delete ?? 'no action') as ReferentialAction,
+        onUpdate: (row.on_update ?? 'no action') as ReferentialAction,
+      })
+    }
   }
 
   for (const row of indexRows) {

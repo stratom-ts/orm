@@ -5,6 +5,7 @@ import { inferPostgresColumnType } from './infer'
 import { introspectPostgres } from './introspect'
 import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
 import { normalizePostgresDataType } from './normalize'
+import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
 
 /**
  * PostgreSQL dialect plugin for the db0 stack.
@@ -29,6 +30,10 @@ export const postgresDialect: Dialect = {
 
   normalizeDataType(dataType) {
     return normalizePostgresDataType(dataType)
+  },
+
+  normalizeDefaultValue(value) {
+    return normalizePostgresDefaultExpression(formatPostgresDefault(value))
   },
 
   async introspect(executor: unknown): Promise<CatalogSnapshot> {

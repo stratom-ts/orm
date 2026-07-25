@@ -1,8 +1,10 @@
 import type {
+  CatalogColumn,
   CatalogIndex,
   CatalogSnapshot,
   CatalogTable,
   CreateSchemaAst,
+  CreateTableColumnAst,
   Dialect,
   SqlAst,
 } from '@/dialects'
@@ -60,6 +62,19 @@ export type MigrationStep =
       table: string
       column: string
       dataType: string
+    }
+  | {
+      kind: 'add_foreign_key'
+      schema?: string
+      table: string
+      column: string
+      references: {
+        table: string
+        column: string
+        schema?: string
+        onDelete?: string
+        onUpdate?: string
+      }
     }
   | {
       kind: 'set_not_null'
@@ -129,9 +144,134 @@ function defaultIndexName(table: string, columns: string[]): string {
   return `${table}_${columns.join('_')}_idx`
 }
 
-function indexExists(live: CatalogIndex[] | undefined, name: string): boolean {
-  if (!live?.length) return false
-  return live.some((idx) => idx.name === name)
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return (
+    left.length === right.length && left.every((value, index) => value === right[index])
+  )
+}
+
+function findIndex(
+  live: CatalogIndex[] | undefined,
+  name: string,
+): CatalogIndex | undefined {
+  return live?.find((index) => index.name === name)
+}
+
+function normalizeAction(action: string | undefined): string {
+  return action?.toLowerCase() ?? 'no action'
+}
+
+function assertDefaultMatch(
+  tableName: string,
+  columnName: string,
+  live: CatalogColumn,
+  desired: CreateTableColumnAst,
+  dialect: Dialect,
+): void {
+  if (live.defaultExpression === undefined) return
+  const expected =
+    desired.defaultValue === undefined
+      ? null
+      : dialect.normalizeDefaultValue?.(desired.defaultValue)
+  if (desired.defaultValue !== undefined && expected === undefined) {
+    throw new MigrationError({
+      message: `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`,
+    })
+  }
+  if (live.defaultExpression !== expected) {
+    throw new MigrationError({
+      message: `Unsupported default change for '${tableName}.${columnName}'`,
+    })
+  }
+}
+
+function assertIdentityMatch(
+  tableName: string,
+  columnName: string,
+  live: CatalogColumn,
+  desired: CreateTableColumnAst,
+): void {
+  if (live.identityGeneration === undefined) return
+  const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
+  if (live.identityGeneration !== expected) {
+    throw new MigrationError({
+      message: `Unsupported identity change for '${tableName}.${columnName}'`,
+    })
+  }
+}
+
+function assertManagedPropertiesMatch(
+  live: CatalogTable,
+  desired: ReturnType<typeof buildCreateTableAst>,
+  dialect: Dialect,
+): void {
+  const tableName = `${effectiveSchema(live.schema)}.${live.name}`
+  const liveColumns = new Map(live.columns.map((column) => [column.name, column]))
+
+  for (const column of desired.columns) {
+    const current = liveColumns.get(column.name)
+    if (!current) continue
+    assertDefaultMatch(tableName, column.name, current, column, dialect)
+    assertIdentityMatch(tableName, column.name, current, column)
+  }
+
+  if (live.primaryKey !== undefined) {
+    const current = live.primaryKey?.columns ?? []
+    if (!arraysEqual(current, desired.primaryKey)) {
+      throw new MigrationError({
+        message: `Unsupported primary key change for '${tableName}'`,
+      })
+    }
+  }
+
+  if (live.uniqueConstraints !== undefined) {
+    const current = live.uniqueConstraints
+      .map((constraint) => constraint.columns.join('\0'))
+      .sort()
+    const expected = desired.columns
+      .filter((column) => column.unique)
+      .map((column) => column.name)
+      .sort()
+    if (!arraysEqual(current, expected)) {
+      throw new MigrationError({
+        message: `Unsupported unique constraint change for '${tableName}'`,
+      })
+    }
+  }
+
+  if (live.foreignKeys !== undefined) {
+    const current = live.foreignKeys
+      .map((foreignKey) =>
+        [
+          foreignKey.columns.join(','),
+          effectiveSchema(foreignKey.referencedSchema),
+          foreignKey.referencedTable,
+          foreignKey.referencedColumns.join(','),
+          normalizeAction(foreignKey.onDelete),
+          normalizeAction(foreignKey.onUpdate),
+        ].join('\0'),
+      )
+      .sort()
+    const expected = desired.columns
+      .filter((column) => column.references !== undefined)
+      .map((column) => {
+        const reference = column.references!
+        return [
+          column.name,
+          effectiveSchema(reference.schema),
+          reference.table,
+          reference.column,
+          normalizeAction(reference.onDelete),
+          normalizeAction(reference.onUpdate),
+        ].join('\0')
+      })
+      .sort()
+    if (!arraysEqual(current, expected)) {
+      throw new MigrationError({
+        message: `Unsupported foreign key change for '${tableName}'`,
+      })
+    }
+  }
 }
 
 function schemaField(
@@ -229,6 +369,7 @@ export function planMigration(
   allowed: ReadonlySet<MigrationAllow> = new Set(),
 ): MigrationPlan {
   const steps: MigrationStep[] = []
+  const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
   const existing = catalogTableMap(catalog)
   const ensuredSchemas = schemasPresentInCatalog(catalog)
   const registeredKeys = new Set<string>()
@@ -268,8 +409,21 @@ export function planMigration(
           unique: index.unique ?? false,
         })
       }
+
+      for (const column of createAst.columns) {
+        if (!column.references) continue
+        deferredForeignKeys.push({
+          kind: 'add_foreign_key',
+          ...schemaField(info.schema),
+          table: info.name,
+          column: column.name,
+          references: { ...column.references },
+        })
+      }
       continue
     }
+
+    assertManagedPropertiesMatch(live, createAst, dialect)
 
     const liveColumns = new Map(
       (live.columns ?? []).map((column) => [column.name, column]),
@@ -279,6 +433,15 @@ export function planMigration(
     for (const desired of createAst.columns) {
       const current = liveColumns.get(desired.name)
       if (!current) {
+        if (desired.references) {
+          deferredForeignKeys.push({
+            kind: 'add_foreign_key',
+            ...schemaField(info.schema),
+            table: info.name,
+            column: desired.name,
+            references: { ...desired.references },
+          })
+        }
         steps.push({
           kind: 'add_column',
           ...schemaField(info.schema),
@@ -292,23 +455,6 @@ export function planMigration(
             : {}),
           ...(desired.generated ? { generated: desired.generated } : {}),
           ...(desired.autoIncrement ? { autoIncrement: true } : {}),
-          ...(desired.references
-            ? {
-                references: {
-                  table: desired.references.table,
-                  column: desired.references.column,
-                  ...(desired.references.schema !== undefined
-                    ? { schema: desired.references.schema }
-                    : {}),
-                  ...(desired.references.onDelete
-                    ? { onDelete: desired.references.onDelete }
-                    : {}),
-                  ...(desired.references.onUpdate
-                    ? { onUpdate: desired.references.onUpdate }
-                    : {}),
-                },
-              }
-            : {}),
         })
         continue
       }
@@ -360,15 +506,26 @@ export function planMigration(
     for (const raw of info.indexes ?? []) {
       const index = normalizeIndex(raw)
       const name = index.name ?? defaultIndexName(info.name, index.columns)
-      if (indexExists(live.indexes, name)) continue
-      steps.push({
-        kind: 'create_index',
-        ...schemaField(info.schema),
-        table: info.name,
-        index: name,
-        columns: [...index.columns],
-        unique: index.unique ?? false,
-      })
+      const current = findIndex(live.indexes, name)
+      if (!current) {
+        steps.push({
+          kind: 'create_index',
+          ...schemaField(info.schema),
+          table: info.name,
+          index: name,
+          columns: [...index.columns],
+          unique: index.unique ?? false,
+        })
+        continue
+      }
+      if (
+        current.unique !== (index.unique ?? false) ||
+        !arraysEqual(current.columns, index.columns)
+      ) {
+        throw new MigrationError({
+          message: `Unsupported index definition change for '${schemaName}.${name}'`,
+        })
+      }
     }
 
     // Live indexes not in metadata → drop_index (if allowed)
@@ -384,6 +541,8 @@ export function planMigration(
       }
     }
   }
+
+  steps.push(...deferredForeignKeys)
 
   // Orphan tables in owned schemas only — never drop tables in schemas no
   // registered handle uses (shared DBs may hold unrelated apps/tools).
@@ -477,7 +636,11 @@ function stepToAst(
           message: `cannot create table "${key}": handle not registered`,
         })
       }
-      return buildCreateTableAst(handle, dialect)
+      const ast = buildCreateTableAst(handle, dialect)
+      return {
+        ...ast,
+        columns: ast.columns.map((column) => ({ ...column, references: undefined })),
+      }
     }
     case 'add_column':
       return {
@@ -502,6 +665,14 @@ function stepToAst(
         table: step.table,
         column: step.column,
         dataType: step.dataType,
+      }
+    case 'add_foreign_key':
+      return {
+        kind: 'add_foreign_key',
+        ...schemaField(step.schema),
+        table: step.table,
+        column: step.column,
+        references: step.references,
       }
     case 'set_not_null':
       return {
@@ -585,8 +756,9 @@ export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
   dialect: Dialect
   executor: Executor
+  assertCanExecute?: () => void
 }): MigrateBuilder {
-  const { schemas, dialect, executor } = options
+  const { schemas, dialect, executor, assertCanExecute } = options
   const handles = new Map<string, TableHandle>()
   for (const handle of schemas) {
     const info = handle.getTableMetadata()
@@ -621,6 +793,7 @@ export function createMigrateBuilder(options: {
     },
 
     async execute() {
+      assertCanExecute?.()
       await acquireMigrateLock(executor)
       try {
         const catalog = await dialect.introspect(executor)
