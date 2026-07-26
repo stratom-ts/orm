@@ -342,7 +342,10 @@ function validateTableMetadata(
  *
  * @throws SchemaError - When metadata is missing or invalid
  */
-function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
+function buildTableHandle<
+  S extends TableSchema,
+  TSchema extends string | undefined = string | undefined,
+>(schema: S): TableHandle<S, TSchema> {
   const metadata = getTableMetadata(schema)
   if (!metadata) {
     throw new SchemaError({
@@ -384,13 +387,13 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
 
   // Column refs first; reserved handle methods win if a column reuses those names.
   const handle = {
-    ...(columns as ColumnRefsOf<S>),
+    ...(columns as ColumnRefsOf<S, TSchema>),
     [TABLE_HANDLE]: true as const,
     getSchema: () => schema,
     getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
   }
 
-  return handle as TableHandle<S>
+  return handle as TableHandle<S, TSchema>
 }
 
 /**
@@ -423,13 +426,13 @@ function buildTableHandle<S extends TableSchema>(schema: S): TableHandle<S> {
  *
  * @throws SchemaError - When the resulting metadata is invalid
  */
-export function defineTable<const TName extends string, TCols extends ObjectEntries>(
-  name: TName,
-  columns: TCols,
-  options: TableOptions<TCols>,
-) {
+export function defineTable<
+  const TName extends string,
+  TCols extends ObjectEntries,
+  const TSchema extends string | undefined = undefined,
+>(name: TName, columns: TCols, options: TableOptions<TCols, TSchema>) {
   const schema = pipe(object(columns), title(name), table({ name, ...options }))
-  return buildTableHandle(schema)
+  return buildTableHandle<typeof schema, TSchema>(schema)
 }
 
 /**

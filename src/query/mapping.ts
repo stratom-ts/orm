@@ -13,6 +13,7 @@ export type ValueMapper = {
   /** SQL data type per column name for a table. */
   columnTypes(handle: TableHandle): Record<string, string>
   mapParam(handle: TableHandle, column: string, value: unknown): unknown
+  mapResultValue(handle: TableHandle, column: string, value: unknown): unknown
   mapResultRow(handle: TableHandle, row: Record<string, unknown>): Record<string, unknown>
   mapResultRows(handle: TableHandle, rows: unknown[]): unknown[]
 }
@@ -125,5 +126,5 @@ export function createValueMapper(dialect: Dialect, map?: ValueMapConfig): Value
       return mapResultRow(handle, row as Record<string, unknown>)
     })
 
-  return { columnTypes, mapParam, mapResultRow, mapResultRows }
+  return { columnTypes, mapParam, mapResultValue, mapResultRow, mapResultRows }
 }

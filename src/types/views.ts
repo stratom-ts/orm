@@ -190,20 +190,43 @@ export type TableNameOf<T> = T extends {
   ? N
   : never
 
+type EffectiveSchema<TSchema> = TSchema extends string ? TSchema : 'public'
+
+/** Schema-and-table identity used to distinguish same-named relations. */
+export type TableIdentityOf<T> = T extends {
+  getTableMetadata(): infer TMetadata
+}
+  ? TMetadata extends { name: infer TName extends string }
+    ? {
+        table: TName
+        schema: EffectiveSchema<
+          TMetadata extends { schema: infer TSchema } ? TSchema : undefined
+        >
+      }
+    : never
+  : never
+
 /** Every field of `T` widened with `| null` (outer-join side). */
 export type NullableFields<T> = {
   [K in keyof T]: T[K] | null
 }
 
-type MaybeJoinNullable<
-  TValue,
-  TTable extends string,
-  TNullable extends string,
-> = TTable extends TNullable ? TValue | null : TValue
+type MaybeJoinNullable<TValue, TIdentity, TNullable> = TIdentity extends TNullable
+  ? TValue | null
+  : TIdentity extends { table: infer TTable }
+    ? TTable extends Extract<TNullable, string>
+      ? TValue | null
+      : TValue
+    : TValue
+
+type ColumnIdentity<C> =
+  C extends ColumnRef<infer TTable, string, unknown, infer TSchema>
+    ? { table: TTable; schema: EffectiveSchema<TSchema> }
+    : never
 
 type SelectedColumnBaseValue<T, C> =
-  C extends ColumnRef<infer TTable, infer N extends string, infer TType>
-    ? [TableNameOf<T>] extends [TTable]
+  C extends ColumnRef<string, infer N extends string, infer TType>
+    ? [TableIdentityOf<T>] extends [ColumnIdentity<C>]
       ? N extends keyof InferSelect<T>
         ? InferSelect<T>[N]
         : Exclude<TType, undefined>
@@ -220,23 +243,22 @@ type SelectedColumnBaseValue<T, C> =
  * the ref's payload (minus `undefined` from optional wrappers). Outer-join
  * nullable tables widen the value with `| null`.
  */
-type SelectedColumnValue<T, C, TNullable extends string = never> =
-  C extends ColumnRef<infer TTable, string, unknown>
-    ? MaybeJoinNullable<SelectedColumnBaseValue<T, C>, TTable, TNullable>
-    : C extends string
-      ? MaybeJoinNullable<SelectedColumnBaseValue<T, C>, TableNameOf<T>, TNullable>
-      : never
+type SelectedColumnValue<T, C, TNullable = never> = C extends ColumnRef
+  ? MaybeJoinNullable<SelectedColumnBaseValue<T, C>, ColumnIdentity<C>, TNullable>
+  : C extends string
+    ? MaybeJoinNullable<SelectedColumnBaseValue<T, C>, TableIdentityOf<T>, TNullable>
+    : never
 
 /**
  * Row type for a column-list `select` / `returning`: only the selected keys,
  * each required. Same-table columns match {@link InferSelect}; cross-table
  * `ColumnRef`s resolve from the ref; bare string names unknown on `T` stay
- * `unknown`. Pass `TNullable` (table-name union) for outer-join sides.
+ * `unknown`. Pass `TNullable` (table-identity union) for outer-join sides.
  */
 export type InferSelectedColumns<
   T,
   TCols extends readonly (ColumnRef | string)[],
-  TNullable extends string = never,
+  TNullable = never,
 > = {
   [K in SelectedColumnName<TCols[number]>]-?: SelectedColumnValue<
     T,
@@ -246,8 +268,8 @@ export type InferSelectedColumns<
 }
 
 /** `selectAll(side)` row fragment, nullable when that side is outer-joined. */
-export type InferSelectAllSide<TSide, TNullable extends string = never> =
-  TableNameOf<TSide> extends TNullable
+export type InferSelectAllSide<TSide, TNullable = never> =
+  TableIdentityOf<TSide> extends TNullable
     ? NullableFields<InferSelect<TSide>>
     : InferSelect<TSide>
 

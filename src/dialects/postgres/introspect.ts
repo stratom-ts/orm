@@ -79,7 +79,7 @@ function formatPostgresCatalogDataType(row: ColumnRow): string {
   if (udt === 'int8') return 'bigint'
   if (udt === 'bool') return 'boolean'
   if (udt === 'float4') return 'real'
-  if (udt === 'float8') return 'real'
+  if (udt === 'float8') return 'double precision'
   if (udt === 'timestamptz') return 'timestamptz'
   if (udt === 'timestamp') return 'timestamp'
   if (udt === 'uuid') return 'uuid'
@@ -89,7 +89,7 @@ function formatPostgresCatalogDataType(row: ColumnRow): string {
 
   if (dataType === 'timestamp without time zone') return 'timestamp'
   if (dataType === 'timestamp with time zone') return 'timestamptz'
-  if (dataType === 'double precision') return 'real'
+  if (dataType === 'double precision') return 'double precision'
 
   return dataType
 }

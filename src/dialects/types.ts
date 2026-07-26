@@ -71,6 +71,7 @@ export type ColumnExprAst = {
   readonly kind: 'column'
   readonly column: string
   readonly table?: string
+  readonly schema?: string
 }
 
 /** Aggregate / scalar expressions supported in v1. */
@@ -104,11 +105,12 @@ export type SqlExprAst =
 
 /** Select list item. */
 export type SelectItemAst =
-  | { readonly kind: 'all'; readonly table?: string }
+  | { readonly kind: 'all'; readonly table?: string; readonly schema?: string }
   | {
       readonly kind: 'column'
       readonly column: string
       readonly table?: string
+      readonly schema?: string
       readonly alias?: string
     }
   | {
@@ -131,6 +133,7 @@ export type WhereClause = {
 export type QualifiedColumnAst = {
   readonly column: string
   readonly table?: string
+  readonly schema?: string
 }
 
 /**
@@ -142,6 +145,7 @@ export type PredicateAst =
       readonly kind: 'cmp'
       readonly column: string
       readonly table?: string
+      readonly schema?: string
       readonly op: ComparisonOp
       readonly value?: unknown
       readonly right?: QualifiedColumnAst
@@ -153,6 +157,7 @@ export type PredicateAst =
 export type OrderByAst = {
   readonly column: string
   readonly table?: string
+  readonly schema?: string
   readonly direction: 'asc' | 'desc'
 }
 

@@ -1327,77 +1327,45 @@ describe('db.migrate() allowlist + safety', () => {
     await db.close()
   })
 
-  it('should refuse drop_column with non-null data without allow on execute', async () => {
+  it('should not add hidden drop_column work during execute', async () => {
     const connector = createMockConnector({
       tables: [UsersWithExtraLive],
-      onPrepare: (sql) => {
-        const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase()
-        if (
-          normalized.includes('pg_advisory_lock') ||
-          normalized.includes('pg_advisory_unlock')
-        ) {
-          return createMockStatement([{ ok: true }])
-        }
-        if (
-          normalized === 'begin' ||
-          normalized === 'commit' ||
-          normalized === 'rollback'
-        ) {
-          return createMockStatement()
-        }
-        if (
-          normalized.includes('information_schema.tables') &&
-          !normalized.includes('information_schema.columns')
-        ) {
-          return createMockStatement([{ schema: 'public', name: 'users' }])
-        }
-        if (
-          normalized.includes('information_schema.columns') ||
-          (normalized.includes('information_schema') &&
-            normalized.includes('column_name'))
-        ) {
-          return createMockStatement(
-            UsersWithExtraLive.columns.map((c) => ({
-              schema: 'public',
-              table_name: 'users',
-              column_name: c.name,
-              data_type: c.dataType,
-              udt_name: c.dataType,
-              character_maximum_length: null,
-              numeric_precision: null,
-              numeric_scale: null,
-              is_nullable: c.isNullable ? 'YES' : 'NO',
-              column_default: null,
-              is_identity: c.name === 'id' ? 'YES' : 'NO',
-              identity_generation: c.name === 'id' ? 'BY DEFAULT' : null,
-            })),
-          )
-        }
-        if (normalized.includes('con.contype as constraint_type')) {
-          return createMockStatement([
-            {
-              schema: 'public',
-              table_name: 'users',
-              constraint_name: 'users_pkey',
-              constraint_type: 'p',
-              columns: ['id'],
-            },
-          ])
-        }
-        if (normalized.includes('pg_index') || normalized.includes('index_name')) {
-          return createMockStatement([])
-        }
-        if (normalized.includes('count(*)') && normalized.includes(' is not null')) {
-          return createMockStatement([{ count: 5 }])
-        }
-        return createMockStatement()
-      },
     })
 
     const db = createDatabase({ connector, schemas: [UsersBase] })
 
-    await expect(db.migrate().execute()).rejects.toThrow(MigrationError)
-    await expect(db.migrate().execute()).rejects.toThrow(/drop column|non-null data/i)
+    const plan = await db.migrate().dryRun()
+    expect(plan.steps.some((step) => step.kind === 'drop_column')).toBe(false)
+
+    await expect(db.migrate().execute()).resolves.toBeUndefined()
+
+    const drops = connector.prepared.filter((s) => /drop column/i.test(s))
+    expect(drops).toHaveLength(0)
+
+    await db.close()
+  })
+
+  it('should omit empty-column drop_column without allow on dryRun and execute', async () => {
+    const connector = createMockConnector({
+      tables: [
+        {
+          schema: 'public',
+          name: 'users',
+          columns: [
+            { name: 'id', dataType: 'integer', isNullable: false },
+            { name: 'email', dataType: 'text', isNullable: false },
+            { name: 'legacy', dataType: 'text', isNullable: true },
+          ],
+        },
+      ],
+    })
+
+    const db = createDatabase({ connector, schemas: [UsersBase] })
+
+    const plan = await db.migrate().dryRun()
+    expect(plan.steps.some((s) => s.kind === 'drop_column')).toBe(false)
+
+    await expect(db.migrate().execute()).resolves.toBeUndefined()
 
     const drops = connector.prepared.filter((s) => /drop column/i.test(s))
     expect(drops).toHaveLength(0)

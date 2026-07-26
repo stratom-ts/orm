@@ -24,7 +24,12 @@ function colRef(column: ColumnRef | string): ColumnExprAst {
   if (typeof column === 'string') {
     return { kind: 'column', column }
   }
-  return { kind: 'column', column: column.column, table: column.table }
+  return {
+    kind: 'column',
+    column: column.column,
+    table: column.table,
+    ...(column.schema !== undefined ? { schema: column.schema } : {}),
+  }
 }
 
 function columnName(column: ColumnRef | string): string {
@@ -35,9 +40,20 @@ function columnTable(column: ColumnRef | string): string | undefined {
   return typeof column === 'string' ? undefined : column.table
 }
 
+function columnSchema(column: ColumnRef | string): string | undefined {
+  return typeof column === 'string' ? undefined : (column.schema ?? 'public')
+}
+
 function toQualified(column: ColumnRef | string): QualifiedColumnAst {
   const table = columnTable(column)
-  return table ? { column: columnName(column), table } : { column: columnName(column) }
+  const schema = columnSchema(column)
+  return table
+    ? {
+        column: columnName(column),
+        table,
+        ...(schema !== undefined ? { schema } : {}),
+      }
+    : { column: columnName(column) }
 }
 
 function cmpLeaf(
@@ -51,6 +67,7 @@ function cmpLeaf(
       kind: 'cmp',
       column: left.column,
       ...(left.table !== undefined ? { table: left.table } : {}),
+      ...(left.schema !== undefined ? { schema: left.schema } : {}),
       op,
       right: toQualified(value),
     }
@@ -59,6 +76,7 @@ function cmpLeaf(
     kind: 'cmp',
     column: left.column,
     ...(left.table !== undefined ? { table: left.table } : {}),
+    ...(left.schema !== undefined ? { schema: left.schema } : {}),
     op,
     value,
   }
@@ -415,4 +433,4 @@ export function cmp(
   return cmpLeaf(column, op, value)
 }
 
-export { columnName, columnTable, colRef, isColumnRef, toQualified }
+export { columnName, columnSchema, columnTable, colRef, isColumnRef, toQualified }

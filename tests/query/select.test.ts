@@ -1,5 +1,5 @@
 import type { Connector, Statement } from 'db0'
-import { boolean, date, number, optional, pipe, string } from 'valibot'
+import { boolean, date, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import {
@@ -93,6 +93,7 @@ const Users = defineTable(
     displayName: optional(pipe(string(), column({ type: 'text', default: '' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
     score: pipe(number(), column({ type: 'integer', default: 0 })),
+    deletedAt: nullable(pipe(string(), column({ type: 'text' }))),
     createdAt: pipe(date(), column({ type: 'timestamptz' })),
   },
   { primaryKey: 'id', schema: 'public' },
@@ -181,6 +182,25 @@ describe('select compile', () => {
     expect(composed.sql.toLowerCase()).toMatch(/or/)
     expect(composed.sql.toLowerCase()).toMatch(/not/)
     expect(composed.params).toEqual([true, 10, 'x'])
+
+    await db.close()
+  })
+
+  it('should compile null equality without bound parameters', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const equal = db.from(Users).where(Users.deletedAt, 'eq', null).compile()
+    expect(equal.sql).toContain('"public.users"."deletedAt" is null')
+    expect(equal.params).toEqual([])
+
+    const notEqual = db.from(Users).where(Users.deletedAt, 'neq', null).compile()
+    expect(notEqual.sql).toContain('"public.users"."deletedAt" is not null')
+    expect(notEqual.params).toEqual([])
+
+    expect(() => db.from(Users).where(Users.deletedAt, 'gt', null).compile()).toThrow(
+      /does not accept null/,
+    )
 
     await db.close()
   })
@@ -277,15 +297,15 @@ describe('select compile', () => {
       expect(compiled.sql.toLowerCase()).toMatch(/lower\(/)
       expect(compiled.sql.toLowerCase()).toMatch(/length\(/)
       expect(compiled.sql.toLowerCase()).toMatch(/now\(\)/)
-      expect(compiled.sql).toContain('date_trunc($1, "users"."createdAt")')
+      expect(compiled.sql).toContain('date_trunc($1, "public.users"."createdAt")')
       expect(compiled.sql.toLowerCase()).toMatch(/<>|!=/)
       expect(compiled.sql).toContain('>=')
-      expect(compiled.sql).toMatch(/"users"\."score"\s*<\s*\$\d+/)
+      expect(compiled.sql).toMatch(/"public\.users"\."score"\s*<\s*\$\d+/)
       expect(compiled.sql).toContain('<=')
       expect(compiled.sql).toContain(
-        'group by "users"."email", "users"."score", "users"."createdAt"',
+        'group by "public.users"."email", "public.users"."score", "public.users"."createdAt"',
       )
-      expect(compiled.sql).toContain('order by "users"."email" asc')
+      expect(compiled.sql).toContain('order by "public.users"."email" asc')
       expect(compiled.params).toEqual(['day', 'deleted@example.com', 10, 100, 99, 1])
 
       expect(and(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
