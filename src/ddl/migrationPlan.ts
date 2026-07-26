@@ -421,15 +421,17 @@ function schemaField(
   return schema !== undefined ? { schema } : {}
 }
 
-function desiredIndexNames(handle: TableHandle): Set<string> {
-  const names = new Set<string>()
-  const info = handle.getTableMetadata()
-  for (const raw of info.indexes ?? []) {
+function desiredIndexes(
+  info: ReturnType<TableHandle['getTableMetadata']>,
+): Array<{ name: string; columns: string[]; unique: boolean }> {
+  return (info.indexes ?? []).map((raw) => {
     const index = normalizeIndex(raw)
-    const name = index.name ?? defaultIndexName(info.name, index.columns)
-    names.add(name)
-  }
-  return names
+    return {
+      name: index.name ?? defaultIndexName(info.name, index.columns),
+      columns: [...index.columns],
+      unique: index.unique ?? false,
+    }
+  })
 }
 
 function buildMigrationPlan(
@@ -477,6 +479,7 @@ function buildMigrationPlan(
       })
       continue
     }
+    const indexes = desiredIndexes(info)
 
     if (!live) {
       if (schemaName !== DEFAULT_PG_SCHEMA && !ensuredSchemas.has(schemaName)) {
@@ -490,16 +493,14 @@ function buildMigrationPlan(
         table: info.name,
       })
 
-      for (const raw of info.indexes ?? []) {
-        const index = normalizeIndex(raw)
-        const name = index.name ?? defaultIndexName(info.name, index.columns)
+      for (const index of indexes) {
         steps.push({
           kind: 'create_index',
           ...schemaField(info.schema),
           table: info.name,
-          index: name,
-          columns: [...index.columns],
-          unique: index.unique ?? false,
+          index: index.name,
+          columns: index.columns,
+          unique: index.unique,
         })
       }
 
@@ -591,7 +592,7 @@ function buildMigrationPlan(
       })
     }
 
-    const desiredIndexes = desiredIndexNames(handle)
+    const desiredIndexNames = new Set(indexes.map((index) => index.name))
     const liveIndexes = new Map<string, CatalogIndex>()
     for (const liveIndex of live.indexes ?? []) {
       if (liveIndexes.has(liveIndex.name)) {
@@ -606,37 +607,35 @@ function buildMigrationPlan(
       }
       liveIndexes.set(liveIndex.name, liveIndex)
     }
-    for (const raw of info.indexes ?? []) {
-      const index = normalizeIndex(raw)
-      const name = index.name ?? defaultIndexName(info.name, index.columns)
-      const current = liveIndexes.get(name)
+    for (const index of indexes) {
+      const current = liveIndexes.get(index.name)
       if (!current) {
         steps.push({
           kind: 'create_index',
           ...schemaField(info.schema),
           table: info.name,
-          index: name,
-          columns: [...index.columns],
-          unique: index.unique ?? false,
+          index: index.name,
+          columns: index.columns,
+          unique: index.unique,
         })
         continue
       }
       if (
-        current.unique !== (index.unique ?? false) ||
+        current.unique !== index.unique ||
         !arraysEqual(current.columns, index.columns)
       ) {
         issues.push({
           schema: schemaName,
           table: info.name,
-          target: name,
+          target: index.name,
           property: 'index_definition',
-          message: `Unsupported index definition change for '${schemaName}.${name}'`,
+          message: `Unsupported index definition change for '${schemaName}.${index.name}'`,
         })
       }
     }
 
     for (const liveIndex of live.indexes ?? []) {
-      if (desiredIndexes.has(liveIndex.name)) continue
+      if (desiredIndexNames.has(liveIndex.name)) continue
       steps.push({
         kind: 'drop_index',
         ...schemaField(info.schema),

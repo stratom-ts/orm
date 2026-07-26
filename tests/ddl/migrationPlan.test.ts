@@ -305,6 +305,7 @@ describe('Migration Plan construction', () => {
               defaultExpression: 'custom_default:ready',
             },
           ],
+          primaryKey: { name: 'portable_settings_pkey', columns: ['id'] },
         },
       ],
     }
@@ -479,8 +480,8 @@ describe('Migration Plan construction', () => {
   it('is invariant to registered table and catalog collection order', () => {
     const handles = [Accounts, AuditEvents, Comments, Users]
     const catalog = mixedCatalog()
-    const expected = planMigration(handles, catalog, postgresDialect)
     const originalCatalog = structuredClone(catalog)
+    const expected = planMigration(handles, catalog, postgresDialect)
 
     const catalogs = [catalog, structuredClone(catalog), structuredClone(catalog)]
     catalogs[1]!.tables.reverse()
@@ -645,9 +646,8 @@ describe('Migration Plan construction', () => {
     const catalog = managedCatalog()
     mutate(catalog)
 
-    expect(() =>
-      planMigration([ManagedUsers, ManagedPosts], catalog, postgresDialect),
-    ).toThrow(new RegExp(property, 'i'))
+    const error = planningError([ManagedUsers, ManagedPosts], catalog)
+    expect(error.message).toMatch(new RegExp(property, 'i'))
   })
 
   it('selects issues by canonical target before property', () => {

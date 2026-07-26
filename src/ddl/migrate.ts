@@ -276,8 +276,7 @@ export function createMigrateBuilder(options: {
       assertCanExecute?.()
       await acquireMigrateLock(executor)
       try {
-        const catalog = await dialect.introspect(executor)
-        const plan = planMigration(schemas, catalog, dialect)
+        const plan = await buildPlan()
 
         const steps = plan.steps
         if (steps.length === 0) return
