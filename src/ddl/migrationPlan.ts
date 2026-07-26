@@ -4,8 +4,8 @@ import type {
   CatalogSnapshot,
   CatalogTable,
   CreateTableColumnAst,
-  Dialect,
 } from '@/dialects'
+import { postgresDialect } from '@/dialects/postgres'
 import { normalizeIndex } from '@/schemas'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
@@ -150,13 +150,12 @@ function assertDefaultMatch(
   columnName: string,
   live: CatalogColumn,
   desired: CreateTableColumnAst,
-  dialect: Dialect,
 ): void {
   if (live.defaultExpression === undefined) return
   const expected =
     desired.defaultValue === undefined
       ? null
-      : dialect.normalizeDefaultValue?.(desired.defaultValue)
+      : postgresDialect.normalizeDefaultValue?.(desired.defaultValue)
   if (desired.defaultValue !== undefined && expected === undefined) {
     throw new MigrationError({
       message: `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`,
@@ -187,7 +186,6 @@ function assertIdentityMatch(
 function assertManagedPropertiesMatch(
   live: CatalogTable,
   desired: ReturnType<typeof buildCreateTableAst>,
-  dialect: Dialect,
 ): void {
   const tableName = `${effectiveSchema(live.schema)}.${live.name}`
   const liveColumns = new Map(live.columns.map((column) => [column.name, column]))
@@ -195,7 +193,7 @@ function assertManagedPropertiesMatch(
   for (const column of desired.columns) {
     const current = liveColumns.get(column.name)
     if (!current) continue
-    assertDefaultMatch(tableName, column.name, current, column, dialect)
+    assertDefaultMatch(tableName, column.name, current, column)
     assertIdentityMatch(tableName, column.name, current, column)
   }
 
@@ -282,7 +280,6 @@ function desiredIndexNames(handle: TableHandle): Set<string> {
 export function planMigration(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
-  dialect: Dialect,
   allowed: ReadonlySet<MigrationAllow> = new Set(),
 ): MigrationPlan {
   const steps: MigrationStep[] = []
@@ -299,7 +296,7 @@ export function planMigration(
     const schemaName = effectiveSchema(info.schema)
     ownedSchemas.add(schemaName)
     const live = existing.get(key)
-    const createAst = buildCreateTableAst(handle, dialect)
+    const createAst = buildCreateTableAst(handle, postgresDialect)
 
     if (!live) {
       if (schemaName !== DEFAULT_PG_SCHEMA && !ensuredSchemas.has(schemaName)) {
@@ -339,7 +336,7 @@ export function planMigration(
       continue
     }
 
-    assertManagedPropertiesMatch(live, createAst, dialect)
+    assertManagedPropertiesMatch(live, createAst)
 
     const liveColumns = new Map(
       (live.columns ?? []).map((column) => [column.name, column]),
@@ -375,8 +372,8 @@ export function planMigration(
         continue
       }
 
-      const desiredType = dialect.normalizeDataType(desired.dataType)
-      const currentType = dialect.normalizeDataType(current.dataType)
+      const desiredType = postgresDialect.normalizeDataType(desired.dataType)
+      const currentType = postgresDialect.normalizeDataType(current.dataType)
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',

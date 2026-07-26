@@ -3,13 +3,23 @@ import { describe, expect, it } from 'vitest'
 
 import { planMigration } from '@/ddl/migrationPlan'
 import type { CatalogSnapshot } from '@/dialects'
-import { MigrationError, column, defineTable, postgresDialect } from '@/index'
+import { MigrationError, column, defineTable } from '@/index'
 
 const Users = defineTable(
   'users',
   {
     id: pipe(string(), column({ type: 'uuid' })),
     email: pipe(string(), column({ type: 'text' })),
+  },
+  { primaryKey: 'id', schema: 'public' },
+)
+
+const Settings = defineTable(
+  'settings',
+  {
+    id: pipe(string(), column({ type: 'integer' })),
+    label: string(),
+    status: pipe(string(), column({ default: 'pending' })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -29,13 +39,36 @@ describe('Migration Plan construction', () => {
       { name: 'email', dataType: 'text', isNullable: false },
     ])
 
-    expect(planMigration([Users], catalog, postgresDialect)).toEqual({ steps: [] })
+    expect(planMigration([Users], catalog)).toEqual({ steps: [] })
+  })
+
+  it('uses PostgreSQL lowering and normalization for comparisons', () => {
+    const catalog: CatalogSnapshot = {
+      tables: [
+        {
+          schema: 'public',
+          name: 'settings',
+          columns: [
+            { name: 'id', dataType: 'int4', isNullable: false },
+            { name: 'label', dataType: 'text', isNullable: false },
+            {
+              name: 'status',
+              dataType: 'text',
+              isNullable: false,
+              defaultExpression: "'pending'",
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(planMigration([Settings], catalog)).toEqual({ steps: [] })
   })
 
   it('returns a constructive step for a missing column', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
 
-    expect(planMigration([Users], catalog, postgresDialect)).toEqual({
+    expect(planMigration([Users], catalog)).toEqual({
       steps: [
         {
           kind: 'add_column',
@@ -56,10 +89,8 @@ describe('Migration Plan construction', () => {
       { name: 'legacy', dataType: 'text', isNullable: true },
     ])
 
-    expect(planMigration([Users], catalog, postgresDialect)).toEqual({ steps: [] })
-    expect(
-      planMigration([Users], catalog, postgresDialect, new Set(['dropColumn'])),
-    ).toEqual({
+    expect(planMigration([Users], catalog)).toEqual({ steps: [] })
+    expect(planMigration([Users], catalog, new Set(['dropColumn']))).toEqual({
       steps: [
         {
           kind: 'drop_column',
@@ -81,8 +112,8 @@ describe('Migration Plan construction', () => {
       columns: ['email'],
     }
 
-    expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(MigrationError)
-    expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
+    expect(() => planMigration([Users], catalog)).toThrow(MigrationError)
+    expect(() => planMigration([Users], catalog)).toThrow(
       /unsupported primary key change/i,
     )
   })

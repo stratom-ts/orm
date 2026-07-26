@@ -246,7 +246,7 @@ export function createMigrateBuilder(options: {
 
   const buildPlan = async (): Promise<MigrationPlan> => {
     const catalog = await dialect.introspect(executor)
-    return planMigration(schemas, catalog, dialect, allowed)
+    return planMigration(schemas, catalog, allowed)
   }
 
   const builder: MigrateBuilder = {
@@ -274,7 +274,7 @@ export function createMigrateBuilder(options: {
       await acquireMigrateLock(executor)
       try {
         const catalog = await dialect.introspect(executor)
-        const plan = planMigration(schemas, catalog, dialect, allowed)
+        const plan = planMigration(schemas, catalog, allowed)
 
         const steps = plan.steps
         if (steps.length === 0) return
