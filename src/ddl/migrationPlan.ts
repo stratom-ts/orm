@@ -1,12 +1,16 @@
+import { normalizePostgresDataType } from '@/dialects/postgres/normalize'
+import {
+  formatPostgresDefault,
+  normalizePostgresDefaultExpression,
+} from '@/dialects/postgres/validate'
 import type {
   CatalogColumn,
   CatalogIndex,
   CatalogSnapshot,
   CatalogTable,
   CreateTableColumnAst,
-} from '@/dialects'
-import { postgresDialect } from '@/dialects/postgres'
-import { normalizeIndex } from '@/schemas'
+} from '@/dialects/types'
+import { normalizeIndex } from '@/schemas/utils/normalizeIndex'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 import { DEFAULT_PG_SCHEMA, effectiveSchema, tableKey } from '@/utils/tableKey'
@@ -155,12 +159,7 @@ function assertDefaultMatch(
   const expected =
     desired.defaultValue === undefined
       ? null
-      : postgresDialect.normalizeDefaultValue?.(desired.defaultValue)
-  if (desired.defaultValue !== undefined && expected === undefined) {
-    throw new MigrationError({
-      message: `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`,
-    })
-  }
+      : normalizePostgresDefaultExpression(formatPostgresDefault(desired.defaultValue))
   if (live.defaultExpression !== expected) {
     throw new MigrationError({
       message: `Unsupported default change for '${tableName}.${columnName}'`,
@@ -296,7 +295,7 @@ export function planMigration(
     const schemaName = effectiveSchema(info.schema)
     ownedSchemas.add(schemaName)
     const live = existing.get(key)
-    const createAst = buildCreateTableAst(handle, postgresDialect)
+    const createAst = buildCreateTableAst(handle)
 
     if (!live) {
       if (schemaName !== DEFAULT_PG_SCHEMA && !ensuredSchemas.has(schemaName)) {
@@ -372,8 +371,8 @@ export function planMigration(
         continue
       }
 
-      const desiredType = postgresDialect.normalizeDataType(desired.dataType)
-      const currentType = postgresDialect.normalizeDataType(current.dataType)
+      const desiredType = normalizePostgresDataType(desired.dataType)
+      const currentType = normalizePostgresDataType(current.dataType)
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',

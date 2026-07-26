@@ -1,6 +1,10 @@
-import type { CreateTableAst, Dialect } from '@/dialects'
-import type { ReferentialAction } from '@/schemas'
-import { getColumnMetadata, getReferenceMetadata, isSqlNullable } from '@/schemas'
+import { inferPostgresColumnType } from '@/dialects/postgres/infer'
+import { normalizePostgresDataType } from '@/dialects/postgres/normalize'
+import type { CreateTableAst } from '@/dialects/types'
+import { getColumnMetadata } from '@/schemas/actions/column'
+import { getReferenceMetadata } from '@/schemas/actions/reference'
+import type { ReferentialAction } from '@/schemas/actions/types'
+import { isSqlNullable } from '@/schemas/utils/isSqlNullable'
 import type { TableHandle } from '@/types'
 import { MigrationError, SchemaError } from '@/utils/error'
 
@@ -25,31 +29,27 @@ const IDENTITY_BASE_TYPES = new Set([
   'int8',
 ])
 
-function isIdentityCompatibleType(dataType: string, dialect: Dialect): boolean {
-  const normalized = dialect.normalizeDataType(dataType).toLowerCase()
+function isIdentityCompatibleType(dataType: string): boolean {
+  const normalized = normalizePostgresDataType(dataType).toLowerCase()
   const base = normalized.replace(/\(.*\)$/, '').trim()
   return IDENTITY_BASE_TYPES.has(base)
 }
 
 /**
- * Builds a create-table AST from a table handle and dialect type inference.
+ * Builds a PostgreSQL create-table AST from a table handle.
  *
  * @example
- *   const ast = buildCreateTableAst(User, postgresDialect)
+ *   const ast = buildCreateTableAst(User)
  *   // { kind: 'create_table', table: 'users', columns: [...], primaryKey: ['id'] }
  *
  * @param handle - Table handle with schema and metadata.
- * @param dialect - SQL dialect for column type inference.
  *
  * @returns Create-table AST node
  *
  * @throws MigrationError - When the table has no columns or no primary key
  * @throws SchemaError - When identity/autoIncrement is used with an incompatible type
  */
-export function buildCreateTableAst(
-  handle: TableHandle,
-  dialect: Dialect,
-): CreateTableAst {
+export function buildCreateTableAst(handle: TableHandle): CreateTableAst {
   const metadata = handle.getTableMetadata()
   const primaryKey = Array.isArray(metadata.primaryKey)
     ? [...metadata.primaryKey]
@@ -72,7 +72,7 @@ export function buildCreateTableAst(
     const dataType = String(
       columnMetadata?.type ||
         referenceMetadata?.dataType ||
-        dialect.inferColumnType(columnSchema),
+        inferPostgresColumnType(columnSchema),
     )
 
     const sqlNullable = isSqlNullable(columnSchema)
@@ -82,7 +82,7 @@ export function buildCreateTableAst(
 
     if (
       (generated !== undefined || autoIncrement) &&
-      !isIdentityCompatibleType(dataType, dialect)
+      !isIdentityCompatibleType(dataType)
     ) {
       throw new SchemaError({
         message: `column "${columnName}" on table "${metadata.name}" uses identity/autoIncrement with type "${dataType}"; Postgres identity requires smallint, integer, or bigint`,

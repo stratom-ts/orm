@@ -72,21 +72,16 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
  * Converts a migration step to a SQL AST node for compilation.
  *
  * @example
- *   const ast = stepToAst({ kind: 'create_table', table: 'users' }, handles, dialect)
+ *   const ast = stepToAst({ kind: 'create_table', table: 'users' }, handles)
  *
  * @param step - Migration step to convert.
  * @param handles - Map of table key to table handle.
- * @param dialect - SQL dialect for type inference.
  *
  * @returns SQL AST node ready for compilation
  *
  * @throws MigrationError - When the step references an unregistered handle
  */
-function stepToAst(
-  step: MigrationStep,
-  handles: Map<string, TableHandle>,
-  dialect: Dialect,
-): SqlAst {
+function stepToAst(step: MigrationStep, handles: Map<string, TableHandle>): SqlAst {
   switch (step.kind) {
     case 'create_schema': {
       const ast: CreateSchemaAst = {
@@ -103,7 +98,7 @@ function stepToAst(
           message: `cannot create table "${key}": handle not registered`,
         })
       }
-      const ast = buildCreateTableAst(handle, dialect)
+      const ast = buildCreateTableAst(handle)
       return {
         ...ast,
         columns: ast.columns.map((column) => ({ ...column, references: undefined })),
@@ -294,7 +289,7 @@ export function createMigrateBuilder(options: {
             if (step.kind === 'set_not_null') {
               await assertColumnHasNoNulls(executor, step)
             }
-            const ast = stepToAst(step, handles, dialect)
+            const ast = stepToAst(step, handles)
             await executor.run(dialect.compile(ast))
           }
           await executor.run({ sql: 'commit', params: [] })
