@@ -252,46 +252,49 @@ describe('select compile', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
-    const compiled = db
-      .from(Users)
-      .select((b) => [
-        b.as(lower(Users.email), 'normalizedEmail'),
-        b.as(length('email'), 'emailLength'),
-        b.as(now(), 'queriedAt'),
-        b.as(dateTrunc('day', Users.createdAt), 'day'),
-      ])
-      .where((b) =>
-        b.and(
-          neq('email', 'deleted@example.com'),
-          gte(Users.score, 10),
-          lt(Users.score, 100),
-          lte(Users.id, 99),
-        ),
+    try {
+      const compiled = db
+        .from(Users)
+        .select((b) => [
+          b.as(lower(Users.email), 'normalizedEmail'),
+          b.as(length('email'), 'emailLength'),
+          b.as(now(), 'queriedAt'),
+          b.as(dateTrunc('day', Users.createdAt), 'day'),
+        ])
+        .where((b) =>
+          b.and(
+            neq('email', 'deleted@example.com'),
+            gte(Users.score, 10),
+            lt(Users.score, 100),
+            lte(Users.id, 99),
+          ),
+        )
+        .groupBy([Users.email, Users.score, Users.createdAt])
+        .having((b) => b.gte(Users.score, 1))
+        .orderBy(Users.email)
+        .compile()
+
+      expect(compiled.sql.toLowerCase()).toMatch(/lower\(/)
+      expect(compiled.sql.toLowerCase()).toMatch(/length\(/)
+      expect(compiled.sql.toLowerCase()).toMatch(/now\(\)/)
+      expect(compiled.sql).toContain('date_trunc($1, "users"."createdAt")')
+      expect(compiled.sql.toLowerCase()).toMatch(/<>|!=/)
+      expect(compiled.sql).toContain('>=')
+      expect(compiled.sql).toMatch(/"users"\."score"\s*<\s*\$\d+/)
+      expect(compiled.sql).toContain('<=')
+      expect(compiled.sql).toContain(
+        'group by "users"."email", "users"."score", "users"."createdAt"',
       )
-      .groupBy([Users.email, Users.score, Users.createdAt])
-      .having((b) => b.gte(Users.score, 1))
-      .orderBy(Users.email)
-      .compile()
+      expect(compiled.sql).toContain('order by "users"."email" asc')
+      expect(compiled.params).toEqual(['day', 'deleted@example.com', 10, 100, 99, 1])
 
-    expect(compiled.sql.toLowerCase()).toMatch(/lower\(/)
-    expect(compiled.sql.toLowerCase()).toMatch(/length\(/)
-    expect(compiled.sql.toLowerCase()).toMatch(/now\(\)/)
-    expect(compiled.sql.toLowerCase()).toMatch(/date_trunc\(/)
-    expect(compiled.sql.toLowerCase()).toMatch(/<>|!=/)
-    expect(compiled.sql).toContain('>=')
-    expect(compiled.sql).toMatch(/"users"\."score"\s*<\s*\$\d+/)
-    expect(compiled.sql).toContain('<=')
-    expect(compiled.sql.toLowerCase()).toContain('group by')
-    expect(compiled.sql.toLowerCase()).toContain('order by')
-    expect(compiled.sql.toLowerCase()).toContain('asc')
-    expect(compiled.params).toEqual(['day', 'deleted@example.com', 10, 100, 99, 1])
-
-    expect(and(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
-    expect(or(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
-    expect(() => and()).toThrow(/at least one predicate/)
-    expect(() => or()).toThrow(/at least one predicate/)
-
-    await db.close()
+      expect(and(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
+      expect(or(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
+      expect(() => and()).toThrow(/at least one predicate/)
+      expect(() => or()).toThrow(/at least one predicate/)
+    } finally {
+      await db.close()
+    }
   })
 })
 

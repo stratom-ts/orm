@@ -140,38 +140,38 @@ function createMockConnector(options?: {
         (normalized.includes('information_schema') && normalized.includes('column_name'))
       ) {
         const rows = liveTables.flatMap((t) =>
-          (t.columns ?? []).map((c) => ({
-            schema: t.schema,
-            table_name: t.name,
-            column_name: c.name,
-            data_type: c.dataType,
-            udt_name: c.dataType,
-            character_maximum_length: null,
-            numeric_precision: null,
-            numeric_scale: null,
-            is_nullable: c.isNullable ? 'YES' : 'NO',
-            column_default: c.defaultExpression ?? (c.hasDefault ? 'true' : null),
-            is_identity:
-              c.isIdentity ||
-              c.identityGeneration != null ||
-              (c.isIdentity === undefined &&
-                c.identityGeneration === undefined &&
-                c.name === 'id' &&
-                t.primaryKey?.includes('id'))
-                ? 'YES'
-                : 'NO',
-            identity_generation:
-              c.identityGeneration === 'always'
-                ? 'ALWAYS'
-                : c.isIdentity ||
-                    c.identityGeneration === 'byDefault' ||
-                    (c.isIdentity === undefined &&
-                      c.identityGeneration === undefined &&
-                      c.name === 'id' &&
-                      t.primaryKey?.includes('id'))
-                  ? 'BY DEFAULT'
-                  : null,
-          })),
+          (t.columns ?? []).map((c) => {
+            const isDefaultIdentityColumn =
+              c.isIdentity === undefined &&
+              c.identityGeneration === undefined &&
+              c.name === 'id' &&
+              t.primaryKey?.includes('id')
+
+            return {
+              schema: t.schema,
+              table_name: t.name,
+              column_name: c.name,
+              data_type: c.dataType,
+              udt_name: c.dataType,
+              character_maximum_length: null,
+              numeric_precision: null,
+              numeric_scale: null,
+              is_nullable: c.isNullable ? 'YES' : 'NO',
+              column_default: c.defaultExpression ?? (c.hasDefault ? 'true' : null),
+              is_identity:
+                c.isIdentity || c.identityGeneration != null || isDefaultIdentityColumn
+                  ? 'YES'
+                  : 'NO',
+              identity_generation:
+                c.identityGeneration === 'always'
+                  ? 'ALWAYS'
+                  : c.isIdentity ||
+                      c.identityGeneration === 'byDefault' ||
+                      isDefaultIdentityColumn
+                    ? 'BY DEFAULT'
+                    : null,
+            }
+          }),
         )
 
         return createMockStatement(rows)

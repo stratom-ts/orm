@@ -21,6 +21,7 @@ import {
   reference,
   table,
 } from '@/index'
+import { validateInsertRow } from '@/query'
 
 const userColumns = {
   id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
@@ -234,6 +235,7 @@ describe('defineTable', () => {
       { primaryKey: 'id' },
     )
     expect(parse(SchemaDefault.getSchema(), {})).toEqual({ id: 'new' })
+    expect(validateInsertRow(SchemaDefault, {})).toEqual({ id: 'new' })
   })
 
   it('should accept generated and autoIncrement value sources for optional columns', () => {

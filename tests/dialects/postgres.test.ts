@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { CreateTableAst, CreateTableColumnAst } from '@/index'
 import { SchemaError, postgresDialect } from '@/index'
+import type { Executor } from '@/query'
 
 function createTable(...columns: CreateTableColumnAst[]): CreateTableAst {
   return {
@@ -333,9 +334,12 @@ describe('@/dialects/postgres', () => {
 
   describe('introspect', () => {
     it('should normalize catalog rows into a public snapshot', async () => {
-      const executor = {
-        async execute({ sql }: { sql: string }) {
-          if (sql.includes('information_schema.tables') && !sql.includes('columns c')) {
+      const executor: Executor = {
+        async execute({ sql }) {
+          if (
+            sql.includes('information_schema.tables') &&
+            !sql.includes('information_schema.columns')
+          ) {
             return [{ name: 'accounts' }, { schema: 'app', name: 'events' }, {}]
           }
           if (sql.includes('information_schema.columns')) {
@@ -445,6 +449,7 @@ describe('@/dialects/postgres', () => {
           }
           return []
         },
+        async run() {},
       }
 
       const snapshot = await postgresDialect.introspect(executor)
