@@ -75,16 +75,21 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
  * Converts a migration step to a SQL AST node for compilation.
  *
  * @example
- *   const ast = stepToAst({ kind: 'create_table', table: 'users' }, handles)
+ *   const ast = stepToAst({ kind: 'create_table', table: 'users' }, handles, dialect)
  *
  * @param step - Migration step to convert.
  * @param handles - Map of table key to table handle.
+ * @param dialect - SQL dialect for desired-table lowering.
  *
  * @returns SQL AST node ready for compilation
  *
  * @throws MigrationError - When the step references an unregistered handle
  */
-function stepToAst(step: MigrationStep, handles: Map<string, TableHandle>): SqlAst {
+function stepToAst(
+  step: MigrationStep,
+  handles: Map<string, TableHandle>,
+  dialect: Dialect,
+): SqlAst {
   switch (step.kind) {
     case 'create_schema': {
       const ast: CreateSchemaAst = {
@@ -101,7 +106,7 @@ function stepToAst(step: MigrationStep, handles: Map<string, TableHandle>): SqlA
           message: `cannot create table "${key}": handle not registered`,
         })
       }
-      const ast = buildCreateTableAst(handle)
+      const ast = buildCreateTableAst(handle, dialect)
       return {
         ...ast,
         columns: ast.columns.map((column) => ({ ...column, references: undefined })),
@@ -244,7 +249,7 @@ export function createMigrateBuilder(options: {
 
   const buildPlan = async (): Promise<MigrationPlan> => {
     const catalog = await dialect.introspect(executor)
-    return planMigration(schemas, catalog)
+    return planMigration(schemas, catalog, dialect)
   }
 
   const builder: MigrateBuilder = {
@@ -272,7 +277,7 @@ export function createMigrateBuilder(options: {
       await acquireMigrateLock(executor)
       try {
         const catalog = await dialect.introspect(executor)
-        const plan = planMigration(schemas, catalog)
+        const plan = planMigration(schemas, catalog, dialect)
 
         const steps = plan.steps
         if (steps.length === 0) return
@@ -292,7 +297,7 @@ export function createMigrateBuilder(options: {
             if (step.kind === 'set_not_null') {
               await assertColumnHasNoNulls(executor, step)
             }
-            const ast = stepToAst(step, handles)
+            const ast = stepToAst(step, handles, dialect)
             await executor.run(dialect.compile(ast))
           }
           await executor.run({ sql: 'commit', params: [] })

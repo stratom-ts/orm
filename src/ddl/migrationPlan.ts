@@ -1,14 +1,10 @@
-import { normalizePostgresDataType } from '@/dialects/postgres/normalize'
-import {
-  formatPostgresDefault,
-  normalizePostgresDefaultExpression,
-} from '@/dialects/postgres/validate'
 import type {
   CatalogColumn,
   CatalogIndex,
   CatalogSnapshot,
   CatalogTable,
   CreateTableColumnAst,
+  Dialect,
 } from '@/dialects/types'
 import { normalizeIndex } from '@/schemas/utils/normalizeIndex'
 import type { TableHandle } from '@/types'
@@ -265,12 +261,16 @@ function defaultMismatch(
   columnName: string,
   live: CatalogColumn,
   desired: CreateTableColumnAst,
+  dialect: Dialect,
 ): string | undefined {
   if (live.defaultExpression === undefined) return
   const expected =
     desired.defaultValue === undefined
       ? null
-      : normalizePostgresDefaultExpression(formatPostgresDefault(desired.defaultValue))
+      : dialect.normalizeDefaultValue?.(desired.defaultValue)
+  if (desired.defaultValue !== undefined && expected === undefined) {
+    return `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`
+  }
   if (live.defaultExpression !== expected) {
     return `Unsupported default change for '${tableName}.${columnName}'`
   }
@@ -292,6 +292,7 @@ function identityMismatch(
 function collectManagedPropertyIssues(
   live: CatalogTable,
   desired: ReturnType<typeof buildCreateTableAst>,
+  dialect: Dialect,
   issues: PlanningIssue[],
 ): void {
   const schema = effectiveSchema(live.schema)
@@ -315,7 +316,13 @@ function collectManagedPropertyIssues(
   for (const column of desired.columns) {
     const current = liveColumns.get(column.name)
     if (!current) continue
-    const defaultMessage = defaultMismatch(tableName, column.name, current, column)
+    const defaultMessage = defaultMismatch(
+      tableName,
+      column.name,
+      current,
+      column,
+      dialect,
+    )
     if (defaultMessage) {
       issues.push({
         schema,
@@ -428,6 +435,7 @@ function desiredIndexNames(handle: TableHandle): Set<string> {
 function buildMigrationPlan(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
+  dialect: Dialect,
 ): MigrationPlan {
   const steps: MigrationStep[] = []
   const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
@@ -457,7 +465,7 @@ function buildMigrationPlan(
     const live = existing.get(key)
     let createAst: ReturnType<typeof buildCreateTableAst>
     try {
-      createAst = buildCreateTableAst(handle)
+      createAst = buildCreateTableAst(handle, dialect)
     } catch (cause) {
       issues.push({
         schema: schemaName,
@@ -508,7 +516,7 @@ function buildMigrationPlan(
       continue
     }
 
-    collectManagedPropertyIssues(live, createAst, issues)
+    collectManagedPropertyIssues(live, createAst, dialect, issues)
 
     const liveColumns = new Map(
       (live.columns ?? []).map((column) => [column.name, column]),
@@ -544,8 +552,8 @@ function buildMigrationPlan(
         continue
       }
 
-      const desiredType = normalizePostgresDataType(desired.dataType)
-      const currentType = normalizePostgresDataType(current.dataType)
+      const desiredType = dialect.normalizeDataType(desired.dataType)
+      const currentType = dialect.normalizeDataType(current.dataType)
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',
@@ -665,9 +673,10 @@ function buildMigrationPlan(
 export function planMigration(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
+  dialect: Dialect,
 ): MigrationPlan {
   try {
-    return buildMigrationPlan(schemas, catalog)
+    return buildMigrationPlan(schemas, catalog, dialect)
   } catch (cause) {
     if (cause instanceof MigrationError) throw cause
     throw new MigrationError({

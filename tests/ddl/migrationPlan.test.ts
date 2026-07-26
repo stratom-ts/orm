@@ -1,9 +1,9 @@
 import { nullable, pipe, string } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { planMigration } from '@/ddl/migrationPlan'
-import type { CatalogSnapshot } from '@/dialects'
-import { MigrationError, column, defineTable, reference } from '@/index'
+import type { CatalogSnapshot, Dialect } from '@/dialects'
+import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
 import type { TableHandle } from '@/types'
 
 const Users = defineTable(
@@ -224,7 +224,7 @@ function planningError(
   catalog: CatalogSnapshot,
 ): MigrationError {
   try {
-    planMigration(schemas, catalog)
+    planMigration(schemas, catalog, postgresDialect)
   } catch (error) {
     expect(error).toBeInstanceOf(MigrationError)
     return error as MigrationError
@@ -246,7 +246,7 @@ describe('Migration Plan construction', () => {
       { name: 'email', dataType: 'text', isNullable: false },
     ])
 
-    expect(planMigration([Users], catalog)).toEqual({ steps: [] })
+    expect(planMigration([Users], catalog, postgresDialect)).toEqual({ steps: [] })
   })
 
   it('uses PostgreSQL lowering and normalization for comparisons', () => {
@@ -269,13 +269,55 @@ describe('Migration Plan construction', () => {
       ],
     }
 
-    expect(planMigration([Settings], catalog)).toEqual({ steps: [] })
+    expect(planMigration([Settings], catalog, postgresDialect)).toEqual({ steps: [] })
+  })
+
+  it('uses the supplied dialect without introspection or compilation', () => {
+    const PortableSettings = defineTable(
+      'portable_settings',
+      {
+        id: string(),
+        status: pipe(string(), column({ default: 'ready' })),
+      },
+      { primaryKey: 'id' },
+    )
+    const introspect = vi.fn(async () => ({ tables: [] }))
+    const compile = vi.fn(() => ({ sql: '', params: [] }))
+    const dialect: Dialect = {
+      id: 'mysql',
+      inferColumnType: () => 'custom_string',
+      normalizeDataType: (dataType) =>
+        dataType === 'custom_string_alias' ? 'custom_string' : dataType,
+      normalizeDefaultValue: (value) => `custom_default:${String(value)}`,
+      introspect,
+      compile,
+    }
+    const catalog: CatalogSnapshot = {
+      tables: [
+        {
+          name: 'portable_settings',
+          columns: [
+            { name: 'id', dataType: 'custom_string_alias', isNullable: false },
+            {
+              name: 'status',
+              dataType: 'custom_string_alias',
+              isNullable: false,
+              defaultExpression: 'custom_default:ready',
+            },
+          ],
+        },
+      ],
+    }
+
+    expect(planMigration([PortableSettings], catalog, dialect)).toEqual({ steps: [] })
+    expect(introspect).not.toHaveBeenCalled()
+    expect(compile).not.toHaveBeenCalled()
   })
 
   it('returns a constructive step for a missing column', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
 
-    expect(planMigration([Users], catalog)).toEqual({
+    expect(planMigration([Users], catalog, postgresDialect)).toEqual({
       steps: [
         {
           kind: 'add_column',
@@ -310,7 +352,7 @@ describe('Migration Plan construction', () => {
       ],
     }
 
-    expect(planMigration([Users], catalog)).toEqual({
+    expect(planMigration([Users], catalog, postgresDialect)).toEqual({
       steps: [
         {
           kind: 'drop_index',
@@ -335,7 +377,11 @@ describe('Migration Plan construction', () => {
 
   it('covers every supported step kind in canonical phase and target order', () => {
     expect(
-      planMigration([Comments, Users, AuditEvents, Accounts], mixedCatalog()),
+      planMigration(
+        [Comments, Users, AuditEvents, Accounts],
+        mixedCatalog(),
+        postgresDialect,
+      ),
     ).toEqual({
       steps: [
         { kind: 'create_schema', schema: 'audit' },
@@ -420,7 +466,9 @@ describe('Migration Plan construction', () => {
       { primaryKey: 'id' },
     )
 
-    expect(planMigration([Lowercase, Uppercase], { tables: [] })).toEqual({
+    expect(
+      planMigration([Lowercase, Uppercase], { tables: [] }, postgresDialect),
+    ).toEqual({
       steps: [
         { kind: 'create_table', table: 'Zulu' },
         { kind: 'create_table', table: 'alpha' },
@@ -431,7 +479,7 @@ describe('Migration Plan construction', () => {
   it('is invariant to registered table and catalog collection order', () => {
     const handles = [Accounts, AuditEvents, Comments, Users]
     const catalog = mixedCatalog()
-    const expected = planMigration(handles, catalog)
+    const expected = planMigration(handles, catalog, postgresDialect)
     const originalCatalog = structuredClone(catalog)
 
     const catalogs = [catalog, structuredClone(catalog), structuredClone(catalog)]
@@ -446,7 +494,7 @@ describe('Migration Plan construction', () => {
 
     for (const registered of [handles, [...handles].reverse(), rotate(handles)]) {
       for (const candidate of catalogs) {
-        expect(planMigration(registered, candidate)).toEqual(expected)
+        expect(planMigration(registered, candidate, postgresDialect)).toEqual(expected)
       }
     }
     expect(catalog).toEqual(originalCatalog)
@@ -526,14 +574,18 @@ describe('Migration Plan construction', () => {
     permuted.tables[0]!.uniqueConstraints!.reverse()
     permuted.tables[0]!.foreignKeys!.reverse()
 
-    expect(planMigration([Memberships, Teams], catalog)).toEqual({ steps: [] })
-    expect(planMigration([Teams, Memberships], permuted)).toEqual({ steps: [] })
+    expect(planMigration([Memberships, Teams], catalog, postgresDialect)).toEqual({
+      steps: [],
+    })
+    expect(planMigration([Teams, Memberships], permuted, postgresDialect)).toEqual({
+      steps: [],
+    })
 
     const reversedKey = structuredClone(catalog)
     reversedKey.tables[0]!.primaryKey!.columns.reverse()
-    expect(() => planMigration([Memberships, Teams], reversedKey)).toThrow(
-      /primary key change/i,
-    )
+    expect(() =>
+      planMigration([Memberships, Teams], reversedKey, postgresDialect),
+    ).toThrow(/primary key change/i)
   })
 
   it('throws for unsupported drift', () => {
@@ -546,8 +598,8 @@ describe('Migration Plan construction', () => {
       columns: ['email'],
     }
 
-    expect(() => planMigration([Users], catalog)).toThrow(MigrationError)
-    expect(() => planMigration([Users], catalog)).toThrow(
+    expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(MigrationError)
+    expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
       /unsupported primary key change/i,
     )
   })
@@ -593,9 +645,9 @@ describe('Migration Plan construction', () => {
     const catalog = managedCatalog()
     mutate(catalog)
 
-    expect(() => planMigration([ManagedUsers, ManagedPosts], catalog)).toThrow(
-      new RegExp(property, 'i'),
-    )
+    expect(() =>
+      planMigration([ManagedUsers, ManagedPosts], catalog, postgresDialect),
+    ).toThrow(new RegExp(property, 'i'))
   })
 
   it('selects issues by canonical target before property', () => {
@@ -743,9 +795,9 @@ describe('Migration Plan construction', () => {
     )
     catalog.tables[1]!.foreignKeys![0]!.onDelete = 'restrict'
 
-    expect(() => planMigration([ManagedUsers, ManagedPosts], catalog)).toThrow(
-      MigrationError,
-    )
+    expect(() =>
+      planMigration([ManagedUsers, ManagedPosts], catalog, postgresDialect),
+    ).toThrow(MigrationError)
   })
 
   it('only removes tables in schemas owned by registered handles', () => {
@@ -766,7 +818,7 @@ describe('Migration Plan construction', () => {
       },
     )
 
-    expect(planMigration([Users], catalog)).toEqual({
+    expect(planMigration([Users], catalog, postgresDialect)).toEqual({
       steps: [{ kind: 'drop_table', schema: 'public', table: 'orphan' }],
     })
   })
