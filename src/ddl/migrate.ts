@@ -1,8 +1,10 @@
 import type {
+  CatalogColumn,
   CatalogIndex,
   CatalogSnapshot,
   CatalogTable,
   CreateSchemaAst,
+  CreateTableColumnAst,
   Dialect,
   SqlAst,
 } from '@/dialects'
@@ -60,6 +62,19 @@ export type MigrationStep =
       table: string
       column: string
       dataType: string
+    }
+  | {
+      kind: 'add_foreign_key'
+      schema?: string
+      table: string
+      column: string
+      references: {
+        table: string
+        column: string
+        schema?: string
+        onDelete?: string
+        onUpdate?: string
+      }
     }
   | {
       kind: 'set_not_null'
@@ -125,16 +140,50 @@ function schemasPresentInCatalog(catalog: CatalogSnapshot): Set<string> {
   return schemas
 }
 
+/**
+ * Generates a default index name from table and column names.
+ *
+ * @example
+ *   defaultIndexName('users', ['email']) // 'users_email_idx'
+ *
+ * @param table - Table name.
+ * @param columns - Column names in the index.
+ *
+ * @returns Default index name in the form `table_columns_idx`
+ */
 function defaultIndexName(table: string, columns: string[]): string {
   return `${table}_${columns.join('_')}_idx`
 }
 
+/**
+ * Checks whether two string arrays are equal element-by-element.
+ *
+ * @example
+ *   arraysEqual(['a', 'b'], ['a', 'b']) // true
+ *   arraysEqual(['a'], ['b']) // false
+ *
+ * @param left - First array.
+ * @param right - Second array.
+ *
+ * @returns `true` when both arrays have the same length and elements
+ */
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return (
     left.length === right.length && left.every((value, index) => value === right[index])
   )
 }
 
+/**
+ * Finds an index by name in a catalog index array.
+ *
+ * @example
+ *   const idx = findIndex(catalogTable.indexes, 'users_email_idx')
+ *
+ * @param live - Array of catalog indexes, or `undefined`.
+ * @param name - Index name to find.
+ *
+ * @returns Matching catalog index, or `undefined` when not found
+ */
 function findIndex(
   live: CatalogIndex[] | undefined,
   name: string,
@@ -146,6 +195,84 @@ function normalizeAction(action: string | undefined): string {
   return action?.toLowerCase() ?? 'no action'
 }
 
+/**
+ * Asserts that a column's default value matches between live and desired states.
+ *
+ * @example
+ *   assertDefaultMatch('public.users', 'status', liveCol, desiredCol, dialect)
+ *
+ * @param tableName - Fully qualified table name for error context.
+ * @param columnName - Column name for error context.
+ * @param live - Live catalog column.
+ * @param desired - Desired column AST.
+ * @param dialect - SQL dialect for default normalization.
+ *
+ * @throws MigrationError - When the default value cannot be compared or has changed
+ */
+function assertDefaultMatch(
+  tableName: string,
+  columnName: string,
+  live: CatalogColumn,
+  desired: CreateTableColumnAst,
+  dialect: Dialect,
+): void {
+  if (live.defaultExpression === undefined) return
+  const expected =
+    desired.defaultValue === undefined
+      ? null
+      : dialect.normalizeDefaultValue?.(desired.defaultValue)
+  if (desired.defaultValue !== undefined && expected === undefined) {
+    throw new MigrationError({
+      message: `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`,
+    })
+  }
+  if (live.defaultExpression !== expected) {
+    throw new MigrationError({
+      message: `Unsupported default change for '${tableName}.${columnName}'`,
+    })
+  }
+}
+
+/**
+ * Asserts that a column's identity generation matches between live and desired states.
+ *
+ * @example
+ *   assertIdentityMatch('public.users', 'id', liveCol, desiredCol)
+ *
+ * @param tableName - Fully qualified table name for error context.
+ * @param columnName - Column name for error context.
+ * @param live - Live catalog column.
+ * @param desired - Desired column AST.
+ *
+ * @throws MigrationError - When the identity generation has changed
+ */
+function assertIdentityMatch(
+  tableName: string,
+  columnName: string,
+  live: CatalogColumn,
+  desired: CreateTableColumnAst,
+): void {
+  if (live.identityGeneration === undefined) return
+  const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
+  if (live.identityGeneration !== expected) {
+    throw new MigrationError({
+      message: `Unsupported identity change for '${tableName}.${columnName}'`,
+    })
+  }
+}
+
+/**
+ * Asserts that managed table properties (defaults, identity, PK, unique, FKs) match.
+ *
+ * @example
+ *   assertManagedPropertiesMatch(catalogTable, desiredAst, dialect)
+ *
+ * @param live - Live catalog table.
+ * @param desired - Desired create-table AST.
+ * @param dialect - SQL dialect for default normalization.
+ *
+ * @throws MigrationError - When any managed property has changed
+ */
 function assertManagedPropertiesMatch(
   live: CatalogTable,
   desired: ReturnType<typeof buildCreateTableAst>,
@@ -157,32 +284,8 @@ function assertManagedPropertiesMatch(
   for (const column of desired.columns) {
     const current = liveColumns.get(column.name)
     if (!current) continue
-
-    if (current.defaultExpression !== undefined) {
-      const expected =
-        column.defaultValue === undefined
-          ? null
-          : dialect.normalizeDefaultValue?.(column.defaultValue)
-      if (column.defaultValue !== undefined && expected === undefined) {
-        throw new MigrationError({
-          message: `Cannot compare default for '${tableName}.${column.name}': dialect does not normalize defaults`,
-        })
-      }
-      if (current.defaultExpression !== expected) {
-        throw new MigrationError({
-          message: `Unsupported default change for '${tableName}.${column.name}'`,
-        })
-      }
-    }
-
-    if (current.identityGeneration !== undefined) {
-      const expected = column.generated ?? (column.autoIncrement ? 'byDefault' : null)
-      if (current.identityGeneration !== expected) {
-        throw new MigrationError({
-          message: `Unsupported identity change for '${tableName}.${column.name}'`,
-        })
-      }
-    }
+    assertDefaultMatch(tableName, column.name, current, column, dialect)
+    assertIdentityMatch(tableName, column.name, current, column)
   }
 
   if (live.primaryKey !== undefined) {
@@ -289,6 +392,30 @@ async function assertColumnHasNoNulls(
   }
 }
 
+/**
+ * Refuse DROP COLUMN when the column has any non-null data unless allowed.
+ * When allow('dropColumn') is set, skip this check.
+ */
+async function assertColumnHasNoData(
+  executor: Executor,
+  step: Extract<MigrationStep, { kind: 'drop_column' }>,
+): Promise<void> {
+  const schemaName = effectiveSchema(step.schema)
+  const tableSql = `${quoteIdent(schemaName)}.${quoteIdent(step.table)}`
+  const columnSql = quoteIdent(step.column)
+  const rows = await executor.execute({
+    sql: `select count(*)::int as count from ${tableSql} where ${columnSql} is not null`,
+    params: [],
+  })
+  const raw = rows[0] as { count?: unknown } | undefined
+  const count = Number(raw?.count ?? 0)
+  if (count > 0) {
+    throw new MigrationError({
+      message: `Cannot drop column '${schemaName}.${step.table}.${step.column}' - column has non-null data. Use allow('dropColumn') or migrate data first.`,
+    })
+  }
+}
+
 function allowForStep(step: MigrationStep): MigrationAllow | null {
   switch (step.kind) {
     case 'drop_column':
@@ -305,7 +432,19 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
 /**
  * Diff registered handles against a catalog snapshot into structured plan steps.
  * Destructive drops are included only when the corresponding allow flag is set.
- * Without allow, columns, tables, and indexes are left unchanged.
+ * Without allow, drop_column with data is refused at execute; orphan tables/indexes
+ * are never planned unless allow('dropTable'|'dropIndex').
+ *
+ * @example
+ *   const plan = planMigration([User, Post], catalog, dialect)
+ *   console.log(plan.steps) // MigrationStep[]
+ *
+ * @param schemas - Registered table handles to diff against the catalog.
+ * @param catalog - Live catalog snapshot from introspection.
+ * @param dialect - SQL dialect for type comparison.
+ * @param allowed - Set of allowed destructive operations.
+ *
+ * @returns Migration plan with ordered steps
  */
 export function planMigration(
   schemas: readonly TableHandle[],
@@ -314,6 +453,7 @@ export function planMigration(
   allowed: ReadonlySet<MigrationAllow> = new Set(),
 ): MigrationPlan {
   const steps: MigrationStep[] = []
+  const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
   const existing = catalogTableMap(catalog)
   const ensuredSchemas = schemasPresentInCatalog(catalog)
   const registeredKeys = new Set<string>()
@@ -353,6 +493,17 @@ export function planMigration(
           unique: index.unique ?? false,
         })
       }
+
+      for (const column of createAst.columns) {
+        if (!column.references) continue
+        deferredForeignKeys.push({
+          kind: 'add_foreign_key',
+          ...schemaField(info.schema),
+          table: info.name,
+          column: column.name,
+          references: { ...column.references },
+        })
+      }
       continue
     }
 
@@ -366,6 +517,15 @@ export function planMigration(
     for (const desired of createAst.columns) {
       const current = liveColumns.get(desired.name)
       if (!current) {
+        if (desired.references) {
+          deferredForeignKeys.push({
+            kind: 'add_foreign_key',
+            ...schemaField(info.schema),
+            table: info.name,
+            column: desired.name,
+            references: { ...desired.references },
+          })
+        }
         steps.push({
           kind: 'add_column',
           ...schemaField(info.schema),
@@ -379,23 +539,6 @@ export function planMigration(
             : {}),
           ...(desired.generated ? { generated: desired.generated } : {}),
           ...(desired.autoIncrement ? { autoIncrement: true } : {}),
-          ...(desired.references
-            ? {
-                references: {
-                  table: desired.references.table,
-                  column: desired.references.column,
-                  ...(desired.references.schema !== undefined
-                    ? { schema: desired.references.schema }
-                    : {}),
-                  ...(desired.references.onDelete
-                    ? { onDelete: desired.references.onDelete }
-                    : {}),
-                  ...(desired.references.onUpdate
-                    ? { onUpdate: desired.references.onUpdate }
-                    : {}),
-                },
-              }
-            : {}),
         })
         continue
       }
@@ -448,25 +591,25 @@ export function planMigration(
       const index = normalizeIndex(raw)
       const name = index.name ?? defaultIndexName(info.name, index.columns)
       const current = findIndex(live.indexes, name)
-      if (current) {
-        if (
-          current.unique !== (index.unique ?? false) ||
-          !arraysEqual(current.columns, index.columns)
-        ) {
-          throw new MigrationError({
-            message: `Unsupported index definition change for '${schemaName}.${name}'`,
-          })
-        }
+      if (!current) {
+        steps.push({
+          kind: 'create_index',
+          ...schemaField(info.schema),
+          table: info.name,
+          index: name,
+          columns: [...index.columns],
+          unique: index.unique ?? false,
+        })
         continue
       }
-      steps.push({
-        kind: 'create_index',
-        ...schemaField(info.schema),
-        table: info.name,
-        index: name,
-        columns: [...index.columns],
-        unique: index.unique ?? false,
-      })
+      if (
+        current.unique !== (index.unique ?? false) ||
+        !arraysEqual(current.columns, index.columns)
+      ) {
+        throw new MigrationError({
+          message: `Unsupported index definition change for '${schemaName}.${name}'`,
+        })
+      }
     }
 
     // Live indexes not in metadata → drop_index (if allowed)
@@ -482,6 +625,8 @@ export function planMigration(
       }
     }
   }
+
+  steps.push(...deferredForeignKeys)
 
   // Orphan tables in owned schemas only — never drop tables in schemas no
   // registered handle uses (shared DBs may hold unrelated apps/tools).
@@ -502,6 +647,83 @@ export function planMigration(
   return { steps }
 }
 
+/**
+ * When drop_column is needed but not allowed, surface MigrationError on execute
+ * if the column still has data. Empty columns could be dropped safely without
+ * allow per design ("Only if data-safe"), so we plan those only at execute time
+ * after data check — for dryRun without allow we omit destructive steps.
+ *
+ * For execute without allow: after building the safe plan, scan live columns
+ * removed from registry and either drop if empty or throw MigrationError.
+ *
+ * @example
+ *   const extraDrops = await planUnsafeDropColumns(schemas, catalog, dialect, executor, allowed)
+ *
+ * @param schemas - Registered table handles.
+ * @param catalog - Live catalog snapshot.
+ * @param dialect - SQL dialect for AST generation.
+ * @param executor - Database executor for data checks.
+ * @param allowed - Set of allowed destructive operations.
+ *
+ * @returns Additional drop_column steps for empty columns
+ */
+async function planUnsafeDropColumns(
+  schemas: readonly TableHandle[],
+  catalog: CatalogSnapshot,
+  dialect: Dialect,
+  executor: Executor,
+  allowed: ReadonlySet<MigrationAllow>,
+): Promise<MigrationStep[]> {
+  if (allowed.has('dropColumn')) return []
+
+  const existing = catalogTableMap(catalog)
+  const extra: MigrationStep[] = []
+
+  for (const handle of schemas) {
+    const info = handle.getTableMetadata()
+    const key = tableKey(info.schema, info.name)
+    const live = existing.get(key)
+    if (!live) continue
+    const createAst = buildCreateTableAst(handle, dialect)
+    const desiredColumnNames = new Set(createAst.columns.map((c) => c.name))
+
+    for (const liveCol of live.columns ?? []) {
+      if (desiredColumnNames.has(liveCol.name)) continue
+      const step: Extract<MigrationStep, { kind: 'drop_column' }> = {
+        kind: 'drop_column',
+        ...schemaField(info.schema),
+        table: info.name,
+        column: liveCol.name,
+      }
+      // Data-safe empty column: allow drop without allowlist
+      // Non-null data: refuse with MigrationError
+      try {
+        await assertColumnHasNoData(executor, step)
+        extra.push(step)
+      } catch (error) {
+        if (error instanceof MigrationError) throw error
+        throw error
+      }
+    }
+  }
+
+  return extra
+}
+
+/**
+ * Converts a migration step to a SQL AST node for compilation.
+ *
+ * @example
+ *   const ast = stepToAst({ kind: 'create_table', table: 'users' }, handles, dialect)
+ *
+ * @param step - Migration step to convert.
+ * @param handles - Map of table key to table handle.
+ * @param dialect - SQL dialect for type inference.
+ *
+ * @returns SQL AST node ready for compilation
+ *
+ * @throws MigrationError - When the step references an unregistered handle
+ */
 function stepToAst(
   step: MigrationStep,
   handles: Map<string, TableHandle>,
@@ -523,7 +745,11 @@ function stepToAst(
           message: `cannot create table "${key}": handle not registered`,
         })
       }
-      return buildCreateTableAst(handle, dialect)
+      const ast = buildCreateTableAst(handle, dialect)
+      return {
+        ...ast,
+        columns: ast.columns.map((column) => ({ ...column, references: undefined })),
+      }
     }
     case 'add_column':
       return {
@@ -548,6 +774,14 @@ function stepToAst(
         table: step.table,
         column: step.column,
         dataType: step.dataType,
+      }
+    case 'add_foreign_key':
+      return {
+        kind: 'add_foreign_key',
+        ...schemaField(step.schema),
+        table: step.table,
+        column: step.column,
+        references: step.references,
       }
     case 'set_not_null':
       return {
@@ -626,13 +860,24 @@ async function releaseMigrateLock(executor: Executor): Promise<void> {
 /**
  * Desired-state migrate: dry-run plan + execute converge with safe defaults,
  * explicit destructive allowlist, and Postgres advisory lock on execute.
+ *
+ * @example
+ *   const migrate = createMigrateBuilder({ schemas: [User], dialect, executor })
+ *   const plan = await migrate.allow('dropColumn').dryRun()
+ *   await migrate.allow('dropColumn').execute()
+ *
+ * @param options - Builder configuration including schemas, dialect, executor, and
+ *   optional assertCanExecute.
+ *
+ * @returns Migrate builder with `allow`, `dryRun`, and `execute` methods
  */
 export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
   dialect: Dialect
   executor: Executor
+  assertCanExecute?: () => void
 }): MigrateBuilder {
-  const { schemas, dialect, executor } = options
+  const { schemas, dialect, executor, assertCanExecute } = options
   const handles = new Map<string, TableHandle>()
   for (const handle of schemas) {
     const info = handle.getTableMetadata()
@@ -667,12 +912,32 @@ export function createMigrateBuilder(options: {
     },
 
     async execute() {
+      assertCanExecute?.()
       await acquireMigrateLock(executor)
       try {
         const catalog = await dialect.introspect(executor)
         const plan = planMigration(schemas, catalog, dialect, allowed)
 
-        const steps = plan.steps
+        // Without allow('dropColumn'): data-safe empty drops may still apply;
+        // columns with data throw MigrationError.
+        let extraDrops: MigrationStep[] = []
+        try {
+          extraDrops = await planUnsafeDropColumns(
+            schemas,
+            catalog,
+            dialect,
+            executor,
+            allowed,
+          )
+        } catch (cause) {
+          if (cause instanceof MigrationError) throw cause
+          throw new MigrationError({
+            message: cause instanceof Error ? cause.message : 'Migration failed',
+            ...(cause !== undefined ? { cause } : {}),
+          })
+        }
+
+        const steps = [...plan.steps, ...extraDrops]
         if (steps.length === 0) return
 
         await executor.run({ sql: 'begin', params: [] })

@@ -2,7 +2,7 @@ import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { createDb } from '@/client'
+import { createDatabase } from '@/client'
 import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
 import { QueryError, SchemaError } from '@/utils/error'
@@ -49,10 +49,10 @@ function createMockConnector(options?: {
   return connector
 }
 
-describe('createDb', () => {
+describe('createDatabase', () => {
   it('should accept a db0 connector and empty schemas', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [] })
+    const db = createDatabase({ connector, schemas: [] })
     expect(db).toMatchObject({
       ping: expect.any(Function),
       close: expect.any(Function),
@@ -62,7 +62,7 @@ describe('createDb', () => {
 
   it('should ping with a trivial select via the owned database', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [] })
+    const db = createDatabase({ connector, schemas: [] })
 
     await expect(db.ping()).resolves.toBeUndefined()
     expect(connector.prepared.some((sql) => /select\s+1/i.test(sql))).toBe(true)
@@ -73,7 +73,7 @@ describe('createDb', () => {
   it('should close once without error and dispose the connector', async () => {
     const onDispose = vi.fn()
     const connector = createMockConnector({ onDispose })
-    const db = createDb({ connector, schemas: [] })
+    const db = createDatabase({ connector, schemas: [] })
 
     await expect(db.close()).resolves.toBeUndefined()
     expect(connector.disposed).toBe(true)
@@ -86,7 +86,7 @@ describe('createDb', () => {
   it('should dispose via Symbol.asyncDispose', async () => {
     const connector = createMockConnector()
     {
-      await using db = createDb({ connector, schemas: [] })
+      await using db = createDatabase({ connector, schemas: [] })
       await db.ping()
     }
     expect(connector.disposed).toBe(true)
@@ -94,18 +94,18 @@ describe('createDb', () => {
 
   it('should reject ping after close with QueryError', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [] })
+    const db = createDatabase({ connector, schemas: [] })
     await db.close()
     await expect(db.ping()).rejects.toBeInstanceOf(QueryError)
     await expect(db.ping()).rejects.toThrow(/closed/i)
   })
 
-  it('should export createDb and no stray dialect ORM symbols', async () => {
+  it('should export createDatabase and no stray dialect ORM symbols', async () => {
     const clientModule = await import('@/client')
-    expect(clientModule.createDb).toBeTypeOf('function')
+    expect(clientModule.createDatabase).toBeTypeOf('function')
     expect(Object.keys(clientModule).join(',')).not.toMatch(/kysely/i)
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [] })
+    const db = createDatabase({ connector, schemas: [] })
     await db.close()
   })
 })
@@ -122,13 +122,13 @@ const Users = defineTable(
 describe('registry and from()', () => {
   it('should retain registered schemas on the client', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
     expect(db.schemas).toEqual([Users])
   })
 
   it('should compile select * for a registered table without executing', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db.from(Users).compile()
     expect(compiled.sql.toLowerCase()).toContain('select *')
@@ -146,7 +146,7 @@ describe('registry and from()', () => {
       onPrepare: () => createMockStatement(rows),
     })
 
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
     await expect(db.from(Users).execute()).resolves.toEqual(rows)
 
     expect(connector.prepared.some((sql) => /select\s+\*\s+from/i.test(sql))).toBe(true)
@@ -162,7 +162,7 @@ describe('registry and from()', () => {
     )
 
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
     expect(() => db.from(Other)).toThrow(SchemaError)
     expect(() => db.from(Other)).toThrow(/not registered/)
 
@@ -172,7 +172,7 @@ describe('registry and from()', () => {
   it('should reject non-handles in schemas', () => {
     const connector = createMockConnector()
     expect(() =>
-      createDb({
+      createDatabase({
         connector,
         schemas: [{ name: 'fake' } as never],
       }),
@@ -181,7 +181,7 @@ describe('registry and from()', () => {
 
   it('should resolve dialect from connector.dialect', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
     const compiled = db.from(Users).compile()
     expect(compiled.sql).toContain('"public"')
     expect(compiled.sql).toContain('"users"')
@@ -190,8 +190,8 @@ describe('registry and from()', () => {
   it('should reject unsupported connector dialects', () => {
     const connector = createMockConnector()
     ;(connector as { dialect: string }).dialect = 'sqlite'
-    expect(() => createDb({ connector, schemas: [] })).toThrow(SchemaError)
-    expect(() => createDb({ connector, schemas: [] })).toThrow(
+    expect(() => createDatabase({ connector, schemas: [] })).toThrow(SchemaError)
+    expect(() => createDatabase({ connector, schemas: [] })).toThrow(
       /unsupported connector dialect/i,
     )
   })

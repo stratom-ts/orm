@@ -83,19 +83,18 @@ function inferPostgresLiteralType(literal: Literal) {
 /**
  * Infers a PostgreSQL column type from a Valibot schema.
  *
+ * @example
+ *   inferPostgresColumnType(string()) // 'text'
+ *   inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
+ *   inferPostgresColumnType(optional(pipe(string(), maxLength(50)))) // 'varchar(50)'
+ *   inferPostgresColumnType(number()) // 'double precision'
+ *   inferPostgresColumnType(integer()) // 'integer'
+ *
  * @param schema - Column schema (may be wrapped or piped)
  *
  * @returns PostgreSQL column data type
  *
  * @throws SchemaError when the schema type cannot be inferred
- *
- * @example```ts
- * inferPostgresColumnType(string()) // 'text'
- * inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
- * inferPostgresColumnType(optional(pipe(string(), maxLength(50)))) // 'varchar(50)'
- * inferPostgresColumnType(number()) // 'double precision'
- * inferPostgresColumnType(integer()) // 'integer'
- * ```
  */
 export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
   const baseSchema = getBaseSchema(schema)

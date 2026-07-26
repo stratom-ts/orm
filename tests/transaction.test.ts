@@ -2,9 +2,10 @@ import type { Connector, Statement } from 'db0'
 import { date, pipe, string, unknown } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { createDb } from '@/client'
+import { createDatabase } from '@/client'
 import { defineTable } from '@/defineTable'
 import { column } from '@/schemas'
+import { MigrationError, QueryError } from '@/utils/error'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -93,7 +94,7 @@ const Mapped = defineTable(
 describe('db.transaction', () => {
   it('should begin and commit on success', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const result = await db.transaction(async (trx) => {
       expect(typeof trx.from).toBe('function')
@@ -114,7 +115,7 @@ describe('db.transaction', () => {
 
   it('should roll back when the callback throws', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(
       db.transaction(async (trx) => {
@@ -133,7 +134,7 @@ describe('db.transaction', () => {
 
   it('should use savepoints for nested transactions', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await db.transaction(async (trx) => {
       await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
@@ -159,7 +160,7 @@ describe('db.transaction', () => {
 
   it('should release savepoint when nested transaction succeeds', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await db.transaction(async (trx) => {
       await trx.transaction(async (inner) => {
@@ -179,12 +180,111 @@ describe('db.transaction', () => {
 
     await db.close()
   })
+
+  it('should serialize concurrent top-level transactions', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+    let releaseFirst!: () => void
+    let markFirstStarted!: () => void
+    const firstCanFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve
+    })
+
+    const first = db.transaction(async () => {
+      markFirstStarted()
+      await firstCanFinish
+      throw new Error('first failed')
+    })
+    await firstStarted
+
+    const second = db.transaction(async (trx) => {
+      await trx.insert(Users).values({ id: '2', email: 'second@example.com' }).execute()
+      return 'second committed'
+    })
+
+    await Promise.resolve()
+    expect(
+      connector.prepared.filter((sql) => sql.toLowerCase() === 'begin'),
+    ).toHaveLength(1)
+
+    releaseFirst()
+    await expect(first).rejects.toThrow('first failed')
+    await expect(second).resolves.toBe('second committed')
+
+    const transactionSql = connector.prepared
+      .map((sql) => sql.toLowerCase())
+      .filter((sql) => ['begin', 'commit', 'rollback'].includes(sql))
+    expect(transactionSql).toEqual(['begin', 'rollback', 'begin', 'commit'])
+    await db.close()
+  })
+
+  it('should reject migrations inside a transaction before acquiring a lock', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+    const migrationCreatedBeforeTransaction = db.migrate()
+
+    await expect(
+      db.transaction(async (trx) => {
+        await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
+        await migrationCreatedBeforeTransaction.execute()
+      }),
+    ).rejects.toBeInstanceOf(MigrationError)
+
+    const sql = connector.prepared.map((s) => s.toLowerCase())
+    expect(sql).toContain('begin')
+    expect(sql).toContain('rollback')
+    expect(sql).not.toContain('commit')
+    expect(sql.some((s) => s.includes('pg_advisory_lock'))).toBe(false)
+
+    await db.close()
+  })
+
+  it('should expire transaction clients and builders after their callback', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+    let escapedQuery: ReturnType<typeof db.from> | undefined
+    let useEscapedClient: (() => void) | undefined
+
+    await db.transaction(async (trx) => {
+      escapedQuery = trx.from(Users)
+      useEscapedClient = () => {
+        trx.from(Users)
+      }
+    })
+
+    expect(useEscapedClient).toBeDefined()
+    expect(() => useEscapedClient!()).toThrow(QueryError)
+    await expect(escapedQuery!.execute()).rejects.toBeInstanceOf(QueryError)
+    await db.close()
+  })
+
+  it('should reject migrations from nested transaction clients', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    await db.transaction(async (trx) => {
+      await expect(trx.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
+      await trx.transaction(async (nested) => {
+        await expect(nested.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
+      })
+    })
+
+    const sql = connector.prepared.map((s) => s.toLowerCase())
+    expect(sql.some((s) => s.includes('pg_advisory_lock'))).toBe(false)
+    expect(sql.some((s) => s.includes('savepoint sp_1'))).toBe(true)
+    expect(sql).toContain('commit')
+
+    await db.close()
+  })
 })
 
 describe('value mapping', () => {
   it('should map insert params for timestamp/json/uuid via dialect defaults', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Mapped] })
+    const db = createDatabase({ connector, schemas: [Mapped] })
     const when = new Date('2024-06-15T12:00:00.000Z')
     const meta = { a: 1 }
 
@@ -223,7 +323,7 @@ describe('value mapping', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [Mapped] })
+    const db = createDatabase({ connector, schemas: [Mapped] })
 
     const rows = await db.from(Mapped).execute()
     expect(rows).toHaveLength(1)
@@ -238,7 +338,7 @@ describe('value mapping', () => {
     await db.close()
   })
 
-  it('should apply createDb map overrides over dialect defaults', async () => {
+  it('should apply createDatabase map overrides over dialect defaults', async () => {
     const connector = createMockConnector({
       rowsBySql: () => [
         {
@@ -250,7 +350,7 @@ describe('value mapping', () => {
       ],
     })
 
-    const db = createDb({
+    const db = createDatabase({
       connector,
       schemas: [Mapped],
       map: {
@@ -263,7 +363,7 @@ describe('value mapping', () => {
       },
     })
 
-    // Column mapResult for label still wins over createDb
+    // Column mapResult for label still wins over createDatabase
     const rows = await db.from(Mapped).execute()
     expect(rows[0]!.createdAt).toBe('as-string:2024-01-01T00:00:00.000Z')
     expect(rows[0]!.label).toBe('read:z')
@@ -273,7 +373,7 @@ describe('value mapping', () => {
 
   it('should apply param mapping on compile', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Mapped] })
+    const db = createDatabase({ connector, schemas: [Mapped] })
     const when = new Date('2024-01-02T00:00:00.000Z')
 
     const compiled = db

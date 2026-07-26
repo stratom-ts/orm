@@ -1,5 +1,6 @@
 import { SQLDialect } from 'db0'
 
+import type { ReferentialAction } from '@/schemas/actions/types'
 import type { AnySchema } from '@/types/schema'
 
 /** SQL type string produced by dialect type inference. */
@@ -33,8 +34,8 @@ export type CatalogForeignKey = CatalogKeyConstraint & {
   referencedSchema?: string
   referencedTable: string
   referencedColumns: string[]
-  onDelete: string
-  onUpdate: string
+  onDelete: ReferentialAction
+  onUpdate: ReferentialAction
 }
 
 /** Live index entry from dialect introspection. */
@@ -276,6 +277,20 @@ export type AlterTableAddColumnAst = {
   readonly column: CreateTableColumnAst
 }
 
+export type AddForeignKeyAst = {
+  readonly kind: 'add_foreign_key'
+  readonly table: string
+  readonly schema?: string
+  readonly column: string
+  readonly references: {
+    readonly table: string
+    readonly column: string
+    readonly schema?: string
+    readonly onDelete?: string
+    readonly onUpdate?: string
+  }
+}
+
 export type AlterColumnTypeAst = {
   readonly kind: 'alter_column_type'
   readonly table: string
@@ -328,6 +343,7 @@ export type SqlAst =
   | CreateSchemaAst
   | CreateIndexAst
   | AlterTableAddColumnAst
+  | AddForeignKeyAst
   | AlterColumnTypeAst
   | SetNotNullAst
   | DropNotNullAst

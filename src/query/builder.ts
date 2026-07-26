@@ -63,6 +63,18 @@ function resolveOn(on: JoinOnInput): PredicateAst {
   return typeof on === 'function' ? on(eb) : on
 }
 
+/**
+ * Maps value parameters through the mapper for join predicates.
+ *
+ * @example
+ *   mapJoinsParams(handle, mapper, [{ type: 'inner', table: 'posts', on: ... }])
+ *
+ * @param handle - Table handle for the root table.
+ * @param mapper - Value mapper for parameter conversion.
+ * @param joins - Join AST nodes to map.
+ *
+ * @returns Mapped join AST nodes, or the original when no mapper or joins
+ */
 function mapJoinsParams(
   handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
@@ -75,6 +87,18 @@ function mapJoinsParams(
   }))
 }
 
+/**
+ * Converts a join type, table handle, and ON expression into a JoinAst node.
+ *
+ * @example
+ *   toJoinAst('inner', PostTable, eq(PostTable.userId, UserTable.id))
+ *
+ * @param type - Join type (inner, left, right).
+ * @param table - Table handle to join.
+ * @param on - Join ON predicate or callback.
+ *
+ * @returns Join AST node
+ */
 function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): JoinAst {
   const info = table.getTableMetadata()
   return {
@@ -111,6 +135,18 @@ function normalizeWhere(input: WhereInput): PredicateAst {
   return preds.length === 1 ? preds[0]! : and(...preds)
 }
 
+/**
+ * Combines an existing predicate with a new one using AND.
+ *
+ * @example
+ *   mergeWhere(existingPred, newPred) // AND(existingPred, newPred)
+ *   mergeWhere(undefined, newPred) // newPred
+ *
+ * @param existing - Existing predicate, or `undefined` if none.
+ * @param next - New predicate to combine.
+ *
+ * @returns Combined predicate, or `next` when `existing` is undefined
+ */
 function mergeWhere(
   existing: PredicateAst | undefined,
   next: PredicateAst,
@@ -176,6 +212,19 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
   return input.map((c) => selectionColumn(c))
 }
 
+/**
+ * Maps write row parameters through the value mapper.
+ *
+ * @example
+ *   mapWriteParams(handle, mapper, ['name', 'age'], [['Alice', 30]])
+ *
+ * @param handle - Table handle for column metadata.
+ * @param mapper - Value mapper for parameter conversion.
+ * @param columns - Column names corresponding to each value index.
+ * @param values - Row values to map.
+ *
+ * @returns Mapped row values
+ */
 function mapWriteParams(
   handle: TableHandle,
   mapper: ValueMapper | undefined,
@@ -191,6 +240,18 @@ function mapWriteParams(
   )
 }
 
+/**
+ * Maps SET clause parameters through the value mapper.
+ *
+ * @example
+ *   mapSetParams(handle, mapper, [{ column: 'name', value: 'Alice' }])
+ *
+ * @param handle - Table handle for column metadata.
+ * @param mapper - Value mapper for parameter conversion.
+ * @param set - SET items with column names and values.
+ *
+ * @returns Mapped SET items
+ */
 function mapSetParams(
   handle: TableHandle,
   mapper: ValueMapper | undefined,
@@ -203,6 +264,18 @@ function mapSetParams(
   }))
 }
 
+/**
+ * Recursively maps predicate parameter values through the value mapper.
+ *
+ * @example
+ *   mapPredicateParams(handle, mapper, cmp('name', 'eq', 'Alice'))
+ *
+ * @param handle - Table handle for column metadata.
+ * @param mapper - Value mapper for parameter conversion.
+ * @param pred - Predicate AST node to map.
+ *
+ * @returns Mapped predicate, or the original when no mapper or predicate
+ */
 function mapPredicateParams(
   handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
@@ -330,6 +403,20 @@ function mapSelectedRows(
   })
 }
 
+/**
+ * Compiles and executes a query AST, mapping result rows when a mapper is provided.
+ *
+ * @example
+ *   const rows = await runQuery(dialect, executor, handle, mapper, selectAst)
+ *
+ * @param dialect - SQL dialect for compilation.
+ * @param executor - Database executor.
+ * @param handle - Table handle for result mapping.
+ * @param mapper - Optional value mapper for result conversion.
+ * @param ast - Query AST node to execute.
+ *
+ * @returns Query result rows
+ */
 async function runQuery<T>(
   dialect: Dialect,
   executor: Executor,
@@ -357,6 +444,21 @@ async function runQuery<T>(
   }
 }
 
+/**
+ * Compiles and executes a write AST (INSERT/UPDATE/DELETE), returning rows or a write
+ * result.
+ *
+ * @example
+ *   const result = await runWrite(dialect, executor, handle, mapper, insertAst)
+ *
+ * @param dialect - SQL dialect for compilation.
+ * @param executor - Database executor.
+ * @param handle - Table handle for result mapping.
+ * @param mapper - Optional value mapper for result conversion.
+ * @param ast - Write AST node to execute.
+ *
+ * @returns Mapped rows when RETURNING is used, or `WriteResult` with row count
+ */
 async function runWrite(
   dialect: Dialect,
   executor: Executor,
@@ -382,6 +484,19 @@ async function runWrite(
   }
 }
 
+/**
+ * Returns the first row from an array, or throws when empty.
+ *
+ * @example
+ *   const row = takeFirstOrThrow(rows, 'No rows returned from insert')
+ *
+ * @param rows - Array of result rows.
+ * @param message - Error message when the array is empty.
+ *
+ * @returns The first row
+ *
+ * @throws QueryError - When the array is empty
+ */
 function takeFirstOrThrow<T>(rows: T[], message: string): T {
   const row = rows[0]
   if (row === undefined) {
@@ -410,6 +525,24 @@ export type InsertBuilder<
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
+/**
+ * Creates an insert builder for inserting rows into a table.
+ *
+ * @example
+ *   const builder = createInsertBuilder({
+ *     handle: User,
+ *     dialect,
+ *     executor,
+ *     rows: [{ name: 'Alice' }],
+ *     returning: { kind: 'all' },
+ *   })
+ *   const result = await builder.execute()
+ *
+ * @param options - Builder configuration including handle, dialect, executor, rows, and
+ *   returning.
+ *
+ * @returns Insert builder with `returning`, `compile`, and `execute` methods
+ */
 export function createInsertBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
@@ -550,6 +683,27 @@ export type UpdateBuilder<
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
+/**
+ * Creates an update builder for modifying rows in a table.
+ *
+ * @example
+ *   const builder = createUpdateBuilder({
+ *     handle: User,
+ *     dialect,
+ *     executor,
+ *     patch: { name: 'Bob' },
+ *     where: cmp('id', 'eq', 1),
+ *     allowAll: false,
+ *     returning: { kind: 'all' },
+ *   })
+ *   const result = await builder.execute()
+ *
+ * @param options - Builder configuration including handle, dialect, executor, patch,
+ *   where, and returning.
+ *
+ * @returns Update builder with `where`, `all`, `returning`, `compile`, and `execute`
+ *   methods.
+ */
 export function createUpdateBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
@@ -702,6 +856,26 @@ export type DeleteBuilder<
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
+/**
+ * Creates a delete builder for removing rows from a table.
+ *
+ * @example
+ *   const builder = createDeleteBuilder({
+ *     handle: User,
+ *     dialect,
+ *     executor,
+ *     where: cmp('id', 'eq', 1),
+ *     allowAll: false,
+ *     returning: { kind: 'all' },
+ *   })
+ *   const deleted = await builder.execute()
+ *
+ * @param options - Builder configuration including handle, dialect, executor, where, and
+ *   returning.
+ *
+ * @returns Delete builder with `where`, `all`, `returning`, `compile`, and `execute`
+ *   methods.
+ */
 export function createDeleteBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
@@ -928,6 +1102,17 @@ type SelectState = {
   having?: PredicateAst
 }
 
+/**
+ * Creates a select builder from an initial state.
+ *
+ * @example
+ *   const builder = createSelectBuilder({ handle: User, dialect, executor, state: emptySelectState() })
+ *
+ * @param options - Builder configuration including handle, dialect, executor, mapper, and
+ *   state.
+ *
+ * @returns Select builder with chaining methods and execution
+ */
 function createSelectBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
@@ -1187,7 +1372,19 @@ function emptySelectState(): SelectState {
   }
 }
 
-/** Creates a table-scoped query builder (select + insert/update/delete). */
+/**
+ * Creates a table-scoped query builder (select + insert/update/delete).
+ *
+ * @example
+ *   const builder = createTableBuilder({ handle: User, dialect, executor, mapper })
+ *   const users = await builder.execute()
+ *
+ * @param options - Builder configuration including handle, dialect, executor, and
+ *   optional mapper.
+ *
+ * @returns Query builder with `selectAll`, `select`, `where`, `compile`, and `execute`
+ *   methods.
+ */
 export function createTableBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
@@ -1257,7 +1454,20 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
   }
 }
 
-/** @deprecated Use {@link createTableBuilder}. Kept for compatibility. */
+/**
+ * Creates a select-all query builder (deprecated in favor of `createTableBuilder`).
+ *
+ * @deprecated Use {@link createTableBuilder}. Kept for compatibility.
+ *
+ * @example
+ *   const builder = createSelectAllBuilder({ handle: User, dialect, executor })
+ *   const users = await builder.execute()
+ *
+ * @param options - Builder configuration including handle, dialect, executor, and
+ *   optional mapper.
+ *
+ * @returns Query builder with `selectAll`, `where`, `compile`, and `execute` methods
+ */
 export function createSelectAllBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect

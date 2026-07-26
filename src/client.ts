@@ -1,5 +1,5 @@
 import type { Connector, Database } from 'db0'
-import { createDatabase } from 'db0'
+import { createDatabase as createDb0Database } from 'db0'
 
 import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
@@ -7,6 +7,7 @@ import { isTableHandle } from '@/defineTable'
 import { resolveDialect } from '@/dialects'
 import type {
   DeleteBuilder,
+  Executor,
   InsertBuilder,
   InsertValuesBuilder,
   QueryBuilder,
@@ -26,14 +27,23 @@ import {
 } from '@/query'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
-import { QueryError, SchemaError } from '@/utils/error'
+import { MigrationError, QueryError, SchemaError } from '@/utils/error'
 import { tableKey } from '@/utils/tableKey'
 
 export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'
 
-/** Options for {@link createDb}. */
-export type CreateDbConfig<
+type TransactionContext = {
+  nextSavepointId: number
+}
+
+type TransactionScope = {
+  active: boolean
+  context: TransactionContext
+}
+
+/** Options for {@link createDatabase}. */
+export type CreateDatabaseConfig<
   TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 > = {
   /** Db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
@@ -52,7 +62,7 @@ export type CreateDbConfig<
  * Transaction clients (`trx`) share the same surface for from/transaction.
  */
 export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
-  /** Registered table handles from `createDb`. */
+  /** Registered table handles from `createDatabase`. */
   readonly schemas: TSchemas
   /** Trivial connectivity check (`SELECT 1` via the owned db0 instance). */
   ping(): Promise<void>
@@ -62,18 +72,14 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * Insert rows into a registered table.
    *
    * @example
-   *   ;```ts
    *   await db.insert(User).values({ name: 'Alice' }).executeTakeFirstOrThrow()
-   * ```
    */
   insert<THandle extends TableHandle>(handle: THandle): InsertValuesBuilder<THandle>
   /**
    * Update rows in a registered table.
    *
    * @example
-   *   ;```ts
    *   await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
-   * ```
    */
   update<THandle extends TableHandle>(handle: THandle): UpdateSetBuilder<THandle>
   /**
@@ -81,12 +87,10 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * Returns all deleted rows by default.
    *
    * @example
-   *   ;```ts
    *   const deleted = await db
    *     .delete(User)
    *     .where(User.id, 'eq', 1)
    *     .executeTakeFirstOrThrow()
-   * ```
    */
   delete<THandle extends TableHandle>(
     handle: THandle,
@@ -103,12 +107,22 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
   [Symbol.asyncDispose](): Promise<void>
 }
 
+/**
+ * Asserts that all schemas are valid table handles with unique keys.
+ *
+ * @example
+ *   assertHandles([User, Post])
+ *
+ * @param schemas - Array of table handles to validate.
+ *
+ * @throws SchemaError - When a value is not a table handle or keys are duplicated
+ */
 function assertHandles(schemas: readonly TableHandle[]): void {
   const seen = new Set<string>()
   for (const schema of schemas) {
     if (!isTableHandle(schema)) {
       throw new SchemaError({
-        message: 'createDb schemas must be table handles from defineTable()',
+        message: 'createDatabase schemas must be table handles from defineTable()',
       })
     }
     const info = schema.getTableMetadata()
@@ -125,17 +139,10 @@ function assertHandles(schemas: readonly TableHandle[]): void {
 /**
  * Creates a Stratom client from a db0 connector and table handles.
  *
- * Stratom calls `createDatabase(connector)` and owns that instance.
- * No auto-migrate; no Kysely.
+ * @example
+ *   import { postgresql } from 'db0/connectors/postgresql'
  *
- * @param config - Connector and registered schemas.
- *
- * @returns Client with registry, `from`, `transaction`, `ping`, `close`
- *
- * @example```ts
- * import { postgresql } from 'db0/connectors/postgresql'
- *
- *   const db = createDb({
+ *   const db = createDatabase({
  *   connector: postgresql({ url: process.env.DATABASE_URL! }),
  *   schemas: [User],
  *   })
@@ -143,14 +150,18 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  *   await trx.insert(User).values({ ... }).execute()
  *   })
  *   await db.close()
- * ```
+ *
+ * @param config - Connector and registered schemas.
+ *
+ * @returns Client with `schemas`, `from`, `insert`, `update`, `delete`, `migrate`,
+ *   `transaction`, `ping`, and `close`
  */
-export function createDb<
+export function createDatabase<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],
->(config: CreateDbConfig<TSchemas>): Db<TSchemas> {
+>(config: CreateDatabaseConfig<TSchemas>): Db<TSchemas> {
   assertHandles(config.schemas)
 
-  const database: Database = createDatabase(config.connector)
+  const database: Database = createDb0Database(config.connector)
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
   const registry = new Map<string, TableHandle>()
@@ -159,11 +170,12 @@ export function createDb<
     registry.set(tableKey(info.schema, info.name), handle)
   }
 
-  const rootExecutor = createDb0Executor(database)
+  const baseExecutor = createDb0Executor(database)
   const mapper = createValueMapper(dialect, config.map)
   let closed = false
-  /** Depth of open transactions/savepoints on this client (0 = none). */
-  let txDepth = 0
+  let transactionActive = false
+  let rootClientBlocked = false
+  let connectionQueue = Promise.resolve()
 
   const ensureOpen = () => {
     if (closed) {
@@ -171,29 +183,86 @@ export function createDb<
     }
   }
 
+  const schedule = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = connectionQueue.then(operation)
+    connectionQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  const rootExecutor: Executor = {
+    execute(query) {
+      ensureOpen()
+      if (rootClientBlocked) {
+        throw new QueryError({
+          message:
+            'Cannot use the root database client inside a transaction callback; use the transaction client (trx) instead',
+        })
+      }
+      return schedule(() => baseExecutor.execute(query))
+    },
+    run(query) {
+      ensureOpen()
+      if (rootClientBlocked) {
+        throw new QueryError({
+          message:
+            'Cannot use the root database client inside a transaction callback; use the transaction client (trx) instead',
+        })
+      }
+      return schedule(() => baseExecutor.run(query))
+    },
+  }
+
   const close = async (): Promise<void> => {
     if (closed) return
     closed = true
+    await connectionQueue
     await database.dispose()
   }
 
-  const ping = async (): Promise<void> => {
-    ensureOpen()
-    try {
-      await database.sql`select 1`
-    } catch (cause) {
-      throw new QueryError({
-        message: cause instanceof Error ? cause.message : 'Connectivity check failed',
-        cause,
-      })
+  const createClient = (
+    executor: Executor,
+    transactionScope?: TransactionScope,
+  ): Db<TSchemas> => {
+    const ensureClientOpen = () => {
+      ensureOpen()
+      if (transactionScope && !transactionScope.active) {
+        throw new QueryError({ message: 'Transaction client is no longer active' })
+      }
     }
-  }
 
-  const createClient = (executor: ReturnType<typeof createDb0Executor>): Db<TSchemas> => {
+    const clientExecutor: Executor = transactionScope
+      ? {
+          execute(query) {
+            ensureClientOpen()
+            return executor.execute(query)
+          },
+          run(query) {
+            ensureClientOpen()
+            return executor.run(query)
+          },
+        }
+      : executor
+
+    const ping = async (): Promise<void> => {
+      ensureClientOpen()
+      try {
+        await clientExecutor.execute({ sql: 'select 1', params: [] })
+      } catch (cause) {
+        if (cause instanceof QueryError) throw cause
+        throw new QueryError({
+          message: cause instanceof Error ? cause.message : 'Connectivity check failed',
+          cause,
+        })
+      }
+    }
+
     const from = <THandle extends TableHandle>(
       handle: THandle,
     ): QueryBuilder<THandle> => {
-      ensureOpen()
+      ensureClientOpen()
       if (!isTableHandle(handle)) {
         throw new SchemaError({
           message: 'db.from() expects a table handle from defineTable()',
@@ -203,16 +272,16 @@ export function createDb<
       const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
-      return createTableBuilder({ handle, dialect, executor, mapper })
+      return createTableBuilder({ handle, dialect, executor: clientExecutor, mapper })
     }
 
     const insert = <THandle extends TableHandle>(
       handle: THandle,
     ): InsertValuesBuilder<THandle> => {
-      ensureOpen()
+      ensureClientOpen()
       if (!isTableHandle(handle)) {
         throw new SchemaError({
           message: 'db.insert() expects a table handle from defineTable()',
@@ -222,7 +291,7 @@ export function createDb<
       const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
       return {
@@ -237,7 +306,7 @@ export function createDb<
           return createInsertBuilder({
             handle,
             dialect,
-            executor,
+            executor: clientExecutor,
             mapper,
             rows: validated,
             returning: { kind: 'all' },
@@ -256,7 +325,7 @@ export function createDb<
       const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
     }
@@ -264,7 +333,7 @@ export function createDb<
     const update = <THandle extends TableHandle>(
       handle: THandle,
     ): UpdateSetBuilder<THandle> => {
-      ensureOpen()
+      ensureClientOpen()
       validateHandle(handle, 'update')
       return {
         set: (patch) => {
@@ -272,7 +341,7 @@ export function createDb<
           return createUpdateBuilder({
             handle,
             dialect,
-            executor,
+            executor: clientExecutor,
             mapper,
             patch: validated,
             allowAll: false,
@@ -285,12 +354,12 @@ export function createDb<
     const delete_ = <THandle extends TableHandle>(
       handle: THandle,
     ): DeleteBuilder<THandle, InferSelect<THandle>> => {
-      ensureOpen()
+      ensureClientOpen()
       validateHandle(handle, 'delete')
       return createDeleteBuilder({
         handle,
         dialect,
-        executor,
+        executor: clientExecutor,
         mapper,
         allowAll: false,
         returning: { kind: 'all' },
@@ -298,58 +367,100 @@ export function createDb<
     }
 
     const migrate = (): MigrateBuilder => {
-      ensureOpen()
-      return createMigrateBuilder({ schemas, dialect, executor })
+      ensureClientOpen()
+      return createMigrateBuilder({
+        schemas,
+        dialect,
+        executor: clientExecutor,
+        assertCanExecute() {
+          if (transactionScope || transactionActive) {
+            throw new MigrationError({
+              message: 'Cannot execute migrations inside a transaction',
+            })
+          }
+        },
+      })
     }
 
     const transaction = async <T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T> => {
-      ensureOpen()
-      const isOuter = txDepth === 0
-      const savepointName = isOuter ? undefined : `sp_${txDepth}`
+      ensureClientOpen()
 
-      if (isOuter) {
-        await executor.run({ sql: 'begin', params: [] })
-      } else {
-        await executor.run({
-          sql: `savepoint ${savepointName}`,
-          params: [],
+      if (!transactionScope) {
+        return schedule(async () => {
+          ensureOpen()
+          if (rootClientBlocked) {
+            throw new QueryError({
+              message:
+                'Cannot start a nested transaction on the root client inside a transaction callback; use the transaction client (trx) instead',
+            })
+          }
+          await baseExecutor.run({ sql: 'begin', params: [] })
+          transactionActive = true
+          rootClientBlocked = true
+          const scope: TransactionScope = {
+            active: true,
+            context: { nextSavepointId: 1 },
+          }
+          try {
+            const result = await fn(createClient(baseExecutor, scope))
+            scope.active = false
+            rootClientBlocked = false
+            await baseExecutor.run({ sql: 'commit', params: [] })
+            transactionActive = false
+            return result
+          } catch (error) {
+            scope.active = false
+            rootClientBlocked = false
+            try {
+              await baseExecutor.run({ sql: 'rollback', params: [] })
+            } catch {
+              // ignore rollback failures; rethrow original
+            } finally {
+              transactionActive = false
+            }
+            throw error
+          }
         })
       }
-      txDepth += 1
 
+      const savepointName = `sp_${transactionScope.context.nextSavepointId++}`
+      await clientExecutor.run({ sql: `savepoint ${savepointName}`, params: [] })
+      const nestedScope: TransactionScope = {
+        active: true,
+        context: transactionScope.context,
+      }
       try {
-        const trx = createClient(executor)
-        const result = await fn(trx)
-        if (isOuter) {
-          await executor.run({ sql: 'commit', params: [] })
-        } else {
-          await executor.run({
+        const result = await fn(createClient(baseExecutor, nestedScope))
+        nestedScope.active = false
+        await clientExecutor.run({
+          sql: `release savepoint ${savepointName}`,
+          params: [],
+        })
+        return result
+      } catch (error) {
+        nestedScope.active = false
+        try {
+          await clientExecutor.run({
+            sql: `rollback to savepoint ${savepointName}`,
+            params: [],
+          })
+          await clientExecutor.run({
             sql: `release savepoint ${savepointName}`,
             params: [],
           })
-        }
-        return result
-      } catch (error) {
-        try {
-          if (isOuter) {
-            await executor.run({ sql: 'rollback', params: [] })
-          } else {
-            await executor.run({
-              sql: `rollback to savepoint ${savepointName}`,
-              params: [],
-            })
-            await executor.run({
-              sql: `release savepoint ${savepointName}`,
-              params: [],
-            })
-          }
         } catch {
           // ignore rollback failures; rethrow original
         }
         throw error
-      } finally {
-        txDepth -= 1
       }
+    }
+
+    const closeClient = async (): Promise<void> => {
+      if (transactionScope) {
+        ensureClientOpen()
+        throw new QueryError({ message: 'Transaction clients cannot close the database' })
+      }
+      await close()
     }
 
     return {
@@ -361,8 +472,8 @@ export function createDb<
       delete: delete_,
       migrate,
       transaction,
-      close,
-      [Symbol.asyncDispose]: close,
+      close: closeClient,
+      [Symbol.asyncDispose]: closeClient,
     }
   }
 

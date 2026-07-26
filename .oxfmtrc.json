@@ -8,7 +8,6 @@
   "jsdoc": {
     "descriptionWithDot": true,
     "lineWrappingStyle": "balance",
-    "preferCodeFences": true,
     "separateTagGroups": true
   },
   "sortImports": {

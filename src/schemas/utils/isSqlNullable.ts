@@ -6,13 +6,22 @@ import type { AnySchema } from '@/types/schema'
  * - `nullable` / `nullish` → SQL nullable
  * - `optional` alone → not SQL nullable (omit-on-insert only; use a DB default or
  *   `nullable`/`nullish` when the column may store NULL)
+ *
+ * @example
+ *   isSqlNullable(nullable(string())) // true
+ *   isSqlNullable(optional(string())) // false
+ *   isSqlNullable(string()) // false
+ *
+ * @param schema - Column schema to check.
+ *
+ * @returns `true` when the schema maps to a SQL-nullable column
  */
 export function isSqlNullable(schema: AnySchema): boolean {
   if (schema.type === 'nullish' || schema.type === 'nullable') {
     return true
   }
   if (schema.type === 'optional') {
-    return false
+    return 'wrapped' in schema && isSqlNullable(schema.wrapped as AnySchema)
   }
 
   if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {

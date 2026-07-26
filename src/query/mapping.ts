@@ -1,9 +1,9 @@
 import type { Dialect } from '@/dialects'
-import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { ColumnMetadata } from '@/schemas'
+import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
 
-/** CreateDb-level value mapping overrides. */
+/** CreateDatabase-level value mapping overrides. */
 export type ValueMapConfig = {
   mapResultValue?(dataType: string, value: unknown): unknown
   mapParamValue?(dataType: string, value: unknown): unknown
@@ -50,7 +50,19 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
   return getColumnMetadata(columnSchema as Parameters<typeof getColumnMetadata>[0])
 }
 
-/** Builds a value mapper: column override → createDb map → dialect defaults. */
+/**
+ * Builds a value mapper: column override → createDatabase map → dialect defaults.
+ *
+ * @example
+ *   const mapper = createValueMapper(dialect, { mapParamValue: ... })
+ *   mapper.mapParam(handle, 'createdAt', new Date())
+ *
+ * @param dialect - SQL dialect providing default value mapping.
+ * @param map - Optional global value mapping overrides.
+ *
+ * @returns Value mapper with `columnTypes`, `mapParam`, `mapResultRow`, and
+ *   `mapResultRows`
+ */
 export function createValueMapper(dialect: Dialect, map?: ValueMapConfig): ValueMapper {
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
 

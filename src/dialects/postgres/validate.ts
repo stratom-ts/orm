@@ -73,16 +73,15 @@ const ALLOWED_DEFAULT_EXPRESSIONS = new Set([
 /**
  * Validates and returns a safe SQL type fragment for DDL.
  *
+ * @example
+ *   assertSafePostgresDataType('varchar(255)') // 'varchar(255)'
+ *   assertSafePostgresDataType('INTEGER') // 'integer'
+ *
  * @param dataType - SQL data type string to validate (e.g. `varchar(255)`, `integer`)
  *
  * @returns Normalized, safe type string for use in DDL
  *
  * @throws Error when the type is not on the Postgres allowlist
- *
- * @example```ts
- * assertSafePostgresDataType('varchar(255)') // 'varchar(255)'
- * assertSafePostgresDataType('INTEGER')      // 'integer'
- * ```
  */
 export function assertSafePostgresDataType(dataType: string): string {
   const trimmed = dataType.trim()
@@ -117,18 +116,17 @@ export function assertSafePostgresDataType(dataType: string): string {
  * - Allowlisted expressions (`now()`, `gen_random_uuid()`, …) → raw SQL
  * - Other strings → single-quoted literals (escaped)
  *
+ * @example
+ *   formatPostgresDefault(null) // 'null'
+ *   formatPostgresDefault(42) // '42'
+ *   formatPostgresDefault('now()') // 'now()'
+ *   formatPostgresDefault("O'Brien") // 'O''Brien'
+ *
  * @param value - Default value to format.
  *
  * @returns SQL default expression
  *
  * @throws Error when value is a non-finite number
- *
- * @example```ts
- * formatPostgresDefault(null)       // 'null'
- * formatPostgresDefault(42)         // '42'
- * formatPostgresDefault('now()')    // 'now()'
- * formatPostgresDefault("O'Brien")  // '''O''Brien'''
- * ```
  */
 export function formatPostgresDefault(value: string | number | boolean | null): string {
   if (value === null) return 'null'
@@ -153,14 +151,50 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
   return `'${value.replaceAll("'", "''")}'`
 }
 
-/** Canonicalizes PostgreSQL catalog default expressions for migration comparison. */
+/**
+ * Strips a pair of outer parentheses only when they fully enclose the
+ * expression (balanced depth reaches zero at the final character).
+ *
+ * @param s - Input string that may be wrapped in parentheses.
+ *
+ * @returns The string with one outer layer removed, or the original string
+ *   when the outer parens do not form a matching pair.
+ */
+function stripEnclosingParens(s: string): string {
+  if (s.length < 2 || s[0] !== '(' || s[s.length - 1] !== ')') return s
+  let depth = 0
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++
+    else if (s[i] === ')') depth--
+    if (depth === 0 && i < s.length - 1) return s
+  }
+  return depth === 0 ? s.slice(1, -1).trim() : s
+}
+
+/**
+ * Canonicalizes a PostgreSQL catalog default expression for migration
+ * comparison by normalizing whitespace, stripping balanced enclosing
+ * parentheses, and removing trailing `::type` casts (including chained
+ * casts such as `::text::varchar`).
+ *
+ * @example
+ *   normalizePostgresDefaultExpression('(now())') // 'now()'
+ *   normalizePostgresDefaultExpression("('a') || ('b')") // "('a') || ('b')"
+ *   normalizePostgresDefaultExpression("'x'::text::varchar") // "'x'"
+ *
+ * @param expression - Raw default expression from `pg_catalog`.
+ *
+ * @returns Normalized expression suitable for drift comparison.
+ */
 export function normalizePostgresDefaultExpression(expression: string): string {
   let normalized = expression.trim()
-  while (normalized.startsWith('(') && normalized.endsWith(')')) {
-    normalized = normalized.slice(1, -1).trim()
-  }
+  let prev: string
+  do {
+    prev = normalized
+    normalized = stripEnclosingParens(normalized)
+  } while (normalized !== prev)
   return normalized.replace(
-    /::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?$/i,
+    /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
     '',
   )
 }

@@ -8,18 +8,17 @@ import { postgresBaseType } from './normalize'
  * - `json` / `jsonb` → parsed JSON
  * - `uuid` → string.
  *
+ * @example
+ *   mapPostgresResultValue('timestamptz', '2024-01-15T10:30:00Z')
+ *   // new Date('2024-01-15T10:30:00Z')
+ *
+ *   mapPostgresResultValue('jsonb', '{"key":"value"}')
+ *   // { key: 'value' }
+ *
  * @param dataType - PostgreSQL column data type.
  * @param value - Raw value from the database driver.
  *
  * @returns Mapped JavaScript value
- *
- * @example```ts
- * mapPostgresResultValue('timestamptz', '2024-01-15T10:30:00Z')
- * // Date(2024-01-15T10:30:00Z)
- *
- * mapPostgresResultValue('jsonb', '{"key":"value"}')
- * // { key: 'value' }
- * ```
  */
 export function mapPostgresResultValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
@@ -57,18 +56,17 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
  * - Objects/arrays → JSON string for json/jsonb
  * - Non-string values → string for uuid.
  *
+ * @example
+ *   mapPostgresParamValue('timestamptz', new Date('2024-01-15T10:30:00Z'))
+ *   // '2024-01-15T10:30:00.000Z'
+ *
+ *   mapPostgresParamValue('jsonb', { key: 'value' })
+ *   // '{"key":"value"}'
+ *
  * @param dataType - PostgreSQL column data type.
  * @param value - JavaScript value to map.
  *
  * @returns PostgreSQL-compatible parameter value
- *
- * @example```ts
- * mapPostgresParamValue('timestamptz', new Date('2024-01-15T10:30:00Z'))
- * // '2024-01-15T10:30:00.000Z'
- *
- * mapPostgresParamValue('jsonb', { key: 'value' })
- * // '{"key":"value"}'
- * ```
  */
 export function mapPostgresParamValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value

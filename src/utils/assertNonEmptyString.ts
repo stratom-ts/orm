@@ -3,6 +3,10 @@ import { SchemaError } from '@/utils/error'
 /**
  * Asserts that a value is a non-empty string.
  *
+ * @example
+ *   assertNonEmptyString('hello', 'name')
+ *   assertNonEmptyString('', 'name') // throws SchemaError
+ *
  * @param value - Value to check.
  * @param label - Human-readable name used in the error message.
  *

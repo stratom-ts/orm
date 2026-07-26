@@ -2,7 +2,7 @@ import type { Connector, Statement } from 'db0'
 import { boolean, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { createDb } from '@/client'
+import { createDatabase } from '@/client'
 import { buildCreateTableAst, planMigration } from '@/ddl'
 import { defineTable } from '@/defineTable'
 import type { CatalogSnapshot } from '@/dialects'
@@ -151,7 +151,7 @@ function createMockConnector(options?: {
             column_default: c.defaultExpression ?? (c.hasDefault ? 'true' : null),
             is_identity:
               c.isIdentity ||
-              c.identityGeneration !== undefined ||
+              c.identityGeneration != null ||
               (c.name === 'id' && t.primaryKey?.includes('id'))
                 ? 'YES'
                 : 'NO',
@@ -351,6 +351,30 @@ function createMockConnector(options?: {
           }
         }
 
+        const addForeignKeyMatch = sql.match(
+          /alter table\s+(?:"([^"]+)"\.)?"([^"]+)"\s+add foreign key\s+\("([^"]+)"\)\s+references\s+(?:"([^"]+)"\.)?"([^"]+)"\s+\("([^"]+)"\)(?:\s+on delete\s+(cascade|restrict|no action|set null|set default))?(?:\s+on update\s+(cascade|restrict|no action|set null|set default))?/i,
+        )
+        if (addForeignKeyMatch) {
+          const schema = addForeignKeyMatch[1] ?? 'public'
+          const tableName = addForeignKeyMatch[2]!
+          const column = addForeignKeyMatch[3]!
+          const table = liveTables.find(
+            (candidate) => candidate.schema === schema && candidate.name === tableName,
+          )
+          if (table) {
+            table.foreignKeys = table.foreignKeys ?? []
+            table.foreignKeys.push({
+              name: `${tableName}_${column}_fkey`,
+              columns: [column],
+              referencedSchema: addForeignKeyMatch[4] ?? 'public',
+              referencedTable: addForeignKeyMatch[5]!,
+              referencedColumns: [addForeignKeyMatch[6]!],
+              onDelete: addForeignKeyMatch[7]?.toLowerCase() ?? 'no action',
+              onUpdate: addForeignKeyMatch[8]?.toLowerCase() ?? 'no action',
+            })
+          }
+        }
+
         return createMockStatement()
       }
 
@@ -404,7 +428,7 @@ const Users = defineTable(
     id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
     email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
     age: nullable(pipe(number(), column({ type: 'integer' }))),
-    bio: optional(pipe(string(), column({ type: 'text' }))),
+    bio: optional(pipe(string(), column({ type: 'text', default: '' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
   },
   { primaryKey: 'id', schema: 'public' },
@@ -618,12 +642,33 @@ describe('postgresDialect.compile create_table', () => {
     expect(sql.toLowerCase()).toContain('text')
     expect(sql.toLowerCase()).toContain('not null')
   })
+
+  it('should emit alter table add foreign key', () => {
+    const { sql } = postgresDialect.compile({
+      kind: 'add_foreign_key',
+      schema: 'public',
+      table: 'posts',
+      column: 'authorId',
+      references: {
+        schema: 'public',
+        table: 'users',
+        column: 'id',
+        onDelete: 'cascade',
+        onUpdate: 'restrict',
+      },
+    })
+
+    expect(sql).toContain('alter table "public"."posts" add foreign key ("authorId")')
+    expect(sql).toContain('references "public"."users" ("id")')
+    expect(sql.toLowerCase()).toContain('on delete cascade')
+    expect(sql.toLowerCase()).toContain('on update restrict')
+  })
 })
 
 describe('db.migrate().execute()', () => {
   it('should create missing tables and be idempotent on re-run', async () => {
     const connector = createMockConnector()
-    const db = createDb({
+    const db = createDatabase({
       connector,
       schemas: [Users, Posts],
     })
@@ -646,7 +691,7 @@ describe('db.migrate().execute()', () => {
 
   it('should create schema-qualified tables and emit create schema if needed', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Memberships] })
+    const db = createDatabase({ connector, schemas: [Memberships] })
     await db.migrate().execute()
 
     expect(
@@ -670,7 +715,7 @@ describe('db.migrate().execute()', () => {
             { name: 'id', dataType: 'integer', isNullable: false },
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             {
               name: 'active',
               dataType: 'boolean',
@@ -683,7 +728,7 @@ describe('db.migrate().execute()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
     await db.migrate().execute()
 
     const creates = connector.runSql.filter((s) => /create table/i.test(s))
@@ -708,16 +753,18 @@ describe('db.migrate().execute()', () => {
 
     const connector = createMockConnector()
 
-    expect(() => createDb({ connector, schemas: [Bare, Public] })).toThrow(SchemaError)
+    expect(() => createDatabase({ connector, schemas: [Bare, Public] })).toThrow(
+      SchemaError,
+    )
 
-    expect(() => createDb({ connector, schemas: [Bare, Public] })).toThrow(
+    expect(() => createDatabase({ connector, schemas: [Bare, Public] })).toThrow(
       /duplicate table registration/,
     )
   })
 
   it('should create indexes from handle metadata idempotently', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [UsersWithIndex] })
+    const db = createDatabase({ connector, schemas: [UsersWithIndex] })
 
     await db.migrate().execute()
 
@@ -751,7 +798,7 @@ describe('db.migrate().execute()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersWithNickname] })
+    const db = createDatabase({ connector, schemas: [UsersWithNickname] })
     await db.migrate().execute()
 
     expect(
@@ -762,12 +809,82 @@ describe('db.migrate().execute()', () => {
 
     await db.close()
   })
+
+  it('should create foreign keys after all tables regardless of registration order', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Posts, Users] })
+
+    const plan = await db.migrate().dryRun()
+    const lastCreate = plan.steps
+      .map((step) => step.kind === 'create_table')
+      .lastIndexOf(true)
+    const foreignKey = plan.steps.findIndex((step) => step.kind === 'add_foreign_key')
+    expect(lastCreate).toBeGreaterThanOrEqual(0)
+    expect(foreignKey).toBeGreaterThan(lastCreate)
+
+    await db.migrate().execute()
+
+    const createSql = connector.runSql.filter((sql) => /^create table/i.test(sql))
+    expect(createSql).toHaveLength(2)
+    expect(createSql.every((sql) => !/references/i.test(sql))).toBe(true)
+    const lastCreateSql = connector.runSql
+      .map((sql) => /^create table/i.test(sql))
+      .lastIndexOf(true)
+    const foreignKeySql = connector.runSql.findIndex((sql) =>
+      /add foreign key/i.test(sql),
+    )
+    expect(foreignKeySql).toBeGreaterThan(lastCreateSql)
+
+    await db.close()
+  })
+
+  it('should create cyclic foreign keys in a deferred second phase', async () => {
+    const BTarget = defineTable(
+      'cycle_b',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const A = defineTable(
+      'cycle_a',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        bId: reference(BTarget, 'id'),
+      },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const B = defineTable(
+      'cycle_b',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        aId: reference(A, 'id'),
+      },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [A, B] })
+
+    const plan = await db.migrate().dryRun()
+    expect(plan.steps.filter((step) => step.kind === 'add_foreign_key')).toHaveLength(2)
+
+    await db.migrate().execute()
+
+    const lastCreate = connector.runSql
+      .map((sql) => /^create table/i.test(sql))
+      .lastIndexOf(true)
+    const foreignKeys = connector.runSql
+      .map((sql, index) => ({ sql, index }))
+      .filter(({ sql }) => /add foreign key/i.test(sql))
+    expect(foreignKeys).toHaveLength(2)
+    expect(foreignKeys.every(({ index }) => index > lastCreate)).toBe(true)
+
+    await db.close()
+  })
 })
 
 describe('db.migrate().dryRun()', () => {
   it('should return structured steps without applying DDL', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users, Posts] })
+    const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps.length).toBeGreaterThan(0)
@@ -808,7 +925,7 @@ describe('db.migrate().dryRun()', () => {
             },
             { name: 'email', dataType: 'varchar(255)', isNullable: false },
             { name: 'age', dataType: 'integer', isNullable: true },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             {
               name: 'active',
               dataType: 'boolean',
@@ -822,7 +939,7 @@ describe('db.migrate().dryRun()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps).toEqual([])
@@ -832,7 +949,7 @@ describe('db.migrate().dryRun()', () => {
 
   it('should allow multi-schema create_schema + create_table on plan', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Memberships] })
+    const db = createDatabase({ connector, schemas: [Memberships] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps).toEqual(
@@ -865,7 +982,7 @@ describe('db.migrate().dryRun()', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersWithIndex] })
+    const db = createDatabase({ connector, schemas: [UsersWithIndex] })
 
     const plan = await db.migrate().dryRun()
 
@@ -898,7 +1015,7 @@ describe('db.migrate().dryRun()', () => {
             { name: 'id', dataType: 'int4', isNullable: false },
             { name: 'email', dataType: 'text', isNullable: true },
             { name: 'age', dataType: 'integer', isNullable: false },
-            { name: 'bio', dataType: 'text', isNullable: false },
+            { name: 'bio', dataType: 'text', isNullable: false, defaultExpression: "''" },
             { name: 'active', dataType: 'boolean', isNullable: false },
           ],
         },
@@ -1052,7 +1169,7 @@ describe('db.migrate().dryRun()', () => {
       },
     })
 
-    const db = createDb({ connector, schemas: [NotNullEmail] })
+    const db = createDatabase({ connector, schemas: [NotNullEmail] })
 
     const plan = await db.migrate().dryRun()
 
@@ -1103,7 +1220,7 @@ describe('managed migration drift detection', () => {
               name: 'bio',
               dataType: 'text',
               isNullable: false,
-              defaultExpression: null,
+              defaultExpression: "''",
               identityGeneration: null,
             },
             {
@@ -1267,7 +1384,7 @@ describe('db.migrate() allowlist + safety', () => {
 
   it('should omit drop_column without allow and include it with allow on dryRun', async () => {
     const connector = createMockConnector({ tables: [UsersWithExtraLive] })
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const denied = await db.migrate().dryRun()
     expect(denied.steps.some((s) => s.kind === 'drop_column')).toBe(false)
@@ -1347,19 +1464,15 @@ describe('db.migrate() allowlist + safety', () => {
       },
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps.some((step) => step.kind === 'drop_column')).toBe(false)
-    await expect(db.migrate().execute()).resolves.toBeUndefined()
+
+    await expect(db.migrate().execute()).rejects.toThrow('Cannot drop column')
 
     const drops = connector.prepared.filter((s) => /drop column/i.test(s))
     expect(drops).toHaveLength(0)
-    expect(
-      connector.prepared.some(
-        (sql) => /count\(\*\)/i.test(sql) && /is not null/i.test(sql),
-      ),
-    ).toBe(false)
 
     await db.close()
   })
@@ -1379,7 +1492,7 @@ describe('db.migrate() allowlist + safety', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
     await db.migrate().allow('dropColumn').execute()
 
     expect(connector.runSql.some((s) => /drop column "legacy"/i.test(s))).toBe(true)
@@ -1406,7 +1519,7 @@ describe('db.migrate() allowlist + safety', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
     const plan = await db.migrate().dryRun()
     expect(plan.steps.some((s) => s.kind === 'drop_table')).toBe(false)
 
@@ -1442,7 +1555,7 @@ describe('db.migrate() allowlist + safety', () => {
       ],
     })
 
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const plan = await db.migrate().dryRun()
     expect(plan.steps.some((s) => s.kind === 'drop_index')).toBe(false)
@@ -1469,7 +1582,7 @@ describe('db.migrate() allowlist + safety', () => {
 
   it('should acquire and release advisory lock on execute but not on dryRun', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [UsersBase] })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
 
     await db.migrate().dryRun()
     expect(connector.runSql.some((s) => /pg_advisory_lock/i.test(s))).toBe(false)

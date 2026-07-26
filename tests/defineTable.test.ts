@@ -2,6 +2,7 @@ import { boolean, nullable, number, object, optional, pipe, string, title } from
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable, isTableHandle } from '@/defineTable'
+import { validateInsertRow } from '@/query'
 import { column, getReferenceMetadata, reference, table } from '@/schemas'
 import type { ColumnRef, TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
@@ -12,7 +13,7 @@ const userColumns = {
   email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
   fullName: pipe(string(), column({ type: 'text' })),
   age: nullable(pipe(number(), column({ type: 'integer' }))),
-  bio: optional(pipe(string(), column({ type: 'text' }))),
+  bio: optional(pipe(string(), column({ type: 'text', default: '' }))),
   active: pipe(boolean(), column({ type: 'boolean', default: true })),
 }
 
@@ -185,6 +186,65 @@ describe('defineTable', () => {
         { primaryKey: 'id' },
       ),
     ).toThrow(/identity/)
+  })
+
+  it('should require a value source for optional NOT NULL columns', () => {
+    expect(() =>
+      defineTable(
+        'invalid_optional',
+        { id: optional(pipe(string(), column({ type: 'text' }))) },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/requires a default or generated value/)
+
+    expect(() =>
+      defineTable(
+        'null_default',
+        { id: optional(pipe(string(), column({ type: 'text', default: null }))) },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/cannot default to null/)
+  })
+
+  it('should accept database and Valibot defaults for optional columns', () => {
+    expect(() =>
+      defineTable(
+        'database_default',
+        { id: optional(pipe(string(), column({ type: 'text', default: 'new' }))) },
+        { primaryKey: 'id' },
+      ),
+    ).not.toThrow()
+
+    const SchemaDefault = defineTable(
+      'schema_default',
+      { id: optional(string(), 'new') },
+      { primaryKey: 'id' },
+    )
+    expect(validateInsertRow(SchemaDefault, {})).toEqual({ id: 'new' })
+  })
+
+  it('should accept generated and autoIncrement value sources for optional columns', () => {
+    expect(() =>
+      defineTable(
+        'optional_generated',
+        {
+          id: optional(
+            pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).not.toThrow()
+
+    expect(() =>
+      defineTable(
+        'optional_auto_increment',
+        {
+          id: optional(pipe(number(), column({ type: 'integer', autoIncrement: true }))),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).not.toThrow()
   })
 
   it('should reject unsupported column metadata', () => {

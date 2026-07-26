@@ -1,3 +1,4 @@
+import type { ReferentialAction } from '@/schemas/actions/types'
 import { isTruthyFlag, toNumberOrNull } from '@/utils'
 
 import type { CatalogSnapshot, CatalogTable, CompiledQuery } from '../types'
@@ -47,6 +48,10 @@ type ConstraintRow = {
 /**
  * Formats a column's data type from catalog metadata rows.
  *
+ * @example
+ *   formatPostgresCatalogDataType({ udt_name: 'varchar', character_maximum_length: 255 })
+ *   // 'varchar(255)'
+ *
  * @param row - Column row from information_schema queries.
  *
  * @returns Normalized PostgreSQL data type string
@@ -95,6 +100,10 @@ function formatPostgresCatalogDataType(row: ColumnRow): string {
  * Handles PostgreSQL array literals (`{a,b,c}`), JSON arrays (`["a","b"]`),
  * and native arrays.
  *
+ * @example
+ *   parseIndexColumns('{email,name}') // ['email', 'name']
+ *   parseIndexColumns('["id"]') // ['id']
+ *
  * @param value - Raw column value from catalog query.
  *
  * @returns Array of column name strings
@@ -130,16 +139,15 @@ function parseIndexColumns(value: unknown): string[] {
  * Queries `information_schema` and `pg_catalog` to discover tables, columns,
  * and indexes in the connected database.
  *
+ * @example
+ *   const snapshot = await introspectPostgres(executor)
+ *   for (const table of snapshot.tables) {
+ *     console.log(`${table.schema}.${table.name}: ${table.columns.length} columns`)
+ *   }
+ *
  * @param executor - Database executor capable of running compiled queries.
  *
  * @returns Catalog snapshot with all user tables, columns, and indexes
- *
- * @example```ts
- * const snapshot = await introspectPostgres(db)
- * for (const table of snapshot.tables) {
- *   console.log(`${table.schema}.${table.name}: ${table.columns.length} columns`)
- * }
- * ```
  */
 export async function introspectPostgres(executor: unknown): Promise<CatalogSnapshot> {
   const exec = executor as IntrospectExecutor
@@ -320,9 +328,13 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
 
     if (row.constraint_type === 'p') {
       table.primaryKey = constraint
-    } else if (row.constraint_type === 'u') {
+      continue
+    }
+    if (row.constraint_type === 'u') {
       table.uniqueConstraints!.push(constraint)
-    } else if (row.constraint_type === 'f' && typeof row.referenced_table === 'string') {
+      continue
+    }
+    if (row.constraint_type === 'f' && typeof row.referenced_table === 'string') {
       table.foreignKeys!.push({
         ...constraint,
         ...(typeof row.referenced_schema === 'string'
@@ -330,8 +342,8 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
           : {}),
         referencedTable: row.referenced_table,
         referencedColumns: parseIndexColumns(row.referenced_columns),
-        onDelete: row.on_delete ?? 'no action',
-        onUpdate: row.on_update ?? 'no action',
+        onDelete: (row.on_delete ?? 'no action') as ReferentialAction,
+        onUpdate: (row.on_update ?? 'no action') as ReferentialAction,
       })
     }
   }

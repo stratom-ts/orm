@@ -507,16 +507,52 @@ function compileAddColumn(node: {
 }
 
 /**
+ * Compiles an ADD FOREIGN KEY AST node to DDL SQL.
+ *
+ * @example
+ *   compileAddForeignKey({ table: 'posts', column: 'author_id', references: { table: 'users', column: 'id' } })
+ *
+ * @param node - Add foreign key definition.
+ *
+ * @returns ALTER TABLE ADD FOREIGN KEY DDL statement
+ */
+function compileAddForeignKey(node: {
+  schema?: string
+  table: string
+  column: string
+  references: {
+    schema?: string
+    table: string
+    column: string
+    onDelete?: string
+    onUpdate?: string
+  }
+}): string {
+  const tableSql = qualifyPostgresTable(node.schema, node.table)
+  const referenceTableSql = qualifyPostgresTable(
+    node.references.schema,
+    node.references.table,
+  )
+  let sql = `alter table ${tableSql} add foreign key (${quoteIdent(node.column)}) references ${referenceTableSql} (${quoteIdent(node.references.column)})`
+  if (node.references.onDelete) {
+    sql += ` on delete ${formatReferentialAction(node.references.onDelete)}`
+  }
+  if (node.references.onUpdate) {
+    sql += ` on update ${formatReferentialAction(node.references.onUpdate)}`
+  }
+  return sql
+}
+
+/**
  * Compiles a PostgreSQL AST node to a parameterized SQL query.
+ *
+ * @example
+ *   compilePostgres({ kind: 'select_all', table: 'users' })
+ *   // { sql: 'select * from "public"."users"', params: [] }
  *
  * @param node - SQL AST node.
  *
  * @returns Compiled query with SQL string and bound parameters
- *
- * @example```ts
- * compilePostgres({ kind: 'select_all', table: 'users' })
- * // { sql: 'select * from "public"."users"', params: [] }
- * ```
  */
 export function compilePostgres(node: SqlAst): CompiledQuery {
   switch (node.kind) {
@@ -543,6 +579,8 @@ export function compilePostgres(node: SqlAst): CompiledQuery {
       return { sql: compileCreateIndex(node), params: [] }
     case 'add_column':
       return { sql: compileAddColumn(node), params: [] }
+    case 'add_foreign_key':
+      return { sql: compileAddForeignKey(node), params: [] }
     case 'alter_column_type': {
       const tableSql = qualifyPostgresTable(node.schema, node.table)
       const safeType = assertSafePostgresDataType(node.dataType)

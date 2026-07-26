@@ -5,7 +5,7 @@ A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desi
 ## Features
 
 - **Schema-defined tables** — `defineTable(name, columns, options)` with Valibot `column` / `reference`
-- **db0 connector** — `createDb({ connector, schemas })` owns the connection lifecycle
+- **db0 connector** — `createDatabase({ connector, schemas })` owns the connection lifecycle
 - **Desired-state migrations** — `db.migrate().dryRun()` / `.execute()` with safe defaults, allowlist, and advisory lock
 - **Typed CRUD** — `db.from(Table).select|insert|update|delete` with column refs
 - **Transactions** — callback API; nested calls use savepoints
@@ -21,7 +21,7 @@ pnpm add stratom valibot db0
 ## Quick start
 
 ```typescript
-import { createDb, defineTable, column } from 'stratom'
+import { createDatabase, defineTable, column } from 'stratom'
 import { postgresql } from 'db0/connectors/postgresql'
 import { boolean, number, pipe, string } from 'valibot'
 
@@ -36,7 +36,7 @@ const User = defineTable(
   { primaryKey: 'id' },
 )
 
-const db = createDb({
+const db = createDatabase({
   connector: postgresql({ url: process.env.DATABASE_URL! }),
   schemas: [User],
 })
@@ -56,7 +56,7 @@ await db.close()
 
 `defineTable(name, columns, options)` builds a table handle from a table name, a
 map of Valibot column schemas, and table-level options. The handle is what you
-register with `createDb` and pass to every query method; it also exposes a typed
+register with `createDatabase` and pass to every query method; it also exposes a typed
 column reference per property (`User.email`) for use in `where` / `select` /
 `orderBy` / joins.
 
@@ -155,7 +155,8 @@ Inference rules (PostgreSQL):
 | `date()`                                                 | `timestamptz`                    |
 | `enum(...)` / `picklist([...])`                          | `text`                           |
 | `object(...)` / `array(...)` / `record(...)`             | `jsonb`                          |
-| `nullable(x)` / `optional(x)`                            | wrapped column becomes NULL-able |
+| `nullable(x)` / `nullish(x)`                             | wrapped column becomes NULL-able |
+| `optional(x)`                                            | may be omitted; remains NOT NULL |
 
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),
@@ -167,6 +168,11 @@ explicit `column({ type })` for those.
 Reach for `column({ type })` when you need an exact SQL type the inference
 doesn't produce (e.g. `uuid`, `numeric(10,2)`, `char(n)`), an identity column
 (`generated`), a `unique` constraint, or a `default`.
+
+An `optional(x)` column is still `NOT NULL` in PostgreSQL. It must declare a
+non-null `column({ default })`, use identity generation, or provide a Valibot
+optional default so every insert has a value. Use `nullable(x)` or `nullish(x)`
+when the stored value itself may be `NULL`.
 
 ## Relations
 
