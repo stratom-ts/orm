@@ -9,5 +9,6 @@ export {
   MIGRATE_ADVISORY_LOCK_CLASS,
   MIGRATE_ADVISORY_LOCK_ID,
   type MigrateBuilder,
+  type MigrationAllow,
 } from './migrate'
-export type { MigrationAllow, MigrationPlan, MigrationStep } from './migrationPlan'
+export type { MigrationPlan, MigrationStep } from './migrationPlan'

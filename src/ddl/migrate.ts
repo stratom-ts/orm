@@ -5,7 +5,7 @@ import { MigrationError } from '@/utils/error'
 import { effectiveSchema, tableKey } from '@/utils/tableKey'
 
 import { buildCreateTableAst } from './createTable'
-import type { MigrationAllow, MigrationPlan, MigrationStep } from './migrationPlan'
+import type { MigrationPlan, MigrationStep } from './migrationPlan'
 import { planMigration } from './migrationPlan'
 
 /**
@@ -14,6 +14,9 @@ import { planMigration } from './migrationPlan'
  */
 export const MIGRATE_ADVISORY_LOCK_CLASS = 0x7363_686d // 'schm'
 export const MIGRATE_ADVISORY_LOCK_ID = 0x6f72_6d00 // 'orm\0'
+
+/** Destructive migrate operations that require explicit execution permission. */
+export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
 
 export type MigrateBuilder = {
   allow(...ops: MigrationAllow[]): MigrateBuilder
@@ -216,7 +219,7 @@ async function releaseMigrateLock(executor: Executor): Promise<void> {
  *
  * @example
  *   const migrate = createMigrateBuilder({ schemas: [User], dialect, executor })
- *   const plan = await migrate.allow('dropColumn').dryRun()
+ *   const plan = await migrate.dryRun()
  *   await migrate.allow('dropColumn').execute()
  *
  * @param options - Builder configuration including schemas, dialect, executor, and
@@ -241,7 +244,7 @@ export function createMigrateBuilder(options: {
 
   const buildPlan = async (): Promise<MigrationPlan> => {
     const catalog = await dialect.introspect(executor)
-    return planMigration(schemas, catalog, allowed)
+    return planMigration(schemas, catalog)
   }
 
   const builder: MigrateBuilder = {
@@ -269,7 +272,7 @@ export function createMigrateBuilder(options: {
       await acquireMigrateLock(executor)
       try {
         const catalog = await dialect.introspect(executor)
-        const plan = planMigration(schemas, catalog, allowed)
+        const plan = planMigration(schemas, catalog)
 
         const steps = plan.steps
         if (steps.length === 0) return

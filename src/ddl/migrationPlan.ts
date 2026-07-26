@@ -17,9 +17,6 @@ import { DEFAULT_PG_SCHEMA, effectiveSchema, tableKey } from '@/utils/tableKey'
 
 import { buildCreateTableAst } from './createTable'
 
-/** Destructive migrate operations that require an explicit allowlist. */
-export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
-
 /** Structured desired-state Migration Plan step (stable kinds + targets). */
 export type MigrationStep =
   | {
@@ -279,7 +276,6 @@ function desiredIndexNames(handle: TableHandle): Set<string> {
 export function planMigration(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
-  allowed: ReadonlySet<MigrationAllow> = new Set(),
 ): MigrationPlan {
   const steps: MigrationStep[] = []
   const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
@@ -402,14 +398,12 @@ export function planMigration(
 
     for (const liveColumn of live.columns ?? []) {
       if (desiredColumnNames.has(liveColumn.name)) continue
-      if (allowed.has('dropColumn')) {
-        steps.push({
-          kind: 'drop_column',
-          ...schemaField(info.schema),
-          table: info.name,
-          column: liveColumn.name,
-        })
-      }
+      steps.push({
+        kind: 'drop_column',
+        ...schemaField(info.schema),
+        table: info.name,
+        column: liveColumn.name,
+      })
     }
 
     const desiredIndexes = desiredIndexNames(handle)
@@ -438,33 +432,29 @@ export function planMigration(
       }
     }
 
-    if (allowed.has('dropIndex')) {
-      for (const liveIndex of live.indexes ?? []) {
-        if (desiredIndexes.has(liveIndex.name)) continue
-        steps.push({
-          kind: 'drop_index',
-          ...schemaField(info.schema),
-          table: info.name,
-          index: liveIndex.name,
-        })
-      }
+    for (const liveIndex of live.indexes ?? []) {
+      if (desiredIndexes.has(liveIndex.name)) continue
+      steps.push({
+        kind: 'drop_index',
+        ...schemaField(info.schema),
+        table: info.name,
+        index: liveIndex.name,
+      })
     }
   }
 
   steps.push(...deferredForeignKeys)
 
-  if (allowed.has('dropTable')) {
-    for (const live of catalog.tables) {
-      const liveSchema = effectiveSchema(live.schema)
-      if (!ownedSchemas.has(liveSchema)) continue
-      const key = tableKey(live.schema, live.name)
-      if (registeredKeys.has(key)) continue
-      steps.push({
-        kind: 'drop_table',
-        ...schemaField(live.schema),
-        table: live.name,
-      })
-    }
+  for (const live of catalog.tables) {
+    const liveSchema = effectiveSchema(live.schema)
+    if (!ownedSchemas.has(liveSchema)) continue
+    const key = tableKey(live.schema, live.name)
+    if (registeredKeys.has(key)) continue
+    steps.push({
+      kind: 'drop_table',
+      ...schemaField(live.schema),
+      table: live.name,
+    })
   }
 
   return { steps }

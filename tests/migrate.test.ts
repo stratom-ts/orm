@@ -1468,22 +1468,25 @@ describe('db.migrate() allowlist + safety', () => {
     indexes: [{ name: 'users_legacy_idx', columns: ['legacy'], unique: false }],
   }
 
-  it('should omit drop_column without allow and include it with allow on dryRun', async () => {
+  it('should return the same complete plan with and without allow', async () => {
     const connector = createMockConnector({ tables: [UsersWithExtraLive] })
     const db = createDatabase({ connector, schemas: [UsersBase] })
 
-    const denied = await db.migrate().dryRun()
-    expect(denied.steps.some((s) => s.kind === 'drop_column')).toBe(false)
-
-    const allowed = await db.migrate().allow('dropColumn').dryRun()
+    const plan = await db.migrate().dryRun()
     expect(
-      allowed.steps.some((s) => s.kind === 'drop_column' && s.column === 'legacy'),
+      plan.steps.some((s) => s.kind === 'drop_column' && s.column === 'legacy'),
     ).toBe(true)
+    expect(
+      plan.steps.some((s) => s.kind === 'drop_index' && s.index === 'users_legacy_idx'),
+    ).toBe(true)
+
+    const allowed = await db.migrate().allow('dropColumn', 'dropIndex').dryRun()
+    expect(allowed).toEqual(plan)
 
     await db.close()
   })
 
-  it('should not add hidden drop_column work during execute', async () => {
+  it('should reject missing destructive permission before transaction or DDL', async () => {
     const connector = createMockConnector({
       tables: [UsersWithExtraLive],
     })
@@ -1491,17 +1494,21 @@ describe('db.migrate() allowlist + safety', () => {
     const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const plan = await db.migrate().dryRun()
-    expect(plan.steps.some((step) => step.kind === 'drop_column')).toBe(false)
+    expect(plan.steps.some((step) => step.kind === 'drop_column')).toBe(true)
 
-    await expect(db.migrate().execute()).resolves.toBeUndefined()
+    await expect(db.migrate().execute()).rejects.toThrow(
+      /drop_column.*allow\('dropColumn'\)/i,
+    )
 
-    const drops = connector.prepared.filter((s) => /drop column/i.test(s))
-    expect(drops).toHaveLength(0)
+    expect(connector.runSql.some((sql) => sql === 'begin')).toBe(false)
+    expect(connector.runSql.some((sql) => /drop column|drop index/i.test(sql))).toBe(
+      false,
+    )
 
     await db.close()
   })
 
-  it('should omit empty-column drop_column without allow on dryRun and execute', async () => {
+  it('should require permission even when the removed column is empty', async () => {
     const connector = createMockConnector({
       tables: [
         {
@@ -1519,9 +1526,9 @@ describe('db.migrate() allowlist + safety', () => {
     const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const plan = await db.migrate().dryRun()
-    expect(plan.steps.some((s) => s.kind === 'drop_column')).toBe(false)
+    expect(plan.steps.some((s) => s.kind === 'drop_column')).toBe(true)
 
-    await expect(db.migrate().execute()).resolves.toBeUndefined()
+    await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropColumn'\)/i)
 
     const drops = connector.prepared.filter((s) => /drop column/i.test(s))
     expect(drops).toHaveLength(0)
@@ -1552,7 +1559,7 @@ describe('db.migrate() allowlist + safety', () => {
     await db.close()
   })
 
-  it('should not drop tables outside registry without allow(dropTable)', async () => {
+  it('should describe managed table removals and require allow(dropTable) to execute', async () => {
     const connector = createMockConnector({
       tables: [
         {
@@ -1573,15 +1580,16 @@ describe('db.migrate() allowlist + safety', () => {
 
     const db = createDatabase({ connector, schemas: [UsersBase] })
     const plan = await db.migrate().dryRun()
-    expect(plan.steps.some((s) => s.kind === 'drop_table')).toBe(false)
+    expect(plan.steps.some((s) => s.kind === 'drop_table' && s.table === 'orphan')).toBe(
+      true,
+    )
 
-    await db.migrate().execute()
+    await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropTable'\)/i)
+    expect(connector.runSql.some((s) => s === 'begin')).toBe(false)
     expect(connector.runSql.some((s) => /drop table/i.test(s))).toBe(false)
 
     const withAllow = await db.migrate().allow('dropTable').dryRun()
-    expect(
-      withAllow.steps.some((s) => s.kind === 'drop_table' && s.table === 'orphan'),
-    ).toBe(true)
+    expect(withAllow).toEqual(plan)
 
     await db.migrate().allow('dropTable').execute()
 
@@ -1592,7 +1600,7 @@ describe('db.migrate() allowlist + safety', () => {
     await db.close()
   })
 
-  it('should not drop indexes outside metadata without allow(dropIndex)', async () => {
+  it('should describe index removals and require allow(dropIndex) to execute', async () => {
     const connector = createMockConnector({
       tables: [
         {
@@ -1610,18 +1618,17 @@ describe('db.migrate() allowlist + safety', () => {
     const db = createDatabase({ connector, schemas: [UsersBase] })
 
     const plan = await db.migrate().dryRun()
-    expect(plan.steps.some((s) => s.kind === 'drop_index')).toBe(false)
+    expect(
+      plan.steps.some((s) => s.kind === 'drop_index' && s.index === 'users_stale_idx'),
+    ).toBe(true)
 
-    await db.migrate().execute()
+    await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropIndex'\)/i)
 
+    expect(connector.runSql.some((s) => s === 'begin')).toBe(false)
     expect(connector.runSql.some((s) => /drop index/i.test(s))).toBe(false)
 
     const withAllow = await db.migrate().allow('dropIndex').dryRun()
-    expect(
-      withAllow.steps.some(
-        (s) => s.kind === 'drop_index' && s.index === 'users_stale_idx',
-      ),
-    ).toBe(true)
+    expect(withAllow).toEqual(plan)
 
     await db.migrate().allow('dropIndex').execute()
 
@@ -1660,7 +1667,114 @@ describe('db.migrate() allowlist + safety', () => {
     await db.close()
   })
 
-  it('should include destructive steps only when allowed through the builder', async () => {
+  it('should replan from a fresh catalog after acquiring the migration lock', async () => {
+    const connector = createMockConnector({
+      tables: [
+        {
+          schema: 'public',
+          name: 'users',
+          columns: [
+            { name: 'id', dataType: 'integer', isNullable: false },
+            { name: 'email', dataType: 'text', isNullable: false },
+          ],
+        },
+      ],
+    })
+    const db = createDatabase({ connector, schemas: [UsersBase] })
+
+    await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
+    connector.prepared.length = 0
+    connector.runSql.length = 0
+    connector.liveTables[0]!.columns!.push({
+      name: 'legacy',
+      dataType: 'text',
+      isNullable: true,
+    })
+
+    await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropColumn'\)/i)
+
+    const lockIndex = connector.prepared.findIndex((sql) =>
+      /pg_advisory_lock\(/i.test(sql),
+    )
+    const introspectionIndex = connector.prepared.findIndex(
+      (sql) =>
+        /information_schema\.tables/i.test(sql) &&
+        !/information_schema\.columns/i.test(sql),
+    )
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    expect(introspectionIndex).toBeGreaterThan(lockIndex)
+    expect(connector.runSql.some((sql) => sql === 'begin')).toBe(false)
+
+    await db.close()
+  })
+
+  it('should execute the same complete plan with all required permissions', async () => {
+    const AuditEvents = defineTable(
+      'audit_events',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const connector = createMockConnector({
+      tables: [
+        {
+          schema: 'public',
+          name: 'users',
+          columns: [
+            { name: 'id', dataType: 'integer', isNullable: false },
+            { name: 'email', dataType: 'text', isNullable: false },
+            { name: 'legacy', dataType: 'text', isNullable: true },
+          ],
+          indexes: [{ name: 'users_stale_idx', columns: ['email'], unique: false }],
+        },
+        {
+          schema: 'public',
+          name: 'orphan',
+          columns: [{ name: 'id', dataType: 'integer', isNullable: false }],
+        },
+      ],
+    })
+    const db = createDatabase({ connector, schemas: [UsersBase, AuditEvents] })
+    const migration = db.migrate()
+
+    const plan = await migration.dryRun()
+    const permittedPlan = await migration
+      .allow('dropColumn', 'dropIndex', 'dropTable')
+      .dryRun()
+    expect(permittedPlan).toEqual(plan)
+    expect(plan.steps).toEqual(
+      expect.arrayContaining([
+        { kind: 'create_table', schema: 'public', table: 'audit_events' },
+        {
+          kind: 'drop_column',
+          schema: 'public',
+          table: 'users',
+          column: 'legacy',
+        },
+        {
+          kind: 'drop_index',
+          schema: 'public',
+          table: 'users',
+          index: 'users_stale_idx',
+        },
+        { kind: 'drop_table', schema: 'public', table: 'orphan' },
+      ]),
+    )
+
+    await migration.execute()
+
+    expect(
+      connector.runSql.some((sql) => /create table .*"audit_events"/i.test(sql)),
+    ).toBe(true)
+    expect(connector.runSql.some((sql) => /drop column "legacy"/i.test(sql))).toBe(true)
+    expect(
+      connector.runSql.some((sql) => /drop index .*"users_stale_idx"/i.test(sql)),
+    ).toBe(true)
+    expect(connector.runSql.some((sql) => /drop table .*"orphan"/i.test(sql))).toBe(true)
+
+    await db.close()
+  })
+
+  it('should include every destructive step regardless of builder permissions', async () => {
     const connector = createMockConnector({
       tables: [
         {
@@ -1682,8 +1796,7 @@ describe('db.migrate() allowlist + safety', () => {
     })
     const db = createDatabase({ connector, schemas: [UsersBase] })
 
-    const safe = await db.migrate().dryRun()
-    expect(safe.steps.some((s) => s.kind.startsWith('drop_'))).toBe(false)
+    const complete = await db.migrate().dryRun()
 
     const all = await db
       .migrate()
@@ -1692,17 +1805,20 @@ describe('db.migrate() allowlist + safety', () => {
       .allow('dropIndex')
       .dryRun()
 
-    expect(all.steps.some((s) => s.kind === 'drop_column' && s.column === 'legacy')).toBe(
-      true,
-    )
-
-    expect(all.steps.some((s) => s.kind === 'drop_table' && s.table === 'orphan')).toBe(
-      true,
-    )
+    expect(
+      complete.steps.some((s) => s.kind === 'drop_column' && s.column === 'legacy'),
+    ).toBe(true)
 
     expect(
-      all.steps.some((s) => s.kind === 'drop_index' && s.index === 'users_stale_idx'),
+      complete.steps.some((s) => s.kind === 'drop_table' && s.table === 'orphan'),
     ).toBe(true)
+
+    expect(
+      complete.steps.some(
+        (s) => s.kind === 'drop_index' && s.index === 'users_stale_idx',
+      ),
+    ).toBe(true)
+    expect(all).toEqual(complete)
 
     await db.close()
   })

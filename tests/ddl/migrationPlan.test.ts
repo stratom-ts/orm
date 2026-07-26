@@ -82,21 +82,45 @@ describe('Migration Plan construction', () => {
     })
   })
 
-  it('returns a destructive step only when it is permitted', () => {
-    const catalog = usersCatalog([
-      { name: 'id', dataType: 'uuid', isNullable: false },
-      { name: 'email', dataType: 'text', isNullable: false },
-      { name: 'legacy', dataType: 'text', isNullable: true },
-    ])
+  it('returns every required destructive step without permission input', () => {
+    const catalog: CatalogSnapshot = {
+      tables: [
+        {
+          schema: 'public',
+          name: 'users',
+          columns: [
+            { name: 'id', dataType: 'uuid', isNullable: false },
+            { name: 'email', dataType: 'text', isNullable: false },
+            { name: 'legacy', dataType: 'text', isNullable: true },
+          ],
+          indexes: [{ name: 'users_stale_idx', columns: ['email'], unique: false }],
+        },
+        {
+          schema: 'public',
+          name: 'orphan',
+          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        },
+      ],
+    }
 
-    expect(planMigration([Users], catalog)).toEqual({ steps: [] })
-    expect(planMigration([Users], catalog, new Set(['dropColumn']))).toEqual({
+    expect(planMigration([Users], catalog)).toEqual({
       steps: [
         {
           kind: 'drop_column',
           schema: 'public',
           table: 'users',
           column: 'legacy',
+        },
+        {
+          kind: 'drop_index',
+          schema: 'public',
+          table: 'users',
+          index: 'users_stale_idx',
+        },
+        {
+          kind: 'drop_table',
+          schema: 'public',
+          table: 'orphan',
         },
       ],
     })
