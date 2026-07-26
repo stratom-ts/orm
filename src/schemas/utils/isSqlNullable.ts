@@ -20,8 +20,13 @@ export function isSqlNullable(schema: AnySchema): boolean {
   if (schema.type === 'nullish' || schema.type === 'nullable') {
     return true
   }
-  if (schema.type === 'optional') {
-    return 'wrapped' in schema && isSqlNullable(schema.wrapped as AnySchema)
+  if (schema.type === 'non_nullable' || schema.type === 'non_nullish') {
+    return false
+  }
+  if (schema.type === 'optional' || schema.type === 'non_optional') {
+    return 'wrapped' in schema && schema.wrapped
+      ? isSqlNullable(schema.wrapped as AnySchema)
+      : false
   }
 
   if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {

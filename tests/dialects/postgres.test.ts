@@ -257,6 +257,24 @@ describe('@/dialects/postgres', () => {
     })
   })
 
+  describe('projection validation', () => {
+    it('should reject empty select and returning AST projections', () => {
+      expect(() => compile({ kind: 'select', table: 't', selection: [] })).toThrow(
+        /select items must not be empty/,
+      )
+
+      expect(() =>
+        compile({
+          kind: 'insert',
+          table: 't',
+          columns: ['id'],
+          values: [[1]],
+          returning: { kind: 'columns', columns: [] },
+        }),
+      ).toThrow(/returning columns must not be empty/)
+    })
+  })
+
   describe('ddl safety — default value formatting via compile', () => {
     it('should emit now() unquoted in default', () => {
       const sql = compile(

@@ -75,14 +75,30 @@ type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }
   ? true
   : S extends { kind: 'schema'; type: 'nullish' }
     ? true
-    : false
+    : S extends { kind: 'schema'; type: 'non_optional' | 'non_nullish' }
+      ? false
+      : S extends {
+            kind: 'schema'
+            type: 'nullable' | 'non_nullable'
+            wrapped: infer W
+          }
+        ? IsOptionalSchema<W>
+        : false
 
 /** SQL NULL-capable: nullable / nullish only (not plain optional). */
 type IsSqlNullableSchema<S> = S extends { kind: 'schema'; type: 'nullable' }
   ? true
   : S extends { kind: 'schema'; type: 'nullish' }
     ? true
-    : false
+    : S extends { kind: 'schema'; type: 'non_nullable' | 'non_nullish' }
+      ? false
+      : S extends {
+            kind: 'schema'
+            type: 'optional' | 'non_optional'
+            wrapped: infer W
+          }
+        ? IsSqlNullableSchema<W>
+        : false
 
 type IsInsertOptional<S> =
   IsGeneratedAlways<S> extends true

@@ -138,7 +138,9 @@ function comparisonSql(op: ComparisonOp): string {
 function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
-  if (returning.columns.length === 0) return ' returning *'
+  if (returning.columns.length === 0) {
+    throw new Error('returning columns must not be empty')
+  }
   return ` returning ${returning.columns.map((c) => quoteIdent(c)).join(', ')}`
 }
 
@@ -386,12 +388,12 @@ function compileSelect(node: SelectAst): CompiledQuery {
   ])
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
-  const selection =
-    !node.selection || node.selection.length === 0
-      ? '*'
-      : node.selection
-          .map((item) => compileSelectItem(item, params, relations))
-          .join(', ')
+  if (!node.selection || node.selection.length === 0) {
+    throw new Error('select items must not be empty')
+  }
+  const selection = node.selection
+    .map((item) => compileSelectItem(item, params, relations))
+    .join(', ')
   let sql = `select ${selection} from ${tableSql} as ${tableAlias}`
   if (node.joins) {
     for (const [index, join] of node.joins.entries()) {

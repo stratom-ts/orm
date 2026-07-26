@@ -164,6 +164,16 @@ describe('select compile', () => {
     await db.close()
   })
 
+  it('should reject empty select projections', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    expect(() => db.from(Users).select([])).toThrow(/requires at least one item/)
+    expect(() => db.from(Users).select(() => [])).toThrow(/requires at least one item/)
+
+    await db.close()
+  })
+
   it('should compile where with column ref and and/or/not', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
