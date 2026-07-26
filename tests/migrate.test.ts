@@ -1497,7 +1497,7 @@ describe('db.migrate() allowlist + safety', () => {
     expect(plan.steps.some((step) => step.kind === 'drop_column')).toBe(true)
 
     await expect(db.migrate().execute()).rejects.toThrow(
-      /drop_column.*allow\('dropColumn'\)/i,
+      /drop_index.*allow\('dropIndex'\)/i,
     )
 
     expect(connector.runSql.some((sql) => sql === 'begin')).toBe(false)

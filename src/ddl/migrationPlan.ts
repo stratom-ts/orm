@@ -109,6 +109,46 @@ export type MigrationPlan = {
   steps: MigrationStep[]
 }
 
+const MIGRATION_PHASE: Record<MigrationStep['kind'], number> = {
+  create_schema: 0,
+  create_table: 1,
+  add_column: 2,
+  alter_column_type: 3,
+  drop_not_null: 4,
+  set_not_null: 5,
+  create_index: 6,
+  add_foreign_key: 7,
+  drop_index: 8,
+  drop_column: 9,
+  drop_table: 10,
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+function stepTarget(step: MigrationStep): readonly string[] {
+  if (step.kind === 'create_schema') return [step.schema]
+
+  const identity = 'column' in step ? step.column : 'index' in step ? step.index : ''
+  return [effectiveSchema(step.schema), step.table, identity]
+}
+
+function compareMigrationSteps(left: MigrationStep, right: MigrationStep): number {
+  const phase = MIGRATION_PHASE[left.kind] - MIGRATION_PHASE[right.kind]
+  if (phase !== 0) return phase
+
+  const leftTarget = stepTarget(left)
+  const rightTarget = stepTarget(right)
+  for (let index = 0; index < leftTarget.length; index++) {
+    const target = compareCodeUnits(leftTarget[index]!, rightTarget[index]!)
+    if (target !== 0) return target
+  }
+  return 0
+}
+
 function catalogTableMap(catalog: CatalogSnapshot): Map<string, CatalogTable> {
   const map = new Map<string, CatalogTable>()
   for (const table of catalog.tables) {
@@ -457,5 +497,5 @@ export function planMigration(
     })
   }
 
-  return { steps }
+  return { steps: steps.sort(compareMigrationSteps) }
 }
