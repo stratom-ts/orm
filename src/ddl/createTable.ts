@@ -1,6 +1,8 @@
-import type { CreateTableAst, Dialect } from '@/dialects'
-import type { ReferentialAction } from '@/schemas'
-import { getColumnMetadata, getReferenceMetadata, isSqlNullable } from '@/schemas'
+import type { CreateTableAst, Dialect } from '@/dialects/types'
+import { getColumnMetadata } from '@/schemas/actions/column'
+import { getReferenceMetadata } from '@/schemas/actions/reference'
+import type { ReferentialAction } from '@/schemas/actions/types'
+import { isSqlNullable } from '@/schemas/utils/isSqlNullable'
 import type { TableHandle } from '@/types'
 import { MigrationError, SchemaError } from '@/utils/error'
 
@@ -35,11 +37,11 @@ function isIdentityCompatibleType(dataType: string, dialect: Dialect): boolean {
  * Builds a create-table AST from a table handle and dialect type inference.
  *
  * @example
- *   const ast = buildCreateTableAst(User, postgresDialect)
+ *   const ast = buildCreateTableAst(User, dialect)
  *   // { kind: 'create_table', table: 'users', columns: [...], primaryKey: ['id'] }
  *
  * @param handle - Table handle with schema and metadata.
- * @param dialect - SQL dialect for column type inference.
+ * @param dialect - SQL dialect for column type inference and normalization.
  *
  * @returns Create-table AST node
  *
