@@ -252,7 +252,7 @@ describe('joins compile', () => {
     await db.close()
   })
 
-  it('should generate distinct aliases when schema-table concatenations collide', async () => {
+  it('should generate distinct aliases when schema-table concatenations collide', () => {
     const compiled = postgresDialect.compile({
       kind: 'select',
       table: 'c',
@@ -295,7 +295,7 @@ describe('joins compile', () => {
     expect(compiled.sql).toContain('"__stratom_0"."id" = "__stratom_1"."id"')
   })
 
-  it('should bound aliases before PostgreSQL identifier truncation', async () => {
+  it('should keep aliases within the PostgreSQL identifier length limit', async () => {
     const longSchema = `schema_${'x'.repeat(64)}`
     const LongSchemaTable = defineTable(
       'events',

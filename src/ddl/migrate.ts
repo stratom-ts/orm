@@ -834,18 +834,20 @@ export function createMigrateBuilder(options: {
         const steps = plan.steps
         if (steps.length === 0) return
 
+        for (const step of steps) {
+          const need = allowForStep(step)
+          if (need && !allowed.has(need)) {
+            throw new MigrationError({
+              message: `Destructive migration step '${step.kind}' requires allow('${need}')`,
+            })
+          }
+        }
+
         await executor.run({ sql: 'begin', params: [] })
         try {
           for (const step of steps) {
             if (step.kind === 'set_not_null') {
               await assertColumnHasNoNulls(executor, step)
-            }
-            // Guard: never apply destructive work absent from the dry-run allowlist.
-            const need = allowForStep(step)
-            if (need && !allowed.has(need)) {
-              throw new MigrationError({
-                message: `Destructive migration step '${step.kind}' requires allow('${need}')`,
-              })
             }
             const ast = stepToAst(step, handles, dialect)
             await executor.run(dialect.compile(ast))

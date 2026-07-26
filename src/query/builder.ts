@@ -1125,13 +1125,13 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
 }): SelectBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, state } = options
 
-  const buildAst = (): SelectAst => {
+  const buildQuery = () => {
     const info = handle.getTableMetadata()
     const handles = [handle, ...state.joinedHandles]
     const selection =
       state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
-    resultColumnsForSelection(handles, selection)
-    return {
+    const resultColumns = resultColumnsForSelection(handles, selection)
+    const ast: SelectAst = {
       kind: 'select',
       table: info.name,
       ...(info.schema !== undefined ? { schema: info.schema } : {}),
@@ -1148,6 +1148,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
         ? { having: mapPredicateParams(handles, mapper, state.having) }
         : {}),
     }
+    return { ast, resultColumns }
   }
 
   const next = (patch: Partial<SelectState>) =>
@@ -1169,14 +1170,10 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
       },
     })
 
-  const compile = () => dialect.compile(buildAst())
+  const compile = () => dialect.compile(buildQuery().ast)
 
   const execute = async () => {
-    const ast = buildAst()
-    const resultColumns = resultColumnsForSelection(
-      [handle, ...state.joinedHandles],
-      ast.selection,
-    )
+    const { ast, resultColumns } = buildQuery()
     return runQuery(dialect, executor, handle, mapper, resultColumns, ast)
   }
 
