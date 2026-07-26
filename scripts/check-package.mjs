@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const esm = await import('../dist/stratom.js')
-const commonjs = require('../dist/stratom.umd.cjs')
+const esm = await import('stratom')
+const commonjs = require('stratom')
 
 assert.deepEqual(Object.keys(commonjs).sort(), Object.keys(esm).sort())
 
 for (const [name, type] of Object.entries({
-  createDb: 'function',
+  createDatabase: 'function',
   defineTable: 'function',
   postgresDialect: 'object',
   unwrapDeep: 'function',
