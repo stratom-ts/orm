@@ -7,7 +7,7 @@ import {
   and,
   count,
   countAll,
-  createDb,
+  createDatabase,
   eq,
   gt,
   max,
@@ -92,7 +92,7 @@ const Users = defineTable(
 describe('select result types', () => {
   it('should narrow execute row type to selected columns only', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select([Users.id, Users.email])
 
@@ -105,7 +105,7 @@ describe('select result types', () => {
 
   it('should keep selected optional columns required on the row (not Partial)', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select([Users.displayName])
 
@@ -116,7 +116,7 @@ describe('select result types', () => {
 
   it('should narrow string column-name selects the same way as column refs', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select(['id', 'email'] as const)
 
@@ -126,7 +126,7 @@ describe('select result types', () => {
 
   it('should type expression-callback selects as Record<string, unknown>', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select((b) => [b.as(countAll(), 'total')])
 
@@ -138,7 +138,7 @@ describe('select result types', () => {
 describe('select compile', () => {
   it('should compile selectAll and column list', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const all = db.from(Users).selectAll().compile()
     expect(all.sql.toLowerCase()).toMatch(/select \* from/)
@@ -156,7 +156,7 @@ describe('select compile', () => {
 
   it('should compile where with column ref and and/or/not', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const simple = db.from(Users).where(Users.email, 'eq', 'a@b.com').compile()
     expect(simple.sql.toLowerCase()).toContain('where')
@@ -178,7 +178,7 @@ describe('select compile', () => {
 
   it('should compile multi-column orderBy and limit/offset', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .from(Users)
@@ -199,7 +199,7 @@ describe('select compile', () => {
 
   it('should compile aggregates and groupBy/having', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .from(Users)
@@ -227,7 +227,7 @@ describe('select compile', () => {
 
   it('should compile callback select with string helpers', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .from(Users)
@@ -245,7 +245,7 @@ describe('select execute terminals', () => {
     const rows = [{ id: 1, email: 'a@b.com' }]
     const connector = createMockConnector({ rowsBySql: () => rows })
 
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(
       db.from(Users).select([Users.id, Users.email]).where({ id: 1 }).execute(),
@@ -262,7 +262,7 @@ describe('select execute terminals', () => {
     const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
     const connector = createMockConnector({ rowsBySql: () => rows })
 
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
     await expect(db.from(Users).executeTakeFirst()).resolves.toEqual(rows[0])
     await expect(db.from(Users).executeTakeFirstOrThrow()).resolves.toEqual(rows[0])
 
@@ -271,7 +271,7 @@ describe('select execute terminals', () => {
 
   it('should throw QueryError on executeTakeFirstOrThrow when empty', async () => {
     const connector = createMockConnector({ rowsBySql: () => [] })
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(db.from(Users).executeTakeFirstOrThrow()).rejects.toBeInstanceOf(
       QueryError,

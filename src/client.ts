@@ -1,5 +1,5 @@
 import type { Connector, Database } from 'db0'
-import { createDatabase } from 'db0'
+import { createDatabase as createDb0Database } from 'db0'
 
 import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
@@ -42,8 +42,8 @@ type TransactionScope = {
   context: TransactionContext
 }
 
-/** Options for {@link createDb}. */
-export type CreateDbConfig<
+/** Options for {@link createDatabase}. */
+export type CreateDatabaseConfig<
   TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 > = {
   /** Db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
@@ -62,7 +62,7 @@ export type CreateDbConfig<
  * Transaction clients (`trx`) share the same surface for from/transaction.
  */
 export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
-  /** Registered table handles from `createDb`. */
+  /** Registered table handles from `createDatabase`. */
   readonly schemas: TSchemas
   /** Trivial connectivity check (`SELECT 1` via the owned db0 instance). */
   ping(): Promise<void>
@@ -122,7 +122,7 @@ function assertHandles(schemas: readonly TableHandle[]): void {
   for (const schema of schemas) {
     if (!isTableHandle(schema)) {
       throw new SchemaError({
-        message: 'createDb schemas must be table handles from defineTable()',
+        message: 'createDatabase schemas must be table handles from defineTable()',
       })
     }
     const info = schema.getTableMetadata()
@@ -139,13 +139,10 @@ function assertHandles(schemas: readonly TableHandle[]): void {
 /**
  * Creates a Stratom client from a db0 connector and table handles.
  *
- * Stratom calls `createDatabase(connector)` and owns that instance.
- * No auto-migrate; no Kysely.
- *
  * @example
  *   import { postgresql } from 'db0/connectors/postgresql'
  *
- *   const db = createDb({
+ *   const db = createDatabase({
  *   connector: postgresql({ url: process.env.DATABASE_URL! }),
  *   schemas: [User],
  *   })
@@ -159,12 +156,12 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  * @returns Client with `schemas`, `from`, `insert`, `update`, `delete`, `migrate`,
  *   `transaction`, `ping`, and `close`
  */
-export function createDb<
+export function createDatabase<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],
->(config: CreateDbConfig<TSchemas>): Db<TSchemas> {
+>(config: CreateDatabaseConfig<TSchemas>): Db<TSchemas> {
   assertHandles(config.schemas)
 
-  const database: Database = createDatabase(config.connector)
+  const database: Database = createDb0Database(config.connector)
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
   const registry = new Map<string, TableHandle>()
@@ -275,7 +272,7 @@ export function createDb<
       const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
       return createTableBuilder({ handle, dialect, executor: clientExecutor, mapper })
@@ -294,7 +291,7 @@ export function createDb<
       const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
       return {
@@ -328,7 +325,7 @@ export function createDb<
       const key = tableKey(info.schema, info.name)
       if (!registry.has(key)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDb({ schemas })`,
+          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
     }
