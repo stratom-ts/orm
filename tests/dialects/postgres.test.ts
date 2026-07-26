@@ -21,10 +21,9 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { postgresDialect } from '@/dialects/postgres'
-import { normalizePostgresDefaultExpression } from '@/dialects/postgres/validate'
-import type { CreateTableAst, CreateTableColumnAst } from '@/dialects/types'
-import { SchemaError } from '@/utils/error'
+import type { CreateTableAst, CreateTableColumnAst } from '@/index'
+import { SchemaError, postgresDialect } from '@/index'
+import type { Executor } from '@/query'
 
 function createTable(...columns: CreateTableColumnAst[]): CreateTableAst {
   return {
@@ -333,27 +332,192 @@ describe('@/dialects/postgres', () => {
     })
   })
 
-  describe('normalizePostgresDefaultExpression', () => {
-    it('should strip fully enclosing parentheses', () => {
-      expect(normalizePostgresDefaultExpression('(now())')).toBe('now()')
-    })
+  describe('introspect', () => {
+    it('should normalize catalog rows into a public snapshot', async () => {
+      const executor: Executor = {
+        async execute({ sql }) {
+          if (
+            sql.includes('information_schema.tables') &&
+            !sql.includes('information_schema.columns')
+          ) {
+            return [{ name: 'accounts' }, { schema: 'app', name: 'events' }, {}]
+          }
+          if (sql.includes('information_schema.columns')) {
+            return [
+              {
+                table_name: 'accounts',
+                column_name: 'id',
+                data_type: 'integer',
+                udt_name: 'int4',
+                is_nullable: 'NO',
+                is_identity: 'YES',
+                identity_generation: 'ALWAYS',
+              },
+              {
+                table_name: 'accounts',
+                column_name: 'email',
+                data_type: 'character varying',
+                character_maximum_length: '255',
+                column_default: "(('new'::text))",
+              },
+              {
+                schema: 'app',
+                table_name: 'events',
+                column_name: 'code',
+                data_type: 'character',
+                udt_name: 'bpchar',
+                character_maximum_length: 8,
+              },
+              {
+                schema: 'app',
+                table_name: 'events',
+                column_name: 'amount',
+                data_type: 'numeric',
+                numeric_precision: '10',
+                numeric_scale: '2',
+              },
+              {
+                schema: 'app',
+                table_name: 'events',
+                column_name: 'created_at',
+                data_type: 'timestamp with time zone',
+                udt_name: 'timestamptz',
+                column_default: '(now())',
+              },
+              {
+                schema: 'app',
+                table_name: 'events',
+                column_name: 'label',
+                data_type: 'text',
+                column_default: "('a') || ('b')",
+              },
+              {
+                schema: 'app',
+                table_name: 'events',
+                column_name: 'status',
+                data_type: 'text',
+                column_default: "'hello'::text::varchar",
+              },
+              { table_name: 1, column_name: 'ignored' },
+            ]
+          }
+          if (sql.includes('pg_index')) {
+            return [
+              {
+                table_name: 'accounts',
+                index_name: 'accounts_email_idx',
+                is_unique: 'YES',
+                columns: '{email}',
+              },
+              {
+                schema: 'app',
+                table_name: 'events',
+                index_name: 'events_invalid_idx',
+                is_unique: 0,
+                columns: '[invalid json]',
+              },
+              { table_name: 'accounts' },
+            ]
+          }
+          if (sql.includes('pg_constraint')) {
+            return [
+              {
+                table_name: 'accounts',
+                constraint_name: 'accounts_pkey',
+                constraint_type: 'p',
+                columns: '{id}',
+              },
+              {
+                table_name: 'accounts',
+                constraint_name: 'accounts_email_key',
+                constraint_type: 'u',
+                columns: '["email",1]',
+              },
+              {
+                schema: 'app',
+                table_name: 'events',
+                constraint_name: 'events_account_fkey',
+                constraint_type: 'f',
+                columns: ['account_id', 1],
+                referenced_table: 'accounts',
+                referenced_columns: '{id}',
+                on_delete: 'cascade',
+                on_update: 'restrict',
+              },
+              { table_name: 'accounts' },
+            ]
+          }
+          return []
+        },
+        async run() {},
+      }
 
-    it('should not strip parentheses that do not fully enclose the expression', () => {
-      expect(normalizePostgresDefaultExpression("('a') || ('b')")).toBe("('a') || ('b')")
-    })
+      const snapshot = await postgresDialect.introspect(executor)
 
-    it('should strip multiple layers of enclosing parentheses', () => {
-      expect(normalizePostgresDefaultExpression('((gen_random_uuid()))')).toBe(
-        'gen_random_uuid()',
-      )
-    })
-
-    it('should remove a single trailing cast', () => {
-      expect(normalizePostgresDefaultExpression("'hello'::text")).toBe("'hello'")
-    })
-
-    it('should remove chained trailing casts', () => {
-      expect(normalizePostgresDefaultExpression("'hello'::text::varchar")).toBe("'hello'")
+      expect(snapshot.tables).toEqual([
+        {
+          name: 'accounts',
+          schema: 'public',
+          columns: [
+            {
+              name: 'id',
+              dataType: 'integer',
+              isNullable: false,
+              hasDefault: false,
+              isIdentity: true,
+              defaultExpression: null,
+              identityGeneration: 'always',
+            },
+            {
+              name: 'email',
+              dataType: 'varchar(255)',
+              isNullable: true,
+              hasDefault: true,
+              isIdentity: false,
+              defaultExpression: "'new'",
+              identityGeneration: null,
+            },
+          ],
+          indexes: [{ name: 'accounts_email_idx', columns: ['email'], unique: true }],
+          primaryKey: { name: 'accounts_pkey', columns: ['id'] },
+          uniqueConstraints: [{ name: 'accounts_email_key', columns: ['email'] }],
+          foreignKeys: [],
+        },
+        {
+          name: 'events',
+          schema: 'app',
+          columns: [
+            expect.objectContaining({ name: 'code', dataType: 'char(8)' }),
+            expect.objectContaining({ name: 'amount', dataType: 'numeric(10,2)' }),
+            expect.objectContaining({
+              name: 'created_at',
+              dataType: 'timestamptz',
+              defaultExpression: 'now()',
+            }),
+            expect.objectContaining({
+              name: 'label',
+              defaultExpression: "('a') || ('b')",
+            }),
+            expect.objectContaining({
+              name: 'status',
+              defaultExpression: "'hello'",
+            }),
+          ],
+          indexes: [{ name: 'events_invalid_idx', columns: [], unique: false }],
+          primaryKey: null,
+          uniqueConstraints: [],
+          foreignKeys: [
+            {
+              name: 'events_account_fkey',
+              columns: ['account_id'],
+              referencedTable: 'accounts',
+              referencedColumns: ['id'],
+              onDelete: 'cascade',
+              onUpdate: 'restrict',
+            },
+          ],
+        },
+      ])
     })
   })
 })

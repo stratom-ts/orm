@@ -1,7 +1,7 @@
 import { nullable, nullish, optional, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { isSqlNullable } from '@/schemas'
+import { isSqlNullable } from '@/index'
 
 describe('isSqlNullable', () => {
   it('should return false for plain and optional-only schemas', () => {

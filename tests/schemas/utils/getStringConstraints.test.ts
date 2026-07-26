@@ -1,7 +1,7 @@
 import { length, maxLength, minLength, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { getStringConstraints } from '@/schemas'
+import { getStringConstraints } from '@/index'
 
 describe('getStringConstraints', () => {
   it('should return empty constraints for a plain string schema', () => {

@@ -2,10 +2,14 @@ import type { Connector, Statement } from 'db0'
 import { boolean, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { createDatabase } from '@/client'
-import { defineTable } from '@/defineTable'
-import { column } from '@/schemas'
-import { QueryError, SchemaError, ValidationError } from '@/utils/error'
+import {
+  QueryError,
+  SchemaError,
+  ValidationError,
+  column,
+  createDatabase,
+  defineTable,
+} from '@/index'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {

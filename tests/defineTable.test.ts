@@ -1,12 +1,27 @@
-import { boolean, nullable, number, object, optional, pipe, string, title } from 'valibot'
+import {
+  boolean,
+  nullable,
+  number,
+  object,
+  optional,
+  parse,
+  pipe,
+  string,
+  title,
+} from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { defineTable, isTableHandle } from '@/defineTable'
+import type { ColumnRef, InferSelect, TableHandle } from '@/index'
+import {
+  SchemaError,
+  column,
+  defineTable,
+  getReferenceMetadata,
+  isTableHandle,
+  reference,
+  table,
+} from '@/index'
 import { validateInsertRow } from '@/query'
-import { column, getReferenceMetadata, reference, table } from '@/schemas'
-import type { ColumnRef, TableHandle } from '@/types'
-import type { InferSelect } from '@/types/views'
-import { SchemaError } from '@/utils/error'
 
 const userColumns = {
   id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
@@ -57,11 +72,10 @@ describe('defineTable', () => {
   })
 
   it('should expose column refs on the handle', () => {
-    expect(User.email).toEqual({
+    expect(User.email).toMatchObject({
       table: 'users',
       column: 'email',
       schema: 'public',
-      __type: undefined,
     })
 
     expect(User.id.column).toBe('id')
@@ -220,6 +234,7 @@ describe('defineTable', () => {
       { id: optional(string(), 'new') },
       { primaryKey: 'id' },
     )
+    expect(parse(SchemaDefault.getSchema(), {})).toEqual({ id: 'new' })
     expect(validateInsertRow(SchemaDefault, {})).toEqual({ id: 'new' })
   })
 

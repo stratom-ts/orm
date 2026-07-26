@@ -1,7 +1,7 @@
 import { object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { getTableMetadata, table } from '@/schemas'
+import { getTableMetadata, table } from '@/index'
 
 describe('table action', () => {
   it('should create table metadata action with correct kind', () => {

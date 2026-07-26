@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isTruthyFlag } from '@/utils'
+import { isTruthyFlag } from '@/index'
 
 describe('isTruthyFlag', () => {
   it('should return true for true', () => {
