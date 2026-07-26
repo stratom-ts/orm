@@ -349,6 +349,26 @@ describe('CRUD safety and validation', () => {
       .compile()
     expect(withNull.params).toEqual(['1', null, null])
 
+    const withValues = db
+      .insert(NestedWrappers)
+      .values({ id: '1', optionalNullable: 'a', nullableOptional: 'b' })
+      .compile()
+    expect(withValues.params).toEqual(['1', 'a', 'b'])
+
+    const updateWithNull = db
+      .update(NestedWrappers)
+      .set({ optionalNullable: null, nullableOptional: null })
+      .where({ id: '1' })
+      .compile()
+    expect(updateWithNull.params).toEqual([null, null, '1'])
+
+    const updateWithValues = db
+      .update(NestedWrappers)
+      .set({ optionalNullable: 'a', nullableOptional: 'b' })
+      .where({ id: '1' })
+      .compile()
+    expect(updateWithValues.params).toEqual(['a', 'b', '1'])
+
     await db.close()
   })
 

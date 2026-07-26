@@ -5,6 +5,9 @@ import {
   maxLength,
   maxValue,
   minValue,
+  nonNullable,
+  nonNullish,
+  nonOptional,
   nullable,
   number,
   object,
@@ -36,6 +39,15 @@ const NestedWrappers = defineTable(
     id: pipe(string(), column({ type: 'text' })),
     optionalNullable: optional(nullable(pipe(string(), column({ type: 'text' })))),
     nullableOptional: nullable(optional(pipe(string(), column({ type: 'text' })))),
+    nonOptionalNullableOptional: nonOptional(
+      nullable(optional(pipe(string(), column({ type: 'text' })))),
+    ),
+    nonNullableOptionalNullable: nonNullable(
+      optional(nullable(pipe(string(), column({ type: 'text' })))),
+    ),
+    nonNullishNullableOptional: nonNullish(
+      nullable(optional(pipe(string(), column({ type: 'text' })))),
+    ),
   },
   { primaryKey: 'id' },
 )
@@ -57,6 +69,9 @@ describe('InferSelect', () => {
     type Row = InferSelect<typeof NestedWrappers>
     expectTypeOf<Row['optionalNullable']>().toEqualTypeOf<string | null>()
     expectTypeOf<Row['nullableOptional']>().toEqualTypeOf<string | null>()
+    expectTypeOf<Row['nonOptionalNullableOptional']>().toEqualTypeOf<string | null>()
+    expectTypeOf<Row['nonNullableOptionalNullable']>().toEqualTypeOf<string>()
+    expectTypeOf<Row['nonNullishNullableOptional']>().toEqualTypeOf<string>()
   })
 })
 
@@ -147,6 +162,9 @@ describe('InferInsert', () => {
       id: string
       optionalNullable?: string | null
       nullableOptional?: string | null
+      nonOptionalNullableOptional: string | null
+      nonNullableOptionalNullable?: string
+      nonNullishNullableOptional: string
     }>()
   })
 
