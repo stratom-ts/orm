@@ -3,6 +3,7 @@ import { date, number, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { defineTable } from '@/defineTable'
+import { postgresDialect } from '@/dialects/postgres'
 import type { Prettify } from '@/index'
 import { createDatabase, eq } from '@/index'
 import { column } from '@/schemas'
@@ -228,6 +229,90 @@ describe('joins compile', () => {
     await db.close()
   })
 
+  it('should resolve schema-less AST references against a custom-schema query', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [AppUsers] })
+
+    const compiled = db
+      .from(AppUsers)
+      .select(() => [{ kind: 'column', table: 'users', column: 'email' } as const])
+      .where({
+        kind: 'cmp',
+        table: 'users',
+        column: 'email',
+        op: 'eq',
+        value: 'a@b.com',
+      })
+      .compile()
+
+    expect(compiled.sql).toContain('select "app.users"."email"')
+    expect(compiled.sql).toContain('where "app.users"."email" = $1')
+    expect(compiled.params).toEqual(['a@b.com'])
+
+    await db.close()
+  })
+
+  it('should generate distinct aliases when schema-table concatenations collide', async () => {
+    const compiled = postgresDialect.compile({
+      kind: 'select',
+      table: 'c',
+      schema: 'a.b',
+      selection: [
+        {
+          kind: 'column',
+          table: 'c',
+          schema: 'a.b',
+          column: 'id',
+          alias: 'schemaId',
+        },
+        {
+          kind: 'column',
+          table: 'b.c',
+          schema: 'a',
+          column: 'id',
+          alias: 'tableId',
+        },
+      ],
+      joins: [
+        {
+          type: 'inner',
+          table: 'b.c',
+          schema: 'a',
+          on: {
+            kind: 'cmp',
+            table: 'c',
+            schema: 'a.b',
+            column: 'id',
+            op: 'eq',
+            right: { table: 'b.c', schema: 'a', column: 'id' },
+          },
+        },
+      ],
+    })
+
+    expect(compiled.sql).toContain('"a.b"."c" as "__stratom_0"')
+    expect(compiled.sql).toContain('"a"."b.c" as "__stratom_1"')
+    expect(compiled.sql).toContain('"__stratom_0"."id" = "__stratom_1"."id"')
+  })
+
+  it('should bound aliases before PostgreSQL identifier truncation', async () => {
+    const longSchema = `schema_${'x'.repeat(64)}`
+    const LongSchemaTable = defineTable(
+      'events',
+      { id: pipe(number(), column({ type: 'integer' })) },
+      { primaryKey: 'id', schema: longSchema },
+    )
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [LongSchemaTable] })
+
+    const compiled = db.from(LongSchemaTable).select([LongSchemaTable.id]).compile()
+
+    expect(compiled.sql).toContain(`"${longSchema}"."events" as "__stratom_0"`)
+    expect(compiled.sql).toContain('select "__stratom_0"."id"')
+
+    await db.close()
+  })
+
   it('should reject duplicate flat output names', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })
@@ -266,6 +351,25 @@ describe('joins compile', () => {
       title: string
       email: string | null
     }>()
+  })
+
+  it('should distinguish outer-join nullability for same-named cross-schema tables', () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users, AppUsers] })
+
+    const publicQuery = db
+      .from(Users)
+      .leftJoin(AppUsers, eq(Users.id, AppUsers.id))
+      .select([Users.email])
+    type PublicRow = Awaited<ReturnType<typeof publicQuery.execute>>[number]
+    expectTypeOf<PublicRow>().toEqualTypeOf<{ email: string }>()
+
+    const appQuery = db
+      .from(Users)
+      .leftJoin(AppUsers, eq(Users.id, AppUsers.id))
+      .select([AppUsers.email])
+    type AppRow = Awaited<ReturnType<typeof appQuery.execute>>[number]
+    expectTypeOf<AppRow>().toEqualTypeOf<{ email: string | null }>()
   })
 
   it('should widen root columns with | null after rightJoin', () => {

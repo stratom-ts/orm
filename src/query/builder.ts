@@ -24,7 +24,7 @@ import type {
   MergeSelection,
   NullableFields,
   RightJoinStarResult,
-  TableNameOf,
+  TableIdentityOf,
 } from '@/types/views'
 import { QueryError } from '@/utils/error'
 
@@ -320,11 +320,14 @@ function findHandle(
   schema: string | undefined,
 ): TableHandle | undefined {
   if (!table) return handles[0]
-  const effectiveSchema = schema ?? 'public'
-  return handles.find((handle) => {
+  const matches = handles.filter((handle) => {
     const metadata = handle.getTableMetadata()
-    return metadata.name === table && (metadata.schema ?? 'public') === effectiveSchema
+    return (
+      metadata.name === table &&
+      (schema === undefined || (metadata.schema ?? 'public') === schema)
+    )
   })
+  return matches.length === 1 ? matches[0] : undefined
 }
 
 type ResultColumn = { handle: TableHandle; column: string }
@@ -995,8 +998,8 @@ export type SelectBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = InferSelect<THandle>,
   HasSelection extends boolean = false,
-  /** Table names whose selected columns are outer-join nullable. */
-  TNullable extends string = never,
+  /** Schema-and-table identities whose selected columns are outer-join nullable. */
+  TNullable = never,
 > = {
   selectAll(): SelectBuilder<
     THandle,
@@ -1073,7 +1076,7 @@ export type SelectBuilder<
     THandle,
     MergeJoinStar<HasSelection, TResult, NullableFields<InferSelect<TSide>>>,
     HasSelection,
-    TNullable | TableNameOf<TSide>
+    TNullable | TableIdentityOf<TSide>
   >
   rightJoin<TSide extends TableHandle>(
     table: TSide,
@@ -1082,7 +1085,7 @@ export type SelectBuilder<
     THandle,
     HasSelection extends true ? TResult : RightJoinStarResult<THandle, TResult, TSide>,
     HasSelection,
-    TNullable | TableNameOf<THandle>
+    TNullable | TableIdentityOf<THandle>
   >
   compile(): CompiledQuery
   execute(): Promise<Prettify<TResult>[]>
@@ -1326,7 +1329,7 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     THandle,
     InferSelect<THandle> & NullableFields<InferSelect<TSide>>,
     false,
-    TableNameOf<TSide>
+    TableIdentityOf<TSide>
   >
   rightJoin<TSide extends TableHandle>(
     table: TSide,
@@ -1335,7 +1338,7 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     THandle,
     NullableFields<InferSelect<THandle>> & InferSelect<TSide>,
     false,
-    TableNameOf<THandle>
+    TableIdentityOf<THandle>
   >
   where<TCol extends ColumnRef | string>(
     column: TCol,

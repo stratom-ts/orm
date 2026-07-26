@@ -62,11 +62,14 @@ export type TableIndexOf<TCols extends ObjectEntries> =
  * Table-level options passed to `defineTable(name, columns, options)`.
  * `primaryKey` and index `columns` are constrained to the declared columns.
  */
-export type TableOptions<TCols extends ObjectEntries> = {
+export type TableOptions<
+  TCols extends ObjectEntries,
+  TSchema extends string | undefined = string | undefined,
+> = {
   /** Primary key column name, or composite key column list. */
   primaryKey: ColumnKey<TCols> | readonly ColumnKey<TCols>[]
   /** Database schema (Postgres namespace) */
-  schema?: string
+  schema?: TSchema
   /** Indexes (string = single-column non-unique; object = named/composite/unique) */
   indexes?: TableIndexOf<TCols>[]
 }
