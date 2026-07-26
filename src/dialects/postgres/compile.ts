@@ -356,6 +356,7 @@ function compileInsert(node: InsertAst): CompiledQuery {
  */
 function compileUpdate(node: UpdateAst): CompiledQuery {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
+  const tableAlias = quoteIdent(postgresTableAlias(node.schema, node.table))
   const params: unknown[] = []
   if (node.set.length === 0) {
     throw new Error('update requires at least one SET column')
@@ -367,7 +368,7 @@ function compileUpdate(node: UpdateAst): CompiledQuery {
     })
     .join(', ')
   const whereSql = compileWhereClause(node.where, params)
-  const sql = `update ${tableSql} set ${setSql}${whereSql}${compileReturning(node.returning)}`
+  const sql = `update ${tableSql} as ${tableAlias} set ${setSql}${whereSql}${compileReturning(node.returning)}`
   return { sql, params }
 }
 
@@ -380,9 +381,10 @@ function compileUpdate(node: UpdateAst): CompiledQuery {
  */
 function compileDelete(node: DeleteAst): CompiledQuery {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
+  const tableAlias = quoteIdent(postgresTableAlias(node.schema, node.table))
   const params: unknown[] = []
   const whereSql = compileWhereClause(node.where, params)
-  const sql = `delete from ${tableSql}${whereSql}${compileReturning(node.returning)}`
+  const sql = `delete from ${tableSql} as ${tableAlias}${whereSql}${compileReturning(node.returning)}`
   return { sql, params }
 }
 
