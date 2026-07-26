@@ -64,6 +64,135 @@ function createMockStatement(rows: unknown[] = []): Statement {
   return statement
 }
 
+const sqlIdentifier = String.raw`(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)`
+
+function splitCreateTableItems(sql: string): string[] {
+  const items: string[] = []
+  let current = ''
+  let depth = 0
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i]!
+    const next = sql[i + 1]
+
+    if (char === "'") {
+      if (depth > 0) current += ' '
+      for (i++; i < sql.length; i++) {
+        if (sql[i] === '\\') {
+          i++
+        } else if (sql[i] === "'") {
+          if (sql[i + 1] === "'") i++
+          else break
+        }
+      }
+      continue
+    }
+
+    if (char === '$') {
+      const tag = sql.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)?.[0]
+      if (tag) {
+        if (depth > 0) current += ' '
+        const end = sql.indexOf(tag, i + tag.length)
+        i = end < 0 ? sql.length : end + tag.length - 1
+        continue
+      }
+    }
+
+    if (char === '-' && next === '-') {
+      if (depth > 0) current += ' '
+      const end = sql.indexOf('\n', i + 2)
+      i = end < 0 ? sql.length : end
+      continue
+    }
+
+    if (char === '/' && next === '*') {
+      if (depth > 0) current += ' '
+      const end = sql.indexOf('*/', i + 2)
+      i = end < 0 ? sql.length : end + 1
+      continue
+    }
+
+    if (char === '"') {
+      const start = i
+      for (i++; i < sql.length; i++) {
+        if (sql[i] === '"') {
+          if (sql[i + 1] === '"') i++
+          else break
+        }
+      }
+      if (depth > 0) current += sql.slice(start, i + 1)
+      continue
+    }
+
+    if (char === '(') {
+      depth++
+      if (depth > 1) current += char
+      continue
+    }
+
+    if (char === ')') {
+      depth--
+      if (depth === 0) {
+        if (current.trim()) items.push(current.trim())
+        break
+      }
+      if (depth > 0) current += char
+      continue
+    }
+
+    if (char === ',' && depth === 1) {
+      items.push(current.trim())
+      current = ''
+      continue
+    }
+
+    if (depth > 0) current += char
+  }
+
+  return items
+}
+
+function parseSqlIdentifiers(value: string): string[] | undefined {
+  const identifiers: string[] = []
+  let remaining = value.trim()
+
+  while (remaining) {
+    const match = remaining.match(/^(?:"((?:[^"]|"")*)"|([A-Za-z_][A-Za-z0-9_$]*))/)
+    if (!match) return undefined
+
+    identifiers.push(match[1]?.replace(/""/g, '"') ?? match[2]!.toLowerCase())
+    remaining = remaining.slice(match[0].length).trimStart()
+
+    if (!remaining) break
+    if (!remaining.startsWith(',')) return undefined
+    remaining = remaining.slice(1).trimStart()
+  }
+
+  return identifiers.length > 0 ? identifiers : undefined
+}
+
+function parseCreateTablePrimaryKey(sql: string): string[] | undefined {
+  const tablePrimaryKey = new RegExp(
+    `^(?:constraint\\s+${sqlIdentifier}\\s+)?primary\\s+key\\s*\\((.*)\\)\\s*$`,
+    'i',
+  )
+  const columnIdentifier = new RegExp(`^(${sqlIdentifier})(?:\\s|$)`)
+
+  for (const item of splitCreateTableItems(sql)) {
+    const tableMatch = item.match(tablePrimaryKey)
+    if (tableMatch) return parseSqlIdentifiers(tableMatch[1]!)
+
+    if (/^(?:constraint|primary|unique|foreign|check)\b/i.test(item)) continue
+
+    const columnMatch = item.match(columnIdentifier)
+    if (columnMatch && /\bprimary\s+key\b/i.test(item.slice(columnMatch[0].length))) {
+      return parseSqlIdentifiers(columnMatch[1]!)
+    }
+  }
+
+  return undefined
+}
+
 function createMockConnector(options?: {
   onPrepare?: (sql: string) => Statement
   tables?: LiveTable[]
@@ -260,7 +389,7 @@ function createMockConnector(options?: {
               name,
               columns: [],
               indexes: [],
-              primaryKey: /primary key/i.test(sql) ? ['id'] : undefined,
+              primaryKey: parseCreateTablePrimaryKey(sql),
               uniqueConstraints,
               foreignKeys,
             })
@@ -429,6 +558,33 @@ function createMockConnector(options?: {
   }
   return connector
 }
+
+describe('createMockConnector primary-key tracking', () => {
+  it('should ignore primary-key text in literals and comments', () => {
+    const connector = createMockConnector()
+    connector.prepare(`
+      create table "public"."defaults" (
+        "id" text default 'primary key ("fake")',
+        "note" text /* primary key (also_fake) */
+      )
+    `)
+
+    expect(connector.liveTables[0]?.primaryKey).toBeUndefined()
+  })
+
+  it('should parse unquoted composite primary-key identifiers', () => {
+    const connector = createMockConnector()
+    connector.prepare(`
+      create table "public"."memberships" (
+        org_id uuid,
+        user_id uuid,
+        primary key (org_id, user_id)
+      )
+    `)
+
+    expect(connector.liveTables[0]?.primaryKey).toEqual(['org_id', 'user_id'])
+  })
+})
 
 const Users = defineTable(
   'users',
