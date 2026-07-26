@@ -28,7 +28,14 @@ function usersCatalog(
   columns: CatalogSnapshot['tables'][number]['columns'],
 ): CatalogSnapshot {
   return {
-    tables: [{ schema: 'public', name: 'users', columns }],
+    tables: [
+      {
+        schema: 'public',
+        name: 'users',
+        columns,
+        primaryKey: { name: 'users_pkey', columns: ['id'] },
+      },
+    ],
   }
 }
 
