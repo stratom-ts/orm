@@ -1,24 +1,32 @@
 import type { Connector, Statement } from 'db0'
-import { boolean, number, optional, pipe, string } from 'valibot'
+import { boolean, date, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { defineTable } from '@/defineTable'
 import {
+  QueryError,
   and,
+  column,
   count,
   countAll,
-  createDb,
+  createDatabase,
+  dateTrunc,
+  defineTable,
   eq,
   gt,
+  gte,
+  length,
+  lower,
+  lt,
+  lte,
   max,
   min,
+  neq,
   not,
+  now,
   or,
   sum,
   upper,
 } from '@/index'
-import { column } from '@/schemas'
-import { QueryError } from '@/utils/error'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -85,6 +93,7 @@ const Users = defineTable(
     displayName: optional(pipe(string(), column({ type: 'text', default: '' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
     score: pipe(number(), column({ type: 'integer', default: 0 })),
+    createdAt: pipe(date(), column({ type: 'timestamptz' })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -92,7 +101,7 @@ const Users = defineTable(
 describe('select result types', () => {
   it('should narrow execute row type to selected columns only', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select([Users.id, Users.email])
 
@@ -105,7 +114,7 @@ describe('select result types', () => {
 
   it('should keep selected optional columns required on the row (not Partial)', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select([Users.displayName])
 
@@ -116,7 +125,7 @@ describe('select result types', () => {
 
   it('should narrow string column-name selects the same way as column refs', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select(['id', 'email'] as const)
 
@@ -126,7 +135,7 @@ describe('select result types', () => {
 
   it('should type expression-callback selects as Record<string, unknown>', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select((b) => [b.as(countAll(), 'total')])
 
@@ -138,7 +147,7 @@ describe('select result types', () => {
 describe('select compile', () => {
   it('should compile selectAll and column list', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const all = db.from(Users).selectAll().compile()
     expect(all.sql.toLowerCase()).toMatch(/select \* from/)
@@ -156,7 +165,7 @@ describe('select compile', () => {
 
   it('should compile where with column ref and and/or/not', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const simple = db.from(Users).where(Users.email, 'eq', 'a@b.com').compile()
     expect(simple.sql.toLowerCase()).toContain('where')
@@ -178,7 +187,7 @@ describe('select compile', () => {
 
   it('should compile multi-column orderBy and limit/offset', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .from(Users)
@@ -199,7 +208,7 @@ describe('select compile', () => {
 
   it('should compile aggregates and groupBy/having', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .from(Users)
@@ -227,7 +236,7 @@ describe('select compile', () => {
 
   it('should compile callback select with string helpers', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .from(Users)
@@ -238,6 +247,55 @@ describe('select compile', () => {
 
     await db.close()
   })
+
+  it('should compile public expression helpers and chained clauses', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    try {
+      const compiled = db
+        .from(Users)
+        .select((b) => [
+          b.as(lower(Users.email), 'normalizedEmail'),
+          b.as(length('email'), 'emailLength'),
+          b.as(now(), 'queriedAt'),
+          b.as(dateTrunc('day', Users.createdAt), 'day'),
+        ])
+        .where((b) =>
+          b.and(
+            neq('email', 'deleted@example.com'),
+            gte(Users.score, 10),
+            lt(Users.score, 100),
+            lte(Users.id, 99),
+          ),
+        )
+        .groupBy([Users.email, Users.score, Users.createdAt])
+        .having((b) => b.gte(Users.score, 1))
+        .orderBy(Users.email)
+        .compile()
+
+      expect(compiled.sql.toLowerCase()).toMatch(/lower\(/)
+      expect(compiled.sql.toLowerCase()).toMatch(/length\(/)
+      expect(compiled.sql.toLowerCase()).toMatch(/now\(\)/)
+      expect(compiled.sql).toContain('date_trunc($1, "users"."createdAt")')
+      expect(compiled.sql.toLowerCase()).toMatch(/<>|!=/)
+      expect(compiled.sql).toContain('>=')
+      expect(compiled.sql).toMatch(/"users"\."score"\s*<\s*\$\d+/)
+      expect(compiled.sql).toContain('<=')
+      expect(compiled.sql).toContain(
+        'group by "users"."email", "users"."score", "users"."createdAt"',
+      )
+      expect(compiled.sql).toContain('order by "users"."email" asc')
+      expect(compiled.params).toEqual(['day', 'deleted@example.com', 10, 100, 99, 1])
+
+      expect(and(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
+      expect(or(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
+      expect(() => and()).toThrow(/at least one predicate/)
+      expect(() => or()).toThrow(/at least one predicate/)
+    } finally {
+      await db.close()
+    }
+  })
 })
 
 describe('select execute terminals', () => {
@@ -245,7 +303,7 @@ describe('select execute terminals', () => {
     const rows = [{ id: 1, email: 'a@b.com' }]
     const connector = createMockConnector({ rowsBySql: () => rows })
 
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(
       db.from(Users).select([Users.id, Users.email]).where({ id: 1 }).execute(),
@@ -262,7 +320,7 @@ describe('select execute terminals', () => {
     const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
     const connector = createMockConnector({ rowsBySql: () => rows })
 
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
     await expect(db.from(Users).executeTakeFirst()).resolves.toEqual(rows[0])
     await expect(db.from(Users).executeTakeFirstOrThrow()).resolves.toEqual(rows[0])
 
@@ -271,7 +329,7 @@ describe('select execute terminals', () => {
 
   it('should throw QueryError on executeTakeFirstOrThrow when empty', async () => {
     const connector = createMockConnector({ rowsBySql: () => [] })
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(db.from(Users).executeTakeFirstOrThrow()).rejects.toBeInstanceOf(
       QueryError,

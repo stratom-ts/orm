@@ -2,10 +2,14 @@ import type { Connector, Statement } from 'db0'
 import { boolean, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { createDb } from '@/client'
-import { defineTable } from '@/defineTable'
-import { column } from '@/schemas'
-import { QueryError, SchemaError, ValidationError } from '@/utils/error'
+import {
+  QueryError,
+  SchemaError,
+  ValidationError,
+  column,
+  createDatabase,
+  defineTable,
+} from '@/index'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -89,7 +93,7 @@ const AlwaysId = defineTable(
 describe('CRUD compile', () => {
   it('should compile insert with parameterized values and schema-qualified table', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .insert(Users)
@@ -108,7 +112,7 @@ describe('CRUD compile', () => {
 
   it('should compile bulk insert', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .insert(Users)
@@ -126,7 +130,7 @@ describe('CRUD compile', () => {
 
   it('should compile update with where and default returning *', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .update(Users)
@@ -145,7 +149,7 @@ describe('CRUD compile', () => {
 
   it('should compile delete with object where and column returning', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const compiled = db
       .delete(Users)
@@ -164,7 +168,7 @@ describe('CRUD compile', () => {
 describe('CRUD returning types', () => {
   it('should narrow insert.returning to selected columns only', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db
       .insert(Users)
@@ -180,7 +184,7 @@ describe('CRUD returning types', () => {
 
   it('should narrow update.returning to selected columns only', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db
       .update(Users)
@@ -195,7 +199,7 @@ describe('CRUD returning types', () => {
 
   it('should narrow delete.returning to selected columns only', () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.delete(Users).where({ id: 1 }).returning([Users.email])
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
@@ -207,7 +211,7 @@ describe('CRUD returning types', () => {
 describe('CRUD safety and validation', () => {
   it('should reject update without where unless .all()', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     expect(() => db.update(Users).set({ displayName: 'x' }).compile()).toThrow(QueryError)
 
@@ -224,7 +228,7 @@ describe('CRUD safety and validation', () => {
 
   it('should reject delete without where unless .all()', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     expect(() => db.delete(Users).compile()).toThrow(QueryError)
 
@@ -236,7 +240,7 @@ describe('CRUD safety and validation', () => {
 
   it('should reject invalid insert with ValidationError before SQL', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     expect(() =>
       db
@@ -252,7 +256,7 @@ describe('CRUD safety and validation', () => {
 
   it('should reject always-generated columns on insert', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [AlwaysId] })
+    const db = createDatabase({ connector, schemas: [AlwaysId] })
 
     expect(() =>
       db
@@ -286,7 +290,7 @@ describe('CRUD safety and validation', () => {
     )
 
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [WithNullable] })
+    const db = createDatabase({ connector, schemas: [WithNullable] })
 
     expect(() =>
       db
@@ -307,7 +311,7 @@ describe('CRUD safety and validation', () => {
 
   it('should reject invalid update patch', async () => {
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     expect(() =>
       db
@@ -327,7 +331,7 @@ describe('CRUD execute terminals', () => {
   it('should return full rows by default when calling insert.values().execute', async () => {
     const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
     const connector = createMockConnector({ rowsBySql: () => rows })
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
     expect(result).toEqual(rows)
@@ -342,7 +346,7 @@ describe('CRUD execute terminals', () => {
     const connector = createMockConnector({
       rowsBySql: () => rows,
     })
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(
       db.insert(Users).values({ email: 'a@b.com' }).returningAll().execute(),
@@ -356,7 +360,7 @@ describe('CRUD execute terminals', () => {
   it('should return rows when calling executeTakeFirst on update/delete', async () => {
     const row = { id: 1, email: 'a@b.com', displayName: 'Z', active: true }
     const connector = createMockConnector({ rowsBySql: () => [row] })
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(
       db
@@ -380,11 +384,11 @@ describe('CRUD integration (Postgres)', () => {
   it.skipIf(!url)(
     'should insert/update/delete/returning against real Postgres',
     async () => {
-      const { createDatabase } = await import('db0')
+      const { createDatabase: createDb0Database } = await import('db0')
       const { default: postgresql } = await import('db0/connectors/postgresql')
 
-      const setup = createDatabase(postgresql({ url: url as string }))
-      const db = createDb({
+      const setup = createDb0Database(postgresql({ url: url as string }))
+      const db = createDatabase({
         connector: postgresql({ url: url as string }),
         schemas: [Users],
       })
@@ -441,7 +445,7 @@ describe('registry still enforces handles', () => {
     )
 
     const connector = createMockConnector()
-    const db = createDb({ connector, schemas: [Users] })
+    const db = createDatabase({ connector, schemas: [Users] })
 
     expect(() => db.from(Other)).toThrow(SchemaError)
     expect(() => db.insert(Other)).toThrow(SchemaError)
