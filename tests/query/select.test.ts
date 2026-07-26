@@ -1,24 +1,32 @@
 import type { Connector, Statement } from 'db0'
-import { boolean, number, optional, pipe, string } from 'valibot'
+import { boolean, date, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { defineTable } from '@/defineTable'
 import {
+  QueryError,
   and,
+  column,
   count,
   countAll,
   createDatabase,
+  dateTrunc,
+  defineTable,
   eq,
   gt,
+  gte,
+  length,
+  lower,
+  lt,
+  lte,
   max,
   min,
+  neq,
   not,
+  now,
   or,
   sum,
   upper,
 } from '@/index'
-import { column } from '@/schemas'
-import { QueryError } from '@/utils/error'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
@@ -85,6 +93,7 @@ const Users = defineTable(
     displayName: optional(pipe(string(), column({ type: 'text', default: '' }))),
     active: pipe(boolean(), column({ type: 'boolean', default: true })),
     score: pipe(number(), column({ type: 'integer', default: 0 })),
+    createdAt: pipe(date(), column({ type: 'timestamptz' })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -235,6 +244,52 @@ describe('select compile', () => {
       .compile()
     expect(compiled.sql.toLowerCase()).toContain('upper(')
     expect(compiled.sql).toContain('"emailUpper"')
+
+    await db.close()
+  })
+
+  it('should compile public expression helpers and chained clauses', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const compiled = db
+      .from(Users)
+      .select((b) => [
+        b.as(lower(Users.email), 'normalizedEmail'),
+        b.as(length('email'), 'emailLength'),
+        b.as(now(), 'queriedAt'),
+        b.as(dateTrunc('day', Users.createdAt), 'day'),
+      ])
+      .where((b) =>
+        b.and(
+          neq('email', 'deleted@example.com'),
+          gte(Users.score, 10),
+          lt(Users.score, 100),
+          lte(Users.id, 99),
+        ),
+      )
+      .groupBy([Users.email, Users.score, Users.createdAt])
+      .having((b) => b.gte(Users.score, 1))
+      .orderBy(Users.email)
+      .compile()
+
+    expect(compiled.sql.toLowerCase()).toMatch(/lower\(/)
+    expect(compiled.sql.toLowerCase()).toMatch(/length\(/)
+    expect(compiled.sql.toLowerCase()).toMatch(/now\(\)/)
+    expect(compiled.sql.toLowerCase()).toMatch(/date_trunc\(/)
+    expect(compiled.sql.toLowerCase()).toMatch(/<>|!=/)
+    expect(compiled.sql).toContain('>=')
+    expect(compiled.sql).toMatch(/"users"\."score"\s*<\s*\$\d+/)
+    expect(compiled.sql).toContain('<=')
+    expect(compiled.sql.toLowerCase()).toContain('group by')
+    expect(compiled.sql.toLowerCase()).toContain('order by')
+    expect(compiled.sql.toLowerCase()).toContain('asc')
+    expect(compiled.params).toEqual(['day', 'deleted@example.com', 10, 100, 99, 1])
+
+    expect(and(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
+    expect(or(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
+    expect(() => and()).toThrow(/at least one predicate/)
+    expect(() => or()).toThrow(/at least one predicate/)
 
     await db.close()
   })

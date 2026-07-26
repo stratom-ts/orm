@@ -8,7 +8,7 @@ import {
   ValidationError,
   catchTag,
   catchTags,
-} from '@/utils'
+} from '@/index'
 
 describe('TaggedError', () => {
   it('should create a tagged error class with the given tag', () => {

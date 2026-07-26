@@ -7,6 +7,28 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      exclude: [
+        'src/**/index.ts',
+        'src/dialects/types.ts',
+        'src/query/ast.ts',
+        'src/schemas/tableSchema.ts',
+        'src/schemas/actions/types.ts',
+        'src/types/constraints.ts',
+        'src/types/equals.ts',
+        'src/types/prettify.ts',
+        'src/types/schema.ts',
+        'src/types/views.ts',
+      ],
+      thresholds: {
+        statements: 88,
+        branches: 80,
+        functions: 95,
+        lines: 90,
+      },
+    },
   },
   resolve: {
     alias: [{ find: /^@\/(.*)/, replacement: resolve(__dirname, 'src/$1') }],

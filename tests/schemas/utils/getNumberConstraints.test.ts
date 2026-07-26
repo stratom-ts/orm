@@ -1,7 +1,7 @@
 import { integer, maxValue, minValue, number, pipe, safeInteger } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { getNumberConstraints } from '@/schemas'
+import { getNumberConstraints } from '@/index'
 
 describe('getNumberConstraints', () => {
   it('should return empty constraints for a plain number schema', () => {
