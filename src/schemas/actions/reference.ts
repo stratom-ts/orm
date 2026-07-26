@@ -8,7 +8,7 @@ import type {
 } from 'valibot'
 import { getMetadata, metadata, pipe } from 'valibot'
 
-import { postgresDialect } from '@/dialects'
+import { inferPostgresColumnType } from '@/dialects/postgres/infer'
 import type { AnySchema } from '@/types/schema'
 
 import { getColumnMetadata } from './column'
@@ -160,7 +160,7 @@ export function reference<
   const dataType =
     referencedColumnMetadata?.type ||
     (referencedColumnSchema
-      ? postgresDialect.inferColumnType(referencedColumnSchema)
+      ? inferPostgresColumnType(referencedColumnSchema)
       : 'varchar(255)')
 
   const tableInfo = isReferenceTargetHandle(tableOrSchema)

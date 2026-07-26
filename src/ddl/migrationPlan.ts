@@ -1,20 +1,21 @@
+import { normalizePostgresDataType } from '@/dialects/postgres/normalize'
+import {
+  formatPostgresDefault,
+  normalizePostgresDefaultExpression,
+} from '@/dialects/postgres/validate'
 import type {
   CatalogColumn,
   CatalogIndex,
   CatalogSnapshot,
   CatalogTable,
   CreateTableColumnAst,
-  Dialect,
-} from '@/dialects'
-import { normalizeIndex } from '@/schemas'
+} from '@/dialects/types'
+import { normalizeIndex } from '@/schemas/utils/normalizeIndex'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 import { DEFAULT_PG_SCHEMA, effectiveSchema, tableKey } from '@/utils/tableKey'
 
 import { buildCreateTableAst } from './createTable'
-
-/** Destructive migrate operations that require an explicit allowlist. */
-export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
 
 /** Structured desired-state Migration Plan step (stable kinds + targets). */
 export type MigrationStep =
@@ -108,10 +109,131 @@ export type MigrationPlan = {
   steps: MigrationStep[]
 }
 
-function catalogTableMap(catalog: CatalogSnapshot): Map<string, CatalogTable> {
+type PlanningIssue = {
+  schema: string
+  table: string
+  target: string
+  property:
+    | 'invalid_desired_table'
+    | 'duplicate_registered_table'
+    | 'duplicate_catalog_table'
+    | 'duplicate_catalog_column'
+    | 'duplicate_catalog_index'
+    | 'primary_key'
+    | 'unique_constraint'
+    | 'foreign_key'
+    | 'default'
+    | 'identity'
+    | 'index_definition'
+  message: string
+}
+
+const MIGRATION_PHASE: Record<MigrationStep['kind'], number> = {
+  create_schema: 0,
+  create_table: 1,
+  add_column: 2,
+  alter_column_type: 3,
+  drop_not_null: 4,
+  set_not_null: 5,
+  create_index: 6,
+  add_foreign_key: 7,
+  drop_index: 8,
+  drop_column: 9,
+  drop_table: 10,
+}
+
+// Issues sort by schema/table/member first; this rank resolves one target's properties.
+const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
+  invalid_desired_table: 0,
+  duplicate_registered_table: 1,
+  duplicate_catalog_table: 2,
+  duplicate_catalog_column: 3,
+  duplicate_catalog_index: 4,
+  primary_key: 5,
+  unique_constraint: 6,
+  foreign_key: 7,
+  default: 8,
+  identity: 9,
+  index_definition: 10,
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+function stepTarget(step: MigrationStep): readonly string[] {
+  if (step.kind === 'create_schema') return [step.schema]
+
+  const identity = 'column' in step ? step.column : 'index' in step ? step.index : ''
+  return [effectiveSchema(step.schema), step.table, identity]
+}
+
+function compareMigrationSteps(left: MigrationStep, right: MigrationStep): number {
+  const phase = MIGRATION_PHASE[left.kind] - MIGRATION_PHASE[right.kind]
+  if (phase !== 0) return phase
+
+  const leftTarget = stepTarget(left)
+  const rightTarget = stepTarget(right)
+  for (let index = 0; index < leftTarget.length; index++) {
+    const target = compareCodeUnits(leftTarget[index]!, rightTarget[index]!)
+    if (target !== 0) return target
+  }
+  return 0
+}
+
+function comparePlanningIssues(left: PlanningIssue, right: PlanningIssue): number {
+  for (const [leftPart, rightPart] of [
+    [left.schema, right.schema],
+    [left.table, right.table],
+    [left.target, right.target],
+  ] as const) {
+    const target = compareCodeUnits(leftPart, rightPart)
+    if (target !== 0) return target
+  }
+  return (
+    ISSUE_PROPERTY_ORDER[left.property] - ISSUE_PROPERTY_ORDER[right.property] ||
+    compareCodeUnits(left.message, right.message)
+  )
+}
+
+function compareTableHandles(left: TableHandle, right: TableHandle): number {
+  const leftInfo = left.getTableMetadata()
+  const rightInfo = right.getTableMetadata()
+  return (
+    compareCodeUnits(
+      effectiveSchema(leftInfo.schema),
+      effectiveSchema(rightInfo.schema),
+    ) || compareCodeUnits(leftInfo.name, rightInfo.name)
+  )
+}
+
+function compareCatalogTables(left: CatalogTable, right: CatalogTable): number {
+  return (
+    compareCodeUnits(effectiveSchema(left.schema), effectiveSchema(right.schema)) ||
+    compareCodeUnits(left.name, right.name)
+  )
+}
+
+function catalogTableMap(
+  tables: readonly CatalogTable[],
+  issues: PlanningIssue[],
+): Map<string, CatalogTable> {
   const map = new Map<string, CatalogTable>()
-  for (const table of catalog.tables) {
-    map.set(tableKey(table.schema, table.name), table)
+  for (const table of tables) {
+    const key = tableKey(table.schema, table.name)
+    if (map.has(key)) {
+      issues.push({
+        schema: effectiveSchema(table.schema),
+        table: table.name,
+        target: '',
+        property: 'duplicate_catalog_table',
+        message: `Duplicate catalog table '${key}'`,
+      })
+      continue
+    }
+    map.set(key, table)
   }
   return map
 }
@@ -134,75 +256,95 @@ function arraysEqual(left: readonly string[], right: readonly string[]): boolean
   )
 }
 
-function findIndex(
-  live: CatalogIndex[] | undefined,
-  name: string,
-): CatalogIndex | undefined {
-  return live?.find((index) => index.name === name)
-}
-
 function normalizeAction(action: string | undefined): string {
   return action?.toLowerCase() ?? 'no action'
 }
 
-function assertDefaultMatch(
+function defaultMismatch(
   tableName: string,
   columnName: string,
   live: CatalogColumn,
   desired: CreateTableColumnAst,
-  dialect: Dialect,
-): void {
+): string | undefined {
   if (live.defaultExpression === undefined) return
   const expected =
     desired.defaultValue === undefined
       ? null
-      : dialect.normalizeDefaultValue?.(desired.defaultValue)
-  if (desired.defaultValue !== undefined && expected === undefined) {
-    throw new MigrationError({
-      message: `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`,
-    })
-  }
+      : normalizePostgresDefaultExpression(formatPostgresDefault(desired.defaultValue))
   if (live.defaultExpression !== expected) {
-    throw new MigrationError({
-      message: `Unsupported default change for '${tableName}.${columnName}'`,
-    })
+    return `Unsupported default change for '${tableName}.${columnName}'`
   }
 }
 
-function assertIdentityMatch(
+function identityMismatch(
   tableName: string,
   columnName: string,
   live: CatalogColumn,
   desired: CreateTableColumnAst,
-): void {
+): string | undefined {
   if (live.identityGeneration === undefined) return
   const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
   if (live.identityGeneration !== expected) {
-    throw new MigrationError({
-      message: `Unsupported identity change for '${tableName}.${columnName}'`,
-    })
+    return `Unsupported identity change for '${tableName}.${columnName}'`
   }
 }
 
-function assertManagedPropertiesMatch(
+function collectManagedPropertyIssues(
   live: CatalogTable,
   desired: ReturnType<typeof buildCreateTableAst>,
-  dialect: Dialect,
+  issues: PlanningIssue[],
 ): void {
-  const tableName = `${effectiveSchema(live.schema)}.${live.name}`
-  const liveColumns = new Map(live.columns.map((column) => [column.name, column]))
+  const schema = effectiveSchema(live.schema)
+  const tableName = `${schema}.${live.name}`
+  const liveColumns = new Map<string, CatalogColumn>()
+
+  for (const column of live.columns) {
+    if (liveColumns.has(column.name)) {
+      issues.push({
+        schema,
+        table: live.name,
+        target: column.name,
+        property: 'duplicate_catalog_column',
+        message: `Duplicate catalog column '${tableName}.${column.name}'`,
+      })
+      continue
+    }
+    liveColumns.set(column.name, column)
+  }
 
   for (const column of desired.columns) {
     const current = liveColumns.get(column.name)
     if (!current) continue
-    assertDefaultMatch(tableName, column.name, current, column, dialect)
-    assertIdentityMatch(tableName, column.name, current, column)
+    const defaultMessage = defaultMismatch(tableName, column.name, current, column)
+    if (defaultMessage) {
+      issues.push({
+        schema,
+        table: live.name,
+        target: column.name,
+        property: 'default',
+        message: defaultMessage,
+      })
+    }
+    const identityMessage = identityMismatch(tableName, column.name, current, column)
+    if (identityMessage) {
+      issues.push({
+        schema,
+        table: live.name,
+        target: column.name,
+        property: 'identity',
+        message: identityMessage,
+      })
+    }
   }
 
   if (live.primaryKey !== undefined) {
     const current = live.primaryKey?.columns ?? []
     if (!arraysEqual(current, desired.primaryKey)) {
-      throw new MigrationError({
+      issues.push({
+        schema,
+        table: live.name,
+        target: '',
+        property: 'primary_key',
         message: `Unsupported primary key change for '${tableName}'`,
       })
     }
@@ -217,7 +359,11 @@ function assertManagedPropertiesMatch(
       .map((column) => column.name)
       .sort()
     if (!arraysEqual(current, expected)) {
-      throw new MigrationError({
+      issues.push({
+        schema,
+        table: live.name,
+        target: '',
+        property: 'unique_constraint',
         message: `Unsupported unique constraint change for '${tableName}'`,
       })
     }
@@ -251,7 +397,11 @@ function assertManagedPropertiesMatch(
       })
       .sort()
     if (!arraysEqual(current, expected)) {
-      throw new MigrationError({
+      issues.push({
+        schema,
+        table: live.name,
+        target: '',
+        property: 'foreign_key',
         message: `Unsupported foreign key change for '${tableName}'`,
       })
     }
@@ -275,31 +425,50 @@ function desiredIndexNames(handle: TableHandle): Set<string> {
   return names
 }
 
-/**
- * Constructs a Migration Plan from registered tables and a catalog snapshot.
- * This interface is synchronous and performs no database operations.
- */
-export function planMigration(
+function buildMigrationPlan(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
-  dialect: Dialect,
-  allowed: ReadonlySet<MigrationAllow> = new Set(),
 ): MigrationPlan {
   const steps: MigrationStep[] = []
   const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
-  const existing = catalogTableMap(catalog)
+  const issues: PlanningIssue[] = []
+  const sortedSchemas = [...schemas].sort(compareTableHandles)
+  const sortedCatalogTables = [...catalog.tables].sort(compareCatalogTables)
+  const existing = catalogTableMap(sortedCatalogTables, issues)
   const ensuredSchemas = schemasPresentInCatalog(catalog)
   const registeredKeys = new Set<string>()
   const ownedSchemas = new Set<string>()
 
-  for (const handle of schemas) {
+  for (const handle of sortedSchemas) {
     const info = handle.getTableMetadata()
     const key = tableKey(info.schema, info.name)
+    if (registeredKeys.has(key)) {
+      issues.push({
+        schema: effectiveSchema(info.schema),
+        table: info.name,
+        target: '',
+        property: 'duplicate_registered_table',
+        message: `Duplicate registered table '${key}'`,
+      })
+    }
     registeredKeys.add(key)
     const schemaName = effectiveSchema(info.schema)
     ownedSchemas.add(schemaName)
     const live = existing.get(key)
-    const createAst = buildCreateTableAst(handle, dialect)
+    let createAst: ReturnType<typeof buildCreateTableAst>
+    try {
+      createAst = buildCreateTableAst(handle)
+    } catch (cause) {
+      issues.push({
+        schema: schemaName,
+        table: info.name,
+        target: '',
+        property: 'invalid_desired_table',
+        message:
+          cause instanceof Error ? cause.message : `Invalid desired table '${key}'`,
+      })
+      continue
+    }
 
     if (!live) {
       if (schemaName !== DEFAULT_PG_SCHEMA && !ensuredSchemas.has(schemaName)) {
@@ -339,7 +508,7 @@ export function planMigration(
       continue
     }
 
-    assertManagedPropertiesMatch(live, createAst, dialect)
+    collectManagedPropertyIssues(live, createAst, issues)
 
     const liveColumns = new Map(
       (live.columns ?? []).map((column) => [column.name, column]),
@@ -375,8 +544,8 @@ export function planMigration(
         continue
       }
 
-      const desiredType = dialect.normalizeDataType(desired.dataType)
-      const currentType = dialect.normalizeDataType(current.dataType)
+      const desiredType = normalizePostgresDataType(desired.dataType)
+      const currentType = normalizePostgresDataType(current.dataType)
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',
@@ -406,21 +575,33 @@ export function planMigration(
 
     for (const liveColumn of live.columns ?? []) {
       if (desiredColumnNames.has(liveColumn.name)) continue
-      if (allowed.has('dropColumn')) {
-        steps.push({
-          kind: 'drop_column',
-          ...schemaField(info.schema),
-          table: info.name,
-          column: liveColumn.name,
-        })
-      }
+      steps.push({
+        kind: 'drop_column',
+        ...schemaField(info.schema),
+        table: info.name,
+        column: liveColumn.name,
+      })
     }
 
     const desiredIndexes = desiredIndexNames(handle)
+    const liveIndexes = new Map<string, CatalogIndex>()
+    for (const liveIndex of live.indexes ?? []) {
+      if (liveIndexes.has(liveIndex.name)) {
+        issues.push({
+          schema: schemaName,
+          table: info.name,
+          target: liveIndex.name,
+          property: 'duplicate_catalog_index',
+          message: `Duplicate catalog index '${schemaName}.${liveIndex.name}'`,
+        })
+        continue
+      }
+      liveIndexes.set(liveIndex.name, liveIndex)
+    }
     for (const raw of info.indexes ?? []) {
       const index = normalizeIndex(raw)
       const name = index.name ?? defaultIndexName(info.name, index.columns)
-      const current = findIndex(live.indexes, name)
+      const current = liveIndexes.get(name)
       if (!current) {
         steps.push({
           kind: 'create_index',
@@ -436,40 +617,62 @@ export function planMigration(
         current.unique !== (index.unique ?? false) ||
         !arraysEqual(current.columns, index.columns)
       ) {
-        throw new MigrationError({
+        issues.push({
+          schema: schemaName,
+          table: info.name,
+          target: name,
+          property: 'index_definition',
           message: `Unsupported index definition change for '${schemaName}.${name}'`,
         })
       }
     }
 
-    if (allowed.has('dropIndex')) {
-      for (const liveIndex of live.indexes ?? []) {
-        if (desiredIndexes.has(liveIndex.name)) continue
-        steps.push({
-          kind: 'drop_index',
-          ...schemaField(info.schema),
-          table: info.name,
-          index: liveIndex.name,
-        })
-      }
+    for (const liveIndex of live.indexes ?? []) {
+      if (desiredIndexes.has(liveIndex.name)) continue
+      steps.push({
+        kind: 'drop_index',
+        ...schemaField(info.schema),
+        table: info.name,
+        index: liveIndex.name,
+      })
     }
   }
 
   steps.push(...deferredForeignKeys)
 
-  if (allowed.has('dropTable')) {
-    for (const live of catalog.tables) {
-      const liveSchema = effectiveSchema(live.schema)
-      if (!ownedSchemas.has(liveSchema)) continue
-      const key = tableKey(live.schema, live.name)
-      if (registeredKeys.has(key)) continue
-      steps.push({
-        kind: 'drop_table',
-        ...schemaField(live.schema),
-        table: live.name,
-      })
-    }
+  for (const live of sortedCatalogTables) {
+    const liveSchema = effectiveSchema(live.schema)
+    if (!ownedSchemas.has(liveSchema)) continue
+    const key = tableKey(live.schema, live.name)
+    if (registeredKeys.has(key)) continue
+    steps.push({
+      kind: 'drop_table',
+      ...schemaField(live.schema),
+      table: live.name,
+    })
   }
 
-  return { steps }
+  const issue = issues.sort(comparePlanningIssues)[0]
+  if (issue) throw new MigrationError({ message: issue.message })
+
+  return { steps: steps.sort(compareMigrationSteps) }
+}
+
+/**
+ * Constructs a Migration Plan from registered tables and a catalog snapshot.
+ * This interface is synchronous and performs no database operations.
+ */
+export function planMigration(
+  schemas: readonly TableHandle[],
+  catalog: CatalogSnapshot,
+): MigrationPlan {
+  try {
+    return buildMigrationPlan(schemas, catalog)
+  } catch (cause) {
+    if (cause instanceof MigrationError) throw cause
+    throw new MigrationError({
+      message: cause instanceof Error ? cause.message : 'Migration planning failed',
+      ...(cause !== undefined ? { cause } : {}),
+    })
+  }
 }

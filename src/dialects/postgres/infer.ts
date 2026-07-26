@@ -1,11 +1,9 @@
 import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 
-import {
-  getBaseSchema,
-  getNumberConstraints,
-  getStringConstraints,
-  unwrapDeep,
-} from '@/schemas'
+import { getBaseSchema } from '@/schemas/utils/getBaseSchema'
+import { getNumberConstraints } from '@/schemas/utils/getNumberConstraints'
+import { getStringConstraints } from '@/schemas/utils/getStringConstraints'
+import { unwrapDeep } from '@/schemas/utils/unwrapDeep'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
