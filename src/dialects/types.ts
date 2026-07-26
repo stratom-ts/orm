@@ -1,5 +1,9 @@
 import { SQLDialect } from 'db0'
 
+import type {
+  NamespaceContext,
+  RelationIdentityAdapter,
+} from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 import type { AnySchema } from '@/types/schema'
 
@@ -31,7 +35,8 @@ export type CatalogKeyConstraint = {
 }
 
 export type CatalogForeignKey = CatalogKeyConstraint & {
-  referencedSchema?: string
+  /** PostgreSQL schema of the referenced catalog relation. */
+  referencedSchema: string
   referencedTable: string
   referencedColumns: string[]
   onDelete: ReferentialAction
@@ -48,8 +53,8 @@ export type CatalogIndex = {
 /** Live table entry from dialect introspection. */
 export type CatalogTable = {
   name: string
-  /** Postgres schema / namespace; defaults to public when omitted. */
-  schema?: string
+  /** PostgreSQL schema of the catalog relation. */
+  schema: string
   columns: CatalogColumn[]
   indexes?: CatalogIndex[]
   /** Undefined means the dialect did not introspect this managed property. */
@@ -61,6 +66,8 @@ export type CatalogTable = {
 /** Catalog snapshot for desired-state migrations. */
 export type CatalogSnapshot = {
   tables: CatalogTable[]
+  /** Writable namespace facts resolved on the introspection session. */
+  namespaceContext: NamespaceContext
 }
 
 /** Comparison operators for simple where predicates. */
@@ -358,6 +365,9 @@ export type SqlAst =
  */
 export interface Dialect {
   readonly id: SQLDialect
+
+  /** Adapter profile used by canonical migration relation identity. */
+  readonly relationIdentity: RelationIdentityAdapter
 
   inferColumnType(schema: AnySchema): SqlDataType
 

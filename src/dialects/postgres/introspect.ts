@@ -1,3 +1,4 @@
+import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 import { isTruthyFlag, toNumberOrNull } from '@/utils'
 
@@ -152,6 +153,27 @@ function parseIndexColumns(value: unknown): string[] {
 export async function introspectPostgres(executor: unknown): Promise<CatalogSnapshot> {
   const exec = executor as IntrospectExecutor
 
+  const contextRows = (await exec.execute({
+    sql: `
+      select current_database() as database, current_schema() as schema
+    `,
+    params: [],
+  })) as Array<{ database?: unknown; schema?: unknown }>
+  const contextRow = contextRows[0]
+  if (typeof contextRow?.database !== 'string' || typeof contextRow.schema !== 'string') {
+    throw new TypeError('PostgreSQL introspection could not resolve a writable namespace')
+  }
+  const namespaceContext = {
+    writableDefault: [
+      { role: 'database' as const, spelling: contextRow.database },
+      { role: 'schema' as const, spelling: contextRow.schema },
+    ],
+  }
+  const identities = createCanonicalRelationIdentityModule({
+    adapter: 'postgresql',
+    context: namespaceContext,
+  })
+
   const tableRows = (await exec.execute({
     sql: `
       select table_schema as schema, table_name as name
@@ -260,11 +282,15 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
     params: [],
   })) as IndexRow[]
 
-  const tables = new Map<string, CatalogTable>()
+  const tables = identities.createRegistry<CatalogTable>()
+  const tableList: CatalogTable[] = []
 
   function getOrCreateTable(name: string, schema: string): CatalogTable {
-    const key = `${schema}.${name}`
-    let table = tables.get(key)
+    const identity = identities.resolve({
+      namespace: [{ role: 'schema', spelling: schema }],
+      relation: name,
+    })
+    let table = tables.get(identity)
     if (!table) {
       table = {
         name,
@@ -275,22 +301,25 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
         uniqueConstraints: [],
         foreignKeys: [],
       }
-      tables.set(key, table)
+      tables.set(identity, table)
+      tableList.push(table)
     }
     return table
   }
 
   for (const row of tableRows) {
-    if (typeof row.name !== 'string') continue
-    const schema = typeof row.schema === 'string' ? row.schema : 'public'
-    getOrCreateTable(row.name, schema)
+    if (typeof row.name !== 'string' || typeof row.schema !== 'string') continue
+    getOrCreateTable(row.name, row.schema)
   }
 
   for (const row of columnRows) {
-    if (typeof row.table_name !== 'string' || typeof row.column_name !== 'string')
+    if (
+      typeof row.schema !== 'string' ||
+      typeof row.table_name !== 'string' ||
+      typeof row.column_name !== 'string'
+    )
       continue
-    const schema = typeof row.schema === 'string' ? row.schema : 'public'
-    const table = getOrCreateTable(row.table_name, schema)
+    const table = getOrCreateTable(row.table_name, row.schema)
 
     table.columns.push({
       name: row.column_name,
@@ -313,14 +342,14 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
 
   for (const row of constraintRows) {
     if (
+      typeof row.schema !== 'string' ||
       typeof row.table_name !== 'string' ||
       typeof row.constraint_name !== 'string' ||
       typeof row.constraint_type !== 'string'
     ) {
       continue
     }
-    const schema = typeof row.schema === 'string' ? row.schema : 'public'
-    const table = getOrCreateTable(row.table_name, schema)
+    const table = getOrCreateTable(row.table_name, row.schema)
     const constraint = {
       name: row.constraint_name,
       columns: parseIndexColumns(row.columns),
@@ -334,12 +363,14 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       table.uniqueConstraints!.push(constraint)
       continue
     }
-    if (row.constraint_type === 'f' && typeof row.referenced_table === 'string') {
+    if (
+      row.constraint_type === 'f' &&
+      typeof row.referenced_schema === 'string' &&
+      typeof row.referenced_table === 'string'
+    ) {
       table.foreignKeys!.push({
         ...constraint,
-        ...(typeof row.referenced_schema === 'string'
-          ? { referencedSchema: row.referenced_schema }
-          : {}),
+        referencedSchema: row.referenced_schema,
         referencedTable: row.referenced_table,
         referencedColumns: parseIndexColumns(row.referenced_columns),
         onDelete: (row.on_delete ?? 'no action') as ReferentialAction,
@@ -349,9 +380,13 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
   }
 
   for (const row of indexRows) {
-    if (typeof row.table_name !== 'string' || typeof row.index_name !== 'string') continue
-    const schema = typeof row.schema === 'string' ? row.schema : 'public'
-    const table = getOrCreateTable(row.table_name, schema)
+    if (
+      typeof row.schema !== 'string' ||
+      typeof row.table_name !== 'string' ||
+      typeof row.index_name !== 'string'
+    )
+      continue
+    const table = getOrCreateTable(row.table_name, row.schema)
 
     table.indexes!.push({
       name: row.index_name,
@@ -360,5 +395,5 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
     })
   }
 
-  return { tables: [...tables.values()] }
+  return { tables: tableList, namespaceContext }
 }

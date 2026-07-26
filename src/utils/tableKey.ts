@@ -2,8 +2,10 @@
 export const DEFAULT_PG_SCHEMA = 'public'
 
 /**
- * Canonical registry / migrate / catalog identity for a table.
- * Always includes a schema segment (`public` when omitted).
+ * Legacy dotted table key. Always includes a schema segment (`public` when omitted).
+ *
+ * @deprecated Dotted keys are ambiguous for quoted identifiers. This helper is
+ * retained only for compatibility and is not used for internal identity.
  *
  * @example
  *   tableKey('public', 'users') // 'public.users'

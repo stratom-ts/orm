@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   MigrationError,
-  SchemaError,
   column,
   createDatabase,
   defineTable,
@@ -96,6 +95,10 @@ function createMockConnector(options?: {
       if (/pg_advisory_(?:un)?lock/.test(normalized)) {
         runSql.push(normalized)
         return createMockStatement()
+      }
+
+      if (normalized.includes('current_database()')) {
+        return createMockStatement([{ database: 'test', schema: 'public' }])
       }
 
       if (
@@ -325,7 +328,7 @@ describe('postgresDialect.compile migration steps', () => {
 })
 
 describe('db.migrate() adapters and execution', () => {
-  it('treats omitted and public schemas as the same registry target', () => {
+  it('treats omitted and public schemas as the same resolved registry target', async () => {
     const BareItems = defineTable(
       'items',
       { id: pipe(string(), column({ type: 'uuid' })) },
@@ -337,12 +340,14 @@ describe('db.migrate() adapters and execution', () => {
       { primaryKey: 'id', schema: 'public' },
     )
 
-    expect(() =>
-      createDatabase({
-        connector: createMockConnector(),
-        schemas: [BareItems, PublicItems],
-      }),
-    ).toThrow(SchemaError)
+    const db = createDatabase({
+      connector: createMockConnector(),
+      schemas: [BareItems, PublicItems],
+    })
+
+    await expect(db.migrate().dryRun()).rejects.toBeInstanceOf(MigrationError)
+    await expect(db.migrate().dryRun()).rejects.toThrow(/duplicate registered table/i)
+    await db.close()
   })
 
   it('resolves target-only table steps, compiles dependencies, and commits', async () => {
@@ -378,6 +383,37 @@ describe('db.migrate() adapters and execution', () => {
       steps: [{ kind: 'create_table', schema: 'public', table: 'users' }],
     })
     expect(connector.runSql).toEqual([])
+
+    await db.close()
+  })
+
+  it('executes an explicit registration default through canonical handle lookup', async () => {
+    const TenantItems = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id' },
+    )
+    const connector = createMockConnector()
+    const db = createDatabase({
+      connector,
+      schemas: [TenantItems],
+      defaultNamespace: [{ role: 'schema', spelling: 'tenant' }],
+    })
+
+    await expect(db.migrate().dryRun()).resolves.toEqual({
+      steps: [
+        { kind: 'create_schema', schema: 'tenant' },
+        { kind: 'create_table', schema: 'tenant', table: 'items' },
+      ],
+    })
+    await expect(db.migrate().execute()).resolves.toBeUndefined()
+    expect(
+      connector.runSql.some((sql) => /create schema if not exists "tenant"/i.test(sql)),
+    ).toBe(true)
+    expect(
+      connector.runSql.some((sql) => /create table "tenant"\."items"/i.test(sql)),
+    ).toBe(true)
+    expect(connector.runSql).toContain('commit')
 
     await db.close()
   })

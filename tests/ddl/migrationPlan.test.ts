@@ -6,6 +6,17 @@ import type { CatalogSnapshot, Dialect } from '@/dialects'
 import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
 import type { TableHandle } from '@/types'
 
+const POSTGRES_NAMESPACE_CONTEXT = {
+  writableDefault: [
+    { role: 'database' as const, spelling: 'test' },
+    { role: 'schema' as const, spelling: 'public' },
+  ],
+}
+
+function emptyCatalog(): CatalogSnapshot {
+  return { tables: [], namespaceContext: POSTGRES_NAMESPACE_CONTEXT }
+}
+
 const Users = defineTable(
   'users',
   {
@@ -93,6 +104,7 @@ function usersCatalog(
   columns: CatalogSnapshot['tables'][number]['columns'],
 ): CatalogSnapshot {
   return {
+    namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
     tables: [
       {
         schema: 'public',
@@ -110,6 +122,7 @@ function rotate<T>(values: readonly T[]): T[] {
 
 function mixedCatalog(): CatalogSnapshot {
   return {
+    namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
     tables: [
       {
         schema: 'public',
@@ -120,6 +133,7 @@ function mixedCatalog(): CatalogSnapshot {
         ],
       },
       {
+        schema: 'public',
         name: 'accounts',
         columns: [
           { name: 'removedZ', dataType: 'text', isNullable: true },
@@ -156,6 +170,7 @@ function mixedCatalog(): CatalogSnapshot {
 
 function managedCatalog(): CatalogSnapshot {
   return {
+    namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
     tables: [
       {
         schema: 'public',
@@ -251,6 +266,7 @@ describe('Migration Plan construction', () => {
 
   it('uses PostgreSQL lowering and normalization for comparisons', () => {
     const catalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       tables: [
         {
           schema: 'public',
@@ -281,10 +297,11 @@ describe('Migration Plan construction', () => {
       },
       { primaryKey: 'id' },
     )
-    const introspect = vi.fn(async () => ({ tables: [] }))
+    const introspect = vi.fn(async () => emptyCatalog())
     const compile = vi.fn(() => ({ sql: '', params: [] }))
     const dialect: Dialect = {
       id: 'mysql',
+      relationIdentity: 'postgresql',
       inferColumnType: () => 'custom_string',
       normalizeDataType: (dataType) =>
         dataType === 'custom_string_alias' ? 'custom_string' : dataType,
@@ -293,8 +310,10 @@ describe('Migration Plan construction', () => {
       compile,
     }
     const catalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       tables: [
         {
+          schema: 'public',
           name: 'portable_settings',
           columns: [
             { name: 'id', dataType: 'custom_string_alias', isNullable: false },
@@ -334,6 +353,7 @@ describe('Migration Plan construction', () => {
 
   it('returns every required destructive step without permission input', () => {
     const catalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       tables: [
         {
           schema: 'public',
@@ -387,9 +407,10 @@ describe('Migration Plan construction', () => {
       steps: [
         { kind: 'create_schema', schema: 'audit' },
         { kind: 'create_table', schema: 'audit', table: 'events' },
-        { kind: 'create_table', table: 'comments' },
+        { kind: 'create_table', schema: 'public', table: 'comments' },
         {
           kind: 'add_column',
+          schema: 'public',
           table: 'accounts',
           column: 'addedReference',
           dataType: 'uuid',
@@ -397,6 +418,7 @@ describe('Migration Plan construction', () => {
         },
         {
           kind: 'add_column',
+          schema: 'public',
           table: 'accounts',
           column: 'addedText',
           dataType: 'text',
@@ -404,22 +426,26 @@ describe('Migration Plan construction', () => {
         },
         {
           kind: 'alter_column_type',
+          schema: 'public',
           table: 'accounts',
           column: 'changedType',
           dataType: 'text',
         },
         {
           kind: 'drop_not_null',
+          schema: 'public',
           table: 'accounts',
           column: 'madeNullable',
         },
         {
           kind: 'set_not_null',
+          schema: 'public',
           table: 'accounts',
           column: 'madeRequired',
         },
         {
           kind: 'create_index',
+          schema: 'public',
           table: 'accounts',
           index: 'accounts_ordered_idx',
           columns: ['indexSecond', 'indexFirst'],
@@ -427,28 +453,42 @@ describe('Migration Plan construction', () => {
         },
         {
           kind: 'add_foreign_key',
+          schema: 'public',
           table: 'accounts',
           column: 'addedReference',
           references: { schema: 'public', table: 'users', column: 'id' },
         },
         {
           kind: 'add_foreign_key',
+          schema: 'public',
           table: 'comments',
           column: 'userId',
           references: { schema: 'public', table: 'users', column: 'id' },
         },
         {
           kind: 'drop_index',
+          schema: 'public',
           table: 'accounts',
           index: 'stale_a_idx',
         },
         {
           kind: 'drop_index',
+          schema: 'public',
           table: 'accounts',
           index: 'stale_z_idx',
         },
-        { kind: 'drop_column', table: 'accounts', column: 'removedA' },
-        { kind: 'drop_column', table: 'accounts', column: 'removedZ' },
+        {
+          kind: 'drop_column',
+          schema: 'public',
+          table: 'accounts',
+          column: 'removedA',
+        },
+        {
+          kind: 'drop_column',
+          schema: 'public',
+          table: 'accounts',
+          column: 'removedZ',
+        },
         { kind: 'drop_table', schema: 'public', table: 'a_orphan' },
         { kind: 'drop_table', schema: 'public', table: 'z_orphan' },
       ],
@@ -468,12 +508,136 @@ describe('Migration Plan construction', () => {
     )
 
     expect(
-      planMigration([Lowercase, Uppercase], { tables: [] }, postgresDialect),
+      planMigration([Lowercase, Uppercase], emptyCatalog(), postgresDialect),
     ).toEqual({
       steps: [
-        { kind: 'create_table', table: 'Zulu' },
-        { kind: 'create_table', table: 'alpha' },
+        { kind: 'create_table', schema: 'public', table: 'Zulu' },
+        { kind: 'create_table', schema: 'public', table: 'alpha' },
       ],
+    })
+  })
+
+  it('produces equal Migration Plans for omitted and explicit resolved defaults', () => {
+    const Omitted = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id' },
+    )
+    const Public = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const Tenant = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'tenant' },
+    )
+    const tenantCatalog: CatalogSnapshot = {
+      tables: [],
+      namespaceContext: {
+        writableDefault: [
+          { role: 'database', spelling: 'test' },
+          { role: 'schema', spelling: 'tenant' },
+        ],
+      },
+    }
+
+    expect(planMigration([Omitted], emptyCatalog(), postgresDialect)).toEqual(
+      planMigration([Public], emptyCatalog(), postgresDialect),
+    )
+    expect(planMigration([Omitted], tenantCatalog, postgresDialect)).toEqual(
+      planMigration([Tenant], tenantCatalog, postgresDialect),
+    )
+    expect(planMigration([Public], tenantCatalog, postgresDialect)).not.toEqual(
+      planMigration([Omitted], tenantCatalog, postgresDialect),
+    )
+  })
+
+  it('uses an explicit registration default before the session writable default', () => {
+    const Omitted = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id' },
+    )
+    const Tenant = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'tenant' },
+    )
+
+    expect(
+      planMigration([Omitted], emptyCatalog(), postgresDialect, {
+        registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
+      }),
+    ).toEqual(planMigration([Tenant], emptyCatalog(), postgresDialect))
+  })
+
+  it('keeps structured migration registrations distinct without dotted keys', () => {
+    const definitions = [
+      ['c', 'a.b'],
+      ['b.c', 'a'],
+      ['quoted"table', 'a'],
+      ['Case', 'a'],
+      ['case', 'a'],
+      ['caf\u00e9', 'a'],
+      ['cafe\u0301', 'a'],
+    ] as const
+    const handles = definitions.map(([name, schema]) =>
+      defineTable(
+        name,
+        { id: pipe(string(), column({ type: 'uuid' })) },
+        { primaryKey: 'id', schema },
+      ),
+    )
+
+    const plan = planMigration(handles, emptyCatalog(), postgresDialect)
+    const targets = plan.steps
+      .filter((step) => step.kind === 'create_table')
+      .map((step) => [step.schema, step.table])
+
+    expect(targets).toEqual([
+      ['a', 'Case'],
+      ['a', 'b.c'],
+      ['a', 'cafe\u0301'],
+      ['a', 'caf\u00e9'],
+      ['a', 'case'],
+      ['a', 'quoted"table'],
+      ['a.b', 'c'],
+    ])
+  })
+
+  it('matches dotted desired and catalog tuples without collisions', () => {
+    const DottedSchema = defineTable(
+      'c',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'a.b' },
+    )
+    const DottedRelation = defineTable(
+      'b.c',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'a' },
+    )
+    const catalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      tables: [
+        {
+          schema: 'a.b',
+          name: 'c',
+          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        },
+        {
+          schema: 'a',
+          name: 'b.c',
+          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        },
+      ],
+    }
+
+    expect(
+      planMigration([DottedSchema, DottedRelation], catalog, postgresDialect),
+    ).toEqual({
+      steps: [],
     })
   })
 
@@ -522,6 +686,7 @@ describe('Migration Plan construction', () => {
       { primaryKey: 'id', schema: 'public' },
     )
     const catalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       tables: [
         {
           schema: 'public',
@@ -678,6 +843,7 @@ describe('Migration Plan construction', () => {
     users.uniqueConstraints = []
     users.foreignKeys = [
       {
+        referencedSchema: 'public',
         name: 'unexpected_fkey',
         columns: ['email'],
         referencedTable: 'managed_posts',
@@ -711,8 +877,10 @@ describe('Migration Plan construction', () => {
       { primaryKey: 'id' },
     )
     const catalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       tables: [
         {
+          schema: 'public',
           name: 'ordered_settings',
           columns: [
             {
@@ -746,8 +914,8 @@ describe('Migration Plan construction', () => {
     const alpha = invalidTableHandle('alpha')
     const zeta = invalidTableHandle('zeta')
 
-    const firstDesired = planningError([zeta, alpha], { tables: [] })
-    const secondDesired = planningError([alpha, zeta], { tables: [] })
+    const firstDesired = planningError([zeta, alpha], emptyCatalog())
+    const secondDesired = planningError([alpha, zeta], emptyCatalog())
     expect(firstDesired.message).toBe(secondDesired.message)
     expect(firstDesired.message).toMatch(/alpha/i)
 
@@ -768,8 +936,8 @@ describe('Migration Plan construction', () => {
   it('considers invalid issues from every duplicate registered handle', () => {
     const invalidUsers = invalidTableHandle('users')
 
-    const validFirst = planningError([Users, invalidUsers], { tables: [] })
-    const invalidFirst = planningError([invalidUsers, Users], { tables: [] })
+    const validFirst = planningError([Users, invalidUsers], emptyCatalog())
+    const invalidFirst = planningError([invalidUsers, Users], emptyCatalog())
 
     expect(validFirst.message).toBe(invalidFirst.message)
     expect(validFirst.message).toMatch(/no columns/i)
@@ -782,8 +950,8 @@ describe('Migration Plan construction', () => {
     } as unknown as TableHandle
     const noColumns = invalidTableHandle('users')
 
-    const first = planningError([missingPrimaryKey, noColumns], { tables: [] })
-    const second = planningError([noColumns, missingPrimaryKey], { tables: [] })
+    const first = planningError([missingPrimaryKey, noColumns], emptyCatalog())
+    const second = planningError([noColumns, missingPrimaryKey], emptyCatalog())
 
     expect(first.message).toBe(second.message)
   })
