@@ -225,6 +225,13 @@ function planningError(
   throw new Error('Expected migration planning to fail')
 }
 
+function invalidTableHandle(name: string): TableHandle {
+  return {
+    getTableMetadata: () => ({ name, primaryKey: 'id' }),
+    getSchema: () => ({ entries: {} }),
+  } as unknown as TableHandle
+}
+
 describe('Migration Plan construction', () => {
   it('returns no steps when the catalog matches the registered tables', () => {
     const catalog = usersCatalog([
@@ -677,13 +684,8 @@ describe('Migration Plan construction', () => {
   })
 
   it('rejects invalid desired and catalog inputs deterministically', () => {
-    const invalidHandle = (name: string): TableHandle =>
-      ({
-        getTableMetadata: () => ({ name, primaryKey: 'id' }),
-        getSchema: () => ({ entries: {} }),
-      }) as unknown as TableHandle
-    const alpha = invalidHandle('alpha')
-    const zeta = invalidHandle('zeta')
+    const alpha = invalidTableHandle('alpha')
+    const zeta = invalidTableHandle('zeta')
 
     const firstDesired = planningError([zeta, alpha], { tables: [] })
     const secondDesired = planningError([alpha, zeta], { tables: [] })
@@ -695,12 +697,36 @@ describe('Migration Plan construction', () => {
       { name: 'email', dataType: 'text', isNullable: false },
     ])
     duplicateCatalog.tables.push(structuredClone(duplicateCatalog.tables[0]!))
+    duplicateCatalog.tables[1]!.columns = duplicateCatalog.tables[1]!.columns.slice(0, 1)
     const reversedCatalog = structuredClone(duplicateCatalog)
     reversedCatalog.tables.reverse()
 
     expect(planningError([Users], duplicateCatalog).message).toBe(
       planningError([Users], reversedCatalog).message,
     )
+  })
+
+  it('considers invalid issues from every duplicate registered handle', () => {
+    const invalidUsers = invalidTableHandle('users')
+
+    const validFirst = planningError([Users, invalidUsers], { tables: [] })
+    const invalidFirst = planningError([invalidUsers, Users], { tables: [] })
+
+    expect(validFirst.message).toBe(invalidFirst.message)
+    expect(validFirst.message).toMatch(/no columns/i)
+  })
+
+  it('breaks otherwise identical issue ties deterministically', () => {
+    const missingPrimaryKey = {
+      getTableMetadata: () => ({ name: 'users', primaryKey: '' }),
+      getSchema: () => ({ entries: {} }),
+    } as unknown as TableHandle
+    const noColumns = invalidTableHandle('users')
+
+    const first = planningError([missingPrimaryKey, noColumns], { tables: [] })
+    const second = planningError([noColumns, missingPrimaryKey], { tables: [] })
+
+    expect(first.message).toBe(second.message)
   })
 
   it('throws instead of exposing constructive steps alongside an issue', () => {

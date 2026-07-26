@@ -192,7 +192,10 @@ function comparePlanningIssues(left: PlanningIssue, right: PlanningIssue): numbe
     const target = compareCodeUnits(leftPart, rightPart)
     if (target !== 0) return target
   }
-  return ISSUE_PROPERTY_ORDER[left.property] - ISSUE_PROPERTY_ORDER[right.property]
+  return (
+    ISSUE_PROPERTY_ORDER[left.property] - ISSUE_PROPERTY_ORDER[right.property] ||
+    compareCodeUnits(left.message, right.message)
+  )
 }
 
 function compareTableHandles(left: TableHandle, right: TableHandle): number {
@@ -447,7 +450,6 @@ function buildMigrationPlan(
         property: 'duplicate_registered_table',
         message: `Duplicate registered table '${key}'`,
       })
-      continue
     }
     registeredKeys.add(key)
     const schemaName = effectiveSchema(info.schema)
