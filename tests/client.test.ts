@@ -2,10 +2,7 @@ import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { createDatabase } from '@/client'
-import { defineTable } from '@/defineTable'
-import { column } from '@/schemas'
-import { QueryError, SchemaError } from '@/utils/error'
+import { QueryError, SchemaError, column, createDatabase, defineTable } from '@/index'
 
 function createMockStatement(rows: unknown[] = [{ '?column?': 1 }]): Statement {
   const statement: Statement = {
@@ -101,7 +98,7 @@ describe('createDatabase', () => {
   })
 
   it('should export createDatabase and no stray dialect ORM symbols', async () => {
-    const clientModule = await import('@/client')
+    const clientModule = await import('@/index')
     expect(clientModule.createDatabase).toBeTypeOf('function')
     expect(Object.keys(clientModule).join(',')).not.toMatch(/kysely/i)
     const connector = createMockConnector()

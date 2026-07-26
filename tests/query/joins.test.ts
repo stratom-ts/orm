@@ -2,12 +2,8 @@ import type { Connector, Statement } from 'db0'
 import { date, number, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { defineTable } from '@/defineTable'
-import { postgresDialect } from '@/dialects/postgres'
-import type { Prettify } from '@/index'
-import { createDatabase, eq } from '@/index'
-import { column } from '@/schemas'
-import type { InferSelect } from '@/types/views'
+import type { InferSelect, Prettify } from '@/index'
+import { column, createDatabase, defineTable, eq, postgresDialect } from '@/index'
 
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {

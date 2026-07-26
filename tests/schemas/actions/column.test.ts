@@ -1,7 +1,7 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { column, getColumnMetadata } from '@/schemas'
+import { column, getColumnMetadata } from '@/index'
 
 describe('column action', () => {
   it('should create column metadata action with correct kind', () => {

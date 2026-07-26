@@ -15,14 +15,8 @@ import {
 } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
 
-import { defineTable } from '@/defineTable'
-import { column, table } from '@/schemas'
-import type {
-  InferInsert,
-  InferSelect,
-  InferSelectedColumns,
-  InferUpdate,
-} from '@/types/views'
+import type { InferInsert, InferSelect, InferSelectedColumns, InferUpdate } from '@/index'
+import { column, defineTable, table } from '@/index'
 
 const User = defineTable(
   'users',

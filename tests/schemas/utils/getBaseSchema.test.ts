@@ -1,7 +1,7 @@
 import { nullable, nullish, number, object, optional, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { getBaseSchema } from '@/schemas'
+import { getBaseSchema } from '@/index'
 
 describe('getBaseSchema', () => {
   it('should return the schema itself for a plain schema', () => {

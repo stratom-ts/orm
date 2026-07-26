@@ -1,7 +1,7 @@
 import { nullable, nullish, object, optional, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { isNullable } from '@/schemas'
+import { isNullable } from '@/index'
 
 describe('isNullable', () => {
   it('should return false for a plain string schema', () => {
