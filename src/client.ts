@@ -6,6 +6,7 @@ import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
 import { resolveDialect } from '@/dialects'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
+import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import type {
   DeleteBuilder,
   Executor,
@@ -52,6 +53,8 @@ export type CreateDatabaseConfig<
   schemas: TSchemas
   /** Explicit default namespace for migration registrations with omitted namespaces. */
   defaultNamespace?: readonly NamespaceIdentifierInput[]
+  /** Optional explicit migration authority beyond exact complete registered relations. */
+  migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   /**
    * Global JS↔SQL value mapping overrides (applied after column metadata,
    * before dialect defaults when column overrides are absent).
@@ -394,6 +397,9 @@ export function createDatabase<
         ...(config.defaultNamespace === undefined
           ? {}
           : { defaultNamespace: config.defaultNamespace }),
+        ...(config.migrationOwnership === undefined
+          ? {}
+          : { migrationOwnership: config.migrationOwnership }),
         assertCanExecute() {
           if (transactionScope || transactionActive) {
             throw new MigrationError({

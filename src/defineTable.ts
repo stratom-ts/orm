@@ -80,6 +80,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
   }
 
   const names = new Set<string>()
+  const definitions = new Set<string>()
   for (const raw of metadata.indexes) {
     const index = normalizeIndex(raw)
     if (index.name !== undefined) {
@@ -98,13 +99,20 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
         })
       }
     }
-    const name = index.name ?? `${metadata.name}_${index.columns.join('_')}_idx`
-    if (names.has(name)) {
+    const definition = JSON.stringify([index.columns, index.unique ?? false])
+    if (definitions.has(definition)) {
       throw new SchemaError({
-        message: `duplicate index name "${name}" on table "${metadata.name}"`,
+        message: `duplicate index name or semantic definition on table "${metadata.name}"`,
       })
     }
-    names.add(name)
+    definitions.add(definition)
+    if (index.name === undefined) continue
+    if (names.has(index.name)) {
+      throw new SchemaError({
+        message: `duplicate explicit index name "${index.name}" on table "${metadata.name}"`,
+      })
+    }
+    names.add(index.name)
   }
 }
 

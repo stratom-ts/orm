@@ -32,6 +32,9 @@ export type CatalogColumn = {
 export type CatalogKeyConstraint = {
   name: string
   columns: string[]
+  semanticCompleteness: 'supportedSimple' | 'unsupported'
+  /** False for catalog objects that PostgreSQL will not enforce for all rows. */
+  isValid: boolean
 }
 
 export type CatalogForeignKey = CatalogKeyConstraint & {
@@ -48,6 +51,9 @@ export type CatalogIndex = {
   name: string
   columns: string[]
   unique: boolean
+  semanticCompleteness: 'supportedSimple' | 'unsupported'
+  /** False for invalid/not-ready PostgreSQL indexes. */
+  isValid: boolean
 }
 
 /** Live table entry from dialect introspection. */
@@ -66,6 +72,10 @@ export type CatalogTable = {
 /** Catalog snapshot for desired-state migrations. */
 export type CatalogSnapshot = {
   tables: CatalogTable[]
+  /** Complete transitional reservation set; empty means positively no reserved names. */
+  nameReservations: Array<{ schema: string; name: string }>
+  /** Complete table-local constraint-name set; empty means positively none. */
+  constraintNameReservations: Array<{ schema: string; table: string; name: string }>
   /**
    * Writable namespace facts resolved on the introspection session. Required because
    * migration identity never assumes a shared namespace fallback.
@@ -245,6 +255,7 @@ export type CreateTableColumnAst = {
   readonly dataType: string
   readonly notNull: boolean
   readonly unique: boolean
+  readonly uniqueConstraintName?: string
   readonly autoIncrement: boolean
   readonly defaultValue?: string | number | boolean | null
   readonly generated?: 'always' | 'byDefault'
@@ -264,6 +275,7 @@ export type CreateTableAst = {
   readonly schema?: string
   readonly columns: readonly CreateTableColumnAst[]
   readonly primaryKey: readonly string[]
+  readonly primaryKeyName?: string
 }
 
 export type CreateSchemaAst = {
@@ -292,6 +304,7 @@ export type AddForeignKeyAst = {
   readonly table: string
   readonly schema?: string
   readonly column: string
+  readonly name?: string
   readonly references: {
     readonly table: string
     readonly column: string
@@ -299,6 +312,14 @@ export type AddForeignKeyAst = {
     readonly onDelete?: string
     readonly onUpdate?: string
   }
+}
+
+export type AddUniqueConstraintAst = {
+  readonly kind: 'add_unique_constraint'
+  readonly table: string
+  readonly schema?: string
+  readonly column: string
+  readonly name: string
 }
 
 export type AlterColumnTypeAst = {
@@ -353,6 +374,7 @@ export type SqlAst =
   | CreateSchemaAst
   | CreateIndexAst
   | AlterTableAddColumnAst
+  | AddUniqueConstraintAst
   | AddForeignKeyAst
   | AlterColumnTypeAst
   | SetNotNullAst

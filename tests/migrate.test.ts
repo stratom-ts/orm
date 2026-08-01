@@ -147,6 +147,11 @@ function createMockConnector(options?: {
                     constraint_name: `${table.name}_pkey`,
                     constraint_type: 'p',
                     columns: table.primaryKey,
+                    is_valid: true,
+                    is_deferrable: false,
+                    initially_deferred: false,
+                    backing_index_is_valid: true,
+                    has_supported_backing_index_semantics: true,
                   },
                 ]
               : []),
@@ -156,6 +161,11 @@ function createMockConnector(options?: {
               constraint_name: constraint.name,
               constraint_type: 'u',
               columns: constraint.columns,
+              is_valid: true,
+              is_deferrable: false,
+              initially_deferred: false,
+              backing_index_is_valid: true,
+              has_supported_backing_index_semantics: true,
             })),
             ...(table.foreignKeys ?? []).map((constraint) => ({
               schema: table.schema,
@@ -168,6 +178,10 @@ function createMockConnector(options?: {
               referenced_columns: constraint.referencedColumns,
               on_delete: constraint.onDelete ?? 'no action',
               on_update: constraint.onUpdate ?? 'no action',
+              is_valid: true,
+              is_deferrable: false,
+              initially_deferred: false,
+              match_type: 's',
             })),
           ]),
         )
@@ -182,6 +196,8 @@ function createMockConnector(options?: {
               index_name: index.name,
               is_unique: index.unique,
               columns: index.columns,
+              has_supported_semantics: true,
+              is_valid: true,
             })),
           ),
         )
@@ -266,7 +282,7 @@ describe('postgresDialect.compile migration steps', () => {
         columns: ['email'],
         unique: false,
       }).sql,
-    ).toContain('create index if not exists "users_email_idx"')
+    ).toContain('create index "users_email_idx"')
 
     expect(
       postgresDialect.compile({
@@ -282,6 +298,18 @@ describe('postgresDialect.compile migration steps', () => {
         },
       }).sql,
     ).toContain('alter table "public"."users" add column "nickname" text not null')
+
+    expect(
+      postgresDialect.compile({
+        kind: 'add_unique_constraint',
+        schema: 'public',
+        table: 'users',
+        column: 'email',
+        name: 'users_email_key',
+      }).sql,
+    ).toContain(
+      'alter table "public"."users" add constraint "users_email_key" unique ("email")',
+    )
 
     const foreignKey = postgresDialect.compile({
       kind: 'add_foreign_key',
@@ -369,8 +397,18 @@ describe('db.migrate() adapters and execution', () => {
       connector.runSql.find((sql) => /create table "app"\."memberships"/i.test(sql)),
     ).toContain('primary key ("orgId", "userId")')
     expect(
-      connector.runSql.find((sql) => /add foreign key \("authorId"\)/i.test(sql)),
+      connector.runSql.find((sql) => /foreign key \("authorId"\)/i.test(sql)),
     ).toContain('references "app"."users" ("id")')
+    expect(
+      connector.runSql.some((sql) =>
+        /constraint ".*__[0-9a-f]{16}_pkey" primary key/i.test(sql),
+      ),
+    ).toBe(true)
+    expect(
+      connector.runSql.some((sql) =>
+        /add constraint ".*__[0-9a-f]{16}_fkey" foreign key/i.test(sql),
+      ),
+    ).toBe(true)
 
     await db.close()
   })
@@ -383,6 +421,71 @@ describe('db.migrate() adapters and execution', () => {
       steps: [{ kind: 'create_table', schema: 'public', table: 'users' }],
     })
     expect(connector.runSql).toEqual([])
+
+    await db.close()
+  })
+
+  it('reuses planned generated index names during AST lowering', async () => {
+    const IndexedEvents = defineTable(
+      'indexed_events',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        createdAt: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id', indexes: [{ columns: ['createdAt'] }] },
+    )
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [IndexedEvents] })
+
+    const plan = await db.migrate().dryRun()
+    const index = plan.steps.find((step) => step.kind === 'create_index')
+    expect(index?.kind).toBe('create_index')
+    if (index?.kind !== 'create_index') throw new Error('Expected generated index step')
+
+    await db.migrate().execute()
+    expect(
+      connector.runSql.some((sql) =>
+        sql.includes(`create index "${index.index}" on "public"."indexed_events"`),
+      ),
+    ).toBe(true)
+
+    await db.close()
+  })
+
+  it('lowers additive unique-constraint steps with the planned naming profile', async () => {
+    const UniqueUsers = defineTable(
+      'users',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        email: pipe(string(), column({ type: 'text', unique: true })),
+      },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const connector = createMockConnector({ tables: [matchingUsers()] })
+    const db = createDatabase({
+      connector,
+      schemas: [UniqueUsers],
+      migrationOwnership: [
+        { kind: 'relation', relation: UniqueUsers, shape: 'additive' },
+      ],
+    })
+
+    await expect(db.migrate().dryRun()).resolves.toMatchObject({
+      steps: [
+        {
+          kind: 'add_unique_constraint',
+          schema: 'public',
+          table: 'users',
+          column: 'email',
+        },
+      ],
+    })
+    await db.migrate().execute()
+    expect(
+      connector.runSql.some((sql) =>
+        /add constraint ".*__[0-9a-f]{16}_key" unique \("email"\)/i.test(sql),
+      ),
+    ).toBe(true)
 
     await db.close()
   })
@@ -534,11 +637,7 @@ describe('db.migrate() policy and coordination', () => {
       .dryRun()
 
     expect(allowed).toEqual(plan)
-    expect(plan.steps.map((step) => step.kind)).toEqual([
-      'drop_index',
-      'drop_column',
-      'drop_table',
-    ])
+    expect(plan.steps.map((step) => step.kind)).toEqual(['drop_index', 'drop_column'])
 
     await db.close()
   })
@@ -561,7 +660,19 @@ describe('db.migrate() policy and coordination', () => {
       { primaryKey: 'id', schema: 'public' },
     )
     const connector = createMockConnector({ tables: destructiveCatalog() })
-    const db = createDatabase({ connector, schemas: [Users, AuditEvents] })
+    const db = createDatabase({
+      connector,
+      schemas: [Users, AuditEvents],
+      migrationOwnership: [
+        {
+          kind: 'absentRelation',
+          relation: {
+            namespace: [{ role: 'schema', spelling: 'public' }],
+            relation: 'orphan',
+          },
+        },
+      ],
+    })
 
     await db.migrate().allow('dropColumn', 'dropIndex', 'dropTable').execute()
 

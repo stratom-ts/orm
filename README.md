@@ -277,14 +277,59 @@ await db.transaction(async (trx) => {
 
 ## Migrations
 
-Migrations diff your registered handles against the live database. Destructive
-steps are refused unless explicitly allowed.
+Migrations diff registered handles against the live database. A handle owns only its exact
+relation and uses complete member shape by default. Complete shape removes undeclared
+columns and indexes. Extra unique and foreign-key constraints currently fail planning as an
+explicit capability limit because constraint-drop steps are not yet supported. It never
+owns other tables merely because they share a schema. Destructive steps are refused unless
+explicitly allowed, but `allow()` grants execution permission only and never expands
+ownership.
 
 ```typescript
 const plan = await db.migrate().dryRun()
 await db.migrate().execute()
 await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
 ```
+
+Use the separate `migrationOwnership` manifest to preserve undeclared members, request an
+exact table deletion, or exclusively manage all observed relations in a namespace:
+
+```typescript
+const db = createDatabase({
+  connector: postgresql({ url: process.env.DATABASE_URL! }),
+  schemas: [User],
+  migrationOwnership: [
+    { kind: 'relation', relation: User, shape: 'additive' },
+    {
+      kind: 'absentRelation',
+      relation: {
+        namespace: [{ role: 'schema', spelling: 'public' }],
+        relation: 'legacy_users',
+      },
+    },
+    {
+      kind: 'completeNamespace',
+      namespace: [{ role: 'schema', spelling: 'audit' }],
+    },
+  ],
+})
+```
+
+`completeNamespace` also represents an intentionally empty namespace when no handles are
+registered there. The current table-only catalog can observe namespace existence through
+the writable default or a table, but cannot distinguish an absent custom namespace from an
+already existing empty one. In that case dry runs retain an idempotent `create_schema` step.
+
+Unnamed indexes and constraints receive adapter-owned deterministic physical names during
+migration planning. Generated names always contain a semantic digest and respect the
+adapter's identifier length and collision scope. Explicit names that are too long or
+collide fail planning and are never truncated.
+
+Catalog adoption is limited to validated, non-deferrable constraints and valid simple
+indexes (plain columns, default B-tree method/order/opclasses/collations, no predicate,
+expressions, included columns, or `NULLS NOT DISTINCT`). PK/unique constraints must have the
+same supported backing-index semantics. Rich, invalid, or unknown PostgreSQL objects fail as
+unsupported drift rather than being adopted or replaced implicitly.
 
 ### Errors
 

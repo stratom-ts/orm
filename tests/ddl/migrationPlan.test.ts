@@ -13,8 +13,22 @@ const POSTGRES_NAMESPACE_CONTEXT = {
   ],
 }
 
+const EMPTY_CATALOG_RESERVATIONS = {
+  nameReservations: [],
+  constraintNameReservations: [],
+}
+
+const SUPPORTED_CATALOG_SEMANTICS = {
+  semanticCompleteness: 'supportedSimple' as const,
+  isValid: true,
+}
+
 function emptyCatalog(): CatalogSnapshot {
-  return { tables: [], namespaceContext: POSTGRES_NAMESPACE_CONTEXT }
+  return {
+    tables: [],
+    namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+    ...EMPTY_CATALOG_RESERVATIONS,
+  }
 }
 
 const Users = defineTable(
@@ -105,12 +119,17 @@ function usersCatalog(
 ): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+    ...EMPTY_CATALOG_RESERVATIONS,
     tables: [
       {
         schema: 'public',
         name: 'users',
         columns,
-        primaryKey: { name: 'users_pkey', columns: ['id'] },
+        primaryKey: {
+          name: 'users_pkey',
+          columns: ['id'],
+          ...SUPPORTED_CATALOG_SEMANTICS,
+        },
       },
     ],
   }
@@ -123,6 +142,7 @@ function rotate<T>(values: readonly T[]): T[] {
 function mixedCatalog(): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+    ...EMPTY_CATALOG_RESERVATIONS,
     tables: [
       {
         schema: 'public',
@@ -146,8 +166,18 @@ function mixedCatalog(): CatalogSnapshot {
           { name: 'removedA', dataType: 'text', isNullable: true },
         ],
         indexes: [
-          { name: 'stale_z_idx', columns: ['removedZ'], unique: false },
-          { name: 'stale_a_idx', columns: ['removedA'], unique: false },
+          {
+            name: 'stale_z_idx',
+            columns: ['removedZ'],
+            unique: false,
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
+          {
+            name: 'stale_a_idx',
+            columns: ['removedA'],
+            unique: false,
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
         ],
       },
       {
@@ -157,7 +187,14 @@ function mixedCatalog(): CatalogSnapshot {
           { name: 'child', dataType: 'text', isNullable: true },
           { name: 'id', dataType: 'uuid', isNullable: false },
         ],
-        indexes: [{ name: 'orphan_child_idx', columns: ['child'], unique: false }],
+        indexes: [
+          {
+            name: 'orphan_child_idx',
+            columns: ['child'],
+            unique: false,
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
+        ],
       },
       {
         schema: 'public',
@@ -171,6 +208,7 @@ function mixedCatalog(): CatalogSnapshot {
 function managedCatalog(): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+    ...EMPTY_CATALOG_RESERVATIONS,
     tables: [
       {
         schema: 'public',
@@ -203,10 +241,21 @@ function managedCatalog(): CatalogSnapshot {
             name: 'managed_users_status_idx',
             columns: ['status'],
             unique: false,
+            ...SUPPORTED_CATALOG_SEMANTICS,
           },
         ],
-        primaryKey: { name: 'managed_users_pkey', columns: ['id'] },
-        uniqueConstraints: [{ name: 'managed_users_email_key', columns: ['email'] }],
+        primaryKey: {
+          name: 'managed_users_pkey',
+          columns: ['id'],
+          ...SUPPORTED_CATALOG_SEMANTICS,
+        },
+        uniqueConstraints: [
+          {
+            name: 'managed_users_email_key',
+            columns: ['email'],
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
+        ],
         foreignKeys: [],
       },
       {
@@ -216,7 +265,11 @@ function managedCatalog(): CatalogSnapshot {
           { name: 'id', dataType: 'uuid', isNullable: false },
           { name: 'userId', dataType: 'integer', isNullable: false },
         ],
-        primaryKey: { name: 'managed_posts_pkey', columns: ['id'] },
+        primaryKey: {
+          name: 'managed_posts_pkey',
+          columns: ['id'],
+          ...SUPPORTED_CATALOG_SEMANTICS,
+        },
         uniqueConstraints: [],
         foreignKeys: [
           {
@@ -227,6 +280,7 @@ function managedCatalog(): CatalogSnapshot {
             referencedColumns: ['id'],
             onDelete: 'cascade',
             onUpdate: 'restrict',
+            ...SUPPORTED_CATALOG_SEMANTICS,
           },
         ],
       },
@@ -267,6 +321,7 @@ describe('Migration Plan construction', () => {
   it('uses PostgreSQL lowering and normalization for comparisons', () => {
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         {
           schema: 'public',
@@ -311,6 +366,7 @@ describe('Migration Plan construction', () => {
     }
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         {
           schema: 'public',
@@ -324,7 +380,11 @@ describe('Migration Plan construction', () => {
               defaultExpression: 'custom_default:ready',
             },
           ],
-          primaryKey: { name: 'portable_settings_pkey', columns: ['id'] },
+          primaryKey: {
+            name: 'portable_settings_pkey',
+            columns: ['id'],
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
         },
       ],
     }
@@ -351,9 +411,10 @@ describe('Migration Plan construction', () => {
     })
   })
 
-  it('returns every required destructive step without permission input', () => {
+  it('returns every exact-relation destructive step without permission input', () => {
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         {
           schema: 'public',
@@ -363,7 +424,14 @@ describe('Migration Plan construction', () => {
             { name: 'email', dataType: 'text', isNullable: false },
             { name: 'legacy', dataType: 'text', isNullable: true },
           ],
-          indexes: [{ name: 'users_stale_idx', columns: ['email'], unique: false }],
+          indexes: [
+            {
+              name: 'users_stale_idx',
+              columns: ['email'],
+              unique: false,
+              ...SUPPORTED_CATALOG_SEMANTICS,
+            },
+          ],
         },
         {
           schema: 'public',
@@ -387,11 +455,6 @@ describe('Migration Plan construction', () => {
           table: 'users',
           column: 'legacy',
         },
-        {
-          kind: 'drop_table',
-          schema: 'public',
-          table: 'orphan',
-        },
       ],
     })
   })
@@ -402,6 +465,14 @@ describe('Migration Plan construction', () => {
         [Comments, Users, AuditEvents, Accounts],
         mixedCatalog(),
         postgresDialect,
+        {
+          migrationOwnership: [
+            {
+              kind: 'completeNamespace',
+              namespace: [{ role: 'schema', spelling: 'public' }],
+            },
+          ],
+        },
       ),
     ).toEqual({
       steps: [
@@ -535,6 +606,7 @@ describe('Migration Plan construction', () => {
     )
     const tenantCatalog: CatalogSnapshot = {
       tables: [],
+      ...EMPTY_CATALOG_RESERVATIONS,
       namespaceContext: {
         writableDefault: [
           { role: 'database', spelling: 'test' },
@@ -585,6 +657,7 @@ describe('Migration Plan construction', () => {
       { primaryKey: 'id', schema: 'public' },
     )
     const catalog: CatalogSnapshot = {
+      ...EMPTY_CATALOG_RESERVATIONS,
       namespaceContext: {
         writableDefault: [
           { role: 'database', spelling: 'test' },
@@ -691,6 +764,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         {
           schema: 'a.b',
@@ -718,6 +792,7 @@ describe('Migration Plan construction', () => {
     )
     const mismatchedCatalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         catalog.tables[1]!,
         {
@@ -734,7 +809,6 @@ describe('Migration Plan construction', () => {
       steps: [
         { kind: 'create_schema', schema: 'a.b' },
         { kind: 'create_table', schema: 'a.b', table: 'c' },
-        { kind: 'drop_table', schema: 'a', table: 'b.c' },
       ],
     })
   })
@@ -747,6 +821,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         {
           schema: 'a.b',
@@ -811,6 +886,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         {
           schema: 'public',
@@ -819,7 +895,11 @@ describe('Migration Plan construction', () => {
             { name: 'teamId', dataType: 'uuid', isNullable: false },
             { name: 'tenantId', dataType: 'uuid', isNullable: false },
           ],
-          primaryKey: { name: 'teams_pkey', columns: ['tenantId', 'teamId'] },
+          primaryKey: {
+            name: 'teams_pkey',
+            columns: ['tenantId', 'teamId'],
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
         },
         {
           schema: 'public',
@@ -832,8 +912,16 @@ describe('Migration Plan construction', () => {
             { name: 'primaryEmail', dataType: 'text', isNullable: false },
           ],
           uniqueConstraints: [
-            { name: 'memberships_secondary_email_key', columns: ['secondaryEmail'] },
-            { name: 'memberships_primary_email_key', columns: ['primaryEmail'] },
+            {
+              name: 'memberships_secondary_email_key',
+              columns: ['secondaryEmail'],
+              ...SUPPORTED_CATALOG_SEMANTICS,
+            },
+            {
+              name: 'memberships_primary_email_key',
+              columns: ['primaryEmail'],
+              ...SUPPORTED_CATALOG_SEMANTICS,
+            },
           ],
           foreignKeys: [
             {
@@ -844,6 +932,7 @@ describe('Migration Plan construction', () => {
               referencedColumns: ['teamId'],
               onDelete: 'no action',
               onUpdate: 'no action',
+              ...SUPPORTED_CATALOG_SEMANTICS,
             },
             {
               name: 'memberships_primary_team_fkey',
@@ -853,6 +942,7 @@ describe('Migration Plan construction', () => {
               referencedColumns: ['teamId'],
               onDelete: 'no action',
               onUpdate: 'no action',
+              ...SUPPORTED_CATALOG_SEMANTICS,
             },
           ],
         },
@@ -886,6 +976,7 @@ describe('Migration Plan construction', () => {
     catalog.tables[0]!.primaryKey = {
       name: 'users_pkey',
       columns: ['email'],
+      ...SUPPORTED_CATALOG_SEMANTICS,
     }
 
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(MigrationError)
@@ -916,7 +1007,11 @@ describe('Migration Plan construction', () => {
     [
       'unique constraint',
       (catalog: CatalogSnapshot) => {
-        catalog.tables[0]!.uniqueConstraints = []
+        catalog.tables[0]!.uniqueConstraints!.push({
+          name: 'managed_users_status_key',
+          columns: ['status'],
+          ...SUPPORTED_CATALOG_SEMANTICS,
+        })
       },
     ],
     [
@@ -974,6 +1069,7 @@ describe('Migration Plan construction', () => {
         referencedColumns: ['id'],
         onDelete: 'no action',
         onUpdate: 'no action',
+        ...SUPPORTED_CATALOG_SEMANTICS,
       },
     ]
 
@@ -1002,6 +1098,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      ...EMPTY_CATALOG_RESERVATIONS,
       tables: [
         {
           schema: 'public',
@@ -1092,7 +1189,7 @@ describe('Migration Plan construction', () => {
     ).toThrow(MigrationError)
   })
 
-  it('only removes tables in schemas owned by registered handles', () => {
+  it('does not infer namespace ownership from registered handles', () => {
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
@@ -1110,8 +1207,6 @@ describe('Migration Plan construction', () => {
       },
     )
 
-    expect(planMigration([Users], catalog, postgresDialect)).toEqual({
-      steps: [{ kind: 'drop_table', schema: 'public', table: 'orphan' }],
-    })
+    expect(planMigration([Users], catalog, postgresDialect)).toEqual({ steps: [] })
   })
 })
