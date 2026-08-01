@@ -52,22 +52,6 @@ const user = await db
 await db.close()
 ```
 
-The db0 PostgreSQL connector is adapted automatically to an exclusive native
-operation session. A custom connector must provide its session capability explicitly:
-
-```typescript
-const db = createDatabase({
-  connector,
-  operationSessionProvider,
-  schemas: [User],
-  applicationId: 'billing-service', // optional stable migration coordination scope
-})
-```
-
-An `OperationSessionProvider` owns session shutdown and must provide pinned native
-transaction semantics. Its sessions expose stable database/physical identity, serial
-`query`/`run`, cancellation, and exactly-once `release('reuse' | 'discard')`.
-
 ## Defining tables
 
 `defineTable(name, columns, options)` builds a table handle from a table name, a
