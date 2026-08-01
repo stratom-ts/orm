@@ -172,6 +172,47 @@ describe('canonical relation identity', () => {
     expect(identities.equals(omitted, attached)).toBe(false)
   })
 
+  it('resolves SQLite omission from registration before session context', () => {
+    const identities = createCanonicalRelationIdentityModule({
+      adapter: 'sqlite',
+      context: SQLITE_CONTEXT,
+      registrationDefault: [{ role: 'database', spelling: 'audit' }],
+    })
+
+    expect(
+      identities.equals(
+        identities.resolve({ relation: 'events' }),
+        identities.resolve({
+          namespace: [{ role: 'database', spelling: 'audit' }],
+          relation: 'events',
+        }),
+      ),
+    ).toBe(true)
+    expect(
+      identities.equals(
+        identities.resolve({ relation: 'events' }),
+        identities.resolve({
+          namespace: [{ role: 'database', spelling: 'main' }],
+          relation: 'events',
+        }),
+      ),
+    ).toBe(false)
+  })
+
+  it('compares SQLite namespace roles structurally', () => {
+    const identities = createCanonicalRelationIdentityModule({
+      adapter: 'sqlite',
+      context: SQLITE_CONTEXT,
+    })
+    const identity = identities.resolve({ relation: 'events' })
+    const differentRole: CanonicalRelationIdentity = {
+      ...identity,
+      namespace: [{ ...identity.namespace[0]!, role: 'catalog' }],
+    }
+
+    expect(identities.equals(identity, differentRole)).toBe(false)
+  })
+
   it('keeps SQLite tuples collision-free under its comparison keys', () => {
     const identities = createCanonicalRelationIdentityModule({
       adapter: 'sqlite',
@@ -204,6 +245,8 @@ describe('canonical relation identity', () => {
         identities.resolve({ relation: 'users' }),
       ),
     ).toBe(true)
+    registry.set(identities.resolve({ relation: 'Users' }), 42)
+    expect(registry.get(identities.resolve({ relation: 'users' }))).toBe(42)
     expect(
       identities.equals(
         identities.resolve({ relation: 'caf\u00e9' }),

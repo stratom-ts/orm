@@ -41,7 +41,10 @@ export type CanonicalRelationIdentityModule = {
   resolve(input: RelationIdentityInput): CanonicalRelationIdentity
   equals(left: CanonicalRelationIdentity, right: CanonicalRelationIdentity): boolean
   compare(left: CanonicalRelationIdentity, right: CanonicalRelationIdentity): number
-  format(identity: CanonicalRelationIdentity): string
+  format(
+    identity: CanonicalRelationIdentity,
+    member?: Readonly<{ role: 'column' | 'index'; spelling: string }>,
+  ): string
   createRegistry<T>(): CanonicalRelationRegistry<T>
 }
 
@@ -260,11 +263,12 @@ export function createCanonicalRelationIdentityModule(options: {
       return compare(left, right) === 0
     },
     compare,
-    format(identity) {
+    format(identity, member) {
       const segments = identity.namespace.map(
         ({ role, identifier }) => `${role}:${JSON.stringify(identifier.spelling)}`,
       )
       segments.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
+      if (member) segments.push(`${member.role}:${JSON.stringify(member.spelling)}`)
       return `[${segments.join(', ')}]`
     },
     createRegistry,

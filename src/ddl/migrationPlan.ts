@@ -157,12 +157,24 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
   index_definition: 10,
 }
 
+/**
+ * Compares strings by locale-independent UTF-16 code-unit order.
+ *
+ * @param left - First string to compare.
+ * @param right - Second string to compare.
+ */
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
   return 0
 }
 
+/**
+ * Builds an identity input whose omitted schema is resolved by the identity module.
+ *
+ * @param schema - Explicit schema spelling, or undefined to use namespace resolution.
+ * @param relation - Relation spelling.
+ */
 function relationInput(schema: string | undefined, relation: string) {
   return {
     ...(schema === undefined
@@ -172,6 +184,13 @@ function relationInput(schema: string | undefined, relation: string) {
   }
 }
 
+/**
+ * Builds an identity input for an introspected relation, which must always include its
+ * catalog-provided schema.
+ *
+ * @param schema - Schema spelling supplied by catalog introspection.
+ * @param relation - Relation spelling supplied by catalog introspection.
+ */
 function catalogRelationInput(schema: string | undefined, relation: string) {
   if (schema === undefined) {
     throw new TypeError(
@@ -181,6 +200,13 @@ function catalogRelationInput(schema: string | undefined, relation: string) {
   return relationInput(schema, relation)
 }
 
+/**
+ * Projects the schema spelling required by the current Migration Plan step format.
+ *
+ * @param identity - Canonical relation identity to project.
+ *
+ * @throws {MigrationError} When the canonical identity has no schema segment.
+ */
 function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
   const schema = identity.namespace.find((segment) => segment.role === 'schema')
   if (!schema) {
@@ -191,6 +217,12 @@ function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
   return schema.identifier.spelling
 }
 
+/**
+ * Compares namespace roles and comparison keys while ignoring the relation segment.
+ *
+ * @param left - First canonical identity.
+ * @param right - Second canonical identity.
+ */
 function sameNamespace(
   left: CanonicalRelationIdentity,
   right: CanonicalRelationIdentity,
@@ -207,6 +239,13 @@ function sameNamespace(
   )
 }
 
+/**
+ * Orders plan steps by migration phase, canonical relation identity, then member name.
+ *
+ * @param left - First Migration Plan step.
+ * @param right - Second Migration Plan step.
+ * @param identities - Identity module used to resolve and compare step targets.
+ */
 function compareMigrationSteps(
   left: MigrationStep,
   right: MigrationStep,
@@ -233,6 +272,13 @@ function compareMigrationSteps(
   return compareCodeUnits(leftMember, rightMember)
 }
 
+/**
+ * Selects planning issues deterministically by relation, member, property, and message.
+ *
+ * @param left - First planning issue.
+ * @param right - Second planning issue.
+ * @param identities - Identity module used to compare issue targets.
+ */
 function comparePlanningIssues(
   left: PlanningIssue,
   right: PlanningIssue,
@@ -248,6 +294,13 @@ function comparePlanningIssues(
   )
 }
 
+/**
+ * Orders desired table handles by their resolved canonical relation identities.
+ *
+ * @param left - First desired table handle.
+ * @param right - Second desired table handle.
+ * @param identities - Identity module used to resolve and compare handles.
+ */
 function compareTableHandles(
   left: TableHandle,
   right: TableHandle,
@@ -261,6 +314,13 @@ function compareTableHandles(
   )
 }
 
+/**
+ * Orders introspected tables by their explicit canonical relation identities.
+ *
+ * @param left - First catalog table.
+ * @param right - Second catalog table.
+ * @param identities - Identity module used to resolve and compare catalog tables.
+ */
 function compareCatalogTables(
   left: CatalogTable,
   right: CatalogTable,
@@ -272,6 +332,14 @@ function compareCatalogTables(
   )
 }
 
+/**
+ * Registers catalog tables by structured identity and records duplicate identities as
+ * planning issues while retaining the first table.
+ *
+ * @param tables - Canonically ordered catalog tables to register.
+ * @param issues - Mutable collection that receives duplicate-table issues.
+ * @param identities - Identity module used for structured registration.
+ */
 function catalogTableMap(
   tables: readonly CatalogTable[],
   issues: PlanningIssue[],
@@ -294,6 +362,13 @@ function catalogTableMap(
   return map
 }
 
+/**
+ * Collects namespaces known to exist from the writable default and catalog relations.
+ * Placeholder relation names carry namespaces because identities are relation-shaped.
+ *
+ * @param catalog - Introspected catalog and writable namespace context.
+ * @param identities - Identity module used to resolve catalog namespaces.
+ */
 function schemasPresentInCatalog(
   catalog: CatalogSnapshot,
   identities: CanonicalRelationIdentityModule,
@@ -313,23 +388,48 @@ function schemasPresentInCatalog(
   return schemas
 }
 
+/**
+ * Derives the conventional index name used when the desired index omits one.
+ *
+ * @param table - Relation spelling used as the name prefix.
+ * @param columns - Ordered indexed column spellings.
+ */
 function defaultIndexName(table: string, columns: string[]): string {
   return `${table}_${columns.join('_')}_idx`
 }
 
+/**
+ * Tests arrays for positional string equality without mutating either input.
+ *
+ * @param left - First ordered string collection.
+ * @param right - Second ordered string collection.
+ */
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return (
     left.length === right.length && left.every((value, index) => value === right[index])
   )
 }
 
+/**
+ * Normalizes referential actions for catalog-to-desired comparisons.
+ *
+ * @param action - Introspected or desired action, or undefined for the SQL default.
+ */
 function normalizeAction(action: string | undefined): string {
   return action?.toLowerCase() ?? 'no action'
 }
 
+/**
+ * Reports unsupported default drift when the catalog supplied complete default
+ * information; returns undefined when values match or the catalog value is unknown.
+ *
+ * @param target - Structured diagnostic target for the column.
+ * @param live - Introspected column definition.
+ * @param desired - Desired column definition.
+ * @param dialect - Dialect used to normalize desired default values.
+ */
 function defaultMismatch(
-  tableName: string,
-  columnName: string,
+  target: string,
   live: CatalogColumn,
   desired: CreateTableColumnAst,
   dialect: Dialect,
@@ -340,23 +440,30 @@ function defaultMismatch(
       ? null
       : dialect.normalizeDefaultValue?.(desired.defaultValue)
   if (desired.defaultValue !== undefined && expected === undefined) {
-    return `Cannot compare default for '${tableName}.${columnName}': dialect does not normalize defaults`
+    return `Cannot compare default for ${target}: dialect does not normalize defaults`
   }
   if (live.defaultExpression !== expected) {
-    return `Unsupported default change for '${tableName}.${columnName}'`
+    return `Unsupported default change for ${target}`
   }
 }
 
+/**
+ * Reports unsupported identity-generation drift when the catalog supplied that
+ * property; returns undefined when values match or the property is unknown.
+ *
+ * @param target - Structured diagnostic target for the column.
+ * @param live - Introspected column definition.
+ * @param desired - Desired column definition.
+ */
 function identityMismatch(
-  tableName: string,
-  columnName: string,
+  target: string,
   live: CatalogColumn,
   desired: CreateTableColumnAst,
 ): string | undefined {
   if (live.identityGeneration === undefined) return
   const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
   if (live.identityGeneration !== expected) {
-    return `Unsupported identity change for '${tableName}.${columnName}'`
+    return `Unsupported identity change for ${target}`
   }
 }
 
@@ -368,6 +475,12 @@ type CanonicalForeignKey = {
   onUpdate: string
 }
 
+/**
+ * Compares string arrays lexicographically using deterministic code-unit ordering.
+ *
+ * @param left - First ordered string collection.
+ * @param right - Second ordered string collection.
+ */
 function compareStringArrays(left: readonly string[], right: readonly string[]): number {
   const length = Math.min(left.length, right.length)
   for (let index = 0; index < length; index++) {
@@ -377,6 +490,13 @@ function compareStringArrays(left: readonly string[], right: readonly string[]):
   return left.length - right.length
 }
 
+/**
+ * Compares every semantic field of two normalized foreign-key definitions.
+ *
+ * @param left - First normalized foreign key.
+ * @param right - Second normalized foreign key.
+ * @param identities - Identity module used to compare referenced relations.
+ */
 function compareForeignKeys(
   left: CanonicalForeignKey,
   right: CanonicalForeignKey,
@@ -391,6 +511,13 @@ function compareForeignKeys(
   )
 }
 
+/**
+ * Tests canonically sorted foreign-key collections for positional semantic equality.
+ *
+ * @param left - First canonically sorted foreign-key collection.
+ * @param right - Second canonically sorted foreign-key collection.
+ * @param identities - Identity module used to compare referenced relations.
+ */
 function foreignKeyArraysEqual(
   left: readonly CanonicalForeignKey[],
   right: readonly CanonicalForeignKey[],
@@ -405,6 +532,16 @@ function foreignKeyArraysEqual(
   )
 }
 
+/**
+ * Adds deterministic issues for managed properties that cannot yet be migrated safely.
+ * Undefined catalog properties are treated as unavailable rather than as drift.
+ *
+ * @param live - Introspected table definition.
+ * @param desired - Dialect-lowered desired table definition.
+ * @param dialect - Dialect used to normalize managed values.
+ * @param issues - Mutable collection that receives unsupported-drift issues.
+ * @param identities - Identity module used for comparison and diagnostics.
+ */
 function collectManagedPropertyIssues(
   live: CatalogTable,
   desired: ReturnType<typeof buildCreateTableAst>,
@@ -422,7 +559,10 @@ function collectManagedPropertyIssues(
         identity,
         target: column.name,
         property: 'duplicate_catalog_column',
-        message: `Duplicate catalog column '${tableName}.${column.name}'`,
+        message: `Duplicate catalog column ${identities.format(identity, {
+          role: 'column',
+          spelling: column.name,
+        })}`,
       })
       continue
     }
@@ -432,13 +572,11 @@ function collectManagedPropertyIssues(
   for (const column of desired.columns) {
     const current = liveColumns.get(column.name)
     if (!current) continue
-    const defaultMessage = defaultMismatch(
-      tableName,
-      column.name,
-      current,
-      column,
-      dialect,
-    )
+    const columnTarget = identities.format(identity, {
+      role: 'column',
+      spelling: column.name,
+    })
+    const defaultMessage = defaultMismatch(columnTarget, current, column, dialect)
     if (defaultMessage) {
       issues.push({
         identity,
@@ -447,7 +585,7 @@ function collectManagedPropertyIssues(
         message: defaultMessage,
       })
     }
-    const identityMessage = identityMismatch(tableName, column.name, current, column)
+    const identityMessage = identityMismatch(columnTarget, current, column)
     if (identityMessage) {
       issues.push({
         identity,
@@ -528,10 +666,21 @@ function collectManagedPropertyIssues(
   }
 }
 
+/**
+ * Projects a canonical relation identity into the schema field used by plan steps.
+ *
+ * @param identity - Canonical relation identity to project.
+ */
 function schemaField(identity: CanonicalRelationIdentity): { schema: string } {
   return { schema: schemaFromIdentity(identity) }
 }
 
+/**
+ * Resolves a desired foreign-key reference and projects its canonical schema.
+ *
+ * @param reference - Desired foreign-key reference to resolve.
+ * @param identities - Identity module used to resolve the referenced relation.
+ */
 function projectedReference(
   reference: NonNullable<CreateTableColumnAst['references']>,
   identities: CanonicalRelationIdentityModule,
@@ -543,6 +692,11 @@ function projectedReference(
   }
 }
 
+/**
+ * Normalizes desired indexes and fills omitted names and uniqueness flags.
+ *
+ * @param info - Desired table metadata containing index declarations.
+ */
 function desiredIndexes(
   info: ReturnType<TableHandle['getTableMetadata']>,
 ): Array<{ name: string; columns: string[]; unique: boolean }> {
@@ -556,6 +710,16 @@ function desiredIndexes(
   })
 }
 
+/**
+ * Reconciles desired tables with an introspected catalog into one canonically ordered
+ * Migration Plan. Unsupported or ambiguous drift is collected before the first
+ * deterministic planning issue is thrown.
+ *
+ * @param schemas - Registered desired table handles.
+ * @param catalog - Introspected catalog snapshot and namespace context.
+ * @param dialect - Dialect used for identity, lowering, and value normalization.
+ * @param registrationDefault - Optional namespace for registrations that omit one.
+ */
 function buildMigrationPlan(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
@@ -733,7 +897,10 @@ function buildMigrationPlan(
           identity,
           target: liveIndex.name,
           property: 'duplicate_catalog_index',
-          message: `Duplicate catalog index ${identities.format(identity)}.${JSON.stringify(liveIndex.name)}`,
+          message: `Duplicate catalog index ${identities.format(identity, {
+            role: 'index',
+            spelling: liveIndex.name,
+          })}`,
         })
         continue
       }
@@ -760,7 +927,13 @@ function buildMigrationPlan(
           identity,
           target: index.name,
           property: 'index_definition',
-          message: `Unsupported index definition change for ${identities.format(identity)}.${JSON.stringify(index.name)}`,
+          message: `Unsupported index definition change for ${identities.format(
+            identity,
+            {
+              role: 'index',
+              spelling: index.name,
+            },
+          )}`,
         })
       }
     }
@@ -802,6 +975,30 @@ function buildMigrationPlan(
 /**
  * Constructs a Migration Plan from registered tables and a catalog snapshot.
  * This interface is synchronous and performs no database operations.
+ *
+ * @example
+ *   const plan = planMigration(
+ *     [Users],
+ *     {
+ *       tables: [],
+ *       namespaceContext: {
+ *         writableDefault: [
+ *           { role: 'database', spelling: 'app' },
+ *           { role: 'schema', spelling: 'public' },
+ *         ],
+ *       },
+ *     },
+ *     postgresDialect,
+ *   )
+ *
+ * @param schemas - Registered desired table handles.
+ * @param catalog - Introspected catalog snapshot and namespace context.
+ * @param dialect - Dialect used for identity, lowering, and value normalization.
+ * @param options - Migration registration options.
+ * @param options.registrationDefault - Namespace for registrations that omit one.
+ *
+ * @throws {MigrationError} When identity resolution, desired lowering, or reconciliation
+ *   fails, including unsupported schema drift.
  */
 export function planMigration(
   schemas: readonly TableHandle[],

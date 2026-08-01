@@ -581,5 +581,57 @@ describe('@/dialects/postgres', () => {
         ],
       })
     })
+
+    it('keeps dotted schema and relation tuples distinct during introspection', async () => {
+      const executor: Executor = {
+        async execute({ sql }) {
+          if (sql.includes('current_database()')) {
+            return [{ database: 'test', schema: 'public' }]
+          }
+          if (
+            sql.includes('information_schema.tables') &&
+            !sql.includes('information_schema.columns')
+          ) {
+            return [
+              { schema: 'a.b', name: 'c' },
+              { schema: 'a', name: 'b.c' },
+            ]
+          }
+          if (sql.includes('information_schema.columns')) {
+            return [
+              {
+                schema: 'a.b',
+                table_name: 'c',
+                column_name: 'schema_marker',
+                data_type: 'text',
+                is_nullable: 'NO',
+              },
+              {
+                schema: 'a',
+                table_name: 'b.c',
+                column_name: 'relation_marker',
+                data_type: 'text',
+                is_nullable: 'NO',
+              },
+            ]
+          }
+          return []
+        },
+        async run() {},
+      }
+
+      const snapshot = await postgresDialect.introspect(executor)
+
+      expect(
+        snapshot.tables.map((table) => ({
+          schema: table.schema,
+          name: table.name,
+          columns: table.columns.map((column) => column.name),
+        })),
+      ).toEqual([
+        { schema: 'a.b', name: 'c', columns: ['schema_marker'] },
+        { schema: 'a', name: 'b.c', columns: ['relation_marker'] },
+      ])
+    })
   })
 })

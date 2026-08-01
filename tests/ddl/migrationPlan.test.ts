@@ -573,6 +573,77 @@ describe('Migration Plan construction', () => {
     ).toEqual(planMigration([Tenant], emptyCatalog(), postgresDialect))
   })
 
+  it('matches omitted and explicit relations against non-default catalog namespaces', () => {
+    const Omitted = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id' },
+    )
+    const Public = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const catalog: CatalogSnapshot = {
+      namespaceContext: {
+        writableDefault: [
+          { role: 'database', spelling: 'test' },
+          { role: 'schema', spelling: 'tenant' },
+        ],
+      },
+      tables: [
+        {
+          schema: 'tenant',
+          name: 'items',
+          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        },
+        {
+          schema: 'public',
+          name: 'items',
+          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        },
+      ],
+    }
+
+    expect(planMigration([Omitted], catalog, postgresDialect)).toEqual({ steps: [] })
+    expect(planMigration([Public], catalog, postgresDialect)).toEqual({ steps: [] })
+  })
+
+  it('applies the registration default to foreign-key targets', () => {
+    const Parent = defineTable(
+      'parents',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id' },
+    )
+    const Child = defineTable(
+      'children',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        parentId: reference(Parent, 'id'),
+      },
+      { primaryKey: 'id' },
+    )
+
+    expect(
+      planMigration([Child, Parent], emptyCatalog(), postgresDialect, {
+        registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
+      }),
+    ).toEqual({
+      steps: [
+        { kind: 'create_schema', schema: 'tenant' },
+        { kind: 'create_table', schema: 'tenant', table: 'children' },
+        { kind: 'create_table', schema: 'tenant', table: 'parents' },
+        {
+          kind: 'add_foreign_key',
+          schema: 'tenant',
+          table: 'children',
+          column: 'parentId',
+          references: { schema: 'tenant', table: 'parents', column: 'id' },
+        },
+      ],
+    })
+  })
+
   it('keeps structured migration registrations distinct without dotted keys', () => {
     const definitions = [
       ['c', 'a.b'],
@@ -639,6 +710,32 @@ describe('Migration Plan construction', () => {
     ).toEqual({
       steps: [],
     })
+  })
+
+  it('formats relation members structurally in planning diagnostics', () => {
+    const Dotted = defineTable(
+      'c',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'a.b' },
+    )
+    const catalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      tables: [
+        {
+          schema: 'a.b',
+          name: 'c',
+          columns: [
+            { name: 'id', dataType: 'uuid', isNullable: false },
+            { name: 'x.y', dataType: 'text', isNullable: true },
+            { name: 'x.y', dataType: 'text', isNullable: true },
+          ],
+        },
+      ],
+    }
+
+    expect(planningError([Dotted], catalog).message).toBe(
+      'Duplicate catalog column [database:"test", schema:"a.b", relation:"c", column:"x.y"]',
+    )
   })
 
   it('is invariant to registered table and catalog collection order', () => {

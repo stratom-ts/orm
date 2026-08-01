@@ -66,7 +66,10 @@ export type CatalogTable = {
 /** Catalog snapshot for desired-state migrations. */
 export type CatalogSnapshot = {
   tables: CatalogTable[]
-  /** Writable namespace facts resolved on the introspection session. */
+  /**
+   * Writable namespace facts resolved on the introspection session. Required because
+   * migration identity never assumes a shared namespace fallback.
+   */
   namespaceContext: NamespaceContext
 }
 
@@ -366,7 +369,7 @@ export type SqlAst =
 export interface Dialect {
   readonly id: SQLDialect
 
-  /** Adapter profile used by canonical migration relation identity. */
+  /** Required adapter profile used by canonical migration relation identity. */
   readonly relationIdentity: RelationIdentityAdapter
 
   inferColumnType(schema: AnySchema): SqlDataType

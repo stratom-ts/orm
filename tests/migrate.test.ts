@@ -418,6 +418,45 @@ describe('db.migrate() adapters and execution', () => {
     await db.close()
   })
 
+  it('executes dotted relation tuples through distinct canonical handle lookups', async () => {
+    const DottedSchema = defineTable(
+      'c',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        schemaMarker: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id', schema: 'a.b' },
+    )
+    const DottedRelation = defineTable(
+      'b.c',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        relationMarker: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id', schema: 'a' },
+    )
+    const connector = createMockConnector()
+    const db = createDatabase({
+      connector,
+      schemas: [DottedSchema, DottedRelation],
+    })
+
+    await db.migrate().execute()
+
+    const dottedSchemaSql = connector.runSql.find((sql) =>
+      /create table "a\.b"\."c"/i.test(sql),
+    )
+    const dottedRelationSql = connector.runSql.find((sql) =>
+      /create table "a"\."b\.c"/i.test(sql),
+    )
+    expect(dottedSchemaSql).toContain('"schemaMarker" text')
+    expect(dottedSchemaSql).not.toContain('"relationMarker"')
+    expect(dottedRelationSql).toContain('"relationMarker" text')
+    expect(dottedRelationSql).not.toContain('"schemaMarker"')
+
+    await db.close()
+  })
+
   it('checks runtime data and rolls back before setting NOT NULL', async () => {
     const RequiredUsers = defineTable(
       'users',
