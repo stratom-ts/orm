@@ -220,17 +220,17 @@ function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
 /**
  * Compares namespace roles and comparison keys while ignoring the relation segment.
  *
- * @param left - First canonical identity.
- * @param right - Second canonical identity.
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
  */
 function sameNamespace(
-  left: CanonicalRelationIdentity,
-  right: CanonicalRelationIdentity,
+  left: CanonicalRelationIdentity['namespace'],
+  right: CanonicalRelationIdentity['namespace'],
 ): boolean {
   return (
-    left.namespace.length === right.namespace.length &&
-    left.namespace.every((segment, index) => {
-      const other = right.namespace[index]
+    left.length === right.length &&
+    left.every((segment, index) => {
+      const other = right[index]
       return (
         segment.role === other?.role &&
         segment.identifier.comparisonKey === other.identifier.comparisonKey
@@ -372,17 +372,12 @@ function catalogTableMap(
 function schemasPresentInCatalog(
   catalog: CatalogSnapshot,
   identities: CanonicalRelationIdentityModule,
-): CanonicalRelationIdentity[] {
-  const schemas = [
-    identities.resolve({
-      namespace: catalog.namespaceContext.writableDefault,
-      relation: '__namespace_default__',
-    }),
-  ]
+): CanonicalRelationIdentity['namespace'][] {
+  const schemas = [identities.resolveNamespace(catalog.namespaceContext.writableDefault)]
   for (const table of catalog.tables) {
     const identity = identities.resolve(catalogRelationInput(table.schema, table.name))
-    if (!schemas.some((existing) => sameNamespace(existing, identity))) {
-      schemas.push(identity)
+    if (!schemas.some((existing) => sameNamespace(existing, identity.namespace))) {
+      schemas.push(identity.namespace)
     }
   }
   return schemas
@@ -743,7 +738,7 @@ function buildMigrationPlan(
   const existing = catalogTableMap(sortedCatalogTables, issues, identities)
   const ensuredSchemas = schemasPresentInCatalog(catalog, identities)
   const registered = identities.createRegistry<TableHandle>()
-  const ownedSchemas: CanonicalRelationIdentity[] = []
+  const ownedSchemas: CanonicalRelationIdentity['namespace'][] = []
 
   for (const handle of sortedSchemas) {
     const info = handle.getTableMetadata()
@@ -757,8 +752,8 @@ function buildMigrationPlan(
       })
     }
     registered.set(identity, handle)
-    if (!ownedSchemas.some((owned) => sameNamespace(owned, identity))) {
-      ownedSchemas.push(identity)
+    if (!ownedSchemas.some((owned) => sameNamespace(owned, identity.namespace))) {
+      ownedSchemas.push(identity.namespace)
     }
     const live = existing.get(identity)
     let createAst: ReturnType<typeof buildCreateTableAst>
@@ -779,9 +774,11 @@ function buildMigrationPlan(
     const indexes = desiredIndexes(info)
 
     if (!live) {
-      if (!ensuredSchemas.some((existing) => sameNamespace(existing, identity))) {
+      if (
+        !ensuredSchemas.some((existing) => sameNamespace(existing, identity.namespace))
+      ) {
         steps.push({ kind: 'create_schema', schema: schemaFromIdentity(identity) })
-        ensuredSchemas.push(identity)
+        ensuredSchemas.push(identity.namespace)
       }
 
       steps.push({
@@ -953,7 +950,7 @@ function buildMigrationPlan(
 
   for (const live of sortedCatalogTables) {
     const identity = identities.resolve(catalogRelationInput(live.schema, live.name))
-    if (!ownedSchemas.some((owned) => sameNamespace(owned, identity))) continue
+    if (!ownedSchemas.some((owned) => sameNamespace(owned, identity.namespace))) continue
     if (registered.has(identity)) continue
     steps.push({
       kind: 'drop_table',

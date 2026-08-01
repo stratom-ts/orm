@@ -449,6 +449,8 @@ describe('db.migrate() adapters and execution', () => {
     const dottedRelationSql = connector.runSql.find((sql) =>
       /create table "a"\."b\.c"/i.test(sql),
     )
+    expect(dottedSchemaSql).toBeDefined()
+    expect(dottedRelationSql).toBeDefined()
     expect(dottedSchemaSql).toContain('"schemaMarker" text')
     expect(dottedSchemaSql).not.toContain('"relationMarker"')
     expect(dottedRelationSql).toContain('"relationMarker" text')

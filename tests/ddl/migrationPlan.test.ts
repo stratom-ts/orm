@@ -710,6 +710,33 @@ describe('Migration Plan construction', () => {
     ).toEqual({
       steps: [],
     })
+
+    const Anchor = defineTable(
+      'anchor',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'a' },
+    )
+    const mismatchedCatalog: CatalogSnapshot = {
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      tables: [
+        catalog.tables[1]!,
+        {
+          schema: 'a',
+          name: 'anchor',
+          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        },
+      ],
+    }
+
+    expect(
+      planMigration([DottedSchema, Anchor], mismatchedCatalog, postgresDialect),
+    ).toEqual({
+      steps: [
+        { kind: 'create_schema', schema: 'a.b' },
+        { kind: 'create_table', schema: 'a.b', table: 'c' },
+        { kind: 'drop_table', schema: 'a', table: 'b.c' },
+      ],
+    })
   })
 
   it('formats relation members structurally in planning diagnostics', () => {

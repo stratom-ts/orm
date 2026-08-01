@@ -108,6 +108,24 @@ describe('canonical relation identity', () => {
     ).toBe(false)
   })
 
+  it('treats an empty PostgreSQL namespace as omitted', () => {
+    const identities = createCanonicalRelationIdentityModule({
+      adapter: 'postgresql',
+      context: POSTGRES_CONTEXT,
+      registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
+    })
+
+    expect(
+      identities.equals(
+        identities.resolve({ namespace: [], relation: 'users' }),
+        identities.resolve({
+          namespace: [{ role: 'schema', spelling: 'tenant' }],
+          relation: 'users',
+        }),
+      ),
+    ).toBe(true)
+  })
+
   it('sorts comparison-key tuples by locale-independent UTF-16 code units', () => {
     const identities = createCanonicalRelationIdentityModule({
       adapter: 'postgresql',
@@ -142,6 +160,9 @@ describe('canonical relation identity', () => {
       ],
       relation: { spelling: 'events', comparisonKey: 'events' },
     })
+    expect(identities.resolveNamespace()).toEqual(
+      identities.resolve({ relation: 'events' }).namespace,
+    )
   })
 
   it('models SQLite as database-alias/relation with ASCII-insensitive keys', () => {

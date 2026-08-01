@@ -363,11 +363,15 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       table.uniqueConstraints!.push(constraint)
       continue
     }
-    if (
-      row.constraint_type === 'f' &&
-      typeof row.referenced_schema === 'string' &&
-      typeof row.referenced_table === 'string'
-    ) {
+    if (row.constraint_type === 'f') {
+      if (
+        typeof row.referenced_schema !== 'string' ||
+        typeof row.referenced_table !== 'string'
+      ) {
+        throw new TypeError(
+          `PostgreSQL foreign key ${JSON.stringify(row.constraint_name)} on schema ${JSON.stringify(row.schema)} relation ${JSON.stringify(row.table_name)} is missing referenced relation metadata`,
+        )
+      }
       table.foreignKeys!.push({
         ...constraint,
         referencedSchema: row.referenced_schema,
@@ -376,6 +380,7 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
         onDelete: (row.on_delete ?? 'no action') as ReferentialAction,
         onUpdate: (row.on_update ?? 'no action') as ReferentialAction,
       })
+      continue
     }
   }
 

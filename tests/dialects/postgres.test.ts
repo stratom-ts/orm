@@ -633,5 +633,39 @@ describe('@/dialects/postgres', () => {
         { schema: 'a', name: 'b.c', columns: ['relation_marker'] },
       ])
     })
+
+    it('rejects foreign keys with unresolved referenced relation metadata', async () => {
+      const executor: Executor = {
+        async execute({ sql }) {
+          if (sql.includes('current_database()')) {
+            return [{ database: 'test', schema: 'public' }]
+          }
+          if (
+            sql.includes('information_schema.tables') &&
+            !sql.includes('information_schema.columns')
+          ) {
+            return [{ schema: 'public', name: 'events' }]
+          }
+          if (sql.includes('pg_constraint')) {
+            return [
+              {
+                schema: 'public',
+                table_name: 'events',
+                constraint_name: 'events_owner_fkey',
+                constraint_type: 'f',
+                columns: ['owner_id'],
+                referenced_columns: ['id'],
+              },
+            ]
+          }
+          return []
+        },
+        async run() {},
+      }
+
+      await expect(postgresDialect.introspect(executor)).rejects.toThrow(
+        /foreign key "events_owner_fkey".*missing referenced relation metadata/i,
+      )
+    })
   })
 })

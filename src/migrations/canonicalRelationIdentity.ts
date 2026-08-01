@@ -38,6 +38,9 @@ export type CanonicalRelationRegistry<T> = {
 }
 
 export type CanonicalRelationIdentityModule = {
+  resolveNamespace(
+    namespace?: readonly NamespaceIdentifierInput[],
+  ): readonly CanonicalNamespaceSegment[]
   resolve(input: RelationIdentityInput): CanonicalRelationIdentity
   equals(left: CanonicalRelationIdentity, right: CanonicalRelationIdentity): boolean
   compare(left: CanonicalRelationIdentity, right: CanonicalRelationIdentity): number
@@ -183,15 +186,26 @@ export function createCanonicalRelationIdentityModule(options: {
 }): CanonicalRelationIdentityModule {
   const { adapter, context, registrationDefault } = options
 
-  const resolve = (input: RelationIdentityInput): CanonicalRelationIdentity => {
-    const selected = input.namespace ?? registrationDefault ?? context.writableDefault
+  const resolveNamespace = (
+    input?: readonly NamespaceIdentifierInput[],
+  ): readonly CanonicalNamespaceSegment[] => {
+    const selected =
+      input && input.length > 0
+        ? input
+        : registrationDefault && registrationDefault.length > 0
+          ? registrationDefault
+          : context.writableDefault
     const namespace =
       adapter === 'postgresql'
         ? resolvePostgresNamespace(selected, context.writableDefault)
         : resolveSqliteNamespace(selected, context.writableDefault)
 
+    return namespace.map((segment) => canonicalSegment(adapter, segment))
+  }
+
+  const resolve = (input: RelationIdentityInput): CanonicalRelationIdentity => {
     return {
-      namespace: namespace.map((segment) => canonicalSegment(adapter, segment)),
+      namespace: resolveNamespace(input.namespace),
       relation: canonicalIdentifier(adapter, input.relation, 'relation identifier'),
     }
   }
@@ -258,6 +272,7 @@ export function createCanonicalRelationIdentityModule(options: {
   }
 
   return {
+    resolveNamespace,
     resolve,
     equals(left, right) {
       return compare(left, right) === 0
