@@ -1,8 +1,14 @@
 import type { CreateSchemaAst, Dialect, SqlAst } from '@/dialects'
+import type {
+  CanonicalRelationIdentity,
+  CanonicalRelationIdentityModule,
+  CanonicalRelationRegistry,
+  NamespaceIdentifierInput,
+} from '@/migrations/canonicalRelationIdentity'
+import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
-import { effectiveSchema, tableKey } from '@/utils/tableKey'
 
 import { buildCreateTableAst } from './createTable'
 import type { MigrationPlan, MigrationStep } from './migrationPlan'
@@ -30,6 +36,25 @@ function schemaField(
   return schema !== undefined ? { schema } : {}
 }
 
+function relationInput(schema: string | undefined, relation: string) {
+  return {
+    ...(schema === undefined
+      ? {}
+      : { namespace: [{ role: 'schema' as const, spelling: schema }] }),
+    relation,
+  }
+}
+
+function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
+  const schema = identity.namespace.find((segment) => segment.role === 'schema')
+  if (!schema) {
+    throw new MigrationError({
+      message: 'PostgreSQL migration execution requires a schema namespace',
+    })
+  }
+  return schema.identifier.spelling
+}
+
 function quoteIdent(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
 }
@@ -41,8 +66,11 @@ function quoteIdent(ident: string): string {
 async function assertColumnHasNoNulls(
   executor: Executor,
   step: Extract<MigrationStep, { kind: 'set_not_null' }>,
+  identities: CanonicalRelationIdentityModule,
 ): Promise<void> {
-  const schemaName = effectiveSchema(step.schema)
+  const schemaName = schemaFromIdentity(
+    identities.resolve(relationInput(step.schema, step.table)),
+  )
   const tableSql = `${quoteIdent(schemaName)}.${quoteIdent(step.table)}`
   const columnSql = quoteIdent(step.column)
   const rows = await executor.execute({
@@ -78,7 +106,7 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
  *   const ast = stepToAst({ kind: 'create_table', table: 'users' }, handles, dialect)
  *
  * @param step - Migration step to convert.
- * @param handles - Map of table key to table handle.
+ * @param handles - Canonical relation registry of table handles.
  * @param dialect - SQL dialect for desired-table lowering.
  *
  * @returns SQL AST node ready for compilation
@@ -87,8 +115,9 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
  */
 function stepToAst(
   step: MigrationStep,
-  handles: Map<string, TableHandle>,
+  handles: CanonicalRelationRegistry<TableHandle>,
   dialect: Dialect,
+  identities: CanonicalRelationIdentityModule,
 ): SqlAst {
   switch (step.kind) {
     case 'create_schema': {
@@ -99,16 +128,17 @@ function stepToAst(
       return ast
     }
     case 'create_table': {
-      const key = tableKey(step.schema, step.table)
-      const handle = handles.get(key)
+      const identity = identities.resolve(relationInput(step.schema, step.table))
+      const handle = handles.get(identity)
       if (!handle) {
         throw new MigrationError({
-          message: `cannot create table "${key}": handle not registered`,
+          message: `cannot create table ${identities.format(identity)}: handle not registered`,
         })
       }
       const ast = buildCreateTableAst(handle, dialect)
       return {
         ...ast,
+        schema: schemaFromIdentity(identity),
         columns: ast.columns.map((column) => ({ ...column, references: undefined })),
       }
     }
@@ -236,20 +266,33 @@ export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
   dialect: Dialect
   executor: Executor
+  defaultNamespace?: readonly NamespaceIdentifierInput[]
   assertCanExecute?: () => void
 }): MigrateBuilder {
-  const { schemas, dialect, executor, assertCanExecute } = options
-  const handles = new Map<string, TableHandle>()
-  for (const handle of schemas) {
-    const info = handle.getTableMetadata()
-    handles.set(tableKey(info.schema, info.name), handle)
-  }
+  const { schemas, dialect, executor, defaultNamespace, assertCanExecute } = options
 
   const allowed = new Set<MigrationAllow>()
 
-  const buildPlan = async (): Promise<MigrationPlan> => {
+  const buildPlan = async () => {
     const catalog = await dialect.introspect(executor)
-    return planMigration(schemas, catalog, dialect)
+    const identities = createCanonicalRelationIdentityModule({
+      adapter: dialect.relationIdentity,
+      context: catalog.namespaceContext,
+      ...(defaultNamespace === undefined
+        ? {}
+        : { registrationDefault: defaultNamespace }),
+    })
+    const handles = identities.createRegistry<TableHandle>()
+    for (const handle of schemas) {
+      const info = handle.getTableMetadata()
+      handles.set(identities.resolve(relationInput(info.schema, info.name)), handle)
+    }
+    const plan = planMigration(schemas, catalog, dialect, {
+      ...(defaultNamespace === undefined
+        ? {}
+        : { registrationDefault: defaultNamespace }),
+    })
+    return { plan, identities, handles }
   }
 
   const builder: MigrateBuilder = {
@@ -262,7 +305,7 @@ export function createMigrateBuilder(options: {
 
     async dryRun() {
       try {
-        return await buildPlan()
+        return (await buildPlan()).plan
       } catch (cause) {
         if (cause instanceof MigrationError) throw cause
         throw new MigrationError({
@@ -276,7 +319,7 @@ export function createMigrateBuilder(options: {
       assertCanExecute?.()
       await acquireMigrateLock(executor)
       try {
-        const plan = await buildPlan()
+        const { plan, identities, handles } = await buildPlan()
 
         const steps = plan.steps
         if (steps.length === 0) return
@@ -294,9 +337,9 @@ export function createMigrateBuilder(options: {
         try {
           for (const step of steps) {
             if (step.kind === 'set_not_null') {
-              await assertColumnHasNoNulls(executor, step)
+              await assertColumnHasNoNulls(executor, step, identities)
             }
-            const ast = stepToAst(step, handles, dialect)
+            const ast = stepToAst(step, handles, dialect, identities)
             await executor.run(dialect.compile(ast))
           }
           await executor.run({ sql: 'commit', params: [] })

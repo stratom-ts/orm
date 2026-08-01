@@ -5,6 +5,7 @@ import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
 import { resolveDialect } from '@/dialects'
+import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type {
   DeleteBuilder,
   Executor,
@@ -28,7 +29,6 @@ import {
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError } from '@/utils/error'
-import { tableKey } from '@/utils/tableKey'
 
 export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'
@@ -50,6 +50,8 @@ export type CreateDatabaseConfig<
   connector: Connector
   /** Registered table handles; may be empty. */
   schemas: TSchemas
+  /** Explicit default namespace for migration registrations with omitted namespaces. */
+  defaultNamespace?: readonly NamespaceIdentifierInput[]
   /**
    * Global JS↔SQL value mapping overrides (applied after column metadata,
    * before dialect defaults when column overrides are absent).
@@ -117,8 +119,14 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
  *
  * @throws SchemaError - When a value is not a table handle or keys are duplicated
  */
+function formatAuthoredRelation(schema: string | undefined, relation: string): string {
+  return schema === undefined
+    ? JSON.stringify(relation)
+    : `${JSON.stringify(schema)}.${JSON.stringify(relation)}`
+}
+
 function assertHandles(schemas: readonly TableHandle[]): void {
-  const seen = new Set<string>()
+  const seen = new Map<string | undefined, Set<string>>()
   for (const schema of schemas) {
     if (!isTableHandle(schema)) {
       throw new SchemaError({
@@ -126,13 +134,17 @@ function assertHandles(schemas: readonly TableHandle[]): void {
       })
     }
     const info = schema.getTableMetadata()
-    const key = tableKey(info.schema, info.name)
-    if (seen.has(key)) {
+    let relations = seen.get(info.schema)
+    if (!relations) {
+      relations = new Set()
+      seen.set(info.schema, relations)
+    }
+    if (relations.has(info.name)) {
       throw new SchemaError({
-        message: `duplicate table registration for "${key}"`,
+        message: `duplicate table registration for ${formatAuthoredRelation(info.schema, info.name)}`,
       })
     }
-    seen.add(key)
+    relations.add(info.name)
   }
 }
 
@@ -164,10 +176,20 @@ export function createDatabase<
   const database: Database = createDb0Database(config.connector)
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
-  const registry = new Map<string, TableHandle>()
+  const registry = new Map<string | undefined, Map<string, TableHandle>>()
   for (const handle of schemas) {
     const info = handle.getTableMetadata()
-    registry.set(tableKey(info.schema, info.name), handle)
+    let relations = registry.get(info.schema)
+    if (!relations) {
+      relations = new Map()
+      registry.set(info.schema, relations)
+    }
+    relations.set(info.name, handle)
+  }
+
+  const isRegistered = (handle: TableHandle): boolean => {
+    const info = handle.getTableMetadata()
+    return registry.get(info.schema)?.has(info.name) ?? false
   }
 
   const baseExecutor = createDb0Executor(database)
@@ -269,10 +291,9 @@ export function createDatabase<
         })
       }
       const info = handle.getTableMetadata()
-      const key = tableKey(info.schema, info.name)
-      if (!registry.has(key)) {
+      if (!isRegistered(handle)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
+          message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
       return createTableBuilder({ handle, dialect, executor: clientExecutor, mapper })
@@ -288,10 +309,9 @@ export function createDatabase<
         })
       }
       const info = handle.getTableMetadata()
-      const key = tableKey(info.schema, info.name)
-      if (!registry.has(key)) {
+      if (!isRegistered(handle)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
+          message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
       return {
@@ -322,10 +342,9 @@ export function createDatabase<
         })
       }
       const info = handle.getTableMetadata()
-      const key = tableKey(info.schema, info.name)
-      if (!registry.has(key)) {
+      if (!isRegistered(handle)) {
         throw new SchemaError({
-          message: `table "${key}" is not registered on this client; pass it in createDatabase({ schemas })`,
+          message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
     }
@@ -372,6 +391,9 @@ export function createDatabase<
         schemas,
         dialect,
         executor: clientExecutor,
+        ...(config.defaultNamespace === undefined
+          ? {}
+          : { defaultNamespace: config.defaultNamespace }),
         assertCanExecute() {
           if (transactionScope || transactionActive) {
             throw new MigrationError({

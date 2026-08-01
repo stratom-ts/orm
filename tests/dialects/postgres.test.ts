@@ -362,18 +362,39 @@ describe('@/dialects/postgres', () => {
   })
 
   describe('introspect', () => {
+    it('rejects an unresolved writable namespace instead of defaulting to public', async () => {
+      const executor: Executor = {
+        async execute() {
+          return []
+        },
+        async run() {},
+      }
+
+      await expect(postgresDialect.introspect(executor)).rejects.toThrow(
+        /could not resolve a writable namespace/i,
+      )
+    })
+
     it('should normalize catalog rows into a public snapshot', async () => {
       const executor: Executor = {
         async execute({ sql }) {
+          if (sql.includes('current_database()')) {
+            return [{ database: 'test', schema: 'public' }]
+          }
           if (
             sql.includes('information_schema.tables') &&
             !sql.includes('information_schema.columns')
           ) {
-            return [{ name: 'accounts' }, { schema: 'app', name: 'events' }, {}]
+            return [
+              { schema: 'public', name: 'accounts' },
+              { schema: 'app', name: 'events' },
+              {},
+            ]
           }
           if (sql.includes('information_schema.columns')) {
             return [
               {
+                schema: 'public',
                 table_name: 'accounts',
                 column_name: 'id',
                 data_type: 'integer',
@@ -383,6 +404,7 @@ describe('@/dialects/postgres', () => {
                 identity_generation: 'ALWAYS',
               },
               {
+                schema: 'public',
                 table_name: 'accounts',
                 column_name: 'email',
                 data_type: 'character varying',
@@ -433,6 +455,7 @@ describe('@/dialects/postgres', () => {
           if (sql.includes('pg_index')) {
             return [
               {
+                schema: 'public',
                 table_name: 'accounts',
                 index_name: 'accounts_email_idx',
                 is_unique: 'YES',
@@ -451,12 +474,14 @@ describe('@/dialects/postgres', () => {
           if (sql.includes('pg_constraint')) {
             return [
               {
+                schema: 'public',
                 table_name: 'accounts',
                 constraint_name: 'accounts_pkey',
                 constraint_type: 'p',
                 columns: '{id}',
               },
               {
+                schema: 'public',
                 table_name: 'accounts',
                 constraint_name: 'accounts_email_key',
                 constraint_type: 'u',
@@ -468,6 +493,7 @@ describe('@/dialects/postgres', () => {
                 constraint_name: 'events_account_fkey',
                 constraint_type: 'f',
                 columns: ['account_id', 1],
+                referenced_schema: 'public',
                 referenced_table: 'accounts',
                 referenced_columns: '{id}',
                 on_delete: 'cascade',
@@ -539,6 +565,7 @@ describe('@/dialects/postgres', () => {
             {
               name: 'events_account_fkey',
               columns: ['account_id'],
+              referencedSchema: 'public',
               referencedTable: 'accounts',
               referencedColumns: ['id'],
               onDelete: 'cascade',
@@ -547,6 +574,98 @@ describe('@/dialects/postgres', () => {
           ],
         },
       ])
+      expect(snapshot.namespaceContext).toEqual({
+        writableDefault: [
+          { role: 'database', spelling: 'test' },
+          { role: 'schema', spelling: 'public' },
+        ],
+      })
+    })
+
+    it('keeps dotted schema and relation tuples distinct during introspection', async () => {
+      const executor: Executor = {
+        async execute({ sql }) {
+          if (sql.includes('current_database()')) {
+            return [{ database: 'test', schema: 'public' }]
+          }
+          if (
+            sql.includes('information_schema.tables') &&
+            !sql.includes('information_schema.columns')
+          ) {
+            return [
+              { schema: 'a.b', name: 'c' },
+              { schema: 'a', name: 'b.c' },
+            ]
+          }
+          if (sql.includes('information_schema.columns')) {
+            return [
+              {
+                schema: 'a.b',
+                table_name: 'c',
+                column_name: 'schema_marker',
+                data_type: 'text',
+                is_nullable: 'NO',
+              },
+              {
+                schema: 'a',
+                table_name: 'b.c',
+                column_name: 'relation_marker',
+                data_type: 'text',
+                is_nullable: 'NO',
+              },
+            ]
+          }
+          return []
+        },
+        async run() {},
+      }
+
+      const snapshot = await postgresDialect.introspect(executor)
+
+      expect(
+        snapshot.tables.map((table) => ({
+          schema: table.schema,
+          name: table.name,
+          columns: table.columns.map((column) => column.name),
+        })),
+      ).toEqual([
+        { schema: 'a.b', name: 'c', columns: ['schema_marker'] },
+        { schema: 'a', name: 'b.c', columns: ['relation_marker'] },
+      ])
+    })
+
+    it('rejects foreign keys with unresolved referenced relation metadata', async () => {
+      const executor: Executor = {
+        async execute({ sql }) {
+          if (sql.includes('current_database()')) {
+            return [{ database: 'test', schema: 'public' }]
+          }
+          if (
+            sql.includes('information_schema.tables') &&
+            !sql.includes('information_schema.columns')
+          ) {
+            return [{ schema: 'public', name: 'events' }]
+          }
+          if (sql.includes('pg_constraint')) {
+            return [
+              {
+                schema: 'public',
+                table_name: 'events',
+                constraint_name: 'events_owner_fkey',
+                constraint_type: 'f',
+                columns: ['owner_id'],
+                referenced_columns: ['id'],
+              },
+            ]
+          }
+          return []
+        },
+        async run() {},
+      }
+
+      await expect(postgresDialect.introspect(executor)).rejects.toThrow(
+        /foreign key "events_owner_fkey".*missing referenced relation metadata/i,
+      )
     })
   })
 })

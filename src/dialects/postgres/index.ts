@@ -20,6 +20,7 @@ import { formatPostgresDefault, normalizePostgresDefaultExpression } from './val
  */
 export const postgresDialect: Dialect = {
   id: 'postgresql',
+  relationIdentity: 'postgresql',
 
   inferColumnType(schema) {
     return inferPostgresColumnType(schema)
