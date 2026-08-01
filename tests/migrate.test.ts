@@ -11,6 +11,8 @@ import {
   reference,
 } from '@/index'
 
+import { createNativePostgresClient } from './helpers/nativePostgresClient'
+
 type LiveColumn = {
   name: string
   dataType: string
@@ -75,132 +77,134 @@ function createMockConnector(options?: {
   const runSql: string[] = []
   const liveTables = structuredClone(options?.tables ?? [])
 
+  const prepare = (sql: string) => {
+    prepared.push(sql)
+    const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase()
+
+    if (['begin', 'commit', 'rollback'].includes(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement()
+    }
+
+    if (/pg_advisory_(?:un)?lock/.test(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement()
+    }
+
+    if (normalized.includes('current_database()')) {
+      return createMockStatement([{ database: 'test', schema: 'public' }])
+    }
+
+    if (
+      normalized.includes('information_schema.tables') &&
+      !normalized.includes('information_schema.columns')
+    ) {
+      return createMockStatement(
+        liveTables.map((table) => ({ schema: table.schema, name: table.name })),
+      )
+    }
+
+    if (normalized.includes('information_schema.columns')) {
+      return createMockStatement(
+        liveTables.flatMap((table) =>
+          table.columns.map((column) => ({
+            schema: table.schema,
+            table_name: table.name,
+            column_name: column.name,
+            data_type: column.dataType,
+            udt_name: column.dataType,
+            character_maximum_length: null,
+            numeric_precision: null,
+            numeric_scale: null,
+            is_nullable: column.isNullable ? 'YES' : 'NO',
+            column_default: column.defaultExpression ?? null,
+            is_identity: column.identityGeneration ? 'YES' : 'NO',
+            identity_generation:
+              column.identityGeneration === 'always'
+                ? 'ALWAYS'
+                : column.identityGeneration === 'byDefault'
+                  ? 'BY DEFAULT'
+                  : null,
+          })),
+        ),
+      )
+    }
+
+    if (normalized.includes('con.contype as constraint_type')) {
+      return createMockStatement(
+        liveTables.flatMap((table) => [
+          ...(table.primaryKey
+            ? [
+                {
+                  schema: table.schema,
+                  table_name: table.name,
+                  constraint_name: `${table.name}_pkey`,
+                  constraint_type: 'p',
+                  columns: table.primaryKey,
+                },
+              ]
+            : []),
+          ...(table.uniqueConstraints ?? []).map((constraint) => ({
+            schema: table.schema,
+            table_name: table.name,
+            constraint_name: constraint.name,
+            constraint_type: 'u',
+            columns: constraint.columns,
+          })),
+          ...(table.foreignKeys ?? []).map((constraint) => ({
+            schema: table.schema,
+            table_name: table.name,
+            constraint_name: constraint.name,
+            constraint_type: 'f',
+            columns: constraint.columns,
+            referenced_schema: constraint.referencedSchema ?? 'public',
+            referenced_table: constraint.referencedTable,
+            referenced_columns: constraint.referencedColumns,
+            on_delete: constraint.onDelete ?? 'no action',
+            on_update: constraint.onUpdate ?? 'no action',
+          })),
+        ]),
+      )
+    }
+
+    if (normalized.includes('pg_index')) {
+      return createMockStatement(
+        liveTables.flatMap((table) =>
+          (table.indexes ?? []).map((index) => ({
+            schema: table.schema,
+            table_name: table.name,
+            index_name: index.name,
+            is_unique: index.unique,
+            columns: index.columns,
+          })),
+        ),
+      )
+    }
+
+    if (normalized.includes('count(*)') && normalized.includes(' is null')) {
+      return createMockStatement([{ count: options?.nullCount ?? 0 }])
+    }
+
+    if (/^(?:create|alter|drop)\s/.test(normalized)) {
+      runSql.push(sql)
+      const error = options?.failRun?.test(normalized)
+        ? new Error(`executor rejected: ${normalized}`)
+        : undefined
+      return createMockStatement([], error)
+    }
+
+    return createMockStatement()
+  }
+  const nativeClient = createNativePostgresClient(prepare)
   const connector = {
-    name: 'mock',
+    name: 'postgresql',
     dialect: 'postgresql' as const,
     prepared,
     runSql,
     liveTables,
-    getInstance: () => ({}),
+    getInstance: () => nativeClient,
     exec: async () => ({}),
-    prepare: (sql: string) => {
-      prepared.push(sql)
-      const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase()
-
-      if (['begin', 'commit', 'rollback'].includes(normalized)) {
-        runSql.push(normalized)
-        return createMockStatement()
-      }
-
-      if (/pg_advisory_(?:un)?lock/.test(normalized)) {
-        runSql.push(normalized)
-        return createMockStatement()
-      }
-
-      if (normalized.includes('current_database()')) {
-        return createMockStatement([{ database: 'test', schema: 'public' }])
-      }
-
-      if (
-        normalized.includes('information_schema.tables') &&
-        !normalized.includes('information_schema.columns')
-      ) {
-        return createMockStatement(
-          liveTables.map((table) => ({ schema: table.schema, name: table.name })),
-        )
-      }
-
-      if (normalized.includes('information_schema.columns')) {
-        return createMockStatement(
-          liveTables.flatMap((table) =>
-            table.columns.map((column) => ({
-              schema: table.schema,
-              table_name: table.name,
-              column_name: column.name,
-              data_type: column.dataType,
-              udt_name: column.dataType,
-              character_maximum_length: null,
-              numeric_precision: null,
-              numeric_scale: null,
-              is_nullable: column.isNullable ? 'YES' : 'NO',
-              column_default: column.defaultExpression ?? null,
-              is_identity: column.identityGeneration ? 'YES' : 'NO',
-              identity_generation:
-                column.identityGeneration === 'always'
-                  ? 'ALWAYS'
-                  : column.identityGeneration === 'byDefault'
-                    ? 'BY DEFAULT'
-                    : null,
-            })),
-          ),
-        )
-      }
-
-      if (normalized.includes('con.contype as constraint_type')) {
-        return createMockStatement(
-          liveTables.flatMap((table) => [
-            ...(table.primaryKey
-              ? [
-                  {
-                    schema: table.schema,
-                    table_name: table.name,
-                    constraint_name: `${table.name}_pkey`,
-                    constraint_type: 'p',
-                    columns: table.primaryKey,
-                  },
-                ]
-              : []),
-            ...(table.uniqueConstraints ?? []).map((constraint) => ({
-              schema: table.schema,
-              table_name: table.name,
-              constraint_name: constraint.name,
-              constraint_type: 'u',
-              columns: constraint.columns,
-            })),
-            ...(table.foreignKeys ?? []).map((constraint) => ({
-              schema: table.schema,
-              table_name: table.name,
-              constraint_name: constraint.name,
-              constraint_type: 'f',
-              columns: constraint.columns,
-              referenced_schema: constraint.referencedSchema ?? 'public',
-              referenced_table: constraint.referencedTable,
-              referenced_columns: constraint.referencedColumns,
-              on_delete: constraint.onDelete ?? 'no action',
-              on_update: constraint.onUpdate ?? 'no action',
-            })),
-          ]),
-        )
-      }
-
-      if (normalized.includes('pg_index')) {
-        return createMockStatement(
-          liveTables.flatMap((table) =>
-            (table.indexes ?? []).map((index) => ({
-              schema: table.schema,
-              table_name: table.name,
-              index_name: index.name,
-              is_unique: index.unique,
-              columns: index.columns,
-            })),
-          ),
-        )
-      }
-
-      if (normalized.includes('count(*)') && normalized.includes(' is null')) {
-        return createMockStatement([{ count: options?.nullCount ?? 0 }])
-      }
-
-      if (/^(?:create|alter|drop)\s/.test(normalized)) {
-        runSql.push(sql)
-        const error = options?.failRun?.test(normalized)
-          ? new Error(`executor rejected: ${normalized}`)
-          : undefined
-        return createMockStatement([], error)
-      }
-
-      return createMockStatement()
-    },
+    prepare,
     dispose: async () => {},
   }
   return connector

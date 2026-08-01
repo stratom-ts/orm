@@ -49,11 +49,12 @@ export default defineConfig({
       formats: ['es', 'umd'],
     },
     rollupOptions: {
-      external: ['valibot', 'db0'],
+      external: ['valibot', 'db0', 'node:async_hooks'],
       output: {
         globals: {
           valibot: 'valibot',
           db0: 'db0',
+          'node:async_hooks': 'async_hooks',
         },
       },
     },

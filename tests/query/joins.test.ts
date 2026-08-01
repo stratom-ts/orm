@@ -5,6 +5,8 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { InferSelect, Prettify } from '@/index'
 import { column, createDatabase, defineTable, eq, postgresDialect } from '@/index'
 
+import { createNativePostgresClient } from '../helpers/nativePostgresClient'
+
 function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
     bind() {
@@ -33,28 +35,30 @@ function createMockConnector(options?: {
 } {
   const prepared: string[] = []
   const binds: unknown[][] = []
+  const prepare = (sql: string) => {
+    prepared.push(sql)
+    const base =
+      options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
+    return {
+      bind(...params: unknown[]) {
+        binds.push(params)
+        return base.bind(...(params as never[]))
+      },
+      all: () => base.all(),
+      run: () => base.run(),
+      get: () => base.get(),
+    }
+  }
+  const nativeClient = createNativePostgresClient(prepare)
   const connector = {
-    name: 'mock',
+    name: 'postgresql',
     dialect: 'postgresql' as const,
     disposed: false,
     prepared,
     binds,
-    getInstance: () => ({}),
+    getInstance: () => nativeClient,
     exec: async () => ({}),
-    prepare: (sql: string) => {
-      prepared.push(sql)
-      const base =
-        options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
-      return {
-        bind(...params: unknown[]) {
-          binds.push(params)
-          return base.bind(...(params as never[]))
-        },
-        all: () => base.all(),
-        run: () => base.run(),
-        get: () => base.get(),
-      }
-    },
+    prepare,
     dispose: async () => {
       connector.disposed = true
     },
