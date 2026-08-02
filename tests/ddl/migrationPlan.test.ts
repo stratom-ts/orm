@@ -359,6 +359,30 @@ describe('Migration Plan construction', () => {
     const dialect: Dialect = {
       id: 'mysql',
       relationIdentity: 'postgresql',
+      lowerDesiredSchema: (graph) => ({
+        tables: graph.tables.map((table) => ({
+          handle: table.handle,
+          identity: table.identity,
+          ast: {
+            kind: 'create_table',
+            table: table.metadata.name,
+            schema: 'public',
+            columns: table.columns.map((column) => ({
+              name: column.name,
+              dataType: 'custom_string',
+              notNull: true,
+              unique: false,
+              autoIncrement: false,
+              ...(column.metadata?.default === undefined
+                ? {}
+                : { defaultValue: column.metadata.default }),
+            })),
+            primaryKey: Array.isArray(table.metadata.primaryKey)
+              ? table.metadata.primaryKey
+              : [table.metadata.primaryKey],
+          },
+        })),
+      }),
       inferColumnType: () => 'custom_string',
       normalizeDataType: (dataType) =>
         dataType === 'custom_string_alias' ? 'custom_string' : dataType,
@@ -871,7 +895,7 @@ describe('Migration Plan construction', () => {
       'teams',
       {
         tenantId: pipe(string(), column({ type: 'uuid' })),
-        teamId: pipe(string(), column({ type: 'uuid' })),
+        teamId: pipe(string(), column({ type: 'uuid', unique: true })),
       },
       { primaryKey: ['tenantId', 'teamId'], schema: 'public' },
     )

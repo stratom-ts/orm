@@ -531,7 +531,9 @@ function compileColumnDefinition(
     }
   }
 
-  if (col.defaultValue !== undefined && !col.generated && !col.autoIncrement) {
+  if (col.databaseDefault !== undefined && !col.generated && !col.autoIncrement) {
+    parts.push(`default ${col.databaseDefault.sql}`)
+  } else if (col.defaultValue !== undefined && !col.generated && !col.autoIncrement) {
     parts.push(`default ${formatPostgresDefault(col.defaultValue)}`)
   }
 

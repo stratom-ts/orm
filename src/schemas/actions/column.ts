@@ -1,37 +1,10 @@
 import type { MetadataAction } from 'valibot'
-import { getMetadata, metadata } from 'valibot'
+import { metadata } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
 
+import { findSchemaMetadata } from './metadata'
 import type { ColumnMetadata } from './types'
-
-interface WrapperSchema {
-  wrapped: AnySchema
-}
-
-/**
- * Unwraps optional/nullable/nullish wrappers while preserving pipes.
- *
- * @example
- *   const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'text' }))))
- *
- * @param schema - Schema that may be wrapped.
- *
- * @returns Inner schema with pipe structure intact
- */
-function unwrapWrapper(schema: AnySchema): AnySchema {
-  if (
-    schema.type === 'optional' ||
-    schema.type === 'nullable' ||
-    schema.type === 'nullish' ||
-    schema.type === 'non_optional' ||
-    schema.type === 'non_nullable' ||
-    schema.type === 'non_nullish'
-  ) {
-    return unwrapWrapper((schema as unknown as WrapperSchema).wrapped)
-  }
-  return schema
-}
 
 /**
  * Attaches column metadata to a Valibot schema for migrations and typing.
@@ -81,8 +54,5 @@ export function isColumnMetadata(
  * @returns Column metadata, or `undefined` if none
  */
 export function getColumnMetadata(schema: AnySchema): ColumnMetadata | undefined {
-  const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
-    | Record<string, unknown>
-    | undefined
-  return isColumnMetadata(schemaMetadata) ? schemaMetadata : undefined
+  return findSchemaMetadata<ColumnMetadata>(schema, 'column')
 }

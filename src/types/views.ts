@@ -46,13 +46,25 @@ type IsGeneratedAlways<S> = [ColumnMetaOf<S>] extends [never]
   ? false
   : ColumnMetaOf<S> extends { kind: 'column'; generated: 'always' }
     ? true
-    : false
+    : ColumnMetaOf<S> extends {
+          kind: 'column'
+          generation: { kind: 'identity'; mode: 'always' } | { kind: 'computed' }
+        }
+      ? true
+      : false
 
 type IsGeneratedByDefault<S> = [ColumnMetaOf<S>] extends [never]
   ? false
   : ColumnMetaOf<S> extends { kind: 'column'; generated: 'byDefault' }
     ? true
-    : false
+    : ColumnMetaOf<S> extends {
+          kind: 'column'
+          generation: { kind: 'identity'; mode: 'byDefault' }
+        }
+      ? true
+      : ColumnMetaOf<S> extends { kind: 'column'; autoIncrement: true }
+        ? true
+        : false
 
 type IsReadonlyColumn<S> = [ColumnMetaOf<S>] extends [never]
   ? false
@@ -68,7 +80,9 @@ type HasDefaultValue<S> = [ColumnMetaOf<S>] extends [never]
       : D extends undefined
         ? false
         : true
-    : false
+    : ColumnMetaOf<S> extends { kind: 'column'; databaseDefault: unknown }
+      ? true
+      : false
 
 /** Optional / nullish → omit-on-insert (not necessarily SQL NULL). */
 type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }

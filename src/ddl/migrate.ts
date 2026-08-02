@@ -1,4 +1,4 @@
-import type { CreateSchemaAst, Dialect, SqlAst } from '@/dialects'
+import type { CreateSchemaAst, CreateTableAst, Dialect, SqlAst } from '@/dialects'
 import type {
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
@@ -23,7 +23,7 @@ import {
   createMigrationCoordinationScope,
 } from '../migrations/coordinationScope'
 
-import { buildCreateTableAst } from './createTable'
+import { lowerDesiredSchema } from './desiredSchema'
 import type { MigrationPlan, MigrationStep } from './migrationPlan'
 import { planMigration } from './migrationPlan'
 
@@ -127,7 +127,7 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
  */
 function stepToAst(
   step: MigrationStep,
-  handles: CanonicalRelationRegistry<TableHandle>,
+  desiredTables: CanonicalRelationRegistry<CreateTableAst>,
   dialect: Dialect,
   identities: CanonicalRelationIdentityModule,
 ): SqlAst {
@@ -141,13 +141,12 @@ function stepToAst(
     }
     case 'create_table': {
       const identity = identities.resolve(relationInput(step.schema, step.table))
-      const handle = handles.get(identity)
-      if (!handle) {
+      const ast = desiredTables.get(identity)
+      if (!ast) {
         throw new MigrationError({
           message: `cannot create table ${identities.format(identity)}: handle not registered`,
         })
       }
-      const ast = buildCreateTableAst(handle, dialect)
       const profile = physicalNamingProfile(dialect.relationIdentity)
       return {
         ...ast,
@@ -186,6 +185,9 @@ function stepToAst(
             : {}),
           autoIncrement: step.autoIncrement ?? false,
           ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
+          ...(step.databaseDefault !== undefined
+            ? { databaseDefault: step.databaseDefault }
+            : {}),
           ...(step.generated ? { generated: step.generated } : {}),
           ...(step.references ? { references: step.references } : {}),
         },
@@ -365,18 +367,17 @@ export function createMigrateBuilder(options: {
         ? {}
         : { registrationDefault: defaultNamespace }),
     })
-    const handles = identities.createRegistry<TableHandle>()
-    for (const handle of schemas) {
-      const info = handle.getTableMetadata()
-      handles.set(identities.resolve(relationInput(info.schema, info.name)), handle)
-    }
     const plan = planMigration(schemas, catalog, dialect, {
       ...(defaultNamespace === undefined
         ? {}
         : { registrationDefault: defaultNamespace }),
       ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
     })
-    return { plan, identities, handles }
+    const desiredTables = identities.createRegistry<CreateTableAst>()
+    for (const table of lowerDesiredSchema(schemas, identities, dialect).tables) {
+      desiredTables.set(table.identity, table.ast)
+    }
+    return { plan, identities, desiredTables }
   }
 
   const builder: MigrateBuilder = {
@@ -410,7 +411,7 @@ export function createMigrateBuilder(options: {
           try {
             await acquireMigrateLock(executor)
             lockAcquired = true
-            const { plan, identities, handles } = await buildPlan(executor)
+            const { plan, identities, desiredTables } = await buildPlan(executor)
 
             const steps = plan.steps
             if (steps.length === 0) return
@@ -431,7 +432,7 @@ export function createMigrateBuilder(options: {
                 if (step.kind === 'set_not_null') {
                   await assertColumnHasNoNulls(executor, step, identities)
                 }
-                const ast = stepToAst(step, handles, dialect, identities)
+                const ast = stepToAst(step, desiredTables, dialect, identities)
                 await executor.run(dialect.compile(ast))
               }
               commitAttempted = true

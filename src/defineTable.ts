@@ -1,7 +1,6 @@
 import type { ObjectEntries } from 'valibot'
 import { object, pipe, title } from 'valibot'
 
-import { postgresDialect } from '@/dialects'
 import type { ColumnMetadata, TableMetadata, TableOptions, TableSchema } from '@/schemas'
 import {
   getColumnMetadata,
@@ -16,15 +15,6 @@ import { TABLE_HANDLE } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { assertNonEmptyString } from '@/utils/assertNonEmptyString'
 import { SchemaError } from '@/utils/error'
-
-const IDENTITY_BASE_TYPES = new Set([
-  'smallint',
-  'integer',
-  'bigint',
-  'int2',
-  'int4',
-  'int8',
-])
 
 /** Handle methods that must not collide with column names. */
 const RESERVED_HANDLE_KEYS = new Set(['getSchema', 'getTableMetadata'])
@@ -60,6 +50,11 @@ function validatePrimaryKey(metadata: TableMetadata, columnNames: string[]): voi
         message: `primaryKey column "${pk}" is not defined on table "${metadata.name}"`,
       })
     }
+  }
+  if (new Set(primaryKeys).size !== primaryKeys.length) {
+    throw new SchemaError({
+      message: `primaryKey on table "${metadata.name}" contains duplicate columns`,
+    })
   }
 }
 
@@ -99,6 +94,11 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
         })
       }
     }
+    if (new Set(index.columns).size !== index.columns.length) {
+      throw new SchemaError({
+        message: `index on table "${metadata.name}" contains duplicate columns`,
+      })
+    }
     const definition = JSON.stringify([index.columns, index.unique ?? false])
     if (definitions.has(definition)) {
       throw new SchemaError({
@@ -117,7 +117,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
 }
 
 /**
- * Asserts column-level options (comment, onUpdate, default+generated) are valid.
+ * Asserts dialect-independent column option combinations are valid.
  *
  * @example
  *   validateColumnOptions('users', 'name', stringSchema)
@@ -126,7 +126,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
  * @param columnName - Column name for error context.
  * @param colSchema - Column schema to validate.
  *
- * @throws SchemaError - When unsupported column options are set
+ * @throws SchemaError - When contradictory column options are set
  */
 function validateColumnOptions(
   tableName: string,
@@ -135,22 +135,43 @@ function validateColumnOptions(
 ): void {
   const metadata = getColumnMetadata(colSchema)
   if (!metadata) return
-  if (metadata.comment !== undefined) {
+  const hasDefault =
+    metadata.default !== undefined || metadata.databaseDefault !== undefined
+  const hasGeneration =
+    metadata.generated !== undefined ||
+    Boolean(metadata.autoIncrement) ||
+    metadata.generation !== undefined
+  if (hasDefault && hasGeneration) {
     throw new SchemaError({
-      message: `column comments are not supported on "${tableName}.${columnName}"`,
+      message: `column "${columnName}" on table "${tableName}" cannot combine a default with identity generation`,
     })
   }
-  if (metadata.onUpdate !== undefined) {
+  if (metadata.default !== undefined && metadata.databaseDefault !== undefined) {
     throw new SchemaError({
-      message: `column onUpdate expressions are not supported on "${tableName}.${columnName}"`,
+      message: `column "${columnName}" on table "${tableName}" cannot combine legacy and tagged database defaults`,
+    })
+  }
+  if (metadata.type !== undefined && metadata.physicalType !== undefined) {
+    throw new SchemaError({
+      message: `column "${columnName}" on table "${tableName}" cannot combine legacy and dialect-keyed physical types`,
     })
   }
   if (
-    metadata.default !== undefined &&
+    metadata.generation !== undefined &&
     (metadata.generated !== undefined || metadata.autoIncrement)
   ) {
     throw new SchemaError({
-      message: `column "${columnName}" on table "${tableName}" cannot combine a default with identity generation`,
+      message: `column "${columnName}" on table "${tableName}" cannot combine legacy and tagged generation`,
+    })
+  }
+  if (
+    !isSqlNullable(colSchema) &&
+    (metadata.default === null ||
+      (metadata.databaseDefault?.kind === 'literal' &&
+        metadata.databaseDefault.value === null))
+  ) {
+    throw new SchemaError({
+      message: `NOT NULL column "${columnName}" on table "${tableName}" cannot have a null database default`,
     })
   }
 }
@@ -201,8 +222,10 @@ function hasValueSource(
 ): boolean {
   return (
     metadata?.default !== undefined ||
+    metadata?.databaseDefault !== undefined ||
     metadata?.generated !== undefined ||
     Boolean(metadata?.autoIncrement) ||
+    metadata?.generation !== undefined ||
     schemaDefault !== undefined
   )
 }
@@ -228,7 +251,12 @@ function validateOptionalColumn(
 
   const metadata = getColumnMetadata(colSchema)
   const schemaDefault = (colSchema as AnySchema & { default?: unknown }).default
-  if (metadata?.default === null || schemaDefault === null) {
+  if (
+    metadata?.default === null ||
+    (metadata?.databaseDefault?.kind === 'literal' &&
+      metadata.databaseDefault.value === null) ||
+    schemaDefault === null
+  ) {
     throw new SchemaError({
       message: `optional NOT NULL column "${columnName}" on table "${tableName}" cannot default to null`,
     })
@@ -242,46 +270,7 @@ function validateOptionalColumn(
 }
 
 /**
- * Asserts an identity/autoIncrement column resolves to a Postgres identity type.
- *
- * @example
- *   validateIdentityColumn('users', 'id', integerSchema, null)
- *
- * @param tableName - Table name for error context.
- * @param columnName - Column name for error context.
- * @param colSchema - Column schema to validate.
- * @param ref - Reference metadata (may be `null`).
- *
- * @throws SchemaError - When the resolved type is not smallint, integer, or bigint
- */
-function validateIdentityColumn(
-  tableName: string,
-  columnName: string,
-  colSchema: AnySchema,
-  ref: ReferenceMetadata,
-): void {
-  const colMeta = getColumnMetadata(colSchema)
-  if (colMeta?.generated === undefined && !colMeta?.autoIncrement) {
-    return
-  }
-
-  const dataType = String(
-    colMeta.type || ref?.dataType || postgresDialect.inferColumnType(colSchema),
-  )
-  const base = postgresDialect
-    .normalizeDataType(dataType)
-    .toLowerCase()
-    .replace(/\(.*\)$/, '')
-    .trim()
-  if (!IDENTITY_BASE_TYPES.has(base)) {
-    throw new SchemaError({
-      message: `column "${columnName}" on table "${tableName}" uses identity/autoIncrement with type "${dataType}"; Postgres identity requires smallint, integer, or bigint`,
-    })
-  }
-}
-
-/**
- * Asserts every declared column's reference and identity type are valid.
+ * Asserts every declared column's portable reference/storage rules are valid.
  *
  * @example
  *   validateColumns(schema, 'users')
@@ -289,7 +278,7 @@ function validateIdentityColumn(
  * @param schema - Valibot object schema with column entries.
  * @param tableName - Table name for error context.
  *
- * @throws SchemaError - When a reference or identity/autoIncrement type is invalid
+ * @throws SchemaError - When portable column structure is invalid
  */
 function validateColumns(schema: TableSchema, tableName: string): void {
   for (const [columnName, columnSchema] of Object.entries(schema.entries)) {
@@ -301,7 +290,21 @@ function validateColumns(schema: TableSchema, tableName: string): void {
     validateOptionalColumn(tableName, columnName, colSchema)
     validateColumnOptions(tableName, columnName, colSchema)
     validateColumnReference(columnName, ref)
-    validateIdentityColumn(tableName, columnName, colSchema, ref)
+    const actions = [ref?.onDelete, ref?.onUpdate]
+    if (actions.includes('set null') && !isSqlNullable(colSchema)) {
+      throw new SchemaError({
+        message: `reference on "${tableName}.${columnName}" uses SET NULL but local storage is NOT NULL`,
+      })
+    }
+    if (
+      actions.includes('set default') &&
+      getColumnMetadata(colSchema)?.default === undefined &&
+      getColumnMetadata(colSchema)?.databaseDefault === undefined
+    ) {
+      throw new SchemaError({
+        message: `reference on "${tableName}.${columnName}" uses SET DEFAULT without a database default`,
+      })
+    }
   }
 }
 
@@ -309,7 +312,7 @@ function validateColumns(schema: TableSchema, tableName: string): void {
  * Asserts that table metadata is internally consistent before a handle is built.
  *
  * Checks the table name/schema, the primary key, every index, and each column's
- * reference and identity/autoIncrement type against the declared columns.
+ * portable column structure against the declared columns.
  *
  * @example
  *   validateTableMetadata(schema, metadata, ['id', 'name'])
@@ -319,7 +322,7 @@ function validateColumns(schema: TableSchema, tableName: string): void {
  * @param columnNames - Declared column names that primary keys and indexes must
  *   reference.
  *
- * @throws SchemaError - When any name, key, index, reference, or identity type is invalid
+ * @throws SchemaError - When any name, key, index, or portable column rule is invalid
  */
 function validateTableMetadata(
   schema: TableSchema,
@@ -335,6 +338,16 @@ function validateTableMetadata(
   validatePrimaryKey(metadata, columnNames)
   validateIndexes(metadata, columnNames)
   validateColumns(schema, metadata.name)
+  const primaryKeys = Array.isArray(metadata.primaryKey)
+    ? metadata.primaryKey
+    : [metadata.primaryKey]
+  for (const primaryKey of primaryKeys) {
+    if (isSqlNullable(schema.entries[primaryKey] as AnySchema)) {
+      throw new SchemaError({
+        message: `primaryKey column "${primaryKey}" on table "${metadata.name}" cannot be nullable`,
+      })
+    }
+  }
 }
 
 /**

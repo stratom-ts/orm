@@ -1,14 +1,64 @@
 import { SQLDialect } from 'db0'
 
 import type {
+  CanonicalRelationIdentity,
   NamespaceContext,
   RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
-import type { ReferentialAction } from '@/schemas/actions/types'
+import type {
+  ColumnMetadata,
+  ReferenceMetadata,
+  ReferentialAction,
+  TableMetadata,
+} from '@/schemas/actions/types'
+import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 
 /** SQL type string produced by dialect type inference. */
 export type SqlDataType = string
+
+/** One canonically registered authored column before physical lowering. */
+export type AuthoredDesiredColumn = Readonly<{
+  name: string
+  schema: AnySchema
+  metadata?: ColumnMetadata
+  reference?: Readonly<{
+    metadata: ReferenceMetadata
+    targetRelation: CanonicalRelationIdentity
+    targetColumn: string
+  }>
+}>
+
+/** One canonically registered authored table before physical lowering. */
+export type AuthoredDesiredTable = Readonly<{
+  handle: TableHandle
+  identity: CanonicalRelationIdentity
+  metadata: TableMetadata
+  columns: readonly AuthoredDesiredColumn[]
+}>
+
+/** Complete, canonically ordered and reference-validated authored schema graph. */
+export type AuthoredDesiredSchema = Readonly<{
+  tables: readonly AuthoredDesiredTable[]
+}>
+
+/** Adapter-rendered database default carried unambiguously to DDL. */
+export type LoweredDatabaseDefault = Readonly<{
+  sql: string
+  normalized: string
+}>
+
+/** One physically resolved desired table. */
+export type LoweredDesiredTable = Readonly<{
+  handle: TableHandle
+  identity: CanonicalRelationIdentity
+  ast: CreateTableAst
+}>
+
+/** Immutable selected-adapter result for the complete desired graph. */
+export type LoweredDesiredSchema = Readonly<{
+  tables: readonly LoweredDesiredTable[]
+}>
 
 /** Parameterized SQL produced by dialect compilation. */
 export type CompiledQuery = {
@@ -248,6 +298,7 @@ export type CreateTableColumnAst = {
   readonly uniqueConstraintName?: string
   readonly autoIncrement: boolean
   readonly defaultValue?: string | number | boolean | null
+  readonly databaseDefault?: LoweredDatabaseDefault
   readonly generated?: 'always' | 'byDefault'
   readonly references?: {
     readonly table: string
@@ -382,6 +433,9 @@ export interface Dialect {
 
   /** Required adapter profile used by canonical migration relation identity. */
   readonly relationIdentity: RelationIdentityAdapter
+
+  /** Physically resolves a complete, canonically registered desired schema graph. */
+  lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
 
   inferColumnType(schema: AnySchema): SqlDataType
 

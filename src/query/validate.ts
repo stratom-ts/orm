@@ -24,9 +24,22 @@ function isInsertOptional(schema: AnySchema): boolean {
   const meta = getColumnMetadata(schema)
   if (!meta) return false
   if (meta.generated === 'byDefault') return true
+  if (meta.generation?.kind === 'identity' && meta.generation.mode === 'byDefault') {
+    return true
+  }
   if (meta.autoIncrement) return true
   if (meta.default !== undefined) return true
+  if (meta.databaseDefault !== undefined) return true
   return false
+}
+
+function isAlwaysGenerated(schema: AnySchema): boolean {
+  const meta = getColumnMetadata(schema)
+  return (
+    meta?.generated === 'always' ||
+    (meta?.generation?.kind === 'identity' && meta.generation.mode === 'always') ||
+    meta?.generation?.kind === 'computed'
+  )
 }
 
 /**
@@ -50,8 +63,7 @@ export function buildInsertSchema(
 
   for (const [name, columnSchema] of Object.entries(entries)) {
     if (!columnSchema || columnSchema.kind !== 'schema') continue
-    const meta = getColumnMetadata(columnSchema)
-    if (meta?.generated === 'always') continue
+    if (isAlwaysGenerated(columnSchema)) continue
 
     if (isInsertOptional(columnSchema)) {
       insertEntries[name] = isDirectlyOmitOptionalSchema(columnSchema)
@@ -86,8 +98,8 @@ export function buildUpdateSchema(
 
   for (const [name, columnSchema] of Object.entries(entries)) {
     if (!columnSchema || columnSchema.kind !== 'schema') continue
+    if (isAlwaysGenerated(columnSchema)) continue
     const meta = getColumnMetadata(columnSchema)
-    if (meta?.generated === 'always') continue
     if (meta?.readonly) continue
     // All updatable fields are optional patches (including bare nullable)
     updateEntries[name] = isDirectlyOmitOptionalSchema(columnSchema)

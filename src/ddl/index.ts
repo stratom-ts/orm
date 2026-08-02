@@ -4,6 +4,7 @@ export {
   type ColumnReferenceAst,
   type CreateTableAst,
 } from './createTable'
+export { lowerDesiredSchema, registerDesiredSchema } from './desiredSchema'
 export {
   createMigrateBuilder,
   MIGRATE_ADVISORY_LOCK_CLASS,

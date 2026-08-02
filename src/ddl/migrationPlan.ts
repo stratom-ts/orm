@@ -5,8 +5,10 @@ import type {
   CatalogKeyConstraint,
   CatalogSnapshot,
   CatalogTable,
+  CreateTableAst,
   CreateTableColumnAst,
   Dialect,
+  LoweredDatabaseDefault,
 } from '@/dialects/types'
 import type {
   CanonicalRelationIdentity,
@@ -26,11 +28,12 @@ import {
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
 import type { PhysicalNamingProfile } from '@/migrations/physicalNaming'
+import { getReferenceMetadata } from '@/schemas/actions/reference'
 import { normalizeIndex } from '@/schemas/utils/normalizeIndex'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 
-import { buildCreateTableAst } from './createTable'
+import { lowerDesiredSchema } from './desiredSchema'
 
 /** Structured desired-state Migration Plan step (stable kinds + targets). */
 export type MigrationStep =
@@ -52,6 +55,7 @@ export type MigrationStep =
       notNull: boolean
       unique?: boolean
       defaultValue?: string | number | boolean | null
+      databaseDefault?: LoweredDatabaseDefault
       generated?: 'always' | 'byDefault'
       autoIncrement?: boolean
       references?: {
@@ -477,10 +481,15 @@ function defaultMismatch(
 ): string | undefined {
   if (live.defaultExpression === undefined) return
   const expected =
-    desired.defaultValue === undefined
+    desired.databaseDefault?.normalized ??
+    (desired.defaultValue === undefined
       ? null
-      : dialect.normalizeDefaultValue?.(desired.defaultValue)
-  if (desired.defaultValue !== undefined && expected === undefined) {
+      : dialect.normalizeDefaultValue?.(desired.defaultValue))
+  if (
+    desired.databaseDefault === undefined &&
+    desired.defaultValue !== undefined &&
+    expected === undefined
+  ) {
     return `Cannot compare default for ${target}: dialect does not normalize defaults`
   }
   if (live.defaultExpression !== expected) {
@@ -623,7 +632,7 @@ function matchForeignKeys(
  */
 function collectManagedPropertyIssues(
   live: CatalogTable,
-  desired: ReturnType<typeof buildCreateTableAst>,
+  desired: CreateTableAst,
   shape: 'complete' | 'additive',
   dialect: Dialect,
   issues: PlanningIssue[],
@@ -868,6 +877,31 @@ function buildMigrationPlan(
   const sortedSchemas = [...schemas].sort((left, right) =>
     compareTableHandles(left, right, identities),
   )
+  const namingProfile = physicalNamingProfile(dialect.relationIdentity)
+  for (const handle of sortedSchemas) {
+    const metadata = handle.getTableMetadata()
+    validateCanonicalRelationNames(
+      identities.resolve(relationInput(metadata.schema, metadata.name)),
+      namingProfile,
+    )
+    for (const value of Object.values(handle.getSchema().entries)) {
+      if (!value || value.kind !== 'schema') continue
+      const reference = getReferenceMetadata(value)
+      if (!reference) continue
+      validateCanonicalRelationNames(
+        identities.resolve(reference.target.relation),
+        namingProfile,
+      )
+      validatePhysicalName(
+        reference.target.column,
+        'referenced column name',
+        namingProfile,
+      )
+    }
+  }
+  const lowered = lowerDesiredSchema(sortedSchemas, identities, dialect)
+  const desiredTables = identities.createRegistry<CreateTableAst>()
+  for (const table of lowered.tables) desiredTables.set(table.identity, table.ast)
   const sortedCatalogTables = [...catalog.tables].sort((left, right) =>
     compareCatalogTables(left, right, identities),
   )
@@ -875,7 +909,6 @@ function buildMigrationPlan(
   const ensuredSchemas = schemasPresentInCatalog(catalog, identities)
   const registered = identities.createRegistry<TableHandle>()
   const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
-  const namingProfile = physicalNamingProfile(dialect.relationIdentity)
   const physicalNames = createPhysicalNameRegistry(namingProfile)
   const representedCatalogNames = new Set<string>()
 
@@ -1057,18 +1090,13 @@ function buildMigrationPlan(
     }
     registered.set(identity, handle)
     const live = existing.get(identity)
-    let createAst: ReturnType<typeof buildCreateTableAst>
-    try {
-      createAst = buildCreateTableAst(handle, dialect)
-    } catch (cause) {
+    const createAst = desiredTables.get(identity)
+    if (!createAst) {
       issues.push({
         identity,
         target: '',
         property: 'invalid_desired_table',
-        message:
-          cause instanceof Error
-            ? cause.message
-            : `Invalid desired table ${identities.format(identity)}`,
+        message: `Invalid desired table ${identities.format(identity)}`,
       })
       continue
     }
@@ -1204,6 +1232,9 @@ function buildMigrationPlan(
           ...(desired.unique ? { unique: true } : {}),
           ...(desired.defaultValue !== undefined
             ? { defaultValue: desired.defaultValue }
+            : {}),
+          ...(desired.databaseDefault !== undefined
+            ? { databaseDefault: desired.databaseDefault }
             : {}),
           ...(desired.generated ? { generated: desired.generated } : {}),
           ...(desired.autoIncrement ? { autoIncrement: true } : {}),

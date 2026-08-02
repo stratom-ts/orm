@@ -193,6 +193,50 @@ describe('InferInsert', () => {
     expectTypeOf<Insert>().toExtend<{ label: string }>()
     expectTypeOf<Insert>().not.toHaveProperty('id')
   })
+
+  it('should model tagged identity, computed generation, and legacy autoIncrement', () => {
+    const Generated = defineTable(
+      'tagged_generated',
+      {
+        id: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
+        always: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'always' },
+          }),
+        ),
+        computed: pipe(
+          string(),
+          column({
+            type: 'text',
+            generation: {
+              kind: 'computed',
+              expression: {
+                kind: 'portableExpression',
+                expression: 'currentTimestamp',
+              },
+              storage: 'stored',
+            },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+    type Insert = InferInsert<typeof Generated>
+
+    expectTypeOf<Insert['id']>().toEqualTypeOf<number | undefined>()
+    expectTypeOf<Insert['legacy']>().toEqualTypeOf<number | undefined>()
+    expectTypeOf<Insert>().not.toHaveProperty('always')
+    expectTypeOf<Insert>().not.toHaveProperty('computed')
+  })
 })
 
 describe('InferUpdate', () => {
