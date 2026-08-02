@@ -20,12 +20,13 @@ const request: CatalogRequest = {
 function executor(
   options: {
     reverse?: boolean
-    canInspect?: boolean
     version?: string
     raced?: boolean
     deleted?: boolean
     changedMembers?: boolean
     malformedIndex?: boolean
+    unrelatedRace?: boolean
+    relationKind?: 'r' | 'v'
   } = {},
 ): CatalogExecutor {
   const order = <T>(rows: T[]) => (options.reverse ? rows.reverse() : rows)
@@ -42,22 +43,21 @@ function executor(
           },
         ]
       }
-      if (sql.includes('from pg_namespace catalog_namespace')) {
+      if (sql.includes('-- catalog:namespace')) {
         return [{ schema: 'public', owner: 'app' }]
       }
       if (sql.includes('as relation_kind')) {
         relationQueries++
         if (options.raced) return []
         if (options.deleted && relationQueries > 1) return []
-        return [
+        const rows = [
           {
             object_id: '1',
             schema: 'public',
             name: 'events',
-            relation_kind: 'r',
+            relation_kind: options.relationKind ?? 'r',
             persistence: 'p',
             owner: 'app',
-            can_inspect: options.canInspect ?? true,
             native_definition: null,
             options: ['fillfactor=90'],
             partition_key: null,
@@ -70,8 +70,16 @@ function executor(
             partition_bound: null,
           },
         ]
+        if (options.unrelatedRace) {
+          rows.push({
+            ...rows[0]!,
+            object_id: String(relationQueries),
+            name: 'audit_log',
+          })
+        }
+        return rows
       }
-      if (sql.includes('from pg_attribute catalog_attribute')) {
+      if (sql.includes('-- catalog:column')) {
         columnQueries++
         const rows = [
           {
@@ -173,7 +181,7 @@ function executor(
             is_valid: true,
             nulls_not_distinct: false,
             has_supported_semantics: true,
-            columns: '{"payload,part","NULL"}',
+            columns: '{" payload,part ","NULL"}',
             native_definition:
               'create index events_quoted_idx on events ("payload,part")',
           },
@@ -233,7 +241,17 @@ function executor(
 
 describe('PostgreSQL evidence-bearing catalog', () => {
   it('normalizes row-order permutations and preserves native objects', async () => {
-    const first = await postgresDialect.catalog.introspectCatalog(executor(), request)
+    const queries: Parameters<CatalogExecutor['execute']>[0][] = []
+    const delegate = executor()
+    const first = await postgresDialect.catalog.introspectCatalog(
+      {
+        execute(query) {
+          queries.push(query)
+          return delegate.execute(query)
+        },
+      },
+      request,
+    )
     const second = await postgresDialect.catalog.introspectCatalog(
       executor({ reverse: true }),
       request,
@@ -284,19 +302,51 @@ describe('PostgreSQL evidence-bearing catalog', () => {
       relation.table.value.indexes.items.find(
         (index) => index.name.state === 'present' && index.name.value.includes('quoted'),
       )?.columns,
-    ).toEqual(['payload,part', 'NULL'])
+    ).toEqual([' payload,part ', 'NULL'])
     expect(relation.table.value.opaqueObjects.items[0]).toMatchObject({
       kind: 'trigger',
       reason: expect.stringMatching(/not managed/i),
     })
+    expect(first.namespaces.items[0]!.relations.coverage).toMatchObject({
+      state: 'partial',
+      remainder: { state: 'unmanaged' },
+    })
+    for (const query of queries.slice(1)) {
+      expect(query.sql).toContain('n.nspname = any($1::text[])')
+      expect(query.params).toEqual([['public']])
+    }
+
+    const completeNamespace = await postgresDialect.catalog.introspectCatalog(
+      executor(),
+      {
+        relations: [],
+        absentRelations: [],
+        completeNamespaces: [[{ role: 'schema', spelling: 'public' }]],
+      },
+    )
+    expect(completeNamespace.namespaces.items[0]!.relations.coverage).toEqual({
+      state: 'complete',
+    })
   })
 
-  it('uses direct catalog visibility and reports unsupported server versions', async () => {
-    const restricted = await postgresDialect.catalog.introspectCatalog(
-      executor({ canInspect: false }),
+  it('ignores unrelated races and skips table-shaped rows for views', async () => {
+    await expect(
+      postgresDialect.catalog.introspectCatalog(
+        executor({ unrelatedRace: true }),
+        request,
+      ),
+    ).resolves.toBeDefined()
+
+    const view = await postgresDialect.catalog.introspectCatalog(
+      executor({ relationKind: 'v' }),
       request,
     )
-    const relation = restricted.namespaces.items[0]!.relations.items[0]!
+    expect(view.namespaces.items[0]!.relations.items[0]!.table).toEqual({
+      state: 'absent',
+    })
+  })
+
+  it('reports unsupported server versions', async () => {
     const versionLimited = await postgresDialect.catalog.introspectCatalog(
       executor({ version: '90600' }),
       request,
@@ -312,8 +362,6 @@ describe('PostgreSQL evidence-bearing catalog', () => {
       state: 'unavailable',
       cause: 'version',
     })
-    expect(relation.table.state).toBe('present')
-    expect(restricted.diagnostics).toEqual([])
     expect(versionLimited.diagnostics.map(({ code }) => code)).toEqual([
       'catalog.capability.version',
     ])

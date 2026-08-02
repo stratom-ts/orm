@@ -165,8 +165,8 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
           quoted = !quoted
           partWasQuoted = true
         } else if (character === ',' && !quoted) {
-          parts.push(part.trim())
           quotedParts.push(partWasQuoted)
+          parts.push(partWasQuoted ? part : part.trim())
           part = ''
           partWasQuoted = false
         } else {
@@ -174,8 +174,8 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
         }
       }
       if (!quoted && !escaped) {
-        parts.push(part.trim())
         quotedParts.push(partWasQuoted)
+        parts.push(partWasQuoted ? part : part.trim())
         if (
           parts.every(
             (item, index) => item.length > 0 && (quotedParts[index] || item !== 'NULL'),
@@ -276,20 +276,6 @@ function requestedNamespaces(request: ResolvedCatalogRequest) {
   ].filter(
     (namespace, index, values) =>
       values.findIndex((candidate) => sameNamespace(candidate, namespace)) === index,
-  )
-}
-
-function relationRequested(
-  identity: CanonicalRelationIdentity,
-  request: ResolvedCatalogRequest,
-  identities: CanonicalRelationIdentityModule,
-): boolean {
-  return (
-    request.relations.some((entry) => identities.equals(entry.identity, identity)) ||
-    request.absentRelations.some((entry) => identities.equals(entry, identity)) ||
-    request.completeNamespaces.some((namespace) =>
-      sameNamespace(namespace, identity.namespace),
-    )
   )
 }
 
@@ -408,6 +394,25 @@ export async function introspectPostgres(
   })
   const resolvedRequest = resolveRequest(request, identities)
   const scopeNamespaces = requestedNamespaces(resolvedRequest)
+  const scopeSchemas = scopeNamespaces.map((namespace) => {
+    const segment = namespace.find(({ role }) => role === 'schema')
+    if (!segment) {
+      throw new TypeError('PostgreSQL introspection scope is missing a schema namespace')
+    }
+    return segment.identifier.spelling
+  })
+  const requestedRelations = identities.createRegistry<true>()
+  for (const { identity } of resolvedRequest.relations) {
+    requestedRelations.set(identity, true)
+  }
+  for (const identity of resolvedRequest.absentRelations) {
+    requestedRelations.set(identity, true)
+  }
+  const relationRequested = (identity: CanonicalRelationIdentity) =>
+    requestedRelations.has(identity) ||
+    resolvedRequest.completeNamespaces.some((namespace) =>
+      sameNamespace(namespace, identity.namespace),
+    )
   const diagnostics: CatalogDiagnostic[] = []
   if (versionNumber < 120000) {
     const versionEvidence = {
@@ -439,13 +444,14 @@ export async function introspectPostgres(
 
   const namespaceQuery = {
     sql: `
+      -- catalog:namespace
       select n.nspname as schema, pg_get_userbyid(n.nspowner) as owner
-      from pg_namespace catalog_namespace
-      join pg_namespace n on n.oid = catalog_namespace.oid
+      from pg_namespace n
       where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       order by n.nspname
     `,
-    params: [],
+    params: [scopeSchemas],
   }
   const namespaceRows = await executor.execute(namespaceQuery)
   const relationQuery = {
@@ -469,13 +475,15 @@ export async function introspectPostgres(
       left join pg_tablespace tablespace on tablespace.oid = c.reltablespace
       where c.relkind in ('r', 'p', 'v', 'm', 'f')
         and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       order by n.nspname, c.relname
     `,
-    params: [],
+    params: [scopeSchemas],
   }
   const relationRows = await executor.execute(relationQuery)
   const columnQuery = {
     sql: `
+      -- catalog:column
       select n.nspname as schema, c.relname as table_name,
              a.attname as column_name, a.attnum as ordinal_position,
              format_type(a.atttypid, a.atttypmod) as formatted_type,
@@ -489,8 +497,7 @@ export async function introspectPostgres(
              case a.attidentity when 'a' then 'ALWAYS' when 'd' then 'BY DEFAULT' else null end as identity_generation,
              case when a.attgenerated = '' then 'NEVER' else 'ALWAYS' end as is_generated,
              case when a.attgenerated <> '' then pg_get_expr(d.adbin, d.adrelid) else null end as generation_expression
-      from pg_attribute catalog_attribute
-      join pg_attribute a on a.attrelid = catalog_attribute.attrelid and a.attnum = catalog_attribute.attnum
+      from pg_attribute a
       join pg_class c on c.oid = a.attrelid
       join pg_namespace n on n.oid = c.relnamespace
       join pg_type t on t.oid = a.atttypid
@@ -498,9 +505,10 @@ export async function introspectPostgres(
       left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
       where c.relkind in ('r', 'p') and a.attnum > 0 and not a.attisdropped
         and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       order by n.nspname, c.relname, a.attnum
     `,
-    params: [],
+    params: [scopeSchemas],
   }
   const columnRows = await executor.execute(columnQuery)
   const constraintQuery = {
@@ -561,9 +569,10 @@ export async function introspectPostgres(
       left join pg_class backing_class on backing_class.oid = con.conindid
       left join pg_am backing_am on backing_am.oid = backing_class.relam
       where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       order by n.nspname, tbl.relname, con.conname
     `,
-    params: [],
+    params: [scopeSchemas],
   }
   const constraintRows = await executor.execute(constraintQuery)
   const indexQuery = {
@@ -603,11 +612,12 @@ export async function introspectPostgres(
       join pg_namespace n on n.oid = tbl.relnamespace
       join pg_am am on am.oid = idx.relam
       where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
         and tbl.relkind in ('r', 'p') and not i.indisprimary
         and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
       order by n.nspname, tbl.relname, idx.relname
     `,
-    params: [],
+    params: [scopeSchemas],
   }
   const indexRows = await executor.execute(indexQuery)
   const opaqueQuery = {
@@ -619,6 +629,7 @@ export async function introspectPostgres(
       join pg_class c on c.oid = t.tgrelid
       join pg_namespace n on n.oid = c.relnamespace
       where not t.tgisinternal and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       union all
       select n.nspname, c.relname, 'policy', p.polname,
              format(
@@ -648,6 +659,7 @@ export async function introspectPostgres(
       join pg_class c on c.oid = p.polrelid
       join pg_namespace n on n.oid = c.relnamespace
       where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       union all
       select n.nspname, c.relname, 'other', r.rulename,
              pg_get_ruledef(r.oid, true)
@@ -656,9 +668,10 @@ export async function introspectPostgres(
       join pg_namespace n on n.oid = c.relnamespace
       where r.rulename <> '_RETURN'
         and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       order by 1, 2, 3, 4
     `,
-    params: [],
+    params: [scopeSchemas],
   }
   const opaqueRows = await executor.execute(opaqueQuery)
   const reservationQuery = {
@@ -666,33 +679,65 @@ export async function introspectPostgres(
       select n.nspname as schema, c.relname as object_name
       from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
       order by n.nspname, c.relname
     `,
-    params: [],
+    params: [scopeSchemas],
   }
   const reservationRows = await executor.execute(reservationQuery)
 
+  const namespaceObservations = (rows: unknown[], query: string) =>
+    rows.filter((value, index) => {
+      const row = rowAt(value, `${query} consistency`, index)
+      const namespace = identities.resolveNamespace([
+        {
+          role: 'schema',
+          spelling: stringAt(row, 'schema', `${query} consistency`, index),
+        },
+      ])
+      return scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace))
+    })
+  const relationObservations = (rows: unknown[], query: string) =>
+    rows.filter((value, index) => {
+      const row = rowAt(value, `${query} consistency`, index)
+      const identity = identities.resolve(
+        relationInput(
+          stringAt(row, 'schema', `${query} consistency`, index),
+          stringAt(row, 'table_name', `${query} consistency`, index),
+        ),
+      )
+      return relationRequested(identity)
+    })
+
   assertObservationUnchanged(
     'namespace',
-    namespaceRows,
-    await executor.execute(namespaceQuery),
+    namespaceObservations(namespaceRows, 'namespace'),
+    namespaceObservations(await executor.execute(namespaceQuery), 'namespace'),
   )
-  assertObservationUnchanged('column', columnRows, await executor.execute(columnQuery))
+  assertObservationUnchanged(
+    'column',
+    relationObservations(columnRows, 'column'),
+    relationObservations(await executor.execute(columnQuery), 'column'),
+  )
   assertObservationUnchanged(
     'constraint',
-    constraintRows,
-    await executor.execute(constraintQuery),
+    relationObservations(constraintRows, 'constraint'),
+    relationObservations(await executor.execute(constraintQuery), 'constraint'),
   )
-  assertObservationUnchanged('index', indexRows, await executor.execute(indexQuery))
+  assertObservationUnchanged(
+    'index',
+    relationObservations(indexRows, 'index'),
+    relationObservations(await executor.execute(indexQuery), 'index'),
+  )
   assertObservationUnchanged(
     'opaque object',
-    opaqueRows,
-    await executor.execute(opaqueQuery),
+    relationObservations(opaqueRows, 'opaque object'),
+    relationObservations(await executor.execute(opaqueQuery), 'opaque object'),
   )
   assertObservationUnchanged(
     'name reservation',
-    reservationRows,
-    await executor.execute(reservationQuery),
+    namespaceObservations(reservationRows, 'name reservation'),
+    namespaceObservations(await executor.execute(reservationQuery), 'name reservation'),
   )
   const finalRelationRows = await executor.execute(relationQuery)
 
@@ -706,7 +751,7 @@ export async function introspectPostgres(
             stringAt(row, 'name', 'relation consistency', index),
           ),
         )
-        return relationRequested(identity, resolvedRequest, identities)
+        return relationRequested(identity)
           ? [
               `${identities.format(identity)}\0${stringAt(row, 'object_id', 'relation consistency', index)}`,
             ]
@@ -721,7 +766,6 @@ export async function introspectPostgres(
       'PostgreSQL catalog changed during introspection: requested relations were replaced, created, or removed',
     )
   }
-  assertObservationUnchanged('relation', relationRows, finalRelationRows)
 
   type MutableTable = {
     columns: CatalogColumn[]
@@ -733,7 +777,7 @@ export async function introspectPostgres(
     opaqueObjects: OpaqueCatalogObject[]
   }
   type MutableRelation = {
-    relation: CatalogRelation
+    relation: Omit<CatalogRelation, 'table'>
     table?: MutableTable
   }
   const relationRegistry = identities.createRegistry<MutableRelation>()
@@ -746,7 +790,7 @@ export async function introspectPostgres(
         stringAt(row, 'name', 'relation', index),
       ),
     )
-    if (!relationRequested(identity, resolvedRequest, identities)) continue
+    if (!relationRequested(identity)) continue
     if (relationRegistry.has(identity)) {
       throw new TypeError(
         `Duplicate PostgreSQL relation row for ${identities.format(identity)}`,
@@ -847,7 +891,6 @@ export async function introspectPostgres(
           native === null
             ? unsupported('PostgreSQL does not expose canonical CREATE relation SQL')
             : present(native),
-        table: mutableTable ? present({} as CatalogTable) : absent,
       },
     })
   }
@@ -859,14 +902,15 @@ export async function introspectPostgres(
         stringAt(row, 'table_name', query, index),
       ),
     )
-    if (!relationRequested(identity, resolvedRequest, identities)) return undefined
+    if (!relationRequested(identity)) return undefined
     const entry = relationRegistry.get(identity)
-    if (!entry?.table) {
+    if (!entry) {
       throw new TypeError(
         `PostgreSQL catalog changed during introspection: ${query} row references missing table ${identities.format(identity)}`,
       )
     }
-    return { identity, entry }
+    if (!entry.table) return undefined
+    return { identity, table: entry.table }
   }
 
   for (let index = 0; index < columnRows.length; index++) {
@@ -913,7 +957,7 @@ export async function introspectPostgres(
         `Malformed PostgreSQL column row ${index}: column cannot be identity and computed`,
       )
     }
-    target.entry.table!.columns.push({
+    target.table.columns.push({
       name: stringAt(row, 'column_name', 'column', index),
       position: positiveIntegerAt(row, 'ordinal_position', 'column', index),
       dataType: present({
@@ -997,14 +1041,14 @@ export async function introspectPostgres(
       nativeDefinition: present(nativeDefinition),
     }
     if (type === 'p') {
-      if (target.entry.table!.primaryKey.state !== 'absent') {
+      if (target.table.primaryKey.state !== 'absent') {
         throw new TypeError(
           `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
         )
       }
-      target.entry.table!.primaryKey = present(key)
+      target.table.primaryKey = present(key)
     } else if (type === 'u') {
-      target.entry.table!.uniqueConstraints.push(key)
+      target.table.uniqueConstraints.push(key)
     } else if (type === 'f') {
       if (
         typeof row.referenced_schema !== 'string' ||
@@ -1016,7 +1060,7 @@ export async function introspectPostgres(
       }
       const referencedSchema = stringAt(row, 'referenced_schema', 'constraint', index)
       const referencedTable = stringAt(row, 'referenced_table', 'constraint', index)
-      target.entry.table!.foreignKeys.push({
+      target.table.foreignKeys.push({
         ...key,
         referencedRelation: identities.resolve(
           relationInput(referencedSchema, referencedTable),
@@ -1034,7 +1078,7 @@ export async function introspectPostgres(
         ),
       })
     } else {
-      target.entry.table!.opaqueObjects.push({
+      target.table.opaqueObjects.push({
         kind: 'constraint',
         name: present(name),
         nativeDefinition: present(nativeDefinition),
@@ -1050,7 +1094,7 @@ export async function introspectPostgres(
     const supported =
       booleanAt(row, 'has_supported_semantics', 'index', index) &&
       !booleanAt(row, 'nulls_not_distinct', 'index', index)
-    target.entry.table!.indexes.push({
+    target.table.indexes.push({
       name: present(stringAt(row, 'index_name', 'index', index)),
       origin: 'user',
       columns: stringArrayAt(row, 'columns', 'index', index),
@@ -1073,7 +1117,7 @@ export async function introspectPostgres(
         `Malformed PostgreSQL opaque object row ${index}: unsupported kind ${JSON.stringify(kind)}`,
       )
     }
-    target.entry.table!.opaqueObjects.push({
+    target.table.opaqueObjects.push({
       kind,
       name: present(stringAt(row, 'object_name', 'opaque object', index)),
       nativeDefinition: present(
@@ -1096,7 +1140,20 @@ export async function introspectPostgres(
     namespaces.push({
       identity,
       owner: present(stringAt(row, 'owner', 'namespace', index)),
-      relations: { items: [], coverage: complete },
+      relations: {
+        items: [],
+        coverage: resolvedRequest.completeNamespaces.some((namespace) =>
+          sameNamespace(namespace, identity),
+        )
+          ? complete
+          : {
+              state: 'partial',
+              remainder: {
+                state: 'unmanaged',
+                reason: 'Relations outside the requested catalog scope are unmanaged',
+              },
+            },
+      },
     })
   }
 
@@ -1111,10 +1168,11 @@ export async function introspectPostgres(
     )
     const entry = relationRegistry.get(identity)
     if (!entry) continue
-    if (entry.table && entry.relation.table.state === 'present') {
+    let table: CatalogTable | undefined
+    if (entry.table) {
       const byName = <T extends { name: CatalogFact<string> }>(left: T, right: T) =>
         compareCodeUnits(factName(left.name), factName(right.name))
-      const table: CatalogTable = {
+      table = {
         columns: {
           items: entry.table.columns.sort(
             (left, right) =>
@@ -1145,9 +1203,11 @@ export async function introspectPostgres(
           coverage: complete,
         },
       }
-      entry.relation = { ...entry.relation, table: present(table) }
     }
-    relationEntries.push(entry.relation)
+    relationEntries.push({
+      ...entry.relation,
+      table: table === undefined ? absent : present(table),
+    })
   }
   relationEntries.sort((left, right) => identities.compare(left.identity, right.identity))
 

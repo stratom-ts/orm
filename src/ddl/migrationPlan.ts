@@ -1200,6 +1200,7 @@ function buildMigrationPlan(
       continue
     }
 
+    // This window contains only this relation's steps; deferred foreign keys follow the loop.
     const relationStepStart = steps.length
     collectManagedPropertyIssues(live, createAst, shape, dialect, issues, identities)
 
@@ -1244,8 +1245,23 @@ function buildMigrationPlan(
         continue
       }
 
+      const columnTarget = identities.format(identity, {
+        role: 'column',
+        spelling: desired.name,
+      })
+      if (current.dataType === undefined) {
+        throw new MigrationError({
+          message: `Cannot plan desired-table column ${columnTarget}: catalog data type is unresolved`,
+        })
+      }
+      if (current.isNullable === undefined) {
+        throw new MigrationError({
+          message: `Cannot plan desired-table column ${columnTarget}: catalog nullability is unresolved`,
+        })
+      }
+
       const desiredType = dialect.normalizeDataType(desired.dataType)
-      const currentType = dialect.normalizeDataType(current.dataType!)
+      const currentType = dialect.normalizeDataType(current.dataType)
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',
@@ -1256,14 +1272,14 @@ function buildMigrationPlan(
         })
       }
 
-      if (desired.notNull && current.isNullable!) {
+      if (desired.notNull && current.isNullable) {
         steps.push({
           kind: 'set_not_null',
           ...schemaField(identity),
           table: info.name,
           column: desired.name,
         })
-      } else if (!desired.notNull && !current.isNullable!) {
+      } else if (!desired.notNull && !current.isNullable) {
         steps.push({
           kind: 'drop_not_null',
           ...schemaField(identity),

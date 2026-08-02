@@ -1,36 +1,15 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import {
-  createCatalogRequest,
-  resolveMigrationOwnership,
-} from '@/migrations/migrationOwnership'
+import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
 
 import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
-import { completePostgresCatalog } from '../helpers/catalog'
-
-const planMigration = (
-  schemas: Parameters<typeof planMigrationWithContext>[0],
-  catalog: CatalogSnapshot,
-  dialect: Parameters<typeof planMigrationWithContext>[2],
-  options?: Parameters<typeof planMigrationWithContext>[3],
-) =>
-  planMigrationWithContext(
-    schemas,
-    completePostgresCatalog(
-      catalog,
-      createCatalogRequest(
-        schemas,
-        options?.migrationOwnership ?? [],
-        options?.registrationDefault,
-      ),
-    ),
-    dialect,
-    options,
-  ).plan
+import {
+  catalogPrimaryKey as createCatalogPrimaryKey,
+  planMigration,
+} from '../helpers/catalog'
 
 const context = {
   writableDefault: [
@@ -46,11 +25,7 @@ const supportedSimple = {
   semanticCompleteness: 'supportedSimple' as const,
   isValid: true,
 }
-const catalogPrimaryKey = (table: string) => ({
-  name: `${table}_pkey`,
-  columns: ['id'],
-  ...supportedSimple,
-})
+const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 
 const Users = defineTable(
   'users',

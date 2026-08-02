@@ -71,14 +71,35 @@ describe('catalog evidence', () => {
       { state: 'unknown', reason: 'raced' },
     ]
 
-    expect(facts.map((fact) => fact.state)).toEqual([
-      'present',
+    const describe = (fact: CatalogFact<string>): string => {
+      switch (fact.state) {
+        case 'present':
+          return `present:${fact.value}`
+        case 'absent':
+          return 'absent'
+        case 'unsupported':
+          return `unsupported:${fact.by}`
+        case 'unavailable':
+          return `unavailable:${fact.cause}`
+        case 'unmanaged':
+          return `unmanaged:${fact.reason}`
+        case 'unknown':
+          return `unknown:${fact.reason}`
+        default: {
+          const exhaustive: never = fact
+          return exhaustive
+        }
+      }
+    }
+
+    expect(facts.map(describe)).toEqual([
+      'present:value',
       'absent',
-      'unsupported',
-      'unavailable',
-      'unavailable',
-      'unmanaged',
-      'unknown',
+      'unsupported:engine',
+      'unavailable:permission',
+      'unavailable:version',
+      'unmanaged:outside ownership',
+      'unknown:raced',
     ])
   })
 

@@ -87,6 +87,7 @@ export function createCatalogRequest(
   declarations: readonly MigrationOwnershipDeclaration[],
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): CatalogRequest {
+  // An explicit declaration overrides a registered handle's default complete shape.
   const relations: CatalogRequest['relations'][number][] = schemas.map((handle) => ({
     relation: relationInput(handle),
     shape: 'complete',
@@ -94,6 +95,7 @@ export function createCatalogRequest(
   const absentRelations: RelationIdentityInput[] = []
   const completeNamespaces: (readonly NamespaceIdentifierInput[])[] = []
 
+  // resolveRequest canonicalizes duplicates with last-write-wins semantics.
   for (const declaration of declarations) {
     if (declaration.kind === 'completeNamespace') {
       completeNamespaces.push(declaration.namespace ?? [])

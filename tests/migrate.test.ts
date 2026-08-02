@@ -109,7 +109,7 @@ function createMockConnector(options?: {
       ])
     }
 
-    if (normalized.includes('from pg_namespace catalog_namespace')) {
+    if (normalized.includes('-- catalog:namespace')) {
       const schemas = ['public', ...liveTables.map((table) => table.schema)].filter(
         (schema, index, values) => values.indexOf(schema) === index,
       )
@@ -140,16 +140,7 @@ function createMockConnector(options?: {
       )
     }
 
-    if (
-      normalized.includes('information_schema.tables') &&
-      !normalized.includes('information_schema.columns')
-    ) {
-      return createMockStatement(
-        liveTables.map((table) => ({ schema: table.schema, name: table.name })),
-      )
-    }
-
-    if (normalized.includes('from pg_attribute catalog_attribute')) {
+    if (normalized.includes('-- catalog:column')) {
       return createMockStatement(
         liveTables.flatMap((table) =>
           table.columns.map((column, index) => ({
@@ -252,7 +243,7 @@ function createMockConnector(options?: {
       ])
     }
 
-    if (normalized.includes('pg_index')) {
+    if (normalized.includes('from pg_index i')) {
       return createMockStatement(
         liveTables.flatMap((table) =>
           (table.indexes ?? []).map((index) => ({

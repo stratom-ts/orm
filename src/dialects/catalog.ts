@@ -174,7 +174,13 @@ export type CatalogConstraintNameReservation = Readonly<{
 export type CatalogSnapshot = Readonly<{
   source: Readonly<{ dialect: string; version: string }>
   request: ResolvedCatalogRequest
-  capabilities: Readonly<Record<string, CatalogCapability>>
+  capabilities: Readonly<{
+    namespaces: CatalogCapability
+    relationOwner: CatalogCapability
+    identity: CatalogCapability
+    richObjects: CatalogCapability
+    [key: string]: CatalogCapability
+  }>
   namespaceContext: NamespaceContext
   namespaces: CatalogSet<CatalogNamespace>
   nameReservations: CatalogSet<CatalogNameReservation>

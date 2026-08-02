@@ -510,7 +510,7 @@ describe('@/dialects/postgres', () => {
           if (sql.includes('current_database()')) {
             return [{ database: 'test', schema: 'public', version: '160000' }]
           }
-          if (sql.includes('from pg_namespace catalog_namespace')) {
+          if (sql.includes('-- catalog:namespace')) {
             return [
               { schema: 'public', owner: 'app' },
               { schema: 'app', owner: 'app' },
@@ -525,7 +525,6 @@ describe('@/dialects/postgres', () => {
                 relation_kind: 'r',
                 persistence: 'p',
                 owner: 'app',
-                can_inspect: true,
                 native_definition: null,
                 options: [],
                 partition_key: null,
@@ -544,7 +543,6 @@ describe('@/dialects/postgres', () => {
                 relation_kind: 'r',
                 persistence: 'p',
                 owner: 'app',
-                can_inspect: true,
                 native_definition: null,
                 options: [],
                 partition_key: null,
@@ -558,17 +556,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
-          if (
-            sql.includes('information_schema.tables') &&
-            !sql.includes('information_schema.columns')
-          ) {
-            return [
-              { schema: 'public', name: 'accounts' },
-              { schema: 'app', name: 'events' },
-              {},
-            ]
-          }
-          if (sql.includes('from pg_attribute catalog_attribute')) {
+          if (sql.includes('-- catalog:column')) {
             return [
               {
                 schema: 'public',
@@ -1009,7 +997,9 @@ describe('@/dialects/postgres', () => {
         ]),
       )
       expect(snapshot.constraintNameReservations).toHaveLength(6)
-      const reservationSql = executedSql.find((sql) => sql.includes('as object_name'))
+      const reservationSql = executedSql.find((sql) =>
+        sql.includes('c.relname as object_name'),
+      )
       expect(reservationSql).toBeDefined()
       expect(reservationSql).not.toContain('relkind in')
       const indexSql = executedSql.find((sql) => sql.includes('from pg_index i'))
@@ -1033,9 +1023,7 @@ describe('@/dialects/postgres', () => {
       expect(constraintSql).toContain(
         'backing_index.indnkeyatts = backing_index.indnatts',
       )
-      const columnSql = executedSql.find((sql) =>
-        sql.includes('from pg_attribute catalog_attribute'),
-      )
+      const columnSql = executedSql.find((sql) => sql.includes('-- catalog:column'))
       expect(columnSql).not.toContain('information_schema.columns')
       const opaqueSql = executedSql.find((sql) => sql.includes('from pg_policy'))
       expect(opaqueSql).toContain('p.polpermissive')
@@ -1049,7 +1037,7 @@ describe('@/dialects/postgres', () => {
           if (sql.includes('current_database()')) {
             return [{ database: 'test', schema: 'public', version: '160000' }]
           }
-          if (sql.includes('from pg_namespace catalog_namespace')) {
+          if (sql.includes('-- catalog:namespace')) {
             return [
               { schema: 'a.b', owner: 'app' },
               { schema: 'a', owner: 'app' },
@@ -1064,7 +1052,6 @@ describe('@/dialects/postgres', () => {
                 relation_kind: 'r',
                 persistence: 'p',
                 owner: 'app',
-                can_inspect: true,
                 native_definition: null,
                 options: [],
                 partition_key: null,
@@ -1083,7 +1070,6 @@ describe('@/dialects/postgres', () => {
                 relation_kind: 'r',
                 persistence: 'p',
                 owner: 'app',
-                can_inspect: true,
                 native_definition: null,
                 options: [],
                 partition_key: null,
@@ -1097,16 +1083,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
-          if (
-            sql.includes('information_schema.tables') &&
-            !sql.includes('information_schema.columns')
-          ) {
-            return [
-              { schema: 'a.b', name: 'c' },
-              { schema: 'a', name: 'b.c' },
-            ]
-          }
-          if (sql.includes('from pg_attribute catalog_attribute')) {
+          if (sql.includes('-- catalog:column')) {
             return [
               {
                 schema: 'a.b',
@@ -1170,7 +1147,7 @@ describe('@/dialects/postgres', () => {
           if (sql.includes('current_database()')) {
             return [{ database: 'test', schema: 'public', version: '160000' }]
           }
-          if (sql.includes('from pg_namespace catalog_namespace')) {
+          if (sql.includes('-- catalog:namespace')) {
             return [{ schema: 'public', owner: 'app' }]
           }
           if (sql.includes('as relation_kind')) {
@@ -1182,7 +1159,6 @@ describe('@/dialects/postgres', () => {
                 relation_kind: 'r',
                 persistence: 'p',
                 owner: 'app',
-                can_inspect: true,
                 native_definition: null,
                 options: [],
                 partition_key: null,
@@ -1195,12 +1171,6 @@ describe('@/dialects/postgres', () => {
                 partition_bound: null,
               },
             ]
-          }
-          if (
-            sql.includes('information_schema.tables') &&
-            !sql.includes('information_schema.columns')
-          ) {
-            return [{ schema: 'public', name: 'events' }]
           }
           if (sql.includes('pg_constraint')) {
             return [

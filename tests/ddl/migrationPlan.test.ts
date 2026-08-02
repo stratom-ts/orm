@@ -1,7 +1,6 @@
 import { nullable, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { Dialect } from '@/dialects'
 import {
   MigrationError,
@@ -11,31 +10,14 @@ import {
   postgresDialect,
   reference,
 } from '@/index'
-import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import type { TableHandle } from '@/types'
 
 import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
-import { completePostgresCatalog } from '../helpers/catalog'
-
-const planMigration = (
-  schemas: Parameters<typeof planMigrationWithContext>[0],
-  catalog: CatalogSnapshot,
-  dialect: Parameters<typeof planMigrationWithContext>[2],
-  options?: Parameters<typeof planMigrationWithContext>[3],
-) =>
-  planMigrationWithContext(
-    schemas,
-    completePostgresCatalog(
-      catalog,
-      createCatalogRequest(
-        schemas,
-        options?.migrationOwnership ?? [],
-        options?.registrationDefault,
-      ),
-    ),
-    dialect,
-    options,
-  ).plan
+import {
+  completePostgresCatalog,
+  catalogPrimaryKey as createCatalogPrimaryKey,
+  planMigration,
+} from '../helpers/catalog'
 
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
@@ -56,13 +38,7 @@ const SUPPORTED_CATALOG_SEMANTICS = {
   isValid: true,
 }
 
-function catalogPrimaryKey(table: string, columns: string[] = ['id']) {
-  return {
-    name: `${table}_pkey`,
-    columns,
-    ...SUPPORTED_CATALOG_SEMANTICS,
-  }
-}
+const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
 
 function emptyCatalog(): CatalogSnapshot {
   return {

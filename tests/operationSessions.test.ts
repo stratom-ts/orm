@@ -243,7 +243,7 @@ function createControllableProvider(options?: {
                 },
               ]
             }
-            if (/from pg_namespace catalog_namespace/i.test(query.sql)) {
+            if (/-- catalog:namespace/i.test(query.sql)) {
               return [{ schema: 'public', owner: 'app' }]
             }
             if (/pg_advisory_unlock\(/i.test(query.sql)) {

@@ -1,3 +1,4 @@
+import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type {
   CatalogForeignKey,
   CatalogIndex,
@@ -10,6 +11,7 @@ import type {
   ReferentialAction,
 } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
 export type LegacyCatalogColumnFixture = {
   name: string
@@ -66,6 +68,39 @@ export type LegacyCatalogSnapshotFixture = {
   constraintNameReservations: Array<{ schema: string; table: string; name: string }>
 }
 
+type SupportedSimpleSemantics = Pick<
+  LegacyCatalogKeyFixture,
+  'semanticCompleteness' | 'isValid'
+>
+
+export function catalogPrimaryKey(semantics: SupportedSimpleSemantics) {
+  return (table: string, columns: string[] = ['id']): LegacyCatalogKeyFixture => ({
+    name: `${table}_pkey`,
+    columns,
+    ...semantics,
+  })
+}
+
+export const planMigration = (
+  schemas: Parameters<typeof planMigrationWithContext>[0],
+  catalog: LegacyCatalogSnapshotFixture,
+  dialect: Parameters<typeof planMigrationWithContext>[2],
+  options?: Parameters<typeof planMigrationWithContext>[3],
+) =>
+  planMigrationWithContext(
+    schemas,
+    completePostgresCatalog(
+      catalog,
+      createCatalogRequest(
+        schemas,
+        options?.migrationOwnership ?? [],
+        options?.registrationDefault,
+      ),
+    ),
+    dialect,
+    options,
+  ).plan
+
 function simpleSemantics(
   fixture: LegacyCatalogKeyFixture,
 ): CatalogKeyConstraint['semantics'] {
@@ -98,7 +133,7 @@ export function completePostgresCatalog(
   input: LegacyCatalogSnapshotFixture,
   request: CatalogRequest,
 ): CompletePostgresCatalogFixture {
-  const tables = input.tables ?? []
+  const tables = input.tables
   const identities = createCanonicalRelationIdentityModule({
     adapter: 'postgresql',
     context: input.namespaceContext,
@@ -130,108 +165,95 @@ export function completePostgresCatalog(
     ),
   }
 
-  const buildTable = (fixture: LegacyCatalogTableFixture): CatalogTable => ({
-    columns: {
-      coverage: { state: 'complete' },
-      get items() {
-        return fixture.columns.map((column, position) => ({
-          name: column.name,
-          position: position + 1,
-          dataType: {
-            state: 'present' as const,
-            value: {
-              native: column.dataType,
-              comparisonKey: column.dataType,
-              family: column.dataType.replace(/\(.*/, ''),
-              parameters: [],
-              userDefined: { state: 'absent' as const },
-            },
-          },
-          nullable: { state: 'present' as const, value: column.isNullable },
-          default:
-            column.defaultExpression == null
-              ? ({ state: 'absent' } as const)
-              : ({
+  const buildTable = (fixture: LegacyCatalogTableFixture): CatalogTable => {
+    const columns = fixture.columns.map((column, position) => ({
+      name: column.name,
+      position: position + 1,
+      dataType: {
+        state: 'present' as const,
+        value: {
+          native: column.dataType,
+          comparisonKey: column.dataType,
+          family: column.dataType.replace(/\(.*/, ''),
+          parameters: [],
+          userDefined: { state: 'absent' as const },
+        },
+      },
+      nullable: { state: 'present' as const, value: column.isNullable },
+      default:
+        column.defaultExpression == null
+          ? ({ state: 'absent' } as const)
+          : ({
+              state: 'present',
+              value: {
+                kind: 'nativeExpression',
+                native: column.defaultExpression,
+                comparisonKey: {
                   state: 'present',
-                  value: {
-                    kind: 'nativeExpression',
-                    native: column.defaultExpression,
-                    comparisonKey: {
-                      state: 'present',
-                      value: column.defaultExpression,
-                    },
-                  },
-                } as const),
-          generation:
-            column.identityGeneration == null
-              ? ({ state: 'absent' } as const)
-              : ({
-                  state: 'present',
-                  value: { kind: 'identity', mode: column.identityGeneration },
-                } as const),
-          nativeDefinition: { state: 'present' as const, value: column.dataType },
-        }))
+                  value: column.defaultExpression,
+                },
+              },
+            } as const),
+      generation:
+        column.identityGeneration == null
+          ? ({ state: 'absent' } as const)
+          : ({
+              state: 'present',
+              value: { kind: 'identity', mode: column.identityGeneration },
+            } as const),
+      nativeDefinition: { state: 'present' as const, value: column.dataType },
+    }))
+    const primaryKey = fixture.primaryKey
+      ? ({ state: 'present', value: keyConstraint(fixture.primaryKey) } as const)
+      : ({ state: 'absent' } as const)
+    const uniqueConstraints = (fixture.uniqueConstraints ?? []).map(keyConstraint)
+    const foreignKeys: CatalogForeignKey[] = (fixture.foreignKeys ?? []).map(
+      (foreignKey) => ({
+        ...keyConstraint(foreignKey),
+        referencedRelation: relationIdentity(
+          foreignKey.referencedSchema,
+          foreignKey.referencedTable,
+        ),
+        referencedColumns: foreignKey.referencedColumns,
+        onDelete: foreignKey.onDelete,
+        onUpdate: foreignKey.onUpdate,
+      }),
+    )
+    const indexes: CatalogIndex[] = (fixture.indexes ?? []).map((index) => ({
+      name: { state: 'present', value: index.name },
+      origin: 'user',
+      columns: index.columns,
+      unique: index.unique,
+      semantics: simpleSemantics(index),
+      validity: {
+        state: 'present',
+        value: index.isValid === false ? 'invalid' : 'valid',
       },
-    },
-    get primaryKey() {
-      return fixture.primaryKey
-        ? ({ state: 'present', value: keyConstraint(fixture.primaryKey) } as const)
-        : ({ state: 'absent' } as const)
-    },
-    uniqueConstraints: {
-      coverage: { state: 'complete' },
-      get items() {
-        return (fixture.uniqueConstraints ?? []).map(keyConstraint)
+      nativeDefinition: { state: 'present', value: index.name },
+    }))
+    const opaqueObjects = (fixture.opaqueObjects ?? []).map((object) => ({
+      kind: object.kind,
+      name: { state: 'present' as const, value: object.name },
+      nativeDefinition: {
+        state: 'present' as const,
+        value: object.nativeDefinition,
       },
-    },
-    foreignKeys: {
-      coverage: { state: 'complete' },
-      get items(): CatalogForeignKey[] {
-        return (fixture.foreignKeys ?? []).map((foreignKey) => ({
-          ...keyConstraint(foreignKey),
-          referencedRelation: relationIdentity(
-            foreignKey.referencedSchema,
-            foreignKey.referencedTable,
-          ),
-          referencedColumns: foreignKey.referencedColumns,
-          onDelete: foreignKey.onDelete,
-          onUpdate: foreignKey.onUpdate,
-        }))
+      reason: object.reason,
+    }))
+
+    return {
+      columns: { items: columns, coverage: { state: 'complete' } },
+      primaryKey,
+      uniqueConstraints: {
+        items: uniqueConstraints,
+        coverage: { state: 'complete' },
       },
-    },
-    indexes: {
-      coverage: { state: 'complete' },
-      get items(): CatalogIndex[] {
-        return (fixture.indexes ?? []).map((index) => ({
-          name: { state: 'present', value: index.name },
-          origin: 'user',
-          columns: index.columns,
-          unique: index.unique,
-          semantics: simpleSemantics(index),
-          validity: {
-            state: 'present',
-            value: index.isValid === false ? 'invalid' : 'valid',
-          },
-          nativeDefinition: { state: 'present', value: index.name },
-        }))
-      },
-    },
-    options: { items: [], coverage: { state: 'complete' } },
-    opaqueObjects: {
-      coverage: { state: 'complete' },
-      get items() {
-        return (fixture.opaqueObjects ?? []).map((object) => ({
-          kind: object.kind,
-          name: { state: 'present' as const, value: object.name },
-          nativeDefinition: {
-            state: 'present' as const,
-            value: object.nativeDefinition,
-          },
-          reason: object.reason,
-        }))
-      },
-    },
-  })
+      foreignKeys: { items: foreignKeys, coverage: { state: 'complete' } },
+      indexes: { items: indexes, coverage: { state: 'complete' } },
+      options: { items: [], coverage: { state: 'complete' } },
+      opaqueObjects: { items: opaqueObjects, coverage: { state: 'complete' } },
+    }
+  }
 
   const buildNamespaces = (): CatalogNamespace[] => {
     const schemaNames = [
@@ -262,31 +284,31 @@ export function completePostgresCatalog(
       },
     }))
   }
+  const namespaces = buildNamespaces()
 
   return {
     tables,
     source: { dialect: 'postgresql', version: '160000' },
     request: resolvedRequest,
     capabilities: {
+      namespaces: { state: 'supported', fidelity: 'native' },
+      relationOwner: { state: 'supported', fidelity: 'native' },
+      identity: { state: 'supported', fidelity: 'native' },
+      richObjects: { state: 'supported', fidelity: 'native' },
       fixture: { state: 'supported', fidelity: 'native' },
     },
     namespaceContext: input.namespaceContext,
-    get namespaces() {
-      return {
-        items: buildNamespaces(),
-        coverage: { state: 'complete' as const },
-      }
-    },
+    namespaces: { items: namespaces, coverage: { state: 'complete' } },
     nameReservations: {
       coverage: { state: 'complete' },
-      items: (input.nameReservations ?? []).map((reservation) => ({
+      items: input.nameReservations.map((reservation) => ({
         namespace: namespaceIdentity(reservation.schema),
         name: reservation.name,
       })),
     },
     constraintNameReservations: {
       coverage: { state: 'complete' },
-      items: (input.constraintNameReservations ?? []).map((reservation) => ({
+      items: input.constraintNameReservations.map((reservation) => ({
         relation: relationIdentity(reservation.schema, reservation.table),
         name: reservation.name,
       })),

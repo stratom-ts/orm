@@ -103,14 +103,18 @@ function requireComplete<T>(set: CatalogSet<T>, target: string): readonly T[] {
   })
 }
 
-function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
-  const segment = identity.namespace.find(({ role }) => role === 'schema')
+function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
+  const segment = namespace.find(({ role }) => role === 'schema')
   if (!segment) {
     throw new MigrationError({
       message: 'The current Migration Plan projection requires a schema namespace',
     })
   }
   return segment.identifier.spelling
+}
+
+function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
+  return schemaFromNamespace(identity.namespace)
 }
 
 function nameOf(fact: CatalogFact<string>, target: string): string {
@@ -186,15 +190,21 @@ export function catalogForPlanning(
   const tables: PlanningCatalogTable[] = []
 
   for (const namespace of namespaces) {
-    const relations = requireComplete(
-      namespace.relations,
-      `relations in namespace ${JSON.stringify(
-        namespace.identity.map(({ role, identifier }) => ({
-          role,
-          spelling: identifier.spelling,
-        })),
-      )}`,
+    const namespaceTarget = `relations in namespace ${JSON.stringify(
+      namespace.identity.map(({ role, identifier }) => ({
+        role,
+        spelling: identifier.spelling,
+      })),
+    )}`
+    const explicitlyComplete = snapshot.request.completeNamespaces.some((requested) =>
+      sameNamespace(requested, namespace.identity),
     )
+    const relations =
+      !explicitlyComplete &&
+      namespace.relations.coverage.state === 'partial' &&
+      namespace.relations.coverage.remainder.state === 'unmanaged'
+        ? namespace.relations.items
+        : requireComplete(namespace.relations, namespaceTarget)
     for (const relation of relations) {
       const target = identities.format(relation.identity)
       if (relation.management === 'unmanaged') {
@@ -304,10 +314,7 @@ export function catalogForPlanning(
     tables,
     namespaces: namespaces.map((namespace) => namespace.identity),
     nameReservations: reservations.map((reservation) => ({
-      schema: schemaFromIdentity({
-        namespace: reservation.namespace,
-        relation: { spelling: reservation.name, comparisonKey: reservation.name },
-      }),
+      schema: schemaFromNamespace(reservation.namespace),
       name: reservation.name,
     })),
     constraintNameReservations: constraintReservations.map((reservation) => ({
