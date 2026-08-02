@@ -3,7 +3,13 @@ import dts from 'vite-plugin-dts'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [dts({ include: ['src/**/*.ts'], bundleTypes: true })],
+  plugins: [
+    dts({
+      include: ['src/**/*.ts'],
+      bundleTypes: true,
+      outDirs: ['dist', { dir: 'dist', moduleFormat: 'cjs' }],
+    }),
+  ],
   test: {
     globals: true,
     environment: 'node',

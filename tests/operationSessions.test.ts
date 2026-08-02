@@ -15,6 +15,7 @@ import {
   POSTGRES_OPERATION_ROLLBACK_SQL,
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/operations/operationSession'
+import { scanPostgresSql } from '@/operations/postgresSql'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 
@@ -186,6 +187,7 @@ function createControllableProvider(options?: {
   openFailure?: { session: number; value: unknown }
   releaseFailure?: { session: number; value: unknown }
   closeFailure?: { value: unknown }
+  unlockResult?: boolean
 }): ProviderControls {
   const events: string[] = []
   const calls: { session: number; sql: string }[] = []
@@ -234,6 +236,9 @@ function createControllableProvider(options?: {
           return call(query.sql, async () => {
             if (/current_database\(\)/i.test(query.sql)) {
               return [{ database: 'coordinator_test', schema: 'public' }]
+            }
+            if (/pg_advisory_unlock\(/i.test(query.sql)) {
+              return [{ unlocked: options?.unlockResult ?? true }]
             }
             return []
           })
@@ -305,16 +310,20 @@ describe('db0 PostgreSQL operation sessions', () => {
       { text: plainSql, values: ['bound'] },
     ])
 
+    const beforeSecond = connector.queryCalls.length
     const second = await provider.open()
     await second.query({ sql: 'select 2', params: [] })
     await second.release('reuse')
-    expect(connector.queryCalls.slice(2)).toEqual([{ text: 'select 2', values: [] }])
+    expect(connector.queryCalls.slice(beforeSecond)).toEqual([
+      { text: 'select 2', values: [] },
+    ])
 
+    const beforeTransaction = connector.queryCalls.length
     const transaction = await provider.open()
     await transaction.run({ sql: 'begin', params: [] })
     await transaction.run({ sql: 'commit', params: [] })
     await transaction.release('reuse')
-    expect(connector.queryCalls.slice(3)).toEqual([
+    expect(connector.queryCalls.slice(beforeTransaction)).toEqual([
       { text: 'begin', values: [] },
       { text: 'commit', values: [] },
       { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
@@ -322,10 +331,11 @@ describe('db0 PostgreSQL operation sessions', () => {
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
     ])
 
+    const beforeAdvisory = connector.queryCalls.length
     const advisory = await provider.open()
     await advisory.run({ sql: 'select pg_advisory_lock(1, 2)', params: [] })
     await advisory.release('reuse')
-    expect(connector.queryCalls.slice(8)).toEqual([
+    expect(connector.queryCalls.slice(beforeAdvisory)).toEqual([
       { text: 'select pg_advisory_lock(1, 2)', values: [] },
       { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
       { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
@@ -358,6 +368,8 @@ describe('db0 PostgreSQL operation sessions', () => {
       `select "PG_ADVISORY_LOCK"(1)`,
       `select "pg_advisory_""lock"(1)`,
       `select "pg_catalog"."not_advisory"(1)`,
+      'merge into target using source on false when not matched then insert default values',
+      'table users',
     ]) {
       expect(await run(sql)).toEqual([{ text: sql, values: [] }])
     }
@@ -421,6 +433,52 @@ describe('db0 PostgreSQL operation sessions', () => {
         `select "$2", $body$ $3 $body$, /* $4 */ ?, -- $5\n?, ?`,
     ])
     expect(binds).toEqual([['second', 'first', 'second']])
+  })
+
+  it('distinguishes standard strings from PostgreSQL escape strings', () => {
+    const standard = scanPostgresSql(String.raw`select 'a\' || $1`)
+    const escaped = scanPostgresSql(String.raw`select E'a\'' || $1`)
+
+    expect(standard.malformed).toBe(false)
+    expect(standard.parameters.map((parameter) => parameter.index)).toEqual([0])
+    expect(escaped.malformed).toBe(false)
+    expect(escaped.parameters.map((parameter) => parameter.index)).toEqual([0])
+  })
+
+  it('uses row execution for commented and parenthesized result queries', async () => {
+    let allCalls = 0
+    let runCalls = 0
+    const statement: Statement = {
+      bind() {
+        return statement
+      },
+      async all() {
+        allCalls++
+        return []
+      },
+      async run() {
+        runCalls++
+        return { success: true }
+      },
+      async get() {
+        return undefined
+      },
+    }
+    const client = createNativePostgresClient(() => statement)
+
+    for (const sql of [
+      '/* trace */ select 1',
+      '-- trace\nselect 1',
+      '((select 1))',
+      'with value as (select 1) select * from value',
+      'insert into test default values returning id',
+    ]) {
+      await client.query({ text: sql, values: [] })
+    }
+    await client.query({ text: 'update test set value = 1', values: [] })
+
+    expect(allCalls).toBe(5)
+    expect(runCalls).toBe(1)
   })
 
   it('proves stable identity and serializes native calls through reuse release', async () => {
@@ -1168,6 +1226,62 @@ describe('client root-operation coordination', () => {
     })
 
     await expect(db.migrate().execute()).resolves.toBeUndefined()
+    expect(controls.events).toContain('release-start:1:discard')
+    await db.close()
+  })
+
+  it('discards after an advisory unlock reports that no lock was held', async () => {
+    const controls = createControllableProvider({ unlockResult: false })
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [],
+    })
+
+    await expect(db.migrate().execute()).resolves.toBeUndefined()
+    expect(controls.events).toContain('release-start:1:discard')
+    await db.close()
+  })
+
+  it('discards after migration lock acquisition fails', async () => {
+    const controls = createControllableProvider({
+      beforeCall: async (_session, sql) => {
+        if (/pg_advisory_lock\(/i.test(sql)) throw new Error('lock acquisition failure')
+      },
+    })
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [],
+    })
+
+    await expect(db.migrate().execute()).rejects.toThrow(/lock acquisition failure/i)
+    expect(controls.events).toContain('release-start:1:discard')
+    expect(controls.calls.some((entry) => /pg_advisory_unlock/i.test(entry.sql))).toBe(
+      false,
+    )
+    await db.close()
+  })
+
+  it('discards after an ambiguous migration commit failure', async () => {
+    const controls = createControllableProvider({
+      beforeCall: async (_session, sql) => {
+        if (/^commit$/i.test(sql)) throw new Error('commit outcome unknown')
+      },
+    })
+    const Events = defineTable(
+      'ambiguous_commit_events',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [Events],
+    })
+
+    await expect(db.migrate().execute()).rejects.toThrow(/commit outcome unknown/i)
+    expect(controls.calls.some((entry) => /^rollback$/i.test(entry.sql))).toBe(true)
     expect(controls.events).toContain('release-start:1:discard')
     await db.close()
   })

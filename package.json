@@ -7,13 +7,17 @@
   "type": "module",
   "main": "./dist/stratom.umd.cjs",
   "module": "./dist/stratom.js",
-  "browser": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/stratom.js",
-      "require": "./dist/stratom.umd.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/stratom.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/stratom.umd.cjs"
+      }
     }
   },
   "scripts": {

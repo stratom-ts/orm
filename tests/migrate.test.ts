@@ -89,7 +89,12 @@ function createMockConnector(options?: {
       return createMockStatement()
     }
 
-    if (/pg_advisory_(?:un)?lock/.test(normalized)) {
+    if (/pg_advisory_unlock/.test(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement([{ unlocked: true }])
+    }
+
+    if (/pg_advisory_lock/.test(normalized)) {
       runSql.push(normalized)
       return createMockStatement()
     }

@@ -300,11 +300,16 @@ async function acquireMigrateLock(executor: Executor): Promise<void> {
 
 async function releaseMigrateLock(executor: Executor): Promise<boolean> {
   try {
-    await executor.run({
-      sql: `select pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID})`,
+    const [result] = await executor.execute({
+      sql: `select pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID}) as "unlocked"`,
       params: [],
     })
-    return true
+    return (
+      typeof result === 'object' &&
+      result !== null &&
+      'unlocked' in result &&
+      result.unlocked === true
+    )
   } catch {
     return false
   }
@@ -401,8 +406,10 @@ export function createMigrateBuilder(options: {
       try {
         return await runOperation(async (executor, databaseIdentity, discard) => {
           createMigrationCoordinationScope(databaseIdentity, applicationId)
-          await acquireMigrateLock(executor)
+          let lockAcquired = false
           try {
+            await acquireMigrateLock(executor)
+            lockAcquired = true
             const { plan, identities, handles } = await buildPlan(executor)
 
             const steps = plan.steps
@@ -418,6 +425,7 @@ export function createMigrateBuilder(options: {
             }
 
             await executor.run({ sql: 'begin', params: [] })
+            let commitAttempted = false
             try {
               for (const step of steps) {
                 if (step.kind === 'set_not_null') {
@@ -426,8 +434,10 @@ export function createMigrateBuilder(options: {
                 const ast = stepToAst(step, handles, dialect, identities)
                 await executor.run(dialect.compile(ast))
               }
+              commitAttempted = true
               await executor.run({ sql: 'commit', params: [] })
             } catch (error) {
+              if (commitAttempted) discard()
               try {
                 await executor.run({ sql: 'rollback', params: [] })
               } catch {
@@ -442,7 +452,7 @@ export function createMigrateBuilder(options: {
               ...(cause !== undefined ? { cause } : {}),
             })
           } finally {
-            if (!(await releaseMigrateLock(executor))) discard()
+            if (!lockAcquired || !(await releaseMigrateLock(executor))) discard()
           }
         })
       } catch (cause) {

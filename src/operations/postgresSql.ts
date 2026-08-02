@@ -30,10 +30,12 @@ const PLAIN_STARTS = new Set([
   'explain',
   'grant',
   'insert',
+  'merge',
   'refresh',
   'revoke',
   'select',
   'show',
+  'table',
   'truncate',
   'update',
   'vacuum',
@@ -117,6 +119,10 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
       continue
     }
     if (character === "'") {
+      const escapeString =
+        index > 0 &&
+        sql[index - 1]!.toLowerCase() === 'e' &&
+        (index === 1 || !isWordPart(sql[index - 2]!))
       statement.executable = true
       pendingAdvisoryCall = false
       index++
@@ -128,7 +134,7 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
           index++
           closed = true
           break
-        } else if (sql[index] === '\\' && index + 1 < sql.length) {
+        } else if (escapeString && sql[index] === '\\' && index + 1 < sql.length) {
           index += 2
         } else {
           index++

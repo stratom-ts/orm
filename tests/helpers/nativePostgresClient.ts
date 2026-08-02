@@ -17,6 +17,30 @@ type NativeQuery =
 
 let nextProcessId = 10_000
 
+function normalizeQueryStart(sql: string): string {
+  let offset = 0
+  while (offset < sql.length) {
+    while (/\s/.test(sql[offset] ?? '')) offset++
+    if (sql.startsWith('--', offset)) {
+      const newline = sql.indexOf('\n', offset + 2)
+      offset = newline === -1 ? sql.length : newline + 1
+      continue
+    }
+    if (sql.startsWith('/*', offset)) {
+      const closing = sql.indexOf('*/', offset + 2)
+      if (closing === -1) return sql.slice(offset)
+      offset = closing + 2
+      continue
+    }
+    if (sql[offset] === '(') {
+      offset++
+      continue
+    }
+    break
+  }
+  return sql.slice(offset)
+}
+
 export function createNativePostgresClient(prepare: (sql: string) => Statement) {
   const processID = nextProcessId++
   return {
@@ -61,7 +85,7 @@ export function createNativePostgresClient(prepare: (sql: string) => Statement) 
         orderedParams.length === 0
           ? statement
           : statement.bind(...(orderedParams as never[]))
-      if (/^\s*(?:select|with)\b|\breturning\b/i.test(text)) {
+      if (/^(?:select|with)\b|\breturning\b/i.test(normalizeQueryStart(text))) {
         return { rows: await bound.all() }
       }
       await bound.run()
