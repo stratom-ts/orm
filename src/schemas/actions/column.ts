@@ -1,36 +1,50 @@
 import type { MetadataAction } from 'valibot'
-import { getMetadata, metadata } from 'valibot'
+import { metadata } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
+import { SchemaError } from '@/utils/error'
 
-import type { ColumnMetadata } from './types'
+import { findSchemaMetadata } from './metadata'
+import type { ColumnGeneration, ColumnMetadata } from './types'
 
-interface WrapperSchema {
-  wrapped: AnySchema
+function sameGeneration(left: ColumnGeneration, right: ColumnGeneration): boolean {
+  return (
+    left === right ||
+    (left.kind === 'identity' && right.kind === 'identity' && left.mode === right.mode)
+  )
 }
 
-/**
- * Unwraps optional/nullable/nullish wrappers while preserving pipes.
- *
- * @example
- *   const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'text' }))))
- *
- * @param schema - Schema that may be wrapped.
- *
- * @returns Inner schema with pipe structure intact
- */
-function unwrapWrapper(schema: AnySchema): AnySchema {
-  if (
-    schema.type === 'optional' ||
-    schema.type === 'nullable' ||
-    schema.type === 'nullish' ||
-    schema.type === 'non_optional' ||
-    schema.type === 'non_nullable' ||
-    schema.type === 'non_nullish'
-  ) {
-    return unwrapWrapper((schema as unknown as WrapperSchema).wrapped)
+/** Reconciles tagged and legacy generation fields into one canonical intent. */
+export function normalizeColumnGeneration(
+  metadata: Pick<ColumnMetadata, 'generation' | 'generated' | 'autoIncrement'>,
+): ColumnGeneration | undefined {
+  const declarations: ColumnGeneration[] = []
+  if (metadata.generation !== undefined) declarations.push(metadata.generation)
+  if (metadata.generated !== undefined) {
+    declarations.push({ kind: 'identity', mode: metadata.generated })
   }
-  return schema
+  if (metadata.autoIncrement) {
+    declarations.push({ kind: 'identity', mode: 'byDefault' })
+  }
+
+  const normalized = declarations[0]
+  if (normalized && declarations.some((value) => !sameGeneration(normalized, value))) {
+    throw new SchemaError({
+      message: 'generation, generated, and autoIncrement must describe the same strategy',
+    })
+  }
+  return normalized
+}
+
+/** Rewrites generation metadata to the canonical tagged field for adapter lowering. */
+export function normalizeColumnMetadata(metadata: ColumnMetadata): ColumnMetadata {
+  const generation = normalizeColumnGeneration(metadata)
+  const normalized = { ...metadata }
+  delete normalized.generated
+  delete normalized.autoIncrement
+  delete normalized.generation
+  if (generation !== undefined) normalized.generation = generation
+  return normalized
 }
 
 /**
@@ -81,8 +95,5 @@ export function isColumnMetadata(
  * @returns Column metadata, or `undefined` if none
  */
 export function getColumnMetadata(schema: AnySchema): ColumnMetadata | undefined {
-  const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
-    | Record<string, unknown>
-    | undefined
-  return isColumnMetadata(schemaMetadata) ? schemaMetadata : undefined
+  return findSchemaMetadata<ColumnMetadata>(schema, 'column')
 }

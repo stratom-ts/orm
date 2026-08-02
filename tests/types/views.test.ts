@@ -18,7 +18,13 @@ import {
 } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
 
-import type { InferInsert, InferSelect, InferSelectedColumns, InferUpdate } from '@/index'
+import type {
+  DatabaseDefault,
+  InferInsert,
+  InferSelect,
+  InferSelectedColumns,
+  InferUpdate,
+} from '@/index'
 import { column, defineTable, table } from '@/index'
 
 const User = defineTable(
@@ -178,6 +184,34 @@ describe('InferInsert', () => {
     expectTypeOf<Insert['active']>().toEqualTypeOf<boolean | undefined>()
   })
 
+  it('should only make defined database defaults optional', () => {
+    const Tagged = defineTable(
+      'tagged_defaults',
+      {
+        id: pipe(string(), column({ type: 'text' })),
+        value: pipe(
+          string(),
+          column({ databaseDefault: { kind: 'literal', value: 'ready' } }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+    const withMaybeDefault = (databaseDefault: DatabaseDefault | undefined) =>
+      defineTable(
+        'maybe_defaults',
+        {
+          id: pipe(string(), column({ type: 'text' })),
+          value: pipe(string(), column({ databaseDefault })),
+        },
+        { primaryKey: 'id' },
+      )
+
+    type TaggedInsert = InferInsert<typeof Tagged>
+    type MaybeInsert = InferInsert<ReturnType<typeof withMaybeDefault>>
+    expectTypeOf<TaggedInsert['value']>().toEqualTypeOf<string | undefined>()
+    expectTypeOf<MaybeInsert['value']>().toEqualTypeOf<string>()
+  })
+
   it('should omit generated always columns', () => {
     const Schema = pipe(
       object({
@@ -192,6 +226,60 @@ describe('InferInsert', () => {
 
     expectTypeOf<Insert>().toExtend<{ label: string }>()
     expectTypeOf<Insert>().not.toHaveProperty('id')
+  })
+
+  it('should model tagged identity, computed generation, and legacy autoIncrement', () => {
+    const Generated = defineTable(
+      'tagged_generated',
+      {
+        id: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
+        compatible: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'byDefault' },
+            generated: 'byDefault',
+            autoIncrement: true,
+          }),
+        ),
+        always: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'always' },
+          }),
+        ),
+        computed: pipe(
+          string(),
+          column({
+            type: 'text',
+            generation: {
+              kind: 'computed',
+              expression: {
+                kind: 'portableExpression',
+                expression: 'currentTimestamp',
+              },
+              storage: 'stored',
+            },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+    type Insert = InferInsert<typeof Generated>
+
+    expectTypeOf<Insert['id']>().toEqualTypeOf<number | undefined>()
+    expectTypeOf<Insert['legacy']>().toEqualTypeOf<number | undefined>()
+    expectTypeOf<Insert['compatible']>().toEqualTypeOf<number | undefined>()
+    expectTypeOf<Insert>().not.toHaveProperty('always')
+    expectTypeOf<Insert>().not.toHaveProperty('computed')
   })
 })
 

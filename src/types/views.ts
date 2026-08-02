@@ -1,6 +1,6 @@
 import type { InferOutput } from 'valibot'
 
-import type { TableSchema } from '@/schemas'
+import type { NormalizedColumnGeneration, TableSchema } from '@/schemas'
 import type { Prettify } from '@/types/prettify'
 
 import type { AnySchema } from './schema'
@@ -37,6 +37,8 @@ type ColumnMetaOf<S> =
     ? M
     : never
 
+type ColumnGenerationOf<S> = NormalizedColumnGeneration<ColumnMetaOf<S>>
+
 // NOTE: `[ColumnMetaOf<S>] extends [never]` guards against columns with no
 // `column()` metadata. Without the guard, `ColumnMetaOf<S>` is `never`, and
 // `never extends X` is `true`, so metadata-less (type-inferred) columns would
@@ -44,15 +46,21 @@ type ColumnMetaOf<S> =
 // insert/update views.
 type IsGeneratedAlways<S> = [ColumnMetaOf<S>] extends [never]
   ? false
-  : ColumnMetaOf<S> extends { kind: 'column'; generated: 'always' }
-    ? true
-    : false
+  : [ColumnGenerationOf<S>] extends [never]
+    ? false
+    : ColumnGenerationOf<S> extends { kind: 'identity'; mode: 'always' }
+      ? true
+      : ColumnGenerationOf<S> extends { kind: 'computed' }
+        ? true
+        : false
 
 type IsGeneratedByDefault<S> = [ColumnMetaOf<S>] extends [never]
   ? false
-  : ColumnMetaOf<S> extends { kind: 'column'; generated: 'byDefault' }
-    ? true
-    : false
+  : [ColumnGenerationOf<S>] extends [never]
+    ? false
+    : ColumnGenerationOf<S> extends { kind: 'identity'; mode: 'byDefault' }
+      ? true
+      : false
 
 type IsReadonlyColumn<S> = [ColumnMetaOf<S>] extends [never]
   ? false
@@ -68,7 +76,13 @@ type HasDefaultValue<S> = [ColumnMetaOf<S>] extends [never]
       : D extends undefined
         ? false
         : true
-    : false
+    : ColumnMetaOf<S> extends { kind: 'column'; databaseDefault: infer D }
+      ? [D] extends [never]
+        ? false
+        : D extends undefined
+          ? false
+          : true
+      : false
 
 /** Optional / nullish → omit-on-insert (not necessarily SQL NULL). */
 type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }

@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
 
-import type { MigrationPlan, MigrationStep } from '@/index'
+import type { LoweredDatabaseDefault, MigrationPlan, MigrationStep } from '@/index'
 
 type ExpectedMigrationStep =
   | { kind: 'create_schema'; schema: string }
@@ -14,6 +14,7 @@ type ExpectedMigrationStep =
       notNull: boolean
       unique?: boolean
       defaultValue?: string | number | boolean | null
+      databaseDefault?: LoweredDatabaseDefault
       generated?: 'always' | 'byDefault'
       autoIncrement?: boolean
       references?: {

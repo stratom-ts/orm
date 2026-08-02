@@ -344,6 +344,24 @@ describe('@/dialects/postgres', () => {
       expect(sql).toContain("default 'O''Brien'")
     })
 
+    it('should prefer pre-normalized database defaults during compilation', () => {
+      const sql = compile(
+        createTable(
+          col('n', {
+            dataType: 'text',
+            defaultValue: 'legacy',
+            databaseDefault: {
+              sql: "E'path\\\\'",
+              normalized: "E'path\\\\'",
+            },
+          }),
+        ),
+      ).sql
+
+      expect(sql).toContain("default E'path\\\\'")
+      expect(sql).not.toContain('legacy')
+    })
+
     it('should quote unknown string defaults to prevent SQL execution', () => {
       const sql = compile(
         createTable(col('n', { dataType: 'text', defaultValue: 'drop table users' })),

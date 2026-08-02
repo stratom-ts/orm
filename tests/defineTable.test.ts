@@ -181,7 +181,7 @@ describe('defineTable', () => {
     ).toThrow(/reserved/)
   })
 
-  it('should throw SchemaError when identity is used on a non-integer type', () => {
+  it('should defer physical identity compatibility to the selected adapter', () => {
     expect(() =>
       defineTable(
         'bad',
@@ -190,7 +190,7 @@ describe('defineTable', () => {
         },
         { primaryKey: 'id' },
       ),
-    ).toThrow(SchemaError)
+    ).not.toThrow()
     expect(() =>
       defineTable(
         'bad',
@@ -199,7 +199,7 @@ describe('defineTable', () => {
         },
         { primaryKey: 'id' },
       ),
-    ).toThrow(/identity/)
+    ).not.toThrow()
   })
 
   it('should require a value source for optional NOT NULL columns', () => {
@@ -262,14 +262,14 @@ describe('defineTable', () => {
     ).not.toThrow()
   })
 
-  it('should reject unsupported column metadata', () => {
+  it('should retain adapter-owned column metadata during construction', () => {
     expect(() =>
       defineTable(
         'commented',
         { id: pipe(string(), column({ type: 'text', comment: 'unsupported' })) },
         { primaryKey: 'id' },
       ),
-    ).toThrow(/comments are not supported/)
+    ).not.toThrow()
 
     expect(() =>
       defineTable(
@@ -277,7 +277,7 @@ describe('defineTable', () => {
         { id: pipe(string(), column({ type: 'text', onUpdate: 'now()' })) },
         { primaryKey: 'id' },
       ),
-    ).toThrow(/onUpdate expressions are not supported/)
+    ).not.toThrow()
   })
 
   it('should reject defaults combined with identity generation', () => {
@@ -288,6 +288,22 @@ describe('defineTable', () => {
           id: pipe(
             number(),
             column({ type: 'integer', generated: 'byDefault', default: 1 }),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/cannot combine a default with identity/)
+    expect(() =>
+      defineTable(
+        'bad_tagged_identity',
+        {
+          id: pipe(
+            number(),
+            column({
+              type: 'integer',
+              databaseDefault: { kind: 'literal', value: 1 },
+              generation: { kind: 'identity', mode: 'byDefault' },
+            }),
           ),
         },
         { primaryKey: 'id' },
@@ -306,6 +322,141 @@ describe('defineTable', () => {
         { primaryKey: 'id', indexes: ['email', { columns: ['email'] }] },
       ),
     ).toThrow(/duplicate index definition/)
+  })
+
+  it('should reject duplicate and nullable structural key members', () => {
+    expect(() =>
+      defineTable(
+        'duplicate_pk',
+        { id: pipe(string(), column({ type: 'text' })) },
+        { primaryKey: ['id', 'id'] },
+      ),
+    ).toThrow(/duplicate columns/i)
+    expect(() =>
+      defineTable(
+        'nullable_pk',
+        { id: nullable(pipe(string(), column({ type: 'text' }))) },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/cannot be nullable/i)
+    expect(() =>
+      defineTable(
+        'duplicate_index',
+        {
+          id: pipe(string(), column({ type: 'text' })),
+          value: pipe(string(), column({ type: 'text' })),
+        },
+        { primaryKey: 'id', indexes: [{ columns: ['value', 'value'] }] },
+      ),
+    ).toThrow(/index.*duplicate columns/i)
+  })
+
+  it('should reject null database defaults and incoherent FK actions structurally', () => {
+    expect(() =>
+      defineTable(
+        'null_default',
+        {
+          id: pipe(
+            string(),
+            column({
+              databaseDefault: { kind: 'literal', value: null },
+            }),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/NOT NULL.*null database default/i)
+
+    expect(() =>
+      defineTable(
+        'bad_set_null',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          userId: reference(User, 'id', { onDelete: 'set null' }),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/SET NULL.*NOT NULL/i)
+
+    expect(() =>
+      defineTable(
+        'bad_set_default',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          userId: reference(User, 'id', { onDelete: 'set default' }),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/SET DEFAULT.*without a database default/i)
+
+    expect(() =>
+      defineTable(
+        'valid_set_default',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          userId: pipe(
+            reference(User, 'id', { onDelete: 'set default' }),
+            column({
+              databaseDefault: {
+                kind: 'literal',
+                value: '00000000-0000-0000-0000-000000000000',
+              },
+            }),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).not.toThrow()
+  })
+
+  it('should reject conflicting legacy and tagged physical intent', () => {
+    expect(() =>
+      defineTable(
+        'conflicting_type',
+        {
+          id: pipe(
+            string(),
+            column({ type: 'uuid', physicalType: { postgresql: 'uuid' } }),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/legacy and dialect-keyed physical types/i)
+  })
+
+  it('should normalize matching generation fields and reject conflicts', () => {
+    expect(() =>
+      defineTable(
+        'matching_generation',
+        {
+          id: pipe(
+            number(),
+            column({
+              type: 'integer',
+              generated: 'always',
+              generation: { kind: 'identity', mode: 'always' },
+            }),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).not.toThrow()
+
+    for (const generation of [
+      {
+        generation: { kind: 'identity', mode: 'always' } as const,
+        generated: 'byDefault' as const,
+      },
+      { generated: 'always' as const, autoIncrement: true },
+    ]) {
+      expect(() =>
+        defineTable(
+          'conflicting_generation',
+          { id: pipe(number(), column({ type: 'integer', ...generation })) },
+          { primaryKey: 'id' },
+        ),
+      ).toThrow(/must describe the same strategy/i)
+    }
   })
 })
 
@@ -339,7 +490,7 @@ describe('reference with FK actions', () => {
       'posts',
       {
         id: pipe(string(), column({ type: 'uuid' })),
-        authorId: reference(User, 'id', { onDelete: 'set null' }),
+        authorId: nullable(reference(User, 'id', { onDelete: 'set null' })),
       },
       { primaryKey: 'id' },
     )

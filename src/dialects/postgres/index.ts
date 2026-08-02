@@ -3,6 +3,7 @@ import type { CatalogSnapshot, Dialect } from '../types'
 import { compilePostgres } from './compile'
 import { inferPostgresColumnType } from './infer'
 import { introspectPostgres } from './introspect'
+import { lowerPostgresDesiredSchema } from './lowerDesiredSchema'
 import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
 import { normalizePostgresDataType } from './normalize'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
@@ -25,6 +26,10 @@ import { formatPostgresDefault, normalizePostgresDefaultExpression } from './val
 export const postgresDialect: Dialect = {
   id: 'postgresql',
   relationIdentity: 'postgresql',
+
+  lowerDesiredSchema(graph) {
+    return lowerPostgresDesiredSchema(graph)
+  },
 
   inferColumnType(schema) {
     return inferPostgresColumnType(schema)

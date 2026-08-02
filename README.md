@@ -1,6 +1,9 @@
 # stratom
 
-A schema-first ORM for PostgreSQL: [Valibot](https://valibot.dev/) schemas, desired-state migrations, and a typed query builder. Transport is [db0](https://db0.unjs.io/); app code uses stratom only.
+A schema-first ORM with dialect-neutral authoring and PostgreSQL lowering:
+[Valibot](https://valibot.dev/) schemas, desired-state migrations, and a typed
+query builder. Transport is [db0](https://db0.unjs.io/); app code uses stratom
+only.
 
 ## Features
 
@@ -103,9 +106,10 @@ defineTable(
 
 ### Inferring column types from the schema
 
-`column({ type })` is optional. When it is omitted, stratom infers the SQL
-column type directly from the Valibot schema — including length and range
-refinements — so a table can be described purely in Valibot:
+Schema construction records logical Valibot value intent; it does not import a
+dialect or infer a physical type. During migration, the selected adapter lowers
+the complete registered graph. PostgreSQL then infers a SQL column type from
+the Valibot schema, including length and range refinements:
 
 ```typescript
 import { defineTable } from 'stratom'
@@ -161,13 +165,74 @@ Inference rules (PostgreSQL):
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),
 and integer widths only narrow/widen when an `integer()` constraint and bounds
-justify it. A schema type with no sensible mapping (e.g. a `union`) throws a
-`SchemaError` at build time rather than silently becoming `text` — add an
-explicit `column({ type })` for those.
+justify it. A schema type with no sensible selected-adapter mapping (for
+example, a `union`) throws `MigrationError` during desired-schema lowering
+rather than silently becoming text.
 
-Reach for `column({ type })` when you need an exact SQL type the inference
-doesn't produce (e.g. `uuid`, `numeric(10,2)`, `char(n)`), an identity column
-(`generated`), a `unique` constraint, or a `default`.
+For new portable authoring, use `physicalType` when you need exact
+adapter-selected storage and tagged database defaults/generation when database
+behavior is intended:
+
+```typescript
+const Event = defineTable(
+  'events',
+  {
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid', sqlite: 'blob' } })),
+    label: pipe(
+      string(),
+      column({ databaseDefault: { kind: 'literal', value: 'now()' } }),
+    ), // PostgreSQL stores the text "now()", not an expression
+    createdAt: pipe(
+      date(),
+      column({
+        databaseDefault: {
+          kind: 'portableExpression',
+          expression: 'currentTimestamp',
+        },
+      }),
+    ),
+    sequence: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'byDefault' },
+      }),
+    ),
+  },
+  { primaryKey: 'id' },
+)
+```
+
+`databaseDefault` supports tagged literals, portable expressions, and
+dialect-tagged expressions. `generation` supports identity, computed, and
+dialect-tagged intent; the selected adapter either lowers the requested form or
+throws `MigrationError`. `physicalType` is keyed by dialect id, so an override
+for another adapter is never selected accidentally.
+
+#### Dialect adapter migration
+
+The publicly re-exported `Dialect` contract now requires whole-graph desired-schema
+lowering. Third-party adapters must add and implement:
+
+```typescript
+lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+```
+
+The implementation must preserve each table handle and canonical identity while
+returning one physical `CreateTableAst` per table. Adapters should report unsupported
+type mappings and capabilities with `MigrationError`.
+
+`type`, primitive `default`, `generated`, and `autoIncrement` remain available
+as the PostgreSQL compatibility ingress. Legacy expression-like defaults keep
+their existing PostgreSQL interpretation. Prefer the tagged forms in new code:
+a tagged literal string is always a literal, while a tagged expression is
+always an expression. `autoIncrement: true` and by-default identity may be
+omitted on insert or explicitly supplied; always identity and computed columns
+are non-insertable.
+
+Valibot defaults, such as `optional(string(), 'new')`, are application defaults
+applied during validation. They are not database defaults and do not satisfy a
+foreign key using `SET DEFAULT`.
 
 An `optional(x)` column is still `NOT NULL` in PostgreSQL. It must declare a
 non-null `column({ default })`, use identity generation, or provide a Valibot
@@ -177,8 +242,10 @@ when the stored value itself may be `NULL`.
 ## Relations
 
 `reference(target, key, options?)` marks a column as a foreign key. The target
-is another table handle (or its raw schema) and the referenced column's type is
-inferred, so you don't repeat it:
+is another table handle (or its raw schema). Construction retains only the
+structured target relation/column identity. Whole-graph lowering resolves the
+target first, so the reference inherits that target's selected-adapter physical
+type without copying a PostgreSQL type:
 
 ```typescript
 import { reference } from 'stratom'
@@ -193,6 +260,10 @@ const Post = defineTable(
   { primaryKey: 'id' },
 )
 ```
+
+The target must be a single-column primary key or independently unique through
+`unique: true` or a one-column unique index. A member of a composite primary key
+is not a candidate key by itself. Registered table cycles are supported.
 
 ## Querying
 
@@ -288,12 +359,12 @@ await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
 
 ### Errors
 
-| Error             | When                                               |
-| ----------------- | -------------------------------------------------- |
-| `MigrationError`  | Unsafe migration, lock failure, unsupported diff   |
-| `QueryError`      | Execution / closed client / driver failures        |
-| `ValidationError` | Insert/update Valibot validation failures          |
-| `SchemaError`     | Invalid `defineTable` / metadata / registry misuse |
+| Error             | When                                                                                                 |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `MigrationError`  | Unsafe migration, lock failure, unsupported diff, schema-type mapping, or dialect capability failure |
+| `QueryError`      | Execution / closed client / driver failures                                                          |
+| `ValidationError` | Insert/update Valibot validation failures                                                            |
+| `SchemaError`     | Invalid `defineTable` / metadata / registry misuse                                                   |
 
 Use `catchTag` / `catchTags` for tagged handling.
 

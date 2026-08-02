@@ -1,10 +1,20 @@
 import { nullable, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { planMigration } from '@/ddl/migrationPlan'
+import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { CatalogSnapshot, Dialect } from '@/dialects'
-import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
+import {
+  MigrationError,
+  column,
+  defineTable,
+  isSqlNullable,
+  postgresDialect,
+  reference,
+} from '@/index'
 import type { TableHandle } from '@/types'
+
+const planMigration = (...args: Parameters<typeof planMigrationWithContext>) =>
+  planMigrationWithContext(...args).plan
 
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
@@ -351,6 +361,7 @@ describe('Migration Plan construction', () => {
       {
         id: string(),
         status: pipe(string(), column({ default: 'ready' })),
+        taggedStatus: string(),
       },
       { primaryKey: 'id' },
     )
@@ -359,6 +370,46 @@ describe('Migration Plan construction', () => {
     const dialect: Dialect = {
       id: 'mysql',
       relationIdentity: 'postgresql',
+      lowerDesiredSchema: (graph) => ({
+        tables: graph.tables.map((table) => ({
+          handle: table.handle,
+          identity: table.identity,
+          ast: {
+            kind: 'create_table',
+            table: table.metadata.name,
+            ...(table.identity.namespace.find((segment) => segment.role === 'schema') ===
+            undefined
+              ? {}
+              : {
+                  schema: table.identity.namespace.find(
+                    (segment) => segment.role === 'schema',
+                  )!.identifier.spelling,
+                }),
+            columns: table.columns.map((column) => ({
+              name: column.name,
+              dataType: 'custom_string',
+              notNull: !isSqlNullable(column.schema),
+              unique: column.metadata?.unique ?? false,
+              autoIncrement: false,
+              ...(column.metadata?.default === undefined
+                ? {}
+                : { defaultValue: column.metadata.default }),
+              ...(column.name === 'taggedStatus'
+                ? {
+                    defaultValue: 'legacy',
+                    databaseDefault: {
+                      sql: 'custom_database:ready',
+                      normalized: 'custom_database:ready',
+                    },
+                  }
+                : {}),
+            })),
+            primaryKey: Array.isArray(table.metadata.primaryKey)
+              ? table.metadata.primaryKey
+              : [table.metadata.primaryKey],
+          },
+        })),
+      }),
       inferColumnType: () => 'custom_string',
       normalizeDataType: (dataType) =>
         dataType === 'custom_string_alias' ? 'custom_string' : dataType,
@@ -380,6 +431,12 @@ describe('Migration Plan construction', () => {
               dataType: 'custom_string_alias',
               isNullable: false,
               defaultExpression: 'custom_default:ready',
+            },
+            {
+              name: 'taggedStatus',
+              dataType: 'custom_string_alias',
+              isNullable: false,
+              defaultExpression: 'custom_database:ready',
             },
           ],
           primaryKey: {
@@ -871,7 +928,7 @@ describe('Migration Plan construction', () => {
       'teams',
       {
         tenantId: pipe(string(), column({ type: 'uuid' })),
-        teamId: pipe(string(), column({ type: 'uuid' })),
+        teamId: pipe(string(), column({ type: 'uuid', unique: true })),
       },
       { primaryKey: ['tenantId', 'teamId'], schema: 'public' },
     )

@@ -1,7 +1,13 @@
-import { object, pipe, string, title } from 'valibot'
+import { nullable, object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { column, getReferenceMetadata, reference, table } from '@/index'
+import {
+  column,
+  getColumnMetadata,
+  getReferenceMetadata,
+  reference,
+  table,
+} from '@/index'
 
 describe('reference action', () => {
   it('should create reference metadata with table and key from referenced schema', () => {
@@ -20,7 +26,7 @@ describe('reference action', () => {
     expect(metadata!.key).toBe('id')
   })
 
-  it('should infer data type from referenced column metadata', () => {
+  it('should retain a structured target without copying a physical type', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ type: 'uuid' })) }),
       title('users'),
@@ -31,10 +37,13 @@ describe('reference action', () => {
 
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
-    expect(metadata!.dataType).toBe('uuid')
+    expect(metadata).toMatchObject({
+      target: { relation: { relation: 'users' }, column: 'id' },
+    })
+    expect(metadata).not.toHaveProperty('dataType')
   })
 
-  it('should handle reference to table without explicit column type', () => {
+  it('should not eagerly infer a type for an untyped target', () => {
     const UserSchema = pipe(
       object({ id: string() }),
       title('users'),
@@ -45,7 +54,7 @@ describe('reference action', () => {
 
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
-    expect(metadata!.dataType).toBe('text')
+    expect(metadata).not.toHaveProperty('dataType')
   })
 
   it('should attach onDelete and onUpdate options', () => {
@@ -67,6 +76,46 @@ describe('reference action', () => {
       key: 'id',
       onDelete: 'cascade',
       onUpdate: 'set null',
+    })
+  })
+
+  it('should retain local column and nested reference metadata together', () => {
+    const UserSchema = pipe(
+      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      title('users'),
+      table({ name: 'users', primaryKey: 'id' }),
+    )
+    const composed = pipe(reference(UserSchema, 'id'), column({ unique: true }))
+
+    expect(getColumnMetadata(composed)).toMatchObject({ kind: 'column', unique: true })
+    expect(getReferenceMetadata(composed)).toMatchObject({
+      kind: 'reference',
+      table: 'users',
+      key: 'id',
+    })
+  })
+
+  it('should retain both metadata kinds through nullable wrappers', () => {
+    const UserSchema = pipe(
+      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      title('users'),
+      table({ name: 'users', primaryKey: 'id' }),
+    )
+    const composed = nullable(
+      pipe(
+        reference(UserSchema, 'id'),
+        column({ databaseDefault: { kind: 'literal', value: null } }),
+      ),
+    )
+
+    expect(getColumnMetadata(composed)).toMatchObject({
+      kind: 'column',
+      databaseDefault: { kind: 'literal', value: null },
+    })
+    expect(getReferenceMetadata(composed)).toMatchObject({
+      kind: 'reference',
+      table: 'users',
+      key: 'id',
     })
   })
 })

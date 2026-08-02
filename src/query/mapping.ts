@@ -2,6 +2,7 @@ import type { Dialect } from '@/dialects'
 import type { ColumnMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
+import { SchemaError } from '@/utils/error'
 
 /** CreateDatabase-level value mapping overrides. */
 export type ValueMapConfig = {
@@ -22,6 +23,8 @@ function resolveColumnDataType(
   handle: TableHandle,
   columnName: string,
   dialect: Dialect,
+  registered: readonly TableHandle[],
+  resolving: Set<string>,
 ): string | undefined {
   const entries = handle.getSchema().entries as Record<
     string,
@@ -33,11 +36,52 @@ function resolveColumnDataType(
   const schema = columnSchema as Parameters<Dialect['inferColumnType']>[0]
   const columnMetadata = getColumnMetadata(schema)
   const referenceMetadata = getReferenceMetadata(schema)
-  return String(
-    columnMetadata?.type ||
-      referenceMetadata?.dataType ||
-      dialect.inferColumnType(schema),
-  )
+  if (referenceMetadata) {
+    const targetSchema = referenceMetadata.target.relation.namespace?.find(
+      (segment) => segment.role === 'schema',
+    )?.spelling
+    const target = registered.find((candidate) => {
+      const metadata = candidate.getTableMetadata()
+      return (
+        metadata.name === referenceMetadata.target.relation.relation &&
+        (targetSchema === undefined
+          ? metadata.schema === undefined
+          : metadata.schema === targetSchema)
+      )
+    })
+    if (!target) {
+      throw new SchemaError({
+        message: `Reference target ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not registered`,
+      })
+    }
+    const token = `${targetSchema ?? ''}\0${referenceMetadata.target.relation.relation}\0${referenceMetadata.target.column}`
+    if (resolving.has(token)) {
+      throw new SchemaError({
+        message: `Cannot resolve reference-only column type cycle at ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column}`,
+      })
+    }
+    resolving.add(token)
+    const result = resolveColumnDataType(
+      target,
+      referenceMetadata.target.column,
+      dialect,
+      registered,
+      resolving,
+    )
+    resolving.delete(token)
+    if (result === undefined) {
+      throw new SchemaError({
+        message: `Reference target column ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not defined`,
+      })
+    }
+    return result
+  }
+  const selected = columnMetadata?.physicalType?.[dialect.id]
+  if (selected !== undefined) return String(selected)
+  if (dialect.id === 'postgresql' && columnMetadata?.type !== undefined) {
+    return String(columnMetadata.type)
+  }
+  return String(dialect.inferColumnType(schema))
 }
 
 function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | undefined {
@@ -63,7 +107,11 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
  * @returns Value mapper with `columnTypes`, `mapParam`, `mapResultRow`, and
  *   `mapResultRows`
  */
-export function createValueMapper(dialect: Dialect, map?: ValueMapConfig): ValueMapper {
+export function createValueMapper(
+  dialect: Dialect,
+  map?: ValueMapConfig,
+  registered: readonly TableHandle[] = [],
+): ValueMapper {
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
 
   const columnTypes = (handle: TableHandle): Record<string, string> => {
@@ -71,7 +119,7 @@ export function createValueMapper(dialect: Dialect, map?: ValueMapConfig): Value
     if (cached) return cached
     const types: Record<string, string> = {}
     for (const name of Object.keys(handle.getSchema().entries)) {
-      const dt = resolveColumnDataType(handle, name, dialect)
+      const dt = resolveColumnDataType(handle, name, dialect, registered, new Set())
       if (dt !== undefined) types[name] = dt
     }
     typeCache.set(handle, types)
@@ -125,6 +173,8 @@ export function createValueMapper(dialect: Dialect, map?: ValueMapConfig): Value
       }
       return mapResultRow(handle, row as Record<string, unknown>)
     })
+
+  for (const handle of registered) columnTypes(handle)
 
   return { columnTypes, mapParam, mapResultValue, mapResultRow, mapResultRows }
 }

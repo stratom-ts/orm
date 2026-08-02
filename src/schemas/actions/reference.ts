@@ -8,16 +8,11 @@ import type {
 } from 'valibot'
 import { getMetadata, metadata, pipe } from 'valibot'
 
-import { inferPostgresColumnType } from '@/dialects/postgres/infer'
 import type { AnySchema } from '@/types/schema'
 
-import { getColumnMetadata } from './column'
+import { findSchemaMetadata } from './metadata'
 import { isTableMetadata } from './table'
 import type { ReferenceMetadata, ReferentialAction } from './types'
-
-interface WrapperSchema {
-  wrapped: AnySchema
-}
 
 /** Minimal table-handle shape accepted by `reference()` (avoids circular imports). */
 type ReferenceTargetHandle = {
@@ -44,30 +39,6 @@ export type ReferenceTarget = ReferenceTargetSchema | ReferenceTargetHandle
 export type ReferenceOptions = {
   onDelete?: ReferentialAction
   onUpdate?: ReferentialAction
-}
-
-/**
- * Unwraps optional/nullable/nullish wrappers while preserving pipes.
- *
- * @example
- *   const inner = unwrapWrapper(optional(pipe(string(), column({ type: 'uuid' }))))
- *
- * @param schema - Schema that may be wrapped.
- *
- * @returns Inner schema with pipe structure intact
- */
-function unwrapWrapper(schema: AnySchema): AnySchema {
-  if (
-    schema.type === 'optional' ||
-    schema.type === 'nullable' ||
-    schema.type === 'nullish' ||
-    schema.type === 'non_optional' ||
-    schema.type === 'non_nullable' ||
-    schema.type === 'non_nullish'
-  ) {
-    return unwrapWrapper((schema as unknown as WrapperSchema).wrapped)
-  }
-  return schema
 }
 
 /**
@@ -151,18 +122,6 @@ export function reference<
   const schemaMetadata = getMetadata(schema) as Record<string, unknown>
   const tableMeta = isTableMetadata(schemaMetadata) ? schemaMetadata : null
 
-  const referencedColumnSchema = schema.entries[key as string] as AnySchema | undefined
-
-  const referencedColumnMetadata = referencedColumnSchema
-    ? getColumnMetadata(referencedColumnSchema)
-    : undefined
-
-  const dataType =
-    referencedColumnMetadata?.type ||
-    (referencedColumnSchema
-      ? inferPostgresColumnType(referencedColumnSchema)
-      : 'varchar(255)')
-
   const tableInfo = isReferenceTargetHandle(tableOrSchema)
     ? tableOrSchema.getTableMetadata()
     : null
@@ -178,7 +137,15 @@ export function reference<
       ...(pgSchema !== undefined ? { schema: pgSchema } : {}),
       table: tableName,
       key: key as string,
-      dataType,
+      target: {
+        relation: {
+          ...(pgSchema === undefined
+            ? {}
+            : { namespace: [{ role: 'schema' as const, spelling: pgSchema }] }),
+          relation: tableName,
+        },
+        column: key as string,
+      },
       ...(options?.onDelete !== undefined ? { onDelete: options.onDelete } : {}),
       ...(options?.onUpdate !== undefined ? { onUpdate: options.onUpdate } : {}),
     }),
@@ -213,8 +180,5 @@ export function isReferenceMetadata(
  * @returns Reference metadata, or `undefined` if none
  */
 export function getReferenceMetadata(schema: AnySchema): ReferenceMetadata | undefined {
-  const schemaMetadata = getMetadata(unwrapWrapper(schema)) as
-    | Record<string, unknown>
-    | undefined
-  return isReferenceMetadata(schemaMetadata) ? schemaMetadata : undefined
+  return findSchemaMetadata<ReferenceMetadata>(schema, 'reference')
 }

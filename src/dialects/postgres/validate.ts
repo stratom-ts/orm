@@ -151,6 +151,15 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
   return `'${value.replaceAll("'", "''")}'`
 }
 
+/** Formats a tagged literal without legacy expression-string interpretation. */
+export function formatPostgresLiteral(value: string | number | boolean | null): string {
+  if (typeof value !== 'string') return formatPostgresDefault(value)
+  const escapedQuotes = value.replaceAll("'", "''")
+  return value.includes('\\')
+    ? `E'${escapedQuotes.replaceAll('\\', '\\\\')}'`
+    : `'${escapedQuotes}'`
+}
+
 /**
  * Strips a pair of outer parentheses only when they fully enclose the
  * expression (balanced depth reaches zero at the final character).

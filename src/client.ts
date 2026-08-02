@@ -290,7 +290,7 @@ export function createDatabase<
     config.operationSessionProvider ??
     createDb0PostgresqlOperationSessionProvider(config.connector)
   const coordinator = new OperationCoordinator(operationSessionProvider)
-  const mapper = createValueMapper(dialect, config.map)
+  const mapper = createValueMapper(dialect, config.map, schemas)
   let closed = false
   let closePromise: Promise<void> | undefined
 

@@ -1,6 +1,6 @@
 import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   MigrationError,
@@ -14,6 +14,10 @@ import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRel
 import { POSTGRES_PHYSICAL_NAMING, generatedIndexName } from '@/migrations/physicalNaming'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 type LiveColumn = {
   name: string
@@ -384,6 +388,24 @@ describe('postgresDialect.compile migration steps', () => {
 })
 
 describe('db.migrate() adapters and execution', () => {
+  it('lowers the desired schema once per migration operation', async () => {
+    const connector = createMockConnector()
+    const lower = vi.spyOn(postgresDialect, 'lowerDesiredSchema')
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    try {
+      await db.migrate().dryRun()
+      expect(lower).toHaveBeenCalledTimes(1)
+
+      lower.mockClear()
+      await db.migrate().execute()
+      expect(lower).toHaveBeenCalledTimes(1)
+    } finally {
+      lower.mockRestore()
+      await db.close()
+    }
+  })
+
   it('treats omitted and public schemas as the same resolved registry target', async () => {
     const BareItems = defineTable(
       'items',
