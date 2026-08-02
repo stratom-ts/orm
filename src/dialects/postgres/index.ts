@@ -16,7 +16,11 @@ import { formatPostgresDefault, normalizePostgresDefaultExpression } from './val
  * @example
  *   import { postgresDialect } from '@/dialects/postgres'
  *
- *   const query = postgresDialect.compile({ kind: 'select_all', table: 'users' })
+ *   const query = postgresDialect.compile({
+ *     kind: 'select',
+ *     table: 'users',
+ *     selection: [{ kind: 'all' }],
+ *   })
  */
 export const postgresDialect: Dialect = {
   id: 'postgresql',

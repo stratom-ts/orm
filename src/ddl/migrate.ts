@@ -17,6 +17,12 @@ import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 
+import {
+  MIGRATE_ADVISORY_LOCK_CLASS,
+  MIGRATE_ADVISORY_LOCK_ID,
+  createMigrationCoordinationScope,
+} from '../migrations/coordinationScope'
+
 import { buildCreateTableAst } from './createTable'
 import type { MigrationPlan, MigrationStep } from './migrationPlan'
 import { planMigration } from './migrationPlan'
@@ -25,8 +31,7 @@ import { planMigration } from './migrationPlan'
  * Stable Postgres session advisory lock keys for Stratom migrate execute.
  * Two-int form so values stay within safe 32-bit integers in JS.
  */
-export const MIGRATE_ADVISORY_LOCK_CLASS = 0x7363_686d // 'schm'
-export const MIGRATE_ADVISORY_LOCK_ID = 0x6f72_6d00 // 'orm\0'
+export { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID }
 
 /** Destructive migrate operations that require explicit execution permission. */
 export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
@@ -293,14 +298,20 @@ async function acquireMigrateLock(executor: Executor): Promise<void> {
   }
 }
 
-async function releaseMigrateLock(executor: Executor): Promise<void> {
+async function releaseMigrateLock(executor: Executor): Promise<boolean> {
   try {
-    await executor.run({
-      sql: `select pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID})`,
+    const [result] = await executor.execute({
+      sql: `select pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID}) as "unlocked"`,
       params: [],
     })
+    return (
+      typeof result === 'object' &&
+      result !== null &&
+      'unlocked' in result &&
+      result.unlocked === true
+    )
   } catch {
-    // best-effort unlock
+    return false
   }
 }
 
@@ -321,7 +332,14 @@ async function releaseMigrateLock(executor: Executor): Promise<void> {
 export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
   dialect: Dialect
-  executor: Executor
+  runOperation<T>(
+    operation: (
+      executor: Executor,
+      databaseIdentity: string,
+      discard: () => void,
+    ) => Promise<T>,
+  ): Promise<T>
+  applicationId?: string
   defaultNamespace?: readonly NamespaceIdentifierInput[]
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   assertCanExecute?: () => void
@@ -329,7 +347,8 @@ export function createMigrateBuilder(options: {
   const {
     schemas,
     dialect,
-    executor,
+    runOperation,
+    applicationId,
     defaultNamespace,
     migrationOwnership,
     assertCanExecute,
@@ -337,7 +356,7 @@ export function createMigrateBuilder(options: {
 
   const allowed = new Set<MigrationAllow>()
 
-  const buildPlan = async () => {
+  const buildPlan = async (executor: Executor) => {
     const catalog = await dialect.introspect(executor)
     const identities = createCanonicalRelationIdentityModule({
       adapter: dialect.relationIdentity,
@@ -370,7 +389,9 @@ export function createMigrateBuilder(options: {
 
     async dryRun() {
       try {
-        return (await buildPlan()).plan
+        return await runOperation(async (executor) => {
+          return (await buildPlan(executor)).plan
+        })
       } catch (cause) {
         if (cause instanceof MigrationError) throw cause
         throw new MigrationError({
@@ -382,48 +403,64 @@ export function createMigrateBuilder(options: {
 
     async execute() {
       assertCanExecute?.()
-      await acquireMigrateLock(executor)
       try {
-        const { plan, identities, handles } = await buildPlan()
-
-        const steps = plan.steps
-        if (steps.length === 0) return
-
-        for (const step of steps) {
-          const need = allowForStep(step)
-          if (need && !allowed.has(need)) {
-            throw new MigrationError({
-              message: `Destructive migration step '${step.kind}' requires allow('${need}')`,
-            })
-          }
-        }
-
-        await executor.run({ sql: 'begin', params: [] })
-        try {
-          for (const step of steps) {
-            if (step.kind === 'set_not_null') {
-              await assertColumnHasNoNulls(executor, step, identities)
-            }
-            const ast = stepToAst(step, handles, dialect, identities)
-            await executor.run(dialect.compile(ast))
-          }
-          await executor.run({ sql: 'commit', params: [] })
-        } catch (error) {
+        return await runOperation(async (executor, databaseIdentity, discard) => {
+          createMigrationCoordinationScope(databaseIdentity, applicationId)
+          let lockAcquired = false
           try {
-            await executor.run({ sql: 'rollback', params: [] })
-          } catch {
-            // ignore rollback failures
+            await acquireMigrateLock(executor)
+            lockAcquired = true
+            const { plan, identities, handles } = await buildPlan(executor)
+
+            const steps = plan.steps
+            if (steps.length === 0) return
+
+            for (const step of steps) {
+              const need = allowForStep(step)
+              if (need && !allowed.has(need)) {
+                throw new MigrationError({
+                  message: `Destructive migration step '${step.kind}' requires allow('${need}')`,
+                })
+              }
+            }
+
+            await executor.run({ sql: 'begin', params: [] })
+            let commitAttempted = false
+            try {
+              for (const step of steps) {
+                if (step.kind === 'set_not_null') {
+                  await assertColumnHasNoNulls(executor, step, identities)
+                }
+                const ast = stepToAst(step, handles, dialect, identities)
+                await executor.run(dialect.compile(ast))
+              }
+              commitAttempted = true
+              await executor.run({ sql: 'commit', params: [] })
+            } catch (error) {
+              if (commitAttempted) discard()
+              try {
+                await executor.run({ sql: 'rollback', params: [] })
+              } catch {
+                discard()
+              }
+              throw error
+            }
+          } catch (cause) {
+            if (cause instanceof MigrationError) throw cause
+            throw new MigrationError({
+              message: cause instanceof Error ? cause.message : 'Migration failed',
+              ...(cause !== undefined ? { cause } : {}),
+            })
+          } finally {
+            if (!lockAcquired || !(await releaseMigrateLock(executor))) discard()
           }
-          throw error
-        }
+        })
       } catch (cause) {
         if (cause instanceof MigrationError) throw cause
         throw new MigrationError({
           message: cause instanceof Error ? cause.message : 'Migration failed',
           ...(cause !== undefined ? { cause } : {}),
         })
-      } finally {
-        await releaseMigrateLock(executor)
       }
     },
   }

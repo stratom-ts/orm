@@ -3,7 +3,6 @@ export type {
   OrderByAst,
   PredicateAst,
   QualifiedColumnAst,
-  SelectAllAst,
   SelectAst,
   SelectItemAst,
   SqlAst,
@@ -12,7 +11,6 @@ export type {
 export {
   createDeleteBuilder,
   createInsertBuilder,
-  createSelectAllBuilder,
   createTableBuilder,
   createUpdateBuilder,
   type DeleteBuilder,

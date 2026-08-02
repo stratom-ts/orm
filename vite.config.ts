@@ -3,7 +3,13 @@ import dts from 'vite-plugin-dts'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [dts({ include: ['src/**/*.ts'], bundleTypes: true })],
+  plugins: [
+    dts({
+      include: ['src/**/*.ts'],
+      bundleTypes: true,
+      outDirs: ['dist', { dir: 'dist', moduleFormat: 'cjs' }],
+    }),
+  ],
   test: {
     globals: true,
     environment: 'node',
@@ -49,11 +55,12 @@ export default defineConfig({
       formats: ['es', 'umd'],
     },
     rollupOptions: {
-      external: ['valibot', 'db0'],
+      external: ['valibot', 'db0', 'node:async_hooks'],
       output: {
         globals: {
           valibot: 'valibot',
           db0: 'db0',
+          'node:async_hooks': 'async_hooks',
         },
       },
     },

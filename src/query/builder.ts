@@ -1462,26 +1462,3 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     },
   }
 }
-
-/**
- * Creates a select-all query builder (deprecated in favor of `createTableBuilder`).
- *
- * @deprecated Use {@link createTableBuilder}. Kept for compatibility.
- *
- * @example
- *   const builder = createSelectAllBuilder({ handle: User, dialect, executor })
- *   const users = await builder.execute()
- *
- * @param options - Builder configuration including handle, dialect, executor, and
- *   optional mapper.
- *
- * @returns Query builder with `selectAll`, `where`, `compile`, and `execute` methods
- */
-export function createSelectAllBuilder<THandle extends TableHandle>(options: {
-  handle: THandle
-  dialect: Dialect
-  executor: Executor
-  mapper?: ValueMapper
-}): QueryBuilder<THandle> {
-  return createTableBuilder(options)
-}

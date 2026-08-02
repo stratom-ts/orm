@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { QueryError, SchemaError, column, createDatabase, defineTable } from '@/index'
 
+import { createNativePostgresClient } from './helpers/nativePostgresClient'
+
 function createMockStatement(rows: unknown[] = [{ '?column?': 1 }]): Statement {
   const statement: Statement = {
     bind() {
@@ -27,17 +29,19 @@ function createMockConnector(options?: {
   onPrepare?: (sql: string) => Statement
 }): Connector & { disposed: boolean; prepared: string[] } {
   const prepared: string[] = []
+  const prepare = (sql: string) => {
+    prepared.push(sql)
+    return options?.onPrepare?.(sql) ?? createMockStatement()
+  }
+  const nativeClient = createNativePostgresClient(prepare)
   const connector = {
-    name: 'mock',
+    name: 'postgresql',
     dialect: 'postgresql' as const,
     disposed: false,
     prepared,
-    getInstance: () => ({}),
+    getInstance: () => nativeClient,
     exec: async () => ({}),
-    prepare: (sql: string) => {
-      prepared.push(sql)
-      return options?.onPrepare?.(sql) ?? createMockStatement()
-    },
+    prepare,
     dispose: async () => {
       connector.disposed = true
       await options?.onDispose?.()

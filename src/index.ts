@@ -47,6 +47,13 @@ export type {
   RelationIdentityInput,
   RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
+export {
+  createDb0PostgresqlOperationSessionProvider,
+  type OperationSession,
+  type OperationSessionDisposition,
+  type OperationSessionIdentity,
+  type OperationSessionProvider,
+} from '@/operations'
 export type {
   MigrationOwnershipDeclaration,
   MigrationOwnershipRelation,

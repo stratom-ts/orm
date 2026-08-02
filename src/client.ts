@@ -1,12 +1,17 @@
-import type { Connector, Database } from 'db0'
-import { createDatabase as createDb0Database } from 'db0'
+import type { Connector } from 'db0'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
 import { resolveDialect } from '@/dialects'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
+import { validateApplicationId } from '@/migrations/coordinationScope'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
+import type { OperationContext } from '@/operations/coordinator'
+import { OperationCoordinator } from '@/operations/coordinator'
+import type { OperationSessionProvider } from '@/operations/operationSession'
+import { createDb0PostgresqlOperationSessionProvider } from '@/operations/operationSession'
 import type {
   DeleteBuilder,
   Executor,
@@ -18,7 +23,6 @@ import type {
   ValueMapConfig,
 } from '@/query'
 import {
-  createDb0Executor,
   createDeleteBuilder,
   createInsertBuilder,
   createTableBuilder,
@@ -36,11 +40,94 @@ export type { TableHandle } from '@/types'
 
 type TransactionContext = {
   nextSavepointId: number
+  poisoned: boolean
 }
 
 type TransactionScope = {
   active: boolean
   context: TransactionContext
+  operation: OperationContext
+  parent: TransactionScope | undefined
+  queue: Promise<void>
+}
+
+type TransactionScopeFrame = {
+  readonly scope: TransactionScope
+  readonly parent: TransactionScopeFrame | undefined
+}
+
+const activeTransactionScope = new AsyncLocalStorage<TransactionScopeFrame>()
+
+function isDescendantScope(
+  candidate: TransactionScope,
+  ancestor: TransactionScope,
+): boolean {
+  let scope: TransactionScope | undefined = candidate.parent
+  while (scope) {
+    if (scope === ancestor) return true
+    scope = scope.parent
+  }
+  return false
+}
+
+function transactionPoisonedError(): QueryError {
+  return new QueryError({
+    message: 'Transaction is no longer usable after savepoint cleanup failed',
+  })
+}
+
+function scheduleTransactionScope<T>(
+  scope: TransactionScope,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let frame = activeTransactionScope.getStore()
+  while (frame) {
+    if (
+      frame.scope.active &&
+      frame.scope !== scope &&
+      isDescendantScope(frame.scope, scope)
+    ) {
+      return Promise.reject(
+        new QueryError({
+          message:
+            'Cannot use an ancestor transaction client inside a nested transaction callback; use the nested callback client instead',
+        }),
+      )
+    }
+    frame = frame.parent
+  }
+  if (!scope.active) {
+    return Promise.reject(
+      new QueryError({ message: 'Transaction client is no longer active' }),
+    )
+  }
+
+  const previous = scope.queue
+  let finish!: () => void
+  scope.queue = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+
+  return (async () => {
+    await previous
+    try {
+      if (!scope.active) {
+        throw new QueryError({ message: 'Transaction client is no longer active' })
+      }
+      if (scope.context.poisoned) throw transactionPoisonedError()
+      return await operation()
+    } finally {
+      finish()
+    }
+  })()
+}
+
+async function drainTransactionScope(scope: TransactionScope): Promise<void> {
+  while (true) {
+    const tail = scope.queue
+    await tail
+    if (scope.queue === tail) return
+  }
 }
 
 /** Options for {@link createDatabase}. */
@@ -53,6 +140,10 @@ export type CreateDatabaseConfig<
   schemas: TSchemas
   /** Explicit default namespace for migration registrations with omitted namespaces. */
   defaultNamespace?: readonly NamespaceIdentifierInput[]
+  /** Explicit provider for a custom connector. It owns its sessions and shutdown. */
+  operationSessionProvider?: OperationSessionProvider
+  /** Stable application identity for future application-scoped migration coordination. */
+  applicationId?: string
   /** Optional explicit migration authority beyond exact complete registered relations. */
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   /**
@@ -175,8 +266,8 @@ export function createDatabase<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 >(config: CreateDatabaseConfig<TSchemas>): Db<TSchemas> {
   assertHandles(config.schemas)
+  if (config.applicationId !== undefined) validateApplicationId(config.applicationId)
 
-  const database: Database = createDb0Database(config.connector)
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
   const registry = new Map<string | undefined, Map<string, TableHandle>>()
@@ -195,12 +286,13 @@ export function createDatabase<
     return registry.get(info.schema)?.has(info.name) ?? false
   }
 
-  const baseExecutor = createDb0Executor(database)
+  const operationSessionProvider =
+    config.operationSessionProvider ??
+    createDb0PostgresqlOperationSessionProvider(config.connector)
+  const coordinator = new OperationCoordinator(operationSessionProvider)
   const mapper = createValueMapper(dialect, config.map)
   let closed = false
-  let transactionActive = false
-  let rootClientBlocked = false
-  let connectionQueue = Promise.resolve()
+  let closePromise: Promise<void> | undefined
 
   const ensureOpen = () => {
     if (closed) {
@@ -208,43 +300,29 @@ export function createDatabase<
     }
   }
 
-  const schedule = <T>(operation: () => Promise<T>): Promise<T> => {
-    const result = connectionQueue.then(operation)
-    connectionQueue = result.then(
-      () => undefined,
-      () => undefined,
-    )
-    return result
-  }
-
   const rootExecutor: Executor = {
     execute(query) {
       ensureOpen()
-      if (rootClientBlocked) {
-        throw new QueryError({
-          message:
-            'Cannot use the root database client inside a transaction callback; use the transaction client (trx) instead',
-        })
-      }
-      return schedule(() => baseExecutor.execute(query))
+      return coordinator.run(({ executor }) => executor.execute(query))
     },
     run(query) {
       ensureOpen()
-      if (rootClientBlocked) {
-        throw new QueryError({
-          message:
-            'Cannot use the root database client inside a transaction callback; use the transaction client (trx) instead',
-        })
-      }
-      return schedule(() => baseExecutor.run(query))
+      return coordinator.run(({ executor }) => executor.run(query))
     },
   }
 
-  const close = async (): Promise<void> => {
-    if (closed) return
+  const close = (): Promise<void> => {
+    if (coordinator.currentToken()) {
+      return Promise.reject(
+        new QueryError({
+          message:
+            'Cannot close the root database client inside an active operation callback',
+        }),
+      )
+    }
+    if (closePromise) return closePromise
     closed = true
-    await connectionQueue
-    await database.dispose()
+    return (closePromise = coordinator.close())
   }
 
   const createClient = (
@@ -252,9 +330,12 @@ export function createDatabase<
     transactionScope?: TransactionScope,
   ): Db<TSchemas> => {
     const ensureClientOpen = () => {
-      ensureOpen()
-      if (transactionScope && !transactionScope.active) {
-        throw new QueryError({ message: 'Transaction client is no longer active' })
+      if (transactionScope) {
+        if (!transactionScope.active) {
+          throw new QueryError({ message: 'Transaction client is no longer active' })
+        }
+      } else {
+        ensureOpen()
       }
     }
 
@@ -262,11 +343,13 @@ export function createDatabase<
       ? {
           execute(query) {
             ensureClientOpen()
-            return executor.execute(query)
+            return scheduleTransactionScope(transactionScope, () =>
+              executor.execute(query),
+            )
           },
           run(query) {
             ensureClientOpen()
-            return executor.run(query)
+            return scheduleTransactionScope(transactionScope, () => executor.run(query))
           },
         }
       : executor
@@ -393,7 +476,23 @@ export function createDatabase<
       return createMigrateBuilder({
         schemas,
         dialect,
-        executor: clientExecutor,
+        runOperation: async (operation) => {
+          if (transactionScope) {
+            ensureClientOpen()
+            return operation(
+              clientExecutor,
+              transactionScope.operation.identity.database,
+              transactionScope.operation.discard,
+            )
+          }
+          ensureOpen()
+          return coordinator.run(({ executor, identity, discard }) =>
+            operation(executor, identity.database, discard),
+          )
+        },
+        ...(config.applicationId === undefined
+          ? {}
+          : { applicationId: config.applicationId }),
         ...(config.defaultNamespace === undefined
           ? {}
           : { defaultNamespace: config.defaultNamespace }),
@@ -401,7 +500,7 @@ export function createDatabase<
           ? {}
           : { migrationOwnership: config.migrationOwnership }),
         assertCanExecute() {
-          if (transactionScope || transactionActive) {
+          if (transactionScope) {
             throw new MigrationError({
               message: 'Cannot execute migrations inside a transaction',
             })
@@ -412,83 +511,133 @@ export function createDatabase<
 
     const transaction = async <T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T> => {
       ensureClientOpen()
+      const inheritedTransactionFrame = activeTransactionScope.getStore()
 
       if (!transactionScope) {
-        return schedule(async () => {
-          ensureOpen()
-          if (rootClientBlocked) {
-            throw new QueryError({
-              message:
-                'Cannot start a nested transaction on the root client inside a transaction callback; use the transaction client (trx) instead',
-            })
-          }
-          await baseExecutor.run({ sql: 'begin', params: [] })
-          transactionActive = true
-          rootClientBlocked = true
+        return coordinator.run(async (operation) => {
+          await operation.executor.run({ sql: 'begin', params: [] })
           const scope: TransactionScope = {
             active: true,
-            context: { nextSavepointId: 1 },
+            context: { nextSavepointId: 1, poisoned: false },
+            operation,
+            parent: undefined,
+            queue: Promise.resolve(),
           }
           try {
-            const result = await fn(createClient(baseExecutor, scope))
+            let callbackFailed = false
+            let callbackError: unknown
+            let result: T | undefined
+            try {
+              result = await activeTransactionScope.run(
+                { scope, parent: inheritedTransactionFrame },
+                () => fn(createClient(operation.executor, scope)),
+              )
+            } catch (cause) {
+              callbackFailed = true
+              callbackError = cause
+            }
+            await drainTransactionScope(scope)
+            if (callbackFailed) throw callbackError
+            if (scope.context.poisoned) throw transactionPoisonedError()
             scope.active = false
-            rootClientBlocked = false
-            await baseExecutor.run({ sql: 'commit', params: [] })
-            transactionActive = false
-            return result
+            await operation.executor.run({ sql: 'commit', params: [] })
+            return result as T
           } catch (error) {
             scope.active = false
-            rootClientBlocked = false
             try {
-              await baseExecutor.run({ sql: 'rollback', params: [] })
+              await operation.executor.run({ sql: 'rollback', params: [] })
             } catch {
-              // ignore rollback failures; rethrow original
-            } finally {
-              transactionActive = false
+              operation.discard()
             }
             throw error
           }
         })
       }
 
-      const savepointName = `sp_${transactionScope.context.nextSavepointId++}`
-      await clientExecutor.run({ sql: `savepoint ${savepointName}`, params: [] })
-      const nestedScope: TransactionScope = {
-        active: true,
-        context: transactionScope.context,
-      }
-      try {
-        const result = await fn(createClient(baseExecutor, nestedScope))
-        nestedScope.active = false
-        await clientExecutor.run({
-          sql: `release savepoint ${savepointName}`,
-          params: [],
-        })
-        return result
-      } catch (error) {
-        nestedScope.active = false
+      return scheduleTransactionScope(transactionScope, async () => {
+        const rawExecutor = transactionScope.operation.executor
+        const savepointName = `sp_${transactionScope.context.nextSavepointId++}`
         try {
-          await clientExecutor.run({
-            sql: `rollback to savepoint ${savepointName}`,
-            params: [],
-          })
-          await clientExecutor.run({
+          await rawExecutor.run({ sql: `savepoint ${savepointName}`, params: [] })
+        } catch (error) {
+          transactionScope.context.poisoned = true
+          transactionScope.operation.discard()
+          throw error
+        }
+        const nestedScope: TransactionScope = {
+          active: true,
+          context: transactionScope.context,
+          operation: transactionScope.operation,
+          parent: transactionScope,
+          queue: Promise.resolve(),
+        }
+        let callbackFailed = false
+        let callbackError: unknown
+        let result: T | undefined
+        try {
+          result = await activeTransactionScope.run(
+            { scope: nestedScope, parent: inheritedTransactionFrame },
+            () => fn(createClient(rawExecutor, nestedScope)),
+          )
+        } catch (cause) {
+          callbackFailed = true
+          callbackError = cause
+        }
+        await drainTransactionScope(nestedScope)
+        nestedScope.active = false
+
+        if (callbackFailed) {
+          if (transactionScope.context.poisoned) throw callbackError
+          try {
+            await rawExecutor.run({
+              sql: `rollback to savepoint ${savepointName}`,
+              params: [],
+            })
+          } catch {
+            transactionScope.context.poisoned = true
+            transactionScope.operation.discard()
+            throw callbackError
+          }
+          try {
+            await rawExecutor.run({
+              sql: `release savepoint ${savepointName}`,
+              params: [],
+            })
+          } catch {
+            transactionScope.context.poisoned = true
+            transactionScope.operation.discard()
+            throw callbackError
+          }
+          throw callbackError
+        }
+
+        if (transactionScope.context.poisoned) throw transactionPoisonedError()
+        try {
+          await rawExecutor.run({
             sql: `release savepoint ${savepointName}`,
             params: [],
           })
-        } catch {
-          // ignore rollback failures; rethrow original
+        } catch (error) {
+          transactionScope.context.poisoned = true
+          transactionScope.operation.discard()
+          throw error
         }
-        throw error
-      }
+        return result as T
+      })
     }
 
-    const closeClient = async (): Promise<void> => {
+    const closeClient = (): Promise<void> => {
       if (transactionScope) {
-        ensureClientOpen()
-        throw new QueryError({ message: 'Transaction clients cannot close the database' })
+        try {
+          ensureClientOpen()
+        } catch (cause) {
+          return Promise.reject(cause)
+        }
+        return Promise.reject(
+          new QueryError({ message: 'Transaction clients cannot close the database' }),
+        )
       }
-      await close()
+      return close()
     }
 
     return {

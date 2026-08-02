@@ -9,7 +9,6 @@ export type {
   PredicateAst,
   QualifiedColumnAst,
   ReturningAst,
-  SelectAllAst,
   SelectAst,
   SelectItemAst,
   SqlAst,

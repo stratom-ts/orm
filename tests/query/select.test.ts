@@ -1,4 +1,3 @@
-import type { Connector, Statement } from 'db0'
 import { boolean, date, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
@@ -28,62 +27,7 @@ import {
   upper,
 } from '@/index'
 
-function createMockStatement(rows: unknown[] = []): Statement {
-  const statement: Statement = {
-    bind() {
-      return statement
-    },
-    async all() {
-      return rows
-    },
-    async run() {
-      return { success: true }
-    },
-    async get() {
-      return rows[0]
-    },
-  }
-  return statement
-}
-
-function createMockConnector(options?: {
-  onPrepare?: (sql: string, params?: unknown[]) => Statement
-  rowsBySql?: (sql: string) => unknown[]
-}): Connector & {
-  disposed: boolean
-  prepared: string[]
-  binds: unknown[][]
-} {
-  const prepared: string[] = []
-  const binds: unknown[][] = []
-  const connector = {
-    name: 'mock',
-    dialect: 'postgresql' as const,
-    disposed: false,
-    prepared,
-    binds,
-    getInstance: () => ({}),
-    exec: async () => ({}),
-    prepare: (sql: string) => {
-      prepared.push(sql)
-      const base =
-        options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
-      return {
-        bind(...params: unknown[]) {
-          binds.push(params)
-          return base.bind(...(params as never[]))
-        },
-        all: () => base.all(),
-        run: () => base.run(),
-        get: () => base.get(),
-      }
-    },
-    dispose: async () => {
-      connector.disposed = true
-    },
-  }
-  return connector
-}
+import { createMockPostgresConnector as createMockConnector } from '../helpers/nativePostgresClient'
 
 const Users = defineTable(
   'users',
