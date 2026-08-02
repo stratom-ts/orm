@@ -92,8 +92,9 @@ export function registerDesiredSchema(
     for (const column of [...table.columns].sort((left, right) =>
       left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
     )) {
-      if (!column.reference) continue
-      const referenceIdentity = column.reference.targetRelation
+      const reference = column.reference
+      if (!reference) continue
+      const referenceIdentity = reference.targetRelation
       const target = registry.get(referenceIdentity)
       const sourceName = identities.format(table.identity, {
         role: 'column',
@@ -105,27 +106,25 @@ export function registerDesiredSchema(
         })
       }
       if (
-        !target.columns.some(
-          (candidate) => candidate.name === column.reference!.targetColumn,
-        )
+        !target.columns.some((candidate) => candidate.name === reference.targetColumn)
       ) {
         throw new MigrationError({
           message: `Reference ${sourceName} targets missing column ${identities.format(
             referenceIdentity,
             {
               role: 'column',
-              spelling: column.reference.targetColumn,
+              spelling: reference.targetColumn,
             },
           )}`,
         })
       }
-      if (!isCandidateKey(target, column.reference.targetColumn)) {
+      if (!isCandidateKey(target, reference.targetColumn)) {
         throw new MigrationError({
           message: `Reference ${sourceName} must target a single-column primary or unique key; ${identities.format(
             referenceIdentity,
             {
               role: 'column',
-              spelling: column.reference.targetColumn,
+              spelling: reference.targetColumn,
             },
           )} is not a candidate key`,
         })

@@ -82,7 +82,26 @@ function portableExpression(expression: string): string {
 
 function assertSafeExpression(expression: string): string {
   const value = expression.trim()
-  if (!value || /;|--|\/\*|\*\//.test(value)) {
+  let quoted = false
+  let parentheses = 0
+  let unsafe = !value || /\$|;|--|\/\*|\*\//.test(value)
+  for (let index = 0; index < value.length && !unsafe; index++) {
+    const character = value[index]
+    if (character === "'") {
+      if (quoted && value[index + 1] === "'") {
+        index++
+      } else {
+        quoted = !quoted
+      }
+    } else if (!quoted && character === '(') {
+      parentheses++
+    } else if (!quoted && character === ')') {
+      if (parentheses === 0) unsafe = true
+      else parentheses--
+    }
+  }
+  if (quoted || parentheses !== 0) unsafe = true
+  if (unsafe) {
     throw new MigrationError({
       message: `Unsafe PostgreSQL database expression ${JSON.stringify(expression)}`,
     })
@@ -269,10 +288,20 @@ export function lowerPostgresDesiredSchema(
       const reference = item.column.reference!
       const targetTable = graph.tables.find((table) =>
         sameIdentity(table.identity, reference.targetRelation),
-      )!
+      )
+      if (!targetTable) {
+        throw new MigrationError({
+          message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets unregistered relation ${formatIdentity(reference.targetRelation)}`,
+        })
+      }
       const targetColumn = targetTable.columns.find(
         (column) => column.name === reference.targetColumn,
-      )!
+      )
+      if (!targetColumn) {
+        throw new MigrationError({
+          message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn)}`,
+        })
+      }
       const targetType = resolvedTypes.get(targetColumn)
       if (targetType === undefined) {
         unresolved.push(item)
@@ -313,6 +342,7 @@ export function lowerPostgresDesiredSchema(
             ...(postgresSchema(table.identity) === undefined
               ? {}
               : { schema: postgresSchema(table.identity) }),
+            // Resolution is sorted for determinism; emitted DDL preserves authored order.
             columns: Object.freeze(
               table.columns.map((column) => loweredColumns.get(column)!),
             ),

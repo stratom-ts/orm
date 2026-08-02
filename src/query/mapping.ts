@@ -2,6 +2,7 @@ import type { Dialect } from '@/dialects'
 import type { ColumnMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
+import { SchemaError } from '@/utils/error'
 
 /** CreateDatabase-level value mapping overrides. */
 export type ValueMapConfig = {
@@ -48,9 +49,17 @@ function resolveColumnDataType(
           : metadata.schema === targetSchema)
       )
     })
-    if (!target) return undefined
+    if (!target) {
+      throw new SchemaError({
+        message: `Reference target ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not registered`,
+      })
+    }
     const token = `${targetSchema ?? ''}\0${referenceMetadata.target.relation.relation}\0${referenceMetadata.target.column}`
-    if (resolving.has(token)) return undefined
+    if (resolving.has(token)) {
+      throw new SchemaError({
+        message: `Cannot resolve reference-only column type cycle at ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column}`,
+      })
+    }
     resolving.add(token)
     const result = resolveColumnDataType(
       target,
@@ -60,6 +69,11 @@ function resolveColumnDataType(
       resolving,
     )
     resolving.delete(token)
+    if (result === undefined) {
+      throw new SchemaError({
+        message: `Reference target column ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not defined`,
+      })
+    }
     return result
   }
   const selected = columnMetadata?.physicalType?.[dialect.id]
@@ -159,6 +173,8 @@ export function createValueMapper(
       }
       return mapResultRow(handle, row as Record<string, unknown>)
     })
+
+  for (const handle of registered) columnTypes(handle)
 
   return { columnTypes, mapParam, mapResultValue, mapResultRow, mapResultRows }
 }

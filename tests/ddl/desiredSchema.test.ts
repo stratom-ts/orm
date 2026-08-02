@@ -1,7 +1,7 @@
 import { nullable, number, pipe, string } from 'valibot'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { lowerDesiredSchema } from '@/ddl/desiredSchema'
+import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
 import type { AuthoredDesiredSchema, Dialect } from '@/dialects'
 import { postgresDialect } from '@/dialects'
 import {
@@ -13,6 +13,11 @@ import {
 } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { createValueMapper, validateInsertRow } from '@/query'
+import type { TableHandle } from '@/types'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const postgresIdentities = () =>
   createCanonicalRelationIdentityModule({
@@ -72,8 +77,13 @@ function fakeSqliteDialect(): Dialect {
               const dataType = authored.reference
                 ? types.get(
                     `${identityKey(authored.reference.targetRelation)}\0${authored.reference.targetColumn}`,
-                  )!
-                : types.get(`${identityKey(table.identity)}\0${authored.name}`)!
+                  )
+                : types.get(`${identityKey(table.identity)}\0${authored.name}`)
+              if (dataType === undefined) {
+                throw new MigrationError({
+                  message: `fake SQLite requires a resolved physical type for ${authored.name}`,
+                })
+              }
               return {
                 name: authored.name,
                 dataType,
@@ -410,11 +420,49 @@ describe('whole-graph desired-schema lowering', () => {
     expect(mapper.mapParam(Source, 'targetId', 'abc')).toBe('param:abc')
     expect(mapper.mapResultValue(Source, 'targetId', 'abc')).toBe('result:abc')
   })
+
+  it('validates reference targets before global or dialect mapping', () => {
+    const Target = defineTable(
+      'mapper_targets',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id' },
+    )
+    const Source = defineTable(
+      'mapper_sources',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        targetId: reference(Target, 'id'),
+      },
+      { primaryKey: 'id' },
+    )
+
+    expect(() => createValueMapper(postgresDialect, undefined, [Source])).toThrow(
+      /not registered/i,
+    )
+
+    const globalMap = vi.fn((_dataType: string, value: unknown) => `global:${value}`)
+    const globalMapper = createValueMapper(
+      postgresDialect,
+      { mapParamValue: globalMap },
+      [Source, Target],
+    )
+    expect(globalMapper.mapParam(Source, 'targetId', 'abc')).toBe('global:abc')
+    expect(globalMap).toHaveBeenCalledWith('uuid', 'abc')
+
+    const dialectMap = vi.fn((_dataType: string, value: unknown) => `dialect:${value}`)
+    const dialectMapper = createValueMapper(
+      { ...postgresDialect, mapParamValue: dialectMap },
+      undefined,
+      [Source, Target],
+    )
+    expect(dialectMapper.mapParam(Source, 'targetId', 'abc')).toBe('dialect:abc')
+    expect(dialectMap).toHaveBeenCalledWith('uuid', 'abc')
+  })
 })
 
 describe('PostgreSQL compatibility ingress', () => {
   it('reports the same first lowering error across column-order permutations', () => {
-    const loweringError = (table: ReturnType<typeof defineTable>): MigrationError => {
+    const loweringError = (table: TableHandle): MigrationError => {
       try {
         lowerDesiredSchema([table], postgresIdentities(), postgresDialect)
       } catch (error) {
@@ -451,7 +499,7 @@ describe('PostgreSQL compatibility ingress', () => {
       kind: 'computed' as const,
       expression: {
         kind: 'dialectExpression' as const,
-        dialect: 'postgresql',
+        dialect: 'postgresql' as const,
         expression: 'lower(id::text)',
       },
       storage: 'stored' as const,
@@ -557,6 +605,13 @@ describe('PostgreSQL compatibility ingress', () => {
           string(),
           column({ type: 'text', databaseDefault: { kind: 'literal', value: 'now()' } }),
         ),
+        path: pipe(
+          string(),
+          column({
+            type: 'text',
+            databaseDefault: { kind: 'literal', value: "C:\\O'Brien\\" },
+          }),
+        ),
         portable: pipe(
           string(),
           column({
@@ -586,8 +641,102 @@ describe('PostgreSQL compatibility ingress', () => {
     const sql = postgresDialect.compile(table.ast).sql
 
     expect(sql).toContain(`default 'now()'`)
+    expect(sql).toContain("default E'C:\\\\O''Brien\\\\'")
     expect(sql).toContain('default current_timestamp')
     expect(sql).toContain('default now()')
+  })
+
+  it('rejects unbalanced or dollar-quoted dialect expressions', () => {
+    for (const expression of [
+      "'unterminated",
+      '(now()',
+      ')now()(',
+      '$$now()$$',
+      '$tag$now()$tag$',
+    ]) {
+      const Invalid = defineTable(
+        'invalid_expression',
+        {
+          id: pipe(string(), column({ type: 'uuid' })),
+          value: pipe(
+            string(),
+            column({
+              type: 'text',
+              databaseDefault: {
+                kind: 'dialectExpression',
+                dialect: 'postgresql',
+                expression,
+              },
+            }),
+          ),
+        },
+        { primaryKey: 'id' },
+      )
+      expect(() =>
+        lowerDesiredSchema([Invalid], postgresIdentities(), postgresDialect),
+      ).toThrow(/unsafe PostgreSQL database expression/i)
+    }
+
+    const Valid = defineTable(
+      'valid_expression',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        value: pipe(
+          string(),
+          column({
+            type: 'text',
+            databaseDefault: {
+              kind: 'dialectExpression',
+              dialect: 'postgresql',
+              expression: "coalesce(nullif('it''s )', ''), 'fallback')",
+            },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+    expect(() =>
+      lowerDesiredSchema([Valid], postgresIdentities(), postgresDialect),
+    ).not.toThrow()
+  })
+
+  it('reports missing direct-lowering reference targets as MigrationError', () => {
+    const Target = defineTable(
+      'direct_targets',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        label: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id' },
+    )
+    const Source = defineTable(
+      'direct_sources',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        targetId: reference(Target, 'id'),
+      },
+      { primaryKey: 'id' },
+    )
+    const graph = registerDesiredSchema([Source, Target], postgresIdentities())
+
+    expect(() =>
+      postgresDialect.lowerDesiredSchema({
+        tables: graph.tables.filter((table) => table.handle !== Target),
+      }),
+    ).toThrow(/unregistered relation/i)
+
+    expect(() =>
+      postgresDialect.lowerDesiredSchema({
+        tables: graph.tables.map((table) =>
+          table.handle === Target
+            ? {
+                ...table,
+                columns: table.columns.filter((column) => column.name !== 'id'),
+              }
+            : table,
+        ),
+      }),
+    ).toThrow(/missing column/i)
   })
 
   it('rejects mismatched tags and unsupported generation with MigrationError', () => {

@@ -154,7 +154,10 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
 /** Formats a tagged literal without legacy expression-string interpretation. */
 export function formatPostgresLiteral(value: string | number | boolean | null): string {
   if (typeof value !== 'string') return formatPostgresDefault(value)
-  return `'${value.replaceAll("'", "''")}'`
+  const escapedQuotes = value.replaceAll("'", "''")
+  return value.includes('\\')
+    ? `E'${escapedQuotes.replaceAll('\\', '\\\\')}'`
+    : `'${escapedQuotes}'`
 }
 
 /**

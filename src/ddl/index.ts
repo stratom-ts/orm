@@ -1,5 +1,4 @@
 export {
-  buildCreateTableAst,
   type ColumnDefAst,
   type ColumnReferenceAst,
   type CreateTableAst,

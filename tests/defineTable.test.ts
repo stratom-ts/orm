@@ -293,6 +293,22 @@ describe('defineTable', () => {
         { primaryKey: 'id' },
       ),
     ).toThrow(/cannot combine a default with identity/)
+    expect(() =>
+      defineTable(
+        'bad_tagged_identity',
+        {
+          id: pipe(
+            number(),
+            column({
+              type: 'integer',
+              databaseDefault: { kind: 'literal', value: 1 },
+              generation: { kind: 'identity', mode: 'byDefault' },
+            }),
+          ),
+        },
+        { primaryKey: 'id' },
+      ),
+    ).toThrow(/cannot combine a default with identity/)
   })
 
   it('should reject duplicate index definitions', () => {

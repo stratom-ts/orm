@@ -1,6 +1,6 @@
 import type { AnySchema } from '@/types/schema'
 
-type MetadataRecord = Record<string, unknown>
+type MetadataRecord = Record<string, unknown> & { kind: string }
 
 type TraversableSchema = AnySchema & {
   pipe?: readonly unknown[]

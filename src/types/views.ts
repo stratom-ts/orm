@@ -80,8 +80,12 @@ type HasDefaultValue<S> = [ColumnMetaOf<S>] extends [never]
       : D extends undefined
         ? false
         : true
-    : ColumnMetaOf<S> extends { kind: 'column'; databaseDefault: unknown }
-      ? true
+    : ColumnMetaOf<S> extends { kind: 'column'; databaseDefault: infer D }
+      ? [D] extends [never]
+        ? false
+        : D extends undefined
+          ? false
+          : true
       : false
 
 /** Optional / nullish → omit-on-insert (not necessarily SQL NULL). */

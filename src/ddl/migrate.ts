@@ -5,7 +5,6 @@ import type {
   CanonicalRelationRegistry,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
-import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import {
   generatedForeignKeyName,
@@ -23,7 +22,6 @@ import {
   createMigrationCoordinationScope,
 } from '../migrations/coordinationScope'
 
-import { lowerDesiredSchema } from './desiredSchema'
 import type { MigrationPlan, MigrationStep } from './migrationPlan'
 import { planMigration } from './migrationPlan'
 
@@ -144,7 +142,7 @@ function stepToAst(
       const ast = desiredTables.get(identity)
       if (!ast) {
         throw new MigrationError({
-          message: `cannot create table ${identities.format(identity)}: handle not registered`,
+          message: `cannot create table ${identities.format(identity)}: lowered CreateTableAst not found`,
         })
       }
       const profile = physicalNamingProfile(dialect.relationIdentity)
@@ -360,24 +358,12 @@ export function createMigrateBuilder(options: {
 
   const buildPlan = async (executor: Executor) => {
     const catalog = await dialect.introspect(executor)
-    const identities = createCanonicalRelationIdentityModule({
-      adapter: dialect.relationIdentity,
-      context: catalog.namespaceContext,
-      ...(defaultNamespace === undefined
-        ? {}
-        : { registrationDefault: defaultNamespace }),
-    })
-    const plan = planMigration(schemas, catalog, dialect, {
+    return planMigration(schemas, catalog, dialect, {
       ...(defaultNamespace === undefined
         ? {}
         : { registrationDefault: defaultNamespace }),
       ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
     })
-    const desiredTables = identities.createRegistry<CreateTableAst>()
-    for (const table of lowerDesiredSchema(schemas, identities, dialect).tables) {
-      desiredTables.set(table.identity, table.ast)
-    }
-    return { plan, identities, desiredTables }
   }
 
   const builder: MigrateBuilder = {

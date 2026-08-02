@@ -18,7 +18,13 @@ import {
 } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
 
-import type { InferInsert, InferSelect, InferSelectedColumns, InferUpdate } from '@/index'
+import type {
+  DatabaseDefault,
+  InferInsert,
+  InferSelect,
+  InferSelectedColumns,
+  InferUpdate,
+} from '@/index'
 import { column, defineTable, table } from '@/index'
 
 const User = defineTable(
@@ -176,6 +182,34 @@ describe('InferInsert', () => {
     expectTypeOf<Insert['id']>().toEqualTypeOf<number | undefined>()
     expectTypeOf<Insert['bio']>().toEqualTypeOf<string | undefined>()
     expectTypeOf<Insert['active']>().toEqualTypeOf<boolean | undefined>()
+  })
+
+  it('should only make defined database defaults optional', () => {
+    const Tagged = defineTable(
+      'tagged_defaults',
+      {
+        id: pipe(string(), column({ type: 'text' })),
+        value: pipe(
+          string(),
+          column({ databaseDefault: { kind: 'literal', value: 'ready' } }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+    const withMaybeDefault = (databaseDefault: DatabaseDefault | undefined) =>
+      defineTable(
+        'maybe_defaults',
+        {
+          id: pipe(string(), column({ type: 'text' })),
+          value: pipe(string(), column({ databaseDefault })),
+        },
+        { primaryKey: 'id' },
+      )
+
+    type TaggedInsert = InferInsert<typeof Tagged>
+    type MaybeInsert = InferInsert<ReturnType<typeof withMaybeDefault>>
+    expectTypeOf<TaggedInsert['value']>().toEqualTypeOf<string | undefined>()
+    expectTypeOf<MaybeInsert['value']>().toEqualTypeOf<string>()
   })
 
   it('should omit generated always columns', () => {

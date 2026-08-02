@@ -13,6 +13,7 @@ import type {
 import type {
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
+  CanonicalRelationRegistry,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -859,13 +860,19 @@ function desiredIndexes(
  * @param dialect - Dialect used for identity, lowering, and value normalization.
  * @param registrationDefault - Optional namespace for registrations that omit one.
  */
+export type PlannedMigration = {
+  plan: MigrationPlan
+  identities: CanonicalRelationIdentityModule
+  desiredTables: CanonicalRelationRegistry<CreateTableAst>
+}
+
 function buildMigrationPlan(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
   dialect: Dialect,
   registrationDefault?: readonly NamespaceIdentifierInput[],
   ownershipDeclarations: readonly MigrationOwnershipDeclaration[] = [],
-): MigrationPlan {
+): PlannedMigration {
   const identities = createCanonicalRelationIdentityModule({
     adapter: dialect.relationIdentity,
     context: catalog.namespaceContext,
@@ -1466,7 +1473,11 @@ function buildMigrationPlan(
   if (issue) throw new MigrationError({ message: issue.message })
 
   return {
-    steps: steps.sort((left, right) => compareMigrationSteps(left, right, identities)),
+    plan: {
+      steps: steps.sort((left, right) => compareMigrationSteps(left, right, identities)),
+    },
+    identities,
+    desiredTables,
   }
 }
 
@@ -1475,7 +1486,7 @@ function buildMigrationPlan(
  * This interface is synchronous and performs no database operations.
  *
  * @example
- *   const plan = planMigration(
+ *   const { plan } = planMigration(
  *     [Users],
  *     {
  *       tables: [],
@@ -1496,6 +1507,8 @@ function buildMigrationPlan(
  * @param options.registrationDefault - Namespace for registrations that omit one.
  * @param options.migrationOwnership - Explicit relation/namespace authority declarations.
  *
+ * @returns The semantic plan and its reusable identity and lowered-table registries.
+ *
  * @throws {MigrationError} When identity resolution, desired lowering, or reconciliation
  *   fails, including unsupported schema drift.
  */
@@ -1507,7 +1520,7 @@ export function planMigration(
     registrationDefault?: readonly NamespaceIdentifierInput[]
     migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   } = {},
-): MigrationPlan {
+): PlannedMigration {
   try {
     return buildMigrationPlan(
       schemas,

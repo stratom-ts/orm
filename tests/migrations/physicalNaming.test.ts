@@ -1,7 +1,7 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { planMigration } from '@/ddl/migrationPlan'
+import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { CatalogSnapshot } from '@/dialects'
 import { column, defineTable, postgresDialect } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -14,6 +14,9 @@ import {
   physicalNameDigest,
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
+
+const planMigration = (...args: Parameters<typeof planMigrationWithContext>) =>
+  planMigrationWithContext(...args).plan
 
 const context = {
   writableDefault: [

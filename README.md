@@ -209,6 +209,19 @@ dialect-tagged intent; the selected adapter either lowers the requested form or
 throws `MigrationError`. `physicalType` is keyed by dialect id, so an override
 for another adapter is never selected accidentally.
 
+#### Dialect adapter migration
+
+The publicly re-exported `Dialect` contract now requires whole-graph desired-schema
+lowering. Third-party adapters must add and implement:
+
+```typescript
+lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+```
+
+The implementation must preserve each table handle and canonical identity while
+returning one physical `CreateTableAst` per table. Adapters should report unsupported
+type mappings and capabilities with `MigrationError`.
+
 `type`, primitive `default`, `generated`, and `autoIncrement` remain available
 as the PostgreSQL compatibility ingress. Legacy expression-like defaults keep
 their existing PostgreSQL interpretation. Prefer the tagged forms in new code:
@@ -346,12 +359,12 @@ await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
 
 ### Errors
 
-| Error             | When                                               |
-| ----------------- | -------------------------------------------------- |
-| `MigrationError`  | Unsafe migration, lock failure, unsupported diff   |
-| `QueryError`      | Execution / closed client / driver failures        |
-| `ValidationError` | Insert/update Valibot validation failures          |
-| `SchemaError`     | Invalid `defineTable` / metadata / registry misuse |
+| Error             | When                                                                                                 |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `MigrationError`  | Unsafe migration, lock failure, unsupported diff, schema-type mapping, or dialect capability failure |
+| `QueryError`      | Execution / closed client / driver failures                                                          |
+| `ValidationError` | Insert/update Valibot validation failures                                                            |
+| `SchemaError`     | Invalid `defineTable` / metadata / registry misuse                                                   |
 
 Use `catchTag` / `catchTags` for tagged handling.
 

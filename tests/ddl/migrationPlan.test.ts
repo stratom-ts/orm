@@ -1,10 +1,20 @@
 import { nullable, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { planMigration } from '@/ddl/migrationPlan'
+import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { CatalogSnapshot, Dialect } from '@/dialects'
-import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
+import {
+  MigrationError,
+  column,
+  defineTable,
+  isSqlNullable,
+  postgresDialect,
+  reference,
+} from '@/index'
 import type { TableHandle } from '@/types'
+
+const planMigration = (...args: Parameters<typeof planMigrationWithContext>) =>
+  planMigrationWithContext(...args).plan
 
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
@@ -351,6 +361,7 @@ describe('Migration Plan construction', () => {
       {
         id: string(),
         status: pipe(string(), column({ default: 'ready' })),
+        taggedStatus: string(),
       },
       { primaryKey: 'id' },
     )
@@ -366,16 +377,32 @@ describe('Migration Plan construction', () => {
           ast: {
             kind: 'create_table',
             table: table.metadata.name,
-            schema: 'public',
+            ...(table.identity.namespace.find((segment) => segment.role === 'schema') ===
+            undefined
+              ? {}
+              : {
+                  schema: table.identity.namespace.find(
+                    (segment) => segment.role === 'schema',
+                  )!.identifier.spelling,
+                }),
             columns: table.columns.map((column) => ({
               name: column.name,
               dataType: 'custom_string',
-              notNull: true,
-              unique: false,
+              notNull: !isSqlNullable(column.schema),
+              unique: column.metadata?.unique ?? false,
               autoIncrement: false,
               ...(column.metadata?.default === undefined
                 ? {}
                 : { defaultValue: column.metadata.default }),
+              ...(column.name === 'taggedStatus'
+                ? {
+                    defaultValue: 'legacy',
+                    databaseDefault: {
+                      sql: 'custom_database:ready',
+                      normalized: 'custom_database:ready',
+                    },
+                  }
+                : {}),
             })),
             primaryKey: Array.isArray(table.metadata.primaryKey)
               ? table.metadata.primaryKey
@@ -404,6 +431,12 @@ describe('Migration Plan construction', () => {
               dataType: 'custom_string_alias',
               isNullable: false,
               defaultExpression: 'custom_default:ready',
+            },
+            {
+              name: 'taggedStatus',
+              dataType: 'custom_string_alias',
+              isNullable: false,
+              defaultExpression: 'custom_database:ready',
             },
           ],
           primaryKey: {

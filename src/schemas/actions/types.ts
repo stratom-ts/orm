@@ -1,3 +1,4 @@
+import type { SQLDialect } from 'db0'
 import type { ObjectEntries } from 'valibot'
 
 /** Referential action for foreign-key ON DELETE / ON UPDATE. */
@@ -90,7 +91,7 @@ export type DatabaseDefault =
     }
   | {
       readonly kind: 'dialectExpression'
-      readonly dialect: string
+      readonly dialect: SQLDialect
       readonly expression: string
     }
 
@@ -110,7 +111,7 @@ export type ColumnGeneration =
     }
   | {
       readonly kind: 'dialectGeneration'
-      readonly dialect: string
+      readonly dialect: SQLDialect
       readonly generation: string
     }
 

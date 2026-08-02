@@ -32,7 +32,11 @@ type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
  *
  * @throws SchemaError - When the key is empty or references an unknown column
  */
-function validatePrimaryKey(metadata: TableMetadata, columnNames: string[]): void {
+function validatePrimaryKey(
+  schema: TableSchema,
+  metadata: TableMetadata,
+  columnNames: string[],
+): void {
   const primaryKeys = Array.isArray(metadata.primaryKey)
     ? metadata.primaryKey
     : [metadata.primaryKey]
@@ -55,6 +59,13 @@ function validatePrimaryKey(metadata: TableMetadata, columnNames: string[]): voi
     throw new SchemaError({
       message: `primaryKey on table "${metadata.name}" contains duplicate columns`,
     })
+  }
+  for (const pk of primaryKeys) {
+    if (isSqlNullable(schema.entries[pk] as AnySchema)) {
+      throw new SchemaError({
+        message: `primaryKey column "${pk}" on table "${metadata.name}" cannot be nullable`,
+      })
+    }
   }
 }
 
@@ -296,14 +307,16 @@ function validateColumns(schema: TableSchema, tableName: string): void {
         message: `reference on "${tableName}.${columnName}" uses SET NULL but local storage is NOT NULL`,
       })
     }
-    if (
-      actions.includes('set default') &&
-      getColumnMetadata(colSchema)?.default === undefined &&
-      getColumnMetadata(colSchema)?.databaseDefault === undefined
-    ) {
-      throw new SchemaError({
-        message: `reference on "${tableName}.${columnName}" uses SET DEFAULT without a database default`,
-      })
+    if (actions.includes('set default')) {
+      const columnMetadata = getColumnMetadata(colSchema)
+      if (
+        columnMetadata?.default === undefined &&
+        columnMetadata?.databaseDefault === undefined
+      ) {
+        throw new SchemaError({
+          message: `reference on "${tableName}.${columnName}" uses SET DEFAULT without a database default`,
+        })
+      }
     }
   }
 }
@@ -335,19 +348,9 @@ function validateTableMetadata(
     assertNonEmptyString(metadata.schema, 'table schema')
   }
 
-  validatePrimaryKey(metadata, columnNames)
+  validatePrimaryKey(schema, metadata, columnNames)
   validateIndexes(metadata, columnNames)
   validateColumns(schema, metadata.name)
-  const primaryKeys = Array.isArray(metadata.primaryKey)
-    ? metadata.primaryKey
-    : [metadata.primaryKey]
-  for (const primaryKey of primaryKeys) {
-    if (isSqlNullable(schema.entries[primaryKey] as AnySchema)) {
-      throw new SchemaError({
-        message: `primaryKey column "${primaryKey}" on table "${metadata.name}" cannot be nullable`,
-      })
-    }
-  }
 }
 
 /**
