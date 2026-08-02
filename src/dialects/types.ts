@@ -189,16 +189,6 @@ export type JoinAst = {
   readonly on: PredicateAst
 }
 
-/**
- * Full single-table select AST (replaces legacy `select_all` at compile time).
- * `kind: 'select_all'` remains as a thin alias for select * with no clauses.
- */
-export type SelectAllAst = {
-  readonly kind: 'select_all'
-  readonly table: string
-  readonly schema?: string
-}
-
 export type SelectAst = {
   readonly kind: 'select'
   readonly table: string
@@ -365,7 +355,6 @@ export type DropIndexAst = {
 }
 
 export type SqlAst =
-  | SelectAllAst
   | SelectAst
   | InsertAst
   | UpdateAst

@@ -674,7 +674,7 @@ function compileAddUniqueConstraint(node: {
  * Compiles a PostgreSQL AST node to a parameterized SQL query.
  *
  * @example
- *   compilePostgres({ kind: 'select_all', table: 'users' })
+ *   compilePostgres({ kind: 'select', table: 'users', selection: [{ kind: 'all' }] })
  *   // { sql: 'select * from "public"."users"', params: [] }
  *
  * @param node - SQL AST node.
@@ -683,10 +683,6 @@ function compileAddUniqueConstraint(node: {
  */
 export function compilePostgres(node: SqlAst): CompiledQuery {
   switch (node.kind) {
-    case 'select_all': {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return { sql: `select * from ${tableSql}`, params: [] }
-    }
     case 'select':
       return compileSelect(node)
     case 'insert':
