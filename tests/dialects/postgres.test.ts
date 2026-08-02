@@ -376,8 +376,10 @@ describe('@/dialects/postgres', () => {
     })
 
     it('should normalize catalog rows into a public snapshot', async () => {
+      const executedSql: string[] = []
       const executor: Executor = {
         async execute({ sql }) {
+          executedSql.push(sql)
           if (sql.includes('current_database()')) {
             return [{ database: 'test', schema: 'public' }]
           }
@@ -452,7 +454,7 @@ describe('@/dialects/postgres', () => {
               { table_name: 1, column_name: 'ignored' },
             ]
           }
-          if (sql.includes('pg_index')) {
+          if (sql.includes('from pg_index i')) {
             return [
               {
                 schema: 'public',
@@ -460,6 +462,8 @@ describe('@/dialects/postgres', () => {
                 index_name: 'accounts_email_idx',
                 is_unique: 'YES',
                 columns: '{email}',
+                has_supported_semantics: true,
+                is_valid: true,
               },
               {
                 schema: 'app',
@@ -467,11 +471,23 @@ describe('@/dialects/postgres', () => {
                 index_name: 'events_invalid_idx',
                 is_unique: 0,
                 columns: '[invalid json]',
+                has_supported_semantics: true,
+                is_valid: false,
+              },
+              {
+                schema: 'public',
+                table_name: 'accounts',
+                index_name: 'accounts_email_nnd_idx',
+                is_unique: true,
+                columns: '{email}',
+                has_supported_semantics: true,
+                is_valid: true,
+                nulls_not_distinct: true,
               },
               { table_name: 'accounts' },
             ]
           }
-          if (sql.includes('pg_constraint')) {
+          if (sql.includes('from pg_constraint con')) {
             return [
               {
                 schema: 'public',
@@ -479,6 +495,11 @@ describe('@/dialects/postgres', () => {
                 constraint_name: 'accounts_pkey',
                 constraint_type: 'p',
                 columns: '{id}',
+                is_valid: true,
+                is_deferrable: false,
+                initially_deferred: false,
+                backing_index_is_valid: true,
+                has_supported_backing_index_semantics: true,
               },
               {
                 schema: 'public',
@@ -486,6 +507,36 @@ describe('@/dialects/postgres', () => {
                 constraint_name: 'accounts_email_key',
                 constraint_type: 'u',
                 columns: '["email",1]',
+                is_valid: true,
+                is_deferrable: false,
+                initially_deferred: false,
+                backing_index_is_valid: true,
+                has_supported_backing_index_semantics: true,
+              },
+              {
+                schema: 'public',
+                table_name: 'accounts',
+                constraint_name: 'accounts_email_nnd_key',
+                constraint_type: 'u',
+                columns: '{email}',
+                is_valid: true,
+                is_deferrable: false,
+                initially_deferred: false,
+                backing_index_is_valid: true,
+                has_supported_backing_index_semantics: true,
+                backing_index_nulls_not_distinct: true,
+              },
+              {
+                schema: 'public',
+                table_name: 'accounts',
+                constraint_name: 'accounts_email_include_key',
+                constraint_type: 'u',
+                columns: '{email}',
+                is_valid: true,
+                is_deferrable: false,
+                initially_deferred: false,
+                backing_index_is_valid: true,
+                has_supported_backing_index_semantics: false,
               },
               {
                 schema: 'app',
@@ -498,8 +549,34 @@ describe('@/dialects/postgres', () => {
                 referenced_columns: '{id}',
                 on_delete: 'cascade',
                 on_update: 'restrict',
+                is_valid: true,
+                is_deferrable: false,
+                initially_deferred: false,
+                match_type: 's',
+              },
+              {
+                schema: 'public',
+                table_name: 'accounts',
+                constraint_name: 'accounts_email_check',
+                constraint_type: 'c',
+                columns: '{email}',
+                is_valid: true,
+                is_deferrable: false,
+                initially_deferred: false,
               },
               { table_name: 'accounts' },
+            ]
+          }
+          if (sql.includes('as object_name')) {
+            return [
+              { schema: 'public', object_name: 'accounts' },
+              { schema: 'public', object_name: 'reserved_sequence' },
+              { schema: 'public', object_name: 'accounts_composite' },
+              { schema: 'public', object_name: 'accounts_partitioned_index' },
+              { schema: 'public', object_name: 'accounts_email_nnd_idx' },
+              { schema: 'public', object_name: 'accounts_email_nnd_key' },
+              { schema: 'public', object_name: 'accounts_email_include_key' },
+              { object_name: 'ignored' },
             ]
           }
           return []
@@ -533,9 +610,48 @@ describe('@/dialects/postgres', () => {
               identityGeneration: null,
             },
           ],
-          indexes: [{ name: 'accounts_email_idx', columns: ['email'], unique: true }],
-          primaryKey: { name: 'accounts_pkey', columns: ['id'] },
-          uniqueConstraints: [{ name: 'accounts_email_key', columns: ['email'] }],
+          indexes: [
+            {
+              name: 'accounts_email_idx',
+              columns: ['email'],
+              unique: true,
+              semanticCompleteness: 'supportedSimple',
+              isValid: true,
+            },
+            {
+              name: 'accounts_email_nnd_idx',
+              columns: ['email'],
+              unique: true,
+              semanticCompleteness: 'unsupported',
+              isValid: true,
+            },
+          ],
+          primaryKey: {
+            name: 'accounts_pkey',
+            columns: ['id'],
+            semanticCompleteness: 'supportedSimple',
+            isValid: true,
+          },
+          uniqueConstraints: [
+            {
+              name: 'accounts_email_key',
+              columns: ['email'],
+              semanticCompleteness: 'supportedSimple',
+              isValid: true,
+            },
+            {
+              name: 'accounts_email_nnd_key',
+              columns: ['email'],
+              semanticCompleteness: 'unsupported',
+              isValid: true,
+            },
+            {
+              name: 'accounts_email_include_key',
+              columns: ['email'],
+              semanticCompleteness: 'unsupported',
+              isValid: true,
+            },
+          ],
           foreignKeys: [],
         },
         {
@@ -558,7 +674,15 @@ describe('@/dialects/postgres', () => {
               defaultExpression: "'hello'",
             }),
           ],
-          indexes: [{ name: 'events_invalid_idx', columns: [], unique: false }],
+          indexes: [
+            {
+              name: 'events_invalid_idx',
+              columns: [],
+              unique: false,
+              semanticCompleteness: 'supportedSimple',
+              isValid: false,
+            },
+          ],
           primaryKey: null,
           uniqueConstraints: [],
           foreignKeys: [
@@ -570,16 +694,70 @@ describe('@/dialects/postgres', () => {
               referencedColumns: ['id'],
               onDelete: 'cascade',
               onUpdate: 'restrict',
+              semanticCompleteness: 'supportedSimple',
+              isValid: true,
             },
           ],
         },
       ])
+      const accounts = snapshot.tables.find((table) => table.name === 'accounts')!
+      expect(
+        accounts.indexes?.find((index) => index.name === 'accounts_email_idx'),
+      ).toMatchObject({ semanticCompleteness: 'supportedSimple' })
+      expect(
+        accounts.indexes?.find((index) => index.name === 'accounts_email_nnd_idx'),
+      ).toMatchObject({ semanticCompleteness: 'unsupported' })
+      expect(
+        accounts.uniqueConstraints?.find(
+          (constraint) => constraint.name === 'accounts_email_key',
+        ),
+      ).toMatchObject({ semanticCompleteness: 'supportedSimple' })
+      expect(
+        accounts.uniqueConstraints?.find(
+          (constraint) => constraint.name === 'accounts_email_nnd_key',
+        ),
+      ).toMatchObject({ semanticCompleteness: 'unsupported' })
       expect(snapshot.namespaceContext).toEqual({
         writableDefault: [
           { role: 'database', spelling: 'test' },
           { role: 'schema', spelling: 'public' },
         ],
       })
+      expect(snapshot.nameReservations).toEqual([
+        { schema: 'public', name: 'accounts' },
+        { schema: 'public', name: 'reserved_sequence' },
+        { schema: 'public', name: 'accounts_composite' },
+        { schema: 'public', name: 'accounts_partitioned_index' },
+        { schema: 'public', name: 'accounts_email_nnd_idx' },
+        { schema: 'public', name: 'accounts_email_nnd_key' },
+        { schema: 'public', name: 'accounts_email_include_key' },
+      ])
+      expect(snapshot.constraintNameReservations).toEqual([
+        { schema: 'public', table: 'accounts', name: 'accounts_pkey' },
+        { schema: 'public', table: 'accounts', name: 'accounts_email_key' },
+        { schema: 'public', table: 'accounts', name: 'accounts_email_nnd_key' },
+        { schema: 'public', table: 'accounts', name: 'accounts_email_include_key' },
+        { schema: 'app', table: 'events', name: 'events_account_fkey' },
+        { schema: 'public', table: 'accounts', name: 'accounts_email_check' },
+      ])
+      const reservationSql = executedSql.find((sql) => sql.includes('as object_name'))
+      expect(reservationSql).toBeDefined()
+      expect(reservationSql).not.toContain('relkind in')
+      const indexSql = executedSql.find((sql) => sql.includes('from pg_index i'))
+      expect(indexSql).toContain('i.indpred is null')
+      expect(indexSql).toContain('i.indexprs is null')
+      expect(indexSql).toContain('i.indnkeyatts = i.indnatts')
+      expect(indexSql).toContain("to_jsonb(i) ->> 'indnullsnotdistinct'")
+      expect(indexSql).not.toContain('i.indnullsnotdistinct')
+      const constraintSql = executedSql.find((sql) =>
+        sql.includes('from pg_constraint con'),
+      )
+      expect(constraintSql).toContain('con.conindid')
+      expect(constraintSql).toContain("to_jsonb(backing_index) ->> 'indnullsnotdistinct'")
+      expect(constraintSql).not.toContain('backing_index.indnullsnotdistinct')
+      expect(constraintSql).toContain(
+        'backing_index.indnkeyatts = backing_index.indnatts',
+      )
     })
 
     it('keeps dotted schema and relation tuples distinct during introspection', async () => {

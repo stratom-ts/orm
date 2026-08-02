@@ -6,6 +6,13 @@ import type {
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
+import {
+  generatedForeignKeyName,
+  generatedPrimaryKeyName,
+  generatedUniqueName,
+  physicalNamingProfile,
+} from '@/migrations/physicalNaming'
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
@@ -136,13 +143,24 @@ function stepToAst(
         })
       }
       const ast = buildCreateTableAst(handle, dialect)
+      const profile = physicalNamingProfile(dialect.relationIdentity)
       return {
         ...ast,
         schema: schemaFromIdentity(identity),
-        columns: ast.columns.map((column) => ({ ...column, references: undefined })),
+        primaryKeyName: generatedPrimaryKeyName(identity, ast.primaryKey, profile),
+        columns: ast.columns.map((column) => ({
+          ...column,
+          references: undefined,
+          ...(column.unique
+            ? {
+                uniqueConstraintName: generatedUniqueName(identity, column.name, profile),
+              }
+            : {}),
+        })),
       }
     }
-    case 'add_column':
+    case 'add_column': {
+      const identity = identities.resolve(relationInput(step.schema, step.table))
       return {
         kind: 'add_column',
         ...schemaField(step.schema),
@@ -152,12 +170,22 @@ function stepToAst(
           dataType: step.dataType,
           notNull: step.notNull,
           unique: step.unique ?? false,
+          ...(step.unique
+            ? {
+                uniqueConstraintName: generatedUniqueName(
+                  identity,
+                  step.column,
+                  physicalNamingProfile(dialect.relationIdentity),
+                ),
+              }
+            : {}),
           autoIncrement: step.autoIncrement ?? false,
           ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
           ...(step.generated ? { generated: step.generated } : {}),
           ...(step.references ? { references: step.references } : {}),
         },
       }
+    }
     case 'alter_column_type':
       return {
         kind: 'alter_column_type',
@@ -166,14 +194,42 @@ function stepToAst(
         column: step.column,
         dataType: step.dataType,
       }
-    case 'add_foreign_key':
+    case 'add_unique_constraint': {
+      const identity = identities.resolve(relationInput(step.schema, step.table))
+      return {
+        kind: 'add_unique_constraint',
+        ...schemaField(step.schema),
+        table: step.table,
+        column: step.column,
+        name: generatedUniqueName(
+          identity,
+          step.column,
+          physicalNamingProfile(dialect.relationIdentity),
+        ),
+      }
+    }
+    case 'add_foreign_key': {
+      const identity = identities.resolve(relationInput(step.schema, step.table))
+      const referenced = identities.resolve(
+        relationInput(step.references.schema, step.references.table),
+      )
       return {
         kind: 'add_foreign_key',
         ...schemaField(step.schema),
         table: step.table,
         column: step.column,
+        name: generatedForeignKeyName(
+          identity,
+          step.column,
+          referenced,
+          step.references.column,
+          step.references.onDelete,
+          step.references.onUpdate,
+          physicalNamingProfile(dialect.relationIdentity),
+        ),
         references: step.references,
       }
+    }
     case 'set_not_null':
       return {
         kind: 'set_not_null',
@@ -267,9 +323,17 @@ export function createMigrateBuilder(options: {
   dialect: Dialect
   executor: Executor
   defaultNamespace?: readonly NamespaceIdentifierInput[]
+  migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   assertCanExecute?: () => void
 }): MigrateBuilder {
-  const { schemas, dialect, executor, defaultNamespace, assertCanExecute } = options
+  const {
+    schemas,
+    dialect,
+    executor,
+    defaultNamespace,
+    migrationOwnership,
+    assertCanExecute,
+  } = options
 
   const allowed = new Set<MigrationAllow>()
 
@@ -291,6 +355,7 @@ export function createMigrateBuilder(options: {
       ...(defaultNamespace === undefined
         ? {}
         : { registrationDefault: defaultNamespace }),
+      ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
     })
     return { plan, identities, handles }
   }

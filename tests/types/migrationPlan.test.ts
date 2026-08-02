@@ -44,6 +44,12 @@ type ExpectedMigrationStep =
         onUpdate?: string
       }
     }
+  | {
+      kind: 'add_unique_constraint'
+      schema?: string
+      table: string
+      column: string
+    }
   | { kind: 'set_not_null'; schema?: string; table: string; column: string }
   | { kind: 'drop_not_null'; schema?: string; table: string; column: string }
   | {
