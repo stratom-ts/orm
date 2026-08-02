@@ -102,7 +102,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
     const definition = JSON.stringify([index.columns, index.unique ?? false])
     if (definitions.has(definition)) {
       throw new SchemaError({
-        message: `duplicate index name or semantic definition on table "${metadata.name}"`,
+        message: `duplicate index definition on table "${metadata.name}"`,
       })
     }
     definitions.add(definition)

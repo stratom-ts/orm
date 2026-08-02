@@ -10,6 +10,8 @@ import {
   postgresDialect,
   reference,
 } from '@/index'
+import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import { POSTGRES_PHYSICAL_NAMING, generatedIndexName } from '@/migrations/physicalNaming'
 
 type LiveColumn = {
   name: string
@@ -64,6 +66,7 @@ function createMockStatement(rows: unknown[] = [], runError?: Error): Statement 
 
 function createMockConnector(options?: {
   tables?: LiveTable[]
+  pgClassOnlyReservations?: Array<{ schema: string; name: string }>
   nullCount?: number
   failRun?: RegExp
 }): Connector & {
@@ -185,6 +188,22 @@ function createMockConnector(options?: {
             })),
           ]),
         )
+      }
+
+      if (normalized.includes('c.relname as object_name')) {
+        return createMockStatement([
+          ...liveTables.flatMap((table) => [
+            { schema: table.schema, object_name: table.name },
+            ...(table.indexes ?? []).map((index) => ({
+              schema: table.schema,
+              object_name: index.name,
+            })),
+          ]),
+          ...(options?.pgClassOnlyReservations ?? []).map((reservation) => ({
+            schema: reservation.schema,
+            object_name: reservation.name,
+          })),
+        ])
       }
 
       if (normalized.includes('pg_index')) {
@@ -448,6 +467,43 @@ describe('db.migrate() adapters and execution', () => {
         sql.includes(`create index "${index.index}" on "public"."indexed_events"`),
       ),
     ).toBe(true)
+
+    await db.close()
+  })
+
+  it('preflights generated names against pg_class reservations', async () => {
+    const ReservedEvents = defineTable(
+      'reserved_events',
+      {
+        id: pipe(string(), column({ type: 'uuid' })),
+        payload: pipe(string(), column({ type: 'text' })),
+      },
+      { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
+    )
+    const identities = createCanonicalRelationIdentityModule({
+      adapter: 'postgresql',
+      context: {
+        writableDefault: [
+          { role: 'database', spelling: 'test' },
+          { role: 'schema', spelling: 'public' },
+        ],
+      },
+    })
+    const reservedName = generatedIndexName(
+      identities.resolve({ relation: 'reserved_events' }),
+      ['payload'],
+      false,
+      POSTGRES_PHYSICAL_NAMING,
+    )
+    const connector = createMockConnector({
+      pgClassOnlyReservations: [{ schema: 'public', name: reservedName }],
+    })
+    const db = createDatabase({ connector, schemas: [ReservedEvents] })
+
+    await expect(db.migrate().dryRun()).rejects.toThrow(/physical name collision/i)
+    expect(connector.prepared.some((sql) => /c\.relname as object_name/i.test(sql))).toBe(
+      true,
+    )
 
     await db.close()
   })

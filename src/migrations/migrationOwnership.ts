@@ -1,3 +1,4 @@
+import { isTableHandle } from '@/defineTable'
 import type { TableHandle } from '@/types'
 
 import type {
@@ -77,10 +78,6 @@ function relationInput(handle: TableHandle): RelationIdentityInput {
       : { namespace: [{ role: 'schema' as const, spelling: metadata.schema }] }),
     relation: metadata.name,
   }
-}
-
-function isTableHandle(value: MigrationOwnershipRelation): value is TableHandle {
-  return 'getTableMetadata' in value && typeof value.getTableMetadata === 'function'
 }
 
 function sameNamespace(

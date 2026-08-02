@@ -93,6 +93,8 @@ function identityTuple(identity: CanonicalRelationIdentity) {
   ]
 }
 
+const UTF8_ENCODER = new TextEncoder()
+
 /** Canonical JSON serialization is the documented digest input. */
 export function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
   return JSON.stringify([
@@ -110,7 +112,7 @@ export function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
 /** 64-bit FNV-1a over UTF-8, rendered as 16 lowercase hexadecimal digits. */
 export function physicalNameDigest(seed: PhysicalNameSeed): string {
   let digest = 0xcbf29ce484222325n
-  for (const byte of new TextEncoder().encode(serializePhysicalNameSeed(seed))) {
+  for (const byte of UTF8_ENCODER.encode(serializePhysicalNameSeed(seed))) {
     digest ^= BigInt(byte)
     digest = BigInt.asUintN(64, digest * 0x100000001b3n)
   }
@@ -119,7 +121,7 @@ export function physicalNameDigest(seed: PhysicalNameSeed): string {
 
 function measuredLength(value: string, profile: PhysicalNamingProfile): number {
   return profile.lengthUnit === 'utf8Bytes'
-    ? new TextEncoder().encode(value).length
+    ? UTF8_ENCODER.encode(value).length
     : [...value].length
 }
 
@@ -232,8 +234,11 @@ export function validatePhysicalName(
   for (let index = 0; index < name.length; index++) {
     const codeUnit = name.charCodeAt(index)
     if (codeUnit < 0xd800 || codeUnit > 0xdfff) continue
+    if (codeUnit > 0xdbff || index + 1 >= name.length) {
+      throw new TypeError(`${description} must not contain unpaired Unicode surrogates`)
+    }
     const next = name.charCodeAt(index + 1)
-    if (codeUnit > 0xdbff || next < 0xdc00 || next > 0xdfff) {
+    if (next < 0xdc00 || next > 0xdfff) {
       throw new TypeError(`${description} must not contain unpaired Unicode surrogates`)
     }
     index++

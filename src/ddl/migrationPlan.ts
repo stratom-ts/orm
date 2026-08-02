@@ -589,6 +589,28 @@ function canonicalDesiredForeignKey(
   }
 }
 
+function matchUniqueConstraints(
+  constraints: readonly CatalogKeyConstraint[],
+  column: string,
+): CatalogKeyConstraint[] {
+  return constraints.filter((constraint) => arraysEqual(constraint.columns, [column]))
+}
+
+function matchForeignKeys(
+  foreignKeys: readonly CatalogForeignKey[],
+  expected: CanonicalForeignKey,
+  identities: CanonicalRelationIdentityModule,
+): CatalogForeignKey[] {
+  return foreignKeys.filter(
+    (foreignKey) =>
+      compareForeignKeys(
+        canonicalCatalogForeignKey(foreignKey, identities),
+        expected,
+        identities,
+      ) === 0,
+  )
+}
+
 /**
  * Adds deterministic issues for managed properties that cannot yet be migrated safely.
  * Undefined catalog properties are treated as unavailable rather than as drift.
@@ -675,9 +697,7 @@ function collectManagedPropertyIssues(
     )
     const matched = new Set<CatalogKeyConstraint>()
     for (const column of expected) {
-      const matches = live.uniqueConstraints.filter((constraint) =>
-        arraysEqual(constraint.columns, [column.name]),
-      )
+      const matches = matchUniqueConstraints(live.uniqueConstraints, column.name)
       if (matches.length > 1) {
         issues.push({
           identity,
@@ -718,20 +738,13 @@ function collectManagedPropertyIssues(
   }
 
   if (live.foreignKeys !== undefined) {
-    const current = live.foreignKeys.map((foreignKey) => ({
-      source: foreignKey,
-      semantic: canonicalCatalogForeignKey(foreignKey, identities),
-    }))
     const expected = desired.columns
       .filter((column) => column.references !== undefined && liveColumns.has(column.name))
       .map((column) => canonicalDesiredForeignKey(column, identities))
       .sort((left, right) => compareForeignKeys(left, right, identities))
     const matched = new Set<CatalogForeignKey>()
     for (const expectedForeignKey of expected) {
-      const matches = current.filter(
-        ({ semantic }) =>
-          compareForeignKeys(semantic, expectedForeignKey, identities) === 0,
-      )
+      const matches = matchForeignKeys(live.foreignKeys, expectedForeignKey, identities)
       if (matches.length > 1) {
         issues.push({
           identity,
@@ -740,10 +753,10 @@ function collectManagedPropertyIssues(
           message: `Ambiguous foreign key semantic match for '${tableName}'`,
         })
       }
-      for (const match of matches) matched.add(match.source)
+      for (const match of matches) matched.add(match)
       const match = matches[0]
       if (!match) continue
-      if (!hasSupportedCatalogSemantics(match.source)) {
+      if (!hasSupportedCatalogSemantics(match)) {
         issues.push({
           identity,
           target: expectedForeignKey.columns.join('\0'),
@@ -1245,9 +1258,7 @@ function buildMigrationPlan(
     if (live.uniqueConstraints !== undefined) {
       for (const desired of createAst.columns) {
         if (!desired.unique || !liveColumns.has(desired.name)) continue
-        const matches = live.uniqueConstraints.filter((constraint) =>
-          arraysEqual(constraint.columns, [desired.name]),
-        )
+        const matches = matchUniqueConstraints(live.uniqueConstraints, desired.name)
         if (matches.length !== 0) continue
         reserveUniqueConstraint(identity, desired.name)
         steps.push({
@@ -1263,14 +1274,7 @@ function buildMigrationPlan(
       for (const desired of createAst.columns) {
         if (!desired.references || !liveColumns.has(desired.name)) continue
         const expected = canonicalDesiredForeignKey(desired, identities)
-        const matches = live.foreignKeys.filter(
-          (foreignKey) =>
-            compareForeignKeys(
-              canonicalCatalogForeignKey(foreignKey, identities),
-              expected,
-              identities,
-            ) === 0,
-        )
+        const matches = matchForeignKeys(live.foreignKeys, expected, identities)
         if (matches.length !== 0) continue
         reserveForeignKey(identity, desired.name, desired.references)
         deferredForeignKeys.push({

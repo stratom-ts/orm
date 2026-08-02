@@ -165,7 +165,7 @@ describe('catalog semantic adoption', () => {
     ).toThrow(/unsupported index catalog semantics/i)
   })
 
-  it('rejects NULLS NOT DISTINCT standalone indexes and constraint backing indexes', () => {
+  it('rejects unsupported standalone indexes and unique constraints', () => {
     expect(() =>
       planMigration(
         [UniqueIndexedEvents],
@@ -178,25 +178,23 @@ describe('catalog semantic adoption', () => {
       ),
     ).toThrow(/unsupported index catalog semantics/i)
 
-    for (const name of ['children_email_nnd_key', 'children_email_include_key']) {
-      expect(() =>
-        planMigration(
-          [Parents, Children],
-          relationCatalog({
-            uniqueConstraints: [
-              {
-                name,
-                columns: ['email'],
-                semanticCompleteness: 'unsupported',
-                isValid: true,
-              },
-            ],
-            foreignKeys: [desiredForeignKey()],
-          }),
-          postgresDialect,
-        ),
-      ).toThrow(/unsupported unique constraint catalog semantics/i)
-    }
+    expect(() =>
+      planMigration(
+        [Parents, Children],
+        relationCatalog({
+          uniqueConstraints: [
+            {
+              name: 'unsupported_email_key',
+              columns: ['email'],
+              semanticCompleteness: 'unsupported',
+              isValid: true,
+            },
+          ],
+          foreignKeys: [desiredForeignKey()],
+        }),
+        postgresDialect,
+      ),
+    ).toThrow(/unsupported unique constraint catalog semantics/i)
   })
 
   it('fails closed for NOT VALID and deferrable foreign keys', () => {

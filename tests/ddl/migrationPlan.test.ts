@@ -13,9 +13,11 @@ const POSTGRES_NAMESPACE_CONTEXT = {
   ],
 }
 
-const EMPTY_CATALOG_RESERVATIONS = {
-  nameReservations: [],
-  constraintNameReservations: [],
+function emptyCatalogReservations() {
+  return {
+    nameReservations: [],
+    constraintNameReservations: [],
+  }
 }
 
 const SUPPORTED_CATALOG_SEMANTICS = {
@@ -27,7 +29,7 @@ function emptyCatalog(): CatalogSnapshot {
   return {
     tables: [],
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-    ...EMPTY_CATALOG_RESERVATIONS,
+    ...emptyCatalogReservations(),
   }
 }
 
@@ -119,7 +121,7 @@ function usersCatalog(
 ): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-    ...EMPTY_CATALOG_RESERVATIONS,
+    ...emptyCatalogReservations(),
     tables: [
       {
         schema: 'public',
@@ -142,7 +144,7 @@ function rotate<T>(values: readonly T[]): T[] {
 function mixedCatalog(): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-    ...EMPTY_CATALOG_RESERVATIONS,
+    ...emptyCatalogReservations(),
     tables: [
       {
         schema: 'public',
@@ -208,7 +210,7 @@ function mixedCatalog(): CatalogSnapshot {
 function managedCatalog(): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-    ...EMPTY_CATALOG_RESERVATIONS,
+    ...emptyCatalogReservations(),
     tables: [
       {
         schema: 'public',
@@ -321,7 +323,7 @@ describe('Migration Plan construction', () => {
   it('uses PostgreSQL lowering and normalization for comparisons', () => {
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         {
           schema: 'public',
@@ -366,7 +368,7 @@ describe('Migration Plan construction', () => {
     }
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         {
           schema: 'public',
@@ -414,7 +416,7 @@ describe('Migration Plan construction', () => {
   it('returns every exact-relation destructive step without permission input', () => {
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         {
           schema: 'public',
@@ -606,7 +608,7 @@ describe('Migration Plan construction', () => {
     )
     const tenantCatalog: CatalogSnapshot = {
       tables: [],
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       namespaceContext: {
         writableDefault: [
           { role: 'database', spelling: 'test' },
@@ -657,7 +659,7 @@ describe('Migration Plan construction', () => {
       { primaryKey: 'id', schema: 'public' },
     )
     const catalog: CatalogSnapshot = {
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       namespaceContext: {
         writableDefault: [
           { role: 'database', spelling: 'test' },
@@ -764,7 +766,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         {
           schema: 'a.b',
@@ -792,7 +794,7 @@ describe('Migration Plan construction', () => {
     )
     const mismatchedCatalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         catalog.tables[1]!,
         {
@@ -821,7 +823,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         {
           schema: 'a.b',
@@ -886,7 +888,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         {
           schema: 'public',
@@ -1098,7 +1100,7 @@ describe('Migration Plan construction', () => {
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...EMPTY_CATALOG_RESERVATIONS,
+      ...emptyCatalogReservations(),
       tables: [
         {
           schema: 'public',

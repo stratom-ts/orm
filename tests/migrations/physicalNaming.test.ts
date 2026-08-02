@@ -12,6 +12,7 @@ import {
   createPhysicalNameRegistry,
   generatedIndexName,
   physicalNameDigest,
+  validatePhysicalName,
 } from '@/migrations/physicalNaming'
 
 const context = {
@@ -74,6 +75,12 @@ describe('generated physical naming', () => {
     expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(63)
     expect(name).toMatch(/__[0-9a-f]{16}_idx$/)
     expect(name).not.toMatch(/[\ud800-\udbff]$/)
+  })
+
+  it('rejects a terminal high surrogate', () => {
+    expect(() =>
+      validatePhysicalName('invalid\ud800', 'index name', POSTGRES_PHYSICAL_NAMING),
+    ).toThrow(/unpaired Unicode surrogates/)
   })
 
   it('uses PostgreSQL and SQLite schema-wide scopes but preserves table-local profiles', () => {

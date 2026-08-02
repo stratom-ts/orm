@@ -295,7 +295,7 @@ describe('defineTable', () => {
     ).toThrow(/cannot combine a default with identity/)
   })
 
-  it('should reject duplicate generated or explicit index names', () => {
+  it('should reject duplicate index definitions', () => {
     expect(() =>
       defineTable(
         'indexed',
@@ -305,7 +305,7 @@ describe('defineTable', () => {
         },
         { primaryKey: 'id', indexes: ['email', { columns: ['email'] }] },
       ),
-    ).toThrow(/duplicate index name/)
+    ).toThrow(/duplicate index definition/)
   })
 })
 
