@@ -393,15 +393,17 @@ describe('db.migrate() adapters and execution', () => {
     const lower = vi.spyOn(postgresDialect, 'lowerDesiredSchema')
     const db = createDatabase({ connector, schemas: [Users] })
 
-    await db.migrate().dryRun()
-    expect(lower).toHaveBeenCalledTimes(1)
+    try {
+      await db.migrate().dryRun()
+      expect(lower).toHaveBeenCalledTimes(1)
 
-    lower.mockClear()
-    await db.migrate().execute()
-    expect(lower).toHaveBeenCalledTimes(1)
-
-    lower.mockRestore()
-    await db.close()
+      lower.mockClear()
+      await db.migrate().execute()
+      expect(lower).toHaveBeenCalledTimes(1)
+    } finally {
+      lower.mockRestore()
+      await db.close()
+    }
   })
 
   it('treats omitted and public schemas as the same resolved registry target', async () => {
