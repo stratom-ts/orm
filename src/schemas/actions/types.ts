@@ -115,6 +115,27 @@ export type ColumnGeneration =
       readonly generation: string
     }
 
+type TaggedColumnGeneration<M> = M extends { generation: infer G }
+  ? Extract<G, ColumnGeneration>
+  : never
+
+type LegacyGeneratedColumnGeneration<M> = M extends { generated: infer G }
+  ? Exclude<G, undefined> extends infer Mode
+    ? Mode extends 'always' | 'byDefault'
+      ? { readonly kind: 'identity'; readonly mode: Mode }
+      : never
+    : never
+  : never
+
+/** Canonical generation intent after tagged and legacy authoring fields are reconciled. */
+export type NormalizedColumnGeneration<M> = [TaggedColumnGeneration<M>] extends [never]
+  ? [LegacyGeneratedColumnGeneration<M>] extends [never]
+    ? M extends { autoIncrement: true }
+      ? { readonly kind: 'identity'; readonly mode: 'byDefault' }
+      : never
+    : LegacyGeneratedColumnGeneration<M>
+  : TaggedColumnGeneration<M>
+
 /** Dialect-keyed physical type overrides selected only by the active adapter. */
 export type PhysicalTypeIntent = Readonly<Record<string, string>>
 

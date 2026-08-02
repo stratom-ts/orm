@@ -175,19 +175,11 @@ function validateReferencePhysicalType(
   }
 }
 
-function identityMode(column: AuthoredDesiredColumn): 'always' | 'byDefault' | undefined {
-  return (
-    lowerGeneration(column.metadata?.generation) ??
-    column.metadata?.generated ??
-    (column.metadata?.autoIncrement ? 'byDefault' : undefined)
-  )
-}
-
 function validatePostgresColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
   dataType: string,
-): void {
+): 'always' | 'byDefault' | undefined {
   const metadata = column.metadata
   if (metadata?.comment !== undefined) {
     throw new MigrationError({
@@ -200,7 +192,8 @@ function validatePostgresColumn(
     })
   }
   if (metadata?.default !== undefined) formatPostgresDefault(metadata.default)
-  if (identityMode(column) !== undefined) {
+  const generated = lowerGeneration(metadata?.generation)
+  if (generated !== undefined) {
     const base = normalizePostgresDataType(dataType)
       .toLowerCase()
       .replace(/\(.*\)$/, '')
@@ -211,6 +204,7 @@ function validatePostgresColumn(
       })
     }
   }
+  return generated
 }
 
 function lowerColumn(
@@ -218,12 +212,10 @@ function lowerColumn(
   column: AuthoredDesiredColumn,
   dataType: string,
 ): CreateTableColumnAst {
-  validatePostgresColumn(table, column, dataType)
+  const generated = validatePostgresColumn(table, column, dataType)
   const primaryKey = Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
     : [table.metadata.primaryKey]
-  const generated =
-    lowerGeneration(column.metadata?.generation) ?? column.metadata?.generated
   const reference = column.reference
   return Object.freeze({
     name: column.name,
@@ -232,7 +224,7 @@ function lowerColumn(
     unique:
       (column.metadata?.unique ?? false) &&
       !(primaryKey.length === 1 && primaryKey[0] === column.name),
-    autoIncrement: column.metadata?.autoIncrement ?? false,
+    autoIncrement: false,
     ...(column.metadata?.default === undefined
       ? {}
       : { defaultValue: column.metadata.default }),

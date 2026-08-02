@@ -240,6 +240,15 @@ describe('InferInsert', () => {
           }),
         ),
         legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
+        compatible: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'byDefault' },
+            generated: 'byDefault',
+            autoIncrement: true,
+          }),
+        ),
         always: pipe(
           number(),
           column({
@@ -268,6 +277,7 @@ describe('InferInsert', () => {
 
     expectTypeOf<Insert['id']>().toEqualTypeOf<number | undefined>()
     expectTypeOf<Insert['legacy']>().toEqualTypeOf<number | undefined>()
+    expectTypeOf<Insert['compatible']>().toEqualTypeOf<number | undefined>()
     expectTypeOf<Insert>().not.toHaveProperty('always')
     expectTypeOf<Insert>().not.toHaveProperty('computed')
   })

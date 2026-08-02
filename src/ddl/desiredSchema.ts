@@ -6,7 +6,12 @@ import type {
   LoweredDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import { getColumnMetadata, getReferenceMetadata, normalizeIndex } from '@/schemas'
+import {
+  getColumnMetadata,
+  getReferenceMetadata,
+  normalizeColumnMetadata,
+  normalizeIndex,
+} from '@/schemas'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
@@ -53,10 +58,13 @@ export function registerDesiredSchema(
       if (!schema || schema.kind !== 'schema') continue
       const reference = getReferenceMetadata(schema)
       const columnMetadata = getColumnMetadata(schema)
+      const normalizedMetadata = columnMetadata
+        ? normalizeColumnMetadata(columnMetadata)
+        : undefined
       columns.push({
         name,
         schema,
-        ...(columnMetadata === undefined ? {} : { metadata: columnMetadata }),
+        ...(normalizedMetadata === undefined ? {} : { metadata: normalizedMetadata }),
         ...(reference === undefined
           ? {}
           : {

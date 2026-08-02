@@ -7,6 +7,7 @@ import {
   getReferenceMetadata,
   getTableMetadata,
   isSqlNullable,
+  normalizeColumnGeneration,
   normalizeIndex,
   table,
 } from '@/schemas'
@@ -148,10 +149,7 @@ function validateColumnOptions(
   if (!metadata) return
   const hasDefault =
     metadata.default !== undefined || metadata.databaseDefault !== undefined
-  const hasGeneration =
-    metadata.generated !== undefined ||
-    Boolean(metadata.autoIncrement) ||
-    metadata.generation !== undefined
+  const hasGeneration = normalizeColumnGeneration(metadata) !== undefined
   if (hasDefault && hasGeneration) {
     throw new SchemaError({
       message: `column "${columnName}" on table "${tableName}" cannot combine a default with identity generation`,
@@ -165,14 +163,6 @@ function validateColumnOptions(
   if (metadata.type !== undefined && metadata.physicalType !== undefined) {
     throw new SchemaError({
       message: `column "${columnName}" on table "${tableName}" cannot combine legacy and dialect-keyed physical types`,
-    })
-  }
-  if (
-    metadata.generation !== undefined &&
-    (metadata.generated !== undefined || metadata.autoIncrement)
-  ) {
-    throw new SchemaError({
-      message: `column "${columnName}" on table "${tableName}" cannot combine legacy and tagged generation`,
     })
   }
   if (
@@ -234,9 +224,7 @@ function hasValueSource(
   return (
     metadata?.default !== undefined ||
     metadata?.databaseDefault !== undefined ||
-    metadata?.generated !== undefined ||
-    Boolean(metadata?.autoIncrement) ||
-    metadata?.generation !== undefined ||
+    (metadata !== undefined && normalizeColumnGeneration(metadata) !== undefined) ||
     schemaDefault !== undefined
   )
 }

@@ -422,9 +422,12 @@ describe('defineTable', () => {
         { primaryKey: 'id' },
       ),
     ).toThrow(/legacy and dialect-keyed physical types/i)
+  })
+
+  it('should normalize matching generation fields and reject conflicts', () => {
     expect(() =>
       defineTable(
-        'conflicting_generation',
+        'matching_generation',
         {
           id: pipe(
             number(),
@@ -437,7 +440,23 @@ describe('defineTable', () => {
         },
         { primaryKey: 'id' },
       ),
-    ).toThrow(/legacy and tagged generation/i)
+    ).not.toThrow()
+
+    for (const generation of [
+      {
+        generation: { kind: 'identity', mode: 'always' } as const,
+        generated: 'byDefault' as const,
+      },
+      { generated: 'always' as const, autoIncrement: true },
+    ]) {
+      expect(() =>
+        defineTable(
+          'conflicting_generation',
+          { id: pipe(number(), column({ type: 'integer', ...generation })) },
+          { primaryKey: 'id' },
+        ),
+      ).toThrow(/must describe the same strategy/i)
+    }
   })
 })
 

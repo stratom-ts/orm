@@ -903,6 +903,15 @@ describe('PostgreSQL compatibility ingress', () => {
           }),
         ),
         legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
+        compatible: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'byDefault' },
+            generated: 'byDefault',
+            autoIncrement: true,
+          }),
+        ),
         always: pipe(
           number(),
           column({
@@ -929,9 +938,10 @@ describe('PostgreSQL compatibility ingress', () => {
     )
 
     expect(validateInsertRow(Generated, {})).toEqual({})
-    expect(validateInsertRow(Generated, { id: 1, legacy: 2 })).toEqual({
+    expect(validateInsertRow(Generated, { id: 1, legacy: 2, compatible: 3 })).toEqual({
       id: 1,
       legacy: 2,
+      compatible: 3,
     })
     expect(() => validateInsertRow(Generated, { always: 1 })).toThrow(/non-insertable/i)
     expect(() => validateInsertRow(Generated, { computed: 'x' })).toThrow(
@@ -939,7 +949,7 @@ describe('PostgreSQL compatibility ingress', () => {
     )
   })
 
-  it('lowers tagged identity modes without changing legacy autoIncrement intent', () => {
+  it('lowers tagged and legacy identity fields through one normalized intent', () => {
     const Identities = defineTable(
       'identities',
       {
@@ -958,6 +968,15 @@ describe('PostgreSQL compatibility ingress', () => {
           }),
         ),
         legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
+        compatible: pipe(
+          number(),
+          column({
+            type: 'integer',
+            generation: { kind: 'identity', mode: 'byDefault' },
+            generated: 'byDefault',
+            autoIncrement: true,
+          }),
+        ),
       },
       { primaryKey: 'id' },
     )
@@ -970,10 +989,12 @@ describe('PostgreSQL compatibility ingress', () => {
     expect(columns.find((value) => value.name === 'id')?.generated).toBe('byDefault')
     expect(columns.find((value) => value.name === 'always')?.generated).toBe('always')
     expect(columns.find((value) => value.name === 'legacy')).toMatchObject({
-      autoIncrement: true,
+      autoIncrement: false,
+      generated: 'byDefault',
     })
-    expect(columns.find((value) => value.name === 'legacy')).not.toHaveProperty(
-      'generated',
-    )
+    expect(columns.find((value) => value.name === 'compatible')).toMatchObject({
+      autoIncrement: false,
+      generated: 'byDefault',
+    })
   })
 })
