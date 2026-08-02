@@ -2,13 +2,35 @@ import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import type { CatalogSnapshot } from '@/dialects'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
+import {
+  createCatalogRequest,
+  resolveMigrationOwnership,
+} from '@/migrations/migrationOwnership'
 
-const planMigration = (...args: Parameters<typeof planMigrationWithContext>) =>
-  planMigrationWithContext(...args).plan
+import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
+import { completePostgresCatalog } from '../helpers/catalog'
+
+const planMigration = (
+  schemas: Parameters<typeof planMigrationWithContext>[0],
+  catalog: CatalogSnapshot,
+  dialect: Parameters<typeof planMigrationWithContext>[2],
+  options?: Parameters<typeof planMigrationWithContext>[3],
+) =>
+  planMigrationWithContext(
+    schemas,
+    completePostgresCatalog(
+      catalog,
+      createCatalogRequest(
+        schemas,
+        options?.migrationOwnership ?? [],
+        options?.registrationDefault,
+      ),
+    ),
+    dialect,
+    options,
+  ).plan
 
 const context = {
   writableDefault: [
@@ -24,6 +46,11 @@ const supportedSimple = {
   semanticCompleteness: 'supportedSimple' as const,
   isValid: true,
 }
+const catalogPrimaryKey = (table: string) => ({
+  name: `${table}_pkey`,
+  columns: ['id'],
+  ...supportedSimple,
+})
 
 const Users = defineTable(
   'users',
@@ -54,16 +81,19 @@ function catalog(): CatalogSnapshot {
             ...supportedSimple,
           },
         ],
+        primaryKey: catalogPrimaryKey('users'),
       },
       {
         schema: 'public',
         name: 'billing',
         columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('billing'),
       },
       {
         schema: 'other',
         name: 'billing',
         columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('billing'),
       },
     ],
   }
@@ -179,11 +209,13 @@ describe('migration ownership', () => {
           schema: 'a.b',
           name: 'c',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('c'),
         },
         {
           schema: 'a',
           name: 'b.c',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('b.c'),
         },
       ],
     }

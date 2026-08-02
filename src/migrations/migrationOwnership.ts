@@ -1,4 +1,5 @@
 import { isTableHandle } from '@/defineTable'
+import type { CatalogRequest } from '@/dialects/catalog'
 import type { TableHandle } from '@/types'
 
 import type {
@@ -77,6 +78,44 @@ function relationInput(handle: TableHandle): RelationIdentityInput {
       ? {}
       : { namespace: [{ role: 'schema' as const, spelling: metadata.schema }] }),
     relation: metadata.name,
+  }
+}
+
+/** Builds the unresolved ownership scope consumed by a connector-session introspector. */
+export function createCatalogRequest(
+  schemas: readonly TableHandle[],
+  declarations: readonly MigrationOwnershipDeclaration[],
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+): CatalogRequest {
+  const relations: CatalogRequest['relations'][number][] = schemas.map((handle) => ({
+    relation: relationInput(handle),
+    shape: 'complete',
+  }))
+  const absentRelations: RelationIdentityInput[] = []
+  const completeNamespaces: (readonly NamespaceIdentifierInput[])[] = []
+
+  for (const declaration of declarations) {
+    if (declaration.kind === 'completeNamespace') {
+      completeNamespaces.push(declaration.namespace ?? [])
+      continue
+    }
+    if (declaration.kind === 'absentRelation') {
+      absentRelations.push(declaration.relation)
+      continue
+    }
+    relations.push({
+      relation: isTableHandle(declaration.relation)
+        ? relationInput(declaration.relation)
+        : declaration.relation,
+      shape: declaration.shape,
+    })
+  }
+
+  return {
+    relations,
+    absentRelations,
+    completeNamespaces,
+    ...(registrationDefault === undefined ? {} : { registrationDefault }),
   }
 }
 

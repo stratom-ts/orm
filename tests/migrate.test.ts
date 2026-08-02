@@ -104,7 +104,40 @@ function createMockConnector(options?: {
     }
 
     if (normalized.includes('current_database()')) {
-      return createMockStatement([{ database: 'test', schema: 'public' }])
+      return createMockStatement([
+        { database: 'test', schema: 'public', version: '160000' },
+      ])
+    }
+
+    if (normalized.includes('from pg_namespace catalog_namespace')) {
+      const schemas = ['public', ...liveTables.map((table) => table.schema)].filter(
+        (schema, index, values) => values.indexOf(schema) === index,
+      )
+      return createMockStatement(schemas.map((schema) => ({ schema, owner: 'app' })))
+    }
+
+    if (normalized.includes('as relation_kind')) {
+      return createMockStatement(
+        liveTables.map((table) => ({
+          object_id: `${table.schema}.${table.name}`,
+          schema: table.schema,
+          name: table.name,
+          relation_kind: 'r',
+          persistence: 'p',
+          owner: 'app',
+          can_inspect: true,
+          native_definition: null,
+          options: [],
+          partition_key: null,
+          row_level_security: false,
+          force_row_level_security: false,
+          replica_identity: 'd',
+          access_method: 'heap',
+          tablespace: null,
+          is_partition: false,
+          partition_bound: null,
+        })),
+      )
     }
 
     if (
@@ -116,15 +149,17 @@ function createMockConnector(options?: {
       )
     }
 
-    if (normalized.includes('information_schema.columns')) {
+    if (normalized.includes('from pg_attribute catalog_attribute')) {
       return createMockStatement(
         liveTables.flatMap((table) =>
-          table.columns.map((column) => ({
+          table.columns.map((column, index) => ({
             schema: table.schema,
             table_name: table.name,
             column_name: column.name,
+            ordinal_position: index + 1,
             data_type: column.dataType,
             udt_name: column.dataType,
+            is_user_defined: false,
             character_maximum_length: null,
             numeric_precision: null,
             numeric_scale: null,
@@ -137,6 +172,8 @@ function createMockConnector(options?: {
                 : column.identityGeneration === 'byDefault'
                   ? 'BY DEFAULT'
                   : null,
+            is_generated: 'NEVER',
+            generation_expression: null,
           })),
         ),
       )
@@ -158,6 +195,8 @@ function createMockConnector(options?: {
                   initially_deferred: false,
                   backing_index_is_valid: true,
                   has_supported_backing_index_semantics: true,
+                  backing_index_nulls_not_distinct: false,
+                  native_definition: `primary key (${table.primaryKey.join(', ')})`,
                 },
               ]
             : []),
@@ -172,6 +211,8 @@ function createMockConnector(options?: {
             initially_deferred: false,
             backing_index_is_valid: true,
             has_supported_backing_index_semantics: true,
+            backing_index_nulls_not_distinct: false,
+            native_definition: `unique (${constraint.columns.join(', ')})`,
           })),
           ...(table.foreignKeys ?? []).map((constraint) => ({
             schema: table.schema,
@@ -188,6 +229,8 @@ function createMockConnector(options?: {
             is_deferrable: false,
             initially_deferred: false,
             match_type: 's',
+            has_column_specific_delete_action: false,
+            native_definition: `foreign key (${constraint.columns.join(', ')}) references ${constraint.referencedTable}`,
           })),
         ]),
       )
@@ -220,6 +263,8 @@ function createMockConnector(options?: {
             columns: index.columns,
             has_supported_semantics: true,
             is_valid: true,
+            nulls_not_distinct: false,
+            native_definition: `create index ${index.name} on ${table.name} (${index.columns.join(', ')})`,
           })),
         ),
       )
@@ -791,10 +836,8 @@ describe('db.migrate() policy and coordination', () => {
     await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropColumn'\)/i)
 
     const lock = connector.prepared.findIndex((sql) => /pg_advisory_lock\(/i.test(sql))
-    const introspection = connector.prepared.findIndex(
-      (sql) =>
-        /information_schema\.tables/i.test(sql) &&
-        !/information_schema\.columns/i.test(sql),
+    const introspection = connector.prepared.findIndex((sql) =>
+      /c\.relkind as relation_kind/i.test(sql),
     )
     const unlock = connector.prepared.findIndex((sql) =>
       /pg_advisory_unlock\(/i.test(sql),

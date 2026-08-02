@@ -1,4 +1,4 @@
-import type { CatalogSnapshot, Dialect } from '../types'
+import type { Dialect } from '../types'
 
 import { compilePostgres } from './compile'
 import { inferPostgresColumnType } from './infer'
@@ -26,6 +26,7 @@ import { formatPostgresDefault, normalizePostgresDefaultExpression } from './val
 export const postgresDialect: Dialect = {
   id: 'postgresql',
   relationIdentity: 'postgresql',
+  catalog: { introspectCatalog: introspectPostgres },
 
   lowerDesiredSchema(graph) {
     return lowerPostgresDesiredSchema(graph)
@@ -41,10 +42,6 @@ export const postgresDialect: Dialect = {
 
   normalizeDefaultValue(value) {
     return normalizePostgresDefaultExpression(formatPostgresDefault(value))
-  },
-
-  async introspect(executor: unknown): Promise<CatalogSnapshot> {
-    return introspectPostgres(executor)
   },
 
   compile(node) {

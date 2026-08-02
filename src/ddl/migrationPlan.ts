@@ -1,10 +1,5 @@
 import type {
-  CatalogColumn,
-  CatalogForeignKey,
-  CatalogIndex,
-  CatalogKeyConstraint,
   CatalogSnapshot,
-  CatalogTable,
   CreateTableAst,
   CreateTableColumnAst,
   Dialect,
@@ -35,6 +30,14 @@ import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 
 import { lowerDesiredSchema } from './desiredSchema'
+import type {
+  PlanningCatalogColumn as CatalogColumn,
+  PlanningCatalogForeignKey as CatalogForeignKey,
+  PlanningCatalogIndex as CatalogIndex,
+  PlanningCatalogKeyConstraint as CatalogKeyConstraint,
+  PlanningCatalogTable as CatalogTable,
+} from './planningCatalog'
+import { catalogForPlanning } from './planningCatalog'
 
 /** Structured desired-state Migration Plan step (stable kinds + targets). */
 export type MigrationStep =
@@ -152,6 +155,7 @@ type PlanningIssue = {
     | 'index_definition'
     | 'ambiguous_semantic_match'
     | 'unsupported_catalog_semantics'
+    | 'opaque_catalog_object'
   message: string
 }
 
@@ -185,6 +189,7 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
   index_definition: 10,
   ambiguous_semantic_match: 11,
   unsupported_catalog_semantics: 12,
+  opaque_catalog_object: 13,
 }
 
 /**
@@ -421,27 +426,6 @@ function catalogTableMap(
     map.set(identity, table)
   }
   return map
-}
-
-/**
- * Collects namespaces known to exist from the writable default and catalog relations.
- * Placeholder relation names carry namespaces because identities are relation-shaped.
- *
- * @param catalog - Introspected catalog and writable namespace context.
- * @param identities - Identity module used to resolve catalog namespaces.
- */
-function schemasPresentInCatalog(
-  catalog: CatalogSnapshot,
-  identities: CanonicalRelationIdentityModule,
-): CanonicalRelationIdentity['namespace'][] {
-  const schemas = [identities.resolveNamespace(catalog.namespaceContext.writableDefault)]
-  for (const table of catalog.tables) {
-    const identity = identities.resolve(catalogRelationInput(table.schema, table.name))
-    if (!schemas.some((existing) => sameNamespace(existing, identity.namespace))) {
-      schemas.push(identity.namespace)
-    }
-  }
-  return schemas
 }
 
 /**
@@ -909,13 +893,20 @@ function buildMigrationPlan(
   const lowered = lowerDesiredSchema(sortedSchemas, identities, dialect)
   const desiredTables = identities.createRegistry<CreateTableAst>()
   for (const table of lowered.tables) desiredTables.set(table.identity, table.ast)
-  const sortedCatalogTables = [...catalog.tables].sort((left, right) =>
+  const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
+  const planningCatalog = catalogForPlanning(
+    catalog,
+    identities,
+    desiredTables,
+    lowered.tables.map(({ identity }) => identity),
+    ownership,
+  )
+  const sortedCatalogTables = [...planningCatalog.tables].sort((left, right) =>
     compareCatalogTables(left, right, identities),
   )
   const existing = catalogTableMap(sortedCatalogTables, issues, identities)
-  const ensuredSchemas = schemasPresentInCatalog(catalog, identities)
+  const ensuredSchemas = [...planningCatalog.namespaces]
   const registered = identities.createRegistry<TableHandle>()
-  const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
   const physicalNames = createPhysicalNameRegistry(namingProfile)
   const representedCatalogNames = new Set<string>()
 
@@ -996,7 +987,7 @@ function buildMigrationPlan(
     }
   }
 
-  for (const reservation of catalog.nameReservations) {
+  for (const reservation of planningCatalog.nameReservations) {
     if (representedCatalogNames.has(`${reservation.schema}\0${reservation.name}`)) {
       continue
     }
@@ -1012,7 +1003,7 @@ function buildMigrationPlan(
     })
   }
 
-  for (const reservation of catalog.constraintNameReservations) {
+  for (const reservation of planningCatalog.constraintNameReservations) {
     const owner = identities.resolve(
       catalogRelationInput(reservation.schema, reservation.table),
     )
@@ -1209,6 +1200,7 @@ function buildMigrationPlan(
       continue
     }
 
+    const relationStepStart = steps.length
     collectManagedPropertyIssues(live, createAst, shape, dialect, issues, identities)
 
     const liveColumns = new Map(
@@ -1253,7 +1245,7 @@ function buildMigrationPlan(
       }
 
       const desiredType = dialect.normalizeDataType(desired.dataType)
-      const currentType = dialect.normalizeDataType(current.dataType)
+      const currentType = dialect.normalizeDataType(current.dataType!)
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',
@@ -1264,14 +1256,14 @@ function buildMigrationPlan(
         })
       }
 
-      if (desired.notNull && current.isNullable) {
+      if (desired.notNull && current.isNullable!) {
         steps.push({
           kind: 'set_not_null',
           ...schemaField(identity),
           table: info.name,
           column: desired.name,
         })
-      } else if (!desired.notNull && !current.isNullable) {
+      } else if (!desired.notNull && !current.isNullable!) {
         steps.push({
           kind: 'drop_not_null',
           ...schemaField(identity),
@@ -1450,6 +1442,25 @@ function buildMigrationPlan(
         })
       }
     }
+
+    if (
+      live.opaqueObjects.length > 0 &&
+      steps
+        .slice(relationStepStart)
+        .some(
+          (step) =>
+            step.kind === 'alter_column_type' ||
+            step.kind === 'drop_column' ||
+            step.kind === 'drop_index',
+        )
+    ) {
+      issues.push({
+        identity,
+        target: '',
+        property: 'opaque_catalog_object',
+        message: `Cannot destructively change '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
+      })
+    }
   }
 
   steps.push(...deferredForeignKeys)
@@ -1458,6 +1469,15 @@ function buildMigrationPlan(
     const identity = identities.resolve(catalogRelationInput(live.schema, live.name))
     if (registered.has(identity)) continue
     if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace)) {
+      continue
+    }
+    if (live.opaqueObjects.length > 0) {
+      issues.push({
+        identity,
+        target: '',
+        property: 'opaque_catalog_object',
+        message: `Cannot drop '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
+      })
       continue
     }
     steps.push({

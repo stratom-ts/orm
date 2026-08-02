@@ -21,9 +21,118 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import type { CreateTableAst, CreateTableColumnAst } from '@/index'
+import type {
+  CatalogRequest,
+  CatalogSnapshot,
+  CreateTableAst,
+  CreateTableColumnAst,
+} from '@/index'
 import { SchemaError, postgresDialect } from '@/index'
 import type { Executor } from '@/query'
+
+const catalogRequest = (
+  ...relations: Array<{ schema: string; table: string }>
+): CatalogRequest => ({
+  relations: relations.map(({ schema, table }) => ({
+    relation: {
+      namespace: [{ role: 'schema', spelling: schema }],
+      relation: table,
+    },
+    shape: 'complete',
+  })),
+  absentRelations: [],
+  completeNamespaces: [],
+})
+
+function legacyCatalogView(snapshot: CatalogSnapshot) {
+  const tables = snapshot.namespaces.items.flatMap((namespace) =>
+    namespace.relations.items.flatMap((relation) => {
+      if (relation.table.state !== 'present') return []
+      const table = relation.table.value
+      const schema = relation.identity.namespace.find(({ role }) => role === 'schema')!
+        .identifier.spelling
+      const key = (constraint: (typeof table.uniqueConstraints.items)[number]) => ({
+        name: constraint.name.state === 'present' ? constraint.name.value : '',
+        columns: [...constraint.columns],
+        semanticCompleteness:
+          constraint.semantics.state === 'present' ? 'supportedSimple' : 'unsupported',
+        isValid:
+          constraint.validity.state === 'present' &&
+          constraint.validity.value === 'valid',
+      })
+      return [
+        {
+          name: relation.identity.relation.spelling,
+          schema,
+          columns: table.columns.items.map((column) => ({
+            name: column.name,
+            dataType:
+              column.dataType.state === 'present' ? column.dataType.value.native : '',
+            isNullable: column.nullable.state === 'present' && column.nullable.value,
+            hasDefault: column.default.state === 'present',
+            isIdentity: column.generation.state === 'present',
+            defaultExpression:
+              column.default.state === 'present' &&
+              column.default.value.comparisonKey.state === 'present'
+                ? column.default.value.comparisonKey.value
+                : null,
+            identityGeneration:
+              column.generation.state === 'present' &&
+              column.generation.value.kind === 'identity'
+                ? column.generation.value.mode
+                : null,
+          })),
+          indexes: table.indexes.items.map((index) => ({
+            name: index.name.state === 'present' ? index.name.value : '',
+            columns: [...index.columns],
+            unique: index.unique,
+            semanticCompleteness:
+              index.semantics.state === 'present' ? 'supportedSimple' : 'unsupported',
+            isValid:
+              index.validity.state === 'present' && index.validity.value === 'valid',
+          })),
+          primaryKey:
+            table.primaryKey.state === 'present' ? key(table.primaryKey.value) : null,
+          uniqueConstraints: table.uniqueConstraints.items.map(key),
+          foreignKeys: table.foreignKeys.items.map((foreignKey) => ({
+            ...key(foreignKey),
+            referencedSchema: foreignKey.referencedRelation.namespace.find(
+              ({ role }) => role === 'schema',
+            )!.identifier.spelling,
+            referencedTable: foreignKey.referencedRelation.relation.spelling,
+            referencedColumns: [...foreignKey.referencedColumns],
+            onDelete: foreignKey.onDelete,
+            onUpdate: foreignKey.onUpdate,
+          })),
+        },
+      ]
+    }),
+  )
+  tables.sort((left, right) => compareCodeUnits(right.schema, left.schema))
+  return {
+    tables,
+    namespaceContext: snapshot.namespaceContext,
+    nameReservations: snapshot.nameReservations.items.map((reservation) => ({
+      schema: reservation.namespace.find(({ role }) => role === 'schema')!.identifier
+        .spelling,
+      name: reservation.name,
+    })),
+    constraintNameReservations: snapshot.constraintNameReservations.items.map(
+      (reservation) => ({
+        schema: reservation.relation.namespace.find(({ role }) => role === 'schema')!
+          .identifier.spelling,
+        table: reservation.relation.relation.spelling,
+        name: reservation.name,
+      }),
+    ),
+  }
+}
+
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
 
 function createTable(...columns: CreateTableColumnAst[]): CreateTableAst {
   return {
@@ -388,9 +497,9 @@ describe('@/dialects/postgres', () => {
         async run() {},
       }
 
-      await expect(postgresDialect.introspect(executor)).rejects.toThrow(
-        /could not resolve a writable namespace/i,
-      )
+      await expect(
+        postgresDialect.catalog.introspectCatalog(executor, catalogRequest()),
+      ).rejects.toThrow(/could not resolve a writable namespace/i)
     })
 
     it('should normalize catalog rows into a public snapshot', async () => {
@@ -399,7 +508,55 @@ describe('@/dialects/postgres', () => {
         async execute({ sql }) {
           executedSql.push(sql)
           if (sql.includes('current_database()')) {
-            return [{ database: 'test', schema: 'public' }]
+            return [{ database: 'test', schema: 'public', version: '160000' }]
+          }
+          if (sql.includes('from pg_namespace catalog_namespace')) {
+            return [
+              { schema: 'public', owner: 'app' },
+              { schema: 'app', owner: 'app' },
+            ]
+          }
+          if (sql.includes('as relation_kind')) {
+            return [
+              {
+                object_id: '1',
+                schema: 'public',
+                name: 'accounts',
+                relation_kind: 'r',
+                persistence: 'p',
+                owner: 'app',
+                can_inspect: true,
+                native_definition: null,
+                options: [],
+                partition_key: null,
+                row_level_security: false,
+                force_row_level_security: false,
+                replica_identity: 'd',
+                access_method: 'heap',
+                tablespace: null,
+                is_partition: false,
+                partition_bound: null,
+              },
+              {
+                object_id: '2',
+                schema: 'app',
+                name: 'events',
+                relation_kind: 'r',
+                persistence: 'p',
+                owner: 'app',
+                can_inspect: true,
+                native_definition: null,
+                options: [],
+                partition_key: null,
+                row_level_security: false,
+                force_row_level_security: false,
+                replica_identity: 'd',
+                access_method: 'heap',
+                tablespace: null,
+                is_partition: false,
+                partition_bound: null,
+              },
+            ]
           }
           if (
             sql.includes('information_schema.tables') &&
@@ -411,65 +568,131 @@ describe('@/dialects/postgres', () => {
               {},
             ]
           }
-          if (sql.includes('information_schema.columns')) {
+          if (sql.includes('from pg_attribute catalog_attribute')) {
             return [
               {
                 schema: 'public',
                 table_name: 'accounts',
                 column_name: 'id',
+                ordinal_position: 1,
                 data_type: 'integer',
                 udt_name: 'int4',
+                is_user_defined: false,
                 is_nullable: 'NO',
+                column_default: null,
                 is_identity: 'YES',
                 identity_generation: 'ALWAYS',
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
               {
                 schema: 'public',
                 table_name: 'accounts',
                 column_name: 'email',
+                ordinal_position: 2,
                 data_type: 'character varying',
+                udt_name: 'varchar',
+                is_user_defined: false,
                 character_maximum_length: '255',
+                numeric_precision: null,
+                numeric_scale: null,
+                is_nullable: 'YES',
                 column_default: "(('new'::text))",
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
               {
                 schema: 'app',
                 table_name: 'events',
                 column_name: 'code',
+                ordinal_position: 1,
                 data_type: 'character',
                 udt_name: 'bpchar',
+                is_user_defined: false,
                 character_maximum_length: 8,
+                numeric_precision: null,
+                numeric_scale: null,
+                is_nullable: 'YES',
+                column_default: null,
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
               {
                 schema: 'app',
                 table_name: 'events',
                 column_name: 'amount',
+                ordinal_position: 2,
                 data_type: 'numeric',
+                udt_name: 'numeric',
+                is_user_defined: false,
+                character_maximum_length: null,
                 numeric_precision: '10',
                 numeric_scale: '2',
+                is_nullable: 'YES',
+                column_default: null,
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
               {
                 schema: 'app',
                 table_name: 'events',
                 column_name: 'created_at',
+                ordinal_position: 3,
                 data_type: 'timestamp with time zone',
                 udt_name: 'timestamptz',
+                is_user_defined: false,
+                character_maximum_length: null,
+                numeric_precision: null,
+                numeric_scale: null,
+                is_nullable: 'YES',
                 column_default: '(now())',
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
               {
                 schema: 'app',
                 table_name: 'events',
                 column_name: 'label',
+                ordinal_position: 4,
                 data_type: 'text',
+                udt_name: 'text',
+                is_user_defined: false,
+                character_maximum_length: null,
+                numeric_precision: null,
+                numeric_scale: null,
+                is_nullable: 'YES',
                 column_default: "('a') || ('b')",
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
               {
                 schema: 'app',
                 table_name: 'events',
                 column_name: 'status',
+                ordinal_position: 5,
                 data_type: 'text',
+                udt_name: 'text',
+                is_user_defined: false,
+                character_maximum_length: null,
+                numeric_precision: null,
+                numeric_scale: null,
+                is_nullable: 'YES',
                 column_default: "'hello'::text::varchar",
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
-              { table_name: 1, column_name: 'ignored' },
             ]
           }
           if (sql.includes('from pg_index i')) {
@@ -482,15 +705,20 @@ describe('@/dialects/postgres', () => {
                 columns: '{email}',
                 has_supported_semantics: true,
                 is_valid: true,
+                nulls_not_distinct: false,
+                native_definition:
+                  'create unique index accounts_email_idx on public.accounts (email)',
               },
               {
                 schema: 'app',
                 table_name: 'events',
                 index_name: 'events_invalid_idx',
                 is_unique: 0,
-                columns: '[invalid json]',
+                columns: '{code}',
                 has_supported_semantics: true,
                 is_valid: false,
+                nulls_not_distinct: false,
+                native_definition: 'create index events_invalid_idx on app.events (code)',
               },
               {
                 schema: 'public',
@@ -501,8 +729,9 @@ describe('@/dialects/postgres', () => {
                 has_supported_semantics: true,
                 is_valid: true,
                 nulls_not_distinct: true,
+                native_definition:
+                  'create unique index accounts_email_nnd_idx on public.accounts (email) nulls not distinct',
               },
-              { table_name: 'accounts' },
             ]
           }
           if (sql.includes('from pg_constraint con')) {
@@ -518,18 +747,22 @@ describe('@/dialects/postgres', () => {
                 initially_deferred: false,
                 backing_index_is_valid: true,
                 has_supported_backing_index_semantics: true,
+                backing_index_nulls_not_distinct: false,
+                native_definition: 'primary key (id)',
               },
               {
                 schema: 'public',
                 table_name: 'accounts',
                 constraint_name: 'accounts_email_key',
                 constraint_type: 'u',
-                columns: '["email",1]',
+                columns: '["email"]',
                 is_valid: true,
                 is_deferrable: false,
                 initially_deferred: false,
                 backing_index_is_valid: true,
                 has_supported_backing_index_semantics: true,
+                backing_index_nulls_not_distinct: false,
+                native_definition: 'unique (email)',
               },
               {
                 schema: 'public',
@@ -543,6 +776,7 @@ describe('@/dialects/postgres', () => {
                 backing_index_is_valid: true,
                 has_supported_backing_index_semantics: true,
                 backing_index_nulls_not_distinct: true,
+                native_definition: 'unique nulls not distinct (email)',
               },
               {
                 schema: 'public',
@@ -555,13 +789,15 @@ describe('@/dialects/postgres', () => {
                 initially_deferred: false,
                 backing_index_is_valid: true,
                 has_supported_backing_index_semantics: false,
+                backing_index_nulls_not_distinct: false,
+                native_definition: 'unique (email) include (id)',
               },
               {
                 schema: 'app',
                 table_name: 'events',
                 constraint_name: 'events_account_fkey',
                 constraint_type: 'f',
-                columns: ['account_id', 1],
+                columns: ['account_id'],
                 referenced_schema: 'public',
                 referenced_table: 'accounts',
                 referenced_columns: '{id}',
@@ -571,6 +807,9 @@ describe('@/dialects/postgres', () => {
                 is_deferrable: false,
                 initially_deferred: false,
                 match_type: 's',
+                has_column_specific_delete_action: false,
+                native_definition:
+                  'foreign key (account_id) references public.accounts(id)',
               },
               {
                 schema: 'public',
@@ -581,11 +820,11 @@ describe('@/dialects/postgres', () => {
                 is_valid: true,
                 is_deferrable: false,
                 initially_deferred: false,
+                native_definition: 'check (email is not null)',
               },
-              { table_name: 'accounts' },
             ]
           }
-          if (sql.includes('as object_name')) {
+          if (sql.includes('c.relname as object_name')) {
             return [
               { schema: 'public', object_name: 'accounts' },
               { schema: 'public', object_name: 'reserved_sequence' },
@@ -594,7 +833,6 @@ describe('@/dialects/postgres', () => {
               { schema: 'public', object_name: 'accounts_email_nnd_idx' },
               { schema: 'public', object_name: 'accounts_email_nnd_key' },
               { schema: 'public', object_name: 'accounts_email_include_key' },
-              { object_name: 'ignored' },
             ]
           }
           return []
@@ -602,7 +840,14 @@ describe('@/dialects/postgres', () => {
         async run() {},
       }
 
-      const snapshot = await postgresDialect.introspect(executor)
+      const observed = await postgresDialect.catalog.introspectCatalog(
+        executor,
+        catalogRequest(
+          { schema: 'public', table: 'accounts' },
+          { schema: 'app', table: 'events' },
+        ),
+      )
+      const snapshot = legacyCatalogView(observed)
 
       expect(snapshot.tables).toEqual([
         {
@@ -652,6 +897,12 @@ describe('@/dialects/postgres', () => {
           },
           uniqueConstraints: [
             {
+              name: 'accounts_email_include_key',
+              columns: ['email'],
+              semanticCompleteness: 'unsupported',
+              isValid: true,
+            },
+            {
               name: 'accounts_email_key',
               columns: ['email'],
               semanticCompleteness: 'supportedSimple',
@@ -659,12 +910,6 @@ describe('@/dialects/postgres', () => {
             },
             {
               name: 'accounts_email_nnd_key',
-              columns: ['email'],
-              semanticCompleteness: 'unsupported',
-              isValid: true,
-            },
-            {
-              name: 'accounts_email_include_key',
               columns: ['email'],
               semanticCompleteness: 'unsupported',
               isValid: true,
@@ -695,7 +940,7 @@ describe('@/dialects/postgres', () => {
           indexes: [
             {
               name: 'events_invalid_idx',
-              columns: [],
+              columns: ['code'],
               unique: false,
               semanticCompleteness: 'supportedSimple',
               isValid: false,
@@ -741,23 +986,29 @@ describe('@/dialects/postgres', () => {
           { role: 'schema', spelling: 'public' },
         ],
       })
-      expect(snapshot.nameReservations).toEqual([
-        { schema: 'public', name: 'accounts' },
-        { schema: 'public', name: 'reserved_sequence' },
-        { schema: 'public', name: 'accounts_composite' },
-        { schema: 'public', name: 'accounts_partitioned_index' },
-        { schema: 'public', name: 'accounts_email_nnd_idx' },
-        { schema: 'public', name: 'accounts_email_nnd_key' },
-        { schema: 'public', name: 'accounts_email_include_key' },
-      ])
-      expect(snapshot.constraintNameReservations).toEqual([
-        { schema: 'public', table: 'accounts', name: 'accounts_pkey' },
-        { schema: 'public', table: 'accounts', name: 'accounts_email_key' },
-        { schema: 'public', table: 'accounts', name: 'accounts_email_nnd_key' },
-        { schema: 'public', table: 'accounts', name: 'accounts_email_include_key' },
-        { schema: 'app', table: 'events', name: 'events_account_fkey' },
-        { schema: 'public', table: 'accounts', name: 'accounts_email_check' },
-      ])
+      expect(snapshot.nameReservations).toEqual(
+        expect.arrayContaining([
+          { schema: 'public', name: 'accounts' },
+          { schema: 'public', name: 'reserved_sequence' },
+          { schema: 'public', name: 'accounts_composite' },
+          { schema: 'public', name: 'accounts_partitioned_index' },
+          { schema: 'public', name: 'accounts_email_nnd_idx' },
+          { schema: 'public', name: 'accounts_email_nnd_key' },
+          { schema: 'public', name: 'accounts_email_include_key' },
+        ]),
+      )
+      expect(snapshot.nameReservations).toHaveLength(7)
+      expect(snapshot.constraintNameReservations).toEqual(
+        expect.arrayContaining([
+          { schema: 'public', table: 'accounts', name: 'accounts_pkey' },
+          { schema: 'public', table: 'accounts', name: 'accounts_email_key' },
+          { schema: 'public', table: 'accounts', name: 'accounts_email_nnd_key' },
+          { schema: 'public', table: 'accounts', name: 'accounts_email_include_key' },
+          { schema: 'app', table: 'events', name: 'events_account_fkey' },
+          { schema: 'public', table: 'accounts', name: 'accounts_email_check' },
+        ]),
+      )
+      expect(snapshot.constraintNameReservations).toHaveLength(6)
       const reservationSql = executedSql.find((sql) => sql.includes('as object_name'))
       expect(reservationSql).toBeDefined()
       expect(reservationSql).not.toContain('relkind in')
@@ -765,6 +1016,9 @@ describe('@/dialects/postgres', () => {
       expect(indexSql).toContain('i.indpred is null')
       expect(indexSql).toContain('i.indexprs is null')
       expect(indexSql).toContain('i.indnkeyatts = i.indnatts')
+      expect(indexSql).toContain('unnest(i.indoption)')
+      expect(indexSql).toContain('unnest(i.indclass)')
+      expect(indexSql).toContain('unnest(i.indcollation, i.indkey)')
       expect(indexSql).toContain("to_jsonb(i) ->> 'indnullsnotdistinct'")
       expect(indexSql).not.toContain('i.indnullsnotdistinct')
       const constraintSql = executedSql.find((sql) =>
@@ -772,17 +1026,76 @@ describe('@/dialects/postgres', () => {
       )
       expect(constraintSql).toContain('con.conindid')
       expect(constraintSql).toContain("to_jsonb(backing_index) ->> 'indnullsnotdistinct'")
+      expect(constraintSql).toContain(
+        "jsonb_typeof(to_jsonb(con) -> 'confdelsetcols') = 'array'",
+      )
       expect(constraintSql).not.toContain('backing_index.indnullsnotdistinct')
       expect(constraintSql).toContain(
         'backing_index.indnkeyatts = backing_index.indnatts',
       )
+      const columnSql = executedSql.find((sql) =>
+        sql.includes('from pg_attribute catalog_attribute'),
+      )
+      expect(columnSql).not.toContain('information_schema.columns')
+      const opaqueSql = executedSql.find((sql) => sql.includes('from pg_policy'))
+      expect(opaqueSql).toContain('p.polpermissive')
+      expect(opaqueSql).toContain('p.polcmd')
+      expect(opaqueSql).toContain('p.polroles')
     })
 
     it('keeps dotted schema and relation tuples distinct during introspection', async () => {
       const executor: Executor = {
         async execute({ sql }) {
           if (sql.includes('current_database()')) {
-            return [{ database: 'test', schema: 'public' }]
+            return [{ database: 'test', schema: 'public', version: '160000' }]
+          }
+          if (sql.includes('from pg_namespace catalog_namespace')) {
+            return [
+              { schema: 'a.b', owner: 'app' },
+              { schema: 'a', owner: 'app' },
+            ]
+          }
+          if (sql.includes('as relation_kind')) {
+            return [
+              {
+                object_id: '1',
+                schema: 'a.b',
+                name: 'c',
+                relation_kind: 'r',
+                persistence: 'p',
+                owner: 'app',
+                can_inspect: true,
+                native_definition: null,
+                options: [],
+                partition_key: null,
+                row_level_security: false,
+                force_row_level_security: false,
+                replica_identity: 'd',
+                access_method: 'heap',
+                tablespace: null,
+                is_partition: false,
+                partition_bound: null,
+              },
+              {
+                object_id: '2',
+                schema: 'a',
+                name: 'b.c',
+                relation_kind: 'r',
+                persistence: 'p',
+                owner: 'app',
+                can_inspect: true,
+                native_definition: null,
+                options: [],
+                partition_key: null,
+                row_level_security: false,
+                force_row_level_security: false,
+                replica_identity: 'd',
+                access_method: 'heap',
+                tablespace: null,
+                is_partition: false,
+                partition_bound: null,
+              },
+            ]
           }
           if (
             sql.includes('information_schema.tables') &&
@@ -793,21 +1106,37 @@ describe('@/dialects/postgres', () => {
               { schema: 'a', name: 'b.c' },
             ]
           }
-          if (sql.includes('information_schema.columns')) {
+          if (sql.includes('from pg_attribute catalog_attribute')) {
             return [
               {
                 schema: 'a.b',
                 table_name: 'c',
                 column_name: 'schema_marker',
+                ordinal_position: 1,
                 data_type: 'text',
+                udt_name: 'text',
+                is_user_defined: false,
                 is_nullable: 'NO',
+                column_default: null,
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
               {
                 schema: 'a',
                 table_name: 'b.c',
                 column_name: 'relation_marker',
+                ordinal_position: 1,
                 data_type: 'text',
+                udt_name: 'text',
+                is_user_defined: false,
                 is_nullable: 'NO',
+                column_default: null,
+                is_identity: 'NO',
+                identity_generation: null,
+                is_generated: 'NEVER',
+                generation_expression: null,
               },
             ]
           }
@@ -816,7 +1145,12 @@ describe('@/dialects/postgres', () => {
         async run() {},
       }
 
-      const snapshot = await postgresDialect.introspect(executor)
+      const snapshot = legacyCatalogView(
+        await postgresDialect.catalog.introspectCatalog(
+          executor,
+          catalogRequest({ schema: 'a.b', table: 'c' }, { schema: 'a', table: 'b.c' }),
+        ),
+      )
 
       expect(
         snapshot.tables.map((table) => ({
@@ -834,7 +1168,33 @@ describe('@/dialects/postgres', () => {
       const executor: Executor = {
         async execute({ sql }) {
           if (sql.includes('current_database()')) {
-            return [{ database: 'test', schema: 'public' }]
+            return [{ database: 'test', schema: 'public', version: '160000' }]
+          }
+          if (sql.includes('from pg_namespace catalog_namespace')) {
+            return [{ schema: 'public', owner: 'app' }]
+          }
+          if (sql.includes('as relation_kind')) {
+            return [
+              {
+                object_id: '1',
+                schema: 'public',
+                name: 'events',
+                relation_kind: 'r',
+                persistence: 'p',
+                owner: 'app',
+                can_inspect: true,
+                native_definition: null,
+                options: [],
+                partition_key: null,
+                row_level_security: false,
+                force_row_level_security: false,
+                replica_identity: 'd',
+                access_method: 'heap',
+                tablespace: null,
+                is_partition: false,
+                partition_bound: null,
+              },
+            ]
           }
           if (
             sql.includes('information_schema.tables') &&
@@ -851,6 +1211,14 @@ describe('@/dialects/postgres', () => {
                 constraint_type: 'f',
                 columns: ['owner_id'],
                 referenced_columns: ['id'],
+                is_valid: true,
+                is_deferrable: false,
+                initially_deferred: false,
+                match_type: 's',
+                has_column_specific_delete_action: false,
+                on_delete: 'no action',
+                on_update: 'no action',
+                native_definition: 'foreign key (owner_id) references owners(id)',
               },
             ]
           }
@@ -859,7 +1227,12 @@ describe('@/dialects/postgres', () => {
         async run() {},
       }
 
-      await expect(postgresDialect.introspect(executor)).rejects.toThrow(
+      await expect(
+        postgresDialect.catalog.introspectCatalog(
+          executor,
+          catalogRequest({ schema: 'public', table: 'events' }),
+        ),
+      ).rejects.toThrow(
         /foreign key "events_owner_fkey".*missing referenced relation metadata/i,
       )
     })

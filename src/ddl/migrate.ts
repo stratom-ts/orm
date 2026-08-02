@@ -6,6 +6,7 @@ import type {
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
+import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import {
   generatedForeignKeyName,
   generatedPrimaryKeyName,
@@ -357,7 +358,12 @@ export function createMigrateBuilder(options: {
   const allowed = new Set<MigrationAllow>()
 
   const buildPlan = async (executor: Executor) => {
-    const catalog = await dialect.introspect(executor)
+    const request = createCatalogRequest(
+      schemas,
+      migrationOwnership ?? [],
+      defaultNamespace,
+    )
+    const catalog = await dialect.catalog.introspectCatalog(executor, request)
     return planMigration(schemas, catalog, dialect, {
       ...(defaultNamespace === undefined
         ? {}

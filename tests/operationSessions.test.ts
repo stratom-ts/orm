@@ -235,7 +235,16 @@ function createControllableProvider(options?: {
         query(query) {
           return call(query.sql, async () => {
             if (/current_database\(\)/i.test(query.sql)) {
-              return [{ database: 'coordinator_test', schema: 'public' }]
+              return [
+                {
+                  database: 'coordinator_test',
+                  schema: 'public',
+                  version: '160000',
+                },
+              ]
+            }
+            if (/from pg_namespace catalog_namespace/i.test(query.sql)) {
+              return [{ schema: 'public', owner: 'app' }]
             }
             if (/pg_advisory_unlock\(/i.test(query.sql)) {
               return [{ unlocked: options?.unlockResult ?? true }]
