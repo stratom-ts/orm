@@ -31,19 +31,34 @@ type IndexRow = {
   index_name?: string
   is_unique?: boolean | string | number
   columns?: unknown
+  has_supported_semantics?: boolean | string | number
+  is_valid?: boolean | string | number
+  nulls_not_distinct?: boolean | string | number
 }
 
 type ConstraintRow = {
   schema?: string
   table_name?: string
   constraint_name?: string
-  constraint_type?: 'p' | 'u' | 'f'
+  constraint_type?: string
   columns?: unknown
   referenced_schema?: string
   referenced_table?: string
   referenced_columns?: unknown
   on_delete?: string
   on_update?: string
+  is_valid?: boolean | string | number
+  is_deferrable?: boolean | string | number
+  initially_deferred?: boolean | string | number
+  match_type?: string
+  backing_index_is_valid?: boolean | string | number
+  has_supported_backing_index_semantics?: boolean | string | number
+  backing_index_nulls_not_distinct?: boolean | string | number
+}
+
+type NameReservationRow = {
+  schema?: string
+  object_name?: string
 }
 
 /**
@@ -217,6 +232,48 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
         tbl.relname as table_name,
         con.conname as constraint_name,
         con.contype as constraint_type,
+        con.convalidated as is_valid,
+        con.condeferrable as is_deferrable,
+        con.condeferred as initially_deferred,
+        con.confmatchtype as match_type,
+        (
+          backing_index.indisvalid and backing_index.indisready
+        ) as backing_index_is_valid,
+        coalesce(
+          (to_jsonb(backing_index) ->> 'indnullsnotdistinct')::boolean,
+          false
+        ) as backing_index_nulls_not_distinct,
+        (
+          backing_am.amname = 'btree'
+          and backing_index.indpred is null
+          and backing_index.indexprs is null
+          and backing_index.indnkeyatts = backing_index.indnatts
+          and not coalesce(
+            (to_jsonb(backing_index) ->> 'indnullsnotdistinct')::boolean,
+            false
+          )
+          and not exists (
+            select 1
+            from unnest(backing_index.indoption) as option(value)
+            where option.value <> 0
+          )
+          and not exists (
+            select 1
+            from unnest(backing_index.indclass) as opclass(oid)
+            join pg_opclass opc on opc.oid = opclass.oid
+            where not opc.opcdefault or opc.opcmethod <> backing_am.oid
+          )
+          and not exists (
+            select 1
+            from unnest(backing_index.indcollation, backing_index.indkey)
+              as indexed(collation_oid, attnum)
+            join pg_attribute a
+              on a.attrelid = tbl.oid
+             and a.attnum = indexed.attnum
+            where indexed.collation_oid <> 0
+              and indexed.collation_oid <> a.attcollation
+          )
+        ) as has_supported_backing_index_semantics,
         (
           select coalesce(array_agg(a.attname order by x.ordinality), '{}')
           from unnest(con.conkey) with ordinality as x(attnum, ordinality)
@@ -248,8 +305,10 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       join pg_namespace n on n.oid = tbl.relnamespace
       left join pg_class ref_tbl on ref_tbl.oid = con.confrelid
       left join pg_namespace ref_n on ref_n.oid = ref_tbl.relnamespace
-      where con.contype in ('p', 'u', 'f')
-        and n.nspname not in ('pg_catalog', 'information_schema')
+      left join pg_index backing_index on backing_index.indexrelid = con.conindid
+      left join pg_class backing_class on backing_class.oid = con.conindid
+      left join pg_am backing_am on backing_am.oid = backing_class.relam
+      where n.nspname not in ('pg_catalog', 'information_schema')
     `,
     params: [],
   })) as ConstraintRow[]
@@ -261,6 +320,37 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
         tbl.relname as table_name,
         idx.relname as index_name,
         i.indisunique as is_unique,
+        (i.indisvalid and i.indisready) as is_valid,
+        coalesce(
+          (to_jsonb(i) ->> 'indnullsnotdistinct')::boolean,
+          false
+        ) as nulls_not_distinct,
+        (
+          am.amname = 'btree'
+          and i.indpred is null
+          and i.indexprs is null
+          and i.indnkeyatts = i.indnatts
+          and not coalesce(
+            (to_jsonb(i) ->> 'indnullsnotdistinct')::boolean,
+            false
+          )
+          and not exists (
+            select 1 from unnest(i.indoption) as option(value) where option.value <> 0
+          )
+          and not exists (
+            select 1
+            from unnest(i.indclass) as opclass(oid)
+            join pg_opclass opc on opc.oid = opclass.oid
+            where not opc.opcdefault or opc.opcmethod <> am.oid
+          )
+          and not exists (
+            select 1
+            from unnest(i.indcollation, i.indkey) as indexed(collation_oid, attnum)
+            join pg_attribute a on a.attrelid = tbl.oid and a.attnum = indexed.attnum
+            where indexed.collation_oid <> 0
+              and indexed.collation_oid <> a.attcollation
+          )
+        ) as has_supported_semantics,
         (
           select coalesce(array_agg(a.attname order by x.ordinality), '{}')
           from unnest(i.indkey) with ordinality as x(attnum, ordinality)
@@ -272,8 +362,9 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       join pg_class idx on idx.oid = i.indexrelid
       join pg_class tbl on tbl.oid = i.indrelid
       join pg_namespace n on n.oid = tbl.relnamespace
+      join pg_am am on am.oid = idx.relam
       where n.nspname not in ('pg_catalog', 'information_schema')
-        and tbl.relkind = 'r'
+        and tbl.relkind in ('r', 'p')
         and not i.indisprimary
         and not exists (
           select 1 from pg_constraint con where con.conindid = i.indexrelid
@@ -281,6 +372,16 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
     `,
     params: [],
   })) as IndexRow[]
+
+  const reservationRows = (await exec.execute({
+    sql: `
+      select n.nspname as schema, c.relname as object_name
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname not in ('pg_catalog', 'information_schema')
+    `,
+    params: [],
+  })) as NameReservationRow[]
 
   const tables = identities.createRegistry<CatalogTable>()
   const tableList: CatalogTable[] = []
@@ -350,9 +451,22 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       continue
     }
     const table = getOrCreateTable(row.table_name, row.schema)
+    const hasBackingIndex = row.constraint_type === 'p' || row.constraint_type === 'u'
     const constraint = {
       name: row.constraint_name,
       columns: parseIndexColumns(row.columns),
+      semanticCompleteness:
+        !isTruthyFlag(row.is_deferrable) &&
+        !isTruthyFlag(row.initially_deferred) &&
+        (hasBackingIndex
+          ? isTruthyFlag(row.has_supported_backing_index_semantics) &&
+            !isTruthyFlag(row.backing_index_nulls_not_distinct)
+          : row.constraint_type !== 'f' || row.match_type === 's')
+          ? ('supportedSimple' as const)
+          : ('unsupported' as const),
+      isValid:
+        isTruthyFlag(row.is_valid) &&
+        (!hasBackingIndex || isTruthyFlag(row.backing_index_is_valid)),
     }
 
     if (row.constraint_type === 'p') {
@@ -397,8 +511,44 @@ export async function introspectPostgres(executor: unknown): Promise<CatalogSnap
       name: row.index_name,
       columns: parseIndexColumns(row.columns),
       unique: isTruthyFlag(row.is_unique),
+      semanticCompleteness: isTruthyFlag(row.has_supported_semantics)
+        ? isTruthyFlag(row.nulls_not_distinct)
+          ? 'unsupported'
+          : 'supportedSimple'
+        : 'unsupported',
+      isValid: isTruthyFlag(row.is_valid),
     })
   }
 
-  return { tables: tableList, namespaceContext }
+  const nameReservations = reservationRows
+    .filter(
+      (row): row is Required<NameReservationRow> =>
+        typeof row.schema === 'string' && typeof row.object_name === 'string',
+    )
+    .map((row) => ({ schema: row.schema, name: row.object_name }))
+  const constraintNameReservations = constraintRows
+    .filter(
+      (
+        row,
+      ): row is ConstraintRow & {
+        schema: string
+        table_name: string
+        constraint_name: string
+      } =>
+        typeof row.schema === 'string' &&
+        typeof row.table_name === 'string' &&
+        typeof row.constraint_name === 'string',
+    )
+    .map((row) => ({
+      schema: row.schema,
+      table: row.table_name,
+      name: row.constraint_name,
+    }))
+
+  return {
+    tables: tableList,
+    namespaceContext,
+    nameReservations,
+    constraintNameReservations,
+  }
 }

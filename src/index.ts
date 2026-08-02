@@ -40,9 +40,11 @@ export {
 export type { MigrateBuilder, MigrationAllow, MigrationPlan, MigrationStep } from '@/ddl'
 export { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from '@/ddl'
 export type {
+  CanonicalRelationIdentity,
   NamespaceContext,
   NamespaceIdentifierInput,
   NamespaceRole,
+  RelationIdentityInput,
   RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
 export {
@@ -52,3 +54,8 @@ export {
   type OperationSessionIdentity,
   type OperationSessionProvider,
 } from '@/operations'
+export type {
+  MigrationOwnershipDeclaration,
+  MigrationOwnershipRelation,
+  MigrationRelationShape,
+} from '@/migrations/migrationOwnership'

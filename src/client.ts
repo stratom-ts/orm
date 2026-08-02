@@ -7,6 +7,7 @@ import { isTableHandle } from '@/defineTable'
 import { resolveDialect } from '@/dialects'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import { validateApplicationId } from '@/migrations/coordinationScope'
+import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import type { OperationContext } from '@/operations/coordinator'
 import { OperationCoordinator } from '@/operations/coordinator'
 import type { OperationSessionProvider } from '@/operations/operationSession'
@@ -143,6 +144,8 @@ export type CreateDatabaseConfig<
   operationSessionProvider?: OperationSessionProvider
   /** Stable application identity for future application-scoped migration coordination. */
   applicationId?: string
+  /** Optional explicit migration authority beyond exact complete registered relations. */
+  migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   /**
    * Global JS↔SQL value mapping overrides (applied after column metadata,
    * before dialect defaults when column overrides are absent).
@@ -493,6 +496,9 @@ export function createDatabase<
         ...(config.defaultNamespace === undefined
           ? {}
           : { defaultNamespace: config.defaultNamespace }),
+        ...(config.migrationOwnership === undefined
+          ? {}
+          : { migrationOwnership: config.migrationOwnership }),
         assertCanExecute() {
           if (transactionScope) {
             throw new MigrationError({

@@ -523,7 +523,13 @@ function compileColumnDefinition(
 
   if (col.notNull) parts.push('not null')
   if (isPrimaryKey) parts.push('primary key')
-  if (col.unique) parts.push('unique')
+  if (col.unique) {
+    if (col.uniqueConstraintName) {
+      parts.push(`constraint ${quoteIdent(col.uniqueConstraintName)} unique`)
+    } else {
+      parts.push('unique')
+    }
+  }
 
   if (col.defaultValue !== undefined && !col.generated && !col.autoIncrement) {
     parts.push(`default ${formatPostgresDefault(col.defaultValue)}`)
@@ -559,13 +565,21 @@ function compileCreateTable(node: CreateTableAst): string {
 
   const columnSql = node.columns.map((col) => {
     if (singlePk && col.name === singlePk) {
+      if (node.primaryKeyName) {
+        return compileColumnDefinition(col)
+      }
       return compileColumnDefinition(col, true)
     }
     return compileColumnDefinition(col)
   })
 
-  if (primaryKey.length > 1) {
-    columnSql.push(`primary key (${primaryKey.map((c) => quoteIdent(c)).join(', ')})`)
+  if (primaryKey.length > 1 || node.primaryKeyName) {
+    const name = node.primaryKeyName
+      ? `constraint ${quoteIdent(node.primaryKeyName)} `
+      : ''
+    columnSql.push(
+      `${name}primary key (${primaryKey.map((c) => quoteIdent(c)).join(', ')})`,
+    )
   }
 
   return `create table ${tableSql} (${columnSql.join(', ')})`
@@ -588,7 +602,7 @@ function compileCreateIndex(node: {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
   const unique = node.unique ? 'unique ' : ''
   const cols = node.columns.map((c) => quoteIdent(c)).join(', ')
-  return `create ${unique}index if not exists ${quoteIdent(node.name)} on ${tableSql} (${cols})`
+  return `create ${unique}index ${quoteIdent(node.name)} on ${tableSql} (${cols})`
 }
 
 /**
@@ -621,6 +635,7 @@ function compileAddForeignKey(node: {
   schema?: string
   table: string
   column: string
+  name?: string
   references: {
     schema?: string
     table: string
@@ -634,7 +649,8 @@ function compileAddForeignKey(node: {
     node.references.schema,
     node.references.table,
   )
-  let sql = `alter table ${tableSql} add foreign key (${quoteIdent(node.column)}) references ${referenceTableSql} (${quoteIdent(node.references.column)})`
+  const constraint = node.name ? `constraint ${quoteIdent(node.name)} ` : ''
+  let sql = `alter table ${tableSql} add ${constraint}foreign key (${quoteIdent(node.column)}) references ${referenceTableSql} (${quoteIdent(node.references.column)})`
   if (node.references.onDelete) {
     sql += ` on delete ${formatReferentialAction(node.references.onDelete)}`
   }
@@ -642,6 +658,16 @@ function compileAddForeignKey(node: {
     sql += ` on update ${formatReferentialAction(node.references.onUpdate)}`
   }
   return sql
+}
+
+function compileAddUniqueConstraint(node: {
+  schema?: string
+  table: string
+  column: string
+  name: string
+}): string {
+  const tableSql = qualifyPostgresTable(node.schema, node.table)
+  return `alter table ${tableSql} add constraint ${quoteIdent(node.name)} unique (${quoteIdent(node.column)})`
 }
 
 /**
@@ -680,6 +706,8 @@ export function compilePostgres(node: SqlAst): CompiledQuery {
       return { sql: compileCreateIndex(node), params: [] }
     case 'add_column':
       return { sql: compileAddColumn(node), params: [] }
+    case 'add_unique_constraint':
+      return { sql: compileAddUniqueConstraint(node), params: [] }
     case 'add_foreign_key':
       return { sql: compileAddForeignKey(node), params: [] }
     case 'alter_column_type': {
