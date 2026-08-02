@@ -669,7 +669,10 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
   /** Executes the current insert query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
-  /** Executes the insert and returns its first result. */
+  /**
+   * Executes the insert and returns the first row when `returning` is configured.
+   * Without `returning`, returns the full write result.
+   */
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) {
@@ -678,7 +681,10 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
     return result
   }
 
-  /** Executes the insert and requires a result. */
+  /**
+   * Executes the insert and requires a row when `returning` is configured.
+   * Without `returning`, returns the full write result.
+   */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
@@ -831,14 +837,20 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   /** Executes the current update query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
-  /** Executes the update and returns its first result. */
+  /**
+   * Executes the update and returns the first row when `returning` is configured.
+   * Without `returning`, returns the full write result.
+   */
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
     return result
   }
 
-  /** Executes the update and requires a result. */
+  /**
+   * Executes the update and requires a row when `returning` is configured.
+   * Without `returning`, returns the full write result.
+   */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
@@ -1018,14 +1030,20 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   /** Executes the current delete query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
-  /** Executes the delete and returns its first result. */
+  /**
+   * Executes the delete and returns the first row when `returning` is configured.
+   * Without `returning`, returns the full write result.
+   */
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
     return result
   }
 
-  /** Executes the delete and requires a result. */
+  /**
+   * Executes the delete and requires a row when `returning` is configured.
+   * Without `returning`, returns the full write result.
+   */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
