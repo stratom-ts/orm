@@ -7,6 +7,14 @@ import { SchemaError } from '@/utils/error'
 import { findSchemaMetadata } from './metadata'
 import type { ColumnGeneration, ColumnMetadata } from './types'
 
+/**
+ * Compares two generation declarations for equivalent intent.
+ *
+ * @param left - First generation declaration.
+ * @param right - Second generation declaration.
+ *
+ * @returns `true` when both declarations describe the same generation
+ */
 function sameGeneration(left: ColumnGeneration, right: ColumnGeneration): boolean {
   return (
     left === right ||
@@ -14,7 +22,17 @@ function sameGeneration(left: ColumnGeneration, right: ColumnGeneration): boolea
   )
 }
 
-/** Reconciles tagged and legacy generation fields into one canonical intent. */
+/**
+ * Reconciles tagged and legacy generation fields into one canonical intent.
+ *
+ * @example
+ *   normalizeColumnGeneration({ generated: 'always' })
+ *   // { kind: 'identity', mode: 'always' }
+ *
+ * @param metadata - Column generation fields to reconcile.
+ *
+ * @returns The canonical generation intent, or `undefined` when undeclared
+ */
 export function normalizeColumnGeneration(
   metadata: Pick<ColumnMetadata, 'generation' | 'generated' | 'autoIncrement'>,
 ): ColumnGeneration | undefined {
@@ -36,7 +54,17 @@ export function normalizeColumnGeneration(
   return normalized
 }
 
-/** Rewrites generation metadata to the canonical tagged field for adapter lowering. */
+/**
+ * Rewrites generation metadata to the canonical tagged field for adapter lowering.
+ *
+ * @example
+ *   normalizeColumnMetadata({ kind: 'column', autoIncrement: true })
+ *   // { kind: 'column', generation: { kind: 'identity', mode: 'byDefault' } }
+ *
+ * @param metadata - Column metadata to normalize.
+ *
+ * @returns Column metadata containing only canonical generation fields
+ */
 export function normalizeColumnMetadata(metadata: ColumnMetadata): ColumnMetadata {
   const generation = normalizeColumnGeneration(metadata)
   const normalized = { ...metadata }

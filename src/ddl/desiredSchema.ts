@@ -16,6 +16,12 @@ import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
 
+/**
+ * Builds a canonical identity input with an optional schema namespace.
+ *
+ * @param schema - Explicit schema spelling, or undefined for default resolution.
+ * @param relation - Relation spelling.
+ */
 function relationInput(schema: string | undefined, relation: string) {
   return {
     ...(schema === undefined
@@ -25,6 +31,12 @@ function relationInput(schema: string | undefined, relation: string) {
   }
 }
 
+/**
+ * Checks whether a column is a single-column primary or unique key.
+ *
+ * @param table - Authored table containing the candidate column.
+ * @param column - Column name to check.
+ */
 function isCandidateKey(table: AuthoredDesiredTable, column: string): boolean {
   const primaryKey = Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
@@ -43,6 +55,12 @@ function isCandidateKey(table: AuthoredDesiredTable, column: string): boolean {
 /**
  * Resolves every authored relation/reference against canonical identity before an
  * adapter sees the graph. Cycles are retained; dangling and non-key targets fail here.
+ *
+ * @example
+ *   const desired = registerDesiredSchema([Users], identities)
+ *
+ * @param handles - Desired table handles to register.
+ * @param identities - Identity module used to resolve and validate relations.
  */
 export function registerDesiredSchema(
   handles: readonly TableHandle[],
@@ -149,7 +167,16 @@ export function registerDesiredSchema(
   })
 }
 
-/** Selected-dialect whole-graph lowering seam used by planning and execution. */
+/**
+ * Lowers the validated desired schema through the selected dialect.
+ *
+ * @example
+ *   const lowered = lowerDesiredSchema([Users], identities, dialect)
+ *
+ * @param handles - Desired table handles to lower.
+ * @param identities - Identity module used to resolve and validate relations.
+ * @param dialect - Dialect that lowers the authored graph.
+ */
 export function lowerDesiredSchema(
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,

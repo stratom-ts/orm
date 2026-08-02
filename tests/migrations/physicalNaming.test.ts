@@ -1,8 +1,6 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import type { CatalogSnapshot } from '@/dialects'
 import { column, defineTable, postgresDialect } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import {
@@ -15,8 +13,11 @@ import {
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
 
-const planMigration = (...args: Parameters<typeof planMigrationWithContext>) =>
-  planMigrationWithContext(...args).plan
+import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
+import {
+  catalogPrimaryKey as createCatalogPrimaryKey,
+  planMigration,
+} from '../helpers/catalog'
 
 const context = {
   writableDefault: [
@@ -36,6 +37,7 @@ const supportedSimple = {
   semanticCompleteness: 'supportedSimple' as const,
   isValid: true,
 }
+const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 
 function owner(schema: string, relation: string) {
   return identities.resolve({
@@ -202,6 +204,7 @@ describe('generated physical naming', () => {
               ...supportedSimple,
             },
           ],
+          primaryKey: catalogPrimaryKey('events'),
         },
       ],
     }
@@ -274,6 +277,7 @@ describe('generated physical naming', () => {
               ...supportedSimple,
             },
           ],
+          primaryKey: catalogPrimaryKey('accounts'),
         },
       ],
     }

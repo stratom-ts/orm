@@ -10,6 +10,14 @@ import type {
 } from '@/dialects'
 import type { ColumnRef } from '@/types'
 
+/**
+ * Checks whether a value is a column reference.
+ *
+ * @example
+ *   isColumnRef(User.id) // true
+ *
+ * @param value - Value to inspect.
+ */
 function isColumnRef(value: unknown): value is ColumnRef {
   return (
     typeof value === 'object' &&
@@ -20,6 +28,14 @@ function isColumnRef(value: unknown): value is ColumnRef {
   )
 }
 
+/**
+ * Converts a column reference or name into a column expression.
+ *
+ * @example
+ *   colRef(User.id)
+ *
+ * @param column - Column reference or unqualified name.
+ */
 function colRef(column: ColumnRef | string): ColumnExprAst {
   if (typeof column === 'string') {
     return { kind: 'column', column }
@@ -32,18 +48,50 @@ function colRef(column: ColumnRef | string): ColumnExprAst {
   }
 }
 
+/**
+ * Gets the column name from a reference or string.
+ *
+ * @example
+ *   columnName(User.id) // 'id'
+ *
+ * @param column - Column reference or name.
+ */
 function columnName(column: ColumnRef | string): string {
   return typeof column === 'string' ? column : column.column
 }
 
+/**
+ * Gets the table name from a column reference.
+ *
+ * @example
+ *   columnTable(User.id) // 'users'
+ *
+ * @param column - Column reference or name.
+ */
 function columnTable(column: ColumnRef | string): string | undefined {
   return typeof column === 'string' ? undefined : column.table
 }
 
+/**
+ * Gets the schema name from a column reference.
+ *
+ * @example
+ *   columnSchema(User.id)
+ *
+ * @param column - Column reference or name.
+ */
 function columnSchema(column: ColumnRef | string): string | undefined {
   return typeof column === 'string' ? undefined : (column.schema ?? 'public')
 }
 
+/**
+ * Converts a column reference or name into a qualified-column AST node.
+ *
+ * @example
+ *   toQualified(User.id)
+ *
+ * @param column - Column reference or unqualified name.
+ */
 function toQualified(column: ColumnRef | string): QualifiedColumnAst {
   const table = columnTable(column)
   const schema = columnSchema(column)
@@ -56,6 +104,13 @@ function toQualified(column: ColumnRef | string): QualifiedColumnAst {
     : { column: columnName(column) }
 }
 
+/**
+ * Builds a comparison predicate leaf.
+ *
+ * @param column - Left-hand column reference or name.
+ * @param op - Comparison operator.
+ * @param value - Literal value or right-hand column reference.
+ */
 function cmpLeaf(
   column: ColumnRef | string,
   op: ComparisonOp,
@@ -407,6 +462,15 @@ export const eb: ExpressionBuilder = {
   length,
   now,
   dateTrunc,
+  /**
+   * Aliases an expression for a select list.
+   *
+   * @example
+   *   eb.as(eb.countAll(), 'total')
+   *
+   * @param expr - SQL expression to alias.
+   * @param alias - Result alias.
+   */
   as(expr, alias) {
     return { expr, alias }
   },

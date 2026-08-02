@@ -1,10 +1,5 @@
 import type {
-  CatalogColumn,
-  CatalogForeignKey,
-  CatalogIndex,
-  CatalogKeyConstraint,
   CatalogSnapshot,
-  CatalogTable,
   CreateTableAst,
   CreateTableColumnAst,
   Dialect,
@@ -35,6 +30,14 @@ import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 
 import { lowerDesiredSchema } from './desiredSchema'
+import type {
+  PlanningCatalogColumn as CatalogColumn,
+  PlanningCatalogForeignKey as CatalogForeignKey,
+  PlanningCatalogIndex as CatalogIndex,
+  PlanningCatalogKeyConstraint as CatalogKeyConstraint,
+  PlanningCatalogTable as CatalogTable,
+} from './planningCatalog'
+import { catalogForPlanning } from './planningCatalog'
 
 /** Structured desired-state Migration Plan step (stable kinds + targets). */
 export type MigrationStep =
@@ -152,6 +155,7 @@ type PlanningIssue = {
     | 'index_definition'
     | 'ambiguous_semantic_match'
     | 'unsupported_catalog_semantics'
+    | 'opaque_catalog_object'
   message: string
 }
 
@@ -185,6 +189,7 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
   index_definition: 10,
   ambiguous_semantic_match: 11,
   unsupported_catalog_semantics: 12,
+  opaque_catalog_object: 13,
 }
 
 /**
@@ -247,6 +252,11 @@ function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
   return schema.identifier.spelling
 }
 
+/**
+ * Reads the schema spelling from a canonical namespace.
+ *
+ * @param namespace - Canonical namespace to inspect.
+ */
 function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
   const schema = namespace.find((segment) => segment.role === 'schema')
   if (!schema) {
@@ -257,6 +267,12 @@ function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']):
   return schema.identifier.spelling
 }
 
+/**
+ * Validates every physical identifier in a canonical namespace.
+ *
+ * @param namespace - Canonical namespace whose identifiers are validated.
+ * @param profile - Dialect-specific physical naming profile.
+ */
 function validateCanonicalNamespaceNames(
   namespace: CanonicalRelationIdentity['namespace'],
   profile: PhysicalNamingProfile,
@@ -270,6 +286,12 @@ function validateCanonicalNamespaceNames(
   }
 }
 
+/**
+ * Validates the namespace and relation identifiers of a canonical identity.
+ *
+ * @param identity - Canonical relation identity to validate.
+ * @param profile - Dialect-specific physical naming profile.
+ */
 function validateCanonicalRelationNames(
   identity: CanonicalRelationIdentity,
   profile: PhysicalNamingProfile,
@@ -424,27 +446,6 @@ function catalogTableMap(
 }
 
 /**
- * Collects namespaces known to exist from the writable default and catalog relations.
- * Placeholder relation names carry namespaces because identities are relation-shaped.
- *
- * @param catalog - Introspected catalog and writable namespace context.
- * @param identities - Identity module used to resolve catalog namespaces.
- */
-function schemasPresentInCatalog(
-  catalog: CatalogSnapshot,
-  identities: CanonicalRelationIdentityModule,
-): CanonicalRelationIdentity['namespace'][] {
-  const schemas = [identities.resolveNamespace(catalog.namespaceContext.writableDefault)]
-  for (const table of catalog.tables) {
-    const identity = identities.resolve(catalogRelationInput(table.schema, table.name))
-    if (!schemas.some((existing) => sameNamespace(existing, identity.namespace))) {
-      schemas.push(identity.namespace)
-    }
-  }
-  return schemas
-}
-
-/**
  * Tests arrays for positional string equality without mutating either input.
  *
  * @param left - First ordered string collection.
@@ -562,12 +563,23 @@ function compareForeignKeys(
   )
 }
 
+/**
+ * Checks whether a catalog object has complete, valid simple semantics.
+ *
+ * @param object - Catalog object whose semantic support is checked.
+ */
 function hasSupportedCatalogSemantics(
   object: CatalogIndex | CatalogKeyConstraint | CatalogForeignKey,
 ): boolean {
   return object.semanticCompleteness === 'supportedSimple' && object.isValid === true
 }
 
+/**
+ * Normalizes an introspected foreign key for semantic comparison.
+ *
+ * @param foreignKey - Introspected foreign key to normalize.
+ * @param identities - Identity module used to resolve its referenced relation.
+ */
 function canonicalCatalogForeignKey(
   foreignKey: CatalogForeignKey,
   identities: CanonicalRelationIdentityModule,
@@ -583,6 +595,12 @@ function canonicalCatalogForeignKey(
   }
 }
 
+/**
+ * Normalizes a desired column reference for semantic comparison.
+ *
+ * @param column - Desired column containing a foreign-key reference.
+ * @param identities - Identity module used to resolve its referenced relation.
+ */
 function canonicalDesiredForeignKey(
   column: CreateTableColumnAst,
   identities: CanonicalRelationIdentityModule,
@@ -599,6 +617,12 @@ function canonicalDesiredForeignKey(
   }
 }
 
+/**
+ * Finds unique constraints that cover exactly one requested column.
+ *
+ * @param constraints - Introspected unique constraints to search.
+ * @param column - Desired unique column name.
+ */
 function matchUniqueConstraints(
   constraints: readonly CatalogKeyConstraint[],
   column: string,
@@ -606,6 +630,13 @@ function matchUniqueConstraints(
   return constraints.filter((constraint) => arraysEqual(constraint.columns, [column]))
 }
 
+/**
+ * Finds introspected foreign keys semantically equal to an expected key.
+ *
+ * @param foreignKeys - Introspected foreign keys to search.
+ * @param expected - Normalized desired foreign key.
+ * @param identities - Identity module used for relation comparison.
+ */
 function matchForeignKeys(
   foreignKeys: readonly CatalogForeignKey[],
   expected: CanonicalForeignKey,
@@ -627,6 +658,7 @@ function matchForeignKeys(
  *
  * @param live - Introspected table definition.
  * @param desired - Dialect-lowered desired table definition.
+ * @param shape - Ownership shape controlling whether extra objects are drift.
  * @param dialect - Dialect used to normalize managed values.
  * @param issues - Mutable collection that receives unsupported-drift issues.
  * @param identities - Identity module used for comparison and diagnostics.
@@ -819,6 +851,8 @@ function projectedReference(
  * Normalizes desired indexes and fills omitted names and uniqueness flags.
  *
  * @param info - Desired table metadata containing index declarations.
+ * @param identity - Canonical identity of the desired table.
+ * @param dialect - Dialect supplying physical naming rules.
  */
 function desiredIndexes(
   info: ReturnType<TableHandle['getTableMetadata']>,
@@ -850,22 +884,21 @@ function desiredIndexes(
     )
 }
 
-/**
- * Reconciles desired tables with an introspected catalog into one canonically ordered
- * Migration Plan. Unsupported or ambiguous drift is collected before the first
- * deterministic planning issue is thrown.
- *
- * @param schemas - Registered desired table handles.
- * @param catalog - Introspected catalog snapshot and namespace context.
- * @param dialect - Dialect used for identity, lowering, and value normalization.
- * @param registrationDefault - Optional namespace for registrations that omit one.
- */
 export type PlannedMigration = {
   plan: MigrationPlan
   identities: CanonicalRelationIdentityModule
   desiredTables: CanonicalRelationRegistry<CreateTableAst>
 }
 
+/**
+ * Reconciles desired tables with an introspected catalog into one canonical plan.
+ *
+ * @param schemas - Registered desired table handles.
+ * @param catalog - Introspected catalog snapshot and namespace context.
+ * @param dialect - Dialect used for identity, lowering, and value normalization.
+ * @param registrationDefault - Optional namespace for registrations that omit one.
+ * @param ownershipDeclarations - Explicit relation and namespace authority declarations.
+ */
 function buildMigrationPlan(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
@@ -909,13 +942,20 @@ function buildMigrationPlan(
   const lowered = lowerDesiredSchema(sortedSchemas, identities, dialect)
   const desiredTables = identities.createRegistry<CreateTableAst>()
   for (const table of lowered.tables) desiredTables.set(table.identity, table.ast)
-  const sortedCatalogTables = [...catalog.tables].sort((left, right) =>
+  const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
+  const planningCatalog = catalogForPlanning(
+    catalog,
+    identities,
+    desiredTables,
+    lowered.tables.map(({ identity }) => identity),
+    ownership,
+  )
+  const sortedCatalogTables = [...planningCatalog.tables].sort((left, right) =>
     compareCatalogTables(left, right, identities),
   )
   const existing = catalogTableMap(sortedCatalogTables, issues, identities)
-  const ensuredSchemas = schemasPresentInCatalog(catalog, identities)
+  const ensuredSchemas = [...planningCatalog.namespaces]
   const registered = identities.createRegistry<TableHandle>()
-  const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
   const physicalNames = createPhysicalNameRegistry(namingProfile)
   const representedCatalogNames = new Set<string>()
 
@@ -996,7 +1036,7 @@ function buildMigrationPlan(
     }
   }
 
-  for (const reservation of catalog.nameReservations) {
+  for (const reservation of planningCatalog.nameReservations) {
     if (representedCatalogNames.has(`${reservation.schema}\0${reservation.name}`)) {
       continue
     }
@@ -1012,7 +1052,7 @@ function buildMigrationPlan(
     })
   }
 
-  for (const reservation of catalog.constraintNameReservations) {
+  for (const reservation of planningCatalog.constraintNameReservations) {
     const owner = identities.resolve(
       catalogRelationInput(reservation.schema, reservation.table),
     )
@@ -1032,6 +1072,13 @@ function buildMigrationPlan(
     }
   }
 
+  /**
+   * Reserves the deterministic physical name for a desired foreign key.
+   *
+   * @param owner - Canonical identity of the referencing table.
+   * @param column - Referencing column name.
+   * @param reference - Desired foreign-key target and actions.
+   */
   const reserveForeignKey = (
     owner: CanonicalRelationIdentity,
     column: string,
@@ -1061,6 +1108,12 @@ function buildMigrationPlan(
     })
   }
 
+  /**
+   * Reserves the deterministic names used by a desired unique constraint.
+   *
+   * @param owner - Canonical identity of the constrained table.
+   * @param column - Unique column name.
+   */
   const reserveUniqueConstraint = (owner: CanonicalRelationIdentity, column: string) => {
     const name = generatedUniqueName(owner, column, namingProfile)
     const token = `generated-unique:${identities.format(owner)}:${column}`
@@ -1209,6 +1262,8 @@ function buildMigrationPlan(
       continue
     }
 
+    // This window contains only this relation's steps; deferred foreign keys follow the loop.
+    const relationStepStart = steps.length
     collectManagedPropertyIssues(live, createAst, shape, dialect, issues, identities)
 
     const liveColumns = new Map(
@@ -1250,6 +1305,21 @@ function buildMigrationPlan(
           reserveUniqueConstraint(identity, desired.name)
         }
         continue
+      }
+
+      const columnTarget = identities.format(identity, {
+        role: 'column',
+        spelling: desired.name,
+      })
+      if (current.dataType === undefined) {
+        throw new MigrationError({
+          message: `Cannot plan desired-table column ${columnTarget}: catalog data type is unresolved`,
+        })
+      }
+      if (current.isNullable === undefined) {
+        throw new MigrationError({
+          message: `Cannot plan desired-table column ${columnTarget}: catalog nullability is unresolved`,
+        })
       }
 
       const desiredType = dialect.normalizeDataType(desired.dataType)
@@ -1450,6 +1520,25 @@ function buildMigrationPlan(
         })
       }
     }
+
+    if (
+      live.opaqueObjects.length > 0 &&
+      steps
+        .slice(relationStepStart)
+        .some(
+          (step) =>
+            step.kind === 'alter_column_type' ||
+            step.kind === 'drop_column' ||
+            step.kind === 'drop_index',
+        )
+    ) {
+      issues.push({
+        identity,
+        target: '',
+        property: 'opaque_catalog_object',
+        message: `Cannot destructively change '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
+      })
+    }
   }
 
   steps.push(...deferredForeignKeys)
@@ -1458,6 +1547,15 @@ function buildMigrationPlan(
     const identity = identities.resolve(catalogRelationInput(live.schema, live.name))
     if (registered.has(identity)) continue
     if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace)) {
+      continue
+    }
+    if (live.opaqueObjects.length > 0) {
+      issues.push({
+        identity,
+        target: '',
+        property: 'opaque_catalog_object',
+        message: `Cannot drop '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
+      })
       continue
     }
     steps.push({

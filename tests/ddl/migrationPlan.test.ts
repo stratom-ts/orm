@@ -1,8 +1,7 @@
 import { nullable, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import type { CatalogSnapshot, Dialect } from '@/dialects'
+import type { Dialect } from '@/dialects'
 import {
   MigrationError,
   column,
@@ -13,8 +12,12 @@ import {
 } from '@/index'
 import type { TableHandle } from '@/types'
 
-const planMigration = (...args: Parameters<typeof planMigrationWithContext>) =>
-  planMigrationWithContext(...args).plan
+import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
+import {
+  completePostgresCatalog,
+  catalogPrimaryKey as createCatalogPrimaryKey,
+  planMigration,
+} from '../helpers/catalog'
 
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
@@ -34,6 +37,8 @@ const SUPPORTED_CATALOG_SEMANTICS = {
   semanticCompleteness: 'supportedSimple' as const,
   isValid: true,
 }
+
+const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
 
 function emptyCatalog(): CatalogSnapshot {
   return {
@@ -163,6 +168,7 @@ function mixedCatalog(): CatalogSnapshot {
           { name: 'email', dataType: 'text', isNullable: false },
           { name: 'id', dataType: 'uuid', isNullable: false },
         ],
+        primaryKey: catalogPrimaryKey('users'),
       },
       {
         schema: 'public',
@@ -191,6 +197,7 @@ function mixedCatalog(): CatalogSnapshot {
             ...SUPPORTED_CATALOG_SEMANTICS,
           },
         ],
+        primaryKey: catalogPrimaryKey('accounts'),
       },
       {
         schema: 'public',
@@ -207,11 +214,13 @@ function mixedCatalog(): CatalogSnapshot {
             ...SUPPORTED_CATALOG_SEMANTICS,
           },
         ],
+        primaryKey: catalogPrimaryKey('z_orphan'),
       },
       {
         schema: 'public',
         name: 'a_orphan',
         columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('a_orphan'),
       },
     ],
   }
@@ -348,6 +357,7 @@ describe('Migration Plan construction', () => {
               defaultExpression: "'pending'",
             },
           ],
+          primaryKey: catalogPrimaryKey('settings'),
         },
       ],
     }
@@ -365,11 +375,14 @@ describe('Migration Plan construction', () => {
       },
       { primaryKey: 'id' },
     )
-    const introspect = vi.fn(async () => emptyCatalog())
+    const introspect = vi.fn(async (_executor, request) =>
+      completePostgresCatalog(emptyCatalog(), request),
+    )
     const compile = vi.fn(() => ({ sql: '', params: [] }))
     const dialect: Dialect = {
       id: 'mysql',
       relationIdentity: 'postgresql',
+      catalog: { introspectCatalog: introspect },
       lowerDesiredSchema: (graph) => ({
         tables: graph.tables.map((table) => ({
           handle: table.handle,
@@ -414,7 +427,6 @@ describe('Migration Plan construction', () => {
       normalizeDataType: (dataType) =>
         dataType === 'custom_string_alias' ? 'custom_string' : dataType,
       normalizeDefaultValue: (value) => `custom_default:${String(value)}`,
-      introspect,
       compile,
     }
     const catalog: CatalogSnapshot = {
@@ -491,11 +503,13 @@ describe('Migration Plan construction', () => {
               ...SUPPORTED_CATALOG_SEMANTICS,
             },
           ],
+          primaryKey: catalogPrimaryKey('users'),
         },
         {
           schema: 'public',
           name: 'orphan',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('orphan'),
         },
       ],
     }
@@ -728,11 +742,13 @@ describe('Migration Plan construction', () => {
           schema: 'tenant',
           name: 'items',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('items'),
         },
         {
           schema: 'public',
           name: 'items',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('items'),
         },
       ],
     }
@@ -829,11 +845,13 @@ describe('Migration Plan construction', () => {
           schema: 'a.b',
           name: 'c',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('c'),
         },
         {
           schema: 'a',
           name: 'b.c',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('b.c'),
         },
       ],
     }
@@ -858,6 +876,7 @@ describe('Migration Plan construction', () => {
           schema: 'a',
           name: 'anchor',
           columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('anchor'),
         },
       ],
     }
@@ -890,6 +909,7 @@ describe('Migration Plan construction', () => {
             { name: 'x.y', dataType: 'text', isNullable: true },
             { name: 'x.y', dataType: 'text', isNullable: true },
           ],
+          primaryKey: catalogPrimaryKey('c'),
         },
       ],
     }
@@ -959,6 +979,13 @@ describe('Migration Plan construction', () => {
             columns: ['tenantId', 'teamId'],
             ...SUPPORTED_CATALOG_SEMANTICS,
           },
+          uniqueConstraints: [
+            {
+              name: 'teams_team_id_key',
+              columns: ['teamId'],
+              ...SUPPORTED_CATALOG_SEMANTICS,
+            },
+          ],
         },
         {
           schema: 'public',
@@ -970,6 +997,7 @@ describe('Migration Plan construction', () => {
             { name: 'secondaryTeamId', dataType: 'uuid', isNullable: false },
             { name: 'primaryEmail', dataType: 'text', isNullable: false },
           ],
+          primaryKey: catalogPrimaryKey('memberships'),
           uniqueConstraints: [
             {
               name: 'memberships_secondary_email_key',
@@ -1177,6 +1205,7 @@ describe('Migration Plan construction', () => {
               defaultExpression: "'x'",
             },
           ],
+          primaryKey: catalogPrimaryKey('ordered_settings'),
         },
       ],
     }
@@ -1258,11 +1287,13 @@ describe('Migration Plan construction', () => {
         schema: 'public',
         name: 'orphan',
         columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('orphan'),
       },
       {
         schema: 'other_app',
         name: 'secrets',
         columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('secrets'),
       },
     )
 

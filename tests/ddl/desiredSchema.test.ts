@@ -103,14 +103,11 @@ function fakeSqliteDialect(): Dialect {
       throw new Error('fake adapter inference must not be used by this contract')
     }),
     normalizeDataType: vi.fn((value) => value),
-    introspect: vi.fn(async () => ({
-      tables: [],
-      nameReservations: [],
-      constraintNameReservations: [],
-      namespaceContext: {
-        writableDefault: [{ role: 'database' as const, spelling: 'main' }],
-      },
-    })),
+    catalog: {
+      introspectCatalog: vi.fn(async () => {
+        throw new Error('fake adapter introspection is outside this contract')
+      }),
+    },
     compile: vi.fn(() => ({ sql: '', params: [] })),
   }
 }

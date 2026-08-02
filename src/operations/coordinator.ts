@@ -25,6 +25,11 @@ type OperationFrame = {
 
 const activeOperation = new AsyncLocalStorage<OperationFrame>()
 
+/**
+ * Validates the operation session provider contract at runtime.
+ *
+ * @param provider - Provider to validate.
+ */
 function assertProvider(provider: OperationSessionProvider): void {
   if (
     provider?.nativeTransactions !== true ||
@@ -38,6 +43,11 @@ function assertProvider(provider: OperationSessionProvider): void {
   }
 }
 
+/**
+ * Validates a pinned operation session and its stable identity.
+ *
+ * @param session - Session to validate.
+ */
 function assertSession(session: OperationSession): void {
   const identity = session?.identity
   if (
@@ -67,14 +77,36 @@ export class OperationCoordinator {
   private closing = false
   private closePromise: Promise<void> | undefined
 
+  /**
+   * Creates a coordinator for one operation session provider.
+   *
+   * @example
+   *   const coordinator = new OperationCoordinator(provider)
+   *
+   * @param provider - Exclusive native operation session provider.
+   */
   constructor(private readonly provider: OperationSessionProvider) {
     assertProvider(provider)
   }
 
+  /**
+   * Tests whether a token belongs to this coordinator and remains active.
+   *
+   * @example
+   *   coordinator.isActiveToken(token)
+   *
+   * @param token - Operation token to test.
+   */
   isActiveToken(token: OperationToken | undefined): boolean {
     return token?.coordinator === this && token.active
   }
 
+  /**
+   * Returns this coordinator's active token from asynchronous context.
+   *
+   * @example
+   *   const token = coordinator.currentToken()
+   */
   currentToken(): OperationToken | undefined {
     let frame = activeOperation.getStore()
     while (frame) {
@@ -84,6 +116,14 @@ export class OperationCoordinator {
     return undefined
   }
 
+  /**
+   * Runs one root operation on an exclusive physical session.
+   *
+   * @example
+   *   await coordinator.run(async ({ executor }) => executor.run(query))
+   *
+   * @param operation - Operation callback receiving scoped session capabilities.
+   */
   run<T>(operation: (context: OperationContext) => Promise<T>): Promise<T> {
     if (this.currentToken()) {
       return Promise.reject(
@@ -118,6 +158,11 @@ export class OperationCoordinator {
           const database = session.identity.database
           const physicalSession = session.identity.physicalSession
           const executor: Executor = {
+            /**
+             * Executes a query through the pinned operation session.
+             *
+             * @param query - Compiled query to execute.
+             */
             async execute(query) {
               try {
                 return await session!.query(query)
@@ -130,6 +175,11 @@ export class OperationCoordinator {
                 })
               }
             },
+            /**
+             * Executes a statement through the pinned operation session.
+             *
+             * @param query - Compiled query to execute.
+             */
             async run(query) {
               try {
                 await session!.run(query)
@@ -148,6 +198,7 @@ export class OperationCoordinator {
             executor,
             identity: session.identity,
             active: true,
+            /** Marks the physical session for disposal after the operation. */
             discard() {
               disposition = 'discard'
             },
@@ -196,6 +247,12 @@ export class OperationCoordinator {
     })()
   }
 
+  /**
+   * Closes the provider after all queued operations finish.
+   *
+   * @example
+   *   await coordinator.close()
+   */
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise
     this.closing = true

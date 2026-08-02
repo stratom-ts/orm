@@ -29,6 +29,12 @@ const IDENTITY_BASE_TYPES = new Set([
   'int8',
 ])
 
+/**
+ * Tests canonical relation identity equality.
+ *
+ * @param left - Left relation identity.
+ * @param right - Right relation identity.
+ */
 function sameIdentity(
   left: CanonicalRelationIdentity,
   right: CanonicalRelationIdentity,
@@ -45,6 +51,12 @@ function sameIdentity(
   )
 }
 
+/**
+ * Formats a relation or column identity for diagnostics.
+ *
+ * @param identity - Canonical relation identity.
+ * @param column - Optional column name.
+ */
 function formatIdentity(identity: CanonicalRelationIdentity, column?: string): string {
   const parts = identity.namespace.map(
     (segment) => `${segment.role}:${JSON.stringify(segment.identifier.spelling)}`,
@@ -54,17 +66,32 @@ function formatIdentity(identity: CanonicalRelationIdentity, column?: string): s
   return `[${parts.join(', ')}]`
 }
 
+/**
+ * Reads the schema spelling from a PostgreSQL relation identity.
+ *
+ * @param identity - Canonical relation identity.
+ */
 function postgresSchema(identity: CanonicalRelationIdentity): string | undefined {
   return identity.namespace.find((segment) => segment.role === 'schema')?.identifier
     .spelling
 }
 
+/**
+ * Returns table columns in deterministic name order.
+ *
+ * @param table - Authored desired table.
+ */
 function orderedColumns(table: AuthoredDesiredTable): AuthoredDesiredColumn[] {
   return [...table.columns].sort((left, right) =>
     left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
   )
 }
 
+/**
+ * Lowers a portable database expression to PostgreSQL SQL.
+ *
+ * @param expression - Portable expression name.
+ */
 function portableExpression(expression: string): string {
   switch (expression) {
     case 'currentTimestamp':
@@ -80,6 +107,11 @@ function portableExpression(expression: string): string {
   }
 }
 
+/**
+ * Validates and trims a PostgreSQL dialect expression.
+ *
+ * @param expression - Authored dialect expression.
+ */
 function assertSafeExpression(expression: string): string {
   const value = expression.trim()
   let quoted = false
@@ -109,6 +141,11 @@ function assertSafeExpression(expression: string): string {
   return value
 }
 
+/**
+ * Lowers a database default to normalized PostgreSQL SQL.
+ *
+ * @param value - Authored database default.
+ */
 function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
   let sql: string
   switch (value.kind) {
@@ -130,6 +167,11 @@ function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
   return { sql, normalized: normalizePostgresDefaultExpression(sql) }
 }
 
+/**
+ * Lowers supported column generation metadata.
+ *
+ * @param generation - Authored generation metadata.
+ */
 function lowerGeneration(
   generation: ColumnGeneration | undefined,
 ): 'always' | 'byDefault' | undefined {
@@ -151,6 +193,11 @@ function lowerGeneration(
   })
 }
 
+/**
+ * Selects and validates a column's PostgreSQL physical type.
+ *
+ * @param column - Authored desired column.
+ */
 function physicalType(column: AuthoredDesiredColumn): string {
   const metadata = column.metadata
   const selected =
@@ -160,6 +207,13 @@ function physicalType(column: AuthoredDesiredColumn): string {
   return assertSafePostgresDataType(String(selected))
 }
 
+/**
+ * Validates an explicit reference-column type against its inherited type.
+ *
+ * @param table - Table containing the reference column.
+ * @param column - Reference column.
+ * @param inheritedType - Physical type inherited from the target column.
+ */
 function validateReferencePhysicalType(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
@@ -175,6 +229,13 @@ function validateReferencePhysicalType(
   }
 }
 
+/**
+ * Validates PostgreSQL column metadata and returns identity generation mode.
+ *
+ * @param table - Table containing the column.
+ * @param column - Authored desired column.
+ * @param dataType - Resolved PostgreSQL physical type.
+ */
 function validatePostgresColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
@@ -207,6 +268,13 @@ function validatePostgresColumn(
   return generated
 }
 
+/**
+ * Lowers one resolved column to create-table AST.
+ *
+ * @param table - Table containing the column.
+ * @param column - Authored desired column.
+ * @param dataType - Resolved PostgreSQL physical type.
+ */
 function lowerColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
@@ -252,7 +320,14 @@ function lowerColumn(
   })
 }
 
-/** PostgreSQL compatibility ingress and deterministic two-pass graph lowerer. */
+/**
+ * PostgreSQL compatibility ingress and deterministic two-pass graph lowerer.
+ *
+ * @example
+ *   const lowered = lowerPostgresDesiredSchema(graph)
+ *
+ * @param graph - Authored desired schema graph.
+ */
 export function lowerPostgresDesiredSchema(
   graph: AuthoredDesiredSchema,
 ): LoweredDesiredSchema {

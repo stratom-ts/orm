@@ -2,17 +2,19 @@ import { SQLDialect } from 'db0'
 
 import type {
   CanonicalRelationIdentity,
-  NamespaceContext,
   RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
 import type {
   ColumnMetadata,
   ReferenceMetadata,
-  ReferentialAction,
   TableMetadata,
 } from '@/schemas/actions/types'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
+
+import type { CatalogIntrospector } from './catalog'
+
+export type * from './catalog'
 
 /** SQL type string produced by dialect type inference. */
 export type SqlDataType = string
@@ -64,73 +66,6 @@ export type LoweredDesiredSchema = Readonly<{
 export type CompiledQuery = {
   sql: string
   params: unknown[]
-}
-
-/** Live column entry from dialect introspection. */
-export type CatalogColumn = {
-  name: string
-  dataType: string
-  isNullable: boolean
-  hasDefault?: boolean
-  isIdentity?: boolean
-  /** Normalized SQL expression; null means no default, undefined means unknown. */
-  defaultExpression?: string | null
-  /** Null means not an identity, undefined means unknown. */
-  identityGeneration?: 'always' | 'byDefault' | null
-}
-
-export type CatalogKeyConstraint = {
-  name: string
-  columns: string[]
-  semanticCompleteness: 'supportedSimple' | 'unsupported'
-  /** False for catalog objects that PostgreSQL will not enforce for all rows. */
-  isValid: boolean
-}
-
-export type CatalogForeignKey = CatalogKeyConstraint & {
-  /** PostgreSQL schema of the referenced catalog relation. */
-  referencedSchema: string
-  referencedTable: string
-  referencedColumns: string[]
-  onDelete: ReferentialAction
-  onUpdate: ReferentialAction
-}
-
-/** Live index entry from dialect introspection. */
-export type CatalogIndex = {
-  name: string
-  columns: string[]
-  unique: boolean
-  semanticCompleteness: 'supportedSimple' | 'unsupported'
-  /** False for invalid/not-ready PostgreSQL indexes. */
-  isValid: boolean
-}
-
-/** Live table entry from dialect introspection. */
-export type CatalogTable = {
-  name: string
-  /** PostgreSQL schema of the catalog relation. */
-  schema: string
-  columns: CatalogColumn[]
-  indexes?: CatalogIndex[]
-  /** Undefined means the dialect did not introspect this managed property. */
-  primaryKey?: CatalogKeyConstraint | null
-  uniqueConstraints?: CatalogKeyConstraint[]
-  foreignKeys?: CatalogForeignKey[]
-}
-
-/** Catalog snapshot for desired-state migrations. */
-export type CatalogSnapshot = {
-  tables: CatalogTable[]
-  /** Complete transitional reservation set; empty means positively no reserved names. */
-  nameReservations: Array<{ schema: string; name: string }>
-  /** Complete table-local constraint-name set; empty means positively none. */
-  constraintNameReservations: Array<{ schema: string; table: string; name: string }>
-  /**
-   * Writable namespace facts resolved on the introspection session. Required because
-   * migration identity never assumes a shared namespace fallback.
-   */
-  namespaceContext: NamespaceContext
 }
 
 /** Comparison operators for simple where predicates. */
@@ -434,6 +369,9 @@ export interface Dialect {
   /** Required adapter profile used by canonical migration relation identity. */
   readonly relationIdentity: RelationIdentityAdapter
 
+  /** Deep adapter module for scoped catalog observation. */
+  readonly catalog: CatalogIntrospector
+
   /** Physically resolves a complete, canonically registered desired schema graph. */
   lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
 
@@ -443,8 +381,6 @@ export interface Dialect {
 
   /** Canonical SQL expression used to compare a declared column default. */
   normalizeDefaultValue?(value: string | number | boolean | null): string
-
-  introspect(executor: unknown): Promise<CatalogSnapshot>
 
   compile(node: SqlAst): CompiledQuery
 

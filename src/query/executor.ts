@@ -22,6 +22,11 @@ export type Executor = {
  * @returns Executor with `execute` and `run` methods
  */
 export function createDb0Executor(database: Database): Executor {
+  /**
+   * Prepares and binds a compiled query.
+   *
+   * @param query - Compiled query to prepare.
+   */
   const runPrepared = async (query: CompiledQuery) => {
     const statement = database.prepare(query.sql)
     if (query.params.length === 0) {
@@ -31,6 +36,14 @@ export function createDb0Executor(database: Database): Executor {
   }
 
   return {
+    /**
+     * Executes a prepared query and returns all rows.
+     *
+     * @example
+     *   const rows = await executor.execute({ sql: 'SELECT 1', params: [] })
+     *
+     * @param query - Compiled query to execute.
+     */
     async execute(query: CompiledQuery): Promise<unknown[]> {
       try {
         const statement = await runPrepared(query)
@@ -43,6 +56,14 @@ export function createDb0Executor(database: Database): Executor {
       }
     },
 
+    /**
+     * Runs a prepared statement without returning rows.
+     *
+     * @example
+     *   await executor.run({ sql: 'DELETE FROM sessions', params: [] })
+     *
+     * @param query - Compiled statement to run.
+     */
     async run(query: CompiledQuery): Promise<void> {
       try {
         const statement = await runPrepared(query)

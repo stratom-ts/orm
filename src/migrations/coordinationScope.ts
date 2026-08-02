@@ -24,6 +24,12 @@ export type MigrationCoordinationLockIdentity =
       canonicalIdentity: string
     }>
 
+/**
+ * Asserts that a value is stable enough for canonical lock identity encoding.
+ *
+ * @param value - Value to validate.
+ * @param label - Identifier label used in validation errors.
+ */
 function assertStableIdentifier(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0 || value.includes('\0')) {
     throw new SchemaError({
@@ -50,10 +56,27 @@ function assertStableIdentifier(value: unknown, label: string): asserts value is
   }
 }
 
+/**
+ * Validates an application identifier used for migration coordination.
+ *
+ * @example
+ *   validateApplicationId('billing-service')
+ *
+ * @param applicationId - Stable application identifier.
+ */
 export function validateApplicationId(applicationId: string): void {
   assertStableIdentifier(applicationId, 'applicationId')
 }
 
+/**
+ * Creates a canonical PostgreSQL migration coordination scope.
+ *
+ * @example
+ *   const scope = createMigrationCoordinationScope('app', 'billing-service')
+ *
+ * @param databaseName - PostgreSQL database name.
+ * @param applicationId - Optional stable application identifier.
+ */
 export function createMigrationCoordinationScope(
   databaseName: string,
   applicationId?: string,
@@ -71,7 +94,14 @@ export function createMigrationCoordinationScope(
   })
 }
 
-/** Legacy first during mixed-version deployment; scoped identity is semantic until #96. */
+/**
+ * Returns legacy-first lock acquisition order for mixed-version deployment.
+ *
+ * @example
+ *   const locks = migrationLockAcquisitionOrder(scope)
+ *
+ * @param scope - Migration coordination scope.
+ */
 export function migrationLockAcquisitionOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {
@@ -96,6 +126,14 @@ export function migrationLockAcquisitionOrder(
   ])
 }
 
+/**
+ * Returns the reverse lock release order for a coordination scope.
+ *
+ * @example
+ *   const locks = migrationLockReleaseOrder(scope)
+ *
+ * @param scope - Migration coordination scope.
+ */
 export function migrationLockReleaseOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {

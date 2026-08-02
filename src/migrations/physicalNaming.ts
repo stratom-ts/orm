@@ -33,10 +33,26 @@ export type PhysicalNamingProfile = Readonly<{
   ): 'namespaceRelations' | 'relationConstraints' | 'tableLocal'
 }>
 
+/**
+ * Returns a name unchanged for exact identifier comparison.
+ *
+ * @example
+ *   POSTGRES_PHYSICAL_NAMING.comparisonKey('Users')
+ *
+ * @param name - Identifier spelling.
+ */
 function exactKey(name: string): string {
   return name
 }
 
+/**
+ * Folds ASCII uppercase characters for SQLite fixture comparison.
+ *
+ * @example
+ *   SQLITE_PHYSICAL_NAMING_FIXTURE.comparisonKey('Users')
+ *
+ * @param name - Identifier spelling.
+ */
 function sqliteKey(name: string): string {
   let key = ''
   for (const character of name) {
@@ -51,6 +67,14 @@ export const POSTGRES_PHYSICAL_NAMING: PhysicalNamingProfile = {
   maximumLength: 63,
   lengthUnit: 'utf8Bytes',
   comparisonKey: exactKey,
+  /**
+   * Selects the PostgreSQL uniqueness scope for a physical name.
+   *
+   * @example
+   *   POSTGRES_PHYSICAL_NAMING.scope('index')
+   *
+   * @param kind - Physical-name kind.
+   */
   scope: (kind) =>
     kind === 'foreignKey' || kind === 'check'
       ? 'relationConstraints'
@@ -63,6 +87,14 @@ export const SQLITE_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
   maximumLength: 255,
   lengthUnit: 'unicodeScalars',
   comparisonKey: sqliteKey,
+  /**
+   * Selects the SQLite fixture uniqueness scope for a physical name.
+   *
+   * @example
+   *   SQLITE_PHYSICAL_NAMING_FIXTURE.scope('unique')
+   *
+   * @param kind - Physical-name kind.
+   */
   scope: (kind) =>
     kind === 'foreignKey' || kind === 'check'
       ? 'relationConstraints'
@@ -75,9 +107,23 @@ export const TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
   maximumLength: 64,
   lengthUnit: 'unicodeScalars',
   comparisonKey: sqliteKey,
+  /**
+   * Selects the table-local uniqueness scope.
+   *
+   * @example
+   *   TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE.scope('index')
+   */
   scope: () => 'tableLocal',
 }
 
+/**
+ * Selects the physical naming profile for a relation identity adapter.
+ *
+ * @example
+ *   const profile = physicalNamingProfile('postgresql')
+ *
+ * @param adapter - Relation identity adapter.
+ */
 export function physicalNamingProfile(
   adapter: RelationIdentityAdapter,
 ): PhysicalNamingProfile {
@@ -86,6 +132,11 @@ export function physicalNamingProfile(
     : SQLITE_PHYSICAL_NAMING_FIXTURE
 }
 
+/**
+ * Projects an identity into its canonical digest tuple.
+ *
+ * @param identity - Canonical relation identity.
+ */
 function identityTuple(identity: CanonicalRelationIdentity) {
   return [
     identity.namespace.map((segment) => [segment.role, segment.identifier.comparisonKey]),
@@ -95,7 +146,14 @@ function identityTuple(identity: CanonicalRelationIdentity) {
 
 const UTF8_ENCODER = new TextEncoder()
 
-/** Canonical JSON serialization is the documented digest input. */
+/**
+ * Serializes a physical-name seed into its canonical digest input.
+ *
+ * @example
+ *   const input = serializePhysicalNameSeed(seed)
+ *
+ * @param seed - Physical-name seed.
+ */
 export function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
   return JSON.stringify([
     seed.kind,
@@ -109,7 +167,14 @@ export function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
   ])
 }
 
-/** 64-bit FNV-1a over UTF-8, rendered as 16 lowercase hexadecimal digits. */
+/**
+ * Computes a 64-bit FNV-1a digest over the seed's canonical UTF-8 serialization.
+ *
+ * @example
+ *   const digest = physicalNameDigest(seed)
+ *
+ * @param seed - Physical-name seed.
+ */
 export function physicalNameDigest(seed: PhysicalNameSeed): string {
   let digest = 0xcbf29ce484222325n
   for (const byte of UTF8_ENCODER.encode(serializePhysicalNameSeed(seed))) {
@@ -119,12 +184,25 @@ export function physicalNameDigest(seed: PhysicalNameSeed): string {
   return digest.toString(16).padStart(16, '0')
 }
 
+/**
+ * Measures a name using a profile's configured length unit.
+ *
+ * @param value - Name to measure.
+ * @param profile - Physical naming profile.
+ */
 function measuredLength(value: string, profile: PhysicalNamingProfile): number {
   return profile.lengthUnit === 'utf8Bytes'
     ? UTF8_ENCODER.encode(value).length
     : [...value].length
 }
 
+/**
+ * Truncates a readable prefix without splitting a Unicode scalar.
+ *
+ * @param prefix - Prefix to truncate.
+ * @param available - Maximum measured length.
+ * @param profile - Physical naming profile.
+ */
 function truncatePrefix(
   prefix: string,
   available: number,
@@ -146,6 +224,15 @@ const SUFFIX: Record<GeneratedPhysicalNameKind, string> = {
   check: 'check',
 }
 
+/**
+ * Generates a deterministic physical name within a profile's length limit.
+ *
+ * @example
+ *   const name = generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING)
+ *
+ * @param seed - Canonical physical-name seed.
+ * @param profile - Physical naming profile.
+ */
 export function generatePhysicalName(
   seed: PhysicalNameSeed,
   profile: PhysicalNamingProfile,
@@ -172,6 +259,17 @@ export function generatePhysicalName(
   return `${truncatePrefix(readable, available, profile)}${fixed}`
 }
 
+/**
+ * Generates the physical name for an index.
+ *
+ * @example
+ *   const name = generatedIndexName(owner, ['email'], true, profile)
+ *
+ * @param owner - Owning relation identity.
+ * @param columns - Indexed column spellings.
+ * @param unique - Whether the index is unique.
+ * @param profile - Physical naming profile.
+ */
 export function generatedIndexName(
   owner: CanonicalRelationIdentity,
   columns: readonly string[],
@@ -181,6 +279,16 @@ export function generatedIndexName(
   return generatePhysicalName({ kind: 'index', owner, columns, unique }, profile)
 }
 
+/**
+ * Generates the physical name for a primary key.
+ *
+ * @example
+ *   const name = generatedPrimaryKeyName(owner, ['id'], profile)
+ *
+ * @param owner - Owning relation identity.
+ * @param columns - Primary-key column spellings.
+ * @param profile - Physical naming profile.
+ */
 export function generatedPrimaryKeyName(
   owner: CanonicalRelationIdentity,
   columns: readonly string[],
@@ -189,6 +297,16 @@ export function generatedPrimaryKeyName(
   return generatePhysicalName({ kind: 'primaryKey', owner, columns }, profile)
 }
 
+/**
+ * Generates the physical name for a single-column unique constraint.
+ *
+ * @example
+ *   const name = generatedUniqueName(owner, 'email', profile)
+ *
+ * @param owner - Owning relation identity.
+ * @param column - Unique column spelling.
+ * @param profile - Physical naming profile.
+ */
 export function generatedUniqueName(
   owner: CanonicalRelationIdentity,
   column: string,
@@ -197,6 +315,20 @@ export function generatedUniqueName(
   return generatePhysicalName({ kind: 'unique', owner, columns: [column] }, profile)
 }
 
+/**
+ * Generates the physical name for a single-column foreign key.
+ *
+ * @example
+ *   const name = generatedForeignKeyName(owner, 'team_id', team, 'id', undefined, undefined, profile)
+ *
+ * @param owner - Owning relation identity.
+ * @param column - Referencing column spelling.
+ * @param referencedRelation - Referenced relation identity.
+ * @param referencedColumn - Referenced column spelling.
+ * @param onDelete - Optional delete action.
+ * @param onUpdate - Optional update action.
+ * @param profile - Physical naming profile.
+ */
 export function generatedForeignKeyName(
   owner: CanonicalRelationIdentity,
   column: string,
@@ -220,6 +352,16 @@ export function generatedForeignKeyName(
   )
 }
 
+/**
+ * Validates a physical identifier against a naming profile.
+ *
+ * @example
+ *   validatePhysicalName('users_pkey', 'primary key name', profile)
+ *
+ * @param name - Physical identifier spelling.
+ * @param description - Description used in validation errors.
+ * @param profile - Physical naming profile.
+ */
 export function validatePhysicalName(
   name: string,
   description: string,
@@ -250,12 +392,27 @@ export function validatePhysicalName(
   }
 }
 
+/**
+ * Serializes the namespace portion of a canonical identity.
+ *
+ * @param identity - Canonical relation identity.
+ */
 function namespaceKey(identity: CanonicalRelationIdentity): string {
   return JSON.stringify(
     identity.namespace.map((segment) => [segment.role, segment.identifier.comparisonKey]),
   )
 }
 
+/**
+ * Builds the registry key for a physical-name uniqueness scope.
+ *
+ * @example
+ *   const key = physicalNameScopeKey(profile, 'index', owner)
+ *
+ * @param profile - Physical naming profile.
+ * @param kind - Physical-name kind.
+ * @param owner - Owning relation identity.
+ */
 export function physicalNameScopeKey(
   profile: PhysicalNamingProfile,
   kind: PhysicalNameKind,
@@ -276,11 +433,27 @@ export type PhysicalNameRegistry = {
   }): void
 }
 
+/**
+ * Creates a collision-detecting physical-name registry.
+ *
+ * @example
+ *   const registry = createPhysicalNameRegistry(profile)
+ *
+ * @param profile - Physical naming profile.
+ */
 export function createPhysicalNameRegistry(
   profile: PhysicalNamingProfile,
 ): PhysicalNameRegistry {
   const names = new Map<string, { token: string; description: string }>()
   return {
+    /**
+     * Reserves a physical name or verifies an idempotent reservation.
+     *
+     * @example
+     *   registry.reserve({ kind: 'index', owner, name, token: 'users.email', description: 'email index' })
+     *
+     * @param options - Physical-name reservation fields.
+     */
     reserve({ kind, owner, name, token, description }) {
       validatePhysicalName(name, description, profile)
       const key = `${physicalNameScopeKey(profile, kind, owner)}:${JSON.stringify(

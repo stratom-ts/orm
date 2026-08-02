@@ -1,8 +1,6 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import type { CatalogForeignKey, CatalogSnapshot } from '@/dialects'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import {
@@ -10,8 +8,14 @@ import {
   generatedUniqueName,
 } from '@/migrations/physicalNaming'
 
-const planMigration = (...args: Parameters<typeof planMigrationWithContext>) =>
-  planMigrationWithContext(...args).plan
+import type {
+  LegacyCatalogForeignKeyFixture as CatalogForeignKey,
+  LegacyCatalogSnapshotFixture as CatalogSnapshot,
+} from '../helpers/catalog'
+import {
+  catalogPrimaryKey as createCatalogPrimaryKey,
+  planMigration,
+} from '../helpers/catalog'
 
 const namespaceContext = {
   writableDefault: [
@@ -29,6 +33,8 @@ const supportedSimple = {
   semanticCompleteness: 'supportedSimple' as const,
   isValid: true,
 }
+
+const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 
 const IndexedEvents = defineTable(
   'indexed_events',
@@ -70,6 +76,7 @@ function indexedCatalog(
             ...overrides,
           },
         ],
+        primaryKey: catalogPrimaryKey('indexed_events'),
       },
     ],
   }
@@ -120,6 +127,7 @@ function relationCatalog(options?: {
         schema: 'public',
         name: 'parents',
         columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('parents'),
       },
       {
         schema: 'public',
@@ -134,6 +142,7 @@ function relationCatalog(options?: {
         ],
         uniqueConstraints: options?.uniqueConstraints ?? [],
         foreignKeys: options?.foreignKeys ?? [],
+        primaryKey: catalogPrimaryKey('children'),
       },
     ],
   }

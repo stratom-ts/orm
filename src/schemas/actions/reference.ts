@@ -62,6 +62,10 @@ function isReferenceTargetHandle(value: ReferenceTarget): value is ReferenceTarg
   )
 }
 
+type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
+  T['getSchema']
+>['entries']
+
 /**
  * Builds a foreign-key column schema from a referenced table schema/handle and key.
  *
@@ -81,10 +85,6 @@ function isReferenceTargetHandle(value: ReferenceTarget): value is ReferenceTarg
  *
  * @returns Piped schema for the FK column with reference metadata
  */
-type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
-  T['getSchema']
->['entries']
-
 export function reference<
   T extends ReferenceTarget,
   K extends (T extends ReferenceTargetHandle

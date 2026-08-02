@@ -1,4 +1,5 @@
 import { isTableHandle } from '@/defineTable'
+import type { CatalogRequest } from '@/dialects/catalog'
 import type { TableHandle } from '@/types'
 
 import type {
@@ -37,12 +38,24 @@ export type ResolvedMigrationOwnership = {
   readonly absentRelations: readonly CanonicalRelationIdentity[]
 }
 
+/**
+ * Compares strings by locale-independent UTF-16 code-unit order.
+ *
+ * @param left - First string.
+ * @param right - Second string.
+ */
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
   return 0
 }
 
+/**
+ * Orders canonical namespaces by role and authored spelling.
+ *
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
+ */
 function compareNamespaceSpelling(
   left: readonly CanonicalNamespaceSegment[],
   right: readonly CanonicalNamespaceSegment[],
@@ -60,6 +73,12 @@ function compareNamespaceSpelling(
   return left.length - right.length
 }
 
+/**
+ * Orders canonical identities by authored namespace and relation spelling.
+ *
+ * @param left - First canonical relation identity.
+ * @param right - Second canonical relation identity.
+ */
 function compareIdentitySpelling(
   left: CanonicalRelationIdentity,
   right: CanonicalRelationIdentity,
@@ -70,6 +89,11 @@ function compareIdentitySpelling(
   )
 }
 
+/**
+ * Projects a table handle into a relation identity input.
+ *
+ * @param handle - Registered table handle.
+ */
 function relationInput(handle: TableHandle): RelationIdentityInput {
   const metadata = handle.getTableMetadata()
   return {
@@ -80,6 +104,61 @@ function relationInput(handle: TableHandle): RelationIdentityInput {
   }
 }
 
+/**
+ * Builds the unresolved ownership scope consumed by a connector-session introspector.
+ *
+ * @example
+ *   const request = createCatalogRequest(schemas, declarations)
+ *
+ * @param schemas - Registered table handles.
+ * @param declarations - Explicit migration ownership declarations.
+ * @param registrationDefault - Optional namespace for unqualified registrations.
+ */
+export function createCatalogRequest(
+  schemas: readonly TableHandle[],
+  declarations: readonly MigrationOwnershipDeclaration[],
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+): CatalogRequest {
+  // An explicit declaration overrides a registered handle's default complete shape.
+  const relations: CatalogRequest['relations'][number][] = schemas.map((handle) => ({
+    relation: relationInput(handle),
+    shape: 'complete',
+  }))
+  const absentRelations: RelationIdentityInput[] = []
+  const completeNamespaces: (readonly NamespaceIdentifierInput[])[] = []
+
+  // resolveRequest canonicalizes duplicates with last-write-wins semantics.
+  for (const declaration of declarations) {
+    if (declaration.kind === 'completeNamespace') {
+      completeNamespaces.push(declaration.namespace ?? [])
+      continue
+    }
+    if (declaration.kind === 'absentRelation') {
+      absentRelations.push(declaration.relation)
+      continue
+    }
+    relations.push({
+      relation: isTableHandle(declaration.relation)
+        ? relationInput(declaration.relation)
+        : declaration.relation,
+      shape: declaration.shape,
+    })
+  }
+
+  return {
+    relations,
+    absentRelations,
+    completeNamespaces,
+    ...(registrationDefault === undefined ? {} : { registrationDefault }),
+  }
+}
+
+/**
+ * Tests canonical namespaces for positional role and comparison-key equality.
+ *
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
+ */
 function sameNamespace(
   left: readonly CanonicalNamespaceSegment[],
   right: readonly CanonicalNamespaceSegment[],
@@ -96,13 +175,27 @@ function sameNamespace(
   )
 }
 
+/**
+ * Formats a canonical namespace for diagnostics.
+ *
+ * @param namespace - Canonical namespace segments.
+ */
 function formatNamespace(namespace: readonly CanonicalNamespaceSegment[]): string {
   return `[${namespace
     .map(({ role, identifier }) => `${role}:${JSON.stringify(identifier.spelling)}`)
     .join(', ')}]`
 }
 
-/** Resolves migration authority once against canonical relation identities. */
+/**
+ * Resolves migration authority once against canonical relation identities.
+ *
+ * @example
+ *   const ownership = resolveMigrationOwnership(schemas, declarations, identities)
+ *
+ * @param schemas - Registered table handles.
+ * @param declarations - Explicit migration ownership declarations.
+ * @param identities - Canonical relation identity module.
+ */
 export function resolveMigrationOwnership(
   schemas: readonly TableHandle[],
   declarations: readonly MigrationOwnershipDeclaration[],
@@ -217,8 +310,32 @@ export function resolveMigrationOwnership(
   }
 
   return {
+    /**
+     * Returns the managed shape for a relation, if present.
+     *
+     * @example
+     *   ownership.relationShape(identity)
+     *
+     * @param identity - Canonical relation identity.
+     */
     relationShape: (identity) => shapes.get(identity),
+    /**
+     * Tests whether a relation is declared absent.
+     *
+     * @example
+     *   ownership.isAbsent(identity)
+     *
+     * @param identity - Canonical relation identity.
+     */
     isAbsent: (identity) => absent.has(identity),
+    /**
+     * Tests whether a namespace is completely managed.
+     *
+     * @example
+     *   ownership.ownsNamespace(identity.namespace)
+     *
+     * @param namespace - Canonical namespace segments.
+     */
     ownsNamespace: (namespace) =>
       completeNamespaces.some((owned) => sameNamespace(owned, namespace)),
     completeNamespaces,

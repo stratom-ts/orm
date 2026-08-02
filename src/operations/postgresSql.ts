@@ -52,19 +52,43 @@ type Statement = {
   advisory: boolean
 }
 
+/**
+ * Tests whether a character may start an unquoted PostgreSQL word.
+ *
+ * @param character - Character to test.
+ */
 function isWordStart(character: string): boolean {
   return /[A-Za-z_]/.test(character)
 }
 
+/**
+ * Tests whether a character may continue an unquoted PostgreSQL word.
+ *
+ * @param character - Character to test.
+ */
 function isWordPart(character: string): boolean {
   return /[A-Za-z0-9_$]/.test(character)
 }
 
+/**
+ * Reads a dollar-quote delimiter at an SQL offset.
+ *
+ * @param sql - PostgreSQL SQL text.
+ * @param offset - Candidate delimiter offset.
+ */
 function dollarQuoteDelimiter(sql: string, offset: number): string | undefined {
   const match = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(offset))
   return match?.[0]
 }
 
+/**
+ * Scans PostgreSQL SQL for parameters, malformed text, and cleanup requirements.
+ *
+ * @example
+ *   const scan = scanPostgresSql('select * from users where id = $1')
+ *
+ * @param sql - PostgreSQL SQL text.
+ */
 export function scanPostgresSql(sql: string): PostgresSqlScan {
   const parameters: ParameterReference[] = []
   const statements: Statement[] = []
@@ -73,6 +97,7 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
   let malformed = false
   let index = 0
 
+  /** Finalizes the current executable statement and resets scanner state. */
   const finishStatement = () => {
     if (statement.executable) statements.push(statement)
     statement = { words: [], executable: false, advisory: false }
