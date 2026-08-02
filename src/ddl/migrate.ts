@@ -14,8 +14,6 @@ import {
   MIGRATE_ADVISORY_LOCK_CLASS,
   MIGRATE_ADVISORY_LOCK_ID,
   createMigrationCoordinationScope,
-  migrationLockAcquisitionOrder,
-  migrationLockReleaseOrder,
 } from '../migrations/coordinationScope'
 
 import { buildCreateTableAst } from './createTable'
@@ -343,16 +341,7 @@ export function createMigrateBuilder(options: {
       assertCanExecute?.()
       try {
         return await runOperation(async (executor, databaseIdentity, discard) => {
-          const coordinationScope = createMigrationCoordinationScope(
-            databaseIdentity,
-            applicationId,
-          )
-          const firstLock = migrationLockAcquisitionOrder(coordinationScope)[0]
-          if (firstLock?.kind !== 'legacy') {
-            throw new MigrationError({
-              message: 'Legacy migration lock must be acquired first',
-            })
-          }
+          createMigrationCoordinationScope(databaseIdentity, applicationId)
           await acquireMigrateLock(executor)
           try {
             const { plan, identities, handles } = await buildPlan(executor)
@@ -394,13 +383,7 @@ export function createMigrateBuilder(options: {
               ...(cause !== undefined ? { cause } : {}),
             })
           } finally {
-            if (
-              migrationLockReleaseOrder(coordinationScope).some(
-                (identity) => identity.kind === 'legacy',
-              )
-            ) {
-              if (!(await releaseMigrateLock(executor))) discard()
-            }
+            if (!(await releaseMigrateLock(executor))) discard()
           }
         })
       } catch (cause) {

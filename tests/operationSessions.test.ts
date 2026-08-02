@@ -1,4 +1,4 @@
-import type { Connector } from 'db0'
+import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -10,6 +10,13 @@ import {
   createDb0PostgresqlOperationSessionProvider,
   defineTable,
 } from '@/index'
+import {
+  POSTGRES_OPERATION_IDENTITY_SQL,
+  POSTGRES_OPERATION_ROLLBACK_SQL,
+  POSTGRES_OPERATION_UNLOCK_SQL,
+} from '@/operations/operationSession'
+
+import { createNativePostgresClient } from './helpers/nativePostgresClient'
 
 type Deferred = {
   promise: Promise<void>
@@ -43,7 +50,13 @@ function withDeadline<T>(promise: Promise<T>, milliseconds = 500): Promise<T> {
 }
 
 function createNativeConnector(options?: {
-  onQuery?: (text: string, signal?: AbortSignal) => Promise<unknown[]>
+  onQuery?: (
+    text: string,
+    signal: AbortSignal | undefined,
+    values: unknown[],
+  ) => Promise<unknown[]>
+  beforeEnd?: () => Promise<void>
+  disposeFailures?: number
   releaseFailure?: { value: unknown }
 }) {
   let nextProcessId = 4000
@@ -52,6 +65,8 @@ function createNativeConnector(options?: {
   let endCount = 0
   let activeCalls = 0
   let maxActiveCalls = 0
+  let disposeFailures = options?.disposeFailures ?? 0
+  const queryCalls: { text: string; values: unknown[] }[] = []
 
   const createClient = () => {
     const processID = nextProcessId++
@@ -67,6 +82,7 @@ function createNativeConnector(options?: {
       queryQueue: [],
       async end() {
         endCount++
+        await options?.beforeEnd?.()
         rejectActive?.(new Error('native connection terminated'))
       },
       async query(
@@ -74,7 +90,9 @@ function createNativeConnector(options?: {
       ) {
         const text = typeof query === 'string' ? query : query.text
         const signal = typeof query === 'string' ? undefined : query.signal
-        if (/pg_backend_pid\(\).*current_database\(\)/is.test(text)) {
+        const values = typeof query === 'string' ? [] : query.values
+        queryCalls.push({ text, values })
+        if (text === POSTGRES_OPERATION_IDENTITY_SQL) {
           return {
             rows: [
               {
@@ -84,7 +102,10 @@ function createNativeConnector(options?: {
             ],
           }
         }
-        if (/stratom operation release/i.test(text)) {
+        if (
+          text === POSTGRES_OPERATION_ROLLBACK_SQL ||
+          text === POSTGRES_OPERATION_UNLOCK_SQL
+        ) {
           if (options?.releaseFailure) throw options.releaseFailure.value
           return { rows: [] }
         }
@@ -97,7 +118,7 @@ function createNativeConnector(options?: {
             rejectActive = reject
           })
           const rows = await Promise.race([
-            options?.onQuery?.(text, signal) ?? Promise.resolve([]),
+            options?.onQuery?.(text, signal, values) ?? Promise.resolve([]),
             terminated,
           ])
           return { rows }
@@ -116,6 +137,7 @@ function createNativeConnector(options?: {
     readonly disposeCount: number
     readonly endCount: number
     readonly maxActiveCalls: number
+    readonly queryCalls: readonly { text: string; values: unknown[] }[]
   } = {
     name: 'postgresql',
     dialect: 'postgresql',
@@ -126,6 +148,10 @@ function createNativeConnector(options?: {
     },
     async dispose() {
       disposeCount++
+      if (disposeFailures > 0) {
+        disposeFailures--
+        throw new Error('connector dispose failed')
+      }
       client = undefined
     },
     get disposeCount() {
@@ -136,6 +162,9 @@ function createNativeConnector(options?: {
     },
     get maxActiveCalls() {
       return maxActiveCalls
+    },
+    get queryCalls() {
+      return queryCalls
     },
   }
   return connector
@@ -154,6 +183,7 @@ function createControllableProvider(options?: {
   beforeCall?: (session: number, sql: string) => Promise<void>
   beforeRelease?: (session: number) => Promise<void>
   failSession?: number
+  openFailure?: { session: number; value: unknown }
   releaseFailure?: { session: number; value: unknown }
   closeFailure?: { value: unknown }
 }): ProviderControls {
@@ -169,6 +199,7 @@ function createControllableProvider(options?: {
     async open() {
       const id = ++openCount
       events.push(`open:${id}`)
+      if (options?.openFailure?.session === id) throw options.openFailure.value
       let released = false
       let queue = Promise.resolve()
 
@@ -261,6 +292,137 @@ function customConnector(): Connector {
 }
 
 describe('db0 PostgreSQL operation sessions', () => {
+  it('avoids extra round trips for plain operations and fully cleans stateful work', async () => {
+    const connector = createNativeConnector()
+    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const plainSql = `select '?' as "?", $1::text as value`
+
+    const first = await provider.open()
+    await first.query({ sql: plainSql, params: ['bound'] })
+    await first.release('reuse')
+    expect(connector.queryCalls).toEqual([
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+      { text: plainSql, values: ['bound'] },
+    ])
+
+    const second = await provider.open()
+    await second.query({ sql: 'select 2', params: [] })
+    await second.release('reuse')
+    expect(connector.queryCalls.slice(2)).toEqual([{ text: 'select 2', values: [] }])
+
+    const transaction = await provider.open()
+    await transaction.run({ sql: 'begin', params: [] })
+    await transaction.run({ sql: 'commit', params: [] })
+    await transaction.release('reuse')
+    expect(connector.queryCalls.slice(3)).toEqual([
+      { text: 'begin', values: [] },
+      { text: 'commit', values: [] },
+      { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
+      { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+    ])
+
+    const advisory = await provider.open()
+    await advisory.run({ sql: 'select pg_advisory_lock(1, 2)', params: [] })
+    await advisory.release('reuse')
+    expect(connector.queryCalls.slice(8)).toEqual([
+      { text: 'select pg_advisory_lock(1, 2)', values: [] },
+      { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
+      { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+    ])
+    await provider.close()
+  })
+
+  it('lexically classifies stateful SQL without matching inert quoted text', async () => {
+    const connector = createNativeConnector()
+    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const warm = await provider.open()
+    await warm.release('reuse')
+
+    const run = async (sql: string) => {
+      const offset = connector.queryCalls.length
+      const session = await provider.open()
+      await session.run({ sql, params: [] })
+      await session.release('reuse')
+      return connector.queryCalls.slice(offset)
+    }
+
+    for (const sql of [
+      `select 'begin; pg_advisory_lock(1)' as value`,
+      `select 1 as "abort", '?' as "begin"`,
+      `select $body$ begin; pg_advisory_lock(1) $body$ as body`,
+      `select 1 /* begin /* rollback */ end */`,
+      `select 1 -- begin\n`,
+      `select 1 as pg_advisory_lock`,
+      `select "PG_ADVISORY_LOCK"(1)`,
+      `select "pg_advisory_""lock"(1)`,
+      `select "pg_catalog"."not_advisory"(1)`,
+    ]) {
+      expect(await run(sql)).toEqual([{ text: sql, values: [] }])
+    }
+
+    for (const sql of [
+      '/* trace */ begin',
+      'select 1; begin',
+      'END',
+      'ABORT',
+      'select pg_advisory_lock /* trace */ (1)',
+      'select "pg_advisory_lock"(1)',
+      'select "pg_catalog"."pg_advisory_lock"(1)',
+      'select "pg""_catalog"."pg_advisory_lock" /* trace */ (1)',
+      `select 'unterminated`,
+      'select $body$ unterminated',
+      'select 1 /* unterminated',
+      'mystery command',
+    ]) {
+      expect(await run(sql)).toEqual([
+        { text: sql, values: [] },
+        { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
+        { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
+        { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+      ])
+    }
+    await provider.close()
+  })
+
+  it('rewrites only executable PostgreSQL parameters in the test adapter', async () => {
+    const prepared: string[] = []
+    const binds: unknown[][] = []
+    const statement: Statement = {
+      bind(...params) {
+        binds.push(params)
+        return statement
+      },
+      async all() {
+        return []
+      },
+      async run() {
+        return { success: true }
+      },
+      async get() {
+        return undefined
+      },
+    }
+    const client = createNativePostgresClient((sql) => {
+      prepared.push(sql)
+      return statement
+    })
+
+    const sql =
+      `alter table test alter column value set default '$1';\n` +
+      `select "$2", $body$ $3 $body$, /* $4 */ $2, -- $5\n$1, $2`
+    await client.query({
+      text: sql,
+      values: ['first', 'second'],
+    })
+    expect(prepared).toEqual([
+      `alter table test alter column value set default '$1';\n` +
+        `select "$2", $body$ $3 $body$, /* $4 */ ?, -- $5\n?, ?`,
+    ])
+    expect(binds).toEqual([['second', 'first', 'second']])
+  })
+
   it('proves stable identity and serializes native calls through reuse release', async () => {
     const gates = [deferred(), deferred()]
     const firstStarted = deferred()
@@ -296,10 +458,16 @@ describe('db0 PostgreSQL operation sessions', () => {
 
   it('cancels an active call and safely discards the uncertain client', async () => {
     const started = deferred()
+    const endStarted = deferred()
+    const finishEnd = deferred()
     const connector = createNativeConnector({
       onQuery: () => {
         started.resolve()
         return new Promise(() => {})
+      },
+      beforeEnd: async () => {
+        endStarted.resolve()
+        await finishEnd.promise
       },
     })
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
@@ -308,7 +476,13 @@ describe('db0 PostgreSQL operation sessions', () => {
     const query = session.query({ sql: 'select pg_sleep(30)', params: [] })
     await started.promise
 
-    await expect(withDeadline(session.cancel())).resolves.toBeUndefined()
+    const cancel = session.cancel()
+    await endStarted.promise
+    expect(
+      await Promise.race([cancel.then(() => 'settled'), Promise.resolve('pending')]),
+    ).toBe('pending')
+    finishEnd.resolve()
+    await expect(withDeadline(cancel)).resolves.toBeUndefined()
     await expect(withDeadline(query)).rejects.toThrow(/terminated/i)
     await session.release('reuse')
     expect(connector.endCount).toBe(1)
@@ -383,9 +557,40 @@ describe('db0 PostgreSQL operation sessions', () => {
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
     const session = await provider.open()
 
+    await session.run({ sql: 'begin', params: [] })
     await expect(session.release('reuse')).rejects.toBeUndefined()
     expect(connector.disposeCount).toBe(1)
     await provider.close()
+  })
+
+  it('waits for an active lease before deduplicated provider close', async () => {
+    const connector = createNativeConnector()
+    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const session = await provider.open()
+
+    const firstClose = provider.close()
+    const secondClose = provider.close()
+    expect(secondClose).toBe(firstClose)
+    expect(
+      await Promise.race([firstClose.then(() => 'settled'), Promise.resolve('waiting')]),
+    ).toBe('waiting')
+    await expect(provider.open()).rejects.toThrow(/closed/i)
+    await session.query({ sql: 'select 1', params: [] })
+    await session.release('reuse')
+    await expect(withDeadline(firstClose)).resolves.toBeUndefined()
+    expect(connector.disposeCount).toBe(1)
+  })
+
+  it('allows provider close cleanup to retry after disposal fails', async () => {
+    const connector = createNativeConnector({ disposeFailures: 1 })
+    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+
+    const firstClose = provider.close()
+    await expect(firstClose).rejects.toThrow(/dispose failed/i)
+    const retry = provider.close()
+    expect(retry).not.toBe(firstClose)
+    await expect(retry).resolves.toBeUndefined()
+    expect(connector.disposeCount).toBe(2)
   })
 
   const databaseUrl = process.env.DATABASE_URL
@@ -440,6 +645,32 @@ describe('db0 PostgreSQL operation sessions', () => {
 })
 
 describe('client root-operation coordination', () => {
+  it('advances the queue and closes after an early provider-open failure', async () => {
+    const controls = createControllableProvider({
+      openFailure: { session: 1, value: new Error('open failed') },
+    })
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [],
+    })
+
+    const first = db.ping()
+    const successor = db.ping()
+    const close = db.close()
+    await expect(withDeadline(first)).rejects.toThrow(/open failed/i)
+    await expect(withDeadline(successor)).resolves.toBeUndefined()
+    await expect(withDeadline(close)).resolves.toBeUndefined()
+    expect(controls.events).toEqual([
+      'open:1',
+      'open:2',
+      'call:2:select 1',
+      'release-start:2:reuse',
+      'release-end:2:reuse',
+      'provider-close',
+    ])
+  })
+
   it('rejects descendant root use across nested clients without deadlocking', async () => {
     const firstControls = createControllableProvider()
     const secondControls = createControllableProvider()

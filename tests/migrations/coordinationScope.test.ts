@@ -53,4 +53,15 @@ describe('migration coordination scope', () => {
     expect(() => createMigrationCoordinationScope('db', '\ud800')).toThrow(/surrogate/i)
     expect(() => createMigrationCoordinationScope('db', 'tenant-😀')).not.toThrow()
   })
+
+  it('validates canonical database identities', () => {
+    expect(() => createMigrationCoordinationScope('')).toThrow(/database identity/i)
+    expect(() => createMigrationCoordinationScope('bad\0db')).toThrow(
+      /database identity/i,
+    )
+    expect(() => createMigrationCoordinationScope('\ud800')).toThrow(
+      /database identity.*surrogate/i,
+    )
+    expect(() => createMigrationCoordinationScope('tenant-😀')).not.toThrow()
+  })
 })

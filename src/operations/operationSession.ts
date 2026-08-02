@@ -3,6 +3,8 @@ import type { Connector } from 'db0'
 import type { CompiledQuery } from '@/dialects'
 import { QueryError } from '@/utils/error'
 
+import { scanPostgresSql } from './postgresSql'
+
 /** Whether a completed physical session may be reused or must be discarded. */
 export type OperationSessionDisposition = 'reuse' | 'discard'
 
@@ -59,6 +61,12 @@ type NativePostgresClient = {
   ): Promise<NativePostgresResult>
 }
 
+export const POSTGRES_OPERATION_IDENTITY_SQL =
+  'select pg_backend_pid()::text as "physicalSession", current_database() as "database"'
+export const POSTGRES_OPERATION_ROLLBACK_SQL = 'rollback /* stratom operation release */'
+export const POSTGRES_OPERATION_UNLOCK_SQL =
+  'select pg_advisory_unlock_all() /* stratom operation release */'
+
 function getActiveQuery(client: NativePostgresClient): unknown {
   if (typeof client._getActiveQuery === 'function') return client._getActiveQuery()
   if ('_activeQuery' in client) return client._activeQuery
@@ -68,11 +76,6 @@ function getActiveQuery(client: NativePostgresClient): unknown {
 function getQueryQueue(client: NativePostgresClient): unknown[] | undefined {
   if (Array.isArray(client._queryQueue)) return client._queryQueue
   return client.queryQueue
-}
-
-function normalizeParams(sql: string): string {
-  let index = 0
-  return sql.replaceAll('?', () => `$${++index}`)
 }
 
 function asNativePostgresClient(value: unknown): NativePostgresClient {
@@ -118,9 +121,7 @@ function asNativePostgresClient(value: unknown): NativePostgresClient {
 async function readIdentity(
   client: NativePostgresClient,
 ): Promise<OperationSessionIdentity> {
-  const result = await client.query(
-    'select pg_backend_pid()::text as "physicalSession", current_database() as "database"',
-  )
+  const result = await client.query(POSTGRES_OPERATION_IDENTITY_SQL)
   const row = result.rows?.[0] as
     | { database?: unknown; physicalSession?: unknown }
     | undefined
@@ -172,12 +173,19 @@ export function createDb0PostgresqlOperationSessionProvider(
         'Automatic operation sessions require the db0 PostgreSQL connector; provide an explicit operationSessionProvider for a custom connector',
     })
   }
-  const disposeConnector = (): Promise<void> =>
-    Promise.resolve(connector.dispose!()).then(() => undefined)
+  const disposeConnector = (): Promise<void> => {
+    try {
+      return Promise.resolve(connector.dispose!()).then(() => undefined)
+    } catch (cause) {
+      return Promise.reject(cause)
+    }
+  }
+  const identities = new WeakMap<object, OperationSessionIdentity>()
 
   let leased = false
   let closed = false
   let closePromise: Promise<void> | undefined
+  let activeLease: Promise<void> | undefined
 
   return {
     nativeTransactions: true,
@@ -192,16 +200,37 @@ export function createDb0PostgresqlOperationSessionProvider(
         })
       }
       leased = true
+      let finishLease!: () => void
+      const lease = new Promise<void>((resolve) => {
+        finishLease = resolve
+      })
+      activeLease = lease
 
       let client: NativePostgresClient
       let identity: OperationSessionIdentity
       try {
         client = asNativePostgresClient(await connector.getInstance())
         assertReusableNativeClient(client)
-        identity = await readIdentity(client)
+        const cachedIdentity = identities.get(client)
+        if (cachedIdentity) {
+          if (
+            cachedIdentity.database !== client.database ||
+            cachedIdentity.physicalSession !== String(client.processID)
+          ) {
+            throw new QueryError({
+              message: 'PostgreSQL cached session identity no longer matches the client',
+            })
+          }
+          identity = cachedIdentity
+        } else {
+          identity = await readIdentity(client)
+          identities.set(client, identity)
+        }
       } catch (cause) {
-        leased = false
         await disposeConnector().catch(() => undefined)
+        leased = false
+        activeLease = undefined
+        finishLease()
         if (cause instanceof QueryError) throw cause
         throw new QueryError({
           message:
@@ -214,6 +243,7 @@ export function createDb0PostgresqlOperationSessionProvider(
 
       let released = false
       let cancelled = false
+      let requiresCleanup = false
       let activeController: AbortController | undefined
       let queue = Promise.resolve()
 
@@ -251,9 +281,10 @@ export function createDb0PostgresqlOperationSessionProvider(
         }
         const controller = new AbortController()
         activeController = controller
+        requiresCleanup ||= scanPostgresSql(query.sql).requiresCleanup
         try {
           return await client.query({
-            text: normalizeParams(query.sql),
+            text: query.sql,
             values: query.params,
             signal: controller.signal,
           })
@@ -283,7 +314,8 @@ export function createDb0PostgresqlOperationSessionProvider(
           activeController?.abort()
           if (getActiveQuery(client) != null) {
             if (client.end) {
-              void client.end().catch(() => undefined)
+              // This hard-discard teardown is not a PostgreSQL backend cancel request.
+              await client.end().catch(() => undefined)
             } else {
               client.connection?.stream?.destroy()
             }
@@ -312,18 +344,26 @@ export function createDb0PostgresqlOperationSessionProvider(
                 message: 'PostgreSQL physical session changed before release',
               })
             }
-            await client.query('rollback /* stratom operation release */')
-            await client.query(
-              'select pg_advisory_unlock_all() /* stratom operation release */',
-            )
-            const releasedIdentity = await readIdentity(client)
             if (
-              releasedIdentity.database !== identity.database ||
-              releasedIdentity.physicalSession !== identity.physicalSession
+              identity.database !== client.database ||
+              identity.physicalSession !== String(client.processID)
             ) {
               throw new QueryError({
                 message: 'PostgreSQL session identity changed before release',
               })
+            }
+            if (requiresCleanup) {
+              await client.query(POSTGRES_OPERATION_ROLLBACK_SQL)
+              await client.query(POSTGRES_OPERATION_UNLOCK_SQL)
+              const releasedIdentity = await readIdentity(client)
+              if (
+                releasedIdentity.database !== identity.database ||
+                releasedIdentity.physicalSession !== identity.physicalSession
+              ) {
+                throw new QueryError({
+                  message: 'PostgreSQL session identity changed before release',
+                })
+              }
             }
           } catch (cause) {
             releaseFailed = true
@@ -331,6 +371,8 @@ export function createDb0PostgresqlOperationSessionProvider(
             await disposeConnector().catch(() => undefined)
           } finally {
             leased = false
+            activeLease = undefined
+            finishLease()
           }
           if (releaseFailed) throw releaseError
         },
@@ -340,7 +382,12 @@ export function createDb0PostgresqlOperationSessionProvider(
     close(): Promise<void> {
       if (closePromise) return closePromise
       closed = true
-      return (closePromise = disposeConnector())
+      const closing = (activeLease ?? Promise.resolve()).then(disposeConnector)
+      closePromise = closing.catch((cause) => {
+        closePromise = undefined
+        throw cause
+      })
+      return closePromise
     },
   }
 }

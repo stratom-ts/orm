@@ -105,91 +105,94 @@ export class OperationCoordinator {
     })
 
     return (async () => {
-      await previous
       let session: OperationSession | undefined
       let disposition: OperationSessionDisposition = 'reuse'
       let operationFailed = false
       let operationError: unknown
       let result: T | undefined
       try {
-        session = await this.provider.open()
-        assertSession(session)
-        const database = session.identity.database
-        const physicalSession = session.identity.physicalSession
-        const executor: Executor = {
-          async execute(query) {
-            try {
-              return await session!.query(query)
-            } catch (cause) {
-              if (cause instanceof QueryError) throw cause
-              throw new QueryError({
-                message:
-                  cause instanceof Error ? cause.message : 'Query execution failed',
-                cause,
-              })
-            }
-          },
-          async run(query) {
-            try {
-              await session!.run(query)
-            } catch (cause) {
-              if (cause instanceof QueryError) throw cause
-              throw new QueryError({
-                message:
-                  cause instanceof Error ? cause.message : 'Statement execution failed',
-                cause,
-              })
-            }
-          },
-        }
-        const token: OperationToken = {
-          coordinator: this,
-          executor,
-          identity: session.identity,
-          active: true,
-          discard() {
-            disposition = 'discard'
-          },
-        }
         try {
-          result = await activeOperation.run({ token, parent }, () =>
-            operation({
-              executor,
-              identity: token.identity,
-              discard: token.discard,
-            }),
-          )
-          if (
-            session.identity.database !== database ||
-            session.identity.physicalSession !== physicalSession
-          ) {
-            disposition = 'discard'
-            throw new QueryError({
-              message: 'Operation session identity changed before release',
-            })
+          await previous
+          session = await this.provider.open()
+          assertSession(session)
+          const database = session.identity.database
+          const physicalSession = session.identity.physicalSession
+          const executor: Executor = {
+            async execute(query) {
+              try {
+                return await session!.query(query)
+              } catch (cause) {
+                if (cause instanceof QueryError) throw cause
+                throw new QueryError({
+                  message:
+                    cause instanceof Error ? cause.message : 'Query execution failed',
+                  cause,
+                })
+              }
+            },
+            async run(query) {
+              try {
+                await session!.run(query)
+              } catch (cause) {
+                if (cause instanceof QueryError) throw cause
+                throw new QueryError({
+                  message:
+                    cause instanceof Error ? cause.message : 'Statement execution failed',
+                  cause,
+                })
+              }
+            },
           }
-        } finally {
-          token.active = false
-        }
-      } catch (cause) {
-        operationFailed = true
-        operationError = cause
-      }
-
-      if (session) {
-        try {
-          await session.release(disposition)
+          const token: OperationToken = {
+            coordinator: this,
+            executor,
+            identity: session.identity,
+            active: true,
+            discard() {
+              disposition = 'discard'
+            },
+          }
+          try {
+            result = await activeOperation.run({ token, parent }, () =>
+              operation({
+                executor,
+                identity: token.identity,
+                discard: token.discard,
+              }),
+            )
+            if (
+              session.identity.database !== database ||
+              session.identity.physicalSession !== physicalSession
+            ) {
+              disposition = 'discard'
+              throw new QueryError({
+                message: 'Operation session identity changed before release',
+              })
+            }
+          } finally {
+            token.active = false
+          }
         } catch (cause) {
-          if (!operationFailed) {
-            operationFailed = true
-            operationError = cause
+          operationFailed = true
+          operationError = cause
+        }
+
+        if (session) {
+          try {
+            await session.release(disposition)
+          } catch (cause) {
+            if (!operationFailed) {
+              operationFailed = true
+              operationError = cause
+            }
           }
         }
-      }
-      finish()
 
-      if (operationFailed) throw operationError
-      return result as T
+        if (operationFailed) throw operationError
+        return result as T
+      } finally {
+        finish()
+      }
     })()
   }
 

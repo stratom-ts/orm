@@ -7,11 +7,13 @@
   "type": "module",
   "main": "./dist/stratom.umd.cjs",
   "module": "./dist/stratom.js",
+  "browser": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/stratom.js"
+      "import": "./dist/stratom.js",
+      "require": "./dist/stratom.umd.cjs"
     }
   },
   "scripts": {
@@ -44,6 +46,9 @@
     "vite": "^8.1.5",
     "vite-plugin-dts": "^5.0.3",
     "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "packageManager": "pnpm@11.15.1"
 }
