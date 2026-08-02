@@ -252,6 +252,11 @@ function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
   return schema.identifier.spelling
 }
 
+/**
+ * Reads the schema spelling from a canonical namespace.
+ *
+ * @param namespace - Canonical namespace to inspect.
+ */
 function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
   const schema = namespace.find((segment) => segment.role === 'schema')
   if (!schema) {
@@ -262,6 +267,12 @@ function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']):
   return schema.identifier.spelling
 }
 
+/**
+ * Validates every physical identifier in a canonical namespace.
+ *
+ * @param namespace - Canonical namespace whose identifiers are validated.
+ * @param profile - Dialect-specific physical naming profile.
+ */
 function validateCanonicalNamespaceNames(
   namespace: CanonicalRelationIdentity['namespace'],
   profile: PhysicalNamingProfile,
@@ -275,6 +286,12 @@ function validateCanonicalNamespaceNames(
   }
 }
 
+/**
+ * Validates the namespace and relation identifiers of a canonical identity.
+ *
+ * @param identity - Canonical relation identity to validate.
+ * @param profile - Dialect-specific physical naming profile.
+ */
 function validateCanonicalRelationNames(
   identity: CanonicalRelationIdentity,
   profile: PhysicalNamingProfile,
@@ -546,12 +563,23 @@ function compareForeignKeys(
   )
 }
 
+/**
+ * Checks whether a catalog object has complete, valid simple semantics.
+ *
+ * @param object - Catalog object whose semantic support is checked.
+ */
 function hasSupportedCatalogSemantics(
   object: CatalogIndex | CatalogKeyConstraint | CatalogForeignKey,
 ): boolean {
   return object.semanticCompleteness === 'supportedSimple' && object.isValid === true
 }
 
+/**
+ * Normalizes an introspected foreign key for semantic comparison.
+ *
+ * @param foreignKey - Introspected foreign key to normalize.
+ * @param identities - Identity module used to resolve its referenced relation.
+ */
 function canonicalCatalogForeignKey(
   foreignKey: CatalogForeignKey,
   identities: CanonicalRelationIdentityModule,
@@ -567,6 +595,12 @@ function canonicalCatalogForeignKey(
   }
 }
 
+/**
+ * Normalizes a desired column reference for semantic comparison.
+ *
+ * @param column - Desired column containing a foreign-key reference.
+ * @param identities - Identity module used to resolve its referenced relation.
+ */
 function canonicalDesiredForeignKey(
   column: CreateTableColumnAst,
   identities: CanonicalRelationIdentityModule,
@@ -583,6 +617,12 @@ function canonicalDesiredForeignKey(
   }
 }
 
+/**
+ * Finds unique constraints that cover exactly one requested column.
+ *
+ * @param constraints - Introspected unique constraints to search.
+ * @param column - Desired unique column name.
+ */
 function matchUniqueConstraints(
   constraints: readonly CatalogKeyConstraint[],
   column: string,
@@ -590,6 +630,13 @@ function matchUniqueConstraints(
   return constraints.filter((constraint) => arraysEqual(constraint.columns, [column]))
 }
 
+/**
+ * Finds introspected foreign keys semantically equal to an expected key.
+ *
+ * @param foreignKeys - Introspected foreign keys to search.
+ * @param expected - Normalized desired foreign key.
+ * @param identities - Identity module used for relation comparison.
+ */
 function matchForeignKeys(
   foreignKeys: readonly CatalogForeignKey[],
   expected: CanonicalForeignKey,
@@ -611,6 +658,7 @@ function matchForeignKeys(
  *
  * @param live - Introspected table definition.
  * @param desired - Dialect-lowered desired table definition.
+ * @param shape - Ownership shape controlling whether extra objects are drift.
  * @param dialect - Dialect used to normalize managed values.
  * @param issues - Mutable collection that receives unsupported-drift issues.
  * @param identities - Identity module used for comparison and diagnostics.
@@ -803,6 +851,8 @@ function projectedReference(
  * Normalizes desired indexes and fills omitted names and uniqueness flags.
  *
  * @param info - Desired table metadata containing index declarations.
+ * @param identity - Canonical identity of the desired table.
+ * @param dialect - Dialect supplying physical naming rules.
  */
 function desiredIndexes(
   info: ReturnType<TableHandle['getTableMetadata']>,
@@ -834,22 +884,21 @@ function desiredIndexes(
     )
 }
 
-/**
- * Reconciles desired tables with an introspected catalog into one canonically ordered
- * Migration Plan. Unsupported or ambiguous drift is collected before the first
- * deterministic planning issue is thrown.
- *
- * @param schemas - Registered desired table handles.
- * @param catalog - Introspected catalog snapshot and namespace context.
- * @param dialect - Dialect used for identity, lowering, and value normalization.
- * @param registrationDefault - Optional namespace for registrations that omit one.
- */
 export type PlannedMigration = {
   plan: MigrationPlan
   identities: CanonicalRelationIdentityModule
   desiredTables: CanonicalRelationRegistry<CreateTableAst>
 }
 
+/**
+ * Reconciles desired tables with an introspected catalog into one canonical plan.
+ *
+ * @param schemas - Registered desired table handles.
+ * @param catalog - Introspected catalog snapshot and namespace context.
+ * @param dialect - Dialect used for identity, lowering, and value normalization.
+ * @param registrationDefault - Optional namespace for registrations that omit one.
+ * @param ownershipDeclarations - Explicit relation and namespace authority declarations.
+ */
 function buildMigrationPlan(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
@@ -1023,6 +1072,13 @@ function buildMigrationPlan(
     }
   }
 
+  /**
+   * Reserves the deterministic physical name for a desired foreign key.
+   *
+   * @param owner - Canonical identity of the referencing table.
+   * @param column - Referencing column name.
+   * @param reference - Desired foreign-key target and actions.
+   */
   const reserveForeignKey = (
     owner: CanonicalRelationIdentity,
     column: string,
@@ -1052,6 +1108,12 @@ function buildMigrationPlan(
     })
   }
 
+  /**
+   * Reserves the deterministic names used by a desired unique constraint.
+   *
+   * @param owner - Canonical identity of the constrained table.
+   * @param column - Unique column name.
+   */
   const reserveUniqueConstraint = (owner: CanonicalRelationIdentity, column: string) => {
     const name = generatedUniqueName(owner, column, namingProfile)
     const token = `generated-unique:${identities.format(owner)}:${column}`

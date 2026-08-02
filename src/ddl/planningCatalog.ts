@@ -64,6 +64,12 @@ export type PlanningCatalog = {
   constraintNameReservations: Array<{ schema: string; table: string; name: string }>
 }
 
+/**
+ * Tests canonical namespaces for positional role and comparison-key equality.
+ *
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
+ */
 function sameNamespace(
   left: CanonicalRelationIdentity['namespace'],
   right: CanonicalRelationIdentity['namespace'],
@@ -80,6 +86,11 @@ function sameNamespace(
   )
 }
 
+/**
+ * Describes why a catalog fact is not present.
+ *
+ * @param fact - Non-present catalog fact to describe.
+ */
 function evidenceDescription(fact: Exclude<CatalogFact<unknown>, { state: 'present' }>) {
   if (fact.state === 'absent') return 'absent'
   if (fact.state === 'unavailable') return `unavailable (${fact.cause})`
@@ -87,6 +98,12 @@ function evidenceDescription(fact: Exclude<CatalogFact<unknown>, { state: 'prese
   return fact.state
 }
 
+/**
+ * Extracts a present catalog fact or reports incomplete evidence.
+ *
+ * @param fact - Catalog fact to require.
+ * @param target - Diagnostic description of the required target.
+ */
 function requireFact<T>(fact: CatalogFact<T>, target: string): T {
   if (fact.state === 'present') return fact.value
   throw new MigrationError({
@@ -94,6 +111,12 @@ function requireFact<T>(fact: CatalogFact<T>, target: string): T {
   })
 }
 
+/**
+ * Extracts a completely covered catalog set or reports incomplete coverage.
+ *
+ * @param set - Catalog set whose coverage must be complete.
+ * @param target - Diagnostic description of the required target.
+ */
 function requireComplete<T>(set: CatalogSet<T>, target: string): readonly T[] {
   if (set.coverage.state === 'complete') return set.items
   const evidence =
@@ -103,6 +126,11 @@ function requireComplete<T>(set: CatalogSet<T>, target: string): readonly T[] {
   })
 }
 
+/**
+ * Reads the schema spelling from a canonical namespace.
+ *
+ * @param namespace - Canonical namespace to inspect.
+ */
 function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
   const segment = namespace.find(({ role }) => role === 'schema')
   if (!segment) {
@@ -113,14 +141,30 @@ function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']):
   return segment.identifier.spelling
 }
 
+/**
+ * Reads the schema spelling from a canonical relation identity.
+ *
+ * @param identity - Canonical relation identity to inspect.
+ */
 function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
   return schemaFromNamespace(identity.namespace)
 }
 
+/**
+ * Extracts a catalog object's required physical name.
+ *
+ * @param fact - Catalog name fact to require.
+ * @param target - Diagnostic description of the named object.
+ */
 function nameOf(fact: CatalogFact<string>, target: string): string {
   return requireFact(fact, `${target} name`)
 }
 
+/**
+ * Projects catalog validity and semantic support into planning fields.
+ *
+ * @param object - Catalog object whose semantics are projected.
+ */
 function simpleSemantics(
   object: CatalogIndex | CatalogKeyConstraint | CatalogForeignKey,
 ): Pick<PlanningCatalogIndex, 'semanticCompleteness' | 'isValid'> {
@@ -130,6 +174,12 @@ function simpleSemantics(
     : { semanticCompleteness: 'unsupported', isValid }
 }
 
+/**
+ * Projects a catalog key constraint into its planning representation.
+ *
+ * @param constraint - Catalog key constraint to project.
+ * @param target - Diagnostic description of the constraint.
+ */
 function keyConstraint(
   constraint: CatalogKeyConstraint,
   target: string,
@@ -141,6 +191,12 @@ function keyConstraint(
   }
 }
 
+/**
+ * Finds a desired column by name when a desired table exists.
+ *
+ * @param desired - Lowered desired table, or undefined for an unmanaged relation.
+ * @param name - Column name to find.
+ */
 function desiredColumn(desired: CreateTableAst | undefined, name: string) {
   return desired?.columns.find((column) => column.name === name)
 }
@@ -148,6 +204,21 @@ function desiredColumn(desired: CreateTableAst | undefined, name: string) {
 /**
  * Validates evidence once and projects adapter-neutral catalog facts into the current
  * Migration Plan implementation. No legacy snapshot shape crosses this seam.
+ *
+ * @example
+ *   const planningCatalog = catalogForPlanning(
+ *     snapshot,
+ *     identities,
+ *     desiredTables,
+ *     desiredRelations,
+ *     ownership,
+ *   )
+ *
+ * @param snapshot - Adapter-neutral catalog snapshot to validate and project.
+ * @param identities - Identity module used for matching and diagnostics.
+ * @param desiredTables - Canonical registry of lowered desired tables.
+ * @param desiredRelations - Canonical desired relations the snapshot must cover.
+ * @param ownership - Resolved migration ownership used to validate coverage.
  */
 export function catalogForPlanning(
   snapshot: CatalogSnapshot,
@@ -156,6 +227,11 @@ export function catalogForPlanning(
   desiredRelations: readonly CanonicalRelationIdentity[],
   ownership: ResolvedMigrationOwnership,
 ): PlanningCatalog {
+  /**
+   * Checks whether the catalog request covers a migration target.
+   *
+   * @param identity - Canonical relation identity to check.
+   */
   const requestCovers = (identity: CanonicalRelationIdentity) =>
     snapshot.request.relations.some(({ identity: requested }) =>
       identities.equals(requested, identity),

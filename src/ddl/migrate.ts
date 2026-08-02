@@ -41,12 +41,23 @@ export type MigrateBuilder = {
   execute(): Promise<void>
 }
 
+/**
+ * Projects an optional schema into a SQL AST field.
+ *
+ * @param schema - Schema spelling, or undefined when omitted.
+ */
 function schemaField(
   schema: string | undefined,
 ): { schema: string } | Record<string, never> {
   return schema !== undefined ? { schema } : {}
 }
 
+/**
+ * Builds a canonical identity input with an optional schema namespace.
+ *
+ * @param schema - Explicit schema spelling, or undefined for default resolution.
+ * @param relation - Relation spelling.
+ */
 function relationInput(schema: string | undefined, relation: string) {
   return {
     ...(schema === undefined
@@ -56,6 +67,11 @@ function relationInput(schema: string | undefined, relation: string) {
   }
 }
 
+/**
+ * Reads the schema spelling from a canonical relation identity.
+ *
+ * @param identity - Canonical relation identity to inspect.
+ */
 function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
   const schema = identity.namespace.find((segment) => segment.role === 'schema')
   if (!schema) {
@@ -66,6 +82,11 @@ function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
   return schema.identifier.spelling
 }
 
+/**
+ * Quotes a SQL identifier and escapes embedded quotes.
+ *
+ * @param ident - Identifier spelling to quote.
+ */
 function quoteIdent(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
 }
@@ -73,6 +94,10 @@ function quoteIdent(ident: string): string {
 /**
  * Refuse SET NOT NULL when the column already has NULL rows.
  * dryRun may still list the step; execute must check before applying.
+ *
+ * @param executor - Database executor used to inspect existing rows.
+ * @param step - SET NOT NULL step whose target is checked.
+ * @param identities - Identity module used to resolve the target relation.
  */
 async function assertColumnHasNoNulls(
   executor: Executor,
@@ -97,6 +122,11 @@ async function assertColumnHasNoNulls(
   }
 }
 
+/**
+ * Maps a destructive migration step to its required permission.
+ *
+ * @param step - Migration step to classify.
+ */
 function allowForStep(step: MigrationStep): MigrationAllow | null {
   switch (step.kind) {
     case 'drop_column':
@@ -114,11 +144,12 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
  * Converts a migration step to a SQL AST node for compilation.
  *
  * @example
- *   const ast = stepToAst({ kind: 'create_table', table: 'users' }, handles, dialect)
+ *   const ast = stepToAst(step, desiredTables, dialect, identities)
  *
  * @param step - Migration step to convert.
- * @param handles - Canonical relation registry of table handles.
+ * @param desiredTables - Canonical registry of lowered desired tables.
  * @param dialect - SQL dialect for desired-table lowering.
+ * @param identities - Identity module used to resolve step targets.
  *
  * @returns SQL AST node ready for compilation
  *
@@ -282,6 +313,11 @@ function stepToAst(
   }
 }
 
+/**
+ * Acquires the session advisory lock that serializes migration execution.
+ *
+ * @param executor - Executor bound to the migration session.
+ */
 async function acquireMigrateLock(executor: Executor): Promise<void> {
   try {
     await executor.run({
@@ -299,6 +335,11 @@ async function acquireMigrateLock(executor: Executor): Promise<void> {
   }
 }
 
+/**
+ * Releases the migration advisory lock, reporting whether it was held.
+ *
+ * @param executor - Executor bound to the migration session.
+ */
 async function releaseMigrateLock(executor: Executor): Promise<boolean> {
   try {
     const [result] = await executor.execute({
@@ -321,11 +362,11 @@ async function releaseMigrateLock(executor: Executor): Promise<boolean> {
  * explicit destructive allowlist, and Postgres advisory lock on execute.
  *
  * @example
- *   const migrate = createMigrateBuilder({ schemas: [User], dialect, executor })
+ *   const migrate = createMigrateBuilder({ schemas: [Users], dialect, runOperation })
  *   const plan = await migrate.dryRun()
  *   await migrate.allow('dropColumn').execute()
  *
- * @param options - Builder configuration including schemas, dialect, executor, and
+ * @param options - Builder configuration including schemas, dialect, runOperation, and
  *   optional assertCanExecute.
  *
  * @returns Migrate builder with `allow`, `dryRun`, and `execute` methods
@@ -357,6 +398,11 @@ export function createMigrateBuilder(options: {
 
   const allowed = new Set<MigrationAllow>()
 
+  /**
+   * Introspects the managed catalog and builds its Migration Plan.
+   *
+   * @param executor - Executor used for catalog introspection.
+   */
   const buildPlan = async (executor: Executor) => {
     const request = createCatalogRequest(
       schemas,
@@ -373,6 +419,11 @@ export function createMigrateBuilder(options: {
   }
 
   const builder: MigrateBuilder = {
+    /**
+     * Grants permission for selected destructive operations.
+     *
+     * @param ops - Destructive operations to permit.
+     */
     allow(...ops: MigrationAllow[]) {
       for (const op of ops) {
         allowed.add(op)
@@ -380,6 +431,7 @@ export function createMigrateBuilder(options: {
       return builder
     },
 
+    /** Builds a Migration Plan without executing its steps. */
     async dryRun() {
       try {
         return await runOperation(async (executor) => {
@@ -394,6 +446,7 @@ export function createMigrateBuilder(options: {
       }
     },
 
+    /** Executes the permitted Migration Plan under an advisory lock. */
     async execute() {
       assertCanExecute?.()
       try {

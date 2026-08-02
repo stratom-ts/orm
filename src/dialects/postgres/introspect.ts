@@ -34,20 +34,41 @@ type Row = Record<string, unknown>
 const complete = { state: 'complete' } as const
 const absent = { state: 'absent' } as const
 
+/**
+ * Wraps a catalog value as present evidence.
+ *
+ * @param value - Catalog value to wrap.
+ */
 function present<T>(value: T): CatalogFact<T> {
   return { state: 'present', value }
 }
 
+/**
+ * Creates adapter-level unsupported evidence.
+ *
+ * @param reason - Reason the adapter cannot provide evidence.
+ */
 function unsupported(reason: string): CatalogNoEvidence {
   return { state: 'unsupported', by: 'adapter', reason }
 }
 
+/**
+ * Compares strings by UTF-16 code-unit order.
+ *
+ * @param left - Left string.
+ * @param right - Right string.
+ */
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
   return 0
 }
 
+/**
+ * Serializes an observation with stable object-key ordering.
+ *
+ * @param value - Observation to serialize.
+ */
 function stableObservation(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableObservation).join(',')}]`
@@ -62,6 +83,13 @@ function stableObservation(value: unknown): string {
   return JSON.stringify(value)
 }
 
+/**
+ * Rejects catalog observations that changed between reads.
+ *
+ * @param description - Human-readable observation kind.
+ * @param first - Initial observation rows.
+ * @param second - Repeated observation rows.
+ */
 function assertObservationUnchanged(
   description: string,
   first: unknown[],
@@ -74,6 +102,13 @@ function assertObservationUnchanged(
   }
 }
 
+/**
+ * Validates and returns one catalog query row.
+ *
+ * @param value - Raw row value.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function rowAt(value: unknown, query: string, index: number): Row {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`Malformed PostgreSQL ${query} row ${index}: expected an object`)
@@ -81,6 +116,14 @@ function rowAt(value: unknown, query: string, index: number): Row {
   return value as Row
 }
 
+/**
+ * Reads a required non-empty string field from a row.
+ *
+ * @param row - Catalog row.
+ * @param key - Field name.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function stringAt(row: Row, key: string, query: string, index: number): string {
   const value = row[key]
   if (typeof value !== 'string' || value.length === 0) {
@@ -91,6 +134,14 @@ function stringAt(row: Row, key: string, query: string, index: number): string {
   return value
 }
 
+/**
+ * Reads a nullable string field from a row.
+ *
+ * @param row - Catalog row.
+ * @param key - Field name.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function nullableStringAt(
   row: Row,
   key: string,
@@ -107,6 +158,14 @@ function nullableStringAt(
   return value
 }
 
+/**
+ * Reads a PostgreSQL boolean representation from a row.
+ *
+ * @param row - Catalog row.
+ * @param key - Field name.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function booleanAt(row: Row, key: string, query: string, index: number): boolean {
   const value = row[key]
   if (typeof value === 'boolean') return value
@@ -117,6 +176,14 @@ function booleanAt(row: Row, key: string, query: string, index: number): boolean
   )
 }
 
+/**
+ * Reads a positive integer field from a row.
+ *
+ * @param row - Catalog row.
+ * @param key - Field name.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function positiveIntegerAt(row: Row, key: string, query: string, index: number): number {
   const value = toNumberOrNull(row[key])
   if (value === null || !Number.isInteger(value) || value < 1) {
@@ -127,6 +194,14 @@ function positiveIntegerAt(row: Row, key: string, query: string, index: number):
   return value
 }
 
+/**
+ * Reads a string array from native, JSON, or PostgreSQL array syntax.
+ *
+ * @param row - Catalog row.
+ * @param key - Field name.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function stringArrayAt(row: Row, key: string, query: string, index: number): string[] {
   const value = row[key]
   if (Array.isArray(value)) {
@@ -190,6 +265,12 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
   )
 }
 
+/**
+ * Tests canonical namespace equality.
+ *
+ * @param left - Left namespace.
+ * @param right - Right namespace.
+ */
 function sameNamespace(
   left: readonly CanonicalNamespaceSegment[],
   right: readonly CanonicalNamespaceSegment[],
@@ -206,6 +287,12 @@ function sameNamespace(
   )
 }
 
+/**
+ * Builds a PostgreSQL relation identity input.
+ *
+ * @param schema - Schema spelling.
+ * @param relation - Relation spelling.
+ */
 function relationInput(schema: string, relation: string) {
   return {
     namespace: [{ role: 'schema' as const, spelling: schema }],
@@ -213,6 +300,12 @@ function relationInput(schema: string, relation: string) {
   }
 }
 
+/**
+ * Compares canonical namespaces deterministically.
+ *
+ * @param left - Left namespace.
+ * @param right - Right namespace.
+ */
 function compareNamespaces(
   left: readonly CanonicalNamespaceSegment[],
   right: readonly CanonicalNamespaceSegment[],
@@ -232,6 +325,12 @@ function compareNamespaces(
   return left.length - right.length
 }
 
+/**
+ * Resolves and deduplicates a catalog request against session identities.
+ *
+ * @param request - Authored catalog request.
+ * @param identities - PostgreSQL canonical identity module.
+ */
 function resolveRequest(
   request: CatalogRequest,
   identities: CanonicalRelationIdentityModule,
@@ -268,6 +367,11 @@ function resolveRequest(
   return { relations, absentRelations, completeNamespaces }
 }
 
+/**
+ * Collects unique namespaces covered by a resolved request.
+ *
+ * @param request - Resolved catalog request.
+ */
 function requestedNamespaces(request: ResolvedCatalogRequest) {
   return [
     ...request.relations.map(({ identity }) => identity.namespace),
@@ -279,6 +383,13 @@ function requestedNamespaces(request: ResolvedCatalogRequest) {
   )
 }
 
+/**
+ * Reconstructs a PostgreSQL catalog column type.
+ *
+ * @param row - Column catalog row.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function formatPostgresCatalogDataType(row: Row, query: string, index: number): string {
   if (typeof row.formatted_type === 'string' && row.formatted_type.length > 0) {
     return row.formatted_type
@@ -313,6 +424,13 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   return udt || dataType
 }
 
+/**
+ * Validates a PostgreSQL referential action.
+ *
+ * @param value - Catalog action value.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
 function referentialAction(
   value: string,
   query: string,
@@ -330,6 +448,11 @@ function referentialAction(
   throw new TypeError(`Malformed PostgreSQL ${query} row ${index}: invalid action`)
 }
 
+/**
+ * Maps a PostgreSQL relation kind code to the catalog model.
+ *
+ * @param value - PostgreSQL relkind code.
+ */
 function relationKind(value: string) {
   if (value === 'r') return 'table' as const
   if (value === 'p') return 'partitionedTable' as const
@@ -339,6 +462,11 @@ function relationKind(value: string) {
   throw new TypeError(`Malformed PostgreSQL relation row: unsupported relkind ${value}`)
 }
 
+/**
+ * Maps a PostgreSQL persistence code to the catalog model.
+ *
+ * @param value - PostgreSQL relpersistence code.
+ */
 function persistence(value: string) {
   if (value === 'p') return 'permanent' as const
   if (value === 't') return 'temporary' as const
@@ -348,6 +476,11 @@ function persistence(value: string) {
   )
 }
 
+/**
+ * Extracts the required physical name from catalog evidence.
+ *
+ * @param fact - Catalog name evidence.
+ */
 function factName(fact: CatalogFact<string>): string {
   if (fact.state !== 'present') {
     throw new TypeError('PostgreSQL catalog object is missing its required physical name')
@@ -355,7 +488,15 @@ function factName(fact: CatalogFact<string>): string {
   return fact.value
 }
 
-/** Strictly observes the exact migration ownership scope on one PostgreSQL session. */
+/**
+ * Strictly observes the exact migration ownership scope on one PostgreSQL session.
+ *
+ * @example
+ *   const snapshot = await introspectPostgres(executor, request)
+ *
+ * @param executor - Session-bound catalog query executor.
+ * @param request - Catalog ownership scope to observe.
+ */
 export async function introspectPostgres(
   executor: CatalogExecutor,
   request: CatalogRequest,
@@ -408,6 +549,11 @@ export async function introspectPostgres(
   for (const identity of resolvedRequest.absentRelations) {
     requestedRelations.set(identity, true)
   }
+  /**
+   * Tests whether a relation belongs to the requested ownership scope.
+   *
+   * @param identity - Canonical relation identity.
+   */
   const relationRequested = (identity: CanonicalRelationIdentity) =>
     requestedRelations.has(identity) ||
     resolvedRequest.completeNamespaces.some((namespace) =>
@@ -686,6 +832,12 @@ export async function introspectPostgres(
   }
   const reservationRows = await executor.execute(reservationQuery)
 
+  /**
+   * Filters rows to observations in requested namespaces.
+   *
+   * @param rows - Raw query rows.
+   * @param query - Query name for diagnostics.
+   */
   const namespaceObservations = (rows: unknown[], query: string) =>
     rows.filter((value, index) => {
       const row = rowAt(value, `${query} consistency`, index)
@@ -697,6 +849,12 @@ export async function introspectPostgres(
       ])
       return scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace))
     })
+  /**
+   * Filters rows to observations for requested relations.
+   *
+   * @param rows - Raw query rows.
+   * @param query - Query name for diagnostics.
+   */
   const relationObservations = (rows: unknown[], query: string) =>
     rows.filter((value, index) => {
       const row = rowAt(value, `${query} consistency`, index)
@@ -741,6 +899,11 @@ export async function introspectPostgres(
   )
   const finalRelationRows = await executor.execute(relationQuery)
 
+  /**
+   * Builds stable requested-relation identity and object-ID fingerprints.
+   *
+   * @param rows - Raw relation rows.
+   */
   const relationFingerprint = (rows: unknown[]) =>
     rows
       .flatMap((value, index) => {
@@ -895,6 +1058,13 @@ export async function introspectPostgres(
     })
   }
 
+  /**
+   * Resolves a requested row to its mutable table entry.
+   *
+   * @param row - Catalog row referencing a table.
+   * @param query - Query name for diagnostics.
+   * @param index - Row index for diagnostics.
+   */
   const requireTable = (row: Row, query: string, index: number) => {
     const identity = identities.resolve(
       relationInput(
@@ -1170,6 +1340,12 @@ export async function introspectPostgres(
     if (!entry) continue
     let table: CatalogTable | undefined
     if (entry.table) {
+      /**
+       * Compares catalog objects by their required physical names.
+       *
+       * @param left - Left catalog object.
+       * @param right - Right catalog object.
+       */
       const byName = <T extends { name: CatalogFact<string> }>(left: T, right: T) =>
         compareCodeUnits(factName(left.name), factName(right.name))
       table = {

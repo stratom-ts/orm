@@ -6,7 +6,11 @@ import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { ValidationError } from '@/utils/error'
 
-/** Optional / nullish → omit-on-insert OK (not bare nullable). */
+/**
+ * Checks whether a schema wrapper permits omission during insert.
+ *
+ * @param schema - Column schema to inspect.
+ */
 function isOmitOptionalSchema(schema: AnySchema): boolean {
   if (schema.type === 'optional' || schema.type === 'nullish') return true
   if (schema.type === 'non_optional' || schema.type === 'non_nullish') return false
@@ -15,10 +19,20 @@ function isOmitOptionalSchema(schema: AnySchema): boolean {
     : false
 }
 
+/**
+ * Checks whether the outermost schema wrapper permits omission.
+ *
+ * @param schema - Column schema to inspect.
+ */
 function isDirectlyOmitOptionalSchema(schema: AnySchema): boolean {
   return schema.type === 'optional' || schema.type === 'nullish'
 }
 
+/**
+ * Checks whether an insert may omit a column.
+ *
+ * @param schema - Column schema to inspect.
+ */
 function isInsertOptional(schema: AnySchema): boolean {
   if (isOmitOptionalSchema(schema)) return true
   const meta = getColumnMetadata(schema)
@@ -32,6 +46,11 @@ function isInsertOptional(schema: AnySchema): boolean {
   return false
 }
 
+/**
+ * Checks whether the database always generates a column value.
+ *
+ * @param schema - Column schema to inspect.
+ */
 function isAlwaysGenerated(schema: AnySchema): boolean {
   const meta = getColumnMetadata(schema)
   const generation = meta ? normalizeColumnGeneration(meta) : undefined
@@ -109,6 +128,11 @@ export function buildUpdateSchema(
   return object(updateEntries)
 }
 
+/**
+ * Formats validation issues as a semicolon-delimited diagnostic.
+ *
+ * @param issues - Validation issues to format.
+ */
 function formatIssues(issues: readonly BaseIssue<unknown>[]): string {
   return issues
     .map((issue) => {

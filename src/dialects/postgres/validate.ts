@@ -151,7 +151,14 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
   return `'${value.replaceAll("'", "''")}'`
 }
 
-/** Formats a tagged literal without legacy expression-string interpretation. */
+/**
+ * Formats a tagged literal without legacy expression-string interpretation.
+ *
+ * @example
+ *   formatPostgresLiteral('now()') // "'now()'"
+ *
+ * @param value - Literal value to format.
+ */
 export function formatPostgresLiteral(value: string | number | boolean | null): string {
   if (typeof value !== 'string') return formatPostgresDefault(value)
   const escapedQuotes = value.replaceAll("'", "''")

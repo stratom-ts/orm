@@ -67,17 +67,32 @@ export const POSTGRES_OPERATION_ROLLBACK_SQL = 'rollback /* stratom operation re
 export const POSTGRES_OPERATION_UNLOCK_SQL =
   'select pg_advisory_unlock_all() /* stratom operation release */'
 
+/**
+ * Reads the active query across the supported pg.Client internals.
+ *
+ * @param client - Native PostgreSQL client.
+ */
 function getActiveQuery(client: NativePostgresClient): unknown {
   if (typeof client._getActiveQuery === 'function') return client._getActiveQuery()
   if ('_activeQuery' in client) return client._activeQuery
   return client.activeQuery
 }
 
+/**
+ * Reads the query queue across the supported pg.Client internals.
+ *
+ * @param client - Native PostgreSQL client.
+ */
 function getQueryQueue(client: NativePostgresClient): unknown[] | undefined {
   if (Array.isArray(client._queryQueue)) return client._queryQueue
   return client.queryQueue
 }
 
+/**
+ * Validates and narrows a db0 connector instance to the required pg.Client shape.
+ *
+ * @param value - Connector instance to validate.
+ */
 function asNativePostgresClient(value: unknown): NativePostgresClient {
   if (
     typeof value !== 'object' ||
@@ -118,6 +133,11 @@ function asNativePostgresClient(value: unknown): NativePostgresClient {
   return client
 }
 
+/**
+ * Reads and verifies a native PostgreSQL session identity.
+ *
+ * @param client - Native PostgreSQL client.
+ */
 async function readIdentity(
   client: NativePostgresClient,
 ): Promise<OperationSessionIdentity> {
@@ -142,6 +162,11 @@ async function readIdentity(
   return Object.freeze({ database, physicalSession })
 }
 
+/**
+ * Asserts that a native client has no active or queued query.
+ *
+ * @param client - Native PostgreSQL client.
+ */
 function assertReusableNativeClient(client: NativePostgresClient): void {
   if (
     client.readyForQuery !== undefined &&
@@ -158,6 +183,11 @@ function assertReusableNativeClient(client: NativePostgresClient): void {
 /**
  * Creates the exact operation-session provider for db0 0.3.4's PostgreSQL
  * connector, whose `getInstance()` is one lazily connected native `pg.Client`.
+ *
+ * @example
+ *   const provider = createDb0PostgresqlOperationSessionProvider(connector)
+ *
+ * @param connector - Db0 PostgreSQL connector.
  */
 export function createDb0PostgresqlOperationSessionProvider(
   connector: Connector,
@@ -173,6 +203,7 @@ export function createDb0PostgresqlOperationSessionProvider(
         'Automatic operation sessions require the db0 PostgreSQL connector; provide an explicit operationSessionProvider for a custom connector',
     })
   }
+  /** Disposes the connector while normalizing synchronous failures to rejections. */
   const disposeConnector = (): Promise<void> => {
     try {
       return Promise.resolve(connector.dispose!()).then(() => undefined)
@@ -190,6 +221,12 @@ export function createDb0PostgresqlOperationSessionProvider(
   return {
     nativeTransactions: true,
 
+    /**
+     * Opens an exclusive operation session on the connector's native client.
+     *
+     * @example
+     *   const session = await provider.open()
+     */
     async open(): Promise<OperationSession> {
       if (closed) {
         throw new QueryError({ message: 'Operation session provider has been closed' })
@@ -247,6 +284,11 @@ export function createDb0PostgresqlOperationSessionProvider(
       let activeController: AbortController | undefined
       let queue = Promise.resolve()
 
+      /**
+       * Serializes a session operation behind previously enqueued work.
+       *
+       * @param operation - Asynchronous session operation.
+       */
       const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
         if (released) {
           return Promise.reject(
@@ -271,6 +313,11 @@ export function createDb0PostgresqlOperationSessionProvider(
         return result
       }
 
+      /**
+       * Executes a compiled query on the verified native client.
+       *
+       * @param query - Compiled query to execute.
+       */
       const executeNative = async (
         query: CompiledQuery,
       ): Promise<NativePostgresResult> => {
@@ -296,16 +343,38 @@ export function createDb0PostgresqlOperationSessionProvider(
       return {
         identity,
 
+        /**
+         * Executes a query and returns its rows.
+         *
+         * @example
+         *   const rows = await session.query(query)
+         *
+         * @param query - Compiled query to execute.
+         */
         query(query): Promise<unknown[]> {
           return enqueue(async () => (await executeNative(query)).rows ?? [])
         },
 
+        /**
+         * Executes a statement without returning rows.
+         *
+         * @example
+         *   await session.run(query)
+         *
+         * @param query - Compiled query to execute.
+         */
         run(query): Promise<void> {
           return enqueue(async () => {
             await executeNative(query)
           })
         },
 
+        /**
+         * Cancels the session and hard-discards an active native query.
+         *
+         * @example
+         *   await session.cancel()
+         */
         async cancel(): Promise<void> {
           if (released) {
             throw new QueryError({ message: 'Operation session has been released' })
@@ -322,6 +391,14 @@ export function createDb0PostgresqlOperationSessionProvider(
           }
         },
 
+        /**
+         * Releases the session for reuse or disposal.
+         *
+         * @example
+         *   await session.release('reuse')
+         *
+         * @param disposition - Whether to reuse or discard the physical session.
+         */
         async release(disposition): Promise<void> {
           if (released) {
             throw new QueryError({
@@ -379,6 +456,12 @@ export function createDb0PostgresqlOperationSessionProvider(
       }
     },
 
+    /**
+     * Closes the provider after any active lease finishes.
+     *
+     * @example
+     *   await provider.close()
+     */
     close(): Promise<void> {
       if (closePromise) return closePromise
       closed = true

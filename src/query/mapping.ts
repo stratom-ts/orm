@@ -19,6 +19,15 @@ export type ValueMapper = {
   mapResultRows(handle: TableHandle, rows: unknown[]): unknown[]
 }
 
+/**
+ * Resolves a column's physical SQL data type, following references as needed.
+ *
+ * @param handle - Table containing the column.
+ * @param columnName - Column name to resolve.
+ * @param dialect - Dialect used to infer physical types.
+ * @param registered - Registered tables available for reference resolution.
+ * @param resolving - Reference targets currently being resolved.
+ */
 function resolveColumnDataType(
   handle: TableHandle,
   columnName: string,
@@ -84,6 +93,12 @@ function resolveColumnDataType(
   return String(dialect.inferColumnType(schema))
 }
 
+/**
+ * Gets metadata for a schema-backed column.
+ *
+ * @param handle - Table containing the column.
+ * @param columnName - Column name to inspect.
+ */
 function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | undefined {
   const entries = handle.getSchema().entries as Record<
     string,
@@ -98,11 +113,12 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
  * Builds a value mapper: column override → createDatabase map → dialect defaults.
  *
  * @example
- *   const mapper = createValueMapper(dialect, { mapParamValue: ... })
+ *   const mapper = createValueMapper(dialect)
  *   mapper.mapParam(handle, 'createdAt', new Date())
  *
  * @param dialect - SQL dialect providing default value mapping.
  * @param map - Optional global value mapping overrides.
+ * @param registered - Tables available for reference type resolution.
  *
  * @returns Value mapper with `columnTypes`, `mapParam`, `mapResultRow`, and
  *   `mapResultRows`
@@ -114,6 +130,11 @@ export function createValueMapper(
 ): ValueMapper {
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
 
+  /**
+   * Gets physical SQL data types keyed by column name.
+   *
+   * @param handle - Table whose column types should be resolved.
+   */
   const columnTypes = (handle: TableHandle): Record<string, string> => {
     const cached = typeCache.get(handle)
     if (cached) return cached
@@ -126,6 +147,13 @@ export function createValueMapper(
     return types
   }
 
+  /**
+   * Maps a JavaScript parameter value for a table column.
+   *
+   * @param handle - Table containing the column.
+   * @param column - Column receiving the parameter.
+   * @param value - JavaScript value to map.
+   */
   const mapParam = (handle: TableHandle, column: string, value: unknown): unknown => {
     if (value === undefined) return value
     const meta = columnMeta(handle, column)
@@ -139,6 +167,13 @@ export function createValueMapper(
     return value
   }
 
+  /**
+   * Maps a SQL result value for a table column.
+   *
+   * @param handle - Table containing the column.
+   * @param column - Column that produced the value.
+   * @param value - SQL result value to map.
+   */
   const mapResultValue = (
     handle: TableHandle,
     column: string,
@@ -155,6 +190,12 @@ export function createValueMapper(
     return value
   }
 
+  /**
+   * Maps every recognized column value in a result row.
+   *
+   * @param handle - Table associated with the result row.
+   * @param row - Result row to map.
+   */
   const mapResultRow = (
     handle: TableHandle,
     row: Record<string, unknown>,
@@ -166,6 +207,12 @@ export function createValueMapper(
     return out
   }
 
+  /**
+   * Maps object rows while preserving non-object result values.
+   *
+   * @param handle - Table associated with the result rows.
+   * @param rows - Result values to map.
+   */
   const mapResultRows = (handle: TableHandle, rows: unknown[]): unknown[] =>
     rows.map((row) => {
       if (row === null || typeof row !== 'object' || Array.isArray(row)) {

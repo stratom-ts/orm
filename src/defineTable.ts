@@ -26,8 +26,9 @@ type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
  * Asserts that the primary key names one or more declared columns.
  *
  * @example
- *   validatePrimaryKey({ name: 'users', primaryKey: 'id' }, ['id', 'name'])
+ *   validatePrimaryKey(schema, { name: 'users', primaryKey: 'id' }, ['id', 'name'])
  *
+ * @param schema - Table schema containing the declared columns.
  * @param metadata - Table metadata containing the primary key definition.
  * @param columnNames - Declared column names on the table.
  *
@@ -401,7 +402,9 @@ function buildTableHandle<
   const handle = {
     ...(columns as ColumnRefsOf<S, TSchema>),
     [TABLE_HANDLE]: true as const,
+    /** Returns the original table schema. */
     getSchema: () => schema,
+    /** Returns the validated table metadata. */
     getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
   }
 

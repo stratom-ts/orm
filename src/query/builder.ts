@@ -59,6 +59,11 @@ type JoinOnInput = PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)
 type InferColumnValue<T> =
   T extends ColumnRef<string, string, infer TType> ? TType : unknown
 
+/**
+ * Resolves a join predicate input.
+ *
+ * @param on - Predicate or predicate factory.
+ */
 function resolveOn(on: JoinOnInput): PredicateAst {
   return typeof on === 'function' ? on(eb) : on
 }
@@ -67,9 +72,9 @@ function resolveOn(on: JoinOnInput): PredicateAst {
  * Maps value parameters through the mapper for join predicates.
  *
  * @example
- *   mapJoinsParams(handle, mapper, [{ type: 'inner', table: 'posts', on: ... }])
+ *   mapJoinsParams([handle], mapper, [{ type: 'inner', table: 'posts', on: ... }])
  *
- * @param handle - Table handle for the root table.
+ * @param handles - Table handles available to the joins.
  * @param mapper - Value mapper for parameter conversion.
  * @param joins - Join AST nodes to map.
  *
@@ -109,6 +114,11 @@ function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): 
   }
 }
 
+/**
+ * Checks whether a value is a predicate AST node.
+ *
+ * @param value - Value to inspect.
+ */
 function isPredicateAst(value: unknown): value is PredicateAst {
   return (
     typeof value === 'object' &&
@@ -119,6 +129,11 @@ function isPredicateAst(value: unknown): value is PredicateAst {
   )
 }
 
+/**
+ * Normalizes supported where inputs into a predicate AST.
+ *
+ * @param input - Where input to normalize.
+ */
 function normalizeWhere(input: WhereInput): PredicateAst {
   if (Array.isArray(input)) {
     const [column, op, value] = input
@@ -154,6 +169,11 @@ function mergeWhere(
   return existing ? and(existing, next) : next
 }
 
+/**
+ * Resolves and validates returning column names.
+ *
+ * @param columns - Columns requested by a returning clause.
+ */
 function resolveReturningColumns(columns: readonly (ColumnRef | string)[]): string[] {
   if (columns.length === 0) {
     throw new QueryError({ message: 'returning(...) requires at least one column' })
@@ -172,6 +192,11 @@ type SelectSelectionInput =
       | SelectItemAst
     )[])
 
+/**
+ * Converts a column reference into a select item.
+ *
+ * @param column - Column to select.
+ */
 function selectionColumn(column: ColumnRef | string): SelectItemAst {
   const table = columnTable(column)
   const schema = columnSchema(column)
@@ -185,6 +210,11 @@ function selectionColumn(column: ColumnRef | string): SelectItemAst {
     : { kind: 'column', column: columnName(column) }
 }
 
+/**
+ * Normalizes and validates a select input.
+ *
+ * @param input - Selection list or selection factory.
+ */
 function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
   let selection: SelectItemAst[]
   if (typeof input === 'function') {
@@ -277,9 +307,9 @@ function mapSetParams(
  * Recursively maps predicate parameter values through the value mapper.
  *
  * @example
- *   mapPredicateParams(handle, mapper, cmp('name', 'eq', 'Alice'))
+ *   mapPredicateParams([handle], mapper, cmp('name', 'eq', 'Alice'))
  *
- * @param handle - Table handle for column metadata.
+ * @param handles - Table handles available to the predicate.
  * @param mapper - Value mapper for parameter conversion.
  * @param pred - Predicate AST node to map.
  *
@@ -323,6 +353,13 @@ function mapPredicateParams(
   }
 }
 
+/**
+ * Finds the unambiguous handle for a qualified table reference.
+ *
+ * @param handles - Table handles to search.
+ * @param table - Optional table name.
+ * @param schema - Optional schema name.
+ */
 function findHandle(
   handles: readonly TableHandle[],
   table: string | undefined,
@@ -341,6 +378,12 @@ function findHandle(
 
 type ResultColumn = { handle: TableHandle; column: string }
 
+/**
+ * Builds result-column mappings for a selection.
+ *
+ * @param handles - Table handles available to the selection.
+ * @param selection - Selected AST items.
+ */
 function resultColumnsForSelection(
   handles: readonly TableHandle[],
   selection: readonly SelectItemAst[],
@@ -348,6 +391,12 @@ function resultColumnsForSelection(
   const columns = new Map<string, ResultColumn>()
   const outputNames = new Set<string>()
 
+  /**
+   * Registers a unique output column.
+   *
+   * @param outputName - Output column name.
+   * @param mapping - Optional source-column mapping.
+   */
   const add = (outputName: string, mapping?: ResultColumn) => {
     if (outputNames.has(outputName)) {
       throw new QueryError({
@@ -358,6 +407,11 @@ function resultColumnsForSelection(
     if (mapping) columns.set(outputName, mapping)
   }
 
+  /**
+   * Registers every column from a table handle.
+   *
+   * @param handle - Handle whose columns are registered.
+   */
   const addAll = (handle: TableHandle) => {
     for (const column of Object.keys(handle.getSchema().entries)) {
       add(column, { handle, column })
@@ -397,6 +451,13 @@ function resultColumnsForSelection(
   return columns
 }
 
+/**
+ * Maps selected row values using their source-column mappings.
+ *
+ * @param mapper - Mapper used for result conversion.
+ * @param rows - Rows to map.
+ * @param columns - Output-to-source column mappings.
+ */
 function mapSelectedRows(
   mapper: ValueMapper,
   rows: unknown[],
@@ -419,12 +480,13 @@ function mapSelectedRows(
  * Compiles and executes a query AST, mapping result rows when a mapper is provided.
  *
  * @example
- *   const rows = await runQuery(dialect, executor, handle, mapper, selectAst)
+ *   const rows = await runQuery(dialect, executor, handle, mapper, columns, selectAst)
  *
  * @param dialect - SQL dialect for compilation.
  * @param executor - Database executor.
  * @param handle - Table handle for result mapping.
  * @param mapper - Optional value mapper for result conversion.
+ * @param resultColumns - Output-to-source mappings for selected columns.
  * @param ast - Query AST node to execute.
  *
  * @returns Query result rows
@@ -565,6 +627,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
 }): InsertBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, rows, returning } = options
 
+  /** Builds the insert AST. */
   const buildAst = (): InsertAst => {
     // Union of keys across rows (stable order: first row keys, then extras)
     const columnSet: string[] = []
@@ -600,10 +663,13 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
     }
   }
 
+  /** Compiles the current insert query. */
   const compile = () => dialect.compile(buildAst())
 
+  /** Executes the current insert query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
+  /** Executes the insert and returns its first result. */
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) {
@@ -612,6 +678,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
     return result
   }
 
+  /** Executes the insert and requires a result. */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
@@ -621,6 +688,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
   }
 
   return {
+    /** Returns a builder configured to return every column. */
     returningAll() {
       return createInsertBuilder({
         handle,
@@ -631,6 +699,11 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
         returning: { kind: 'all' },
       }) as never
     },
+    /**
+     * Returns a builder configured to return selected columns.
+     *
+     * @param columns - Columns to return.
+     */
     returning(columns) {
       return createInsertBuilder({
         handle,
@@ -728,6 +801,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
 }): UpdateBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, patch, where, allowAll, returning } = options
 
+  /** Builds the update AST. */
   const buildAst = (): UpdateAst => {
     const info = handle.getTableMetadata()
     if (!where && !allowAll) {
@@ -751,16 +825,20 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
     }
   }
 
+  /** Compiles the current update query. */
   const compile = () => dialect.compile(buildAst())
 
+  /** Executes the current update query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
+  /** Executes the update and returns its first result. */
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
     return result
   }
 
+  /** Executes the update and requires a result. */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
@@ -769,6 +847,11 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
     return result
   }
 
+  /**
+   * Returns an update builder with an additional predicate.
+   *
+   * @param input - Predicate input to append.
+   */
   const withWhere = (input: WhereInput) =>
     createUpdateBuilder({
       handle,
@@ -782,6 +865,11 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
     })
 
   return {
+    /**
+     * Returns a builder with an additional predicate.
+     *
+     * @param args - Supported where arguments.
+     */
     where(...args: unknown[]) {
       if (args.length === 1) {
         return withWhere(args[0] as WhereInput) as never
@@ -792,6 +880,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
         args[2],
       ]) as never
     },
+    /** Allows the update to affect every row. */
     all() {
       return createUpdateBuilder({
         handle,
@@ -804,6 +893,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
         returning,
       }) as never
     },
+    /** Returns a builder configured to return every column. */
     returningAll() {
       return createUpdateBuilder({
         handle,
@@ -816,6 +906,11 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
         returning: { kind: 'all' },
       }) as never
     },
+    /**
+     * Returns a builder configured to return selected columns.
+     *
+     * @param columns - Columns to return.
+     */
     returning(columns) {
       return createUpdateBuilder({
         handle,
@@ -899,6 +994,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
 }): DeleteBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, where, allowAll, returning } = options
 
+  /** Builds the delete AST. */
   const buildAst = (): DeleteAst => {
     const info = handle.getTableMetadata()
     if (!where && !allowAll) {
@@ -916,16 +1012,20 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
     }
   }
 
+  /** Compiles the current delete query. */
   const compile = () => dialect.compile(buildAst())
 
+  /** Executes the current delete query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
 
+  /** Executes the delete and returns its first result. */
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
     return result
   }
 
+  /** Executes the delete and requires a result. */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
     if (returning) {
@@ -934,6 +1034,11 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
     return result
   }
 
+  /**
+   * Returns a delete builder with an additional predicate.
+   *
+   * @param input - Predicate input to append.
+   */
   const withWhere = (input: WhereInput) =>
     createDeleteBuilder({
       handle,
@@ -946,6 +1051,11 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
     })
 
   return {
+    /**
+     * Returns a builder with an additional predicate.
+     *
+     * @param args - Supported where arguments.
+     */
     where(...args: unknown[]) {
       if (args.length === 1) {
         return withWhere(args[0] as WhereInput) as never
@@ -956,6 +1066,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
         args[2],
       ]) as never
     },
+    /** Allows the delete to affect every row. */
     all() {
       return createDeleteBuilder({
         handle,
@@ -967,6 +1078,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
         returning,
       }) as never
     },
+    /** Returns a builder configured to return every column. */
     returningAll() {
       return createDeleteBuilder({
         handle,
@@ -978,6 +1090,11 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
         returning: { kind: 'all' },
       }) as never
     },
+    /**
+     * Returns a builder configured to return selected columns.
+     *
+     * @param columns - Columns to return.
+     */
     returning(columns) {
       return createDeleteBuilder({
         handle,
@@ -1134,6 +1251,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
 }): SelectBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, state } = options
 
+  /** Builds the select AST and result-column mappings. */
   const buildQuery = () => {
     const info = handle.getTableMetadata()
     const handles = [handle, ...state.joinedHandles]
@@ -1160,6 +1278,11 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     return { ast, resultColumns }
   }
 
+  /**
+   * Returns a select builder with patched state.
+   *
+   * @param patch - State values to replace.
+   */
   const next = (patch: Partial<SelectState>) =>
     createSelectBuilder({
       handle,
@@ -1179,24 +1302,33 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
       },
     })
 
+  /** Compiles the current select query. */
   const compile = () => dialect.compile(buildQuery().ast)
 
+  /** Executes the current select query. */
   const execute = async () => {
     const { ast, resultColumns } = buildQuery()
     return runQuery(dialect, executor, handle, mapper, resultColumns, ast)
   }
 
+  /** Executes the select and returns its first row. */
   const executeTakeFirst = async () => {
     const rows = (await execute()) as unknown[]
     return rows[0]
   }
 
+  /** Executes the select and requires a row. */
   const executeTakeFirstOrThrow = async () => {
     const rows = (await execute()) as unknown[]
     return takeFirstOrThrow(rows, 'No rows returned from select')
   }
 
   return {
+    /**
+     * Appends an all-columns selection.
+     *
+     * @param side - Optional joined table to select from.
+     */
     selectAll(side?: TableHandle) {
       const metadata = side?.getTableMetadata()
       const item: SelectItemAst = metadata
@@ -1208,11 +1340,21 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
         : { kind: 'all' }
       return next({ selection: [...state.selection, item] }) as never
     },
+    /**
+     * Appends selected columns or expressions.
+     *
+     * @param input - Selection list or selection factory.
+     */
     select(input: SelectSelectionInput) {
       return next({
         selection: [...state.selection, ...normalizeSelection(input)],
       }) as never
     },
+    /**
+     * Appends a where predicate.
+     *
+     * @param args - Supported where arguments.
+     */
     where(...args: unknown[]) {
       let pred: PredicateAst
       if (args.length === 1) {
@@ -1231,6 +1373,12 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
       }
       return next({ where: mergeWhere(state.where, pred) }) as never
     },
+    /**
+     * Appends an ordering clause.
+     *
+     * @param column - Column to order by.
+     * @param direction - Sort direction.
+     */
     orderBy(column, direction: 'asc' | 'desc' = 'asc') {
       const q = toQualified(column)
       return next({
@@ -1245,12 +1393,27 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
         ],
       }) as never
     },
+    /**
+     * Sets the row limit.
+     *
+     * @param count - Maximum rows to return.
+     */
     limit(count) {
       return next({ limit: count }) as never
     },
+    /**
+     * Sets the row offset.
+     *
+     * @param count - Rows to skip.
+     */
     offset(count) {
       return next({ offset: count }) as never
     },
+    /**
+     * Appends grouping columns.
+     *
+     * @param columns - Columns to group by.
+     */
     groupBy(columns) {
       const list = Array.isArray(columns) ? columns : [columns]
       return next({
@@ -1260,24 +1423,47 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
         ],
       }) as never
     },
+    /**
+     * Appends a having predicate.
+     *
+     * @param input - Predicate or predicate factory.
+     */
     having(input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)) {
       const pred = typeof input === 'function' ? input(eb) : input
       return next({
         having: state.having ? and(state.having, pred) : pred,
       }) as never
     },
+    /**
+     * Appends an inner join.
+     *
+     * @param table - Table to join.
+     * @param on - Join predicate input.
+     */
     innerJoin(table, on) {
       return next({
         joins: [...state.joins, toJoinAst('inner', table, on)],
         joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
+    /**
+     * Appends a left join.
+     *
+     * @param table - Table to join.
+     * @param on - Join predicate input.
+     */
     leftJoin(table, on) {
       return next({
         joins: [...state.joins, toJoinAst('left', table, on)],
         joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
+    /**
+     * Appends a right join.
+     *
+     * @param table - Table to join.
+     * @param on - Join predicate input.
+     */
     rightJoin(table, on) {
       return next({
         joins: [...state.joins, toJoinAst('right', table, on)],
@@ -1371,6 +1557,7 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
 }
 
+/** Creates an empty select-builder state. */
 function emptySelectState(): SelectState {
   return {
     selection: [],
@@ -1402,6 +1589,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
 }): QueryBuilder<THandle> {
   const { handle, dialect, executor, mapper } = options
 
+  /** Creates a select builder rooted at the table. */
   const rootSelect = () =>
     createSelectBuilder({
       handle,
@@ -1421,42 +1609,105 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
   })
 
   return {
+    /** Compiles the default select query. */
     compile: () => defaultSelect.compile(),
+    /** Executes the default select query. */
     execute: () => defaultSelect.execute() as Promise<InferSelect<THandle>[]>,
+    /** Executes the default select and returns its first row. */
     executeTakeFirst: () =>
       defaultSelect.executeTakeFirst() as Promise<InferSelect<THandle> | undefined>,
+    /** Executes the default select and requires a row. */
     executeTakeFirstOrThrow: () =>
       defaultSelect.executeTakeFirstOrThrow() as Promise<InferSelect<THandle>>,
+    /**
+     * Selects every column from the root or a joined table.
+     *
+     * @param tableHandle - Optional table to select from.
+     */
     selectAll(tableHandle?: TableHandle) {
       return rootSelect().selectAll(tableHandle as never) as never
     },
+    /**
+     * Selects columns or expressions.
+     *
+     * @param input - Selection list or selection factory.
+     */
     select(input: SelectSelectionInput) {
       return rootSelect().select(input as never) as never
     },
+    /**
+     * Starts an inner join query.
+     *
+     * @param table - Table to join.
+     * @param on - Join predicate input.
+     */
     innerJoin(table, on) {
       return rootSelect().innerJoin(table, on) as never
     },
+    /**
+     * Starts a left join query.
+     *
+     * @param table - Table to join.
+     * @param on - Join predicate input.
+     */
     leftJoin(table, on) {
       return rootSelect().leftJoin(table, on) as never
     },
+    /**
+     * Starts a right join query.
+     *
+     * @param table - Table to join.
+     * @param on - Join predicate input.
+     */
     rightJoin(table, on) {
       return rootSelect().rightJoin(table, on) as never
     },
+    /**
+     * Starts a filtered select query.
+     *
+     * @param args - Supported where arguments.
+     */
     where(...args: unknown[]) {
       return (rootSelect().where as (...a: unknown[]) => SelectBuilder)(...args) as never
     },
+    /**
+     * Starts an ordered select query.
+     *
+     * @param column - Column to order by.
+     * @param direction - Optional sort direction.
+     */
     orderBy(column, direction) {
       return rootSelect().orderBy(column, direction) as never
     },
+    /**
+     * Starts a limited select query.
+     *
+     * @param count - Maximum rows to return.
+     */
     limit(count) {
       return rootSelect().limit(count) as never
     },
+    /**
+     * Starts an offset select query.
+     *
+     * @param count - Rows to skip.
+     */
     offset(count) {
       return rootSelect().offset(count) as never
     },
+    /**
+     * Starts a grouped select query.
+     *
+     * @param columns - Columns to group by.
+     */
     groupBy(columns) {
       return rootSelect().groupBy(columns) as never
     },
+    /**
+     * Starts a select query with a having predicate.
+     *
+     * @param input - Predicate or predicate factory.
+     */
     having(input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)) {
       return rootSelect().having(input as never) as never
     },

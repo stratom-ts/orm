@@ -58,6 +58,12 @@ type TransactionScopeFrame = {
 
 const activeTransactionScope = new AsyncLocalStorage<TransactionScopeFrame>()
 
+/**
+ * Checks whether one transaction scope is nested beneath another.
+ *
+ * @param candidate - Scope that may be a descendant.
+ * @param ancestor - Potential ancestor scope.
+ */
 function isDescendantScope(
   candidate: TransactionScope,
   ancestor: TransactionScope,
@@ -70,12 +76,19 @@ function isDescendantScope(
   return false
 }
 
+/** Creates the error reported after failed savepoint cleanup poisons a transaction. */
 function transactionPoisonedError(): QueryError {
   return new QueryError({
     message: 'Transaction is no longer usable after savepoint cleanup failed',
   })
 }
 
+/**
+ * Queues work on a transaction scope while enforcing scope ownership.
+ *
+ * @param scope - Transaction scope that owns the operation.
+ * @param operation - Asynchronous work to schedule.
+ */
 function scheduleTransactionScope<T>(
   scope: TransactionScope,
   operation: () => Promise<T>,
@@ -122,6 +135,11 @@ function scheduleTransactionScope<T>(
   })()
 }
 
+/**
+ * Waits until all work queued on a transaction scope has settled.
+ *
+ * @param scope - Transaction scope to drain.
+ */
 async function drainTransactionScope(scope: TransactionScope): Promise<void> {
   while (true) {
     const tail = scope.queue
@@ -204,14 +222,10 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
 }
 
 /**
- * Asserts that all schemas are valid table handles with unique keys.
+ * Formats an authored schema and relation for diagnostics.
  *
- * @example
- *   assertHandles([User, Post])
- *
- * @param schemas - Array of table handles to validate.
- *
- * @throws SchemaError - When a value is not a table handle or keys are duplicated
+ * @param schema - Optional authored schema name.
+ * @param relation - Authored relation name.
  */
 function formatAuthoredRelation(schema: string | undefined, relation: string): string {
   return schema === undefined
@@ -219,6 +233,16 @@ function formatAuthoredRelation(schema: string | undefined, relation: string): s
     : `${JSON.stringify(schema)}.${JSON.stringify(relation)}`
 }
 
+/**
+ * Asserts that all schemas are valid table handles with unique keys.
+ *
+ * @example
+ *   assertHandles([User, Post])
+ *
+ * @param schemas - Array of table handles to validate.
+ *
+ * @throws SchemaError - When a value is not a table handle or keys are duplicated.
+ */
 function assertHandles(schemas: readonly TableHandle[]): void {
   const seen = new Map<string | undefined, Set<string>>()
   for (const schema of schemas) {
@@ -249,11 +273,11 @@ function assertHandles(schemas: readonly TableHandle[]): void {
  *   import { postgresql } from 'db0/connectors/postgresql'
  *
  *   const db = createDatabase({
- *   connector: postgresql({ url: process.env.DATABASE_URL! }),
- *   schemas: [User],
+ *     connector: postgresql({ url: process.env.DATABASE_URL! }),
+ *     schemas: [User],
  *   })
  *   await db.transaction(async (trx) => {
- *   await trx.insert(User).values({ ... }).execute()
+ *     await trx.insert(User).values({ name: 'Alice' }).execute()
  *   })
  *   await db.close()
  *
@@ -281,6 +305,11 @@ export function createDatabase<
     relations.set(info.name, handle)
   }
 
+  /**
+   * Checks whether a table handle's authored relation is registered.
+   *
+   * @param handle - Table handle to check.
+   */
   const isRegistered = (handle: TableHandle): boolean => {
     const info = handle.getTableMetadata()
     return registry.get(info.schema)?.has(info.name) ?? false
@@ -294,6 +323,7 @@ export function createDatabase<
   let closed = false
   let closePromise: Promise<void> | undefined
 
+  /** Asserts that the root database client remains open. */
   const ensureOpen = () => {
     if (closed) {
       throw new QueryError({ message: 'Database has been closed' })
@@ -301,16 +331,27 @@ export function createDatabase<
   }
 
   const rootExecutor: Executor = {
+    /**
+     * Executes a row-returning query through the operation coordinator.
+     *
+     * @param query - Compiled query to execute.
+     */
     execute(query) {
       ensureOpen()
       return coordinator.run(({ executor }) => executor.execute(query))
     },
+    /**
+     * Runs a statement through the operation coordinator.
+     *
+     * @param query - Compiled statement to run.
+     */
     run(query) {
       ensureOpen()
       return coordinator.run(({ executor }) => executor.run(query))
     },
   }
 
+  /** Closes the root database client and its operation coordinator. */
   const close = (): Promise<void> => {
     if (coordinator.currentToken()) {
       return Promise.reject(
@@ -325,10 +366,17 @@ export function createDatabase<
     return (closePromise = coordinator.close())
   }
 
+  /**
+   * Creates a root or transaction-scoped database client.
+   *
+   * @param executor - Executor backing the client.
+   * @param transactionScope - Optional transaction scope for the client.
+   */
   const createClient = (
     executor: Executor,
     transactionScope?: TransactionScope,
   ): Db<TSchemas> => {
+    /** Asserts that this root or transaction-scoped client remains open. */
     const ensureClientOpen = () => {
       if (transactionScope) {
         if (!transactionScope.active) {
@@ -341,12 +389,22 @@ export function createDatabase<
 
     const clientExecutor: Executor = transactionScope
       ? {
+          /**
+           * Executes a row-returning query in the transaction queue.
+           *
+           * @param query - Compiled query to execute.
+           */
           execute(query) {
             ensureClientOpen()
             return scheduleTransactionScope(transactionScope, () =>
               executor.execute(query),
             )
           },
+          /**
+           * Runs a statement in the transaction queue.
+           *
+           * @param query - Compiled statement to run.
+           */
           run(query) {
             ensureClientOpen()
             return scheduleTransactionScope(transactionScope, () => executor.run(query))
@@ -354,6 +412,12 @@ export function createDatabase<
         }
       : executor
 
+    /**
+     * Checks database connectivity with a trivial query.
+     *
+     * @example
+     *   await db.ping()
+     */
     const ping = async (): Promise<void> => {
       ensureClientOpen()
       try {
@@ -367,6 +431,14 @@ export function createDatabase<
       }
     }
 
+    /**
+     * Starts a query rooted on a registered table.
+     *
+     * @example
+     *   const query = db.from(User)
+     *
+     * @param handle - Registered table handle to query.
+     */
     const from = <THandle extends TableHandle>(
       handle: THandle,
     ): QueryBuilder<THandle> => {
@@ -385,6 +457,14 @@ export function createDatabase<
       return createTableBuilder({ handle, dialect, executor: clientExecutor, mapper })
     }
 
+    /**
+     * Starts an insert into a registered table.
+     *
+     * @example
+     *   await db.insert(User).values({ name: 'Alice' }).execute()
+     *
+     * @param handle - Registered table handle to insert into.
+     */
     const insert = <THandle extends TableHandle>(
       handle: THandle,
     ): InsertValuesBuilder<THandle> => {
@@ -401,6 +481,15 @@ export function createDatabase<
         })
       }
       return {
+        /**
+         * Supplies one or more rows for the insert.
+         *
+         * @example
+         *   const rows = [{ name: 'Alice' }, { name: 'Bob' }]
+         *   await db.insert(User).values(rows).execute()
+         *
+         * @param rowOrRows - Insert row or non-empty array of rows.
+         */
         values: (rowOrRows) => {
           const list = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]
           if (list.length === 0) {
@@ -421,6 +510,12 @@ export function createDatabase<
       }
     }
 
+    /**
+     * Asserts that a method received a registered table handle.
+     *
+     * @param handle - Table handle to validate.
+     * @param method - Database method name used in diagnostics.
+     */
     const validateHandle = (handle: TableHandle, method: string) => {
       if (!isTableHandle(handle)) {
         throw new SchemaError({
@@ -435,12 +530,28 @@ export function createDatabase<
       }
     }
 
+    /**
+     * Starts an update of a registered table.
+     *
+     * @example
+     *   await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
+     *
+     * @param handle - Registered table handle to update.
+     */
     const update = <THandle extends TableHandle>(
       handle: THandle,
     ): UpdateSetBuilder<THandle> => {
       ensureClientOpen()
       validateHandle(handle, 'update')
       return {
+        /**
+         * Supplies the column patch for the update.
+         *
+         * @example
+         *   await db.update(User).set({ name: 'Bob' }).where(User.id, 'eq', 1).execute()
+         *
+         * @param patch - Non-empty patch of updatable columns.
+         */
         set: (patch) => {
           const validated = validateUpdatePatch(handle, patch)
           return createUpdateBuilder({
@@ -456,6 +567,14 @@ export function createDatabase<
       }
     }
 
+    /**
+     * Starts a delete from a registered table.
+     *
+     * @example
+     *   await db.delete(User).where(User.id, 'eq', 1).execute()
+     *
+     * @param handle - Registered table handle to delete from.
+     */
     const delete_ = <THandle extends TableHandle>(
       handle: THandle,
     ): DeleteBuilder<THandle, InferSelect<THandle>> => {
@@ -471,11 +590,22 @@ export function createDatabase<
       }) as DeleteBuilder<THandle, InferSelect<THandle>>
     }
 
+    /**
+     * Creates a desired-state migration builder for the registered tables.
+     *
+     * @example
+     *   const plan = await db.migrate().dryRun()
+     */
     const migrate = (): MigrateBuilder => {
       ensureClientOpen()
       return createMigrateBuilder({
         schemas,
         dialect,
+        /**
+         * Runs migration work in the current transaction scope or a root operation.
+         *
+         * @param operation - Migration operation to execute with session context.
+         */
         runOperation: async (operation) => {
           if (transactionScope) {
             ensureClientOpen()
@@ -499,6 +629,7 @@ export function createDatabase<
         ...(config.migrationOwnership === undefined
           ? {}
           : { migrationOwnership: config.migrationOwnership }),
+        /** Prevents migration execution from inside a transaction client. */
         assertCanExecute() {
           if (transactionScope) {
             throw new MigrationError({
@@ -509,6 +640,16 @@ export function createDatabase<
       })
     }
 
+    /**
+     * Runs a callback in a transaction or nested savepoint.
+     *
+     * @example
+     *   await db.transaction(async (trx) => {
+     *     await trx.insert(User).values({ name: 'Alice' }).execute()
+     *   })
+     *
+     * @param fn - Callback receiving the transaction-scoped client.
+     */
     const transaction = async <T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T> => {
       ensureClientOpen()
       const inheritedTransactionFrame = activeTransactionScope.getStore()
@@ -626,6 +767,12 @@ export function createDatabase<
       })
     }
 
+    /**
+     * Closes a root client and rejects attempts to close transaction clients.
+     *
+     * @example
+     *   await db.close()
+     */
     const closeClient = (): Promise<void> => {
       if (transactionScope) {
         try {

@@ -43,6 +43,12 @@ function qualifyPostgresTable(schema: string | undefined, table: string): string
   return `${quoteIdent(schemaName)}.${quoteIdent(table)}`
 }
 
+/**
+ * Builds the canonical alias candidate for a PostgreSQL table.
+ *
+ * @param schema - Schema name, or `undefined` for `public`.
+ * @param table - Table name.
+ */
 function postgresTableAlias(schema: string | undefined, table: string): string {
   return `${schema ?? 'public'}.${table}`
 }
@@ -53,10 +59,20 @@ type PostgresRelation = {
   alias: string
 }
 
+/**
+ * Measures a string using PostgreSQL's UTF-8 identifier byte limit.
+ *
+ * @param value - String to measure.
+ */
 function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
+/**
+ * Resolves deterministic, unambiguous aliases for query relations.
+ *
+ * @param relations - Relations participating in the query.
+ */
 function createRelationContext(
   relations: readonly { schema?: string; table: string }[],
 ): PostgresRelation[] {
@@ -82,6 +98,13 @@ function createRelationContext(
   })
 }
 
+/**
+ * Finds the alias for a table reference in the query relation context.
+ *
+ * @param relations - Relations participating in the query.
+ * @param table - Referenced table name.
+ * @param schema - Optional referenced schema name.
+ */
 function resolveRelationAlias(
   relations: readonly PostgresRelation[],
   table: string,
@@ -148,7 +171,9 @@ function compileReturning(returning: ReturningAst | undefined): string {
  * Qualifies a column name with an optional table prefix.
  *
  * @param column - Column name.
+ * @param relations - Relations participating in the query.
  * @param table - Optional table name.
+ * @param schema - Optional schema name.
  *
  * @returns Qualified column reference (e.g. `"users"."id"`)
  */
@@ -168,6 +193,7 @@ function qualifyColumn(
  * Compiles a qualified column AST node to SQL.
  *
  * @param col - Qualified column AST node.
+ * @param relations - Relations participating in the query.
  *
  * @returns SQL column reference
  */
@@ -183,6 +209,7 @@ function compileQualifiedColumn(
  *
  * @param pred - Predicate AST node.
  * @param params - Accumulator for parameterized values.
+ * @param relations - Relations participating in the query.
  *
  * @returns SQL condition string
  */
@@ -232,6 +259,7 @@ function compilePredicate(
  *
  * @param where - Where predicate AST node.
  * @param params - Accumulator for parameterized values.
+ * @param relations - Relations participating in the query.
  *
  * @returns SQL where clause, or empty string
  */
@@ -249,6 +277,7 @@ function compileWhereClause(
  *
  * @param expr - Expression AST node.
  * @param params - Accumulator for parameterized values.
+ * @param relations - Relations participating in the query.
  *
  * @returns SQL expression string
  */
@@ -295,6 +324,7 @@ function compileExpr(
  *
  * @param item - Select item AST node.
  * @param params - Accumulator for parameterized values.
+ * @param relations - Relations participating in the query.
  *
  * @returns SQL select item expression
  */
@@ -325,6 +355,7 @@ function compileSelectItem(
  * Compiles an ORDER BY clause.
  *
  * @param orderBy - Order-by AST nodes.
+ * @param relations - Relations participating in the query.
  *
  * @returns SQL order by clause, or empty string
  */
@@ -344,7 +375,9 @@ function compileOrderBy(
  * Compiles a JOIN clause.
  *
  * @param join - Join AST node.
+ * @param relation - Resolved relation for the joined table.
  * @param params - Accumulator for parameterized values.
+ * @param relations - Relations participating in the query.
  *
  * @returns SQL join clause
  */
@@ -662,6 +695,11 @@ function compileAddForeignKey(node: {
   return sql
 }
 
+/**
+ * Compiles an ADD UNIQUE CONSTRAINT AST node to DDL SQL.
+ *
+ * @param node - Unique constraint definition.
+ */
 function compileAddUniqueConstraint(node: {
   schema?: string
   table: string

@@ -7,6 +7,13 @@ type TraversableSchema = AnySchema & {
   wrapped?: AnySchema
 }
 
+/**
+ * Reads metadata from a Valibot action value.
+ *
+ * @param value - Potential metadata action.
+ *
+ * @returns The action metadata, or `undefined` when absent
+ */
 function actionMetadata(value: unknown): MetadataRecord | undefined {
   if (
     typeof value !== 'object' ||
@@ -20,7 +27,17 @@ function actionMetadata(value: unknown): MetadataRecord | undefined {
   return value.metadata as MetadataRecord
 }
 
-/** Finds the nearest metadata action of one kind across nested pipes and wrappers. */
+/**
+ * Finds the nearest metadata action of one kind across nested pipes and wrappers.
+ *
+ * @example
+ *   const metadata = findSchemaMetadata<ColumnMetadata>(schema, 'column')
+ *
+ * @param schema - Schema whose pipes and wrappers should be searched.
+ * @param kind - Metadata discriminant to find.
+ *
+ * @returns The nearest matching metadata, or `undefined` when absent
+ */
 export function findSchemaMetadata<T extends MetadataRecord>(
   schema: AnySchema,
   kind: T['kind'],

@@ -33,6 +33,11 @@ export function TaggedError<Tag extends string>(
   class BaseError extends Error {
     readonly _tag = tag
 
+    /**
+     * Creates a tagged error from payload fields.
+     *
+     * @param args - Payload fields assigned to the error.
+     */
     constructor(args: Record<string, unknown>) {
       super()
       if (args) {
