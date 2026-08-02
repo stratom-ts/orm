@@ -73,7 +73,7 @@ function executor(
         if (options.unrelatedRace) {
           rows.push({
             ...rows[0]!,
-            object_id: String(relationQueries),
+            object_id: String(1000 + relationQueries),
             name: 'audit_log',
           })
         }

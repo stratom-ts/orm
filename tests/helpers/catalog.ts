@@ -295,7 +295,6 @@ export function completePostgresCatalog(
       relationOwner: { state: 'supported', fidelity: 'native' },
       identity: { state: 'supported', fidelity: 'native' },
       richObjects: { state: 'supported', fidelity: 'native' },
-      fixture: { state: 'supported', fidelity: 'native' },
     },
     namespaceContext: input.namespaceContext,
     namespaces: { items: namespaces, coverage: { state: 'complete' } },
