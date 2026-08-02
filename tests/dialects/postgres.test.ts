@@ -344,7 +344,7 @@ describe('@/dialects/postgres', () => {
       expect(sql).toContain("default 'O''Brien'")
     })
 
-    it('should escape backslashes in tagged string literals', () => {
+    it('should prefer pre-normalized database defaults during compilation', () => {
       const sql = compile(
         createTable(
           col('n', {
