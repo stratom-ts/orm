@@ -36,8 +36,11 @@ and canonical column identifier, plus optional referential actions.
 whose namespace is a database or attachment alias needs no PostgreSQL-shaped field.
 
 Canonical order is package-wide semantic phase order, then structured target order:
-namespace segments by role and comparison key, then the relation comparison key, then
-the addressed member comparison key. Ordering is structural and needs no identity module.
+namespace segments by role and comparison key, then the relation comparison key, then the
+addressed member comparison key. An adapter that folds identifier case lets distinct
+authored targets share comparison keys, so authored spellings break every remaining tie,
+in the same precedence: namespace segment spellings, then the relation spelling, then the
+member spelling. Ordering is structural and needs no identity module.
 
 Planning stays pure, synchronous, and all-or-no-plan, is independent of destructive
 `allow()` policy, and returns the resolved semantic profile (identity adapter, writable
