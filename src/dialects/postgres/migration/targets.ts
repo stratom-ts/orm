@@ -29,7 +29,14 @@ type PostgresReferenceFields = PostgresRelationFields & {
 
 const POSTGRES_NAMING_PROFILE = physicalNamingProfile('postgresql')
 
-/** Reads the schema spelling a PostgreSQL statement must name. */
+/**
+ * Reads the schema spelling a PostgreSQL statement must name.
+ *
+ * @example
+ *   const schema = schemaFromNamespace(relation.namespace)
+ *
+ * @param namespace - Canonical namespace containing a schema segment.
+ */
 export function schemaFromNamespace(
   namespace: CanonicalRelationIdentity['namespace'],
 ): string {
@@ -38,7 +45,11 @@ export function schemaFromNamespace(
   return schema.identifier.spelling
 }
 
-/** Projects a canonical relation identity into PostgreSQL AST relation fields. */
+/**
+ * Projects a canonical relation identity into PostgreSQL AST relation fields.
+ *
+ * @param identity - Canonical relation identity to project.
+ */
 function relationFields(identity: CanonicalRelationIdentity): PostgresRelationFields {
   return {
     schema: schemaFromNamespace(identity.namespace),
@@ -46,7 +57,11 @@ function relationFields(identity: CanonicalRelationIdentity): PostgresRelationFi
   }
 }
 
-/** Projects a structured foreign-key reference into PostgreSQL AST fields. */
+/**
+ * Projects a structured foreign-key reference into PostgreSQL AST fields.
+ *
+ * @param reference - Structured foreign-key reference to project.
+ */
 function referenceFields(reference: MigrationColumnReference): PostgresReferenceFields {
   return {
     ...relationFields(reference.relation),
@@ -56,7 +71,15 @@ function referenceFields(reference: MigrationColumnReference): PostgresReference
   }
 }
 
-/** Converts one semantic step into its PostgreSQL statement AST. */
+/**
+ * Converts one semantic step into its PostgreSQL statement AST.
+ *
+ * @example
+ *   const ast = stepToAst(step, planned)
+ *
+ * @param step - Semantic migration step to convert.
+ * @param planned - Planned migration supplying desired table ASTs.
+ */
 export function stepToAst(
   step: MigrationStep,
   planned: PlannedMigration,
@@ -186,7 +209,12 @@ export function stepToAst(
   }
 }
 
-/** Validates one canonical PostgreSQL identifier and its physical spelling. */
+/**
+ * Validates one canonical PostgreSQL identifier and its physical spelling.
+ *
+ * @param identifier - Canonical identifier to validate.
+ * @param label - Target description used in issue messages.
+ */
 function identifierIssues(identifier: CanonicalIdentifier, label: string): string[] {
   const issues: string[] = []
   if (identifier.comparisonKey !== identifier.spelling) {
@@ -200,7 +228,13 @@ function identifierIssues(identifier: CanonicalIdentifier, label: string): strin
   return issues
 }
 
-/** Validates the exact database+schema shape PostgreSQL target projection requires. */
+/**
+ * Validates the exact database and schema shape PostgreSQL target projection requires.
+ *
+ * @param namespace - Canonical namespace to validate.
+ * @param expectedDatabase - Database identity resolved for the executing session.
+ * @param label - Target description used in issue messages.
+ */
 function namespaceIssues(
   namespace: CanonicalRelationIdentity['namespace'],
   expectedDatabase: CanonicalIdentifier | undefined,
@@ -234,7 +268,15 @@ function namespaceIssues(
   return issues
 }
 
-/** Collects deterministic PostgreSQL target/reference validation issues for one step. */
+/**
+ * Collects deterministic PostgreSQL target and reference issues for one step.
+ *
+ * @example
+ *   const issues = stepTargetIssues(step, expectedDatabase)
+ *
+ * @param step - Semantic migration step to validate.
+ * @param expectedDatabase - Database identity resolved for the executing session.
+ */
 export function stepTargetIssues(
   step: MigrationStep,
   expectedDatabase: CanonicalIdentifier | undefined,

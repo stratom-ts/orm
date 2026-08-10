@@ -12,6 +12,13 @@ import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/e
 import { schemaFromNamespace } from './targets'
 
 export class MigrationCancellationError extends Error {
+  /**
+   * Creates a cancellation failure with its observed stage and cleanup failures.
+   *
+   * @param message - Human-readable cancellation description.
+   * @param stage - Migration stage interrupted by cancellation.
+   * @param cleanupFailures - Secondary failures encountered while cancelling.
+   */
   constructor(
     message: string,
     readonly stage: MigrationExecutionStage,
@@ -31,12 +38,22 @@ export type CancellationState = {
 const MIGRATION_LOCK_POLL_INTERVAL_MS = 100
 export const MIGRATION_SESSION_CALL_TIMEOUT_MS = 5_000
 
-/** Quotes a PostgreSQL identifier. */
+/**
+ * Quotes a PostgreSQL identifier.
+ *
+ * @param identifier - Identifier spelling to quote.
+ */
 function quoteIdent(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
 }
 
-/** Cancels and drains an in-flight session operation without leaking its rejection. */
+/**
+ * Cancels and drains an in-flight session operation without leaking its rejection.
+ *
+ * @param options - Runtime capabilities for the physical session.
+ * @param state - Shared cancellation state to mark.
+ * @param inFlight - Optional session operation whose settlement must be drained.
+ */
 async function cancelSession(
   options: MigrationRuntimeOptions,
   state: CancellationState,
@@ -60,10 +77,30 @@ async function cancelSession(
   return cleanupFailures
 }
 
-/** Races one physical-session operation against cancellation and an optional deadline. */
+/**
+ * Races one physical-session operation against cancellation and an optional deadline.
+ *
+ * @example
+ *   const rows = await runCancellable({
+ *     runtime,
+ *     state,
+ *     stage: 'lock',
+ *     operation: () => runtime.executor.execute(query),
+ *   })
+ *
+ * @param options - Runtime, shared state, operation, stage, and optional deadline.
+ * @param options.runtime - Runtime capabilities for the physical session.
+ * @param options.state - Shared cancellation state.
+ * @param options.operation - Physical-session operation to run.
+ * @param options.stage - Migration stage reported on interruption.
+ * @param options.timeoutMs - Optional interruption deadline in milliseconds.
+ * @param options.timeoutMessage - Optional message reported when the deadline expires.
+ */
 export async function runCancellable<T>(options: {
   runtime: MigrationRuntimeOptions
   state: CancellationState
+
+  /** Runs one physical-session operation. */
   operation: () => Promise<T>
   stage: MigrationExecutionStage
   timeoutMs?: number
@@ -116,7 +153,14 @@ export async function runCancellable<T>(options: {
   return result.value
 }
 
-/** Cancels immediately when a deadline or signal is observed between SQL calls. */
+/**
+ * Cancels immediately when a deadline or signal is observed between SQL calls.
+ *
+ * @param options - Runtime capabilities for the physical session.
+ * @param state - Shared cancellation state to mark.
+ * @param stage - Migration stage interrupted by cancellation.
+ * @param timeout - Whether a deadline, rather than an abort signal, was observed.
+ */
 async function stopCancelled(
   options: MigrationRuntimeOptions,
   state: CancellationState,
@@ -140,7 +184,15 @@ async function stopCancelled(
   )
 }
 
-/** Acquires the stable session advisory lock with a finite monotonic deadline. */
+/**
+ * Acquires the stable session advisory lock with a finite monotonic deadline.
+ *
+ * @example
+ *   await acquireCoordination(runtime, { cancelled: false })
+ *
+ * @param options - Runtime session and lock configuration.
+ * @param state - Shared cancellation state.
+ */
 export async function acquireCoordination(
   options: MigrationRuntimeOptions,
   state: CancellationState,
@@ -199,7 +251,14 @@ export async function acquireCoordination(
   }
 }
 
-/** Releases and verifies the stable session advisory lock. */
+/**
+ * Releases and verifies the stable session advisory lock.
+ *
+ * @example
+ *   await releaseCoordination(runtime)
+ *
+ * @param options - Runtime capabilities for the locked session.
+ */
 export async function releaseCoordination(
   options: MigrationRuntimeOptions,
 ): Promise<void> {
@@ -217,7 +276,15 @@ export async function releaseCoordination(
   }
 }
 
-/** Evaluates one semantic precondition in the authoritative transaction. */
+/**
+ * Evaluates one semantic precondition in the authoritative transaction.
+ *
+ * @example
+ *   await assertPrecondition(runtime, precondition)
+ *
+ * @param options - Runtime capabilities for the transaction session.
+ * @param precondition - Semantic assertion to evaluate.
+ */
 export async function assertPrecondition(
   options: MigrationRuntimeOptions,
   precondition: MigrationPrecondition,

@@ -14,12 +14,21 @@ type OrderedActions = {
   issues: MigrationCapabilityIssue[]
 }
 
-/** Returns the relation addressed by a relation/member step. */
+/**
+ * Returns the relation addressed by a relation or member step.
+ *
+ * @param step - Migration step whose relation is requested.
+ */
 function stepRelation(step: MigrationStep): CanonicalRelationIdentity | undefined {
   return step.target.kind === 'namespace' ? undefined : step.target.relation
 }
 
-/** Compares canonical namespaces without relying on dotted encodings. */
+/**
+ * Compares canonical namespaces without relying on dotted encodings.
+ *
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
+ */
 function sameNamespace(
   left: CanonicalRelationIdentity['namespace'],
   right: CanonicalRelationIdentity['namespace'],
@@ -34,13 +43,27 @@ function sameNamespace(
   )
 }
 
-/** Adds deterministic dependency edges and topologically orders action drafts. */
+/**
+ * Adds deterministic dependency edges and topologically orders action drafts.
+ *
+ * @example
+ *   const { ordered, issues } = orderActions(drafts, planned)
+ *
+ * @param drafts - Physical action drafts in source-step order.
+ * @param planned - Planned migration supplying identities and catalog dependencies.
+ */
 export function orderActions(
   drafts: readonly ActionDraft[],
   planned: PlannedMigration,
 ): OrderedActions {
   const dependencies = drafts.map(() => new Set<number>())
   const identities = planned.identities
+  /**
+   * Records that one action must follow another.
+   *
+   * @param action - Index of the dependent action.
+   * @param dependency - Index of the prerequisite action.
+   */
   function dependsOn(action: number, dependency: number): void {
     if (action !== dependency) dependencies[action]!.add(dependency)
   }
@@ -160,6 +183,11 @@ export function orderActions(
   const onStack = new Set<number>()
   const cycles: number[][] = []
 
+  /**
+   * Visits one dependency node while collecting strongly connected components.
+   *
+   * @param node - Action index to visit.
+   */
   function visit(node: number): void {
     indexes[node] = nextIndex
     lowLinks[node] = nextIndex++

@@ -14,7 +14,11 @@ import {
   runCancellable,
 } from './coordination'
 
-/** Reads the primary cause through an existing structured migration error. */
+/**
+ * Reads the primary cause through an existing structured migration error.
+ *
+ * @param cause - Failure whose primary cause is requested.
+ */
 function primaryCause(cause: unknown): unknown {
   if (cause instanceof MigrationError && cause.cause !== undefined) {
     return cause.cause
@@ -22,7 +26,18 @@ function primaryCause(cause: unknown): unknown {
   return cause
 }
 
-/** Creates a structured execution failure while preserving the primary cause. */
+/**
+ * Creates a structured execution failure while preserving the primary cause.
+ *
+ * @param options - Failure stage, outcome, provenance, and cleanup details.
+ * @param options.cause - Primary or already structured failure.
+ * @param options.stage - Fallback stage that observed the failure.
+ * @param options.outcome - Known database effect after the failure.
+ * @param options.retryable - Whether a safe retry is permitted.
+ * @param options.actionIndex - Optional physical action index that failed.
+ * @param options.sourceStepIndexes - Optional semantic steps that produced the action.
+ * @param options.cleanupFailures - Secondary cleanup failures to retain.
+ */
 function executionError(options: {
   cause: unknown
   stage: MigrationExecutionStage
@@ -55,7 +70,12 @@ function executionError(options: {
   })
 }
 
-/** Uses the cancellation stage when cancellation interrupted a database phase. */
+/**
+ * Uses the cancellation stage when cancellation interrupted a database phase.
+ *
+ * @param cause - Failure that may describe a cancellation stage.
+ * @param fallback - Stage to use for non-cancellation failures.
+ */
 function cancellationStage(
   cause: unknown,
   fallback: MigrationExecutionStage,
@@ -64,7 +84,12 @@ function cancellationStage(
   return fallback
 }
 
-/** Preserves a structured stage reported by preparation or lowering. */
+/**
+ * Preserves a structured stage reported by preparation or lowering.
+ *
+ * @param cause - Failure that may report its own migration stage.
+ * @param fallback - Stage to use when the failure has no structured stage.
+ */
 function reportedStage(
   cause: unknown,
   fallback: MigrationExecutionStage,
@@ -74,7 +99,13 @@ function reportedStage(
   return fallback
 }
 
-/** Classifies the database effect after a failed migration execution. */
+/**
+ * Classifies the database effect after a failed migration execution.
+ *
+ * @param stage - Stage at which execution failed.
+ * @param ddlStarted - Whether execution attempted any DDL.
+ * @param rollbackAcknowledged - Whether PostgreSQL acknowledged rollback.
+ */
 function failureOutcome(
   stage: MigrationExecutionStage,
   ddlStarted: boolean,
@@ -86,7 +117,12 @@ function failureOutcome(
   return 'unknown'
 }
 
-/** Classifies the database effect after an acknowledged commit. */
+/**
+ * Classifies the database effect after an acknowledged commit.
+ *
+ * @param committed - Whether PostgreSQL acknowledged commit.
+ * @param ddlStarted - Whether execution attempted any DDL.
+ */
 function successfulOutcome(
   committed: boolean,
   ddlStarted: boolean,
@@ -98,6 +134,11 @@ function successfulOutcome(
  * Runs one PostgreSQL migration under coordination and an authoritative repeatable-read
  * transaction. Commit acknowledgement is a hard uncertainty boundary: it is never
  * followed by rollback or compensation.
+ *
+ * @example
+ *   const result = await executePostgresMigration(runtime)
+ *
+ * @param options - Runtime session capabilities and migration preparation callback.
  */
 export async function executePostgresMigration(
   options: MigrationRuntimeOptions,

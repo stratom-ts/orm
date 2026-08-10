@@ -30,14 +30,32 @@ export type MigrationExecuteOptions = Readonly<{
 }>
 
 export type MigrateBuilder = {
+  /**
+   * Grants execution permission for destructive migration operations.
+   *
+   * @param ops - Destructive operations to permit.
+   */
   allow(...ops: MigrationAllow[]): MigrateBuilder
+
+  /** Builds a Migration Plan without executing it. */
   dryRun(): Promise<MigrationPlan>
+
+  /**
+   * Plans and executes the migration through the selected dialect.
+   *
+   * @param options - Optional cancellation signal and lock deadline.
+   */
   execute(options?: MigrationExecuteOptions): Promise<void>
 }
 
 const DEFAULT_MIGRATION_LOCK_TIMEOUT_MS = 30_000
 
-/** Adds an execution phase without replacing an already structured migration failure. */
+/**
+ * Adds an execution phase without replacing an already structured migration failure.
+ *
+ * @param cause - Failure to structure.
+ * @param stage - Migration stage that observed the failure.
+ */
 function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationError {
   if (cause instanceof MigrationError && cause.stage !== undefined) return cause
   return new MigrationError({
@@ -50,7 +68,11 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationEr
   })
 }
 
-/** Appends provider-release cleanup without replacing a structured primary failure. */
+/**
+ * Appends provider-release cleanup without replacing a structured primary failure.
+ *
+ * @param error - Structured primary migration failure.
+ */
 function withReleaseCleanup(error: MigrationError): MigrationError {
   const failures = getOperationReleaseCleanupFailures(error)
   if (failures.length === 0) return error
@@ -71,7 +93,11 @@ function withReleaseCleanup(error: MigrationError): MigrationError {
   })
 }
 
-/** Resolves and validates the finite migration lock deadline. */
+/**
+ * Resolves and validates the finite migration lock deadline.
+ *
+ * @param options - Migration execution options containing an optional lock timeout.
+ */
 function lockTimeout(options: MigrationExecuteOptions | undefined): number {
   const value = options?.lockTimeoutMs ?? DEFAULT_MIGRATION_LOCK_TIMEOUT_MS
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
@@ -85,7 +111,11 @@ function lockTimeout(options: MigrationExecuteOptions | undefined): number {
   return value
 }
 
-/** Maps a destructive semantic step to its required permission. */
+/**
+ * Maps a destructive semantic step to its required permission.
+ *
+ * @param step - Migration step to classify.
+ */
 function allowForStep(step: MigrationStep): MigrationAllow | undefined {
   switch (step.kind) {
     case 'drop_column':
@@ -102,11 +132,37 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
 /**
  * Desired-state migration orchestration. Planning and permissions remain generic;
  * lowering and all execution mechanics belong to the selected dialect migration facet.
+ *
+ * @example
+ *   const migrate = createMigrateBuilder({ schemas, dialect, runOperation })
+ *   await migrate.allow('dropColumn').execute()
+ *
+ * @param options - Migration schemas, dialect, operation runner, and execution policy.
+ * @param options.schemas - Registered desired-state table handles.
+ * @param options.dialect - Dialect used for planning, lowering, and execution.
+ * @param options.runOperation - Runs migration work on one pinned operation session.
+ * @param options.applicationId - Optional application identity for coordination.
+ * @param options.defaultNamespace - Optional namespace for unqualified registrations.
+ * @param options.migrationOwnership - Optional catalog ownership declarations.
+ * @param options.assertCanExecute - Optional execution-policy assertion.
  */
 export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
   dialect: Dialect
+  /**
+   * Runs migration work on one pinned operation session.
+   *
+   * @param operation - Work receiving the session executor and lifecycle capabilities.
+   */
   runOperation<T>(
+    /**
+     * Performs migration work on one pinned operation session.
+     *
+     * @param executor - Executor bound to the operation session.
+     * @param databaseIdentity - Stable identity of the session database.
+     * @param discard - Marks the physical session for disposal.
+     * @param cancel - Cancels work running on the physical session.
+     */
     operation: (
       executor: Executor,
       databaseIdentity: string,
@@ -117,6 +173,8 @@ export function createMigrateBuilder(options: {
   applicationId?: string
   defaultNamespace?: readonly NamespaceIdentifierInput[]
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
+
+  /** Verifies that the current client context permits migration execution. */
   assertCanExecute?: () => void
 }): MigrateBuilder {
   const {
@@ -130,7 +188,11 @@ export function createMigrateBuilder(options: {
   } = options
   const allowed = new Set<MigrationAllow>()
 
-  /** Introspects the operation session and creates its canonical semantic plan. */
+  /**
+   * Introspects the operation session and creates its canonical semantic plan.
+   *
+   * @param executor - Executor bound to the operation session.
+   */
   const buildPlan = async (executor: Executor) => {
     let request
     try {
@@ -166,11 +228,17 @@ export function createMigrateBuilder(options: {
   }
 
   const builder: MigrateBuilder = {
+    /**
+     * Grants execution permission for destructive migration operations.
+     *
+     * @param ops - Destructive operations to permit.
+     */
     allow(...ops) {
       for (const op of ops) allowed.add(op)
       return builder
     },
 
+    /** Builds a Migration Plan without executing it. */
     async dryRun() {
       try {
         return await runOperation(
@@ -185,6 +253,11 @@ export function createMigrateBuilder(options: {
       }
     },
 
+    /**
+     * Plans and executes the migration through the selected dialect.
+     *
+     * @param executeOptions - Optional cancellation signal and lock deadline.
+     */
     async execute(executeOptions) {
       const lockTimeoutMs = lockTimeout(executeOptions)
       try {
@@ -216,6 +289,7 @@ export function createMigrateBuilder(options: {
               ...(executeOptions?.signal === undefined
                 ? {}
                 : { signal: executeOptions.signal }),
+              /** Builds, validates, and lowers the plan inside the execution snapshot. */
               prepare: async () => {
                 const { planned, expected } = await buildPlan(executor)
                 for (const step of planned.plan.steps) {

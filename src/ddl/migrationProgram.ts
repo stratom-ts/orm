@@ -56,8 +56,14 @@ export type MigrationRuntimeOptions = Readonly<{
   applicationId?: string
   signal?: AbortSignal
   lockTimeoutMs: number
+
+  /** Marks the physical operation session for disposal. */
   discard(): void
+
+  /** Cancels work currently running on the physical operation session. */
   cancel(): Promise<void>
+
+  /** Builds and lowers the plan inside the authoritative execution snapshot. */
   prepare(): Promise<MigrationProgram>
 }>
 
@@ -68,9 +74,21 @@ export type MigrationRuntimeSuccess = Readonly<{
 
 /** Migration-only dialect facet; ordinary query compilation remains single-query. */
 export type DialectMigrationAdapter = Readonly<{
+  /**
+   * Lowers a complete semantic plan into an executable dialect program.
+   *
+   * @param planned - Planned migration and its canonical registrations.
+   * @param expectedProfile - Semantic profile resolved by the executing session.
+   */
   lower(
     planned: PlannedMigration,
     expectedProfile: MigrationSemanticProfile,
   ): MigrationLoweringResult
+
+  /**
+   * Coordinates and executes one lowered migration program.
+   *
+   * @param options - Runtime session capabilities and migration preparation callback.
+   */
   execute(options: MigrationRuntimeOptions): Promise<MigrationRuntimeSuccess>
 }>

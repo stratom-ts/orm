@@ -18,12 +18,23 @@ import type { ActionDraft } from './orderActions'
 import { orderActions } from './orderActions'
 import { stepTargetIssues, stepToAst } from './targets'
 
-/** Compares authored namespace inputs under canonical PostgreSQL identity rules. */
+/**
+ * Compares authored namespace inputs under canonical PostgreSQL identity rules.
+ *
+ * @param left - First authored namespace, or no configured namespace.
+ * @param right - Second authored namespace, or no configured namespace.
+ * @param identities - Canonical identity module used to resolve both inputs.
+ */
 function sameNamespaceInput(
   left: readonly NamespaceIdentifierInput[] | undefined,
   right: readonly NamespaceIdentifierInput[] | undefined,
   identities: CanonicalRelationIdentityModule,
 ): boolean {
+  /**
+   * Resolves one authored namespace, preserving invalid input as a mismatch sentinel.
+   *
+   * @param input - Authored namespace to resolve.
+   */
   function resolve(
     input: readonly NamespaceIdentifierInput[] | undefined,
   ): CanonicalRelationIdentity['namespace'] | null | undefined {
@@ -49,12 +60,22 @@ function sameNamespaceInput(
   )
 }
 
-/** Collects every deterministic semantic-profile mismatch. */
+/**
+ * Collects every deterministic semantic-profile mismatch.
+ *
+ * @param planned - Migration and semantic profile produced during planning.
+ * @param expected - Semantic profile resolved by the executing session.
+ */
 function profileIssues(
   planned: PlannedMigration,
   expected: MigrationSemanticProfile,
 ): MigrationCapabilityIssue[] {
   const issues: MigrationCapabilityIssue[] = []
+  /**
+   * Appends one profile mismatch in canonical issue form.
+   *
+   * @param message - Profile mismatch description.
+   */
   function add(message: string): void {
     issues.push({ code: 'profile_mismatch', message, sourceStepIndexes: [] })
   }
@@ -97,7 +118,12 @@ const ISSUE_ORDER: Record<MigrationCapabilityIssue['code'], number> = {
   unsupported_dependency_cycle: 4,
 }
 
-/** Resolves the executing database identifier from a PostgreSQL semantic profile. */
+/**
+ * Resolves the executing database identifier from a PostgreSQL semantic profile.
+ *
+ * @param planned - Planned migration supplying canonical identity resolution.
+ * @param expectedProfile - Semantic profile resolved by the executing session.
+ */
 function expectedDatabaseIdentifier(
   planned: PlannedMigration,
   expectedProfile: MigrationSemanticProfile,
@@ -116,7 +142,12 @@ function expectedDatabaseIdentifier(
   return undefined
 }
 
-/** Orders capability issues by source step, capability code, and message. */
+/**
+ * Orders capability issues by source step, capability code, and message.
+ *
+ * @param left - First capability issue.
+ * @param right - Second capability issue.
+ */
 function compareCapabilityIssues(
   left: MigrationCapabilityIssue,
   right: MigrationCapabilityIssue,
@@ -133,7 +164,15 @@ function compareCapabilityIssues(
   return 0
 }
 
-/** Purely lowers and compiles a complete PostgreSQL Migration Plan. */
+/**
+ * Purely lowers and compiles a complete PostgreSQL Migration Plan.
+ *
+ * @example
+ *   const result = lowerPostgresMigrationPlan(planned, expectedProfile)
+ *
+ * @param planned - Complete semantic plan and its canonical registrations.
+ * @param expectedProfile - Semantic profile resolved by the executing session.
+ */
 export function lowerPostgresMigrationPlan(
   planned: PlannedMigration,
   expectedProfile: MigrationSemanticProfile,
