@@ -6,6 +6,7 @@ import {
   MigrationError,
   column,
   createDatabase,
+  createDb0PostgresqlOperationSessionProvider,
   defineTable,
   postgresDialect,
   reference,
@@ -89,7 +90,7 @@ function createMockConnector(options?: {
     prepared.push(sql)
     const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase()
 
-    if (['begin', 'commit', 'rollback'].includes(normalized)) {
+    if (/^begin\b/.test(normalized) || ['commit', 'rollback'].includes(normalized)) {
       runSql.push(normalized)
       return createMockStatement()
     }
@@ -97,6 +98,11 @@ function createMockConnector(options?: {
     if (/pg_advisory_unlock/.test(normalized)) {
       runSql.push(normalized)
       return createMockStatement([{ unlocked: true }])
+    }
+
+    if (/pg_try_advisory_lock/.test(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement([{ locked: true }])
     }
 
     if (/pg_advisory_lock/.test(normalized)) {
@@ -460,8 +466,17 @@ describe('db.migrate() adapters and execution', () => {
       schemas: [BareItems, PublicItems],
     })
 
-    await expect(db.migrate().dryRun()).rejects.toBeInstanceOf(MigrationError)
-    await expect(db.migrate().dryRun()).rejects.toThrow(/duplicate registered table/i)
+    const error = await db
+      .migrate()
+      .dryRun()
+      .catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(MigrationError)
+    expect(error).toMatchObject({
+      stage: 'planning',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+    expect((error as Error).message).toMatch(/duplicate registered table/i)
     await db.close()
   })
 
@@ -474,7 +489,7 @@ describe('db.migrate() adapters and execution', () => {
 
     await db.migrate().execute()
 
-    expect(connector.runSql).toContain('begin')
+    expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('commit')
     expect(connector.runSql).not.toContain('rollback')
     expect(
@@ -708,9 +723,18 @@ describe('db.migrate() adapters and execution', () => {
     })
     const db = createDatabase({ connector, schemas: [RequiredUsers] })
 
-    await expect(db.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
-    await expect(db.migrate().execute()).rejects.toThrow(/NULL values/i)
-    expect(connector.runSql).toContain('begin')
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(MigrationError)
+    expect(error).toMatchObject({
+      stage: 'precondition',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+    expect((error as Error).message).toMatch(/NULL values/i)
+    expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('rollback')
     expect(connector.runSql).not.toContain('commit')
     expect(connector.runSql.some((sql) => /set not null/i.test(sql))).toBe(false)
@@ -722,9 +746,18 @@ describe('db.migrate() adapters and execution', () => {
     const connector = createMockConnector({ failRun: /^create table/ })
     const db = createDatabase({ connector, schemas: [Users] })
 
-    await expect(db.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
-    await expect(db.migrate().execute()).rejects.toThrow(/executor rejected/i)
-    expect(connector.runSql).toContain('begin')
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(MigrationError)
+    expect(error).toMatchObject({
+      stage: 'ddl',
+      outcome: 'rolledBack',
+      retryable: false,
+    })
+    expect((error as Error).message).toMatch(/executor rejected/i)
+    expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('rollback')
     expect(connector.runSql).not.toContain('commit')
     expect(connector.runSql.some((sql) => /pg_advisory_unlock/i.test(sql))).toBe(true)
@@ -750,6 +783,84 @@ describe('db.migrate() policy and coordination', () => {
     },
   ]
 
+  it.each([-1, Number.POSITIVE_INFINITY, Number.NaN])(
+    'rejects invalid lock timeout %s before opening an operation',
+    async (lockTimeoutMs) => {
+      const connector = createMockConnector()
+      const db = createDatabase({ connector, schemas: [] })
+
+      const error = await db
+        .migrate()
+        .execute({ lockTimeoutMs })
+        .catch((cause: unknown) => cause)
+      expect(error).toMatchObject({
+        stage: 'lock',
+        outcome: 'unchanged',
+        retryable: false,
+      })
+      expect(connector.prepared).toEqual([])
+      await db.close()
+    },
+  )
+
+  it('classifies authoritative catalog observation failures as introspection', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [] })
+    vi.spyOn(postgresDialect.catalog, 'introspectCatalog').mockRejectedValueOnce(
+      new Error('catalog observation failed'),
+    )
+
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+    expect(connector.runSql).toContain('rollback')
+    expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+    await db.close()
+  })
+
+  it('executes no DDL when whole-plan lowering reports a capability issue', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+    vi.spyOn(postgresDialect.migration!, 'lower').mockReturnValueOnce({
+      issues: [
+        {
+          code: 'compile_failure',
+          message: 'deterministic capability failure',
+          sourceStepIndexes: [2, 0],
+        },
+        {
+          code: 'invalid_target',
+          message: 'second deterministic capability failure',
+          sourceStepIndexes: [2],
+        },
+      ],
+    })
+
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      stage: 'lowering',
+      outcome: 'unchanged',
+      retryable: false,
+      sourceStepIndexes: [0, 2],
+    })
+    expect(connector.runSql).toContain('rollback')
+    expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+    await db.close()
+  })
+
   it('keeps allow permissions out of planning', async () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({ connector, schemas: [Users] })
@@ -766,14 +877,47 @@ describe('db.migrate() policy and coordination', () => {
     await db.close()
   })
 
-  it('rejects missing destructive permission before transaction or DDL', async () => {
+  it('rejects missing destructive permission in the authoritative transaction before DDL', async () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({ connector, schemas: [Users] })
+    const lower = vi.spyOn(postgresDialect.migration!, 'lower')
 
-    await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropIndex'\)/i)
-    expect(connector.runSql).not.toContain('begin')
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      stage: 'permission',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+    expect((error as Error).message).toMatch(/allow\('dropIndex'\)/i)
+    expect(connector.runSql).toContain('begin isolation level repeatable read')
+    expect(connector.runSql).toContain('rollback')
+    expect(lower).not.toHaveBeenCalled()
     expect(connector.runSql.some((sql) => /^(?:alter|drop)\s/i.test(sql))).toBe(false)
 
+    await db.close()
+  })
+
+  it('normalizes a plain nonconforming adapter failure as unknown and discards', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [] })
+    vi.spyOn(postgresDialect.migration!, 'execute').mockRejectedValueOnce(
+      new Error('plain adapter failure'),
+    )
+
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'ddl',
+      outcome: 'unknown',
+      retryable: false,
+    })
+    expect((error as Error).message).toMatch(/plain adapter failure/i)
     await db.close()
   })
 
@@ -827,18 +971,71 @@ describe('db.migrate() policy and coordination', () => {
 
     await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropColumn'\)/i)
 
-    const lock = connector.prepared.findIndex((sql) => /pg_advisory_lock\(/i.test(sql))
+    const lock = connector.prepared.findIndex((sql) =>
+      /pg_try_advisory_lock\(/i.test(sql),
+    )
     const introspection = connector.prepared.findIndex((sql) =>
       /c\.relkind as relation_kind/i.test(sql),
+    )
+    const transaction = connector.prepared.findIndex((sql) =>
+      /^begin isolation level repeatable read$/i.test(sql),
     )
     const unlock = connector.prepared.findIndex((sql) =>
       /pg_advisory_unlock\(/i.test(sql),
     )
     expect(lock).toBeGreaterThanOrEqual(0)
-    expect(introspection).toBeGreaterThan(lock)
+    expect(transaction).toBeGreaterThan(lock)
+    expect(introspection).toBeGreaterThan(transaction)
     expect(unlock).toBeGreaterThan(introspection)
-    expect(connector.runSql).not.toContain('begin')
+    expect(connector.runSql).toContain('begin isolation level repeatable read')
 
     await db.close()
   })
 })
+
+const databaseUrl = process.env.DATABASE_URL
+it.skipIf(!databaseUrl)(
+  'applies and converges through one real PostgreSQL backend',
+  async () => {
+    const [{ default: postgresql }, { Client }] = await Promise.all([
+      import('db0/connectors/postgresql'),
+      import('pg'),
+    ])
+    const tableName = `stratom_migrate_${process.pid}_${Date.now().toString(36)}`
+    const Events = defineTable(
+      tableName,
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const connector = postgresql({ url: databaseUrl as string })
+    const baseProvider = createDb0PostgresqlOperationSessionProvider(connector)
+    const identities: string[] = []
+    const provider = {
+      nativeTransactions: true as const,
+      async open() {
+        const session = await baseProvider.open()
+        identities.push(session.identity.physicalSession)
+        return session
+      },
+      close: () => baseProvider.close(),
+    }
+    const cleanup = new Client({ connectionString: databaseUrl })
+    const db = createDatabase({
+      connector,
+      operationSessionProvider: provider,
+      schemas: [Events],
+    })
+    await cleanup.connect()
+    try {
+      await db.migrate().execute({ lockTimeoutMs: 0 })
+      await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
+      expect(identities).toHaveLength(2)
+      expect(new Set(identities).size).toBe(1)
+    } finally {
+      await db.close()
+      await cleanup.query(`drop table if exists "${tableName}"`)
+      await cleanup.end()
+    }
+  },
+  20_000,
+)

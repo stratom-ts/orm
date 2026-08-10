@@ -1,10 +1,10 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { lowerMigrationPlan } from '@/ddl/migrate'
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
-import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
+import { planMigration } from '@/ddl/migrationPlan'
+import type { MigrationProgram } from '@/ddl/migrationProgram'
+import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
 import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
@@ -46,7 +46,7 @@ function emptyCatalog(): CatalogSnapshot {
 
 function plan(catalog: CatalogSnapshot = emptyCatalog()): PlannedMigration {
   const schemas = [Users, Posts]
-  return planMigrationWithContext(
+  return planMigration(
     schemas,
     completePostgresCatalog(catalog, createCatalogRequest(schemas, [])),
     postgresDialect,
@@ -58,112 +58,90 @@ const expectedProfile: MigrationSemanticProfile = {
   namespaceContext,
 }
 
-function lower(planned: PlannedMigration, profile = expectedProfile) {
-  return lowerMigrationPlan(planned, postgresDialect, profile)
+function lower(planned: PlannedMigration, profile = expectedProfile): MigrationProgram {
+  const result = postgresDialect.migration!.lower(planned, profile)
+  if (result.issues)
+    throw new Error(result.issues.map((issue) => issue.message).join('\n'))
+  return result.program
 }
 
-describe('whole-plan lowering', () => {
-  it('lowers every semantic step to one PostgreSQL statement AST', () => {
-    const planned = plan()
-    const lowered = lower(planned)
+describe('PostgreSQL whole-plan lowering', () => {
+  it('compiles a plan-atomic program with canonical source provenance', () => {
+    const program = lower(plan())
 
-    expect(lowered.map(({ ast }) => ast.kind)).toEqual([
-      'create_table',
-      'create_table',
-      'create_index',
-      'add_foreign_key',
+    expect(program.atomicity).toBe('plan-atomic')
+    expect(program.preconditions).toEqual([])
+    expect(program.actions.map((action) => action.sourceStepIndexes)).toEqual([
+      [0],
+      [1],
+      [2],
+      [3],
     ])
-    expect(lowered.map(({ step }) => step.kind)).toEqual([
-      'create_table',
-      'create_table',
-      'create_index',
-      'add_foreign_key',
-    ])
+    expect(program.actions.every((action) => action.transaction === 'required')).toBe(
+      true,
+    )
+    expect(program.actions.every((action) => action.statements.length > 0)).toBe(true)
   })
 
-  it('resolves target-only create steps from the exact registered desired table', () => {
-    const planned = plan()
-    const [firstCreate] = lower(planned)
+  it('removes fresh foreign keys from table creation and defers them until both tables exist', () => {
+    const statements = lower(plan()).actions.flatMap((action) => action.statements)
+    const postsCreate = statements.find((statement) =>
+      /create table "public"\."posts"/i.test(statement.sql),
+    )
+    const usersCreateIndex = statements.findIndex((statement) =>
+      /create table "public"\."users"/i.test(statement.sql),
+    )
+    const foreignKeyIndex = statements.findIndex((statement) =>
+      /foreign key \("authorId"\)/i.test(statement.sql),
+    )
 
-    expect(firstCreate?.ast).toMatchObject({
-      kind: 'create_table',
-      schema: 'public',
-      table: 'posts',
-      primaryKey: ['id'],
-    })
-    // Target-only creation never carries its references; they stay separate steps.
-    const created = firstCreate?.ast
-    if (created?.kind !== 'create_table') throw new Error('Expected a create_table AST')
-    expect(created.columns.every((column) => column.references === undefined)).toBe(true)
+    expect(postsCreate?.sql).not.toContain('references')
+    expect(foreignKeyIndex).toBeGreaterThan(usersCreateIndex)
+    expect(statements[foreignKeyIndex]?.sql).toContain(
+      'references "public"."users" ("id")',
+    )
   })
 
-  it('projects structured foreign-key references into qualified statement fields', () => {
-    const planned = plan()
-    const foreignKey = lower(planned).at(-1)
-
-    expect(foreignKey?.ast).toMatchObject({
-      kind: 'add_foreign_key',
-      schema: 'public',
-      table: 'posts',
-      column: 'authorId',
-      references: {
-        schema: 'public',
-        table: 'users',
-        column: 'id',
-        onDelete: 'cascade',
+  it('returns profile capability issues without a partial program', () => {
+    const result = postgresDialect.migration!.lower(plan(), {
+      identityAdapter: 'sqlite',
+      namespaceContext: {
+        writableDefault: [{ role: 'database', spelling: 'production' }],
       },
+      registrationDefault: [{ role: 'database', spelling: 'other' }],
     })
-  })
 
-  it('rejects a plan whose identity adapter does not match the executing run', () => {
-    const planned = plan()
-    const sqliteLike = { ...postgresDialect, relationIdentity: 'sqlite' as const }
-    const lowerAsSqlite = () =>
-      lowerMigrationPlan(planned, sqliteLike, {
-        ...expectedProfile,
+    expect(result.program).toBeUndefined()
+    expect(
+      result.issues?.filter((issue) => issue.code === 'profile_mismatch'),
+    ).toHaveLength(4)
+    expect(
+      result.issues?.filter((issue) => issue.code === 'invalid_target'),
+    ).toHaveLength(5)
+    expect(
+      postgresDialect.migration!.lower(plan(), {
         identityAdapter: 'sqlite',
-      })
-
-    expect(lowerAsSqlite).toThrow(MigrationError)
-    expect(lowerAsSqlite).toThrow(/identity adapter 'postgresql'/i)
-  })
-
-  it('rejects a plan resolved under a different writable namespace context', () => {
-    const planned = plan()
-
-    expect(() =>
-      lower(planned, {
-        ...expectedProfile,
         namespaceContext: {
-          writableDefault: [
-            { role: 'database', spelling: 'production' },
-            { role: 'schema', spelling: 'public' },
-          ],
+          writableDefault: [{ role: 'database', spelling: 'production' }],
         },
+        registrationDefault: [{ role: 'database', spelling: 'other' }],
       }),
-    ).toThrow(/writable namespace context does not match/i)
-  })
-
-  it('rejects an executing profile that disagrees with its own dialect', () => {
-    const planned = plan()
-
-    expect(() =>
-      lower(planned, { ...expectedProfile, identityAdapter: 'sqlite' }),
-    ).toThrow(/executing profile adapter 'sqlite' does not match dialect adapter/i)
+    ).toEqual(result)
   })
 
   it('treats an empty registration default as none', () => {
-    const planned = plan()
-
-    expect(() =>
-      lower(planned, { ...expectedProfile, registrationDefault: [] }),
-    ).not.toThrow()
+    expect(
+      postgresDialect.migration!.lower(plan(), {
+        ...expectedProfile,
+        registrationDefault: [],
+      }).issues,
+    ).toBeUndefined()
   })
 
   it('accepts equivalent spellings of one resolved registration default', () => {
     const schemas = [Users, Posts]
     const registrationDefault = [{ role: 'schema' as const, spelling: 'public' }]
-    const planned = planMigrationWithContext(
+    const planned = planMigration(
       schemas,
       completePostgresCatalog(
         emptyCatalog(),
@@ -173,35 +151,284 @@ describe('whole-plan lowering', () => {
       { registrationDefault },
     )
 
-    expect(() =>
-      lower(planned, {
+    expect(
+      postgresDialect.migration!.lower(planned, {
         ...expectedProfile,
         registrationDefault: [
           { role: 'database', spelling: 'test' },
           { role: 'schema', spelling: 'public' },
         ],
-      }),
-    ).not.toThrow()
+      }).issues,
+    ).toBeUndefined()
   })
 
-  it('rejects a plan resolved under a different registration default', () => {
-    const planned = plan()
-
-    expect(() =>
-      lower(planned, {
-        ...expectedProfile,
-        registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
-      }),
-    ).toThrow(/registration default does not match/i)
-  })
-
-  it('rejects a target-only create step with no registered desired table', () => {
+  it('returns every deterministic issue and no program for a missing desired table', () => {
     const planned = plan()
     const withoutRegistrations: PlannedMigration = {
       ...planned,
       desiredTables: planned.identities.createRegistry(),
     }
+    const result = postgresDialect.migration!.lower(withoutRegistrations, {
+      ...expectedProfile,
+      identityAdapter: 'sqlite',
+    })
 
-    expect(() => lower(withoutRegistrations)).toThrow(/lowered CreateTableAst not found/i)
+    expect(result.program).toBeUndefined()
+    expect(result.issues?.some((issue) => issue.code === 'profile_mismatch')).toBe(true)
+    expect(
+      result.issues?.filter((issue) => issue.code === 'missing_desired_table'),
+    ).toHaveLength(2)
+  })
+
+  it('orders child table drops before retained catalog parents', () => {
+    const planned = plan()
+    const parent = planned.identities.resolve({
+      namespace: [{ role: 'schema', spelling: 'public' }],
+      relation: 'users',
+    })
+    const child = planned.identities.resolve({
+      namespace: [{ role: 'schema', spelling: 'public' }],
+      relation: 'posts',
+    })
+    const dropPlan: PlannedMigration = {
+      ...planned,
+      plan: {
+        steps: [
+          { kind: 'drop_table', target: { kind: 'relation', relation: parent } },
+          { kind: 'drop_table', target: { kind: 'relation', relation: child } },
+        ],
+      },
+      planningCatalog: {
+        ...planned.planningCatalog,
+        tables: [
+          {
+            identity: parent,
+            columns: [],
+            indexes: [],
+            primaryKey: null,
+            uniqueConstraints: [],
+            foreignKeys: [],
+            opaqueObjects: [],
+          },
+          {
+            identity: child,
+            columns: [],
+            indexes: [],
+            primaryKey: null,
+            uniqueConstraints: [],
+            foreignKeys: [
+              {
+                name: 'posts_author_fkey',
+                columns: ['authorId'],
+                semanticCompleteness: 'supportedSimple',
+                isValid: true,
+                referencedRelation: parent,
+                referencedColumns: ['id'],
+                onDelete: 'no action',
+                onUpdate: 'no action',
+              },
+            ],
+            opaqueObjects: [],
+          },
+        ],
+      },
+    }
+
+    expect(lower(dropPlan).actions.map((action) => action.sourceStepIndexes)).toEqual([
+      [1],
+      [0],
+    ])
+  })
+
+  it('reports unsupported retained foreign-key drop cycles without a program', () => {
+    const planned = plan()
+    const parent = planned.identities.resolve({ relation: 'users' })
+    const child = planned.identities.resolve({ relation: 'posts' })
+    const foreignKey = (referencedRelation: typeof parent) => ({
+      name: 'cycle_fkey',
+      columns: ['id'],
+      semanticCompleteness: 'supportedSimple' as const,
+      isValid: true,
+      referencedRelation,
+      referencedColumns: ['id'],
+      onDelete: 'no action' as const,
+      onUpdate: 'no action' as const,
+    })
+    const cyclePlan: PlannedMigration = {
+      ...planned,
+      plan: {
+        steps: [
+          { kind: 'drop_table', target: { kind: 'relation', relation: parent } },
+          { kind: 'drop_table', target: { kind: 'relation', relation: child } },
+        ],
+      },
+      planningCatalog: {
+        ...planned.planningCatalog,
+        tables: [
+          {
+            identity: parent,
+            columns: [],
+            indexes: [],
+            primaryKey: null,
+            uniqueConstraints: [],
+            foreignKeys: [foreignKey(child)],
+            opaqueObjects: [],
+          },
+          {
+            identity: child,
+            columns: [],
+            indexes: [],
+            primaryKey: null,
+            uniqueConstraints: [],
+            foreignKeys: [foreignKey(parent)],
+            opaqueObjects: [],
+          },
+        ],
+      },
+    }
+    const result = postgresDialect.migration!.lower(cyclePlan, expectedProfile)
+
+    expect(result.program).toBeUndefined()
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: 'unsupported_dependency_cycle',
+        sourceStepIndexes: [0, 1],
+      }),
+    ])
+  })
+
+  it('declares SET NOT NULL as a semantic precondition', () => {
+    const planned = plan()
+    const relation = planned.identities.resolve({ relation: 'users' })
+    const column = planned.identities.member('column', 'email')
+    const setNotNull: PlannedMigration = {
+      ...planned,
+      plan: {
+        steps: [
+          {
+            kind: 'set_not_null',
+            target: { kind: 'column', relation, column },
+          },
+        ],
+      },
+    }
+
+    expect(lower(setNotNull).preconditions).toEqual([
+      {
+        kind: 'column_has_no_nulls',
+        relation,
+        column: 'email',
+        sourceStepIndexes: [0],
+      },
+    ])
+  })
+
+  it('rejects cross-database step and foreign-key reference targets', () => {
+    const planned = plan()
+    const users = planned.identities.resolve({ relation: 'users' })
+    const posts = planned.identities.resolve({ relation: 'posts' })
+    const inOtherDatabase = (identity: typeof users) => ({
+      ...identity,
+      namespace: identity.namespace.map((segment, index) =>
+        index === 0
+          ? {
+              ...segment,
+              identifier: { spelling: 'other', comparisonKey: 'other' },
+            }
+          : segment,
+      ),
+    })
+    const crossDatabase: PlannedMigration = {
+      ...planned,
+      plan: {
+        steps: [
+          {
+            kind: 'drop_table',
+            target: { kind: 'relation', relation: inOtherDatabase(users) },
+          },
+          {
+            kind: 'add_foreign_key',
+            target: {
+              kind: 'column',
+              relation: posts,
+              column: planned.identities.member('column', 'authorId'),
+            },
+            references: {
+              relation: inOtherDatabase(users),
+              column: planned.identities.member('column', 'id'),
+            },
+          },
+        ],
+      },
+    }
+    const result = postgresDialect.migration!.lower(crossDatabase, expectedProfile)
+
+    expect(result.program).toBeUndefined()
+    expect(
+      result.issues
+        ?.filter((issue) => issue.code === 'invalid_target')
+        .map((issue) => issue.sourceStepIndexes),
+    ).toEqual([[0], [1]])
+    expect(result.issues?.map((issue) => issue.message).join('\n')).toMatch(
+      /does not match executing database/i,
+    )
+  })
+
+  it.each([
+    ['missing segments', []],
+    [
+      'duplicate database roles',
+      [
+        {
+          role: 'database' as const,
+          identifier: { spelling: 'test', comparisonKey: 'test' },
+        },
+        {
+          role: 'database' as const,
+          identifier: { spelling: 'public', comparisonKey: 'public' },
+        },
+      ],
+    ],
+    [
+      'wrong role order',
+      [
+        {
+          role: 'schema' as const,
+          identifier: { spelling: 'public', comparisonKey: 'public' },
+        },
+        {
+          role: 'database' as const,
+          identifier: { spelling: 'test', comparisonKey: 'test' },
+        },
+      ],
+    ],
+  ])('rejects PostgreSQL targets with %s', (_label, namespace) => {
+    const planned = plan()
+    const users = planned.identities.resolve({ relation: 'users' })
+    const malformed: PlannedMigration = {
+      ...planned,
+      plan: {
+        steps: [
+          {
+            kind: 'drop_table',
+            target: {
+              kind: 'relation',
+              relation: { ...users, namespace },
+            },
+          },
+        ],
+      },
+    }
+    const result = postgresDialect.migration!.lower(malformed, expectedProfile)
+
+    expect(result.program).toBeUndefined()
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'invalid_target',
+          sourceStepIndexes: [0],
+        }),
+      ]),
+    )
   })
 })

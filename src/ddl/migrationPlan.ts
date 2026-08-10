@@ -40,6 +40,7 @@ import type {
   PlanningCatalogIndex as CatalogIndex,
   PlanningCatalogKeyConstraint as CatalogKeyConstraint,
   PlanningCatalogTable as CatalogTable,
+  PlanningCatalog,
 } from './planningCatalog'
 import { catalogForPlanning } from './planningCatalog'
 
@@ -979,6 +980,7 @@ export type PlannedMigration = {
   profile: MigrationSemanticProfile
   identities: CanonicalRelationIdentityModule
   desiredTables: CanonicalRelationRegistry<CreateTableAst>
+  planningCatalog: PlanningCatalog
 }
 
 /**
@@ -1676,6 +1678,7 @@ function buildMigrationPlan(
     },
     identities,
     desiredTables,
+    planningCatalog,
   }
 }
 

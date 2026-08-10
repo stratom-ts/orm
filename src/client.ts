@@ -613,11 +613,12 @@ export function createDatabase<
               clientExecutor,
               transactionScope.operation.identity.database,
               transactionScope.operation.discard,
+              transactionScope.operation.cancel,
             )
           }
           ensureOpen()
-          return coordinator.run(({ executor, identity, discard }) =>
-            operation(executor, identity.database, discard),
+          return coordinator.run(({ executor, identity, discard, cancel }) =>
+            operation(executor, identity.database, discard, cancel),
           )
         },
         ...(config.applicationId === undefined

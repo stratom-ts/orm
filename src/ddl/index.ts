@@ -10,6 +10,7 @@ export {
   MIGRATE_ADVISORY_LOCK_ID,
   type MigrateBuilder,
   type MigrationAllow,
+  type MigrationExecuteOptions,
 } from './migrate'
 export type {
   MigrationColumnReference,

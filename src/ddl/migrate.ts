@@ -1,140 +1,92 @@
-import type { CreateSchemaAst, CreateTableAst, Dialect, SqlAst } from '@/dialects'
-import type {
-  CanonicalRelationIdentity,
-  CanonicalRelationIdentityModule,
-  CanonicalRelationRegistry,
-  NamespaceIdentifierInput,
-} from '@/migrations/canonicalRelationIdentity'
+import type { Dialect } from '@/dialects'
+import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
-import {
-  generatedForeignKeyName,
-  generatedPrimaryKeyName,
-  generatedUniqueName,
-  physicalNamingProfile,
-} from '@/migrations/physicalNaming'
+import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
+import type { MigrationExecutionStage } from '@/utils/error'
 import { MigrationError } from '@/utils/error'
 
-import {
-  MIGRATE_ADVISORY_LOCK_CLASS,
-  MIGRATE_ADVISORY_LOCK_ID,
-  createMigrationCoordinationScope,
-} from '../migrations/coordinationScope'
-
 import type {
-  MigrationColumnReference,
   MigrationPlan,
   MigrationSemanticProfile,
   MigrationStep,
-  PlannedMigration,
 } from './migrationPlan'
 import { planMigration } from './migrationPlan'
 
-/**
- * Stable Postgres session advisory lock keys for Stratom migrate execute.
- * Two-int form so values stay within safe 32-bit integers in JS.
- */
-export { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID }
+export {
+  MIGRATE_ADVISORY_LOCK_CLASS,
+  MIGRATE_ADVISORY_LOCK_ID,
+} from '@/migrations/coordinationScope'
 
 /** Destructive migrate operations that require explicit execution permission. */
 export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
 
+/** Optional cancellation and finite coordination deadline for migration execution. */
+export type MigrationExecuteOptions = Readonly<{
+  signal?: AbortSignal
+  lockTimeoutMs?: number
+}>
+
 export type MigrateBuilder = {
   allow(...ops: MigrationAllow[]): MigrateBuilder
   dryRun(): Promise<MigrationPlan>
-  execute(): Promise<void>
+  execute(options?: MigrationExecuteOptions): Promise<void>
 }
 
-/**
- * Reads the schema spelling a PostgreSQL statement must name.
- *
- * @param namespace - Canonical namespace to project.
- *
- * @throws {MigrationError} When the namespace carries no schema segment.
- */
-function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
-  const schema = namespace.find((segment) => segment.role === 'schema')
-  if (!schema) {
-    throw new MigrationError({
-      message: 'PostgreSQL migration execution requires a schema namespace',
-    })
-  }
-  return schema.identifier.spelling
-}
+const DEFAULT_MIGRATION_LOCK_TIMEOUT_MS = 30_000
 
-/**
- * Projects a canonical relation identity into PostgreSQL AST relation fields.
- *
- * @param identity - Canonical relation identity to project.
- */
-function relationFields(identity: CanonicalRelationIdentity): {
-  schema: string
-  table: string
-} {
-  return {
-    schema: schemaFromNamespace(identity.namespace),
-    table: identity.relation.spelling,
-  }
-}
-
-/**
- * Projects a structured plan reference into PostgreSQL AST reference fields.
- *
- * @param reference - Structured foreign-key reference carried by a plan step.
- */
-function referenceFields(reference: MigrationColumnReference) {
-  return {
-    ...relationFields(reference.relation),
-    column: reference.column.spelling,
-    ...(reference.onDelete === undefined ? {} : { onDelete: reference.onDelete }),
-    ...(reference.onUpdate === undefined ? {} : { onUpdate: reference.onUpdate }),
-  }
-}
-
-/**
- * Quotes a SQL identifier and escapes embedded quotes.
- *
- * @param ident - Identifier spelling to quote.
- */
-function quoteIdent(ident: string): string {
-  return `"${ident.replaceAll('"', '""')}"`
-}
-
-/**
- * Refuse SET NOT NULL when the column already has NULL rows.
- * dryRun may still list the step; execute must check before applying.
- *
- * @param executor - Database executor used to inspect existing rows.
- * @param step - SET NOT NULL step whose target is checked.
- */
-async function assertColumnHasNoNulls(
-  executor: Executor,
-  step: Extract<MigrationStep, { kind: 'set_not_null' }>,
-): Promise<void> {
-  const { schema: schemaName, table } = relationFields(step.target.relation)
-  const tableSql = `${quoteIdent(schemaName)}.${quoteIdent(table)}`
-  const columnSql = quoteIdent(step.target.column.spelling)
-  const rows = await executor.execute({
-    sql: `select count(*)::int as count from ${tableSql} where ${columnSql} is null`,
-    params: [],
+/** Adds an execution phase without replacing an already structured migration failure. */
+function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationError {
+  if (cause instanceof MigrationError && cause.stage !== undefined) return cause
+  return new MigrationError({
+    message: cause instanceof Error ? cause.message : 'Migration failed',
+    cause:
+      cause instanceof MigrationError && cause.cause !== undefined ? cause.cause : cause,
+    stage,
+    outcome: 'unchanged',
+    retryable: false,
   })
-  const raw = rows[0] as { count?: unknown } | undefined
-  const count = Number(raw?.count ?? 0)
-  if (count > 0) {
-    throw new MigrationError({
-      message: `Cannot set column '${schemaName}.${table}.${step.target.column.spelling}' as NOT NULL - column has NULL values`,
-    })
-  }
 }
 
-/**
- * Maps a destructive migration step to its required permission.
- *
- * @param step - Migration step to classify.
- */
-function allowForStep(step: MigrationStep): MigrationAllow | null {
+/** Appends provider-release cleanup without replacing a structured primary failure. */
+function withReleaseCleanup(error: MigrationError): MigrationError {
+  const failures = getOperationReleaseCleanupFailures(error)
+  if (failures.length === 0) return error
+  return new MigrationError({
+    message: error.message,
+    ...(error.cause === undefined ? {} : { cause: error.cause }),
+    ...(error.stage === undefined ? {} : { stage: error.stage }),
+    ...(error.outcome === undefined ? {} : { outcome: error.outcome }),
+    ...(error.retryable === undefined ? {} : { retryable: error.retryable }),
+    ...(error.actionIndex === undefined ? {} : { actionIndex: error.actionIndex }),
+    ...(error.sourceStepIndexes === undefined
+      ? {}
+      : { sourceStepIndexes: error.sourceStepIndexes }),
+    cleanupFailures: [
+      ...(error.cleanupFailures ?? []),
+      ...failures.map((cause) => ({ stage: 'sessionCleanup' as const, cause })),
+    ],
+  })
+}
+
+/** Resolves and validates the finite migration lock deadline. */
+function lockTimeout(options: MigrationExecuteOptions | undefined): number {
+  const value = options?.lockTimeoutMs ?? DEFAULT_MIGRATION_LOCK_TIMEOUT_MS
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new MigrationError({
+      message: 'Migration lockTimeoutMs must be a finite non-negative number',
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+  }
+  return value
+}
+
+/** Maps a destructive semantic step to its required permission. */
+function allowForStep(step: MigrationStep): MigrationAllow | undefined {
   switch (step.kind) {
     case 'drop_column':
       return 'dropColumn'
@@ -143,334 +95,13 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
     case 'drop_index':
       return 'dropIndex'
     default:
-      return null
+      return undefined
   }
 }
 
 /**
- * Converts one semantic migration step into a SQL AST node for compilation.
- *
- * @example
- *   const ast = stepToAst(step, desiredTables, dialect, identities)
- *
- * @param step - Migration step to convert.
- * @param desiredTables - Canonical registry of lowered desired tables.
- * @param dialect - SQL dialect supplying naming rules.
- * @param identities - Identity module used for target diagnostics.
- *
- * @returns SQL AST node ready for compilation
- *
- * @throws {MigrationError} When a target-only create step has no registered desired
- *   table.
- */
-function stepToAst(
-  step: MigrationStep,
-  desiredTables: CanonicalRelationRegistry<CreateTableAst>,
-  dialect: Dialect,
-  identities: CanonicalRelationIdentityModule,
-): SqlAst {
-  const profile = physicalNamingProfile(dialect.relationIdentity)
-  switch (step.kind) {
-    case 'ensure_namespace': {
-      const ast: CreateSchemaAst = {
-        kind: 'create_schema',
-        schema: schemaFromNamespace(step.target.namespace),
-      }
-      return ast
-    }
-    case 'create_table': {
-      const identity = step.target.relation
-      const ast = desiredTables.get(identity)
-      if (!ast) {
-        throw new MigrationError({
-          message: `cannot create table ${identities.format(identity)}: lowered CreateTableAst not found`,
-        })
-      }
-      return {
-        ...ast,
-        ...relationFields(identity),
-        primaryKeyName: generatedPrimaryKeyName(identity, ast.primaryKey, profile),
-        columns: ast.columns.map((column) => ({
-          ...column,
-          references: undefined,
-          ...(column.unique
-            ? {
-                uniqueConstraintName: generatedUniqueName(identity, column.name, profile),
-              }
-            : {}),
-        })),
-      }
-    }
-    case 'add_column': {
-      const identity = step.target.relation
-      const column = step.target.column.spelling
-      return {
-        kind: 'add_column',
-        ...relationFields(identity),
-        column: {
-          name: column,
-          dataType: step.dataType,
-          notNull: step.notNull,
-          unique: step.unique ?? false,
-          ...(step.unique
-            ? { uniqueConstraintName: generatedUniqueName(identity, column, profile) }
-            : {}),
-          autoIncrement: step.autoIncrement ?? false,
-          ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
-          ...(step.databaseDefault !== undefined
-            ? { databaseDefault: step.databaseDefault }
-            : {}),
-          ...(step.generated ? { generated: step.generated } : {}),
-        },
-      }
-    }
-    case 'alter_column_type':
-      return {
-        kind: 'alter_column_type',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-        dataType: step.dataType,
-      }
-    case 'add_unique_constraint':
-      return {
-        kind: 'add_unique_constraint',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-        name: generatedUniqueName(
-          step.target.relation,
-          step.target.column.spelling,
-          profile,
-        ),
-      }
-    case 'add_foreign_key':
-      return {
-        kind: 'add_foreign_key',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-        name: generatedForeignKeyName(
-          step.target.relation,
-          step.target.column.spelling,
-          step.references.relation,
-          step.references.column.spelling,
-          step.references.onDelete,
-          step.references.onUpdate,
-          profile,
-        ),
-        references: referenceFields(step.references),
-      }
-    case 'set_not_null':
-      return {
-        kind: 'set_not_null',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-      }
-    case 'drop_not_null':
-      return {
-        kind: 'drop_not_null',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-      }
-    case 'create_index':
-      return {
-        kind: 'create_index',
-        ...relationFields(step.target.relation),
-        name: step.target.index.spelling,
-        columns: step.columns.map((column) => column.spelling),
-        unique: step.unique,
-      }
-    case 'drop_column':
-      return {
-        kind: 'drop_column',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-      }
-    case 'drop_table':
-      return { kind: 'drop_table', ...relationFields(step.target.relation) }
-    case 'drop_index':
-      return {
-        kind: 'drop_index',
-        ...relationFields(step.target.relation),
-        index: step.target.index.spelling,
-      }
-  }
-}
-
-/**
- * Compares authored namespace inputs under the adapter's identifier rules, so a
- * case-folding dialect accepts the spellings it treats as one namespace.
- *
- * @param left - First namespace input, or undefined when none was configured.
- * @param right - Second namespace input, or undefined when none was configured.
- * @param identities - Identity module supplying comparison keys.
- */
-function sameNamespaceInput(
-  left: readonly NamespaceIdentifierInput[] | undefined,
-  right: readonly NamespaceIdentifierInput[] | undefined,
-  identities: CanonicalRelationIdentityModule,
-): boolean {
-  /**
-   * Resolves one authored namespace the way registration does, so equivalent spellings
-   * of the same namespace compare equal. Identity resolution treats an empty namespace
-   * as none; an unresolvable namespace stays a mismatch.
-   *
-   * @param input - Authored namespace, or undefined when none was configured.
-   */
-  const resolve = (input: readonly NamespaceIdentifierInput[] | undefined) => {
-    if (!input?.length) return undefined
-    try {
-      return identities.resolveNamespace(input)
-    } catch {
-      return null
-    }
-  }
-
-  const selected = resolve(left)
-  const other = resolve(right)
-  if (selected == null || other == null) {
-    return selected === undefined && other === undefined
-  }
-  return (
-    selected.length === other.length &&
-    selected.every(
-      (segment, index) =>
-        segment.role === other[index]?.role &&
-        segment.identifier.comparisonKey === other[index]?.identifier.comparisonKey,
-    )
-  )
-}
-
-/**
- * Reports which semantic profile field the executing run disagrees with.
- *
- * @param profile - Profile the Migration Plan was built under.
- * @param expected - Profile the executing run resolves.
- * @param identities - Identity module supplying comparison keys.
- */
-function profileMismatch(
-  profile: MigrationSemanticProfile,
-  expected: MigrationSemanticProfile,
-  dialect: Dialect,
-  identities: CanonicalRelationIdentityModule,
-): string | undefined {
-  if (expected.identityAdapter !== dialect.relationIdentity) {
-    return `executing profile adapter '${expected.identityAdapter}' does not match dialect adapter '${dialect.relationIdentity}'`
-  }
-  if (profile.identityAdapter !== expected.identityAdapter) {
-    return `identity adapter '${profile.identityAdapter}' does not match executing adapter '${expected.identityAdapter}'`
-  }
-  if (
-    !sameNamespaceInput(
-      profile.namespaceContext.writableDefault,
-      expected.namespaceContext.writableDefault,
-      identities,
-    )
-  ) {
-    return 'writable namespace context does not match the executing session'
-  }
-  if (
-    !sameNamespaceInput(
-      profile.registrationDefault,
-      expected.registrationDefault,
-      identities,
-    )
-  ) {
-    return 'registration default does not match the executing configuration'
-  }
-}
-
-/**
- * Lowers a complete Migration Plan into SQL ASTs before any DDL runs, so missing
- * registrations or a mismatched semantic profile fail the whole operation first.
- *
- * This seam is internal: the migrate builder plans and lowers inside one operation, so
- * its profiles always agree. The guard exists for callers that lower a plan they did not
- * just build.
- *
- * @example
- *   const lowered = lowerMigrationPlan(planned, postgresDialect, expectedProfile)
- *
- * @param planned - Canonical Migration Plan with the registrations and profile it was
- *   built from.
- * @param dialect - Dialect executing the plan.
- * @param expected - Semantic profile the executing run resolves.
- *
- * @throws {MigrationError} When the profile does not match the executing run or a
- *   target-only step has no registered desired table.
- */
-export function lowerMigrationPlan(
-  planned: PlannedMigration,
-  dialect: Dialect,
-  expected: MigrationSemanticProfile,
-): Array<{ step: MigrationStep; ast: SqlAst }> {
-  const mismatch = profileMismatch(planned.profile, expected, dialect, planned.identities)
-  if (mismatch) {
-    throw new MigrationError({
-      message: `Cannot lower this Migration Plan: ${mismatch}`,
-    })
-  }
-  return planned.plan.steps.map((step) => ({
-    step,
-    ast: stepToAst(step, planned.desiredTables, dialect, planned.identities),
-  }))
-}
-
-/**
- * Acquires the session advisory lock that serializes migration execution.
- *
- * @param executor - Executor bound to the migration session.
- */
-async function acquireMigrateLock(executor: Executor): Promise<void> {
-  try {
-    await executor.run({
-      sql: `select pg_advisory_lock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID})`,
-      params: [],
-    })
-  } catch (cause) {
-    throw new MigrationError({
-      message:
-        cause instanceof Error
-          ? `Failed to acquire migrate advisory lock: ${cause.message}`
-          : 'Failed to acquire migrate advisory lock',
-      ...(cause !== undefined ? { cause } : {}),
-    })
-  }
-}
-
-/**
- * Releases the migration advisory lock, reporting whether it was held.
- *
- * @param executor - Executor bound to the migration session.
- */
-async function releaseMigrateLock(executor: Executor): Promise<boolean> {
-  try {
-    const [result] = await executor.execute({
-      sql: `select pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID}) as "unlocked"`,
-      params: [],
-    })
-    return (
-      typeof result === 'object' &&
-      result !== null &&
-      'unlocked' in result &&
-      result.unlocked === true
-    )
-  } catch {
-    return false
-  }
-}
-
-/**
- * Desired-state migrate: dry-run plan + execute converge with safe defaults,
- * explicit destructive allowlist, and Postgres advisory lock on execute.
- *
- * @example
- *   const migrate = createMigrateBuilder({ schemas: [Users], dialect, runOperation })
- *   const plan = await migrate.dryRun()
- *   await migrate.allow('dropColumn').execute()
- *
- * @param options - Builder configuration including schemas, dialect, runOperation, and
- *   optional assertCanExecute.
- *
- * @returns Migrate builder with `allow`, `dryRun`, and `execute` methods
+ * Desired-state migration orchestration. Planning and permissions remain generic;
+ * lowering and all execution mechanics belong to the selected dialect migration facet.
  */
 export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
@@ -480,6 +111,7 @@ export function createMigrateBuilder(options: {
       executor: Executor,
       databaseIdentity: string,
       discard: () => void,
+      cancel: () => Promise<void>,
     ) => Promise<T>,
   ): Promise<T>
   applicationId?: string
@@ -496,28 +128,33 @@ export function createMigrateBuilder(options: {
     migrationOwnership,
     assertCanExecute,
   } = options
-
   const allowed = new Set<MigrationAllow>()
 
-  /**
-   * Introspects the managed catalog and builds its Migration Plan.
-   *
-   * @param executor - Executor used for catalog introspection.
-   */
+  /** Introspects the operation session and creates its canonical semantic plan. */
   const buildPlan = async (executor: Executor) => {
-    const request = createCatalogRequest(
-      schemas,
-      migrationOwnership ?? [],
-      defaultNamespace,
-    )
-    const catalog = await dialect.catalog.introspectCatalog(executor, request)
-    const planned = planMigration(schemas, catalog, dialect, {
-      ...(defaultNamespace === undefined
-        ? {}
-        : { registrationDefault: defaultNamespace }),
-      ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
-    })
-    // The executing run resolves this profile independently of the plan it received.
+    let request
+    try {
+      request = createCatalogRequest(schemas, migrationOwnership ?? [], defaultNamespace)
+    } catch (cause) {
+      throw phaseError(cause, 'planning')
+    }
+    let catalog
+    try {
+      catalog = await dialect.catalog.introspectCatalog(executor, request)
+    } catch (cause) {
+      throw phaseError(cause, 'introspection')
+    }
+    let planned
+    try {
+      planned = planMigration(schemas, catalog, dialect, {
+        ...(defaultNamespace === undefined
+          ? {}
+          : { registrationDefault: defaultNamespace }),
+        ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
+      })
+    } catch (cause) {
+      throw phaseError(cause, 'planning')
+    }
     const expected: MigrationSemanticProfile = {
       identityAdapter: dialect.relationIdentity,
       namespaceContext: catalog.namespaceContext,
@@ -529,24 +166,16 @@ export function createMigrateBuilder(options: {
   }
 
   const builder: MigrateBuilder = {
-    /**
-     * Grants permission for selected destructive operations.
-     *
-     * @param ops - Destructive operations to permit.
-     */
-    allow(...ops: MigrationAllow[]) {
-      for (const op of ops) {
-        allowed.add(op)
-      }
+    allow(...ops) {
+      for (const op of ops) allowed.add(op)
       return builder
     },
 
-    /** Builds a Migration Plan without executing its steps. */
     async dryRun() {
       try {
-        return await runOperation(async (executor) => {
-          return (await buildPlan(executor)).planned.plan
-        })
+        return await runOperation(
+          async (executor) => (await buildPlan(executor)).planned.plan,
+        )
       } catch (cause) {
         if (cause instanceof MigrationError) throw cause
         throw new MigrationError({
@@ -556,67 +185,111 @@ export function createMigrateBuilder(options: {
       }
     },
 
-    /** Executes the permitted Migration Plan under an advisory lock. */
-    async execute() {
-      assertCanExecute?.()
+    async execute(executeOptions) {
+      const lockTimeoutMs = lockTimeout(executeOptions)
       try {
-        return await runOperation(async (executor, databaseIdentity, discard) => {
-          createMigrationCoordinationScope(databaseIdentity, applicationId)
-          let lockAcquired = false
+        assertCanExecute?.()
+      } catch (cause) {
+        throw phaseError(cause, 'permission')
+      }
+      let runtimeSuccess: { outcome: 'applied' | 'unchanged' } | undefined
+      let operationCallbackReturned = false
+      try {
+        const migration = dialect.migration
+        if (!migration) {
+          throw new MigrationError({
+            message: `Dialect '${dialect.id}' does not support migration execution`,
+            stage: 'lowering',
+            outcome: 'unchanged',
+            retryable: false,
+          })
+        }
+        await runOperation(async (executor, databaseIdentity, discard, cancel) => {
           try {
-            await acquireMigrateLock(executor)
-            lockAcquired = true
-            const { planned, expected } = await buildPlan(executor)
-
-            const steps = planned.plan.steps
-            if (steps.length === 0) return
-
-            for (const step of steps) {
-              const need = allowForStep(step)
-              if (need && !allowed.has(need)) {
-                throw new MigrationError({
-                  message: `Destructive migration step '${step.kind}' requires allow('${need}')`,
-                })
-              }
-            }
-
-            const lowered = lowerMigrationPlan(planned, dialect, expected)
-
-            await executor.run({ sql: 'begin', params: [] })
-            let commitAttempted = false
-            try {
-              for (const { step, ast } of lowered) {
-                if (step.kind === 'set_not_null') {
-                  await assertColumnHasNoNulls(executor, step)
+            runtimeSuccess = await migration.execute({
+              executor,
+              databaseIdentity,
+              discard,
+              cancel,
+              lockTimeoutMs,
+              ...(applicationId === undefined ? {} : { applicationId }),
+              ...(executeOptions?.signal === undefined
+                ? {}
+                : { signal: executeOptions.signal }),
+              prepare: async () => {
+                const { planned, expected } = await buildPlan(executor)
+                for (const step of planned.plan.steps) {
+                  const permission = allowForStep(step)
+                  if (permission && !allowed.has(permission)) {
+                    throw new MigrationError({
+                      message: `Destructive migration step '${step.kind}' requires allow('${permission}')`,
+                      stage: 'permission',
+                      outcome: 'unchanged',
+                      retryable: false,
+                    })
+                  }
                 }
-                await executor.run(dialect.compile(ast))
-              }
-              commitAttempted = true
-              await executor.run({ sql: 'commit', params: [] })
-            } catch (error) {
-              if (commitAttempted) discard()
-              try {
-                await executor.run({ sql: 'rollback', params: [] })
-              } catch {
-                discard()
-              }
-              throw error
-            }
+                let lowered
+                try {
+                  lowered = migration.lower(planned, expected)
+                } catch (cause) {
+                  throw phaseError(cause, 'lowering')
+                }
+                if (lowered.issues) {
+                  const sourceStepIndexes = [
+                    ...new Set(
+                      lowered.issues.flatMap((issue) => issue.sourceStepIndexes),
+                    ),
+                  ].sort((left, right) => left - right)
+                  throw new MigrationError({
+                    message: lowered.issues.map((issue) => issue.message).join('\n'),
+                    stage: 'lowering',
+                    outcome: 'unchanged',
+                    retryable: false,
+                    sourceStepIndexes,
+                  })
+                }
+                return lowered.program
+              },
+            })
           } catch (cause) {
             if (cause instanceof MigrationError) throw cause
+            discard()
             throw new MigrationError({
-              message: cause instanceof Error ? cause.message : 'Migration failed',
-              ...(cause !== undefined ? { cause } : {}),
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : 'Migration adapter execution failed',
+              cause,
+              stage: 'ddl',
+              outcome: 'unknown',
+              retryable: false,
             })
-          } finally {
-            if (!lockAcquired || !(await releaseMigrateLock(executor))) discard()
           }
+          operationCallbackReturned = true
+          return runtimeSuccess
         })
       } catch (cause) {
-        if (cause instanceof MigrationError) throw cause
+        if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+        if (operationCallbackReturned && runtimeSuccess) {
+          throw new MigrationError({
+            message:
+              cause instanceof Error ? cause.message : 'Migration session cleanup failed',
+            cause,
+            stage: 'sessionCleanup',
+            outcome: runtimeSuccess.outcome,
+            retryable: false,
+            cleanupFailures: [{ stage: 'sessionCleanup', cause }],
+          })
+        }
         throw new MigrationError({
-          message: cause instanceof Error ? cause.message : 'Migration failed',
-          ...(cause !== undefined ? { cause } : {}),
+          message:
+            cause instanceof Error ? cause.message : 'Migration operation session failed',
+          cause,
+          stage: 'sessionCleanup',
+          outcome: 'unchanged',
+          retryable: false,
+          cleanupFailures: [{ stage: 'sessionCleanup', cause }],
         })
       }
     },

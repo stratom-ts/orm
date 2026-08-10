@@ -1,5 +1,6 @@
 import { SQLDialect } from 'db0'
 
+import type { DialectMigrationAdapter } from '@/ddl/migrationProgram'
 import type {
   CanonicalRelationIdentity,
   RelationIdentityAdapter,
@@ -371,6 +372,9 @@ export interface Dialect {
 
   /** Deep adapter module for scoped catalog observation. */
   readonly catalog: CatalogIntrospector
+
+  /** Whole-plan lowering and coordinated migration execution. */
+  readonly migration?: DialectMigrationAdapter
 
   /** Physically resolves a complete, canonically registered desired schema graph. */
   lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
