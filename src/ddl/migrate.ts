@@ -23,7 +23,13 @@ import {
   createMigrationCoordinationScope,
 } from '../migrations/coordinationScope'
 
-import type { MigrationPlan, MigrationStep } from './migrationPlan'
+import type {
+  MigrationColumnReference,
+  MigrationPlan,
+  MigrationSemanticProfile,
+  MigrationStep,
+  PlannedMigration,
+} from './migrationPlan'
 import { planMigration } from './migrationPlan'
 
 /**
@@ -42,44 +48,49 @@ export type MigrateBuilder = {
 }
 
 /**
- * Projects an optional schema into a SQL AST field.
+ * Reads the schema spelling a PostgreSQL statement must name.
  *
- * @param schema - Schema spelling, or undefined when omitted.
- */
-function schemaField(
-  schema: string | undefined,
-): { schema: string } | Record<string, never> {
-  return schema !== undefined ? { schema } : {}
-}
-
-/**
- * Builds a canonical identity input with an optional schema namespace.
+ * @param namespace - Canonical namespace to project.
  *
- * @param schema - Explicit schema spelling, or undefined for default resolution.
- * @param relation - Relation spelling.
+ * @throws {MigrationError} When the namespace carries no schema segment.
  */
-function relationInput(schema: string | undefined, relation: string) {
-  return {
-    ...(schema === undefined
-      ? {}
-      : { namespace: [{ role: 'schema' as const, spelling: schema }] }),
-    relation,
-  }
-}
-
-/**
- * Reads the schema spelling from a canonical relation identity.
- *
- * @param identity - Canonical relation identity to inspect.
- */
-function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
-  const schema = identity.namespace.find((segment) => segment.role === 'schema')
+function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
+  const schema = namespace.find((segment) => segment.role === 'schema')
   if (!schema) {
     throw new MigrationError({
       message: 'PostgreSQL migration execution requires a schema namespace',
     })
   }
   return schema.identifier.spelling
+}
+
+/**
+ * Projects a canonical relation identity into PostgreSQL AST relation fields.
+ *
+ * @param identity - Canonical relation identity to project.
+ */
+function relationFields(identity: CanonicalRelationIdentity): {
+  schema: string
+  table: string
+} {
+  return {
+    schema: schemaFromNamespace(identity.namespace),
+    table: identity.relation.spelling,
+  }
+}
+
+/**
+ * Projects a structured plan reference into PostgreSQL AST reference fields.
+ *
+ * @param reference - Structured foreign-key reference carried by a plan step.
+ */
+function referenceFields(reference: MigrationColumnReference) {
+  return {
+    ...relationFields(reference.relation),
+    column: reference.column.spelling,
+    ...(reference.onDelete === undefined ? {} : { onDelete: reference.onDelete }),
+    ...(reference.onUpdate === undefined ? {} : { onUpdate: reference.onUpdate }),
+  }
 }
 
 /**
@@ -97,18 +108,14 @@ function quoteIdent(ident: string): string {
  *
  * @param executor - Database executor used to inspect existing rows.
  * @param step - SET NOT NULL step whose target is checked.
- * @param identities - Identity module used to resolve the target relation.
  */
 async function assertColumnHasNoNulls(
   executor: Executor,
   step: Extract<MigrationStep, { kind: 'set_not_null' }>,
-  identities: CanonicalRelationIdentityModule,
 ): Promise<void> {
-  const schemaName = schemaFromIdentity(
-    identities.resolve(relationInput(step.schema, step.table)),
-  )
-  const tableSql = `${quoteIdent(schemaName)}.${quoteIdent(step.table)}`
-  const columnSql = quoteIdent(step.column)
+  const { schema: schemaName, table } = relationFields(step.target.relation)
+  const tableSql = `${quoteIdent(schemaName)}.${quoteIdent(table)}`
+  const columnSql = quoteIdent(step.target.column.spelling)
   const rows = await executor.execute({
     sql: `select count(*)::int as count from ${tableSql} where ${columnSql} is null`,
     params: [],
@@ -117,7 +124,7 @@ async function assertColumnHasNoNulls(
   const count = Number(raw?.count ?? 0)
   if (count > 0) {
     throw new MigrationError({
-      message: `Cannot set column '${schemaName}.${step.table}.${step.column}' as NOT NULL - column has NULL values`,
+      message: `Cannot set column '${schemaName}.${table}.${step.target.column.spelling}' as NOT NULL - column has NULL values`,
     })
   }
 }
@@ -141,19 +148,20 @@ function allowForStep(step: MigrationStep): MigrationAllow | null {
 }
 
 /**
- * Converts a migration step to a SQL AST node for compilation.
+ * Converts one semantic migration step into a SQL AST node for compilation.
  *
  * @example
  *   const ast = stepToAst(step, desiredTables, dialect, identities)
  *
  * @param step - Migration step to convert.
  * @param desiredTables - Canonical registry of lowered desired tables.
- * @param dialect - SQL dialect for desired-table lowering.
- * @param identities - Identity module used to resolve step targets.
+ * @param dialect - SQL dialect supplying naming rules.
+ * @param identities - Identity module used for target diagnostics.
  *
  * @returns SQL AST node ready for compilation
  *
- * @throws MigrationError - When the step references an unregistered handle
+ * @throws {MigrationError} When a target-only create step has no registered desired
+ *   table.
  */
 function stepToAst(
   step: MigrationStep,
@@ -161,26 +169,26 @@ function stepToAst(
   dialect: Dialect,
   identities: CanonicalRelationIdentityModule,
 ): SqlAst {
+  const profile = physicalNamingProfile(dialect.relationIdentity)
   switch (step.kind) {
-    case 'create_schema': {
+    case 'ensure_namespace': {
       const ast: CreateSchemaAst = {
         kind: 'create_schema',
-        schema: step.schema,
+        schema: schemaFromNamespace(step.target.namespace),
       }
       return ast
     }
     case 'create_table': {
-      const identity = identities.resolve(relationInput(step.schema, step.table))
+      const identity = step.target.relation
       const ast = desiredTables.get(identity)
       if (!ast) {
         throw new MigrationError({
           message: `cannot create table ${identities.format(identity)}: lowered CreateTableAst not found`,
         })
       }
-      const profile = physicalNamingProfile(dialect.relationIdentity)
       return {
         ...ast,
-        schema: schemaFromIdentity(identity),
+        ...relationFields(identity),
         primaryKeyName: generatedPrimaryKeyName(identity, ast.primaryKey, profile),
         columns: ast.columns.map((column) => ({
           ...column,
@@ -194,24 +202,18 @@ function stepToAst(
       }
     }
     case 'add_column': {
-      const identity = identities.resolve(relationInput(step.schema, step.table))
+      const identity = step.target.relation
+      const column = step.target.column.spelling
       return {
         kind: 'add_column',
-        ...schemaField(step.schema),
-        table: step.table,
+        ...relationFields(identity),
         column: {
-          name: step.column,
+          name: column,
           dataType: step.dataType,
           notNull: step.notNull,
           unique: step.unique ?? false,
           ...(step.unique
-            ? {
-                uniqueConstraintName: generatedUniqueName(
-                  identity,
-                  step.column,
-                  physicalNamingProfile(dialect.relationIdentity),
-                ),
-              }
+            ? { uniqueConstraintName: generatedUniqueName(identity, column, profile) }
             : {}),
           autoIncrement: step.autoIncrement ?? false,
           ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
@@ -219,98 +221,197 @@ function stepToAst(
             ? { databaseDefault: step.databaseDefault }
             : {}),
           ...(step.generated ? { generated: step.generated } : {}),
-          ...(step.references ? { references: step.references } : {}),
         },
       }
     }
     case 'alter_column_type':
       return {
         kind: 'alter_column_type',
-        ...schemaField(step.schema),
-        table: step.table,
-        column: step.column,
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
         dataType: step.dataType,
       }
-    case 'add_unique_constraint': {
-      const identity = identities.resolve(relationInput(step.schema, step.table))
+    case 'add_unique_constraint':
       return {
         kind: 'add_unique_constraint',
-        ...schemaField(step.schema),
-        table: step.table,
-        column: step.column,
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
         name: generatedUniqueName(
-          identity,
-          step.column,
-          physicalNamingProfile(dialect.relationIdentity),
+          step.target.relation,
+          step.target.column.spelling,
+          profile,
         ),
       }
-    }
-    case 'add_foreign_key': {
-      const identity = identities.resolve(relationInput(step.schema, step.table))
-      const referenced = identities.resolve(
-        relationInput(step.references.schema, step.references.table),
-      )
+    case 'add_foreign_key':
       return {
         kind: 'add_foreign_key',
-        ...schemaField(step.schema),
-        table: step.table,
-        column: step.column,
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
         name: generatedForeignKeyName(
-          identity,
-          step.column,
-          referenced,
-          step.references.column,
+          step.target.relation,
+          step.target.column.spelling,
+          step.references.relation,
+          step.references.column.spelling,
           step.references.onDelete,
           step.references.onUpdate,
-          physicalNamingProfile(dialect.relationIdentity),
+          profile,
         ),
-        references: step.references,
+        references: referenceFields(step.references),
       }
-    }
     case 'set_not_null':
       return {
         kind: 'set_not_null',
-        ...schemaField(step.schema),
-        table: step.table,
-        column: step.column,
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
       }
     case 'drop_not_null':
       return {
         kind: 'drop_not_null',
-        ...schemaField(step.schema),
-        table: step.table,
-        column: step.column,
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
       }
     case 'create_index':
       return {
         kind: 'create_index',
-        ...schemaField(step.schema),
-        table: step.table,
-        name: step.index,
-        columns: step.columns,
+        ...relationFields(step.target.relation),
+        name: step.target.index.spelling,
+        columns: step.columns.map((column) => column.spelling),
         unique: step.unique,
       }
     case 'drop_column':
       return {
         kind: 'drop_column',
-        ...schemaField(step.schema),
-        table: step.table,
-        column: step.column,
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
       }
     case 'drop_table':
-      return {
-        kind: 'drop_table',
-        ...schemaField(step.schema),
-        table: step.table,
-      }
+      return { kind: 'drop_table', ...relationFields(step.target.relation) }
     case 'drop_index':
       return {
         kind: 'drop_index',
-        ...schemaField(step.schema),
-        table: step.table,
-        index: step.index,
+        ...relationFields(step.target.relation),
+        index: step.target.index.spelling,
       }
   }
+}
+
+/**
+ * Compares authored namespace inputs under the adapter's identifier rules, so a
+ * case-folding dialect accepts the spellings it treats as one namespace.
+ *
+ * @param left - First namespace input, or undefined when none was configured.
+ * @param right - Second namespace input, or undefined when none was configured.
+ * @param identities - Identity module supplying comparison keys.
+ */
+function sameNamespaceInput(
+  left: readonly NamespaceIdentifierInput[] | undefined,
+  right: readonly NamespaceIdentifierInput[] | undefined,
+  identities: CanonicalRelationIdentityModule,
+): boolean {
+  /**
+   * Resolves one authored namespace the way registration does, so equivalent spellings
+   * of the same namespace compare equal. Identity resolution treats an empty namespace
+   * as none; an unresolvable namespace stays a mismatch.
+   *
+   * @param input - Authored namespace, or undefined when none was configured.
+   */
+  const resolve = (input: readonly NamespaceIdentifierInput[] | undefined) => {
+    if (!input?.length) return undefined
+    try {
+      return identities.resolveNamespace(input)
+    } catch {
+      return null
+    }
+  }
+
+  const selected = resolve(left)
+  const other = resolve(right)
+  if (selected == null || other == null) {
+    return selected === undefined && other === undefined
+  }
+  return (
+    selected.length === other.length &&
+    selected.every(
+      (segment, index) =>
+        segment.role === other[index]?.role &&
+        segment.identifier.comparisonKey === other[index]?.identifier.comparisonKey,
+    )
+  )
+}
+
+/**
+ * Reports which semantic profile field the executing run disagrees with.
+ *
+ * @param profile - Profile the Migration Plan was built under.
+ * @param expected - Profile the executing run resolves.
+ * @param identities - Identity module supplying comparison keys.
+ */
+function profileMismatch(
+  profile: MigrationSemanticProfile,
+  expected: MigrationSemanticProfile,
+  dialect: Dialect,
+  identities: CanonicalRelationIdentityModule,
+): string | undefined {
+  if (expected.identityAdapter !== dialect.relationIdentity) {
+    return `executing profile adapter '${expected.identityAdapter}' does not match dialect adapter '${dialect.relationIdentity}'`
+  }
+  if (profile.identityAdapter !== expected.identityAdapter) {
+    return `identity adapter '${profile.identityAdapter}' does not match executing adapter '${expected.identityAdapter}'`
+  }
+  if (
+    !sameNamespaceInput(
+      profile.namespaceContext.writableDefault,
+      expected.namespaceContext.writableDefault,
+      identities,
+    )
+  ) {
+    return 'writable namespace context does not match the executing session'
+  }
+  if (
+    !sameNamespaceInput(
+      profile.registrationDefault,
+      expected.registrationDefault,
+      identities,
+    )
+  ) {
+    return 'registration default does not match the executing configuration'
+  }
+}
+
+/**
+ * Lowers a complete Migration Plan into SQL ASTs before any DDL runs, so missing
+ * registrations or a mismatched semantic profile fail the whole operation first.
+ *
+ * This seam is internal: the migrate builder plans and lowers inside one operation, so
+ * its profiles always agree. The guard exists for callers that lower a plan they did not
+ * just build.
+ *
+ * @example
+ *   const lowered = lowerMigrationPlan(planned, postgresDialect, expectedProfile)
+ *
+ * @param planned - Canonical Migration Plan with the registrations and profile it was
+ *   built from.
+ * @param dialect - Dialect executing the plan.
+ * @param expected - Semantic profile the executing run resolves.
+ *
+ * @throws {MigrationError} When the profile does not match the executing run or a
+ *   target-only step has no registered desired table.
+ */
+export function lowerMigrationPlan(
+  planned: PlannedMigration,
+  dialect: Dialect,
+  expected: MigrationSemanticProfile,
+): Array<{ step: MigrationStep; ast: SqlAst }> {
+  const mismatch = profileMismatch(planned.profile, expected, dialect, planned.identities)
+  if (mismatch) {
+    throw new MigrationError({
+      message: `Cannot lower this Migration Plan: ${mismatch}`,
+    })
+  }
+  return planned.plan.steps.map((step) => ({
+    step,
+    ast: stepToAst(step, planned.desiredTables, dialect, planned.identities),
+  }))
 }
 
 /**
@@ -410,12 +511,21 @@ export function createMigrateBuilder(options: {
       defaultNamespace,
     )
     const catalog = await dialect.catalog.introspectCatalog(executor, request)
-    return planMigration(schemas, catalog, dialect, {
+    const planned = planMigration(schemas, catalog, dialect, {
       ...(defaultNamespace === undefined
         ? {}
         : { registrationDefault: defaultNamespace }),
       ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
     })
+    // The executing run resolves this profile independently of the plan it received.
+    const expected: MigrationSemanticProfile = {
+      identityAdapter: dialect.relationIdentity,
+      namespaceContext: catalog.namespaceContext,
+      ...(defaultNamespace === undefined
+        ? {}
+        : { registrationDefault: defaultNamespace }),
+    }
+    return { planned, expected }
   }
 
   const builder: MigrateBuilder = {
@@ -435,7 +545,7 @@ export function createMigrateBuilder(options: {
     async dryRun() {
       try {
         return await runOperation(async (executor) => {
-          return (await buildPlan(executor)).plan
+          return (await buildPlan(executor)).planned.plan
         })
       } catch (cause) {
         if (cause instanceof MigrationError) throw cause
@@ -456,9 +566,9 @@ export function createMigrateBuilder(options: {
           try {
             await acquireMigrateLock(executor)
             lockAcquired = true
-            const { plan, identities, desiredTables } = await buildPlan(executor)
+            const { planned, expected } = await buildPlan(executor)
 
-            const steps = plan.steps
+            const steps = planned.plan.steps
             if (steps.length === 0) return
 
             for (const step of steps) {
@@ -470,14 +580,15 @@ export function createMigrateBuilder(options: {
               }
             }
 
+            const lowered = lowerMigrationPlan(planned, dialect, expected)
+
             await executor.run({ sql: 'begin', params: [] })
             let commitAttempted = false
             try {
-              for (const step of steps) {
+              for (const { step, ast } of lowered) {
                 if (step.kind === 'set_not_null') {
-                  await assertColumnHasNoNulls(executor, step, identities)
+                  await assertColumnHasNoNulls(executor, step)
                 }
-                const ast = stepToAst(step, desiredTables, dialect, identities)
                 await executor.run(dialect.compile(ast))
               }
               commitAttempted = true

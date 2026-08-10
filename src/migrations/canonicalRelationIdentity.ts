@@ -42,6 +42,7 @@ export type CanonicalRelationIdentityModule = {
     namespace?: readonly NamespaceIdentifierInput[],
   ): readonly CanonicalNamespaceSegment[]
   resolve(input: RelationIdentityInput): CanonicalRelationIdentity
+  member(role: 'column' | 'index' | 'namespace', spelling: string): CanonicalIdentifier
   equals(left: CanonicalRelationIdentity, right: CanonicalRelationIdentity): boolean
   compare(left: CanonicalRelationIdentity, right: CanonicalRelationIdentity): number
   format(
@@ -410,6 +411,19 @@ export function createCanonicalRelationIdentityModule(options: {
   return {
     resolveNamespace,
     resolve,
+    /**
+     * Canonicalizes one identifier that is not itself a relation, such as a column,
+     * index, or namespace name, so callers compare it under the adapter's rules.
+     *
+     * @example
+     *   identities.member('column', 'email')
+     *
+     * @param role - Identifier role used in validation errors.
+     * @param spelling - Authored identifier spelling.
+     */
+    member(role, spelling) {
+      return canonicalIdentifier(adapter, spelling, `${role} identifier`)
+    },
     /**
      * Tests canonical relation identities for equality.
      *

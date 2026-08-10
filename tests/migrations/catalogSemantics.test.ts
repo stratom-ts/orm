@@ -16,6 +16,7 @@ import {
   catalogPrimaryKey as createCatalogPrimaryKey,
   planMigration,
 } from '../helpers/catalog'
+import { columnReference, columnTarget } from '../helpers/planTargets'
 
 const namespaceContext = {
   writableDefault: [
@@ -248,16 +249,12 @@ describe('catalog semantic adoption', () => {
       steps: [
         {
           kind: 'add_unique_constraint',
-          schema: 'public',
-          table: 'children',
-          column: 'email',
+          target: columnTarget('public', 'children', 'email'),
         },
         {
           kind: 'add_foreign_key',
-          schema: 'public',
-          table: 'children',
-          column: 'parentId',
-          references: { schema: 'public', table: 'parents', column: 'id' },
+          target: columnTarget('public', 'children', 'parentId'),
+          references: columnReference('public', 'parents', 'id'),
         },
       ],
     })

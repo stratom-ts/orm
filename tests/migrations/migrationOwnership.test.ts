@@ -10,6 +10,12 @@ import {
   catalogPrimaryKey as createCatalogPrimaryKey,
   planMigration,
 } from '../helpers/catalog'
+import {
+  columnTarget,
+  indexTarget,
+  namespaceTarget,
+  relationTarget,
+} from '../helpers/planTargets'
 
 const context = {
   writableDefault: [
@@ -80,24 +86,15 @@ describe('migration ownership', () => {
       steps: [
         {
           kind: 'add_column',
-          schema: 'public',
-          table: 'users',
-          column: 'email',
+          target: columnTarget('public', 'users', 'email'),
           dataType: 'text',
           notNull: true,
         },
         {
           kind: 'drop_index',
-          schema: 'public',
-          table: 'users',
-          index: 'users_legacy_idx',
+          target: indexTarget('public', 'users', 'users_legacy_idx'),
         },
-        {
-          kind: 'drop_column',
-          schema: 'public',
-          table: 'users',
-          column: 'legacy',
-        },
+        { kind: 'drop_column', target: columnTarget('public', 'users', 'legacy') },
       ],
     })
   })
@@ -111,9 +108,7 @@ describe('migration ownership', () => {
       steps: [
         {
           kind: 'add_column',
-          schema: 'public',
-          table: 'users',
-          column: 'email',
+          target: columnTarget('public', 'users', 'email'),
           dataType: 'text',
           notNull: true,
         },
@@ -135,7 +130,7 @@ describe('migration ownership', () => {
         ],
       }),
     ).toEqual({
-      steps: [{ kind: 'drop_table', schema: 'public', table: 'billing' }],
+      steps: [{ kind: 'drop_table', target: relationTarget('public', 'billing') }],
     })
   })
 
@@ -151,8 +146,8 @@ describe('migration ownership', () => {
       }),
     ).toEqual({
       steps: [
-        { kind: 'drop_table', schema: 'public', table: 'billing' },
-        { kind: 'drop_table', schema: 'public', table: 'users' },
+        { kind: 'drop_table', target: relationTarget('public', 'billing') },
+        { kind: 'drop_table', target: relationTarget('public', 'users') },
       ],
     })
   })
@@ -172,7 +167,9 @@ describe('migration ownership', () => {
           ],
         },
       ),
-    ).toEqual({ steps: [{ kind: 'create_schema', schema: 'empty_app' }] })
+    ).toEqual({
+      steps: [{ kind: 'ensure_namespace', target: namespaceTarget('empty_app') }],
+    })
   })
 
   it('uses canonical identities for dotted tombstones and deterministic conflicts', () => {
@@ -206,7 +203,7 @@ describe('migration ownership', () => {
           },
         ],
       }),
-    ).toEqual({ steps: [{ kind: 'drop_table', schema: 'a.b', table: 'c' }] })
+    ).toEqual({ steps: [{ kind: 'drop_table', target: relationTarget('a.b', 'c') }] })
 
     const declarations = [
       { kind: 'relation' as const, relation: Users, shape: 'additive' as const },

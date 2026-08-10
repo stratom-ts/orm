@@ -8,6 +8,7 @@ import type {
 } from '@/dialects/catalog'
 import type { CreateTableAst } from '@/dialects/types'
 import type {
+  CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
   CanonicalRelationRegistry,
@@ -31,8 +32,7 @@ export type PlanningCatalogKeyConstraint = {
 }
 
 export type PlanningCatalogForeignKey = PlanningCatalogKeyConstraint & {
-  referencedSchema: string
-  referencedTable: string
+  referencedRelation: CanonicalRelationIdentity
   referencedColumns: string[]
   onDelete: CatalogForeignKey['onDelete']
   onUpdate: CatalogForeignKey['onUpdate']
@@ -47,8 +47,7 @@ export type PlanningCatalogIndex = {
 }
 
 export type PlanningCatalogTable = {
-  name: string
-  schema: string
+  identity: CanonicalRelationIdentity
   columns: PlanningCatalogColumn[]
   indexes: PlanningCatalogIndex[]
   primaryKey: PlanningCatalogKeyConstraint | null
@@ -60,8 +59,14 @@ export type PlanningCatalogTable = {
 export type PlanningCatalog = {
   tables: PlanningCatalogTable[]
   namespaces: readonly CanonicalRelationIdentity['namespace'][]
-  nameReservations: Array<{ schema: string; name: string }>
-  constraintNameReservations: Array<{ schema: string; table: string; name: string }>
+  nameReservations: Array<{
+    namespace: readonly CanonicalNamespaceSegment[]
+    name: string
+  }>
+  constraintNameReservations: Array<{
+    relation: CanonicalRelationIdentity
+    name: string
+  }>
 }
 
 /**
@@ -124,30 +129,6 @@ function requireComplete<T>(set: CatalogSet<T>, target: string): readonly T[] {
   throw new MigrationError({
     message: `Incomplete catalog coverage for ${target}: ${evidenceDescription(evidence)}`,
   })
-}
-
-/**
- * Reads the schema spelling from a canonical namespace.
- *
- * @param namespace - Canonical namespace to inspect.
- */
-function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
-  const segment = namespace.find(({ role }) => role === 'schema')
-  if (!segment) {
-    throw new MigrationError({
-      message: 'The current Migration Plan projection requires a schema namespace',
-    })
-  }
-  return segment.identifier.spelling
-}
-
-/**
- * Reads the schema spelling from a canonical relation identity.
- *
- * @param identity - Canonical relation identity to inspect.
- */
-function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
-  return schemaFromNamespace(identity.namespace)
 }
 
 /**
@@ -354,8 +335,7 @@ export function catalogForPlanning(
           : keyConstraint(requireFact(table.primaryKey, `${target} primary key`), target)
 
       tables.push({
-        name: relation.identity.relation.spelling,
-        schema: schemaFromIdentity(relation.identity),
+        identity: relation.identity,
         columns: projectedColumns,
         indexes: indexes.map((index) => ({
           name: nameOf(index.name, `${target} index`),
@@ -369,8 +349,7 @@ export function catalogForPlanning(
         ),
         foreignKeys: foreignKeys.map((foreignKey) => ({
           ...keyConstraint(foreignKey, `${target} foreign key`),
-          referencedSchema: schemaFromIdentity(foreignKey.referencedRelation),
-          referencedTable: foreignKey.referencedRelation.relation.spelling,
+          referencedRelation: foreignKey.referencedRelation,
           referencedColumns: [...foreignKey.referencedColumns],
           onDelete: foreignKey.onDelete,
           onUpdate: foreignKey.onUpdate,
@@ -390,12 +369,11 @@ export function catalogForPlanning(
     tables,
     namespaces: namespaces.map((namespace) => namespace.identity),
     nameReservations: reservations.map((reservation) => ({
-      schema: schemaFromNamespace(reservation.namespace),
+      namespace: reservation.namespace,
       name: reservation.name,
     })),
     constraintNameReservations: constraintReservations.map((reservation) => ({
-      schema: schemaFromIdentity(reservation.relation),
-      table: reservation.relation.relation.spelling,
+      relation: reservation.relation,
       name: reservation.name,
     })),
   }

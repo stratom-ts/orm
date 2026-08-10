@@ -357,6 +357,33 @@ await db.migrate().execute()
 await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
 ```
 
+A Migration Plan describes portable semantic intent. Every step names one structured
+target built from canonical relation identity, so namespaces, relations, columns, and
+indexes stay unambiguous across dialects:
+
+```typescript
+{
+  kind: 'add_column',
+  target: {
+    kind: 'column',
+    relation: {
+      namespace: [
+        { role: 'database', identifier: { spelling: 'app', comparisonKey: 'app' } },
+        { role: 'schema', identifier: { spelling: 'public', comparisonKey: 'public' } },
+      ],
+      relation: { spelling: 'users', comparisonKey: 'users' },
+    },
+    column: { spelling: 'email', comparisonKey: 'email' },
+  },
+  dataType: 'text',
+  notNull: true,
+}
+```
+
+Steps are ordered by semantic phase (`ensure_namespace`, relations, columns, types and
+nullability, indexes, constraints, then destructive cleanup) and then by structured
+target order. Execution order and SQL are separate concerns the dialect owns.
+
 ### Errors
 
 | Error             | When                                                                                                 |

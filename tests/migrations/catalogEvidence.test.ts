@@ -7,6 +7,7 @@ import { column, defineTable, postgresDialect } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
 import { completePostgresCatalog } from '../helpers/catalog'
+import { relationTarget } from '../helpers/planTargets'
 
 const context = {
   writableDefault: [
@@ -108,8 +109,7 @@ describe('catalog evidence', () => {
       planMigration([Users], emptyCatalog(), postgresDialect).plan.steps,
     ).toContainEqual({
       kind: 'create_table',
-      schema: 'public',
-      table: 'users',
+      target: relationTarget('public', 'users'),
     })
 
     const incomplete: CatalogSnapshot = {

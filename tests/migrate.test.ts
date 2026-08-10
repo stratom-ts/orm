@@ -14,6 +14,7 @@ import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRel
 import { POSTGRES_PHYSICAL_NAMING, generatedIndexName } from '@/migrations/physicalNaming'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
+import { columnTarget, namespaceTarget, relationTarget } from './helpers/planTargets'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -504,7 +505,7 @@ describe('db.migrate() adapters and execution', () => {
     const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(db.migrate().dryRun()).resolves.toMatchObject({
-      steps: [{ kind: 'create_table', schema: 'public', table: 'users' }],
+      steps: [{ kind: 'create_table', target: relationTarget('public', 'users') }],
     })
     expect(connector.runSql).toEqual([])
 
@@ -531,7 +532,9 @@ describe('db.migrate() adapters and execution', () => {
     await db.migrate().execute()
     expect(
       connector.runSql.some((sql) =>
-        sql.includes(`create index "${index.index}" on "public"."indexed_events"`),
+        sql.includes(
+          `create index "${index.target.index.spelling}" on "public"."indexed_events"`,
+        ),
       ),
     ).toBe(true)
 
@@ -597,9 +600,7 @@ describe('db.migrate() adapters and execution', () => {
       steps: [
         {
           kind: 'add_unique_constraint',
-          schema: 'public',
-          table: 'users',
-          column: 'email',
+          target: columnTarget('public', 'users', 'email'),
         },
       ],
     })
@@ -628,8 +629,8 @@ describe('db.migrate() adapters and execution', () => {
 
     await expect(db.migrate().dryRun()).resolves.toEqual({
       steps: [
-        { kind: 'create_schema', schema: 'tenant' },
-        { kind: 'create_table', schema: 'tenant', table: 'items' },
+        { kind: 'ensure_namespace', target: namespaceTarget('tenant') },
+        { kind: 'create_table', target: relationTarget('tenant', 'items') },
       ],
     })
     await expect(db.migrate().execute()).resolves.toBeUndefined()
