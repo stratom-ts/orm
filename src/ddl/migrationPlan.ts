@@ -6,10 +6,14 @@ import type {
   LoweredDatabaseDefault,
 } from '@/dialects/types'
 import type {
+  CanonicalIdentifier,
+  CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
   CanonicalRelationRegistry,
+  NamespaceContext,
   NamespaceIdentifierInput,
+  RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
@@ -39,22 +43,60 @@ import type {
 } from './planningCatalog'
 import { catalogForPlanning } from './planningCatalog'
 
-/** Structured desired-state Migration Plan step (stable kinds + targets). */
+/** Relation namespace addressed by a portable namespace step. */
+export type MigrationNamespaceTarget = Readonly<{
+  kind: 'namespace'
+  namespace: readonly CanonicalNamespaceSegment[]
+}>
+
+/** Whole relation addressed by a Migration Plan step. */
+export type MigrationRelationTarget = Readonly<{
+  kind: 'relation'
+  relation: CanonicalRelationIdentity
+}>
+
+/** One column of a relation addressed by a Migration Plan step. */
+export type MigrationColumnTarget = Readonly<{
+  kind: 'column'
+  relation: CanonicalRelationIdentity
+  column: CanonicalIdentifier
+}>
+
+/** One index of a relation addressed by a Migration Plan step. */
+export type MigrationIndexTarget = Readonly<{
+  kind: 'index'
+  relation: CanonicalRelationIdentity
+  index: CanonicalIdentifier
+}>
+
+/** Structured target every Migration Plan step addresses. */
+export type MigrationTarget =
+  | MigrationNamespaceTarget
+  | MigrationRelationTarget
+  | MigrationColumnTarget
+  | MigrationIndexTarget
+
+/** Structured referenced column carried by a foreign-key payload. */
+export type MigrationColumnReference = Readonly<{
+  relation: CanonicalRelationIdentity
+  column: CanonicalIdentifier
+  onDelete?: string
+  onUpdate?: string
+}>
+
+/** Portable semantic desired-state Migration Plan step. */
 export type MigrationStep =
-  | {
-      kind: 'create_schema'
-      schema: string
-    }
-  | {
+  | Readonly<{
+      kind: 'ensure_namespace'
+      target: MigrationNamespaceTarget
+    }>
+  | Readonly<{
       kind: 'create_table'
-      schema?: string
-      table: string
-    }
-  | {
+      target: MigrationRelationTarget
+    }>
+  | Readonly<{
       kind: 'add_column'
-      schema?: string
-      table: string
-      column: string
+      target: MigrationColumnTarget
       dataType: string
       notNull: boolean
       unique?: boolean
@@ -62,81 +104,61 @@ export type MigrationStep =
       databaseDefault?: LoweredDatabaseDefault
       generated?: 'always' | 'byDefault'
       autoIncrement?: boolean
-      references?: {
-        table: string
-        column: string
-        schema?: string
-        onDelete?: string
-        onUpdate?: string
-      }
-    }
-  | {
+    }>
+  | Readonly<{
       kind: 'alter_column_type'
-      schema?: string
-      table: string
-      column: string
+      target: MigrationColumnTarget
       dataType: string
-    }
-  | {
+    }>
+  | Readonly<{
       kind: 'add_foreign_key'
-      schema?: string
-      table: string
-      column: string
-      references: {
-        table: string
-        column: string
-        schema?: string
-        onDelete?: string
-        onUpdate?: string
-      }
-    }
-  | {
+      target: MigrationColumnTarget
+      references: MigrationColumnReference
+    }>
+  | Readonly<{
       kind: 'add_unique_constraint'
-      schema?: string
-      table: string
-      column: string
-    }
-  | {
+      target: MigrationColumnTarget
+    }>
+  | Readonly<{
       kind: 'set_not_null'
-      schema?: string
-      table: string
-      column: string
-    }
-  | {
+      target: MigrationColumnTarget
+    }>
+  | Readonly<{
       kind: 'drop_not_null'
-      schema?: string
-      table: string
-      column: string
-    }
-  | {
+      target: MigrationColumnTarget
+    }>
+  | Readonly<{
       kind: 'create_index'
-      schema?: string
-      table: string
-      index: string
-      columns: string[]
+      target: MigrationIndexTarget
+      columns: readonly CanonicalIdentifier[]
       unique: boolean
-    }
-  | {
+    }>
+  | Readonly<{
       kind: 'drop_column'
-      schema?: string
-      table: string
-      column: string
-    }
-  | {
+      target: MigrationColumnTarget
+    }>
+  | Readonly<{
       kind: 'drop_table'
-      schema?: string
-      table: string
-    }
-  | {
+      target: MigrationRelationTarget
+    }>
+  | Readonly<{
       kind: 'drop_index'
-      schema?: string
-      table: string
-      index: string
-    }
+      target: MigrationIndexTarget
+    }>
 
-export type MigrationPlan = {
-  steps: MigrationStep[]
-}
+export type MigrationPlan = Readonly<{
+  steps: readonly MigrationStep[]
+}>
+
+/**
+ * Resolved semantics every step of one Migration Plan was built under. Lowering must
+ * reject a plan whose profile does not match its own dialect and registration inputs.
+ */
+export type MigrationSemanticProfile = Readonly<{
+  identityAdapter: RelationIdentityAdapter
+  namespaceContext: NamespaceContext
+  registrationDefault?: readonly NamespaceIdentifierInput[]
+}>
 
 type PlanningIssue = {
   identity: CanonicalRelationIdentity
@@ -160,7 +182,7 @@ type PlanningIssue = {
 }
 
 const MIGRATION_PHASE: Record<MigrationStep['kind'], number> = {
-  create_schema: 0,
+  ensure_namespace: 0,
   create_table: 1,
   add_column: 2,
   alter_column_type: 3,
@@ -220,54 +242,6 @@ function relationInput(schema: string | undefined, relation: string) {
 }
 
 /**
- * Builds an identity input for an introspected relation, which must always include its
- * catalog-provided schema.
- *
- * @param schema - Schema spelling supplied by catalog introspection.
- * @param relation - Relation spelling supplied by catalog introspection.
- */
-function catalogRelationInput(schema: string | undefined, relation: string) {
-  if (schema === undefined) {
-    throw new TypeError(
-      `Catalog relation ${JSON.stringify(relation)} is missing its namespace`,
-    )
-  }
-  return relationInput(schema, relation)
-}
-
-/**
- * Projects the schema spelling required by the current Migration Plan step format.
- *
- * @param identity - Canonical relation identity to project.
- *
- * @throws {MigrationError} When the canonical identity has no schema segment.
- */
-function schemaFromIdentity(identity: CanonicalRelationIdentity): string {
-  const schema = identity.namespace.find((segment) => segment.role === 'schema')
-  if (!schema) {
-    throw new MigrationError({
-      message: 'The current Migration Plan projection requires a schema namespace',
-    })
-  }
-  return schema.identifier.spelling
-}
-
-/**
- * Reads the schema spelling from a canonical namespace.
- *
- * @param namespace - Canonical namespace to inspect.
- */
-function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
-  const schema = namespace.find((segment) => segment.role === 'schema')
-  if (!schema) {
-    throw new MigrationError({
-      message: 'The current Migration Plan projection requires a schema namespace',
-    })
-  }
-  return schema.identifier.spelling
-}
-
-/**
  * Validates every physical identifier in a canonical namespace.
  *
  * @param namespace - Canonical namespace whose identifiers are validated.
@@ -310,49 +284,107 @@ function sameNamespace(
   left: CanonicalRelationIdentity['namespace'],
   right: CanonicalRelationIdentity['namespace'],
 ): boolean {
+  return compareNamespaces(left, right) === 0
+}
+
+/**
+ * Compares canonical namespaces by role then comparison key. Canonical plan order is a
+ * structural property of the plan, so it is derived here rather than from the identity
+ * module a caller may no longer hold.
+ *
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
+ */
+function compareNamespaces(
+  left: readonly CanonicalNamespaceSegment[],
+  right: readonly CanonicalNamespaceSegment[],
+): number {
+  const length = Math.min(left.length, right.length)
+  for (let index = 0; index < length; index++) {
+    const role = compareCodeUnits(left[index]!.role, right[index]!.role)
+    if (role !== 0) return role
+    const identifier = compareCodeUnits(
+      left[index]!.identifier.comparisonKey,
+      right[index]!.identifier.comparisonKey,
+    )
+    if (identifier !== 0) return identifier
+  }
+  return left.length - right.length
+}
+
+/**
+ * Reads the namespace addressed by any structured target.
+ *
+ * @param target - Structured Migration Plan target.
+ */
+function targetNamespace(target: MigrationTarget): readonly CanonicalNamespaceSegment[] {
+  return target.kind === 'namespace' ? target.namespace : target.relation.namespace
+}
+
+/**
+ * Reads the relation member addressed by a structured target, if any.
+ *
+ * @param target - Structured Migration Plan target.
+ */
+function targetMember(target: MigrationTarget): CanonicalIdentifier | undefined {
+  if (target.kind === 'column') return target.column
+  if (target.kind === 'index') return target.index
+  return undefined
+}
+
+/**
+ * Projects a target into its ordered comparison keys, then its authored spellings.
+ * Adapters that fold identifier case make distinct targets share comparison keys, so
+ * spelling keeps canonical order total.
+ *
+ * @param target - Structured Migration Plan target.
+ * @param field - Identifier field the tuple is built from.
+ */
+function targetTuple(
+  target: MigrationTarget,
+  field: 'comparisonKey' | 'spelling',
+): readonly string[] {
+  return [
+    target.kind === 'namespace' ? '' : target.relation.relation[field],
+    targetMember(target)?.[field] ?? '',
+  ]
+}
+
+/**
+ * Orders structured targets by namespace, relation, then addressed member. Comparison
+ * keys decide identity order; authored spellings then keep the order total for adapters
+ * that fold identifier case.
+ *
+ * @param left - First structured target.
+ * @param right - Second structured target.
+ */
+function compareMigrationTargets(left: MigrationTarget, right: MigrationTarget): number {
+  const namespaces = [targetNamespace(left), targetNamespace(right)] as const
   return (
-    left.length === right.length &&
-    left.every((segment, index) => {
-      const other = right[index]
-      return (
-        segment.role === other?.role &&
-        segment.identifier.comparisonKey === other.identifier.comparisonKey
-      )
-    })
+    compareNamespaces(...namespaces) ||
+    compareStringArrays(
+      targetTuple(left, 'comparisonKey'),
+      targetTuple(right, 'comparisonKey'),
+    ) ||
+    compareStringArrays(
+      namespaces[0].map((segment) => segment.identifier.spelling),
+      namespaces[1].map((segment) => segment.identifier.spelling),
+    ) ||
+    compareStringArrays(targetTuple(left, 'spelling'), targetTuple(right, 'spelling'))
   )
 }
 
 /**
- * Orders plan steps by migration phase, canonical relation identity, then member name.
+ * Orders plan steps by semantic phase, then by structured code-unit target order.
  *
  * @param left - First Migration Plan step.
  * @param right - Second Migration Plan step.
- * @param identities - Identity module used to resolve and compare step targets.
  */
-function compareMigrationSteps(
-  left: MigrationStep,
-  right: MigrationStep,
-  identities: CanonicalRelationIdentityModule,
-): number {
-  const phase = MIGRATION_PHASE[left.kind] - MIGRATION_PHASE[right.kind]
-  if (phase !== 0) return phase
-
-  if (left.kind === 'create_schema' || right.kind === 'create_schema') {
-    return left.kind === 'create_schema' && right.kind === 'create_schema'
-      ? compareCodeUnits(left.schema, right.schema)
-      : 0
-  }
-
-  const relation = identities.compare(
-    identities.resolve(relationInput(left.schema, left.table)),
-    identities.resolve(relationInput(right.schema, right.table)),
+function compareMigrationSteps(left: MigrationStep, right: MigrationStep): number {
+  return (
+    MIGRATION_PHASE[left.kind] - MIGRATION_PHASE[right.kind] ||
+    compareMigrationTargets(left.target, right.target)
   )
-  if (relation !== 0) return relation
-
-  const leftMember = 'column' in left ? left.column : 'index' in left ? left.index : ''
-  const rightMember =
-    'column' in right ? right.column : 'index' in right ? right.index : ''
-  return compareCodeUnits(leftMember, rightMember)
 }
 
 /**
@@ -409,10 +441,7 @@ function compareCatalogTables(
   right: CatalogTable,
   identities: CanonicalRelationIdentityModule,
 ): number {
-  return identities.compare(
-    identities.resolve(catalogRelationInput(left.schema, left.name)),
-    identities.resolve(catalogRelationInput(right.schema, right.name)),
-  )
+  return identities.compare(left.identity, right.identity)
 }
 
 /**
@@ -430,7 +459,7 @@ function catalogTableMap(
 ) {
   const map = identities.createRegistry<CatalogTable>()
   for (const table of tables) {
-    const identity = identities.resolve(catalogRelationInput(table.schema, table.name))
+    const identity = table.identity
     if (map.has(identity)) {
       issues.push({
         identity,
@@ -578,17 +607,11 @@ function hasSupportedCatalogSemantics(
  * Normalizes an introspected foreign key for semantic comparison.
  *
  * @param foreignKey - Introspected foreign key to normalize.
- * @param identities - Identity module used to resolve its referenced relation.
  */
-function canonicalCatalogForeignKey(
-  foreignKey: CatalogForeignKey,
-  identities: CanonicalRelationIdentityModule,
-): CanonicalForeignKey {
+function canonicalCatalogForeignKey(foreignKey: CatalogForeignKey): CanonicalForeignKey {
   return {
     columns: foreignKey.columns,
-    referencedRelation: identities.resolve(
-      catalogRelationInput(foreignKey.referencedSchema, foreignKey.referencedTable),
-    ),
+    referencedRelation: foreignKey.referencedRelation,
     referencedColumns: foreignKey.referencedColumns,
     onDelete: normalizeAction(foreignKey.onDelete),
     onUpdate: normalizeAction(foreignKey.onUpdate),
@@ -644,11 +667,8 @@ function matchForeignKeys(
 ): CatalogForeignKey[] {
   return foreignKeys.filter(
     (foreignKey) =>
-      compareForeignKeys(
-        canonicalCatalogForeignKey(foreignKey, identities),
-        expected,
-        identities,
-      ) === 0,
+      compareForeignKeys(canonicalCatalogForeignKey(foreignKey), expected, identities) ===
+      0,
   )
 }
 
@@ -671,7 +691,7 @@ function collectManagedPropertyIssues(
   issues: PlanningIssue[],
   identities: CanonicalRelationIdentityModule,
 ): void {
-  const identity = identities.resolve(catalogRelationInput(live.schema, live.name))
+  const identity = live.identity
   const tableName = identities.format(identity)
   const liveColumns = new Map<string, CatalogColumn>()
 
@@ -694,11 +714,11 @@ function collectManagedPropertyIssues(
   for (const column of desired.columns) {
     const current = liveColumns.get(column.name)
     if (!current) continue
-    const columnTarget = identities.format(identity, {
+    const columnLabel = identities.format(identity, {
       role: 'column',
       spelling: column.name,
     })
-    const defaultMessage = defaultMismatch(columnTarget, current, column, dialect)
+    const defaultMessage = defaultMismatch(columnLabel, current, column, dialect)
     if (defaultMessage) {
       issues.push({
         identity,
@@ -707,7 +727,7 @@ function collectManagedPropertyIssues(
         message: defaultMessage,
       })
     }
-    const identityMessage = identityMismatch(columnTarget, current, column)
+    const identityMessage = identityMismatch(columnLabel, current, column)
     if (identityMessage) {
       issues.push({
         identity,
@@ -822,28 +842,98 @@ function collectManagedPropertyIssues(
 }
 
 /**
- * Projects a canonical relation identity into the schema field used by plan steps.
+ * Builds the structured target for a whole relation.
  *
- * @param identity - Canonical relation identity to project.
+ * @param relation - Canonical relation identity.
  */
-function schemaField(identity: CanonicalRelationIdentity): { schema: string } {
-  return { schema: schemaFromIdentity(identity) }
+function relationTarget(relation: CanonicalRelationIdentity): MigrationRelationTarget {
+  return { kind: 'relation', relation }
 }
 
 /**
- * Resolves a desired foreign-key reference and projects its canonical schema.
+ * Canonicalizes a relation member name and reports which relation rejected it. Desired
+ * and introspected names both pass here, so an unaddressable catalog name fails with its
+ * owning relation rather than with a bare identifier message.
+ *
+ * @param relation - Canonical relation identity owning the member.
+ * @param role - Member role.
+ * @param spelling - Member spelling.
+ * @param identities - Identity module used to canonicalize the member identifier.
+ *
+ * @throws {MigrationError} When the member cannot be addressed canonically.
+ */
+function memberIdentifier(
+  relation: CanonicalRelationIdentity,
+  role: 'column' | 'index',
+  spelling: string,
+  identities: CanonicalRelationIdentityModule,
+): CanonicalIdentifier {
+  try {
+    return identities.member(role, spelling)
+  } catch (cause) {
+    throw new MigrationError({
+      message: `Cannot address ${role} ${JSON.stringify(spelling)} of ${identities.format(
+        relation,
+      )}: ${cause instanceof Error ? cause.message : 'invalid identifier'}`,
+      ...(cause !== undefined ? { cause } : {}),
+    })
+  }
+}
+
+/**
+ * Builds the structured target for one relation column.
+ *
+ * @param relation - Canonical relation identity.
+ * @param column - Column spelling.
+ * @param identities - Identity module used to canonicalize the column identifier.
+ */
+function columnTarget(
+  relation: CanonicalRelationIdentity,
+  column: string,
+  identities: CanonicalRelationIdentityModule,
+): MigrationColumnTarget {
+  return {
+    kind: 'column',
+    relation,
+    column: memberIdentifier(relation, 'column', column, identities),
+  }
+}
+
+/**
+ * Builds the structured target for one relation index.
+ *
+ * @param relation - Canonical relation identity.
+ * @param index - Index spelling.
+ * @param identities - Identity module used to canonicalize the index identifier.
+ */
+function indexTarget(
+  relation: CanonicalRelationIdentity,
+  index: string,
+  identities: CanonicalRelationIdentityModule,
+): MigrationIndexTarget {
+  return {
+    kind: 'index',
+    relation,
+    index: memberIdentifier(relation, 'index', index, identities),
+  }
+}
+
+/**
+ * Resolves a desired foreign-key reference into its structured plan payload.
  *
  * @param reference - Desired foreign-key reference to resolve.
  * @param identities - Identity module used to resolve the referenced relation.
  */
-function projectedReference(
+function structuredReference(
   reference: NonNullable<CreateTableColumnAst['references']>,
   identities: CanonicalRelationIdentityModule,
-) {
-  const identity = identities.resolve(relationInput(reference.schema, reference.table))
+): MigrationColumnReference {
+  const relation = identities.resolve(relationInput(reference.schema, reference.table))
   return {
-    ...reference,
-    schema: schemaFromIdentity(identity),
+    relation,
+    column: memberIdentifier(relation, 'column', reference.column, identities),
+    ...(reference.onDelete === undefined ? {} : { onDelete: reference.onDelete }),
+    ...(reference.onUpdate === undefined ? {} : { onUpdate: reference.onUpdate }),
   }
 }
 
@@ -886,8 +976,27 @@ function desiredIndexes(
 
 export type PlannedMigration = {
   plan: MigrationPlan
+  profile: MigrationSemanticProfile
   identities: CanonicalRelationIdentityModule
   desiredTables: CanonicalRelationRegistry<CreateTableAst>
+}
+
+/**
+ * Identifies one catalog-reported physical name within its namespace. Names sharing a
+ * namespace share a reservation scope, so the same name reported twice is one object,
+ * while a differently spelled name stays a separate object the registry can reject.
+ *
+ * @param namespace - Canonical namespace owning the name.
+ * @param name - Reported physical name.
+ */
+function namespaceNameKey(
+  namespace: readonly CanonicalNamespaceSegment[],
+  name: string,
+): string {
+  return JSON.stringify([
+    namespace.map((segment) => [segment.role, segment.identifier.comparisonKey]),
+    name,
+  ])
 }
 
 /**
@@ -967,28 +1076,29 @@ function buildMigrationPlan(
   }
 
   for (const table of sortedCatalogTables) {
-    const identity = identities.resolve(catalogRelationInput(table.schema, table.name))
+    const identity = table.identity
+    const namespace = identity.namespace
     const relationToken = `relation:${identities.format(identity)}`
     physicalNames.reserve({
       kind: 'relation',
       owner: identity,
-      name: table.name,
+      name: identity.relation.spelling,
       token: relationToken,
       description: `catalog relation ${identities.format(identity)}`,
     })
-    representedCatalogNames.add(`${table.schema}\0${table.name}`)
+    representedCatalogNames.add(namespaceNameKey(namespace, identity.relation.spelling))
     for (const index of table.indexes ?? []) {
       physicalNames.reserve({
         kind: 'index',
         owner: identity,
         name: index.name,
-        token: `catalog:${table.schema}:${index.name}`,
+        token: `catalog:${namespaceNameKey(namespace, index.name)}`,
         description: `catalog index ${JSON.stringify(index.name)}`,
       })
-      representedCatalogNames.add(`${table.schema}\0${index.name}`)
+      representedCatalogNames.add(namespaceNameKey(namespace, index.name))
     }
     if (table.primaryKey) {
-      const backingToken = `catalog:${table.schema}:${table.primaryKey.name}`
+      const backingToken = `catalog:${namespaceNameKey(namespace, table.primaryKey.name)}`
       const constraintToken = `catalog-constraint:${identities.format(identity)}:${table.primaryKey.name}`
       physicalNames.reserve({
         kind: 'primaryKey',
@@ -1004,10 +1114,10 @@ function buildMigrationPlan(
         token: constraintToken,
         description: `catalog primary key ${JSON.stringify(table.primaryKey.name)}`,
       })
-      representedCatalogNames.add(`${table.schema}\0${table.primaryKey.name}`)
+      representedCatalogNames.add(namespaceNameKey(namespace, table.primaryKey.name))
     }
     for (const constraint of table.uniqueConstraints ?? []) {
-      const backingToken = `catalog:${table.schema}:${constraint.name}`
+      const backingToken = `catalog:${namespaceNameKey(namespace, constraint.name)}`
       const constraintToken = `catalog-constraint:${identities.format(identity)}:${constraint.name}`
       physicalNames.reserve({
         kind: 'unique',
@@ -1023,7 +1133,7 @@ function buildMigrationPlan(
         token: constraintToken,
         description: `catalog unique constraint ${JSON.stringify(constraint.name)}`,
       })
-      representedCatalogNames.add(`${table.schema}\0${constraint.name}`)
+      representedCatalogNames.add(namespaceNameKey(namespace, constraint.name))
     }
     for (const constraint of table.foreignKeys ?? []) {
       physicalNames.reserve({
@@ -1037,25 +1147,37 @@ function buildMigrationPlan(
   }
 
   for (const reservation of planningCatalog.nameReservations) {
-    if (representedCatalogNames.has(`${reservation.schema}\0${reservation.name}`)) {
+    if (
+      representedCatalogNames.has(
+        namespaceNameKey(reservation.namespace, reservation.name),
+      )
+    ) {
       continue
     }
-    const owner = identities.resolve(
-      catalogRelationInput(reservation.schema, reservation.name),
-    )
+    if (reservation.namespace.length === 0) {
+      throw new MigrationError({
+        message: `Catalog name reservation ${JSON.stringify(reservation.name)} is missing its namespace`,
+      })
+    }
+    // A reserved name occupies its namespace's relation scope, whatever object it is.
+    const owner = identities.resolve({
+      namespace: reservation.namespace.map(({ role, identifier }) => ({
+        role,
+        spelling: identifier.spelling,
+      })),
+      relation: reservation.name,
+    })
     physicalNames.reserve({
       kind: 'relation',
       owner,
       name: reservation.name,
-      token: `catalog:${reservation.schema}:${reservation.name}`,
+      token: `catalog:${namespaceNameKey(reservation.namespace, reservation.name)}`,
       description: `catalog object ${JSON.stringify(reservation.name)}`,
     })
   }
 
   for (const reservation of planningCatalog.constraintNameReservations) {
-    const owner = identities.resolve(
-      catalogRelationInput(reservation.schema, reservation.table),
-    )
+    const owner = reservation.relation
     physicalNames.reserve({
       kind: 'check',
       owner,
@@ -1067,7 +1189,7 @@ function buildMigrationPlan(
 
   for (const namespace of ownership.completeNamespaces) {
     if (!ensuredSchemas.some((existing) => sameNamespace(existing, namespace))) {
-      steps.push({ kind: 'create_schema', schema: schemaFromNamespace(namespace) })
+      steps.push({ kind: 'ensure_namespace', target: { kind: 'namespace', namespace } })
       ensuredSchemas.push(namespace)
     }
   }
@@ -1189,15 +1311,14 @@ function buildMigrationPlan(
       if (
         !ensuredSchemas.some((existing) => sameNamespace(existing, identity.namespace))
       ) {
-        steps.push({ kind: 'create_schema', schema: schemaFromIdentity(identity) })
+        steps.push({
+          kind: 'ensure_namespace',
+          target: { kind: 'namespace', namespace: identity.namespace },
+        })
         ensuredSchemas.push(identity.namespace)
       }
 
-      steps.push({
-        kind: 'create_table',
-        ...schemaField(identity),
-        table: info.name,
-      })
+      steps.push({ kind: 'create_table', target: relationTarget(identity) })
 
       physicalNames.reserve({
         kind: 'relation',
@@ -1240,10 +1361,10 @@ function buildMigrationPlan(
         })
         steps.push({
           kind: 'create_index',
-          ...schemaField(identity),
-          table: info.name,
-          index: index.name,
-          columns: index.columns,
+          target: indexTarget(identity, index.name, identities),
+          columns: index.columns.map((column) =>
+            memberIdentifier(identity, 'column', column, identities),
+          ),
           unique: index.unique,
         })
       }
@@ -1253,10 +1374,8 @@ function buildMigrationPlan(
         reserveForeignKey(identity, column.name, column.references)
         deferredForeignKeys.push({
           kind: 'add_foreign_key',
-          ...schemaField(identity),
-          table: info.name,
-          column: column.name,
-          references: projectedReference(column.references, identities),
+          target: columnTarget(identity, column.name, identities),
+          references: structuredReference(column.references, identities),
         })
       }
       continue
@@ -1278,17 +1397,13 @@ function buildMigrationPlan(
           reserveForeignKey(identity, desired.name, desired.references)
           deferredForeignKeys.push({
             kind: 'add_foreign_key',
-            ...schemaField(identity),
-            table: info.name,
-            column: desired.name,
-            references: projectedReference(desired.references, identities),
+            target: columnTarget(identity, desired.name, identities),
+            references: structuredReference(desired.references, identities),
           })
         }
         steps.push({
           kind: 'add_column',
-          ...schemaField(identity),
-          table: info.name,
-          column: desired.name,
+          target: columnTarget(identity, desired.name, identities),
           dataType: desired.dataType,
           notNull: desired.notNull,
           ...(desired.unique ? { unique: true } : {}),
@@ -1307,18 +1422,18 @@ function buildMigrationPlan(
         continue
       }
 
-      const columnTarget = identities.format(identity, {
+      const columnLabel = identities.format(identity, {
         role: 'column',
         spelling: desired.name,
       })
       if (current.dataType === undefined) {
         throw new MigrationError({
-          message: `Cannot plan desired-table column ${columnTarget}: catalog data type is unresolved`,
+          message: `Cannot plan desired-table column ${columnLabel}: catalog data type is unresolved`,
         })
       }
       if (current.isNullable === undefined) {
         throw new MigrationError({
-          message: `Cannot plan desired-table column ${columnTarget}: catalog nullability is unresolved`,
+          message: `Cannot plan desired-table column ${columnLabel}: catalog nullability is unresolved`,
         })
       }
 
@@ -1327,9 +1442,7 @@ function buildMigrationPlan(
       if (desiredType !== currentType) {
         steps.push({
           kind: 'alter_column_type',
-          ...schemaField(identity),
-          table: info.name,
-          column: desired.name,
+          target: columnTarget(identity, desired.name, identities),
           dataType: desired.dataType,
         })
       }
@@ -1337,16 +1450,12 @@ function buildMigrationPlan(
       if (desired.notNull && current.isNullable) {
         steps.push({
           kind: 'set_not_null',
-          ...schemaField(identity),
-          table: info.name,
-          column: desired.name,
+          target: columnTarget(identity, desired.name, identities),
         })
       } else if (!desired.notNull && !current.isNullable) {
         steps.push({
           kind: 'drop_not_null',
-          ...schemaField(identity),
-          table: info.name,
-          column: desired.name,
+          target: columnTarget(identity, desired.name, identities),
         })
       }
     }
@@ -1356,9 +1465,7 @@ function buildMigrationPlan(
         if (desiredColumnNames.has(liveColumn.name)) continue
         steps.push({
           kind: 'drop_column',
-          ...schemaField(identity),
-          table: info.name,
-          column: liveColumn.name,
+          target: columnTarget(identity, liveColumn.name, identities),
         })
       }
     }
@@ -1371,9 +1478,7 @@ function buildMigrationPlan(
         reserveUniqueConstraint(identity, desired.name)
         steps.push({
           kind: 'add_unique_constraint',
-          ...schemaField(identity),
-          table: info.name,
-          column: desired.name,
+          target: columnTarget(identity, desired.name, identities),
         })
       }
     }
@@ -1387,10 +1492,8 @@ function buildMigrationPlan(
         reserveForeignKey(identity, desired.name, desired.references)
         deferredForeignKeys.push({
           kind: 'add_foreign_key',
-          ...schemaField(identity),
-          table: info.name,
-          column: desired.name,
-          references: projectedReference(desired.references, identities),
+          target: columnTarget(identity, desired.name, identities),
+          references: structuredReference(desired.references, identities),
         })
       }
     }
@@ -1463,10 +1566,10 @@ function buildMigrationPlan(
         })
         steps.push({
           kind: 'create_index',
-          ...schemaField(identity),
-          table: info.name,
-          index: index.name,
-          columns: index.columns,
+          target: indexTarget(identity, index.name, identities),
+          columns: index.columns.map((column) =>
+            memberIdentifier(identity, 'column', column, identities),
+          ),
           unique: index.unique,
         })
         continue
@@ -1514,9 +1617,7 @@ function buildMigrationPlan(
         if (claimedLiveIndexNames.has(liveIndex.name)) continue
         steps.push({
           kind: 'drop_index',
-          ...schemaField(identity),
-          table: info.name,
-          index: liveIndex.name,
+          target: indexTarget(identity, liveIndex.name, identities),
         })
       }
     }
@@ -1544,7 +1645,7 @@ function buildMigrationPlan(
   steps.push(...deferredForeignKeys)
 
   for (const live of sortedCatalogTables) {
-    const identity = identities.resolve(catalogRelationInput(live.schema, live.name))
+    const identity = live.identity
     if (registered.has(identity)) continue
     if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace)) {
       continue
@@ -1558,11 +1659,7 @@ function buildMigrationPlan(
       })
       continue
     }
-    steps.push({
-      kind: 'drop_table',
-      ...schemaField(identity),
-      table: live.name,
-    })
+    steps.push({ kind: 'drop_table', target: relationTarget(identity) })
   }
 
   const issue = issues.sort((left, right) =>
@@ -1571,8 +1668,11 @@ function buildMigrationPlan(
   if (issue) throw new MigrationError({ message: issue.message })
 
   return {
-    plan: {
-      steps: steps.sort((left, right) => compareMigrationSteps(left, right, identities)),
+    plan: { steps: steps.sort(compareMigrationSteps) },
+    profile: {
+      identityAdapter: dialect.relationIdentity,
+      namespaceContext: catalog.namespaceContext,
+      ...(registrationDefault === undefined ? {} : { registrationDefault }),
     },
     identities,
     desiredTables,

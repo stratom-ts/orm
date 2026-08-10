@@ -11,4 +11,13 @@ export {
   type MigrateBuilder,
   type MigrationAllow,
 } from './migrate'
-export type { MigrationPlan, MigrationStep } from './migrationPlan'
+export type {
+  MigrationColumnReference,
+  MigrationColumnTarget,
+  MigrationIndexTarget,
+  MigrationNamespaceTarget,
+  MigrationPlan,
+  MigrationRelationTarget,
+  MigrationStep,
+  MigrationTarget,
+} from './migrationPlan'

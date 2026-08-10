@@ -1,6 +1,7 @@
 import { nullable, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
+import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { Dialect } from '@/dialects'
 import {
   MigrationError,
@@ -10,6 +11,7 @@ import {
   postgresDialect,
   reference,
 } from '@/index'
+import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import type { TableHandle } from '@/types'
 
 import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
@@ -18,6 +20,14 @@ import {
   catalogPrimaryKey as createCatalogPrimaryKey,
   planMigration,
 } from '../helpers/catalog'
+import {
+  columnIdentifiers,
+  columnReference,
+  columnTarget,
+  indexTarget,
+  namespaceTarget,
+  relationTarget,
+} from '../helpers/planTargets'
 
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
@@ -472,9 +482,7 @@ describe('Migration Plan construction', () => {
       steps: [
         {
           kind: 'add_column',
-          schema: 'public',
-          table: 'users',
-          column: 'email',
+          target: columnTarget('public', 'users', 'email'),
           dataType: 'text',
           notNull: true,
         },
@@ -516,18 +524,8 @@ describe('Migration Plan construction', () => {
 
     expect(planMigration([Users], catalog, postgresDialect)).toEqual({
       steps: [
-        {
-          kind: 'drop_index',
-          schema: 'public',
-          table: 'users',
-          index: 'users_stale_idx',
-        },
-        {
-          kind: 'drop_column',
-          schema: 'public',
-          table: 'users',
-          column: 'legacy',
-        },
+        { kind: 'drop_index', target: indexTarget('public', 'users', 'users_stale_idx') },
+        { kind: 'drop_column', target: columnTarget('public', 'users', 'legacy') },
       ],
     })
   })
@@ -549,92 +547,62 @@ describe('Migration Plan construction', () => {
       ),
     ).toEqual({
       steps: [
-        { kind: 'create_schema', schema: 'audit' },
-        { kind: 'create_table', schema: 'audit', table: 'events' },
-        { kind: 'create_table', schema: 'public', table: 'comments' },
+        { kind: 'ensure_namespace', target: namespaceTarget('audit') },
+        { kind: 'create_table', target: relationTarget('audit', 'events') },
+        { kind: 'create_table', target: relationTarget('public', 'comments') },
         {
           kind: 'add_column',
-          schema: 'public',
-          table: 'accounts',
-          column: 'addedReference',
+          target: columnTarget('public', 'accounts', 'addedReference'),
           dataType: 'uuid',
           notNull: true,
         },
         {
           kind: 'add_column',
-          schema: 'public',
-          table: 'accounts',
-          column: 'addedText',
+          target: columnTarget('public', 'accounts', 'addedText'),
           dataType: 'text',
           notNull: true,
         },
         {
           kind: 'alter_column_type',
-          schema: 'public',
-          table: 'accounts',
-          column: 'changedType',
+          target: columnTarget('public', 'accounts', 'changedType'),
           dataType: 'text',
         },
         {
           kind: 'drop_not_null',
-          schema: 'public',
-          table: 'accounts',
-          column: 'madeNullable',
+          target: columnTarget('public', 'accounts', 'madeNullable'),
         },
         {
           kind: 'set_not_null',
-          schema: 'public',
-          table: 'accounts',
-          column: 'madeRequired',
+          target: columnTarget('public', 'accounts', 'madeRequired'),
         },
         {
           kind: 'create_index',
-          schema: 'public',
-          table: 'accounts',
-          index: 'accounts_ordered_idx',
-          columns: ['indexSecond', 'indexFirst'],
+          target: indexTarget('public', 'accounts', 'accounts_ordered_idx'),
+          columns: columnIdentifiers('indexSecond', 'indexFirst'),
           unique: false,
         },
         {
           kind: 'add_foreign_key',
-          schema: 'public',
-          table: 'accounts',
-          column: 'addedReference',
-          references: { schema: 'public', table: 'users', column: 'id' },
+          target: columnTarget('public', 'accounts', 'addedReference'),
+          references: columnReference('public', 'users', 'id'),
         },
         {
           kind: 'add_foreign_key',
-          schema: 'public',
-          table: 'comments',
-          column: 'userId',
-          references: { schema: 'public', table: 'users', column: 'id' },
+          target: columnTarget('public', 'comments', 'userId'),
+          references: columnReference('public', 'users', 'id'),
         },
         {
           kind: 'drop_index',
-          schema: 'public',
-          table: 'accounts',
-          index: 'stale_a_idx',
+          target: indexTarget('public', 'accounts', 'stale_a_idx'),
         },
         {
           kind: 'drop_index',
-          schema: 'public',
-          table: 'accounts',
-          index: 'stale_z_idx',
+          target: indexTarget('public', 'accounts', 'stale_z_idx'),
         },
-        {
-          kind: 'drop_column',
-          schema: 'public',
-          table: 'accounts',
-          column: 'removedA',
-        },
-        {
-          kind: 'drop_column',
-          schema: 'public',
-          table: 'accounts',
-          column: 'removedZ',
-        },
-        { kind: 'drop_table', schema: 'public', table: 'a_orphan' },
-        { kind: 'drop_table', schema: 'public', table: 'z_orphan' },
+        { kind: 'drop_column', target: columnTarget('public', 'accounts', 'removedA') },
+        { kind: 'drop_column', target: columnTarget('public', 'accounts', 'removedZ') },
+        { kind: 'drop_table', target: relationTarget('public', 'a_orphan') },
+        { kind: 'drop_table', target: relationTarget('public', 'z_orphan') },
       ],
     })
   })
@@ -655,8 +623,8 @@ describe('Migration Plan construction', () => {
       planMigration([Lowercase, Uppercase], emptyCatalog(), postgresDialect),
     ).toEqual({
       steps: [
-        { kind: 'create_table', schema: 'public', table: 'Zulu' },
-        { kind: 'create_table', schema: 'public', table: 'alpha' },
+        { kind: 'create_table', target: relationTarget('public', 'Zulu') },
+        { kind: 'create_table', target: relationTarget('public', 'alpha') },
       ],
     })
   })
@@ -778,15 +746,13 @@ describe('Migration Plan construction', () => {
       }),
     ).toEqual({
       steps: [
-        { kind: 'create_schema', schema: 'tenant' },
-        { kind: 'create_table', schema: 'tenant', table: 'children' },
-        { kind: 'create_table', schema: 'tenant', table: 'parents' },
+        { kind: 'ensure_namespace', target: namespaceTarget('tenant') },
+        { kind: 'create_table', target: relationTarget('tenant', 'children') },
+        { kind: 'create_table', target: relationTarget('tenant', 'parents') },
         {
           kind: 'add_foreign_key',
-          schema: 'tenant',
-          table: 'children',
-          column: 'parentId',
-          references: { schema: 'tenant', table: 'parents', column: 'id' },
+          target: columnTarget('tenant', 'children', 'parentId'),
+          references: columnReference('tenant', 'parents', 'id'),
         },
       ],
     })
@@ -813,7 +779,10 @@ describe('Migration Plan construction', () => {
     const plan = planMigration(handles, emptyCatalog(), postgresDialect)
     const targets = plan.steps
       .filter((step) => step.kind === 'create_table')
-      .map((step) => [step.schema, step.table])
+      .map((step) => [
+        step.target.relation.namespace.at(-1)!.identifier.spelling,
+        step.target.relation.relation.spelling,
+      ])
 
     expect(targets).toEqual([
       ['a', 'Case'],
@@ -885,8 +854,8 @@ describe('Migration Plan construction', () => {
       planMigration([DottedSchema, Anchor], mismatchedCatalog, postgresDialect),
     ).toEqual({
       steps: [
-        { kind: 'create_schema', schema: 'a.b' },
-        { kind: 'create_table', schema: 'a.b', table: 'c' },
+        { kind: 'ensure_namespace', target: namespaceTarget('a.b') },
+        { kind: 'create_table', target: relationTarget('a.b', 'c') },
       ],
     })
   })
@@ -1275,6 +1244,127 @@ describe('Migration Plan construction', () => {
     expect(() =>
       planMigration([ManagedUsers, ManagedPosts], catalog, postgresDialect),
     ).toThrow(MigrationError)
+  })
+
+  it('names the owning relation when a catalog member cannot be addressed', () => {
+    const catalog = usersCatalog([
+      { name: 'id', dataType: 'uuid', isNullable: false },
+      { name: 'email', dataType: 'text', isNullable: false },
+      { name: '', dataType: 'text', isNullable: true },
+    ])
+
+    expect(planningError([Users], catalog).message).toMatch(
+      /Cannot address column "" of \[database:"test", schema:"public", relation:"users"\]/,
+    )
+  })
+
+  it('accepts one physical name reported under several catalog relations', () => {
+    const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
+    catalog.tables[0]!.indexes = [
+      {
+        name: 'shared_idx',
+        columns: ['id'],
+        unique: false,
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+    ]
+    catalog.tables.push({
+      schema: 'public',
+      name: 'partition',
+      columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+      indexes: [
+        {
+          name: 'shared_idx',
+          columns: ['id'],
+          unique: false,
+          ...SUPPORTED_CATALOG_SEMANTICS,
+        },
+      ],
+      primaryKey: catalogPrimaryKey('partition'),
+    })
+
+    expect(planMigration([Users], catalog, postgresDialect)).toEqual({
+      steps: [
+        {
+          kind: 'add_column',
+          target: columnTarget('public', 'users', 'email'),
+          dataType: 'text',
+          notNull: true,
+        },
+        { kind: 'drop_index', target: indexTarget('public', 'users', 'shared_idx') },
+      ],
+    })
+  })
+
+  it('scopes reserved catalog names to their own namespace', () => {
+    const TenantUsers = defineTable(
+      'users',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'other_app' },
+    )
+    const catalog = usersCatalog([
+      { name: 'id', dataType: 'uuid', isNullable: false },
+      { name: 'email', dataType: 'text', isNullable: false },
+    ])
+    catalog.namespaces = ['other_app']
+    // An unrelated object named 'users' occupies the other namespace, not this one.
+    catalog.nameReservations = [{ schema: 'other_app', name: 'users' }]
+
+    expect(planningError([Users, TenantUsers], catalog).message).toMatch(
+      /physical name collision for "users"/i,
+    )
+  })
+
+  it('records the resolved semantic profile every step was built under', () => {
+    const schemas = [Users]
+    const registrationDefault = [{ role: 'schema' as const, spelling: 'tenant' }]
+
+    expect(
+      planMigrationWithContext(
+        schemas,
+        completePostgresCatalog(
+          emptyCatalog(),
+          createCatalogRequest(schemas, [], registrationDefault),
+        ),
+        postgresDialect,
+        { registrationDefault },
+      ).profile,
+    ).toEqual({
+      identityAdapter: 'postgresql',
+      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+      registrationDefault,
+    })
+  })
+
+  it('keeps step kinds and phase order stable while targets stay profile-local', () => {
+    const Items = defineTable(
+      'items',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id' },
+    )
+    const tenantCatalog: CatalogSnapshot = {
+      ...emptyCatalog(),
+      namespaceContext: {
+        writableDefault: [
+          { role: 'database', spelling: 'test' },
+          { role: 'schema', spelling: 'tenant' },
+        ],
+      },
+    }
+
+    const publicPlan = planMigration([Items], emptyCatalog(), postgresDialect)
+    const tenantPlan = planMigration([Items], tenantCatalog, postgresDialect)
+
+    expect(publicPlan.steps.map((step) => step.kind)).toEqual(
+      tenantPlan.steps.map((step) => step.kind),
+    )
+    expect(publicPlan).not.toEqual(tenantPlan)
+    expect(publicPlan.steps).toEqual([
+      { kind: 'create_table', target: relationTarget('public', 'items') },
+    ])
+    expect(tenantPlan.steps).toEqual([
+      { kind: 'create_table', target: relationTarget('tenant', 'items') },
+    ])
   })
 
   it('does not infer namespace ownership from registered handles', () => {

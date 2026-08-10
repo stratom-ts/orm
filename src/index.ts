@@ -37,9 +37,22 @@ export {
   sum,
   upper,
 } from '@/query'
-export type { MigrateBuilder, MigrationAllow, MigrationPlan, MigrationStep } from '@/ddl'
+export type {
+  MigrateBuilder,
+  MigrationAllow,
+  MigrationColumnReference,
+  MigrationColumnTarget,
+  MigrationIndexTarget,
+  MigrationNamespaceTarget,
+  MigrationPlan,
+  MigrationRelationTarget,
+  MigrationStep,
+  MigrationTarget,
+} from '@/ddl'
 export { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from '@/ddl'
 export type {
+  CanonicalIdentifier,
+  CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
   NamespaceContext,
   NamespaceIdentifierInput,
