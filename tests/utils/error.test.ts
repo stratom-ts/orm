@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  InvariantError,
   MigrationError,
   QueryError,
   SchemaError,
@@ -68,6 +69,15 @@ describe('ValidationError', () => {
     expect(error._tag).toBe('ValidationError')
     expect(error.message).toBe('bad insert')
     expect(error.issues).toEqual([{ message: 'required' }])
+  })
+})
+
+describe('InvariantError', () => {
+  it('should be a TaggedError with tag InvariantError', () => {
+    const error = new InvariantError('internal contract failed')
+    expect(error).toBeInstanceOf(Error)
+    expect(error._tag).toBe('InvariantError')
+    expect(error.message).toBe('internal contract failed')
   })
 })
 

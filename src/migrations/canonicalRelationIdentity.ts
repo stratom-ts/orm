@@ -1,3 +1,5 @@
+import { InvariantError } from '@/utils/error'
+
 export type NamespaceRole = 'catalog' | 'database' | 'schema'
 
 export type NamespaceIdentifierInput = Readonly<{
@@ -83,10 +85,10 @@ function compareCodeUnits(left: string, right: string): number {
  */
 function assertIdentifier(spelling: string, description: string): void {
   if (spelling.length === 0) {
-    throw new TypeError(`${description} must not be empty`)
+    throw new InvariantError(`${description} must not be empty`)
   }
   if (spelling.includes('\0')) {
-    throw new TypeError(`${description} must not contain NUL`)
+    throw new InvariantError(`${description} must not contain NUL`)
   }
   for (let index = 0; index < spelling.length; index++) {
     const codeUnit = spelling.charCodeAt(index)
@@ -100,7 +102,9 @@ function assertIdentifier(spelling: string, description: string): void {
         spelling.charCodeAt(index + 1) <= 0xdfff
       )
     ) {
-      throw new TypeError(`${description} must not contain unpaired Unicode surrogates`)
+      throw new InvariantError(
+        `${description} must not contain unpaired Unicode surrogates`,
+      )
     }
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) index++
   }
@@ -178,7 +182,7 @@ function requireRoles(
     namespace.length !== roles.length ||
     namespace.some((segment, index) => segment.role !== roles[index])
   ) {
-    throw new TypeError(`${description} must have ordered roles ${roles.join(', ')}`)
+    throw new InvariantError(`${description} must have ordered roles ${roles.join(', ')}`)
   }
 }
 
@@ -200,7 +204,9 @@ function resolvePostgresNamespace(
   requireRoles(selected, ['database', 'schema'], 'PostgreSQL relation namespace')
 
   if (selected[0]!.spelling !== writableDefault[0]!.spelling) {
-    throw new TypeError('PostgreSQL relation database must match the writable database')
+    throw new InvariantError(
+      'PostgreSQL relation database must match the writable database',
+    )
   }
   return selected
 }

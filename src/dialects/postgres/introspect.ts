@@ -25,6 +25,7 @@ import type {
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 import { toNumberOrNull } from '@/utils'
+import { InvariantError } from '@/utils/error'
 
 import { normalizePostgresDataType } from './normalize'
 import { normalizePostgresDefaultExpression } from './validate'
@@ -96,7 +97,7 @@ function assertObservationUnchanged(
   second: unknown[],
 ): void {
   if (stableObservation(first) !== stableObservation(second)) {
-    throw new TypeError(
+    throw new InvariantError(
       `PostgreSQL catalog changed during introspection: ${description} observations differ`,
     )
   }
@@ -111,7 +112,9 @@ function assertObservationUnchanged(
  */
 function rowAt(value: unknown, query: string, index: number): Row {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError(`Malformed PostgreSQL ${query} row ${index}: expected an object`)
+    throw new InvariantError(
+      `Malformed PostgreSQL ${query} row ${index}: expected an object`,
+    )
   }
   return value as Row
 }
@@ -127,7 +130,7 @@ function rowAt(value: unknown, query: string, index: number): Row {
 function stringAt(row: Row, key: string, query: string, index: number): string {
   const value = row[key]
   if (typeof value !== 'string' || value.length === 0) {
-    throw new TypeError(
+    throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a non-empty string`,
     )
   }
@@ -151,7 +154,7 @@ function nullableStringAt(
   const value = row[key]
   if (value === null) return null
   if (typeof value !== 'string') {
-    throw new TypeError(
+    throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a string or null`,
     )
   }
@@ -171,7 +174,7 @@ function booleanAt(row: Row, key: string, query: string, index: number): boolean
   if (typeof value === 'boolean') return value
   if (value === 1 || value === '1' || value === 'YES' || value === 't') return true
   if (value === 0 || value === '0' || value === 'NO' || value === 'f') return false
-  throw new TypeError(
+  throw new InvariantError(
     `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be boolean`,
   )
 }
@@ -187,7 +190,7 @@ function booleanAt(row: Row, key: string, query: string, index: number): boolean
 function positiveIntegerAt(row: Row, key: string, query: string, index: number): number {
   const value = toNumberOrNull(row[key])
   if (value === null || !Number.isInteger(value) || value < 1) {
-    throw new TypeError(
+    throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a positive integer`,
     )
   }
@@ -260,7 +263,7 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
       }
     }
   }
-  throw new TypeError(
+  throw new InvariantError(
     `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must contain only string members`,
   )
 }
@@ -445,7 +448,7 @@ function referentialAction(
   ) {
     return value
   }
-  throw new TypeError(`Malformed PostgreSQL ${query} row ${index}: invalid action`)
+  throw new InvariantError(`Malformed PostgreSQL ${query} row ${index}: invalid action`)
 }
 
 /**
@@ -459,7 +462,9 @@ function relationKind(value: string) {
   if (value === 'v') return 'view' as const
   if (value === 'm') return 'materializedView' as const
   if (value === 'f') return 'foreignTable' as const
-  throw new TypeError(`Malformed PostgreSQL relation row: unsupported relkind ${value}`)
+  throw new InvariantError(
+    `Malformed PostgreSQL relation row: unsupported relkind ${value}`,
+  )
 }
 
 /**
@@ -471,7 +476,7 @@ function persistence(value: string) {
   if (value === 'p') return 'permanent' as const
   if (value === 't') return 'temporary' as const
   if (value === 'u') return 'unlogged' as const
-  throw new TypeError(
+  throw new InvariantError(
     `Malformed PostgreSQL relation row: unsupported persistence ${value}`,
   )
 }
@@ -483,7 +488,9 @@ function persistence(value: string) {
  */
 function factName(fact: CatalogFact<string>): string {
   if (fact.state !== 'present') {
-    throw new TypeError('PostgreSQL catalog object is missing its required physical name')
+    throw new InvariantError(
+      'PostgreSQL catalog object is missing its required physical name',
+    )
   }
   return fact.value
 }
@@ -510,7 +517,9 @@ export async function introspectPostgres(
     params: [],
   })
   if (contextRows.length !== 1) {
-    throw new TypeError('PostgreSQL introspection could not resolve a writable namespace')
+    throw new InvariantError(
+      'PostgreSQL introspection could not resolve a writable namespace',
+    )
   }
   const contextRow = rowAt(contextRows[0], 'context', 0)
   const database = stringAt(contextRow, 'database', 'context', 0)
@@ -518,7 +527,9 @@ export async function introspectPostgres(
   const version = stringAt(contextRow, 'version', 'context', 0)
   const versionNumber = Number(version)
   if (!/^\d+$/.test(version) || !Number.isSafeInteger(versionNumber)) {
-    throw new TypeError('Malformed PostgreSQL context row 0: "version" must be numeric')
+    throw new InvariantError(
+      'Malformed PostgreSQL context row 0: "version" must be numeric',
+    )
   }
   const namespaceContext = {
     writableDefault: [
@@ -538,7 +549,9 @@ export async function introspectPostgres(
   const scopeSchemas = scopeNamespaces.map((namespace) => {
     const segment = namespace.find(({ role }) => role === 'schema')
     if (!segment) {
-      throw new TypeError('PostgreSQL introspection scope is missing a schema namespace')
+      throw new InvariantError(
+        'PostgreSQL introspection scope is missing a schema namespace',
+      )
     }
     return segment.identifier.spelling
   })
@@ -925,7 +938,7 @@ export async function introspectPostgres(
     JSON.stringify(relationFingerprint(relationRows)) !==
     JSON.stringify(relationFingerprint(finalRelationRows))
   ) {
-    throw new TypeError(
+    throw new InvariantError(
       'PostgreSQL catalog changed during introspection: requested relations were replaced, created, or removed',
     )
   }
@@ -955,7 +968,7 @@ export async function introspectPostgres(
     )
     if (!relationRequested(identity)) continue
     if (relationRegistry.has(identity)) {
-      throw new TypeError(
+      throw new InvariantError(
         `Duplicate PostgreSQL relation row for ${identities.format(identity)}`,
       )
     }
@@ -1029,7 +1042,7 @@ export async function introspectPostgres(
                   index,
                 )
                 if (isPartition && partitionBound === null) {
-                  throw new TypeError(
+                  throw new InvariantError(
                     `Malformed PostgreSQL relation row ${index}: partition is missing its bound`,
                   )
                 }
@@ -1075,7 +1088,7 @@ export async function introspectPostgres(
     if (!relationRequested(identity)) return undefined
     const entry = relationRegistry.get(identity)
     if (!entry) {
-      throw new TypeError(
+      throw new InvariantError(
         `PostgreSQL catalog changed during introspection: ${query} row references missing table ${identities.format(identity)}`,
       )
     }
@@ -1108,22 +1121,22 @@ export async function introspectPostgres(
       identityGeneration !== 'ALWAYS' &&
       identityGeneration !== 'BY DEFAULT'
     ) {
-      throw new TypeError(
+      throw new InvariantError(
         `Malformed PostgreSQL column row ${index}: identity_generation is invalid`,
       )
     }
     if (generated !== 'NEVER' && generated !== 'ALWAYS') {
-      throw new TypeError(
+      throw new InvariantError(
         `Malformed PostgreSQL column row ${index}: is_generated is invalid`,
       )
     }
     if (generated === 'ALWAYS' && generationExpression === null) {
-      throw new TypeError(
+      throw new InvariantError(
         `Malformed PostgreSQL column row ${index}: generated column is missing its expression`,
       )
     }
     if (isIdentity && generated === 'ALWAYS') {
-      throw new TypeError(
+      throw new InvariantError(
         `Malformed PostgreSQL column row ${index}: column cannot be identity and computed`,
       )
     }
@@ -1212,7 +1225,7 @@ export async function introspectPostgres(
     }
     if (type === 'p') {
       if (target.table.primaryKey.state !== 'absent') {
-        throw new TypeError(
+        throw new InvariantError(
           `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
         )
       }
@@ -1224,7 +1237,7 @@ export async function introspectPostgres(
         typeof row.referenced_schema !== 'string' ||
         typeof row.referenced_table !== 'string'
       ) {
-        throw new TypeError(
+        throw new InvariantError(
           `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
         )
       }
@@ -1283,7 +1296,7 @@ export async function introspectPostgres(
     if (!target) continue
     const kind = stringAt(row, 'object_kind', 'opaque object', index)
     if (kind !== 'trigger' && kind !== 'policy' && kind !== 'other') {
-      throw new TypeError(
+      throw new InvariantError(
         `Malformed PostgreSQL opaque object row ${index}: unsupported kind ${JSON.stringify(kind)}`,
       )
     }
@@ -1305,7 +1318,7 @@ export async function introspectPostgres(
     ])
     if (!scopeNamespaces.some((namespace) => sameNamespace(namespace, identity))) continue
     if (namespaces.some((namespace) => sameNamespace(namespace.identity, identity))) {
-      throw new TypeError('Duplicate PostgreSQL namespace row')
+      throw new InvariantError('Duplicate PostgreSQL namespace row')
     }
     namespaces.push({
       identity,
@@ -1392,7 +1405,7 @@ export async function introspectPostgres(
       sameNamespace(candidate.identity, relation.identity.namespace),
     )
     if (!namespace) {
-      throw new TypeError(
+      throw new InvariantError(
         `PostgreSQL catalog changed during introspection: relation ${identities.format(relation.identity)} references a missing namespace`,
       )
     }

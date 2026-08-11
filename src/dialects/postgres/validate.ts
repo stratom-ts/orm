@@ -1,3 +1,5 @@
+import { InvariantError } from '@/utils/error'
+
 /** Base types allowed in DDL (with optional precision/length suffixes). */
 const ALLOWED_PG_BASE_TYPES = new Set([
   'smallint',
@@ -86,10 +88,10 @@ const ALLOWED_DEFAULT_EXPRESSIONS = new Set([
 export function assertSafePostgresDataType(dataType: string): string {
   const trimmed = dataType.trim()
   if (!trimmed) {
-    throw new Error('column data type must be a non-empty string')
+    throw new InvariantError('column data type must be a non-empty string')
   }
   if (/[;"\\]|--|\/\*|\*\//.test(trimmed)) {
-    throw new Error(`unsafe column data type: ${JSON.stringify(dataType)}`)
+    throw new InvariantError(`unsafe column data type: ${JSON.stringify(dataType)}`)
   }
 
   const lower = trimmed.toLowerCase()
@@ -97,11 +99,11 @@ export function assertSafePostgresDataType(dataType: string): string {
     /^([a-z][a-z0-9 ]*?)(?:\s*\(\s*([0-9]+(?:\s*,\s*[0-9]+)?)\s*\))?$/,
   )
   if (!match) {
-    throw new Error(`unsupported column data type: ${JSON.stringify(dataType)}`)
+    throw new InvariantError(`unsupported column data type: ${JSON.stringify(dataType)}`)
   }
   const base = match[1]!.replace(/\s+/g, ' ').trim()
   if (!ALLOWED_PG_BASE_TYPES.has(base)) {
-    throw new Error(`unsupported column data type: ${JSON.stringify(dataType)}`)
+    throw new InvariantError(`unsupported column data type: ${JSON.stringify(dataType)}`)
   }
   if (match[2]) {
     return `${base}(${match[2].replace(/\s+/g, '')})`
@@ -133,7 +135,7 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      throw new Error('column default number must be finite')
+      throw new InvariantError('column default number must be finite')
     }
     return String(value)
   }

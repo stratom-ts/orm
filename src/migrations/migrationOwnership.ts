@@ -1,6 +1,7 @@
 import { isTableHandle } from '@/defineTable'
 import type { CatalogRequest } from '@/dialects/catalog'
 import type { TableHandle } from '@/types'
+import { InvariantError } from '@/utils/error'
 
 import type {
   CanonicalNamespaceSegment,
@@ -244,17 +245,17 @@ export function resolveMigrationOwnership(
   for (const { declaration, identity } of resolvedRelations) {
     if (declaration.kind === 'relation') {
       if (!registered.has(identity)) {
-        throw new TypeError(
+        throw new InvariantError(
           `Migration ownership for ${identities.format(identity)} requires a registered table handle`,
         )
       }
       if (explicitlyShaped.has(identity)) {
-        throw new TypeError(
+        throw new InvariantError(
           `Duplicate migration ownership relation ${identities.format(identity)}`,
         )
       }
       if (absent.has(identity)) {
-        throw new TypeError(
+        throw new InvariantError(
           `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
         )
       }
@@ -264,12 +265,12 @@ export function resolveMigrationOwnership(
     }
 
     if (absent.has(identity)) {
-      throw new TypeError(
+      throw new InvariantError(
         `Duplicate absent-relation migration ownership for ${identities.format(identity)}`,
       )
     }
     if (registered.has(identity)) {
-      throw new TypeError(
+      throw new InvariantError(
         `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
       )
     }
@@ -303,7 +304,7 @@ export function resolveMigrationOwnership(
 
   for (let index = 1; index < completeNamespaces.length; index++) {
     if (sameNamespace(completeNamespaces[index - 1]!, completeNamespaces[index]!)) {
-      throw new TypeError(
+      throw new InvariantError(
         `Duplicate complete-namespace migration ownership for ${formatNamespace(completeNamespaces[index]!)}`,
       )
     }

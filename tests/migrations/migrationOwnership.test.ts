@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
+import { InvariantError, attemptSync } from '@/utils/error'
 
 import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import {
@@ -219,14 +220,14 @@ describe('migration ownership', () => {
       })
     expect(first).toThrow(/duplicate migration ownership relation/i)
     expect(second).toThrow(/duplicate migration ownership relation/i)
-    try {
-      first()
-    } catch (firstError) {
-      try {
-        second()
-      } catch (secondError) {
-        expect((firstError as Error).message).toBe((secondError as Error).message)
-      }
+    const firstAttempt = attemptSync(first)
+    const secondAttempt = attemptSync(second)
+    expect(firstAttempt.ok).toBe(false)
+    expect(secondAttempt.ok).toBe(false)
+    if (!firstAttempt.ok && !secondAttempt.ok) {
+      expect((firstAttempt.error as Error).message).toBe(
+        (secondAttempt.error as Error).message,
+      )
     }
   })
 
@@ -310,12 +311,11 @@ describe('migration ownership', () => {
       },
     })
     const message = (declarations: Parameters<typeof resolveMigrationOwnership>[1]) => {
-      try {
-        resolveMigrationOwnership([SqliteUsers], declarations, sqliteIdentities)
-      } catch (error) {
-        return (error as Error).message
-      }
-      throw new Error('Expected ownership resolution to fail')
+      const resolution = attemptSync(() =>
+        resolveMigrationOwnership([SqliteUsers], declarations, sqliteIdentities),
+      )
+      if (!resolution.ok) return (resolution.error as Error).message
+      throw new InvariantError('Expected ownership resolution to fail')
     }
 
     const duplicateRelations = [

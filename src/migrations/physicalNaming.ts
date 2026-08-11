@@ -1,3 +1,5 @@
+import { InvariantError } from '@/utils/error'
+
 import type {
   CanonicalRelationIdentity,
   RelationIdentityAdapter,
@@ -254,7 +256,9 @@ export function generatePhysicalName(
   const fixed = `__${physicalNameDigest(canonicalSeed)}_${SUFFIX[seed.kind]}`
   const available = profile.maximumLength - measuredLength(fixed, profile)
   if (available < 0) {
-    throw new TypeError(`Physical naming profile ${profile.id} cannot fit its digest`)
+    throw new InvariantError(
+      `Physical naming profile ${profile.id} cannot fit its digest`,
+    )
   }
   return `${truncatePrefix(readable, available, profile)}${fixed}`
 }
@@ -368,25 +372,29 @@ export function validatePhysicalName(
   profile: PhysicalNamingProfile,
 ): void {
   if (name.length === 0) {
-    throw new TypeError(`${description} must not be empty`)
+    throw new InvariantError(`${description} must not be empty`)
   }
   if (name.includes('\0')) {
-    throw new TypeError(`${description} must not contain NUL`)
+    throw new InvariantError(`${description} must not contain NUL`)
   }
   for (let index = 0; index < name.length; index++) {
     const codeUnit = name.charCodeAt(index)
     if (codeUnit < 0xd800 || codeUnit > 0xdfff) continue
     if (codeUnit > 0xdbff || index + 1 >= name.length) {
-      throw new TypeError(`${description} must not contain unpaired Unicode surrogates`)
+      throw new InvariantError(
+        `${description} must not contain unpaired Unicode surrogates`,
+      )
     }
     const next = name.charCodeAt(index + 1)
     if (next < 0xdc00 || next > 0xdfff) {
-      throw new TypeError(`${description} must not contain unpaired Unicode surrogates`)
+      throw new InvariantError(
+        `${description} must not contain unpaired Unicode surrogates`,
+      )
     }
     index++
   }
   if (measuredLength(name, profile) > profile.maximumLength) {
-    throw new TypeError(
+    throw new InvariantError(
       `${description} ${JSON.stringify(name)} exceeds ${profile.id} identifier limit of ${profile.maximumLength} ${profile.lengthUnit === 'utf8Bytes' ? 'UTF-8 bytes' : 'Unicode scalars'}`,
     )
   }
@@ -461,7 +469,7 @@ export function createPhysicalNameRegistry(
       )}`
       const current = names.get(key)
       if (current && current.token !== token) {
-        throw new TypeError(
+        throw new InvariantError(
           `Physical name collision for ${JSON.stringify(name)} between ${current.description} and ${description}`,
         )
       }

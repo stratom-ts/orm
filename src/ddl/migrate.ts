@@ -6,7 +6,7 @@ import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, attempt, attemptSync } from '@/utils/error'
 
 import type {
   MigrationPlan,
@@ -278,8 +278,8 @@ export function createMigrateBuilder(options: {
           })
         }
         await runOperation(async (executor, databaseIdentity, discard, cancel) => {
-          try {
-            runtimeSuccess = await migration.execute({
+          const execution = await attempt(() =>
+            migration.execute({
               executor,
               databaseIdentity,
               discard,
@@ -303,12 +303,9 @@ export function createMigrateBuilder(options: {
                     })
                   }
                 }
-                let lowered
-                try {
-                  lowered = migration.lower(planned, expected)
-                } catch (cause) {
-                  throw phaseError(cause, 'lowering')
-                }
+                const lowering = attemptSync(() => migration.lower(planned, expected))
+                if (!lowering.ok) throw phaseError(lowering.error, 'lowering')
+                const lowered = lowering.value
                 if (lowered.issues) {
                   const sourceStepIndexes = [
                     ...new Set(
@@ -325,21 +322,23 @@ export function createMigrateBuilder(options: {
                 }
                 return lowered.program
               },
-            })
-          } catch (cause) {
-            if (cause instanceof MigrationError) throw cause
+            }),
+          )
+          if (!execution.ok) {
+            if (execution.error instanceof MigrationError) throw execution.error
             discard()
             throw new MigrationError({
               message:
-                cause instanceof Error
-                  ? cause.message
+                execution.error instanceof Error
+                  ? execution.error.message
                   : 'Migration adapter execution failed',
-              cause,
+              cause: execution.error,
               stage: 'ddl',
               outcome: 'unknown',
               retryable: false,
             })
           }
+          runtimeSuccess = execution.value
           operationCallbackReturned = true
           return runtimeSuccess
         })

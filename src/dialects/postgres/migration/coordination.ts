@@ -8,10 +8,17 @@ import {
   createMigrationCoordinationScope,
 } from '@/migrations/coordinationScope'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
+import { InvariantError, TaggedError } from '@/utils/error'
 
 import { schemaFromNamespace } from './targets'
 
-export class MigrationCancellationError extends Error {
+export class MigrationCancellationError extends TaggedError(
+  'MigrationCancellationError',
+)<{
+  message: string
+  stage: MigrationExecutionStage
+  cleanupFailures: readonly MigrationCleanupFailure[]
+}> {
   /**
    * Creates a cancellation failure with its observed stage and cleanup failures.
    *
@@ -21,10 +28,10 @@ export class MigrationCancellationError extends Error {
    */
   constructor(
     message: string,
-    readonly stage: MigrationExecutionStage,
-    readonly cleanupFailures: readonly MigrationCleanupFailure[] = [],
+    stage: MigrationExecutionStage,
+    cleanupFailures: readonly MigrationCleanupFailure[] = [],
   ) {
-    super(message)
+    super({ message, stage, cleanupFailures })
   }
 }
 
@@ -225,11 +232,15 @@ export async function acquireCoordination(
     })
     firstAttempt = false
     if (typeof row !== 'object' || row === null || !('locked' in row)) {
-      throw new Error('PostgreSQL did not return a migration advisory lock result')
+      throw new InvariantError(
+        'PostgreSQL did not return a migration advisory lock result',
+      )
     }
     if (row.locked === true) return
     if (row.locked !== false) {
-      throw new Error('PostgreSQL returned an invalid migration advisory lock result')
+      throw new InvariantError(
+        'PostgreSQL returned an invalid migration advisory lock result',
+      )
     }
     if (options.signal?.aborted) {
       await stopCancelled(options, state, 'lock', false)
@@ -272,7 +283,7 @@ export async function releaseCoordination(
     !('unlocked' in row) ||
     row.unlocked !== true
   ) {
-    throw new Error('PostgreSQL did not verify migration advisory lock release')
+    throw new InvariantError('PostgreSQL did not verify migration advisory lock release')
   }
 }
 
@@ -297,7 +308,7 @@ export async function assertPrecondition(
   })
   const count = Number((row as { count?: unknown } | undefined)?.count ?? 0)
   if (count > 0) {
-    throw new Error(
+    throw new InvariantError(
       `Cannot set column '${schema}.${precondition.relation.relation.spelling}.${precondition.column}' as NOT NULL - column has NULL values`,
     )
   }
