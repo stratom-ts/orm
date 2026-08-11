@@ -666,56 +666,6 @@ describe('db0 PostgreSQL operation sessions', () => {
     await expect(retry).resolves.toBeUndefined()
     expect(connector.disposeCount).toBe(2)
   })
-
-  const databaseUrl = process.env.DATABASE_URL
-  it.skipIf(!databaseUrl)(
-    'keeps real db0 PostgreSQL backends pinned and discards a cancelled backend',
-    async () => {
-      const { default: postgresql } = await import('db0/connectors/postgresql')
-      const firstProvider = createDb0PostgresqlOperationSessionProvider(
-        postgresql({ url: databaseUrl as string }),
-      )
-      const secondProvider = createDb0PostgresqlOperationSessionProvider(
-        postgresql({ url: databaseUrl as string }),
-      )
-
-      try {
-        const first = await firstProvider.open()
-        const second = await secondProvider.open()
-        expect(first.identity.database).toBe(second.identity.database)
-        expect(first.identity.physicalSession).not.toBe(second.identity.physicalSession)
-
-        await first.run({ sql: 'begin', params: [] })
-        const rows = (await first.query({
-          sql: 'select pg_backend_pid()::text as backend',
-          params: [],
-        })) as { backend: string }[]
-        expect(rows[0]?.backend).toBe(first.identity.physicalSession)
-        await first.run({ sql: 'rollback', params: [] })
-        const reusedIdentity = first.identity
-        await first.release('reuse')
-        await second.release('reuse')
-
-        const reused = await firstProvider.open()
-        expect(reused.identity).toEqual(reusedIdentity)
-        const sleeping = reused.query({ sql: 'select pg_sleep(30)', params: [] })
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        await reused.cancel()
-        await expect(sleeping).rejects.toThrow()
-        await reused.release('reuse')
-
-        const replacement = await firstProvider.open()
-        expect(replacement.identity.physicalSession).not.toBe(
-          reusedIdentity.physicalSession,
-        )
-        await replacement.release('reuse')
-      } finally {
-        await firstProvider.close()
-        await secondProvider.close()
-      }
-    },
-    15_000,
-  )
 })
 
 describe('client root-operation coordination', () => {

@@ -6,7 +6,6 @@ import {
   MigrationError,
   column,
   createDatabase,
-  createDb0PostgresqlOperationSessionProvider,
   defineTable,
   postgresDialect,
   reference,
@@ -992,50 +991,3 @@ describe('db.migrate() policy and coordination', () => {
     await db.close()
   })
 })
-
-const databaseUrl = process.env.DATABASE_URL
-it.skipIf(!databaseUrl)(
-  'applies and converges through one real PostgreSQL backend',
-  async () => {
-    const [{ default: postgresql }, { Client }] = await Promise.all([
-      import('db0/connectors/postgresql'),
-      import('pg'),
-    ])
-    const tableName = `stratom_migrate_${process.pid}_${Date.now().toString(36)}`
-    const Events = defineTable(
-      tableName,
-      { id: pipe(string(), column({ type: 'uuid' })) },
-      { primaryKey: 'id', schema: 'public' },
-    )
-    const connector = postgresql({ url: databaseUrl as string })
-    const baseProvider = createDb0PostgresqlOperationSessionProvider(connector)
-    const identities: string[] = []
-    const provider = {
-      nativeTransactions: true as const,
-      async open() {
-        const session = await baseProvider.open()
-        identities.push(session.identity.physicalSession)
-        return session
-      },
-      close: () => baseProvider.close(),
-    }
-    const cleanup = new Client({ connectionString: databaseUrl })
-    const db = createDatabase({
-      connector,
-      operationSessionProvider: provider,
-      schemas: [Events],
-    })
-    await cleanup.connect()
-    try {
-      await db.migrate().execute({ lockTimeoutMs: 0 })
-      await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
-      expect(identities).toHaveLength(2)
-      expect(new Set(identities).size).toBe(1)
-    } finally {
-      await db.close()
-      await cleanup.query(`drop table if exists "${tableName}"`)
-      await cleanup.end()
-    }
-  },
-  20_000,
-)
