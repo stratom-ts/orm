@@ -1,3 +1,5 @@
+import { QueryError } from '@/utils/error'
+
 import type {
   ComparisonOp,
   CompiledQuery,
@@ -116,11 +118,13 @@ function resolveRelationAlias(
   )
   if (matches.length === 1) return matches[0]!.alias
   if (matches.length === 0) {
-    throw new Error(
-      `table reference "${schema ? `${schema}.` : ''}${table}" is not in query`,
-    )
+    throw new QueryError({
+      message: `table reference "${schema ? `${schema}.` : ''}${table}" is not in query`,
+    })
   }
-  throw new Error(`table reference "${table}" is ambiguous; specify its schema`)
+  throw new QueryError({
+    message: `table reference "${table}" is ambiguous; specify its schema`,
+  })
 }
 
 /**
@@ -162,7 +166,7 @@ function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
   if (returning.columns.length === 0) {
-    throw new Error('returning columns must not be empty')
+    throw new QueryError({ message: 'returning columns must not be empty' })
   }
   return ` returning ${returning.columns.map((c) => quoteIdent(c)).join(', ')}`
 }
@@ -228,7 +232,7 @@ function compilePredicate(
       if (pred.value === null) {
         if (pred.op === 'eq') return `${left} is null`
         if (pred.op === 'neq') return `${left} is not null`
-        throw new Error(`comparison '${pred.op}' does not accept null`)
+        throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
       }
       params.push(pred.value)
       return `${left} ${op} $${params.length}`
@@ -422,7 +426,7 @@ function compileSelect(node: SelectAst): CompiledQuery {
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
   if (!node.selection || node.selection.length === 0) {
-    throw new Error('select items must not be empty')
+    throw new QueryError({ message: 'select items must not be empty' })
   }
   const selection = node.selection
     .map((item) => compileSelectItem(item, params, relations))
@@ -490,7 +494,7 @@ function compileUpdate(node: UpdateAst): CompiledQuery {
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
   if (node.set.length === 0) {
-    throw new Error('update requires at least one SET column')
+    throw new QueryError({ message: 'update requires at least one SET column' })
   }
   const setSql = node.set
     .map((item) => {

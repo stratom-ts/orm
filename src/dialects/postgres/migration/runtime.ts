@@ -177,7 +177,7 @@ export async function executePostgresMigration(
     | undefined
   const cleanupFailures: MigrationCleanupFailure[] = []
 
-  try {
+  async function executeTransaction(): Promise<void> {
     try {
       await runCancellable({
         runtime: options,
@@ -331,7 +331,9 @@ export async function executePostgresMigration(
         }
       }
     }
-  } finally {
+  }
+
+  async function releaseLock(): Promise<void> {
     if (lockAcquired && !cancellation.cancelled) {
       try {
         await runCancellable({
@@ -351,6 +353,8 @@ export async function executePostgresMigration(
       }
     }
   }
+
+  await executeTransaction().finally(releaseLock)
 
   if (primary) {
     const outcome = failureOutcome(primary.stage, ddlStarted, rollbackAcknowledged)

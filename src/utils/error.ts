@@ -6,6 +6,28 @@ type ErrorHandlers<T> = {
   ) => Exclude<T, { _tag: string }>
 }
 
+export type Attempt<T> =
+  | Readonly<{ ok: true; value: T }>
+  | Readonly<{ ok: false; error: unknown }>
+
+/** Settles an asynchronous operation without introducing another error boundary. */
+export async function attempt<T>(operation: () => Promise<T>): Promise<Attempt<T>> {
+  try {
+    return { ok: true, value: await operation() }
+  } catch (error) {
+    return { ok: false, error }
+  }
+}
+
+/** Settles a synchronous operation without introducing another error boundary. */
+export function attemptSync<T>(operation: () => T): Attempt<T> {
+  try {
+    return { ok: true, value: operation() }
+  } catch (error) {
+    return { ok: false, error }
+  }
+}
+
 /**
  * Creates a tagged `Error` subclass with a fixed `_tag` discriminant.
  *
@@ -179,3 +201,12 @@ export class ValidationError extends TaggedError('ValidationError')<{
   issues?: unknown
   cause?: unknown
 }> {}
+
+/** Error thrown when an internal contract or invariant is violated. */
+export class InvariantError extends TaggedError('InvariantError')<{
+  message: string
+}> {
+  constructor(message: string) {
+    super({ message })
+  }
+}

@@ -33,7 +33,7 @@ import {
 } from '@/query'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
-import { MigrationError, QueryError, SchemaError } from '@/utils/error'
+import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
 
 export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'
@@ -666,31 +666,24 @@ export function createDatabase<
             queue: Promise.resolve(),
           }
           try {
-            let callbackFailed = false
-            let callbackError: unknown
-            let result: T | undefined
-            try {
-              result = await activeTransactionScope.run(
+            const callback = await attempt(() =>
+              activeTransactionScope.run(
                 { scope, parent: inheritedTransactionFrame },
                 () => fn(createClient(operation.executor, scope)),
-              )
-            } catch (cause) {
-              callbackFailed = true
-              callbackError = cause
-            }
+              ),
+            )
             await drainTransactionScope(scope)
-            if (callbackFailed) throw callbackError
+            if (!callback.ok) throw callback.error
             if (scope.context.poisoned) throw transactionPoisonedError()
             scope.active = false
             await operation.executor.run({ sql: 'commit', params: [] })
-            return result as T
+            return callback.value
           } catch (error) {
             scope.active = false
-            try {
-              await operation.executor.run({ sql: 'rollback', params: [] })
-            } catch {
-              operation.discard()
-            }
+            const rollback = await attempt(() =>
+              operation.executor.run({ sql: 'rollback', params: [] }),
+            )
+            if (!rollback.ok) operation.discard()
             throw error
           }
         })

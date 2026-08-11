@@ -15,6 +15,7 @@ import {
   physicalNamingProfile,
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
+import { MigrationError } from '@/utils/error'
 
 type PostgresRelationFields = {
   schema: string
@@ -41,7 +42,11 @@ export function schemaFromNamespace(
   namespace: CanonicalRelationIdentity['namespace'],
 ): string {
   const schema = namespace.find((segment) => segment.role === 'schema')
-  if (!schema) throw new Error('PostgreSQL migration target has no schema namespace')
+  if (!schema) {
+    throw new MigrationError({
+      message: 'PostgreSQL migration target has no schema namespace',
+    })
+  }
   return schema.identifier.spelling
 }
 
