@@ -19,8 +19,8 @@ export type IndexConfig = {
   unique?: boolean
 }
 
-/** Index entry: a single column name, or a full index config. */
-export type TableIndex = string | IndexConfig
+/** Table index definition. */
+export type TableIndex = IndexConfig
 
 /** Table-level metadata attached via `table()`. */
 export type TableMetadata<N extends string = string> = {
@@ -30,7 +30,7 @@ export type TableMetadata<N extends string = string> = {
   name: N
   /** Primary key column name, or composite key column list. */
   primaryKey: string | string[]
-  /** Indexes (string = single-column non-unique; object = named/composite/unique) */
+  /** Named, composite, or unique indexes. */
   indexes?: TableIndex[]
   /** Database schema (Postgres namespace) */
   schema?: string
@@ -49,13 +49,8 @@ export type IndexConfigOf<TCols extends ObjectEntries> = {
   unique?: boolean
 }
 
-/**
- * Index entry constrained to a table's own columns: a single column name, or
- * a full index config.
- */
-export type TableIndexOf<TCols extends ObjectEntries> =
-  | ColumnKey<TCols>
-  | IndexConfigOf<TCols>
+/** Index definition constrained to a table's own columns. */
+export type TableIndexOf<TCols extends ObjectEntries> = IndexConfigOf<TCols>
 
 /**
  * Table-level options passed to `defineTable(name, columns, options)`.
@@ -69,7 +64,7 @@ export type TableOptions<
   primaryKey: ColumnKey<TCols> | readonly ColumnKey<TCols>[]
   /** Database schema (Postgres namespace) */
   schema?: TSchema
-  /** Indexes (string = single-column non-unique; object = named/composite/unique) */
+  /** Named, composite, or unique indexes. */
   indexes?: TableIndexOf<TCols>[]
 }
 
@@ -115,27 +110,6 @@ export type ColumnGeneration =
       readonly generation: string
     }
 
-type TaggedColumnGeneration<M> = M extends { generation: infer G }
-  ? Extract<G, ColumnGeneration>
-  : never
-
-type LegacyGeneratedColumnGeneration<M> = M extends { generated: infer G }
-  ? Exclude<G, undefined> extends infer Mode
-    ? Mode extends 'always' | 'byDefault'
-      ? { readonly kind: 'identity'; readonly mode: Mode }
-      : never
-    : never
-  : never
-
-/** Canonical generation intent after tagged and legacy authoring fields are reconciled. */
-export type NormalizedColumnGeneration<M> = [TaggedColumnGeneration<M>] extends [never]
-  ? [LegacyGeneratedColumnGeneration<M>] extends [never]
-    ? M extends { autoIncrement: true }
-      ? { readonly kind: 'identity'; readonly mode: 'byDefault' }
-      : never
-    : LegacyGeneratedColumnGeneration<M>
-  : TaggedColumnGeneration<M>
-
 /** Dialect-keyed physical type overrides selected only by the active adapter. */
 export type PhysicalTypeIntent = Readonly<Record<string, string>>
 
@@ -143,22 +117,14 @@ export type PhysicalTypeIntent = Readonly<Record<string, string>>
 export type ColumnMetadata = {
   /** Discriminant for column metadata. */
   kind: 'column'
-  /** Legacy PostgreSQL physical type compatibility field. */
-  type?: string
-  /** Legacy PostgreSQL-compatible database default. */
-  default?: string | number | boolean | null
   /** Tagged database default, distinct from Valibot application defaults. */
   databaseDefault?: DatabaseDefault
   /** Dialect-selectable physical type intent. */
   physicalType?: PhysicalTypeIntent
-  /** Auto-increment column. */
-  autoIncrement?: boolean
   /** Unique constraint. */
   unique?: boolean
   /** Column comment. */
   comment?: string
-  /** Identity generation strategy. */
-  generated?: 'byDefault' | 'always'
   /** Tagged database generation intent. */
   generation?: ColumnGeneration
   /** Immutable after insert. */
@@ -175,11 +141,6 @@ export type ColumnMetadata = {
 export type ReferenceMetadata = {
   /** Discriminant for reference metadata. */
   kind: 'reference'
-  /**
-   * Legacy schema/namespace projection of the referenced table.
-   * Omitted means the selected registration default.
-   */
-  schema?: string
   /** Referenced table name. */
   table: string
   /** Referenced column name. */

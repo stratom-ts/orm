@@ -184,7 +184,7 @@ function desiredColumn(desired: CreateTableAst | undefined, name: string) {
 
 /**
  * Validates evidence once and projects adapter-neutral catalog facts into the current
- * Migration Plan implementation. No legacy snapshot shape crosses this seam.
+ * Migration Plan implementation. Adapter-specific snapshot shapes do not cross this seam.
  *
  * @example
  *   const planningCatalog = catalogForPlanning(

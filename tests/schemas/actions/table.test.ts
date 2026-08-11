@@ -18,7 +18,7 @@ describe('table action', () => {
     const action = table({
       name: 'posts',
       primaryKey: 'id',
-      indexes: ['title', 'created_at'],
+      indexes: [{ columns: ['title'] }, { columns: ['created_at'] }],
       schema: 'public',
     })
 
@@ -27,7 +27,7 @@ describe('table action', () => {
       kind: 'table',
       name: 'posts',
       primaryKey: 'id',
-      indexes: ['title', 'created_at'],
+      indexes: [{ columns: ['title'] }, { columns: ['created_at'] }],
       schema: 'public',
     })
   })

@@ -125,7 +125,7 @@ export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
     default:
       if (JSON_SHAPED_SCHEMA_TYPES.has(baseSchema.type)) return 'jsonb'
       throw new SchemaError({
-        message: `cannot infer a SQL column type for a "${baseSchema.type}" schema; specify it explicitly with column({ type: ... })`,
+        message: `cannot infer a SQL column type for a "${baseSchema.type}" schema; specify it explicitly with column({ physicalType: { postgresql: ... } })`,
       })
   }
 }

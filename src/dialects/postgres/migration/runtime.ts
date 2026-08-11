@@ -2,7 +2,7 @@ import type { MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { MigrationError } from '@/utils/error'
 
-import type { CancellationState } from './coordination'
+import type { CancellationState, PostgresAdvisoryLockIdentity } from './coordination'
 import {
   MIGRATION_SESSION_CALL_TIMEOUT_MS,
   MigrationCancellationError,
@@ -10,7 +10,7 @@ import {
   MigrationSignalAbortedError,
   acquireCoordination,
   assertPrecondition,
-  releaseCoordination,
+  releaseCoordinationFailures,
   runCancellable,
 } from './coordination'
 
@@ -143,11 +143,10 @@ function successfulOutcome(
 export async function executePostgresMigration(
   options: MigrationRuntimeOptions,
 ): Promise<{ outcome: 'applied' | 'unchanged' }> {
-  let lockAcquired = false
+  let acquiredLocks: readonly PostgresAdvisoryLockIdentity[] = []
   const cancellation: CancellationState = { cancelled: false }
   try {
-    await acquireCoordination(options, cancellation)
-    lockAcquired = true
+    acquiredLocks = await acquireCoordination(options, cancellation)
   } catch (cause) {
     const knownSafeFailure =
       cause instanceof MigrationLockTimeoutError ||
@@ -177,6 +176,7 @@ export async function executePostgresMigration(
     | undefined
   const cleanupFailures: MigrationCleanupFailure[] = []
 
+  /** Executes the authoritative migration transaction after coordination succeeds. */
   async function executeTransaction(): Promise<void> {
     try {
       await runCancellable({
@@ -333,17 +333,26 @@ export async function executePostgresMigration(
     }
   }
 
+  /** Releases every confirmed coordination lock and retains cleanup evidence. */
   async function releaseLock(): Promise<void> {
-    if (lockAcquired && !cancellation.cancelled) {
+    if (
+      acquiredLocks.length > 0 &&
+      !cancellation.cancelled &&
+      !cancellation.sessionUncertain
+    ) {
       try {
-        await runCancellable({
+        const failures = await runCancellable({
           runtime: options,
           state: cancellation,
           stage: 'unlock',
           timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
           timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
-          operation: () => releaseCoordination(options),
+          operation: () => releaseCoordinationFailures(options, acquiredLocks),
         })
+        if (failures.length > 0) {
+          options.discard()
+          cleanupFailures.push(...failures)
+        }
       } catch (cause) {
         options.discard()
         cleanupFailures.push({ stage: 'unlock', cause })

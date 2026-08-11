@@ -1,15 +1,18 @@
+import { createHash } from 'node:crypto'
+
 import type {
   MigrationPrecondition,
   MigrationRuntimeOptions,
 } from '@/ddl/migrationProgram'
 import {
-  MIGRATE_ADVISORY_LOCK_CLASS,
-  MIGRATE_ADVISORY_LOCK_ID,
   createMigrationCoordinationScope,
+  migrationLockAcquisitionOrder,
 } from '@/migrations/coordinationScope'
+import type { MigrationCoordinationLockIdentity } from '@/migrations/coordinationScope'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { InvariantError, TaggedError } from '@/utils/error'
 
+import { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from './constants'
 import { schemaFromNamespace } from './targets'
 
 export class MigrationCancellationError extends TaggedError(
@@ -40,6 +43,43 @@ export class MigrationSignalAbortedError extends MigrationCancellationError {}
 
 export type CancellationState = {
   cancelled: boolean
+  /** True when cancellation occurred during an in-flight physical call. */
+  sessionUncertain?: boolean
+}
+
+export type PostgresAdvisoryLockIdentity = Readonly<{
+  kind: 'database' | 'scoped'
+  classId: number
+  lockId: number
+  canonicalIdentity: string
+}>
+
+/**
+ * Maps a portable coordination identity to PostgreSQL's two-int32 key space.
+ *
+ * @example
+ *   const key = postgresAdvisoryLockIdentity(identity)
+ *
+ * @param identity - Canonical portable identity to map to an advisory-lock key.
+ */
+export function postgresAdvisoryLockIdentity(
+  identity: MigrationCoordinationLockIdentity,
+): PostgresAdvisoryLockIdentity {
+  if (identity.kind === 'database') {
+    return {
+      kind: 'database',
+      classId: MIGRATE_ADVISORY_LOCK_CLASS,
+      lockId: MIGRATE_ADVISORY_LOCK_ID,
+      canonicalIdentity: identity.canonicalIdentity,
+    }
+  }
+  const digest = createHash('sha256').update(identity.canonicalIdentity, 'utf8').digest()
+  return {
+    kind: 'scoped',
+    classId: digest.readInt32BE(0),
+    lockId: digest.readInt32BE(4),
+    canonicalIdentity: identity.canonicalIdentity,
+  }
 }
 
 const MIGRATION_LOCK_POLL_INTERVAL_MS = 100
@@ -67,6 +107,7 @@ async function cancelSession(
   inFlight?: Promise<unknown>,
 ): Promise<MigrationCleanupFailure[]> {
   state.cancelled = true
+  if (inFlight !== undefined) state.sessionUncertain = true
   options.discard()
   const cleanupFailures: MigrationCleanupFailure[] = []
   let cancelSucceeded = true
@@ -167,14 +208,40 @@ export async function runCancellable<T>(options: {
  * @param state - Shared cancellation state to mark.
  * @param stage - Migration stage interrupted by cancellation.
  * @param timeout - Whether a deadline, rather than an abort signal, was observed.
+ * @param acquired - Confirmed locks to release in reverse order before cancellation.
  */
 async function stopCancelled(
   options: MigrationRuntimeOptions,
   state: CancellationState,
   stage: MigrationExecutionStage,
   timeout: boolean,
+  acquired: readonly PostgresAdvisoryLockIdentity[] = [],
 ): Promise<never> {
-  const cleanupFailures = await cancelSession(options, state)
+  const cleanupFailures: MigrationCleanupFailure[] = []
+  let sessionCancelled = false
+  if (!state.sessionUncertain) {
+    for (const identity of [...acquired].reverse()) {
+      try {
+        const failures = await runCancellable({
+          runtime: options,
+          state,
+          stage: 'unlock',
+          timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
+          timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for partial migration lock release`,
+          operation: () => releaseCoordinationFailures(options, [identity]),
+        })
+        cleanupFailures.push(...failures)
+      } catch (cause) {
+        cleanupFailures.push({ stage: 'unlock', cause })
+        if (cause instanceof MigrationCancellationError) {
+          sessionCancelled = true
+          cleanupFailures.push(...cause.cleanupFailures)
+          break
+        }
+      }
+    }
+  }
+  if (!sessionCancelled) cleanupFailures.push(...(await cancelSession(options, state)))
   if (timeout) {
     throw new MigrationLockTimeoutError(
       options.lockTimeoutMs === 0
@@ -192,99 +259,181 @@ async function stopCancelled(
 }
 
 /**
- * Acquires the stable session advisory lock with a finite monotonic deadline.
+ * Acquires all PostgreSQL migration advisory locks under one monotonic deadline.
  *
  * @example
- *   await acquireCoordination(runtime, { cancelled: false })
+ *   const acquired = await acquireCoordination(runtime, { cancelled: false })
  *
  * @param options - Runtime session and lock configuration.
- * @param state - Shared cancellation state.
+ * @param state - Shared cancellation and session-certainty state.
  */
 export async function acquireCoordination(
   options: MigrationRuntimeOptions,
   state: CancellationState,
-): Promise<void> {
-  createMigrationCoordinationScope(options.databaseIdentity, options.applicationId)
+): Promise<readonly PostgresAdvisoryLockIdentity[]> {
+  const scope = createMigrationCoordinationScope({
+    dialect: 'postgresql',
+    database: options.databaseIdentity,
+    ...(options.applicationId === undefined
+      ? {}
+      : { applicationId: options.applicationId }),
+  })
+  const identities = migrationLockAcquisitionOrder(scope).map(
+    postgresAdvisoryLockIdentity,
+  )
+  const acquired: PostgresAdvisoryLockIdentity[] = []
   const deadline = performance.now() + options.lockTimeoutMs
-  let firstAttempt = true
-  while (true) {
-    if (options.signal?.aborted) {
-      await stopCancelled(options, state, 'lock', false)
-    }
-    if (!firstAttempt && performance.now() >= deadline) {
-      await stopCancelled(options, state, 'lock', true)
-    }
-    const remaining = Math.max(0, deadline - performance.now())
-    const [row] = await runCancellable({
-      runtime: options,
-      state,
-      stage: 'lock',
-      timeoutMs:
+  for (const identity of identities) {
+    let firstAttempt = true
+    while (true) {
+      const timeout =
         options.lockTimeoutMs === 0
           ? MIGRATION_SESSION_CALL_TIMEOUT_MS
-          : Math.min(MIGRATION_SESSION_CALL_TIMEOUT_MS, remaining),
-      timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for a migration lock attempt response`,
-      operation: () =>
-        options.executor.execute({
-          sql: `select pg_try_advisory_lock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID}) as "locked"`,
-          params: [],
-        }),
-    })
-    firstAttempt = false
-    if (typeof row !== 'object' || row === null || !('locked' in row)) {
-      throw new InvariantError(
-        'PostgreSQL did not return a migration advisory lock result',
-      )
+          : Math.min(
+              MIGRATION_SESSION_CALL_TIMEOUT_MS,
+              Math.max(0, deadline - performance.now()),
+            )
+      if (!firstAttempt && performance.now() >= deadline) {
+        await stopCancelled(options, state, 'lock', true, acquired)
+      }
+      if (options.signal?.aborted) {
+        await stopCancelled(options, state, 'lock', false, acquired)
+      }
+      let row
+      try {
+        ;[row] = await runCancellable({
+          runtime: options,
+          state,
+          stage: 'lock',
+          timeoutMs: timeout,
+          timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for a migration lock attempt response`,
+          operation: () =>
+            options.executor.execute({
+              sql: 'select pg_try_advisory_lock($1, $2) as "locked"',
+              params: [identity.classId, identity.lockId],
+            }),
+        })
+      } catch (cause) {
+        // A query can have reached PostgreSQL before its error was observed.
+        state.sessionUncertain = true
+        throw cause
+      }
+      firstAttempt = false
+      if (typeof row !== 'object' || row === null || !('locked' in row)) {
+        state.sessionUncertain = true
+        throw new InvariantError(
+          'PostgreSQL did not return a migration advisory lock result',
+        )
+      }
+      if (row.locked === true) {
+        acquired.push(identity)
+        break
+      }
+      if (row.locked !== false) {
+        state.sessionUncertain = true
+        throw new InvariantError(
+          'PostgreSQL returned an invalid migration advisory lock result',
+        )
+      }
+      if (options.lockTimeoutMs === 0) {
+        await stopCancelled(options, state, 'lock', true, acquired)
+      }
+      if (options.signal?.aborted) {
+        await stopCancelled(options, state, 'lock', false, acquired)
+      }
+      const waitRemaining = deadline - performance.now()
+      if (waitRemaining <= 0) {
+        await stopCancelled(options, state, 'lock', true, acquired)
+      }
+      const wait = new Promise<'elapsed' | 'aborted'>((resolve) => {
+        const timer = setTimeout(
+          () => {
+            options.signal?.removeEventListener('abort', abort)
+            resolve('elapsed')
+          },
+          Math.min(MIGRATION_LOCK_POLL_INTERVAL_MS, waitRemaining),
+        )
+        const abort = () => {
+          clearTimeout(timer)
+          options.signal?.removeEventListener('abort', abort)
+          resolve('aborted')
+        }
+        options.signal?.addEventListener('abort', abort, { once: true })
+      })
+      if ((await wait) === 'aborted') {
+        await stopCancelled(options, state, 'lock', false, acquired)
+      }
     }
-    if (row.locked === true) return
-    if (row.locked !== false) {
-      throw new InvariantError(
-        'PostgreSQL returned an invalid migration advisory lock result',
-      )
-    }
-    if (options.signal?.aborted) {
-      await stopCancelled(options, state, 'lock', false)
-    }
-    const waitRemaining = deadline - performance.now()
-    if (waitRemaining <= 0) {
-      await stopCancelled(options, state, 'lock', true)
-    }
-    await runCancellable({
-      runtime: options,
-      state,
-      stage: 'lock',
-      timeoutMs: waitRemaining,
-      operation: () =>
-        new Promise<void>((resolve) =>
-          setTimeout(resolve, Math.min(MIGRATION_LOCK_POLL_INTERVAL_MS, waitRemaining)),
-        ),
-    })
   }
+  return acquired
 }
 
 /**
- * Releases and verifies the stable session advisory lock.
+ * Releases and verifies acquired PostgreSQL advisory locks in reverse order.
  *
  * @example
- *   await releaseCoordination(runtime)
+ *   await releaseCoordination(runtime, acquired)
  *
  * @param options - Runtime capabilities for the locked session.
+ * @param identities - Confirmed locks to release in reverse acquisition order.
  */
 export async function releaseCoordination(
   options: MigrationRuntimeOptions,
+  identities: readonly PostgresAdvisoryLockIdentity[] = [
+    {
+      kind: 'database',
+      classId: MIGRATE_ADVISORY_LOCK_CLASS,
+      lockId: MIGRATE_ADVISORY_LOCK_ID,
+      canonicalIdentity: 'stratom/migration/database/postgresql',
+    },
+  ],
 ): Promise<void> {
-  const [row] = await options.executor.execute({
-    sql: `select pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_CLASS}, ${MIGRATE_ADVISORY_LOCK_ID}) as "unlocked"`,
-    params: [],
-  })
-  if (
-    typeof row !== 'object' ||
-    row === null ||
-    !('unlocked' in row) ||
-    row.unlocked !== true
-  ) {
-    throw new InvariantError('PostgreSQL did not verify migration advisory lock release')
+  const failures = await releaseCoordinationFailures(options, identities)
+  if (failures.length > 0) throw failures[0]!.cause
+}
+
+/**
+ * Attempts every advisory-lock release and retains each verification failure.
+ *
+ * @example
+ *   const failures = await releaseCoordinationFailures(runtime, acquired)
+ *
+ * @param options - Runtime capabilities for the locked session.
+ * @param identities - Confirmed locks to release in reverse acquisition order.
+ */
+export async function releaseCoordinationFailures(
+  options: MigrationRuntimeOptions,
+  identities: readonly PostgresAdvisoryLockIdentity[] = [
+    {
+      kind: 'database',
+      classId: MIGRATE_ADVISORY_LOCK_CLASS,
+      lockId: MIGRATE_ADVISORY_LOCK_ID,
+      canonicalIdentity: 'stratom/migration/database/postgresql',
+    },
+  ],
+): Promise<MigrationCleanupFailure[]> {
+  const failures: MigrationCleanupFailure[] = []
+  for (const identity of [...identities].reverse()) {
+    try {
+      const [row] = await options.executor.execute({
+        sql: 'select pg_advisory_unlock($1, $2) as "unlocked"',
+        params: [identity.classId, identity.lockId],
+      })
+      if (
+        typeof row !== 'object' ||
+        row === null ||
+        !('unlocked' in row) ||
+        row.unlocked !== true
+      ) {
+        throw new InvariantError(
+          'PostgreSQL did not verify migration advisory lock release',
+        )
+      }
+    } catch (cause) {
+      failures.push({ stage: 'unlock', cause })
+    }
   }
+  return failures
 }
 
 /**

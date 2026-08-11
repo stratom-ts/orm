@@ -72,7 +72,7 @@ type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
  * @example
  *   const PostSchema = pipe(
  *     object({
- *       id: pipe(string(), column({ type: 'uuid' })),
+ *       id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
  *       authorId: reference(UserSchema, 'id', { onDelete: 'cascade' }),
  *     }),
  *     title('posts'),
@@ -134,7 +134,6 @@ export function reference<
     schema.entries[key as string] as never,
     metadata({
       kind: 'reference',
-      ...(pgSchema !== undefined ? { schema: pgSchema } : {}),
       table: tableName,
       key: key as string,
       target: {

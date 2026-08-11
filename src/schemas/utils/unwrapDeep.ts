@@ -6,7 +6,9 @@ import type { AnySchema } from '@/types/schema'
  * Recursively unwraps optional/nullable/nullish wrappers.
  *
  * @example
- *   const inner = unwrapDeep(optional(pipe(string(), column({ type: 'uuid' }))))
+ *   const inner = unwrapDeep(
+ *     optional(pipe(string(), column({ physicalType: { postgresql: 'uuid' } }))),
+ *   )
  *
  * @param schema - Schema that may be wrapped.
  *

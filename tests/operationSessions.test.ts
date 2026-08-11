@@ -1125,7 +1125,7 @@ describe('client root-operation coordination', () => {
     })
     const Events = defineTable(
       'operation_events',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const db = createDatabase({
@@ -1165,7 +1165,7 @@ describe('client root-operation coordination', () => {
     })
     const Events = defineTable(
       'cleanup_events',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const db = createDatabase({
@@ -1192,7 +1192,7 @@ describe('client root-operation coordination', () => {
     })
     const Events = defineTable(
       'primary_runtime_failure_events',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const db = createDatabase({
@@ -1298,7 +1298,7 @@ describe('client root-operation coordination', () => {
     })
     const Events = defineTable(
       'release_failure_events',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const db = createDatabase({
@@ -1427,7 +1427,7 @@ describe('client root-operation coordination', () => {
     })
     const Events = defineTable(
       'ambiguous_commit_events',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const db = createDatabase({

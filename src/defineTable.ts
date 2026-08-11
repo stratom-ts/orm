@@ -7,8 +7,6 @@ import {
   getReferenceMetadata,
   getTableMetadata,
   isSqlNullable,
-  normalizeColumnGeneration,
-  normalizeIndex,
   table,
 } from '@/schemas'
 import type { ColumnRef, ColumnRefsOf, SchemaNameOf, TableHandle } from '@/types'
@@ -90,7 +88,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
   const names = new Set<string>()
   const definitions = new Set<string>()
   for (const raw of metadata.indexes) {
-    const index = normalizeIndex(raw)
+    const index = raw
     if (index.name !== undefined) {
       assertNonEmptyString(index.name, 'index name')
     }
@@ -148,29 +146,17 @@ function validateColumnOptions(
 ): void {
   const metadata = getColumnMetadata(colSchema)
   if (!metadata) return
-  const hasDefault =
-    metadata.default !== undefined || metadata.databaseDefault !== undefined
-  const hasGeneration = normalizeColumnGeneration(metadata) !== undefined
+  const hasDefault = metadata.databaseDefault !== undefined
+  const hasGeneration = metadata.generation !== undefined
   if (hasDefault && hasGeneration) {
     throw new SchemaError({
       message: `column "${columnName}" on table "${tableName}" cannot combine a default with identity generation`,
     })
   }
-  if (metadata.default !== undefined && metadata.databaseDefault !== undefined) {
-    throw new SchemaError({
-      message: `column "${columnName}" on table "${tableName}" cannot combine legacy and tagged database defaults`,
-    })
-  }
-  if (metadata.type !== undefined && metadata.physicalType !== undefined) {
-    throw new SchemaError({
-      message: `column "${columnName}" on table "${tableName}" cannot combine legacy and dialect-keyed physical types`,
-    })
-  }
   if (
     !isSqlNullable(colSchema) &&
-    (metadata.default === null ||
-      (metadata.databaseDefault?.kind === 'literal' &&
-        metadata.databaseDefault.value === null))
+    metadata.databaseDefault?.kind === 'literal' &&
+    metadata.databaseDefault.value === null
   ) {
     throw new SchemaError({
       message: `NOT NULL column "${columnName}" on table "${tableName}" cannot have a null database default`,
@@ -206,14 +192,16 @@ function validateColumnReference(columnName: string, ref: ReferenceMetadata): vo
 }
 
 /**
- * Checks whether a column has a value source (default, generated, autoIncrement, or
- * schema default).
+ * Checks whether a column has a database, generated, or schema default value source.
  *
  * @example
- *   hasValueSource({ default: 0 }, undefined) // true
+ *   hasValueSource(
+ *     { kind: 'column', databaseDefault: { kind: 'literal', value: 0 } },
+ *     undefined,
+ *   ) // true
  *   hasValueSource(undefined, undefined) // false
  *
- * @param metadata - Column metadata that may contain default/generated/autoIncrement.
+ * @param metadata - Column metadata that may contain a database default or generation.
  * @param schemaDefault - Default value from the Valibot schema.
  *
  * @returns `true` when the column has any value source
@@ -223,9 +211,8 @@ function hasValueSource(
   schemaDefault: unknown,
 ): boolean {
   return (
-    metadata?.default !== undefined ||
     metadata?.databaseDefault !== undefined ||
-    (metadata !== undefined && normalizeColumnGeneration(metadata) !== undefined) ||
+    metadata?.generation !== undefined ||
     schemaDefault !== undefined
   )
 }
@@ -252,7 +239,6 @@ function validateOptionalColumn(
   const metadata = getColumnMetadata(colSchema)
   const schemaDefault = (colSchema as AnySchema & { default?: unknown }).default
   if (
-    metadata?.default === null ||
     (metadata?.databaseDefault?.kind === 'literal' &&
       metadata.databaseDefault.value === null) ||
     schemaDefault === null
@@ -298,10 +284,7 @@ function validateColumns(schema: TableSchema, tableName: string): void {
     }
     if (actions.includes('set default')) {
       const columnMetadata = getColumnMetadata(colSchema)
-      if (
-        columnMetadata?.default === undefined &&
-        columnMetadata?.databaseDefault === undefined
-      ) {
+      if (columnMetadata?.databaseDefault === undefined) {
         throw new SchemaError({
           message: `reference on "${tableName}.${columnName}" uses SET DEFAULT without a database default`,
         })
@@ -422,8 +405,14 @@ function buildTableHandle<
  *   const User = defineTable(
  *     'users',
  *     {
- *       id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
- *       email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
+ *       id: pipe(
+ *         number(),
+ *         column({ generation: { kind: 'identity', mode: 'byDefault' } }),
+ *       ),
+ *       email: pipe(
+ *         string(),
+ *         column({ physicalType: { postgresql: 'varchar(255)' }, unique: true }),
+ *       ),
  *     },
  *     {
  *       schema: 'public',

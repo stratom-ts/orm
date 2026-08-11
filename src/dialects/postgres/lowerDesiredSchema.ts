@@ -15,7 +15,6 @@ import { inferPostgresColumnType } from './infer'
 import { normalizePostgresDataType } from './normalize'
 import {
   assertSafePostgresDataType,
-  formatPostgresDefault,
   formatPostgresLiteral,
   normalizePostgresDefaultExpression,
 } from './validate'
@@ -201,9 +200,7 @@ function lowerGeneration(
 function physicalType(column: AuthoredDesiredColumn): string {
   const metadata = column.metadata
   const selected =
-    metadata?.physicalType?.postgresql ??
-    metadata?.type ??
-    inferPostgresColumnType(column.schema)
+    metadata?.physicalType?.postgresql ?? inferPostgresColumnType(column.schema)
   return assertSafePostgresDataType(String(selected))
 }
 
@@ -219,7 +216,7 @@ function validateReferencePhysicalType(
   column: AuthoredDesiredColumn,
   inheritedType: string,
 ): void {
-  const selected = column.metadata?.physicalType?.postgresql ?? column.metadata?.type
+  const selected = column.metadata?.physicalType?.postgresql
   if (selected === undefined) return
   const localType = assertSafePostgresDataType(String(selected))
   if (normalizePostgresDataType(localType) !== normalizePostgresDataType(inheritedType)) {
@@ -252,7 +249,6 @@ function validatePostgresColumn(
       message: `PostgreSQL migration lowering does not support onUpdate on ${formatIdentity(table.identity, column.name)}`,
     })
   }
-  if (metadata?.default !== undefined) formatPostgresDefault(metadata.default)
   const generated = lowerGeneration(metadata?.generation)
   if (generated !== undefined) {
     const base = normalizePostgresDataType(dataType)
@@ -261,7 +257,7 @@ function validatePostgresColumn(
       .trim()
     if (!IDENTITY_BASE_TYPES.has(base)) {
       throw new MigrationError({
-        message: `column ${formatIdentity(table.identity, column.name)} uses identity/autoIncrement with type ${JSON.stringify(dataType)}; PostgreSQL identity requires smallint, integer, or bigint`,
+        message: `column ${formatIdentity(table.identity, column.name)} uses identity generation with type ${JSON.stringify(dataType)}; PostgreSQL identity requires smallint, integer, or bigint`,
       })
     }
   }
@@ -293,9 +289,6 @@ function lowerColumn(
       (column.metadata?.unique ?? false) &&
       !(primaryKey.length === 1 && primaryKey[0] === column.name),
     autoIncrement: false,
-    ...(column.metadata?.default === undefined
-      ? {}
-      : { defaultValue: column.metadata.default }),
     ...(column.metadata?.databaseDefault === undefined
       ? {}
       : { databaseDefault: lowerDefault(column.metadata.databaseDefault) }),
@@ -321,7 +314,7 @@ function lowerColumn(
 }
 
 /**
- * PostgreSQL compatibility ingress and deterministic two-pass graph lowerer.
+ * Deterministically lowers the desired schema graph in two dependency-aware passes.
  *
  * @example
  *   const lowered = lowerPostgresDesiredSchema(graph)

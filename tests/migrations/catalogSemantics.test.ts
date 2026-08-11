@@ -9,8 +9,8 @@ import {
 } from '@/migrations/physicalNaming'
 
 import type {
-  LegacyCatalogForeignKeyFixture as CatalogForeignKey,
-  LegacyCatalogSnapshotFixture as CatalogSnapshot,
+  PostgresCatalogForeignKeyFixture as CatalogForeignKey,
+  PostgresCatalogSnapshotFixture as CatalogSnapshot,
 } from '../helpers/catalog'
 import {
   catalogPrimaryKey as createCatalogPrimaryKey,
@@ -40,16 +40,16 @@ const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 const IndexedEvents = defineTable(
   'indexed_events',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    payload: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    payload: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
 )
 const UniqueIndexedEvents = defineTable(
   'indexed_events',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    payload: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    payload: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id', indexes: [{ columns: ['payload'], unique: true }] },
 )
@@ -85,16 +85,16 @@ function indexedCatalog(
 
 const Parents = defineTable(
   'parents',
-  { id: pipe(string(), column({ type: 'uuid' })) },
+  { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
   { primaryKey: 'id' },
 )
 
 const Children = defineTable(
   'children',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     parentId: reference(Parents, 'id'),
-    email: pipe(string(), column({ type: 'text', unique: true })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' }, unique: true })),
   },
   { primaryKey: 'id' },
 )

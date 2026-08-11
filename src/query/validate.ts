@@ -1,7 +1,7 @@
 import type { BaseIssue, ObjectEntries, ObjectSchema } from 'valibot'
 import { object, optional, safeParse } from 'valibot'
 
-import { getColumnMetadata, normalizeColumnGeneration } from '@/schemas'
+import { getColumnMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { ValidationError } from '@/utils/error'
@@ -37,11 +37,10 @@ function isInsertOptional(schema: AnySchema): boolean {
   if (isOmitOptionalSchema(schema)) return true
   const meta = getColumnMetadata(schema)
   if (!meta) return false
-  const generation = normalizeColumnGeneration(meta)
+  const generation = meta.generation
   if (generation?.kind === 'identity' && generation.mode === 'byDefault') {
     return true
   }
-  if (meta.default !== undefined) return true
   if (meta.databaseDefault !== undefined) return true
   return false
 }
@@ -53,7 +52,7 @@ function isInsertOptional(schema: AnySchema): boolean {
  */
 function isAlwaysGenerated(schema: AnySchema): boolean {
   const meta = getColumnMetadata(schema)
-  const generation = meta ? normalizeColumnGeneration(meta) : undefined
+  const generation = meta?.generation
   return (
     (generation?.kind === 'identity' && generation.mode === 'always') ||
     generation?.kind === 'computed'

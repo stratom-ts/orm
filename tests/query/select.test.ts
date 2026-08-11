@@ -32,13 +32,39 @@ import { createMockPostgresConnector as createMockConnector } from '../helpers/n
 const Users = defineTable(
   'users',
   {
-    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-    email: pipe(string(), column({ type: 'text' })),
-    displayName: optional(pipe(string(), column({ type: 'text', default: '' }))),
-    active: pipe(boolean(), column({ type: 'boolean', default: true })),
-    score: pipe(number(), column({ type: 'integer', default: 0 })),
-    deletedAt: nullable(pipe(string(), column({ type: 'text' }))),
-    createdAt: pipe(date(), column({ type: 'timestamptz' })),
+    id: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'byDefault' },
+      }),
+    ),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    displayName: optional(
+      pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: '' },
+        }),
+      ),
+    ),
+    active: pipe(
+      boolean(),
+      column({
+        physicalType: { postgresql: 'boolean' },
+        databaseDefault: { kind: 'literal', value: true },
+      }),
+    ),
+    score: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        databaseDefault: { kind: 'literal', value: 0 },
+      }),
+    ),
+    deletedAt: nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
   },
   { primaryKey: 'id', schema: 'public' },
 )

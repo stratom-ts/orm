@@ -12,7 +12,7 @@ import {
 describe('reference action', () => {
   it('should create reference metadata with table and key from referenced schema', () => {
     const UserSchema = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
@@ -28,7 +28,7 @@ describe('reference action', () => {
 
   it('should retain a structured target without copying a physical type', () => {
     const UserSchema = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
@@ -59,7 +59,7 @@ describe('reference action', () => {
 
   it('should attach onDelete and onUpdate options', () => {
     const UserSchema = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
@@ -81,7 +81,7 @@ describe('reference action', () => {
 
   it('should retain local column and nested reference metadata together', () => {
     const UserSchema = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
@@ -97,7 +97,7 @@ describe('reference action', () => {
 
   it('should retain both metadata kinds through nullable wrappers', () => {
     const UserSchema = pipe(
-      object({ id: pipe(string(), column({ type: 'uuid' })) }),
+      object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )

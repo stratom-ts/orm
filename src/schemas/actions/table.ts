@@ -10,7 +10,7 @@ import type { TableIndex, TableMetadata } from './types'
  *
  * @example
  *   const UserSchema = pipe(
- *     object({ id: pipe(string(), column({ type: 'uuid' })) }),
+ *     object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
  *     title('users'),
  *     table({
  *       name: 'users',

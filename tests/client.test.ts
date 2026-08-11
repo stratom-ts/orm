@@ -114,8 +114,8 @@ describe('createDatabase', () => {
 const Users = defineTable(
   'users',
   {
-    id: pipe(string(), column({ type: 'text' })),
-    email: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -158,7 +158,7 @@ describe('registry and from()', () => {
   it('should reject unregistered handles with SchemaError', async () => {
     const Other = defineTable(
       'other',
-      { id: pipe(string(), column({ type: 'text' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
       { primaryKey: 'id' },
     )
 

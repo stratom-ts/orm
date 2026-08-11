@@ -15,10 +15,30 @@ import { createMockPostgresConnector as createMockConnector } from '../helpers/n
 const Users = defineTable(
   'users',
   {
-    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-    email: pipe(string(), column({ type: 'text' })),
-    displayName: optional(pipe(string(), column({ type: 'text', default: '' }))),
-    active: pipe(boolean(), column({ type: 'boolean', default: true })),
+    id: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'byDefault' },
+      }),
+    ),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    displayName: optional(
+      pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: '' },
+        }),
+      ),
+    ),
+    active: pipe(
+      boolean(),
+      column({
+        physicalType: { postgresql: 'boolean' },
+        databaseDefault: { kind: 'literal', value: true },
+      }),
+    ),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -26,8 +46,14 @@ const Users = defineTable(
 const AlwaysId = defineTable(
   'always_id',
   {
-    id: pipe(number(), column({ type: 'integer', generated: 'always' })),
-    label: pipe(string(), column({ type: 'text' })),
+    id: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'always' },
+      }),
+    ),
+    label: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id' },
 )
@@ -35,9 +61,13 @@ const AlwaysId = defineTable(
 const NestedWrappers = defineTable(
   'nested_wrappers',
   {
-    id: pipe(string(), column({ type: 'text' })),
-    optionalNullable: optional(nullable(pipe(string(), column({ type: 'text' })))),
-    nullableOptional: nullable(optional(pipe(string(), column({ type: 'text' })))),
+    id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    optionalNullable: optional(
+      nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
+    nullableOptional: nullable(
+      optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
   },
   { primaryKey: 'id' },
 )
@@ -252,8 +282,14 @@ describe('CRUD safety and validation', () => {
     const WithNullable = defineTable(
       'with_nullable',
       {
-        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-        note: nullable(pipe(string(), column({ type: 'text' }))),
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        note: nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
       },
       { primaryKey: 'id' },
     )
@@ -387,7 +423,7 @@ describe('registry still enforces handles', () => {
   it('should reject unregistered table for from and insert', async () => {
     const Other = defineTable(
       'other',
-      { id: pipe(string(), column({ type: 'text' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
       { primaryKey: 'id' },
     )
 

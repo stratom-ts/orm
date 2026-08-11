@@ -13,7 +13,7 @@ import type {
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
-export type LegacyCatalogColumnFixture = {
+export type PostgresCatalogColumnFixture = {
   name: string
   dataType: string
   isNullable: boolean
@@ -21,14 +21,14 @@ export type LegacyCatalogColumnFixture = {
   identityGeneration?: 'always' | 'byDefault' | null
 }
 
-export type LegacyCatalogKeyFixture = {
+export type PostgresCatalogKeyFixture = {
   name: string
   columns: string[]
   semanticCompleteness?: 'supportedSimple' | 'unsupported'
   isValid?: boolean
 }
 
-export type LegacyCatalogForeignKeyFixture = LegacyCatalogKeyFixture & {
+export type PostgresCatalogForeignKeyFixture = PostgresCatalogKeyFixture & {
   referencedSchema: string
   referencedTable: string
   referencedColumns: string[]
@@ -36,18 +36,18 @@ export type LegacyCatalogForeignKeyFixture = LegacyCatalogKeyFixture & {
   onUpdate: ReferentialAction
 }
 
-export type LegacyCatalogIndexFixture = LegacyCatalogKeyFixture & {
+export type PostgresCatalogIndexFixture = PostgresCatalogKeyFixture & {
   unique: boolean
 }
 
-export type LegacyCatalogTableFixture = {
+export type PostgresCatalogTableFixture = {
   schema: string
   name: string
-  columns: LegacyCatalogColumnFixture[]
-  indexes?: LegacyCatalogIndexFixture[]
-  primaryKey: LegacyCatalogKeyFixture | null
-  uniqueConstraints?: LegacyCatalogKeyFixture[]
-  foreignKeys?: LegacyCatalogForeignKeyFixture[]
+  columns: PostgresCatalogColumnFixture[]
+  indexes?: PostgresCatalogIndexFixture[]
+  primaryKey: PostgresCatalogKeyFixture | null
+  uniqueConstraints?: PostgresCatalogKeyFixture[]
+  foreignKeys?: PostgresCatalogForeignKeyFixture[]
   opaqueObjects?: Array<{
     kind: 'constraint' | 'index' | 'trigger' | 'policy' | 'other'
     name: string
@@ -57,24 +57,24 @@ export type LegacyCatalogTableFixture = {
 }
 
 export type CompletePostgresCatalogFixture = CatalogSnapshot & {
-  tables: LegacyCatalogTableFixture[]
+  tables: PostgresCatalogTableFixture[]
 }
 
-export type LegacyCatalogSnapshotFixture = {
+export type PostgresCatalogSnapshotFixture = {
   namespaceContext: NamespaceContext
-  tables: LegacyCatalogTableFixture[]
+  tables: PostgresCatalogTableFixture[]
   namespaces?: string[]
   nameReservations: Array<{ schema: string; name: string }>
   constraintNameReservations: Array<{ schema: string; table: string; name: string }>
 }
 
 type SupportedSimpleSemantics = Pick<
-  LegacyCatalogKeyFixture,
+  PostgresCatalogKeyFixture,
   'semanticCompleteness' | 'isValid'
 >
 
 export function catalogPrimaryKey(semantics: SupportedSimpleSemantics) {
-  return (table: string, columns: string[] = ['id']): LegacyCatalogKeyFixture => ({
+  return (table: string, columns: string[] = ['id']): PostgresCatalogKeyFixture => ({
     name: `${table}_pkey`,
     columns,
     ...semantics,
@@ -83,7 +83,7 @@ export function catalogPrimaryKey(semantics: SupportedSimpleSemantics) {
 
 export const planMigration = (
   schemas: Parameters<typeof planMigrationWithContext>[0],
-  catalog: LegacyCatalogSnapshotFixture,
+  catalog: PostgresCatalogSnapshotFixture,
   dialect: Parameters<typeof planMigrationWithContext>[2],
   options?: Parameters<typeof planMigrationWithContext>[3],
 ) =>
@@ -102,7 +102,7 @@ export const planMigration = (
   ).plan
 
 function simpleSemantics(
-  fixture: LegacyCatalogKeyFixture,
+  fixture: PostgresCatalogKeyFixture,
 ): CatalogKeyConstraint['semantics'] {
   return fixture.semanticCompleteness === 'unsupported'
     ? {
@@ -116,7 +116,7 @@ function simpleSemantics(
       }
 }
 
-function keyConstraint(fixture: LegacyCatalogKeyFixture): CatalogKeyConstraint {
+function keyConstraint(fixture: PostgresCatalogKeyFixture): CatalogKeyConstraint {
   return {
     name: { state: 'present', value: fixture.name },
     columns: fixture.columns,
@@ -130,7 +130,7 @@ function keyConstraint(fixture: LegacyCatalogKeyFixture): CatalogKeyConstraint {
 }
 
 export function completePostgresCatalog(
-  input: LegacyCatalogSnapshotFixture,
+  input: PostgresCatalogSnapshotFixture,
   request: CatalogRequest,
 ): CompletePostgresCatalogFixture {
   const tables = input.tables
@@ -165,7 +165,7 @@ export function completePostgresCatalog(
     ),
   }
 
-  const buildTable = (fixture: LegacyCatalogTableFixture): CatalogTable => {
+  const buildTable = (fixture: PostgresCatalogTableFixture): CatalogTable => {
     const columns = fixture.columns.map((column, position) => ({
       name: column.name,
       position: position + 1,

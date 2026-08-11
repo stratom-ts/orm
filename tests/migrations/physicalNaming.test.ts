@@ -13,7 +13,7 @@ import {
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
 
-import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import {
   catalogPrimaryKey as createCatalogPrimaryKey,
   planMigration,
@@ -135,8 +135,8 @@ describe('generated physical naming', () => {
     const TooLong = defineTable(
       'too_long',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        email: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       {
         primaryKey: 'id',
@@ -154,16 +154,16 @@ describe('generated physical naming', () => {
     const First = defineTable(
       'first',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        value: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        value: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
     )
     const Second = defineTable(
       'second',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        value: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        value: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
     )
@@ -180,8 +180,8 @@ describe('generated physical naming', () => {
     const Events = defineTable(
       'events',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        createdAt: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        createdAt: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', indexes: [{ columns: ['createdAt'] }] },
     )
@@ -225,8 +225,8 @@ describe('generated physical naming', () => {
     const Events = defineTable(
       'events',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        payload: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        payload: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
     )
@@ -254,8 +254,11 @@ describe('generated physical naming', () => {
     const Accounts = defineTable(
       'accounts',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        email: pipe(string(), column({ type: 'text', unique: true })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        email: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, unique: true }),
+        ),
       },
       { primaryKey: 'id' },
     )

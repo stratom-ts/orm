@@ -5,26 +5,26 @@ import { column, getColumnMetadata } from '@/index'
 
 describe('column action', () => {
   it('should create column metadata action with correct kind', () => {
-    const action = column({ type: 'varchar' })
+    const action = column({ physicalType: { postgresql: 'varchar' } })
     expect(action.type).toBe('metadata')
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata.kind).toBe('column')
-    expect(metadata.type).toBe('varchar')
+    expect(metadata.physicalType).toEqual({ postgresql: 'varchar' })
   })
 
   it('should create column with all options', () => {
     const action = column({
-      type: 'integer',
-      default: 0,
-      autoIncrement: true,
+      physicalType: { postgresql: 'integer' },
+      databaseDefault: { kind: 'literal', value: 0 },
+      generation: { kind: 'identity', mode: 'byDefault' },
       unique: true,
     })
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata).toMatchObject({
       kind: 'column',
-      type: 'integer',
-      default: 0,
-      autoIncrement: true,
+      physicalType: { postgresql: 'integer' },
+      databaseDefault: { kind: 'literal', value: 0 },
+      generation: { kind: 'identity', mode: 'byDefault' },
       unique: true,
     })
   })
@@ -36,17 +36,20 @@ describe('getColumnMetadata', () => {
   })
 
   it('should extract column metadata from schema', () => {
-    const schema = pipe(string(), column({ type: 'text' }))
+    const schema = pipe(string(), column({ physicalType: { postgresql: 'text' } }))
     const metadata = getColumnMetadata(schema)
     expect(metadata).toBeDefined()
     expect(metadata!.kind).toBe('column')
-    expect(metadata!.type).toBe('text')
+    expect(metadata!.physicalType).toEqual({ postgresql: 'text' })
   })
 
   it('should return the correct type from metadata', () => {
-    const schema = pipe(string(), column({ type: 'varchar(255)' }))
+    const schema = pipe(
+      string(),
+      column({ physicalType: { postgresql: 'varchar(255)' } }),
+    )
     const metadata = getColumnMetadata(schema)
     expect(metadata).toBeDefined()
-    expect(metadata!.type).toBe('varchar(255)')
+    expect(metadata!.physicalType).toEqual({ postgresql: 'varchar(255)' })
   })
 })

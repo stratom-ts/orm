@@ -30,11 +30,31 @@ import { column, defineTable, table } from '@/index'
 const User = defineTable(
   'users',
   {
-    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-    email: pipe(string(), column({ type: 'varchar(255)' })),
-    age: nullable(pipe(number(), column({ type: 'integer' }))),
-    bio: optional(pipe(string(), column({ type: 'text', default: '' }))),
-    active: pipe(boolean(), column({ type: 'boolean', default: true })),
+    id: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'byDefault' },
+      }),
+    ),
+    email: pipe(string(), column({ physicalType: { postgresql: 'varchar(255)' } })),
+    age: nullable(pipe(number(), column({ physicalType: { postgresql: 'integer' } }))),
+    bio: optional(
+      pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: '' },
+        }),
+      ),
+    ),
+    active: pipe(
+      boolean(),
+      column({
+        physicalType: { postgresql: 'boolean' },
+        databaseDefault: { kind: 'literal', value: true },
+      }),
+    ),
   },
   { primaryKey: 'id' },
 )
@@ -42,17 +62,27 @@ const User = defineTable(
 const NestedWrappers = defineTable(
   'nested_wrappers',
   {
-    id: pipe(string(), column({ type: 'text' })),
-    optionalNullable: optional(nullable(pipe(string(), column({ type: 'text' })))),
-    nullableOptional: nullable(optional(pipe(string(), column({ type: 'text' })))),
+    id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    optionalNullable: optional(
+      nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
+    nullableOptional: nullable(
+      optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
     nonOptionalNullableOptional: nonOptional(
-      nullable(optional(pipe(string(), column({ type: 'text' })))),
+      nullable(
+        optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+      ),
     ),
     nonNullableOptionalNullable: nonNullable(
-      optional(nullable(pipe(string(), column({ type: 'text' })))),
+      optional(
+        nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+      ),
     ),
     nonNullishNullableOptional: nonNullish(
-      nullable(optional(pipe(string(), column({ type: 'text' })))),
+      nullable(
+        optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+      ),
     ),
   },
   { primaryKey: 'id' },
@@ -118,9 +148,15 @@ describe('InferSelectedColumns', () => {
     const Post = defineTable(
       'posts',
       {
-        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-        title: pipe(string(), column({ type: 'text' })),
-        authorId: pipe(number(), column({ type: 'integer' })),
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        title: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+        authorId: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
       },
       { primaryKey: 'id' },
     )
@@ -141,8 +177,14 @@ describe('InferSelectedColumns', () => {
     const Post = defineTable(
       'posts',
       {
-        id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-        title: pipe(string(), column({ type: 'text' })),
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        title: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id' },
     )
@@ -188,7 +230,7 @@ describe('InferInsert', () => {
     const Tagged = defineTable(
       'tagged_defaults',
       {
-        id: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
         value: pipe(
           string(),
           column({ databaseDefault: { kind: 'literal', value: 'ready' } }),
@@ -200,7 +242,7 @@ describe('InferInsert', () => {
       defineTable(
         'maybe_defaults',
         {
-          id: pipe(string(), column({ type: 'text' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
           value: pipe(string(), column({ databaseDefault })),
         },
         { primaryKey: 'id' },
@@ -215,8 +257,14 @@ describe('InferInsert', () => {
   it('should omit generated always columns', () => {
     const Schema = pipe(
       object({
-        id: pipe(number(), column({ type: 'integer', generated: 'always' })),
-        label: pipe(string(), column({ type: 'text' })),
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'always' },
+          }),
+        ),
+        label: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       }),
       title('g'),
       table({ name: 'g', primaryKey: 'id' }),
@@ -228,38 +276,28 @@ describe('InferInsert', () => {
     expectTypeOf<Insert>().not.toHaveProperty('id')
   })
 
-  it('should model tagged identity, computed generation, and legacy autoIncrement', () => {
+  it('should model identity and computed generation', () => {
     const Generated = defineTable(
       'tagged_generated',
       {
         id: pipe(
           number(),
           column({
-            type: 'integer',
+            physicalType: { postgresql: 'integer' },
             generation: { kind: 'identity', mode: 'byDefault' },
-          }),
-        ),
-        legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
-        compatible: pipe(
-          number(),
-          column({
-            type: 'integer',
-            generation: { kind: 'identity', mode: 'byDefault' },
-            generated: 'byDefault',
-            autoIncrement: true,
           }),
         ),
         always: pipe(
           number(),
           column({
-            type: 'integer',
+            physicalType: { postgresql: 'integer' },
             generation: { kind: 'identity', mode: 'always' },
           }),
         ),
         computed: pipe(
           string(),
           column({
-            type: 'text',
+            physicalType: { postgresql: 'text' },
             generation: {
               kind: 'computed',
               expression: {
@@ -276,8 +314,6 @@ describe('InferInsert', () => {
     type Insert = InferInsert<typeof Generated>
 
     expectTypeOf<Insert['id']>().toEqualTypeOf<number | undefined>()
-    expectTypeOf<Insert['legacy']>().toEqualTypeOf<number | undefined>()
-    expectTypeOf<Insert['compatible']>().toEqualTypeOf<number | undefined>()
     expectTypeOf<Insert>().not.toHaveProperty('always')
     expectTypeOf<Insert>().not.toHaveProperty('computed')
   })
@@ -287,10 +323,21 @@ describe('InferUpdate', () => {
   it('should exclude readonly and always-generated on partial patch', () => {
     const Schema = pipe(
       object({
-        id: pipe(number(), column({ type: 'integer', generated: 'always' })),
-        stamp: pipe(string(), column({ type: 'text', readonly: true })),
-        name: pipe(string(), column({ type: 'text' })),
-        age: nullable(pipe(number(), column({ type: 'integer' }))),
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'always' },
+          }),
+        ),
+        stamp: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, readonly: true }),
+        ),
+        name: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+        age: nullable(
+          pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+        ),
       }),
       title('u'),
       table({ name: 'u', primaryKey: 'id' }),
@@ -356,10 +403,10 @@ describe('JSON-shaped nested objects', () => {
   it('should keep plain object types for nested objects without reference', () => {
     const Schema = pipe(
       object({
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         payload: pipe(
           object({ key: string(), value: number() }),
-          column({ type: 'jsonb' }),
+          column({ physicalType: { postgresql: 'jsonb' } }),
         ),
       }),
       title('j'),
