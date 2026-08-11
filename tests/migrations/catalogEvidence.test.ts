@@ -19,8 +19,8 @@ const context = {
 const Users = defineTable(
   'users',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    email: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id' },
 )

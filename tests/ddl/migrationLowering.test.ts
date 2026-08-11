@@ -7,7 +7,7 @@ import type { MigrationProgram } from '@/ddl/migrationProgram'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
-import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import { completePostgresCatalog } from '../helpers/catalog'
 
 const namespaceContext = {
@@ -20,8 +20,8 @@ const namespaceContext = {
 const Users = defineTable(
   'users',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    email: pipe(string(), column({ type: 'text', unique: true })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' }, unique: true })),
   },
   { primaryKey: 'id', schema: 'public', indexes: [{ columns: ['email'] }] },
 )
@@ -29,7 +29,7 @@ const Users = defineTable(
 const Posts = defineTable(
   'posts',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     authorId: reference(Users, 'id', { onDelete: 'cascade' }),
   },
   { primaryKey: 'id', schema: 'public' },

@@ -6,12 +6,7 @@ import type {
   LoweredDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import {
-  getColumnMetadata,
-  getReferenceMetadata,
-  normalizeColumnMetadata,
-  normalizeIndex,
-} from '@/schemas'
+import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
@@ -44,8 +39,7 @@ function isCandidateKey(table: AuthoredDesiredTable, column: string): boolean {
   if (primaryKey.length === 1 && primaryKey[0] === column) return true
   const authoredColumn = table.columns.find((candidate) => candidate.name === column)
   if (authoredColumn?.metadata?.unique) return true
-  return (table.metadata.indexes ?? []).some((raw) => {
-    const index = normalizeIndex(raw)
+  return (table.metadata.indexes ?? []).some((index) => {
     return (
       index.unique === true && index.columns.length === 1 && index.columns[0] === column
     )
@@ -76,13 +70,10 @@ export function registerDesiredSchema(
       if (!schema || schema.kind !== 'schema') continue
       const reference = getReferenceMetadata(schema)
       const columnMetadata = getColumnMetadata(schema)
-      const normalizedMetadata = columnMetadata
-        ? normalizeColumnMetadata(columnMetadata)
-        : undefined
       columns.push({
         name,
         schema,
-        ...(normalizedMetadata === undefined ? {} : { metadata: normalizedMetadata }),
+        ...(columnMetadata === undefined ? {} : { metadata: columnMetadata }),
         ...(reference === undefined
           ? {}
           : {

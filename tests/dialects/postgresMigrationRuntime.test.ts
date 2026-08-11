@@ -516,8 +516,8 @@ describe('PostgreSQL migration runtime failures', () => {
     expect(runtime.prepare).not.toHaveBeenCalled()
   })
 
-  it('acquires legacy then scoped keys and releases them in reverse', async () => {
-    const runtime = harness({ applicationId: 'billing', lockResults: [true, true] })
+  it('acquires and releases only the scoped key for an application', async () => {
+    const runtime = harness({ applicationId: 'billing', lockResults: [true] })
     await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
 
     const locks = runtime.queries.filter((query) =>
@@ -526,14 +526,10 @@ describe('PostgreSQL migration runtime failures', () => {
     const unlocks = runtime.queries.filter((query) =>
       /pg_advisory_unlock/i.test(query.sql),
     )
-    expect(locks).toHaveLength(2)
-    expect(unlocks).toHaveLength(2)
-    expect(locks[0]!.params).toEqual([0x7363_686d, 0x6f72_6d00])
-    expect(unlocks.map((query) => query.params)).toEqual([
-      locks[1]!.params,
-      locks[0]!.params,
-    ])
-    expect(locks[0]!.params).not.toEqual(locks[1]!.params)
+    expect(locks).toHaveLength(1)
+    expect(unlocks).toHaveLength(1)
+    expect(unlocks[0]!.params).toEqual(locks[0]!.params)
+    expect(locks[0]!.params).not.toEqual([0x7363_686d, 0x6f72_6d00])
   })
 
   it('derives stable scoped keys and separates database/application identities', () => {
@@ -545,17 +541,17 @@ describe('PostgreSQL migration runtime failures', () => {
             database,
             applicationId,
           }),
-        )[1]!,
+        )[0]!,
       )
     expect(scoped('test', 'billing')).toEqual(scoped('test', 'billing'))
     expect(scoped('test', 'billing')).not.toEqual(scoped('other', 'billing'))
     expect(scoped('test', 'billing')).not.toEqual(scoped('test', 'orders'))
   })
 
-  it('performs one nonblocking attempt for each required lock', async () => {
+  it('performs one nonblocking attempt for the scoped lock', async () => {
     const runtime = harness({
       applicationId: 'billing',
-      lockResults: [true, false],
+      lockResults: [false],
     })
     const error = await runtime
       .execute(program(), { lockTimeoutMs: 0 })
@@ -564,10 +560,10 @@ describe('PostgreSQL migration runtime failures', () => {
     expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
     expect(
       runtime.queries.filter((query) => /pg_try_advisory_lock/i.test(query.sql)),
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     expect(
       runtime.queries.filter((query) => /pg_advisory_unlock/i.test(query.sql)),
-    ).toHaveLength(1)
+    ).toHaveLength(0)
     expect(
       runtime.queries.some((query) =>
         /\bbegin\b|create table|count\(\*\)/i.test(query.sql),
@@ -575,12 +571,12 @@ describe('PostgreSQL migration runtime failures', () => {
     ).toBe(false)
   })
 
-  it('uses one deadline across slow legacy and scoped acquisition calls', async () => {
+  it('enforces the deadline while the scoped lock is unavailable', async () => {
     vi.useFakeTimers()
     try {
       const runtime = harness({
         applicationId: 'billing',
-        lockResults: [true, true],
+        lockResults: [false, true],
         lockDelayMs: 30,
       })
       const pending = runtime
@@ -596,7 +592,7 @@ describe('PostgreSQL migration runtime failures', () => {
       })
       expect(
         runtime.queries.filter((query) => /pg_try_advisory_lock/i.test(query.sql)),
-      ).toHaveLength(2)
+      ).toHaveLength(1)
       expect(
         runtime.queries.some((query) => /\bbegin\b|create table/i.test(query.sql)),
       ).toBe(false)
@@ -605,62 +601,11 @@ describe('PostgreSQL migration runtime failures', () => {
     }
   })
 
-  it('retains partial release verification failure and discards', async () => {
+  it('preserves the applied outcome when scoped release verification fails', async () => {
     const runtime = harness({
       applicationId: 'billing',
-      lockResults: [true, false],
+      lockResults: [true],
       unlockResults: [false],
-    })
-    const error = await runtime
-      .execute(program(), { lockTimeoutMs: 0 })
-      .catch((cause) => cause)
-
-    expect(error).toMatchObject({
-      stage: 'lock',
-      outcome: 'unchanged',
-      retryable: true,
-      cleanupFailures: [{ stage: 'unlock' }],
-    })
-    expect(runtime.discard).toHaveBeenCalled()
-  })
-
-  it('bounds a hung partial-acquisition release and retains primary timeout', async () => {
-    vi.useFakeTimers()
-    try {
-      const runtime = harness({
-        applicationId: 'billing',
-        lockResults: [true, false],
-        hangQuery: /pg_advisory_unlock/i,
-      })
-      const pending = runtime
-        .execute(program(), { lockTimeoutMs: 0 })
-        .catch((cause) => cause)
-      await vi.advanceTimersByTimeAsync(5_000)
-      const error = await pending
-
-      expect(error).toMatchObject({
-        stage: 'lock',
-        outcome: 'unchanged',
-        retryable: true,
-        cleanupFailures: [{ stage: 'unlock' }],
-      })
-      expect((error as Error).message).toMatch(/one no-wait try/i)
-      expect(
-        runtime.queries.some((query) =>
-          /\bbegin\b|create table|count\(\*\)/i.test(query.sql),
-        ),
-      ).toBe(false)
-      expect(runtime.discard).toHaveBeenCalled()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('attempts every acquired release and preserves applied outcome', async () => {
-    const runtime = harness({
-      applicationId: 'billing',
-      lockResults: [true, true],
-      unlockResults: [false, new Error('legacy unlock failed')],
     })
     const error = await runtime.execute().catch((cause) => cause)
 
@@ -668,11 +613,11 @@ describe('PostgreSQL migration runtime failures', () => {
       stage: 'unlock',
       outcome: 'applied',
       retryable: false,
-      cleanupFailures: [{ stage: 'unlock' }, { stage: 'unlock' }],
+      cleanupFailures: [{ stage: 'unlock' }],
     })
     expect(
       runtime.queries.filter((query) => /pg_advisory_unlock/i.test(query.sql)),
-    ).toHaveLength(2)
+    ).toHaveLength(1)
     expect(runtime.discard).toHaveBeenCalled()
   })
 

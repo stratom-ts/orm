@@ -183,15 +183,15 @@ describe('whole-graph desired-schema lowering', () => {
     const Composite = defineTable(
       'composite',
       {
-        tenantId: pipe(string(), column({ type: 'uuid' })),
-        memberId: pipe(string(), column({ type: 'uuid' })),
+        tenantId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        memberId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
       },
       { primaryKey: ['tenantId', 'memberId'] },
     )
     const Ref = defineTable(
       'refs',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         memberId: reference(Composite, 'memberId'),
       },
       { primaryKey: 'id' },
@@ -208,13 +208,13 @@ describe('whole-graph desired-schema lowering', () => {
   it('accepts table cycles when reference targets have ordinary physical types', () => {
     const InitialA = defineTable(
       'a',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const B = defineTable(
       'b',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         aId: reference(InitialA, 'id'),
       },
       { primaryKey: 'id' },
@@ -222,7 +222,7 @@ describe('whole-graph desired-schema lowering', () => {
     const A = defineTable(
       'a',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         bId: reference(B, 'id'),
       },
       { primaryKey: 'id' },
@@ -236,7 +236,7 @@ describe('whole-graph desired-schema lowering', () => {
   it('resolves reference chains and reports reference-only cycles deterministically', () => {
     const Root = defineTable(
       'root',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Middle = defineTable(
@@ -262,7 +262,7 @@ describe('whole-graph desired-schema lowering', () => {
 
     const InitialB = defineTable(
       'cycle_b',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const CycleA = defineTable(
@@ -284,15 +284,15 @@ describe('whole-graph desired-schema lowering', () => {
     const Target = defineTable(
       'indexed_target',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        code: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        code: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', indexes: [{ columns: ['code'], unique: true }] },
     )
     const Source = defineTable(
       'indexed_source',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         code: reference(Target, 'code'),
       },
       { primaryKey: 'id' },
@@ -307,8 +307,11 @@ describe('whole-graph desired-schema lowering', () => {
     const Membership = defineTable(
       'memberships',
       {
-        tenantId: pipe(string(), column({ type: 'uuid', unique: true })),
-        memberId: pipe(string(), column({ type: 'uuid' })),
+        tenantId: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'uuid' }, unique: true }),
+        ),
+        memberId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
       },
       { primaryKey: ['tenantId', 'memberId'] },
     )
@@ -327,14 +330,24 @@ describe('whole-graph desired-schema lowering', () => {
     const Target = defineTable(
       'composed_targets',
       {
-        id: pipe(string(), column({ type: 'uuid', default: 'gen_random_uuid()' })),
+        id: pipe(
+          string(),
+          column({
+            physicalType: { postgresql: 'uuid' },
+            databaseDefault: {
+              kind: 'dialectExpression',
+              dialect: 'postgresql',
+              expression: 'gen_random_uuid()',
+            },
+          }),
+        ),
       },
       { primaryKey: 'id' },
     )
     const Source = defineTable(
       'composed_sources',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: pipe(
           reference(Target, 'id', { onDelete: 'set default' }),
           column({
@@ -394,13 +407,13 @@ describe('whole-graph desired-schema lowering', () => {
   it('maps reference values with the target type and local mapping functions', () => {
     const Target = defineTable(
       'mapped_targets',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Source = defineTable(
       'mapped_sources',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: pipe(
           reference(Target, 'id'),
           column({
@@ -421,13 +434,13 @@ describe('whole-graph desired-schema lowering', () => {
   it('validates reference targets before global or dialect mapping', () => {
     const Target = defineTable(
       'mapper_targets',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Source = defineTable(
       'mapper_sources',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: reference(Target, 'id'),
       },
       { primaryKey: 'id' },
@@ -457,7 +470,7 @@ describe('whole-graph desired-schema lowering', () => {
   })
 })
 
-describe('PostgreSQL compatibility ingress', () => {
+describe('PostgreSQL desired-schema lowering', () => {
   it('reports the same first lowering error across column-order permutations', () => {
     const loweringError = (table: TableHandle): MigrationError => {
       try {
@@ -472,18 +485,30 @@ describe('PostgreSQL compatibility ingress', () => {
     const PhysicalForward = defineTable(
       'deterministic_physical',
       {
-        zeta: pipe(string(), column({ type: 'unsupported_zeta' })),
-        alpha: pipe(string(), column({ type: 'unsupported_alpha' })),
-        id: pipe(string(), column({ type: 'uuid' })),
+        zeta: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'unsupported_zeta' } }),
+        ),
+        alpha: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'unsupported_alpha' } }),
+        ),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
       },
       { primaryKey: 'id' },
     )
     const PhysicalReverse = defineTable(
       'deterministic_physical',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        alpha: pipe(string(), column({ type: 'unsupported_alpha' })),
-        zeta: pipe(string(), column({ type: 'unsupported_zeta' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        alpha: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'unsupported_alpha' } }),
+        ),
+        zeta: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'unsupported_zeta' } }),
+        ),
       },
       { primaryKey: 'id' },
     )
@@ -504,24 +529,36 @@ describe('PostgreSQL compatibility ingress', () => {
     const CapabilityForward = defineTable(
       'deterministic_capability',
       {
-        zeta: pipe(string(), column({ type: 'text', generation: computed })),
+        zeta: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, generation: computed }),
+        ),
         alpha: pipe(
           string(),
-          column({ type: 'text', default: Number.POSITIVE_INFINITY }),
+          column({
+            physicalType: { postgresql: 'text' },
+            databaseDefault: { kind: 'literal', value: Number.POSITIVE_INFINITY },
+          }),
         ),
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
       },
       { primaryKey: 'id' },
     )
     const CapabilityReverse = defineTable(
       'deterministic_capability',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         alpha: pipe(
           string(),
-          column({ type: 'text', default: Number.POSITIVE_INFINITY }),
+          column({
+            physicalType: { postgresql: 'text' },
+            databaseDefault: { kind: 'literal', value: Number.POSITIVE_INFINITY },
+          }),
         ),
-        zeta: pipe(string(), column({ type: 'text', generation: computed })),
+        zeta: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, generation: computed }),
+        ),
       },
       { primaryKey: 'id' },
     )
@@ -534,14 +571,17 @@ describe('PostgreSQL compatibility ingress', () => {
   it('acknowledges matching local reference types and rejects mismatches', () => {
     const Target = defineTable(
       'typed_targets',
-      { id: pipe(number(), column({ type: 'integer' })) },
+      { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
       { primaryKey: 'id' },
     )
     const Matching = defineTable(
       'matching_refs',
       {
-        id: pipe(number(), column({ type: 'integer' })),
-        legacy: pipe(reference(Target, 'id'), column({ type: 'int4' })),
+        id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+        legacy: pipe(
+          reference(Target, 'id'),
+          column({ physicalType: { postgresql: 'int4' } }),
+        ),
         selected: pipe(
           reference(Target, 'id'),
           column({ physicalType: { postgresql: 'integer', sqlite: 'blob' } }),
@@ -567,15 +607,18 @@ describe('PostgreSQL compatibility ingress', () => {
     const LegacyMismatch = defineTable(
       'legacy_mismatch',
       {
-        id: pipe(number(), column({ type: 'integer' })),
-        targetId: pipe(reference(Target, 'id'), column({ type: 'text' })),
+        id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+        targetId: pipe(
+          reference(Target, 'id'),
+          column({ physicalType: { postgresql: 'text' } }),
+        ),
       },
       { primaryKey: 'id' },
     )
     const SelectedMismatch = defineTable(
       'selected_mismatch',
       {
-        id: pipe(number(), column({ type: 'integer' })),
+        id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
         targetId: pipe(
           reference(Target, 'id'),
           column({ physicalType: { postgresql: 'bigint' } }),
@@ -597,22 +640,25 @@ describe('PostgreSQL compatibility ingress', () => {
     const Defaults = defineTable(
       'defaults',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         literal: pipe(
           string(),
-          column({ type: 'text', databaseDefault: { kind: 'literal', value: 'now()' } }),
+          column({
+            physicalType: { postgresql: 'text' },
+            databaseDefault: { kind: 'literal', value: 'now()' },
+          }),
         ),
         path: pipe(
           string(),
           column({
-            type: 'text',
+            physicalType: { postgresql: 'text' },
             databaseDefault: { kind: 'literal', value: "C:\\O'Brien\\" },
           }),
         ),
         portable: pipe(
           string(),
           column({
-            type: 'timestamptz',
+            physicalType: { postgresql: 'timestamptz' },
             databaseDefault: {
               kind: 'portableExpression',
               expression: 'currentTimestamp',
@@ -622,7 +668,7 @@ describe('PostgreSQL compatibility ingress', () => {
         dialect: pipe(
           string(),
           column({
-            type: 'timestamptz',
+            physicalType: { postgresql: 'timestamptz' },
             databaseDefault: {
               kind: 'dialectExpression',
               dialect: 'postgresql',
@@ -654,11 +700,11 @@ describe('PostgreSQL compatibility ingress', () => {
       const Invalid = defineTable(
         'invalid_expression',
         {
-          id: pipe(string(), column({ type: 'uuid' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
           value: pipe(
             string(),
             column({
-              type: 'text',
+              physicalType: { postgresql: 'text' },
               databaseDefault: {
                 kind: 'dialectExpression',
                 dialect: 'postgresql',
@@ -677,11 +723,11 @@ describe('PostgreSQL compatibility ingress', () => {
     const Valid = defineTable(
       'valid_expression',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         value: pipe(
           string(),
           column({
-            type: 'text',
+            physicalType: { postgresql: 'text' },
             databaseDefault: {
               kind: 'dialectExpression',
               dialect: 'postgresql',
@@ -701,15 +747,15 @@ describe('PostgreSQL compatibility ingress', () => {
     const Target = defineTable(
       'direct_targets',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        label: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        label: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id' },
     )
     const Source = defineTable(
       'direct_sources',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: reference(Target, 'id'),
       },
       { primaryKey: 'id' },
@@ -740,11 +786,11 @@ describe('PostgreSQL compatibility ingress', () => {
     const Mismatched = defineTable(
       'mismatched',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         value: pipe(
           string(),
           column({
-            type: 'text',
+            physicalType: { postgresql: 'text' },
             databaseDefault: {
               kind: 'dialectExpression',
               dialect: 'sqlite',
@@ -758,11 +804,11 @@ describe('PostgreSQL compatibility ingress', () => {
     const Computed = defineTable(
       'computed',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         value: pipe(
           string(),
           column({
-            type: 'text',
+            physicalType: { postgresql: 'text' },
             generation: {
               kind: 'computed',
               expression: {
@@ -792,7 +838,7 @@ describe('PostgreSQL compatibility ingress', () => {
         id: pipe(
           string(),
           column({
-            type: 'uuid',
+            physicalType: { postgresql: 'uuid' },
             generation: { kind: 'identity', mode: 'byDefault' },
           }),
         ),
@@ -802,16 +848,22 @@ describe('PostgreSQL compatibility ingress', () => {
     const Commented = defineTable(
       'commented',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        value: pipe(string(), column({ type: 'text', comment: 'value' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        value: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, comment: 'value' }),
+        ),
       },
       { primaryKey: 'id' },
     )
     const Updated = defineTable(
       'updated',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        value: pipe(string(), column({ type: 'text', onUpdate: 'now()' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        value: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, onUpdate: 'now()' }),
+        ),
       },
       { primaryKey: 'id' },
     )
@@ -833,13 +885,13 @@ describe('PostgreSQL compatibility ingress', () => {
   it('rejects unsupported local metadata on composed reference columns', () => {
     const Target = defineTable(
       'reference_option_targets',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Commented = defineTable(
       'reference_commented',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: pipe(reference(Target, 'id'), column({ comment: 'target' })),
       },
       { primaryKey: 'id' },
@@ -847,7 +899,7 @@ describe('PostgreSQL compatibility ingress', () => {
     const Updated = defineTable(
       'reference_updated',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: pipe(reference(Target, 'id'), column({ onUpdate: 'now()' })),
       },
       { primaryKey: 'id' },
@@ -855,7 +907,7 @@ describe('PostgreSQL compatibility ingress', () => {
     const Computed = defineTable(
       'reference_computed',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: pipe(
           reference(Target, 'id'),
           column({
@@ -895,31 +947,21 @@ describe('PostgreSQL compatibility ingress', () => {
         id: pipe(
           number(),
           column({
-            type: 'integer',
+            physicalType: { postgresql: 'integer' },
             generation: { kind: 'identity', mode: 'byDefault' },
-          }),
-        ),
-        legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
-        compatible: pipe(
-          number(),
-          column({
-            type: 'integer',
-            generation: { kind: 'identity', mode: 'byDefault' },
-            generated: 'byDefault',
-            autoIncrement: true,
           }),
         ),
         always: pipe(
           number(),
           column({
-            type: 'integer',
+            physicalType: { postgresql: 'integer' },
             generation: { kind: 'identity', mode: 'always' },
           }),
         ),
         computed: pipe(
           string(),
           column({
-            type: 'text',
+            physicalType: { postgresql: 'text' },
             generation: {
               kind: 'computed',
               expression: {
@@ -935,43 +977,29 @@ describe('PostgreSQL compatibility ingress', () => {
     )
 
     expect(validateInsertRow(Generated, {})).toEqual({})
-    expect(validateInsertRow(Generated, { id: 1, legacy: 2, compatible: 3 })).toEqual({
-      id: 1,
-      legacy: 2,
-      compatible: 3,
-    })
+    expect(validateInsertRow(Generated, { id: 1 })).toEqual({ id: 1 })
     expect(() => validateInsertRow(Generated, { always: 1 })).toThrow(/non-insertable/i)
     expect(() => validateInsertRow(Generated, { computed: 'x' })).toThrow(
       /non-insertable/i,
     )
   })
 
-  it('lowers tagged and legacy identity fields through one normalized intent', () => {
+  it('lowers identity generation modes', () => {
     const Identities = defineTable(
       'identities',
       {
         id: pipe(
           number(),
           column({
-            type: 'integer',
+            physicalType: { postgresql: 'integer' },
             generation: { kind: 'identity', mode: 'byDefault' },
           }),
         ),
         always: pipe(
           number(),
           column({
-            type: 'integer',
+            physicalType: { postgresql: 'integer' },
             generation: { kind: 'identity', mode: 'always' },
-          }),
-        ),
-        legacy: pipe(number(), column({ type: 'integer', autoIncrement: true })),
-        compatible: pipe(
-          number(),
-          column({
-            type: 'integer',
-            generation: { kind: 'identity', mode: 'byDefault' },
-            generated: 'byDefault',
-            autoIncrement: true,
           }),
         ),
       },
@@ -985,13 +1013,5 @@ describe('PostgreSQL compatibility ingress', () => {
 
     expect(columns.find((value) => value.name === 'id')?.generated).toBe('byDefault')
     expect(columns.find((value) => value.name === 'always')?.generated).toBe('always')
-    expect(columns.find((value) => value.name === 'legacy')).toMatchObject({
-      autoIncrement: false,
-      generated: 'byDefault',
-    })
-    expect(columns.find((value) => value.name === 'compatible')).toMatchObject({
-      autoIncrement: false,
-      generated: 'byDefault',
-    })
   })
 })

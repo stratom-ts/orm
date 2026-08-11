@@ -134,21 +134,6 @@ export function registerMigrationCoordinationContract(
       expect(protectedWork(runtime.events())).toBe(false)
     })
 
-    it('retains partial-acquisition cleanup evidence and unchanged retryability', async () => {
-      const runtime = createRuntime({
-        applicationId: 'contract',
-        lockResults: [true, false],
-        releaseResults: [false],
-      })
-      await expect(runtime.execute({ lockTimeoutMs: 0 })).rejects.toMatchObject({
-        stage: 'lock',
-        outcome: 'unchanged',
-        retryable: true,
-        cleanupFailures: [{ stage: 'unlock' }],
-      })
-      expect(protectedWork(runtime.events())).toBe(false)
-    })
-
     it('preserves applied and unchanged outcomes after release cleanup failure', async () => {
       const applied = createRuntime({
         applicationId: 'contract',

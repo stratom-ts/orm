@@ -299,22 +299,22 @@ function createMockConnector(options?: {
 const Users = defineTable(
   'users',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    email: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
 
 const AppUsers = defineTable(
   'users',
-  { id: pipe(string(), column({ type: 'uuid' })) },
+  { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
   { primaryKey: 'id', schema: 'app' },
 )
 
 const AppPosts = defineTable(
   'posts',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     authorId: reference(AppUsers, 'id', { onDelete: 'cascade' }),
   },
   { primaryKey: 'id', schema: 'app' },
@@ -323,8 +323,8 @@ const AppPosts = defineTable(
 const Memberships = defineTable(
   'memberships',
   {
-    orgId: pipe(string(), column({ type: 'uuid' })),
-    userId: pipe(string(), column({ type: 'uuid' })),
+    orgId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    userId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
   },
   { primaryKey: ['orgId', 'userId'], schema: 'app' },
 )
@@ -451,12 +451,12 @@ describe('db.migrate() adapters and execution', () => {
   it('treats omitted and public schemas as the same resolved registry target', async () => {
     const BareItems = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const PublicItems = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
 
@@ -530,8 +530,8 @@ describe('db.migrate() adapters and execution', () => {
     const IndexedEvents = defineTable(
       'indexed_events',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        createdAt: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        createdAt: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', indexes: [{ columns: ['createdAt'] }] },
     )
@@ -559,8 +559,8 @@ describe('db.migrate() adapters and execution', () => {
     const ReservedEvents = defineTable(
       'reserved_events',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        payload: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        payload: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
     )
@@ -596,8 +596,11 @@ describe('db.migrate() adapters and execution', () => {
     const UniqueUsers = defineTable(
       'users',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        email: pipe(string(), column({ type: 'text', unique: true })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        email: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, unique: true }),
+        ),
       },
       { primaryKey: 'id', schema: 'public' },
     )
@@ -631,7 +634,7 @@ describe('db.migrate() adapters and execution', () => {
   it('executes an explicit registration default through canonical handle lookup', async () => {
     const TenantItems = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const connector = createMockConnector()
@@ -663,16 +666,16 @@ describe('db.migrate() adapters and execution', () => {
     const DottedSchema = defineTable(
       'c',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        schemaMarker: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        schemaMarker: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', schema: 'a.b' },
     )
     const DottedRelation = defineTable(
       'b.c',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        relationMarker: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        relationMarker: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', schema: 'a' },
     )
@@ -704,8 +707,8 @@ describe('db.migrate() adapters and execution', () => {
     const RequiredUsers = defineTable(
       'users',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        email: pipe(string(), column({ type: 'text' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       { primaryKey: 'id', schema: 'public' },
     )
@@ -923,7 +926,7 @@ describe('db.migrate() policy and coordination', () => {
   it('executes the complete plan with all required permissions', async () => {
     const AuditEvents = defineTable(
       'audit_events',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const connector = createMockConnector({ tables: destructiveCatalog() })

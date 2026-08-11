@@ -1,6 +1,6 @@
 import type { InferOutput } from 'valibot'
 
-import type { NormalizedColumnGeneration, TableSchema } from '@/schemas'
+import type { ColumnGeneration, TableSchema } from '@/schemas'
 import type { Prettify } from '@/types/prettify'
 
 import type { AnySchema } from './schema'
@@ -37,7 +37,8 @@ type ColumnMetaOf<S> =
     ? M
     : never
 
-type ColumnGenerationOf<S> = NormalizedColumnGeneration<ColumnMetaOf<S>>
+type ColumnGenerationOf<S> =
+  ColumnMetaOf<S> extends { generation: infer G } ? Extract<G, ColumnGeneration> : never
 
 // NOTE: `[ColumnMetaOf<S>] extends [never]` guards against columns with no
 // `column()` metadata. Without the guard, `ColumnMetaOf<S>` is `never`, and
@@ -70,19 +71,13 @@ type IsReadonlyColumn<S> = [ColumnMetaOf<S>] extends [never]
 
 type HasDefaultValue<S> = [ColumnMetaOf<S>] extends [never]
   ? false
-  : ColumnMetaOf<S> extends { kind: 'column'; default: infer D }
+  : ColumnMetaOf<S> extends { kind: 'column'; databaseDefault: infer D }
     ? [D] extends [never]
       ? false
       : D extends undefined
         ? false
         : true
-    : ColumnMetaOf<S> extends { kind: 'column'; databaseDefault: infer D }
-      ? [D] extends [never]
-        ? false
-        : D extends undefined
-          ? false
-          : true
-      : false
+    : false
 
 /** Optional / nullish → omit-on-insert (not necessarily SQL NULL). */
 type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }

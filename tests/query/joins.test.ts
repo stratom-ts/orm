@@ -9,9 +9,15 @@ import { createMockPostgresConnector as createMockConnector } from '../helpers/n
 const Users = defineTable(
   'users',
   {
-    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-    email: pipe(string(), column({ type: 'text' })),
-    createdAt: pipe(date(), column({ type: 'timestamptz' })),
+    id: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'byDefault' },
+      }),
+    ),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -19,10 +25,22 @@ const Users = defineTable(
 const Posts = defineTable(
   'posts',
   {
-    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-    title: pipe(string(), column({ type: 'text' })),
-    userId: pipe(number(), column({ type: 'integer' })),
-    score: pipe(number(), column({ type: 'integer', default: 0 })),
+    id: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'byDefault' },
+      }),
+    ),
+    title: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    userId: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+    score: pipe(
+      number(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        databaseDefault: { kind: 'literal', value: 0 },
+      }),
+    ),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -30,8 +48,8 @@ const Posts = defineTable(
 const AppUsers = defineTable(
   'users',
   {
-    id: pipe(number(), column({ type: 'integer' })),
-    email: pipe(string(), column({ type: 'text' })),
+    id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id', schema: 'app' },
 )
@@ -239,7 +257,7 @@ describe('joins compile', () => {
     const longSchema = `schema_${'x'.repeat(64)}`
     const LongSchemaTable = defineTable(
       'events',
-      { id: pipe(number(), column({ type: 'integer' })) },
+      { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
       { primaryKey: 'id', schema: longSchema },
     )
     const connector = createMockConnector()

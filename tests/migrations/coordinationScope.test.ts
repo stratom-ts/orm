@@ -23,14 +23,14 @@ describe('portable migration coordination scope', () => {
     expect(migrationLockReleaseOrder(scope)).toEqual(migrationLockAcquisitionOrder(scope))
   })
 
-  it('orders legacy before scoped identity and releases in reverse', () => {
+  it('uses only the application-scoped identity when configured', () => {
     const scope = createMigrationCoordinationScope({
       dialect: 'postgresql',
       database: 'app.db',
       applicationId: 'billing.v2',
     })
     const acquire = migrationLockAcquisitionOrder(scope)
-    expect(acquire.map((identity) => identity.kind)).toEqual(['legacy', 'scoped'])
+    expect(acquire.map((identity) => identity.kind)).toEqual(['scoped'])
     expect(migrationLockReleaseOrder(scope)).toEqual([...acquire].reverse())
   })
 
@@ -41,21 +41,21 @@ describe('portable migration coordination scope', () => {
         database: 'a.b',
         applicationId: 'c',
       }),
-    )[1]
+    )[0]
     const right = migrationLockAcquisitionOrder(
       createMigrationCoordinationScope({
         dialect: 'postgresql',
         database: 'a',
         applicationId: 'b.c',
       }),
-    )[1]
+    )[0]
     const otherDialect = migrationLockAcquisitionOrder(
       createMigrationCoordinationScope({
         dialect: 'sqlite',
         database: 'a.b',
         applicationId: 'c',
       }),
-    )[1]
+    )[0]
     expect(left).not.toEqual(right)
     expect(left).not.toEqual(otherDialect)
   })

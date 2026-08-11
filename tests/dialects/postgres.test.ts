@@ -44,7 +44,7 @@ const catalogRequest = (
   completeNamespaces: [],
 })
 
-function legacyCatalogView(snapshot: CatalogSnapshot) {
+function catalogFixtureView(snapshot: CatalogSnapshot) {
   const tables = snapshot.namespaces.items.flatMap((namespace) =>
     namespace.relations.items.flatMap((relation) => {
       if (relation.table.state !== 'present') return []
@@ -835,7 +835,7 @@ describe('@/dialects/postgres', () => {
           { schema: 'app', table: 'events' },
         ),
       )
-      const snapshot = legacyCatalogView(observed)
+      const snapshot = catalogFixtureView(observed)
 
       expect(snapshot.tables).toEqual([
         {
@@ -1122,7 +1122,7 @@ describe('@/dialects/postgres', () => {
         async run() {},
       }
 
-      const snapshot = legacyCatalogView(
+      const snapshot = catalogFixtureView(
         await postgresDialect.catalog.introspectCatalog(
           executor,
           catalogRequest({ schema: 'a.b', table: 'c' }, { schema: 'a', table: 'b.c' }),

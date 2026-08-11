@@ -87,9 +87,6 @@ function resolveColumnDataType(
   }
   const selected = columnMetadata?.physicalType?.[dialect.id]
   if (selected !== undefined) return String(selected)
-  if (dialect.id === 'postgresql' && columnMetadata?.type !== undefined) {
-    return String(columnMetadata.type)
-  }
   return String(dialect.inferColumnType(schema))
 }
 

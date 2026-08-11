@@ -2,86 +2,17 @@ import type { MetadataAction } from 'valibot'
 import { metadata } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
-import { SchemaError } from '@/utils/error'
 
 import { findSchemaMetadata } from './metadata'
-import type { ColumnGeneration, ColumnMetadata } from './types'
-
-/**
- * Compares two generation declarations for equivalent intent.
- *
- * @param left - First generation declaration.
- * @param right - Second generation declaration.
- *
- * @returns `true` when both declarations describe the same generation
- */
-function sameGeneration(left: ColumnGeneration, right: ColumnGeneration): boolean {
-  return (
-    left === right ||
-    (left.kind === 'identity' && right.kind === 'identity' && left.mode === right.mode)
-  )
-}
-
-/**
- * Reconciles tagged and legacy generation fields into one canonical intent.
- *
- * @example
- *   normalizeColumnGeneration({ generated: 'always' })
- *   // { kind: 'identity', mode: 'always' }
- *
- * @param metadata - Column generation fields to reconcile.
- *
- * @returns The canonical generation intent, or `undefined` when undeclared
- */
-export function normalizeColumnGeneration(
-  metadata: Pick<ColumnMetadata, 'generation' | 'generated' | 'autoIncrement'>,
-): ColumnGeneration | undefined {
-  const declarations: ColumnGeneration[] = []
-  if (metadata.generation !== undefined) declarations.push(metadata.generation)
-  if (metadata.generated !== undefined) {
-    declarations.push({ kind: 'identity', mode: metadata.generated })
-  }
-  if (metadata.autoIncrement) {
-    declarations.push({ kind: 'identity', mode: 'byDefault' })
-  }
-
-  const normalized = declarations[0]
-  if (normalized && declarations.some((value) => !sameGeneration(normalized, value))) {
-    throw new SchemaError({
-      message: 'generation, generated, and autoIncrement must describe the same strategy',
-    })
-  }
-  return normalized
-}
-
-/**
- * Rewrites generation metadata to the canonical tagged field for adapter lowering.
- *
- * @example
- *   normalizeColumnMetadata({ kind: 'column', autoIncrement: true })
- *   // { kind: 'column', generation: { kind: 'identity', mode: 'byDefault' } }
- *
- * @param metadata - Column metadata to normalize.
- *
- * @returns Column metadata containing only canonical generation fields
- */
-export function normalizeColumnMetadata(metadata: ColumnMetadata): ColumnMetadata {
-  const generation = normalizeColumnGeneration(metadata)
-  const normalized = { ...metadata }
-  delete normalized.generated
-  delete normalized.autoIncrement
-  delete normalized.generation
-  if (generation !== undefined) normalized.generation = generation
-  return normalized
-}
+import type { ColumnMetadata } from './types'
 
 /**
  * Attaches column metadata to a Valibot schema for migrations and typing.
  *
  * @example
- *   const email = pipe(string(), column({ type: 'varchar(255)', unique: true }))
+ *   const email = pipe(string(), column({ physicalType: { postgresql: 'varchar(255)' }, unique: true }))
  *
- * @param config - Column options (type, default, unique, generated, etc.)
+ * @param config - Column storage, constraint, default, and generation options.
  *
  * @returns Metadata action for use in a `pipe`
  */
@@ -99,7 +30,7 @@ export function column<
  * Type guard for column metadata (`kind: 'column'`).
  *
  * @example
- *   if (isColumnMetadata(meta)) console.log(meta.type)
+ *   if (isColumnMetadata(meta)) console.log(meta.physicalType)
  *
  * @param metadata - Value to check.
  *
@@ -115,8 +46,9 @@ export function isColumnMetadata(
  * Reads column metadata from a schema, unwrapping nullability wrappers first.
  *
  * @example
- *   const meta = getColumnMetadata(pipe(string(), column({ type: 'text' })))
- *   // { kind: 'column', type: 'text' }
+ *   const meta = getColumnMetadata(
+ *     pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+ *   )
  *
  * @param schema - Column schema that may include `column()` metadata.
  *

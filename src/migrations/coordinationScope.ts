@@ -20,7 +20,7 @@ export type MigrationCoordinationScope = Readonly<{
 
 /** Portable coordination identities; physical lock fields belong to a dialect. */
 export type MigrationCoordinationLockIdentity =
-  | Readonly<{ kind: 'legacy'; canonicalIdentity: string }>
+  | Readonly<{ kind: 'database'; canonicalIdentity: string }>
   | Readonly<{ kind: 'scoped'; canonicalIdentity: string }>
 
 /**
@@ -97,7 +97,7 @@ export function createMigrationCoordinationScope(
 }
 
 /**
- * Returns the canonical legacy-first acquisition order for a coordination scope.
+ * Returns the single coordination identity for a coordination scope.
  *
  * @example
  *   const identities = migrationLockAcquisitionOrder(scope)
@@ -107,19 +107,18 @@ export function createMigrationCoordinationScope(
 export function migrationLockAcquisitionOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {
-  const legacy: MigrationCoordinationLockIdentity = Object.freeze({
-    kind: 'legacy',
+  const database: MigrationCoordinationLockIdentity = Object.freeze({
+    kind: 'database',
     canonicalIdentity: JSON.stringify([
       'stratom',
       'migration',
-      'legacy',
+      'database',
       scope.database.canonicalIdentity,
     ]),
   })
-  if (scope.applicationId === undefined) return Object.freeze([legacy])
+  if (scope.applicationId === undefined) return Object.freeze([database])
 
   return Object.freeze([
-    legacy,
     Object.freeze({
       kind: 'scoped' as const,
       canonicalIdentity: JSON.stringify([

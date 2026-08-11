@@ -31,10 +31,13 @@ import { boolean, number, pipe, string } from 'valibot'
 const User = defineTable(
   'users',
   {
-    id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-    email: pipe(string(), column({ type: 'text', unique: true })),
-    fullName: pipe(string(), column({ type: 'text' })),
-    active: pipe(boolean(), column({ type: 'boolean', default: true })),
+    id: pipe(number(), column({ generation: { kind: 'identity', mode: 'byDefault' } })),
+    email: pipe(string(), column({ unique: true })),
+    fullName: string(),
+    active: pipe(
+      boolean(),
+      column({ databaseDefault: { kind: 'literal', value: true } }),
+    ),
   },
   { primaryKey: 'id' },
 )
@@ -67,9 +70,12 @@ column reference per property (`User.email`) for use in `where` / `select` /
 const Membership = defineTable(
   'memberships',
   {
-    orgId: pipe(string(), column({ type: 'uuid' })),
-    userId: pipe(string(), column({ type: 'uuid' })),
-    role: pipe(string(), column({ type: 'text', default: 'member' })),
+    orgId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    userId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    role: pipe(
+      string(),
+      column({ databaseDefault: { kind: 'literal', value: 'member' } }),
+    ),
   },
   {
     schema: 'public', // Postgres namespace (optional; defaults to search_path)
@@ -92,7 +98,7 @@ column names, so a typo is a compile error:
 ```typescript
 defineTable(
   'users',
-  { id: pipe(number(), column({ type: 'integer' })) },
+  { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
   {
     primaryKey: 'ide', // ✗ Type error: not assignable to 'id'
   },
@@ -169,7 +175,7 @@ justify it. A schema type with no sensible selected-adapter mapping (for
 example, a `union`) throws `MigrationError` during desired-schema lowering
 rather than silently becoming text.
 
-For new portable authoring, use `physicalType` when you need exact
+Use `physicalType` when you need exact
 adapter-selected storage and tagged database defaults/generation when database
 behavior is intended:
 
@@ -222,20 +228,16 @@ The implementation must preserve each table handle and canonical identity while
 returning one physical `CreateTableAst` per table. Adapters should report unsupported
 type mappings and capabilities with `MigrationError`.
 
-`type`, primitive `default`, `generated`, and `autoIncrement` remain available
-as the PostgreSQL compatibility ingress. Legacy expression-like defaults keep
-their existing PostgreSQL interpretation. Prefer the tagged forms in new code:
-a tagged literal string is always a literal, while a tagged expression is
-always an expression. `autoIncrement: true` and by-default identity may be
-omitted on insert or explicitly supplied; always identity and computed columns
-are non-insertable.
+A tagged literal string is always a literal, while a tagged expression is
+always an expression. By-default identity columns may be omitted on insert or
+explicitly supplied; always identity and computed columns are non-insertable.
 
 Valibot defaults, such as `optional(string(), 'new')`, are application defaults
 applied during validation. They are not database defaults and do not satisfy a
 foreign key using `SET DEFAULT`.
 
 An `optional(x)` column is still `NOT NULL` in PostgreSQL. It must declare a
-non-null `column({ default })`, use identity generation, or provide a Valibot
+non-null `column({ databaseDefault })`, use identity generation, or provide a Valibot
 optional default so every insert has a value. Use `nullable(x)` or `nullish(x)`
 when the stored value itself may be `NULL`.
 
@@ -253,7 +255,7 @@ import { reference } from 'stratom'
 const Post = defineTable(
   'posts',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     authorId: reference(User, 'id', { onDelete: 'cascade' }),
     title: pipe(string(), maxLength(200)),
   },

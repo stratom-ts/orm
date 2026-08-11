@@ -8,8 +8,8 @@ import { createMockPostgresConnector as createMockConnector } from './helpers/na
 const Users = defineTable(
   'users',
   {
-    id: pipe(string(), column({ type: 'text' })),
-    email: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -17,13 +17,13 @@ const Users = defineTable(
 const Mapped = defineTable(
   'mapped',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    createdAt: pipe(date(), column({ type: 'timestamptz' })),
-    meta: pipe(unknown(), column({ type: 'jsonb' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
+    meta: pipe(unknown(), column({ physicalType: { postgresql: 'jsonb' } })),
     label: pipe(
       string(),
       column({
-        type: 'text',
+        physicalType: { postgresql: 'text' },
         mapParam: (v) => String(v).toUpperCase(),
         mapResult: (v) => `read:${String(v)}`,
       }),

@@ -6,7 +6,7 @@ import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRel
 import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
 import { InvariantError, attemptSync } from '@/utils/error'
 
-import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import {
   catalogPrimaryKey as createCatalogPrimaryKey,
   planMigration,
@@ -37,8 +37,8 @@ const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 const Users = defineTable(
   'users',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    email: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { schema: 'public', primaryKey: 'id' },
 )
@@ -278,13 +278,13 @@ describe('migration ownership', () => {
   it('validates referenced identities even when their handles are not registered', () => {
     const LongTarget = defineTable(
       'x'.repeat(64),
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Referencing = defineTable(
       'referencing',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         targetId: reference(LongTarget, 'id'),
       },
       { primaryKey: 'id' },
@@ -301,7 +301,7 @@ describe('migration ownership', () => {
   it('stabilizes SQLite-equivalent relation and namespace diagnostics', () => {
     const SqliteUsers = defineTable(
       'Users',
-      { id: pipe(string(), column({ type: 'text' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
       { primaryKey: 'id' },
     )
     const sqliteIdentities = createCanonicalRelationIdentityModule({

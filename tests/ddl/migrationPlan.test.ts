@@ -14,7 +14,7 @@ import {
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import type { TableHandle } from '@/types'
 
-import type { LegacyCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import {
   completePostgresCatalog,
   catalogPrimaryKey as createCatalogPrimaryKey,
@@ -61,8 +61,8 @@ function emptyCatalog(): CatalogSnapshot {
 const Users = defineTable(
   'users',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
-    email: pipe(string(), column({ type: 'text' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -70,9 +70,12 @@ const Users = defineTable(
 const Settings = defineTable(
   'settings',
   {
-    id: pipe(string(), column({ type: 'integer' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'integer' } })),
     label: string(),
-    status: pipe(string(), column({ default: 'pending' })),
+    status: pipe(
+      string(),
+      column({ databaseDefault: { kind: 'literal', value: 'pending' } }),
+    ),
   },
   { primaryKey: 'id', schema: 'public' },
 )
@@ -80,14 +83,16 @@ const Settings = defineTable(
 const Accounts = defineTable(
   'accounts',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     addedReference: reference(Users, 'id'),
-    addedText: pipe(string(), column({ type: 'text' })),
-    changedType: pipe(string(), column({ type: 'text' })),
-    madeNullable: nullable(pipe(string(), column({ type: 'text' }))),
-    madeRequired: pipe(string(), column({ type: 'text' })),
-    indexSecond: pipe(string(), column({ type: 'text' })),
-    indexFirst: pipe(string(), column({ type: 'text' })),
+    addedText: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    changedType: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    madeNullable: nullable(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
+    madeRequired: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    indexSecond: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    indexFirst: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
   {
     primaryKey: 'id',
@@ -103,7 +108,7 @@ const Accounts = defineTable(
 const Comments = defineTable(
   'comments',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     userId: reference(Users, 'id'),
   },
   { primaryKey: 'id' },
@@ -111,16 +116,28 @@ const Comments = defineTable(
 
 const AuditEvents = defineTable(
   'events',
-  { id: pipe(string(), column({ type: 'uuid' })) },
+  { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
   { primaryKey: 'id', schema: 'audit' },
 )
 
 const ManagedUsers = defineTable(
   'managed_users',
   {
-    id: pipe(string(), column({ type: 'integer', generated: 'byDefault' })),
-    email: pipe(string(), column({ type: 'text', unique: true })),
-    status: pipe(string(), column({ type: 'text', default: 'pending' })),
+    id: pipe(
+      string(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        generation: { kind: 'identity', mode: 'byDefault' },
+      }),
+    ),
+    email: pipe(string(), column({ physicalType: { postgresql: 'text' }, unique: true })),
+    status: pipe(
+      string(),
+      column({
+        physicalType: { postgresql: 'text' },
+        databaseDefault: { kind: 'literal', value: 'pending' },
+      }),
+    ),
   },
   {
     primaryKey: 'id',
@@ -132,7 +149,7 @@ const ManagedUsers = defineTable(
 const ManagedPosts = defineTable(
   'managed_posts',
   {
-    id: pipe(string(), column({ type: 'uuid' })),
+    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     userId: reference(ManagedUsers, 'id', {
       onDelete: 'cascade',
       onUpdate: 'restrict',
@@ -380,7 +397,10 @@ describe('Migration Plan construction', () => {
       'portable_settings',
       {
         id: string(),
-        status: pipe(string(), column({ default: 'ready' })),
+        status: pipe(
+          string(),
+          column({ databaseDefault: { kind: 'literal', value: 'ready' } }),
+        ),
         taggedStatus: string(),
       },
       { primaryKey: 'id' },
@@ -414,9 +434,22 @@ describe('Migration Plan construction', () => {
               notNull: !isSqlNullable(column.schema),
               unique: column.metadata?.unique ?? false,
               autoIncrement: false,
-              ...(column.metadata?.default === undefined
+              ...(column.metadata?.databaseDefault === undefined
                 ? {}
-                : { defaultValue: column.metadata.default }),
+                : {
+                    databaseDefault: {
+                      sql: `custom_database:${String(
+                        column.metadata.databaseDefault.kind === 'literal'
+                          ? column.metadata.databaseDefault.value
+                          : column.metadata.databaseDefault.expression,
+                      )}`,
+                      normalized: `custom_database:${String(
+                        column.metadata.databaseDefault.kind === 'literal'
+                          ? column.metadata.databaseDefault.value
+                          : column.metadata.databaseDefault.expression,
+                      )}`,
+                    },
+                  }),
               ...(column.name === 'taggedStatus'
                 ? {
                     defaultValue: 'legacy',
@@ -452,7 +485,7 @@ describe('Migration Plan construction', () => {
               name: 'status',
               dataType: 'custom_string_alias',
               isNullable: false,
-              defaultExpression: 'custom_default:ready',
+              defaultExpression: 'custom_database:ready',
             },
             {
               name: 'taggedStatus',
@@ -610,12 +643,12 @@ describe('Migration Plan construction', () => {
   it('uses locale-independent code-unit target ordering', () => {
     const Lowercase = defineTable(
       'alpha',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Uppercase = defineTable(
       'Zulu',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
 
@@ -632,17 +665,17 @@ describe('Migration Plan construction', () => {
   it('produces equal Migration Plans for omitted and explicit resolved defaults', () => {
     const Omitted = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Public = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const Tenant = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'tenant' },
     )
     const tenantCatalog: CatalogSnapshot = {
@@ -670,12 +703,12 @@ describe('Migration Plan construction', () => {
   it('uses an explicit registration default before the session writable default', () => {
     const Omitted = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Tenant = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'tenant' },
     )
 
@@ -689,12 +722,12 @@ describe('Migration Plan construction', () => {
   it('matches omitted and explicit relations against non-default catalog namespaces', () => {
     const Omitted = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Public = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'public' },
     )
     const catalog: CatalogSnapshot = {
@@ -728,13 +761,13 @@ describe('Migration Plan construction', () => {
   it('applies the registration default to foreign-key targets', () => {
     const Parent = defineTable(
       'parents',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const Child = defineTable(
       'children',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         parentId: reference(Parent, 'id'),
       },
       { primaryKey: 'id' },
@@ -771,7 +804,7 @@ describe('Migration Plan construction', () => {
     const handles = definitions.map(([name, schema]) =>
       defineTable(
         name,
-        { id: pipe(string(), column({ type: 'uuid' })) },
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
         { primaryKey: 'id', schema },
       ),
     )
@@ -798,12 +831,12 @@ describe('Migration Plan construction', () => {
   it('matches dotted desired and catalog tuples without collisions', () => {
     const DottedSchema = defineTable(
       'c',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'a.b' },
     )
     const DottedRelation = defineTable(
       'b.c',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'a' },
     )
     const catalog: CatalogSnapshot = {
@@ -833,7 +866,7 @@ describe('Migration Plan construction', () => {
 
     const Anchor = defineTable(
       'anchor',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'a' },
     )
     const mismatchedCatalog: CatalogSnapshot = {
@@ -863,7 +896,7 @@ describe('Migration Plan construction', () => {
   it('formats relation members structurally in planning diagnostics', () => {
     const Dotted = defineTable(
       'c',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'a.b' },
     )
     const catalog: CatalogSnapshot = {
@@ -916,19 +949,28 @@ describe('Migration Plan construction', () => {
     const Teams = defineTable(
       'teams',
       {
-        tenantId: pipe(string(), column({ type: 'uuid' })),
-        teamId: pipe(string(), column({ type: 'uuid', unique: true })),
+        tenantId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        teamId: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'uuid' }, unique: true }),
+        ),
       },
       { primaryKey: ['tenantId', 'teamId'], schema: 'public' },
     )
     const Memberships = defineTable(
       'memberships',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         primaryTeamId: reference(Teams, 'teamId'),
         secondaryTeamId: reference(Teams, 'teamId'),
-        primaryEmail: pipe(string(), column({ type: 'text', unique: true })),
-        secondaryEmail: pipe(string(), column({ type: 'text', unique: true })),
+        primaryEmail: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, unique: true }),
+        ),
+        secondaryEmail: pipe(
+          string(),
+          column({ physicalType: { postgresql: 'text' }, unique: true }),
+        ),
       },
       { primaryKey: 'id', schema: 'public' },
     )
@@ -1137,18 +1179,42 @@ describe('Migration Plan construction', () => {
     const Forward = defineTable(
       'ordered_settings',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
-        alpha: pipe(string(), column({ type: 'text', default: 'alpha' })),
-        zeta: pipe(string(), column({ type: 'text', default: 'zeta' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        alpha: pipe(
+          string(),
+          column({
+            physicalType: { postgresql: 'text' },
+            databaseDefault: { kind: 'literal', value: 'alpha' },
+          }),
+        ),
+        zeta: pipe(
+          string(),
+          column({
+            physicalType: { postgresql: 'text' },
+            databaseDefault: { kind: 'literal', value: 'zeta' },
+          }),
+        ),
       },
       { primaryKey: 'id' },
     )
     const Reversed = defineTable(
       'ordered_settings',
       {
-        zeta: pipe(string(), column({ type: 'text', default: 'zeta' })),
-        alpha: pipe(string(), column({ type: 'text', default: 'alpha' })),
-        id: pipe(string(), column({ type: 'uuid' })),
+        zeta: pipe(
+          string(),
+          column({
+            physicalType: { postgresql: 'text' },
+            databaseDefault: { kind: 'literal', value: 'zeta' },
+          }),
+        ),
+        alpha: pipe(
+          string(),
+          column({
+            physicalType: { postgresql: 'text' },
+            databaseDefault: { kind: 'literal', value: 'alpha' },
+          }),
+        ),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
       },
       { primaryKey: 'id' },
     )
@@ -1299,7 +1365,7 @@ describe('Migration Plan construction', () => {
   it('scopes reserved catalog names to their own namespace', () => {
     const TenantUsers = defineTable(
       'users',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'other_app' },
     )
     const catalog = usersCatalog([
@@ -1339,7 +1405,7 @@ describe('Migration Plan construction', () => {
   it('keeps step kinds and phase order stable while targets stay profile-local', () => {
     const Items = defineTable(
       'items',
-      { id: pipe(string(), column({ type: 'uuid' })) },
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
     const tenantCatalog: CatalogSnapshot = {

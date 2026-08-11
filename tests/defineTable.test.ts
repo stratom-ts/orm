@@ -24,12 +24,35 @@ import {
 import { validateInsertRow } from '@/query'
 
 const userColumns = {
-  id: pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
-  email: pipe(string(), column({ type: 'varchar(255)', unique: true })),
-  fullName: pipe(string(), column({ type: 'text' })),
-  age: nullable(pipe(number(), column({ type: 'integer' }))),
-  bio: optional(pipe(string(), column({ type: 'text', default: '' }))),
-  active: pipe(boolean(), column({ type: 'boolean', default: true })),
+  id: pipe(
+    number(),
+    column({
+      physicalType: { postgresql: 'integer' },
+      generation: { kind: 'identity', mode: 'byDefault' },
+    }),
+  ),
+  email: pipe(
+    string(),
+    column({ physicalType: { postgresql: 'varchar(255)' }, unique: true }),
+  ),
+  fullName: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+  age: nullable(pipe(number(), column({ physicalType: { postgresql: 'integer' } }))),
+  bio: optional(
+    pipe(
+      string(),
+      column({
+        physicalType: { postgresql: 'text' },
+        databaseDefault: { kind: 'literal', value: '' },
+      }),
+    ),
+  ),
+  active: pipe(
+    boolean(),
+    column({
+      physicalType: { postgresql: 'boolean' },
+      databaseDefault: { kind: 'literal', value: true },
+    }),
+  ),
 }
 
 const User = defineTable('users', userColumns, {
@@ -85,9 +108,9 @@ describe('defineTable', () => {
     const Membership = defineTable(
       'memberships',
       {
-        orgId: pipe(string(), column({ type: 'uuid' })),
-        userId: pipe(string(), column({ type: 'uuid' })),
-        role: pipe(string(), column({ type: 'text' })),
+        orgId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        userId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        role: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
       {
         primaryKey: ['orgId', 'userId'],
@@ -104,23 +127,25 @@ describe('defineTable', () => {
     ])
   })
 
-  it('should accept string indexes for backward compatibility', () => {
-    const Tag = defineTable(
-      'tags',
-      {
-        id: pipe(string(), column({ type: 'uuid' })),
-        label: pipe(string(), column({ type: 'text' })),
-      },
-      { primaryKey: 'id', indexes: ['label'] },
-    )
-    expect(Tag.getTableMetadata().indexes).toEqual(['label'])
+  it('should reject string index shorthand', () => {
+    expect(() =>
+      defineTable(
+        'tags',
+        {
+          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+          label: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+        },
+        // @ts-expect-error - indexes require explicit configuration objects
+        { primaryKey: 'id', indexes: ['label'] },
+      ),
+    ).toThrow(/must list at least one column/)
   })
 
   it('should throw SchemaError when primaryKey column is missing', () => {
     expect(() =>
       defineTable(
         'bad',
-        { id: pipe(string(), column({ type: 'uuid' })) },
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
         // @ts-expect-error - 'missing' is not a declared column
         { primaryKey: 'missing' },
       ),
@@ -129,7 +154,7 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'bad',
-        { id: pipe(string(), column({ type: 'uuid' })) },
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
         // @ts-expect-error - 'missing' is not a declared column
         { primaryKey: 'missing' },
       ),
@@ -140,7 +165,7 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'bad',
-        { id: pipe(string(), column({ type: 'uuid' })) },
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
         // @ts-expect-error - 'nope' is not a declared column
         { primaryKey: 'id', indexes: [{ columns: ['nope'] }] },
       ),
@@ -151,7 +176,7 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'bad',
-        { id: pipe(string(), column({ type: 'uuid' })) },
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
         { primaryKey: [] },
       ),
     ).toThrow(SchemaError)
@@ -162,8 +187,8 @@ describe('defineTable', () => {
       defineTable(
         'bad',
         {
-          id: pipe(string(), column({ type: 'uuid' })),
-          getSchema: pipe(string(), column({ type: 'text' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+          getSchema: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
         },
         { primaryKey: 'id' },
       ),
@@ -173,8 +198,11 @@ describe('defineTable', () => {
       defineTable(
         'bad',
         {
-          id: pipe(string(), column({ type: 'uuid' })),
-          getTableMetadata: pipe(string(), column({ type: 'text' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+          getTableMetadata: pipe(
+            string(),
+            column({ physicalType: { postgresql: 'text' } }),
+          ),
         },
         { primaryKey: 'id' },
       ),
@@ -186,7 +214,13 @@ describe('defineTable', () => {
       defineTable(
         'bad',
         {
-          id: pipe(string(), column({ type: 'uuid', generated: 'byDefault' })),
+          id: pipe(
+            string(),
+            column({
+              physicalType: { postgresql: 'uuid' },
+              generation: { kind: 'identity', mode: 'byDefault' },
+            }),
+          ),
         },
         { primaryKey: 'id' },
       ),
@@ -195,7 +229,13 @@ describe('defineTable', () => {
       defineTable(
         'bad',
         {
-          id: pipe(string(), column({ type: 'uuid', generated: 'byDefault' })),
+          id: pipe(
+            string(),
+            column({
+              physicalType: { postgresql: 'uuid' },
+              generation: { kind: 'identity', mode: 'byDefault' },
+            }),
+          ),
         },
         { primaryKey: 'id' },
       ),
@@ -206,7 +246,9 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'invalid_optional',
-        { id: optional(pipe(string(), column({ type: 'text' }))) },
+        {
+          id: optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+        },
         { primaryKey: 'id' },
       ),
     ).toThrow(/requires a default or generated value/)
@@ -214,7 +256,17 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'null_default',
-        { id: optional(pipe(string(), column({ type: 'text', default: null }))) },
+        {
+          id: optional(
+            pipe(
+              string(),
+              column({
+                physicalType: { postgresql: 'text' },
+                databaseDefault: { kind: 'literal', value: null },
+              }),
+            ),
+          ),
+        },
         { primaryKey: 'id' },
       ),
     ).toThrow(/cannot default to null/)
@@ -224,7 +276,17 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'database_default',
-        { id: optional(pipe(string(), column({ type: 'text', default: 'new' }))) },
+        {
+          id: optional(
+            pipe(
+              string(),
+              column({
+                physicalType: { postgresql: 'text' },
+                databaseDefault: { kind: 'literal', value: 'new' },
+              }),
+            ),
+          ),
+        },
         { primaryKey: 'id' },
       ),
     ).not.toThrow()
@@ -244,7 +306,13 @@ describe('defineTable', () => {
         'optional_generated',
         {
           id: optional(
-            pipe(number(), column({ type: 'integer', generated: 'byDefault' })),
+            pipe(
+              number(),
+              column({
+                physicalType: { postgresql: 'integer' },
+                generation: { kind: 'identity', mode: 'byDefault' },
+              }),
+            ),
           ),
         },
         { primaryKey: 'id' },
@@ -255,7 +323,15 @@ describe('defineTable', () => {
       defineTable(
         'optional_auto_increment',
         {
-          id: optional(pipe(number(), column({ type: 'integer', autoIncrement: true }))),
+          id: optional(
+            pipe(
+              number(),
+              column({
+                physicalType: { postgresql: 'integer' },
+                generation: { kind: 'identity', mode: 'byDefault' },
+              }),
+            ),
+          ),
         },
         { primaryKey: 'id' },
       ),
@@ -266,7 +342,12 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'commented',
-        { id: pipe(string(), column({ type: 'text', comment: 'unsupported' })) },
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { postgresql: 'text' }, comment: 'unsupported' }),
+          ),
+        },
         { primaryKey: 'id' },
       ),
     ).not.toThrow()
@@ -274,7 +355,12 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'updated',
-        { id: pipe(string(), column({ type: 'text', onUpdate: 'now()' })) },
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { postgresql: 'text' }, onUpdate: 'now()' }),
+          ),
+        },
         { primaryKey: 'id' },
       ),
     ).not.toThrow()
@@ -287,7 +373,11 @@ describe('defineTable', () => {
         {
           id: pipe(
             number(),
-            column({ type: 'integer', generated: 'byDefault', default: 1 }),
+            column({
+              physicalType: { postgresql: 'integer' },
+              generation: { kind: 'identity', mode: 'byDefault' },
+              databaseDefault: { kind: 'literal', value: 1 },
+            }),
           ),
         },
         { primaryKey: 'id' },
@@ -300,7 +390,7 @@ describe('defineTable', () => {
           id: pipe(
             number(),
             column({
-              type: 'integer',
+              physicalType: { postgresql: 'integer' },
               databaseDefault: { kind: 'literal', value: 1 },
               generation: { kind: 'identity', mode: 'byDefault' },
             }),
@@ -316,10 +406,13 @@ describe('defineTable', () => {
       defineTable(
         'indexed',
         {
-          id: pipe(string(), column({ type: 'text' })),
-          email: pipe(string(), column({ type: 'text' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+          email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
         },
-        { primaryKey: 'id', indexes: ['email', { columns: ['email'] }] },
+        {
+          primaryKey: 'id',
+          indexes: [{ columns: ['email'] }, { columns: ['email'] }],
+        },
       ),
     ).toThrow(/duplicate index definition/)
   })
@@ -328,14 +421,16 @@ describe('defineTable', () => {
     expect(() =>
       defineTable(
         'duplicate_pk',
-        { id: pipe(string(), column({ type: 'text' })) },
+        { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
         { primaryKey: ['id', 'id'] },
       ),
     ).toThrow(/duplicate columns/i)
     expect(() =>
       defineTable(
         'nullable_pk',
-        { id: nullable(pipe(string(), column({ type: 'text' }))) },
+        {
+          id: nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+        },
         { primaryKey: 'id' },
       ),
     ).toThrow(/cannot be nullable/i)
@@ -343,8 +438,8 @@ describe('defineTable', () => {
       defineTable(
         'duplicate_index',
         {
-          id: pipe(string(), column({ type: 'text' })),
-          value: pipe(string(), column({ type: 'text' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+          value: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
         },
         { primaryKey: 'id', indexes: [{ columns: ['value', 'value'] }] },
       ),
@@ -371,7 +466,7 @@ describe('defineTable', () => {
       defineTable(
         'bad_set_null',
         {
-          id: pipe(string(), column({ type: 'uuid' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
           userId: reference(User, 'id', { onDelete: 'set null' }),
         },
         { primaryKey: 'id' },
@@ -382,7 +477,7 @@ describe('defineTable', () => {
       defineTable(
         'bad_set_default',
         {
-          id: pipe(string(), column({ type: 'uuid' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
           userId: reference(User, 'id', { onDelete: 'set default' }),
         },
         { primaryKey: 'id' },
@@ -393,7 +488,7 @@ describe('defineTable', () => {
       defineTable(
         'valid_set_default',
         {
-          id: pipe(string(), column({ type: 'uuid' })),
+          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
           userId: pipe(
             reference(User, 'id', { onDelete: 'set default' }),
             column({
@@ -408,56 +503,6 @@ describe('defineTable', () => {
       ),
     ).not.toThrow()
   })
-
-  it('should reject conflicting legacy and tagged physical intent', () => {
-    expect(() =>
-      defineTable(
-        'conflicting_type',
-        {
-          id: pipe(
-            string(),
-            column({ type: 'uuid', physicalType: { postgresql: 'uuid' } }),
-          ),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).toThrow(/legacy and dialect-keyed physical types/i)
-  })
-
-  it('should normalize matching generation fields and reject conflicts', () => {
-    expect(() =>
-      defineTable(
-        'matching_generation',
-        {
-          id: pipe(
-            number(),
-            column({
-              type: 'integer',
-              generated: 'always',
-              generation: { kind: 'identity', mode: 'always' },
-            }),
-          ),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).not.toThrow()
-
-    for (const generation of [
-      {
-        generation: { kind: 'identity', mode: 'always' } as const,
-        generated: 'byDefault' as const,
-      },
-      { generated: 'always' as const, autoIncrement: true },
-    ]) {
-      expect(() =>
-        defineTable(
-          'conflicting_generation',
-          { id: pipe(number(), column({ type: 'integer', ...generation })) },
-          { primaryKey: 'id' },
-        ),
-      ).toThrow(/must describe the same strategy/i)
-    }
-  })
 })
 
 describe('reference with FK actions', () => {
@@ -465,7 +510,7 @@ describe('reference with FK actions', () => {
     const Post = defineTable(
       'posts',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         authorId: reference(UserSchema, 'id', {
           onDelete: 'cascade',
           onUpdate: 'restrict',
@@ -477,19 +522,19 @@ describe('reference with FK actions', () => {
     const meta = getReferenceMetadata(Post.getSchema().entries.authorId)
     expect(meta).toMatchObject({
       kind: 'reference',
-      schema: 'public',
       table: 'users',
       key: 'id',
       onDelete: 'cascade',
       onUpdate: 'restrict',
     })
+    expect(meta).not.toHaveProperty('schema')
   })
 
   it('should accept a table handle as reference target', () => {
     const Post = defineTable(
       'posts',
       {
-        id: pipe(string(), column({ type: 'uuid' })),
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         authorId: nullable(reference(User, 'id', { onDelete: 'set null' })),
       },
       { primaryKey: 'id' },

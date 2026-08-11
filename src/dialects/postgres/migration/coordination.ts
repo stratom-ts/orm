@@ -48,7 +48,7 @@ export type CancellationState = {
 }
 
 export type PostgresAdvisoryLockIdentity = Readonly<{
-  kind: 'legacy' | 'scoped'
+  kind: 'database' | 'scoped'
   classId: number
   lockId: number
   canonicalIdentity: string
@@ -65,9 +65,9 @@ export type PostgresAdvisoryLockIdentity = Readonly<{
 export function postgresAdvisoryLockIdentity(
   identity: MigrationCoordinationLockIdentity,
 ): PostgresAdvisoryLockIdentity {
-  if (identity.kind === 'legacy') {
+  if (identity.kind === 'database') {
     return {
-      kind: 'legacy',
+      kind: 'database',
       classId: MIGRATE_ADVISORY_LOCK_CLASS,
       lockId: MIGRATE_ADVISORY_LOCK_ID,
       canonicalIdentity: identity.canonicalIdentity,
@@ -381,10 +381,10 @@ export async function releaseCoordination(
   options: MigrationRuntimeOptions,
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
-      kind: 'legacy',
+      kind: 'database',
       classId: MIGRATE_ADVISORY_LOCK_CLASS,
       lockId: MIGRATE_ADVISORY_LOCK_ID,
-      canonicalIdentity: 'stratom/migration/legacy/postgresql',
+      canonicalIdentity: 'stratom/migration/database/postgresql',
     },
   ],
 ): Promise<void> {
@@ -405,10 +405,10 @@ export async function releaseCoordinationFailures(
   options: MigrationRuntimeOptions,
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
-      kind: 'legacy',
+      kind: 'database',
       classId: MIGRATE_ADVISORY_LOCK_CLASS,
       lockId: MIGRATE_ADVISORY_LOCK_ID,
-      canonicalIdentity: 'stratom/migration/legacy/postgresql',
+      canonicalIdentity: 'stratom/migration/database/postgresql',
     },
   ],
 ): Promise<MigrationCleanupFailure[]> {

@@ -154,7 +154,7 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
 }
 
 /**
- * Formats a tagged literal without legacy expression-string interpretation.
+ * Formats a tagged literal without interpreting string contents as SQL expressions.
  *
  * @example
  *   formatPostgresLiteral('now()') // "'now()'"

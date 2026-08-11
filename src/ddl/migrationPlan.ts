@@ -29,7 +29,6 @@ import {
 } from '@/migrations/physicalNaming'
 import type { PhysicalNamingProfile } from '@/migrations/physicalNaming'
 import { getReferenceMetadata } from '@/schemas/actions/reference'
-import { normalizeIndex } from '@/schemas/utils/normalizeIndex'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
 
@@ -958,7 +957,7 @@ function desiredIndexes(
   const profile = physicalNamingProfile(dialect.relationIdentity)
   return (info.indexes ?? [])
     .map((raw) => {
-      const index = normalizeIndex(raw)
+      const index = raw
       const unique = index.unique ?? false
       return {
         name: index.name ?? generatedIndexName(identity, index.columns, unique, profile),
