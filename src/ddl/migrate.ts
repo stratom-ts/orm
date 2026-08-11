@@ -18,7 +18,7 @@ import { planMigration } from './migrationPlan'
 export {
   MIGRATE_ADVISORY_LOCK_CLASS,
   MIGRATE_ADVISORY_LOCK_ID,
-} from '@/migrations/coordinationScope'
+} from '@/dialects/postgres/migration/constants'
 
 /** Destructive migrate operations that require explicit execution permission. */
 export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'

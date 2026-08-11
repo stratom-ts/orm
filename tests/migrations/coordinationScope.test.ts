@@ -1,67 +1,84 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MIGRATE_ADVISORY_LOCK_CLASS,
-  MIGRATE_ADVISORY_LOCK_ID,
   createMigrationCoordinationScope,
   migrationLockAcquisitionOrder,
   migrationLockReleaseOrder,
 } from '@/migrations/coordinationScope'
 
-describe('migration coordination scope', () => {
-  it('remains legacy database-wide without an application ID', () => {
-    const scope = createMigrationCoordinationScope('app_db')
-    expect(migrationLockAcquisitionOrder(scope)).toEqual([
-      {
-        kind: 'legacy',
-        classId: MIGRATE_ADVISORY_LOCK_CLASS,
-        lockId: MIGRATE_ADVISORY_LOCK_ID,
+describe('portable migration coordination scope', () => {
+  it('requires explicit dialect and database identities', () => {
+    const scope = createMigrationCoordinationScope({
+      dialect: 'postgresql',
+      database: 'app_db',
+    })
+    expect(scope).toEqual({
+      database: {
+        dialect: 'postgresql',
+        name: 'app_db',
+        canonicalIdentity: JSON.stringify(['postgresql', 'database', 'app_db']),
       },
-    ])
+    })
+    expect(migrationLockAcquisitionOrder(scope)).toHaveLength(1)
     expect(migrationLockReleaseOrder(scope)).toEqual(migrationLockAcquisitionOrder(scope))
   })
 
-  it('orders legacy before canonical database/application scope and releases in reverse', () => {
-    const scope = createMigrationCoordinationScope('app.db', 'billing.v2')
+  it('orders legacy before scoped identity and releases in reverse', () => {
+    const scope = createMigrationCoordinationScope({
+      dialect: 'postgresql',
+      database: 'app.db',
+      applicationId: 'billing.v2',
+    })
     const acquire = migrationLockAcquisitionOrder(scope)
     expect(acquire.map((identity) => identity.kind)).toEqual(['legacy', 'scoped'])
-    expect(acquire[1]).toEqual({
-      kind: 'scoped',
-      canonicalIdentity: JSON.stringify([
-        'stratom',
-        'migration',
-        JSON.stringify(['postgresql', 'database', 'app.db']),
-        'billing.v2',
-      ]),
-    })
     expect(migrationLockReleaseOrder(scope)).toEqual([...acquire].reverse())
   })
 
-  it('separates database and application tuples without dotted-string collisions', () => {
+  it('separates dialect, database, and application tuples', () => {
     const left = migrationLockAcquisitionOrder(
-      createMigrationCoordinationScope('a.b', 'c'),
+      createMigrationCoordinationScope({
+        dialect: 'postgresql',
+        database: 'a.b',
+        applicationId: 'c',
+      }),
     )[1]
     const right = migrationLockAcquisitionOrder(
-      createMigrationCoordinationScope('a', 'b.c'),
+      createMigrationCoordinationScope({
+        dialect: 'postgresql',
+        database: 'a',
+        applicationId: 'b.c',
+      }),
+    )[1]
+    const otherDialect = migrationLockAcquisitionOrder(
+      createMigrationCoordinationScope({
+        dialect: 'sqlite',
+        database: 'a.b',
+        applicationId: 'c',
+      }),
     )[1]
     expect(left).not.toEqual(right)
+    expect(left).not.toEqual(otherDialect)
   })
 
-  it('validates explicit stable application IDs', () => {
-    expect(() => createMigrationCoordinationScope('db', '')).toThrow(/applicationId/i)
-    expect(() => createMigrationCoordinationScope('db', 'bad\0id')).toThrow(/NUL/i)
-    expect(() => createMigrationCoordinationScope('db', '\ud800')).toThrow(/surrogate/i)
-    expect(() => createMigrationCoordinationScope('db', 'tenant-😀')).not.toThrow()
-  })
-
-  it('validates canonical database identities', () => {
-    expect(() => createMigrationCoordinationScope('')).toThrow(/database identity/i)
-    expect(() => createMigrationCoordinationScope('bad\0db')).toThrow(
-      /database identity/i,
-    )
-    expect(() => createMigrationCoordinationScope('\ud800')).toThrow(
-      /database identity.*surrogate/i,
-    )
-    expect(() => createMigrationCoordinationScope('tenant-😀')).not.toThrow()
+  it('validates each stable identity', () => {
+    expect(() =>
+      createMigrationCoordinationScope({ dialect: '', database: 'db' }),
+    ).toThrow(/dialect identity/i)
+    expect(() =>
+      createMigrationCoordinationScope({ dialect: 'postgresql', database: '' }),
+    ).toThrow(/database identity/i)
+    expect(() =>
+      createMigrationCoordinationScope({
+        dialect: 'postgresql',
+        database: 'db',
+        applicationId: 'bad\0id',
+      }),
+    ).toThrow(/NUL/i)
+    expect(() =>
+      createMigrationCoordinationScope({
+        dialect: 'postgresql',
+        database: '\ud800',
+      }),
+    ).toThrow(/surrogate/i)
   })
 })

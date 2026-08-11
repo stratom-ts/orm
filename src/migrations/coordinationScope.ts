@@ -1,35 +1,28 @@
 import { SchemaError } from '@/utils/error'
 
-/** Existing database-wide lock identity. Its values must remain stable. */
-export const MIGRATE_ADVISORY_LOCK_CLASS = 0x7363_686d // 'schm'
-export const MIGRATE_ADVISORY_LOCK_ID = 0x6f72_6d00 // 'orm\0'
+export type MigrationCoordinationScopeInput = Readonly<{
+  /** Stable dialect identity supplied by the owning runtime. */
+  dialect: string
+  /** Stable database identity supplied by the owning runtime. */
+  database: string
+  /** Optional stable application identity for scoped coordination. */
+  applicationId?: string
+}>
 
 export type MigrationCoordinationScope = Readonly<{
   database: Readonly<{
-    dialect: 'postgresql'
+    dialect: string
     name: string
     canonicalIdentity: string
   }>
   applicationId?: string
 }>
 
+/** Portable coordination identities; physical lock fields belong to a dialect. */
 export type MigrationCoordinationLockIdentity =
-  | Readonly<{
-      kind: 'legacy'
-      classId: number
-      lockId: number
-    }>
-  | Readonly<{
-      kind: 'scoped'
-      canonicalIdentity: string
-    }>
+  | Readonly<{ kind: 'legacy'; canonicalIdentity: string }>
+  | Readonly<{ kind: 'scoped'; canonicalIdentity: string }>
 
-/**
- * Asserts that a value is stable enough for canonical lock identity encoding.
- *
- * @param value - Value to validate.
- * @param label - Identifier label used in validation errors.
- */
 function assertStableIdentifier(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0 || value.includes('\0')) {
     throw new SchemaError({
@@ -56,59 +49,41 @@ function assertStableIdentifier(value: unknown, label: string): asserts value is
   }
 }
 
-/**
- * Validates an application identifier used for migration coordination.
- *
- * @example
- *   validateApplicationId('billing-service')
- *
- * @param applicationId - Stable application identifier.
- */
+/** Validates an application identifier used for migration coordination. */
 export function validateApplicationId(applicationId: string): void {
   assertStableIdentifier(applicationId, 'applicationId')
 }
 
-/**
- * Creates a canonical PostgreSQL migration coordination scope.
- *
- * @example
- *   const scope = createMigrationCoordinationScope('app', 'billing-service')
- *
- * @param databaseName - PostgreSQL database name.
- * @param applicationId - Optional stable application identifier.
- */
+/** Creates one stable, dialect-neutral migration coordination scope. */
 export function createMigrationCoordinationScope(
-  databaseName: string,
-  applicationId?: string,
+  input: MigrationCoordinationScopeInput,
 ): MigrationCoordinationScope {
-  assertStableIdentifier(databaseName, 'database identity')
-  if (applicationId !== undefined) validateApplicationId(applicationId)
+  assertStableIdentifier(input.dialect, 'dialect identity')
+  assertStableIdentifier(input.database, 'database identity')
+  if (input.applicationId !== undefined) validateApplicationId(input.applicationId)
 
   return Object.freeze({
     database: Object.freeze({
-      dialect: 'postgresql' as const,
-      name: databaseName,
-      canonicalIdentity: JSON.stringify(['postgresql', 'database', databaseName]),
+      dialect: input.dialect,
+      name: input.database,
+      canonicalIdentity: JSON.stringify([input.dialect, 'database', input.database]),
     }),
-    ...(applicationId === undefined ? {} : { applicationId }),
+    ...(input.applicationId === undefined ? {} : { applicationId: input.applicationId }),
   })
 }
 
-/**
- * Returns legacy-first lock acquisition order for mixed-version deployment.
- *
- * @example
- *   const locks = migrationLockAcquisitionOrder(scope)
- *
- * @param scope - Migration coordination scope.
- */
+/** Returns legacy-first acquisition order for mixed-version deployment. */
 export function migrationLockAcquisitionOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {
   const legacy: MigrationCoordinationLockIdentity = Object.freeze({
     kind: 'legacy',
-    classId: MIGRATE_ADVISORY_LOCK_CLASS,
-    lockId: MIGRATE_ADVISORY_LOCK_ID,
+    canonicalIdentity: JSON.stringify([
+      'stratom',
+      'migration',
+      'legacy',
+      scope.database.canonicalIdentity,
+    ]),
   })
   if (scope.applicationId === undefined) return Object.freeze([legacy])
 
@@ -126,14 +101,7 @@ export function migrationLockAcquisitionOrder(
   ])
 }
 
-/**
- * Returns the reverse lock release order for a coordination scope.
- *
- * @example
- *   const locks = migrationLockReleaseOrder(scope)
- *
- * @param scope - Migration coordination scope.
- */
+/** Returns lock release order, which is acquisition order in reverse. */
 export function migrationLockReleaseOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {

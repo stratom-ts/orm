@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { MigrationProgram } from '@/ddl/migrationProgram'
-import { executePostgresMigration } from '@/dialects/postgres/migration'
+import {
+  executePostgresMigration,
+  postgresAdvisoryLockIdentity,
+} from '@/dialects/postgres/migration'
+import {
+  createMigrationCoordinationScope,
+  migrationLockAcquisitionOrder,
+} from '@/migrations/coordinationScope'
 import type { Executor } from '@/query'
+
+import type {
+  CoordinationContractEvent,
+  CoordinationContractLockManager,
+} from './migrationCoordinationContract'
+import { registerMigrationCoordinationContract } from './migrationCoordinationContract'
 
 const relation = {
   namespace: [
@@ -38,6 +51,13 @@ function harness(
     failRun?: RegExp
     failUnlock?: boolean
     unlockResult?: boolean
+    unlockResults?: Array<boolean | Error>
+    releaseResults?: Array<boolean | Error>
+    applicationId?: string
+    clientId?: string
+    noWork?: boolean
+    holdAfterTransaction?: boolean
+    sharedLockManager?: CoordinationContractLockManager
     nullCount?: number
     lockResults?: Array<boolean | Error>
     lockDelayMs?: number
@@ -46,8 +66,15 @@ function harness(
   } = {},
 ) {
   const calls: string[] = []
+  const queries: Array<{ sql: string; params: unknown[] }> = []
   const discard = vi.fn()
   const prepare = vi.fn(async (migrationProgram: MigrationProgram) => migrationProgram)
+  let releaseHold: (() => void) | undefined
+  const held = options.holdAfterTransaction
+    ? new Promise<void>((resolve) => {
+        releaseHold = resolve
+      })
+    : undefined
   let rejectInFlight: ((cause: Error) => void) | undefined
   const hang = () =>
     new Promise<never>((_, reject) => {
@@ -59,43 +86,103 @@ function harness(
   const executor: Executor = {
     async run(query) {
       calls.push(query.sql)
+      queries.push(query)
+      if (/^begin\b/i.test(query.sql) && held !== undefined) await held
       if (options.hangRun?.test(query.sql)) await hang()
       if (options.failRun?.test(query.sql)) throw new Error(`failed: ${query.sql}`)
     },
     async execute(query) {
       calls.push(query.sql)
+      queries.push(query)
       if (options.hangQuery?.test(query.sql)) await hang()
       if (/pg_try_advisory_lock/i.test(query.sql)) {
         if (options.lockDelayMs !== undefined) {
           await new Promise((resolve) => setTimeout(resolve, options.lockDelayMs))
         }
-        const result = options.lockResults?.shift() ?? true
+        const configured = options.lockResults?.shift()
+        const result =
+          configured ??
+          options.sharedLockManager?.tryAcquire(
+            options.clientId ?? 'client',
+            `${query.params[0]}:${query.params[1]}`,
+          ) ??
+          true
         if (result instanceof Error) throw result
         return [{ locked: result }]
       }
       if (/pg_advisory_unlock/i.test(query.sql)) {
         if (options.failUnlock) throw new Error('unlock failed')
-        return [{ unlocked: options.unlockResult ?? true }]
+        const result = options.releaseResults?.shift() ?? options.unlockResults?.shift()
+        if (result instanceof Error) throw result
+        options.sharedLockManager?.release(
+          options.clientId ?? 'client',
+          `${query.params[0]}:${query.params[1]}`,
+        )
+        return [{ unlocked: result ?? options.unlockResult ?? true }]
       }
       if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
       return []
     },
   }
   const execute = (
-    migrationProgram = program(),
+    migrationProgram = options.noWork ? program({ actions: [] }) : program(),
     runtimeOptions: { signal?: AbortSignal; lockTimeoutMs?: number } = {},
   ) =>
     executePostgresMigration({
       executor,
       databaseIdentity: 'test',
+      ...(options.applicationId === undefined
+        ? {}
+        : { applicationId: options.applicationId }),
       lockTimeoutMs: runtimeOptions.lockTimeoutMs ?? 1_000,
       ...(runtimeOptions.signal === undefined ? {} : { signal: runtimeOptions.signal }),
       discard,
       cancel,
       prepare: () => prepare(migrationProgram),
     })
-  return { calls, cancel, discard, execute, prepare }
+  const semanticEvent = (query: { sql: string }): CoordinationContractEvent => {
+    if (/pg_try_advisory_lock/i.test(query.sql)) return 'acquire'
+    if (/pg_advisory_unlock/i.test(query.sql)) return 'release'
+    if (/\b(?:begin|commit|rollback)\b/i.test(query.sql)) return 'transaction'
+    if (/count\(\*\)/i.test(query.sql)) return 'introspection'
+    if (/create table/i.test(query.sql)) return 'ddl'
+    return 'transaction'
+  }
+  const events = () => queries.map(semanticEvent)
+  return {
+    calls,
+    queries,
+    cancel,
+    discard,
+    execute,
+    prepare,
+    events,
+    releaseHold: () => releaseHold?.(),
+    waitFor: async (event: CoordinationContractEvent) => {
+      while (!events().includes(event)) {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+    },
+  }
 }
+
+registerMigrationCoordinationContract('PostgreSQL', (options) => {
+  const runtime = harness({
+    applicationId: options?.applicationId,
+    clientId: options?.clientId,
+    lockResults: options?.lockResults,
+    releaseResults: options?.releaseResults,
+    noWork: options?.noWork,
+    holdAfterTransaction: options?.holdAfterTransaction,
+    sharedLockManager: options?.sharedLockManager,
+  })
+  return {
+    execute: (options) => runtime.execute(undefined, options),
+    events: runtime.events,
+    releaseHold: runtime.releaseHold,
+    waitFor: runtime.waitFor,
+  }
+})
 
 describe('PostgreSQL migration runtime failures', () => {
   it.each(['statement-atomic', 'non-atomic'] as const)(
@@ -416,6 +503,182 @@ describe('PostgreSQL migration runtime failures', () => {
     })
     expect(runtime.calls).toHaveLength(1)
     expect(runtime.discard).toHaveBeenCalled()
+    expect(runtime.prepare).not.toHaveBeenCalled()
+  })
+
+  it('acquires legacy then scoped keys and releases them in reverse', async () => {
+    const runtime = harness({ applicationId: 'billing', lockResults: [true, true] })
+    await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
+
+    const locks = runtime.queries.filter((query) =>
+      /pg_try_advisory_lock/i.test(query.sql),
+    )
+    const unlocks = runtime.queries.filter((query) =>
+      /pg_advisory_unlock/i.test(query.sql),
+    )
+    expect(locks).toHaveLength(2)
+    expect(unlocks).toHaveLength(2)
+    expect(locks[0]!.params).toEqual([0x7363_686d, 0x6f72_6d00])
+    expect(unlocks.map((query) => query.params)).toEqual([
+      locks[1]!.params,
+      locks[0]!.params,
+    ])
+    expect(locks[0]!.params).not.toEqual(locks[1]!.params)
+  })
+
+  it('derives stable scoped keys and separates database/application identities', () => {
+    const scoped = (database: string, applicationId: string) =>
+      postgresAdvisoryLockIdentity(
+        migrationLockAcquisitionOrder(
+          createMigrationCoordinationScope({
+            dialect: 'postgresql',
+            database,
+            applicationId,
+          }),
+        )[1]!,
+      )
+    expect(scoped('test', 'billing')).toEqual(scoped('test', 'billing'))
+    expect(scoped('test', 'billing')).not.toEqual(scoped('other', 'billing'))
+    expect(scoped('test', 'billing')).not.toEqual(scoped('test', 'orders'))
+  })
+
+  it('performs one nonblocking attempt for each required lock', async () => {
+    const runtime = harness({
+      applicationId: 'billing',
+      lockResults: [true, false],
+    })
+    const error = await runtime
+      .execute(program(), { lockTimeoutMs: 0 })
+      .catch((cause) => cause)
+
+    expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
+    expect(
+      runtime.queries.filter((query) => /pg_try_advisory_lock/i.test(query.sql)),
+    ).toHaveLength(2)
+    expect(
+      runtime.queries.filter((query) => /pg_advisory_unlock/i.test(query.sql)),
+    ).toHaveLength(1)
+    expect(
+      runtime.queries.some((query) =>
+        /\bbegin\b|create table|count\(\*\)/i.test(query.sql),
+      ),
+    ).toBe(false)
+  })
+
+  it('uses one deadline across slow legacy and scoped acquisition calls', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = harness({
+        applicationId: 'billing',
+        lockResults: [true, true],
+        lockDelayMs: 30,
+      })
+      const pending = runtime
+        .execute(program(), { lockTimeoutMs: 40 })
+        .catch((cause) => cause)
+      await vi.advanceTimersByTimeAsync(100)
+      const error = await pending
+
+      expect(error).toMatchObject({
+        stage: 'lock',
+        outcome: 'unchanged',
+        retryable: true,
+      })
+      expect(
+        runtime.queries.filter((query) => /pg_try_advisory_lock/i.test(query.sql)),
+      ).toHaveLength(2)
+      expect(
+        runtime.queries.some((query) => /\bbegin\b|create table/i.test(query.sql)),
+      ).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('retains partial release verification failure and discards', async () => {
+    const runtime = harness({
+      applicationId: 'billing',
+      lockResults: [true, false],
+      unlockResults: [false],
+    })
+    const error = await runtime
+      .execute(program(), { lockTimeoutMs: 0 })
+      .catch((cause) => cause)
+
+    expect(error).toMatchObject({
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: true,
+      cleanupFailures: [{ stage: 'unlock' }],
+    })
+    expect(runtime.discard).toHaveBeenCalled()
+  })
+
+  it('bounds a hung partial-acquisition release and retains primary timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = harness({
+        applicationId: 'billing',
+        lockResults: [true, false],
+        hangQuery: /pg_advisory_unlock/i,
+      })
+      const pending = runtime
+        .execute(program(), { lockTimeoutMs: 0 })
+        .catch((cause) => cause)
+      await vi.advanceTimersByTimeAsync(5_000)
+      const error = await pending
+
+      expect(error).toMatchObject({
+        stage: 'lock',
+        outcome: 'unchanged',
+        retryable: true,
+        cleanupFailures: [{ stage: 'unlock' }],
+      })
+      expect((error as Error).message).toMatch(/one no-wait try/i)
+      expect(
+        runtime.queries.some((query) =>
+          /\bbegin\b|create table|count\(\*\)/i.test(query.sql),
+        ),
+      ).toBe(false)
+      expect(runtime.discard).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('attempts every acquired release and preserves applied outcome', async () => {
+    const runtime = harness({
+      applicationId: 'billing',
+      lockResults: [true, true],
+      unlockResults: [false, new Error('legacy unlock failed')],
+    })
+    const error = await runtime.execute().catch((cause) => cause)
+
+    expect(error).toMatchObject({
+      stage: 'unlock',
+      outcome: 'applied',
+      retryable: false,
+      cleanupFailures: [{ stage: 'unlock' }, { stage: 'unlock' }],
+    })
+    expect(
+      runtime.queries.filter((query) => /pg_advisory_unlock/i.test(query.sql)),
+    ).toHaveLength(2)
+    expect(runtime.discard).toHaveBeenCalled()
+  })
+
+  it('aborts before coordination completes without transaction work', async () => {
+    const controller = new AbortController()
+    const runtime = harness({ applicationId: 'billing', lockResults: [false] })
+    const pending = runtime.execute(program(), { signal: controller.signal })
+    controller.abort()
+    const error = await pending.catch((cause) => cause)
+
+    expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
+    expect(
+      runtime.queries.some((query) =>
+        /\bbegin\b|create table|count\(\*\)/i.test(query.sql),
+      ),
+    ).toBe(false)
     expect(runtime.prepare).not.toHaveBeenCalled()
   })
 })
