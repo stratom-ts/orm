@@ -5,3 +5,4 @@ export {
   type OperationSessionIdentity,
   type OperationSessionProvider,
 } from './operationSession'
+export { createDb0NodeSqliteOperationSessionProvider } from './nodeSqliteOperationSession'

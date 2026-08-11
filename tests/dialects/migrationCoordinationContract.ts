@@ -23,6 +23,8 @@ export type CoordinationContractRuntime = {
   releaseHold(): void
   /** Resolves when the requested semantic event has been observed. */
   waitFor(event: CoordinationContractEvent): Promise<void>
+  /** Cleanup phase used when the physical dialect has no unlock primitive. */
+  cleanupStage?: 'unlock' | 'sessionCleanup'
 }
 
 export type CoordinationContractFactory = (options?: {
@@ -140,9 +142,9 @@ export function registerMigrationCoordinationContract(
         releaseResults: [false],
       })
       await expect(applied.execute()).rejects.toMatchObject({
-        stage: 'unlock',
+        stage: applied.cleanupStage ?? 'unlock',
         outcome: 'applied',
-        cleanupFailures: [{ stage: 'unlock' }],
+        cleanupFailures: [{ stage: applied.cleanupStage ?? 'unlock' }],
       })
 
       const unchanged = createRuntime({
@@ -151,9 +153,9 @@ export function registerMigrationCoordinationContract(
         releaseResults: [false],
       })
       await expect(unchanged.execute()).rejects.toMatchObject({
-        stage: 'unlock',
+        stage: unchanged.cleanupStage ?? 'unlock',
         outcome: 'unchanged',
-        cleanupFailures: [{ stage: 'unlock' }],
+        cleanupFailures: [{ stage: unchanged.cleanupStage ?? 'unlock' }],
       })
     })
   })
