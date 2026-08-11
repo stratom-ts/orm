@@ -176,6 +176,7 @@ export async function executePostgresMigration(
     | undefined
   const cleanupFailures: MigrationCleanupFailure[] = []
 
+  /** Executes the authoritative migration transaction after coordination succeeds. */
   async function executeTransaction(): Promise<void> {
     try {
       await runCancellable({
@@ -332,6 +333,7 @@ export async function executePostgresMigration(
     }
   }
 
+  /** Releases every confirmed coordination lock and retains cleanup evidence. */
   async function releaseLock(): Promise<void> {
     if (
       acquiredLocks.length > 0 &&

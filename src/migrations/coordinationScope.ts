@@ -23,6 +23,12 @@ export type MigrationCoordinationLockIdentity =
   | Readonly<{ kind: 'legacy'; canonicalIdentity: string }>
   | Readonly<{ kind: 'scoped'; canonicalIdentity: string }>
 
+/**
+ * Asserts that an identity component has a stable canonical encoding.
+ *
+ * @param value - Identity component to validate.
+ * @param label - Human-readable field name used in validation errors.
+ */
 function assertStableIdentifier(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0 || value.includes('\0')) {
     throw new SchemaError({
@@ -49,12 +55,30 @@ function assertStableIdentifier(value: unknown, label: string): asserts value is
   }
 }
 
-/** Validates an application identifier used for migration coordination. */
+/**
+ * Validates an application-level migration coordination identity when configured.
+ *
+ * @example
+ *   validateApplicationId('billing-service')
+ *
+ * @param applicationId - Stable application identity to validate.
+ */
 export function validateApplicationId(applicationId: string): void {
   assertStableIdentifier(applicationId, 'applicationId')
 }
 
-/** Creates one stable, dialect-neutral migration coordination scope. */
+/**
+ * Creates one stable, dialect-neutral migration coordination scope.
+ *
+ * @example
+ *   const scope = createMigrationCoordinationScope({
+ *     dialect: 'postgresql',
+ *     database: 'application',
+ *     applicationId: 'billing-service',
+ *   })
+ *
+ * @param input - Stable dialect, database, and optional application identities.
+ */
 export function createMigrationCoordinationScope(
   input: MigrationCoordinationScopeInput,
 ): MigrationCoordinationScope {
@@ -72,7 +96,14 @@ export function createMigrationCoordinationScope(
   })
 }
 
-/** Returns legacy-first acquisition order for mixed-version deployment. */
+/**
+ * Returns the canonical legacy-first acquisition order for a coordination scope.
+ *
+ * @example
+ *   const identities = migrationLockAcquisitionOrder(scope)
+ *
+ * @param scope - Canonical migration coordination scope.
+ */
 export function migrationLockAcquisitionOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {
@@ -101,7 +132,14 @@ export function migrationLockAcquisitionOrder(
   ])
 }
 
-/** Returns lock release order, which is acquisition order in reverse. */
+/**
+ * Returns the canonical release order, reversing every required acquisition.
+ *
+ * @example
+ *   const identities = migrationLockReleaseOrder(scope)
+ *
+ * @param scope - Canonical migration coordination scope.
+ */
 export function migrationLockReleaseOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {

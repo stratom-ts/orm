@@ -31,6 +31,11 @@ const relation = {
   relation: { spelling: 'events', comparisonKey: 'events' },
 }
 
+/**
+ * Creates a minimal plan-atomic migration program for runtime tests.
+ *
+ * @param overrides - Program fields to replace for a specific scenario.
+ */
 function program(overrides: Partial<MigrationProgram> = {}): MigrationProgram {
   return {
     atomicity: 'plan-atomic',
@@ -46,6 +51,11 @@ function program(overrides: Partial<MigrationProgram> = {}): MigrationProgram {
   }
 }
 
+/**
+ * Creates a controllable PostgreSQL migration runtime and records physical calls.
+ *
+ * @param options - Lock, release, failure, cancellation, and transaction controls.
+ */
 function harness(
   options: {
     failRun?: RegExp

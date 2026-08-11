@@ -35,6 +35,11 @@ export type CoordinationContractFactory = (options?: {
   sharedLockManager?: CoordinationContractLockManager
 }) => CoordinationContractRuntime
 
+/**
+ * Reports whether a runtime crossed into migration work protected by coordination.
+ *
+ * @param events - Semantic runtime events observed by the contract adapter.
+ */
 function protectedWork(events: readonly CoordinationContractEvent[]): boolean {
   return events.some((event) => ['transaction', 'introspection', 'ddl'].includes(event))
 }
@@ -42,6 +47,12 @@ function protectedWork(events: readonly CoordinationContractEvent[]): boolean {
 /**
  * Dialect-runtime coordination contract. Adapters expose semantic events and
  * controls; physical SQL and transaction primitives remain outside this suite.
+ *
+ * @example
+ *   registerMigrationCoordinationContract('PostgreSQL', createPostgresHarness)
+ *
+ * @param name - Dialect name included in the generated test-suite label.
+ * @param createRuntime - Factory adapting a physical runtime to semantic controls.
  */
 export function registerMigrationCoordinationContract(
   name: string,

@@ -54,7 +54,14 @@ export type PostgresAdvisoryLockIdentity = Readonly<{
   canonicalIdentity: string
 }>
 
-/** Maps a portable coordination identity to PostgreSQL's two-int32 key space. */
+/**
+ * Maps a portable coordination identity to PostgreSQL's two-int32 key space.
+ *
+ * @example
+ *   const key = postgresAdvisoryLockIdentity(identity)
+ *
+ * @param identity - Canonical portable identity to map to an advisory-lock key.
+ */
 export function postgresAdvisoryLockIdentity(
   identity: MigrationCoordinationLockIdentity,
 ): PostgresAdvisoryLockIdentity {
@@ -201,6 +208,7 @@ export async function runCancellable<T>(options: {
  * @param state - Shared cancellation state to mark.
  * @param stage - Migration stage interrupted by cancellation.
  * @param timeout - Whether a deadline, rather than an abort signal, was observed.
+ * @param acquired - Confirmed locks to release in reverse order before cancellation.
  */
 async function stopCancelled(
   options: MigrationRuntimeOptions,
@@ -251,13 +259,13 @@ async function stopCancelled(
 }
 
 /**
- * Acquires the stable session advisory lock with a finite monotonic deadline.
+ * Acquires all PostgreSQL migration advisory locks under one monotonic deadline.
  *
  * @example
- *   await acquireCoordination(runtime, { cancelled: false })
+ *   const acquired = await acquireCoordination(runtime, { cancelled: false })
  *
  * @param options - Runtime session and lock configuration.
- * @param state - Shared cancellation state.
+ * @param state - Shared cancellation and session-certainty state.
  */
 export async function acquireCoordination(
   options: MigrationRuntimeOptions,
@@ -361,12 +369,13 @@ export async function acquireCoordination(
 }
 
 /**
- * Releases and verifies the stable session advisory lock.
+ * Releases and verifies acquired PostgreSQL advisory locks in reverse order.
  *
  * @example
- *   await releaseCoordination(runtime)
+ *   await releaseCoordination(runtime, acquired)
  *
  * @param options - Runtime capabilities for the locked session.
+ * @param identities - Confirmed locks to release in reverse acquisition order.
  */
 export async function releaseCoordination(
   options: MigrationRuntimeOptions,
@@ -383,7 +392,15 @@ export async function releaseCoordination(
   if (failures.length > 0) throw failures[0]!.cause
 }
 
-/** Attempts every release and retains one cleanup record for each failure. */
+/**
+ * Attempts every advisory-lock release and retains each verification failure.
+ *
+ * @example
+ *   const failures = await releaseCoordinationFailures(runtime, acquired)
+ *
+ * @param options - Runtime capabilities for the locked session.
+ * @param identities - Confirmed locks to release in reverse acquisition order.
+ */
 export async function releaseCoordinationFailures(
   options: MigrationRuntimeOptions,
   identities: readonly PostgresAdvisoryLockIdentity[] = [
