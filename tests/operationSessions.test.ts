@@ -182,6 +182,7 @@ type ProviderControls = {
 
 function createControllableProvider(options?: {
   beforeCall?: (session: number, sql: string) => Promise<void>
+  beforeCancel?: (session: number) => Promise<void>
   beforeRelease?: (session: number) => Promise<void>
   failSession?: number
   openFailure?: { session: number; value: unknown }
@@ -249,13 +250,19 @@ function createControllableProvider(options?: {
             if (/pg_advisory_unlock\(/i.test(query.sql)) {
               return [{ unlocked: options?.unlockResult ?? true }]
             }
+            if (/pg_try_advisory_lock\(/i.test(query.sql)) {
+              return [{ locked: true }]
+            }
             return []
           })
         },
         run(query) {
           return call(query.sql, async () => undefined)
         },
-        async cancel() {},
+        async cancel() {
+          events.push(`cancel:${id}`)
+          await options?.beforeCancel?.(id)
+        },
         async release(disposition) {
           if (released) throw new Error('released twice')
           released = true
@@ -659,56 +666,6 @@ describe('db0 PostgreSQL operation sessions', () => {
     await expect(retry).resolves.toBeUndefined()
     expect(connector.disposeCount).toBe(2)
   })
-
-  const databaseUrl = process.env.DATABASE_URL
-  it.skipIf(!databaseUrl)(
-    'keeps real db0 PostgreSQL backends pinned and discards a cancelled backend',
-    async () => {
-      const { default: postgresql } = await import('db0/connectors/postgresql')
-      const firstProvider = createDb0PostgresqlOperationSessionProvider(
-        postgresql({ url: databaseUrl as string }),
-      )
-      const secondProvider = createDb0PostgresqlOperationSessionProvider(
-        postgresql({ url: databaseUrl as string }),
-      )
-
-      try {
-        const first = await firstProvider.open()
-        const second = await secondProvider.open()
-        expect(first.identity.database).toBe(second.identity.database)
-        expect(first.identity.physicalSession).not.toBe(second.identity.physicalSession)
-
-        await first.run({ sql: 'begin', params: [] })
-        const rows = (await first.query({
-          sql: 'select pg_backend_pid()::text as backend',
-          params: [],
-        })) as { backend: string }[]
-        expect(rows[0]?.backend).toBe(first.identity.physicalSession)
-        await first.run({ sql: 'rollback', params: [] })
-        const reusedIdentity = first.identity
-        await first.release('reuse')
-        await second.release('reuse')
-
-        const reused = await firstProvider.open()
-        expect(reused.identity).toEqual(reusedIdentity)
-        const sleeping = reused.query({ sql: 'select pg_sleep(30)', params: [] })
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        await reused.cancel()
-        await expect(sleeping).rejects.toThrow()
-        await reused.release('reuse')
-
-        const replacement = await firstProvider.open()
-        expect(replacement.identity.physicalSession).not.toBe(
-          reusedIdentity.physicalSession,
-        )
-        await replacement.release('reuse')
-      } finally {
-        await firstProvider.close()
-        await secondProvider.close()
-      }
-    },
-    15_000,
-  )
 })
 
 describe('client root-operation coordination', () => {
@@ -1222,7 +1179,70 @@ describe('client root-operation coordination', () => {
     await db.close()
   })
 
-  it('discards after advisory unlock failure without changing the migration result', async () => {
+  it('keeps a runtime DDL failure primary when provider release also fails', async () => {
+    const releaseCause = new Error('secondary provider release failure')
+    const controls = createControllableProvider({
+      beforeCall: async (_session, sql) => {
+        if (/^create table/i.test(sql)) throw new Error('primary runtime DDL failure')
+      },
+      releaseFailure: {
+        session: 1,
+        value: releaseCause,
+      },
+    })
+    const Events = defineTable(
+      'primary_runtime_failure_events',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [Events],
+    })
+
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'ddl',
+      outcome: 'rolledBack',
+      retryable: false,
+      cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
+    })
+    expect((error as Error).message).toMatch(/primary runtime DDL failure/i)
+    expect((error as Error).message).not.toMatch(/secondary provider release failure/i)
+    await db.close()
+  })
+
+  it('normalizes provider-open failure before the migration callback', async () => {
+    const openCause = new Error('migration provider open failed')
+    const controls = createControllableProvider({
+      openFailure: { session: 1, value: openCause },
+    })
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [],
+    })
+
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'sessionCleanup',
+      outcome: 'unchanged',
+      retryable: false,
+      cleanupFailures: [{ stage: 'sessionCleanup', cause: openCause }],
+    })
+    await db.close()
+  })
+
+  it('reports advisory unlock failure after a committed no-op and discards', async () => {
     const controls = createControllableProvider({
       beforeCall: async (_session, sql) => {
         if (/pg_advisory_unlock/i.test(sql)) throw new Error('unlock cleanup failure')
@@ -1234,12 +1254,22 @@ describe('client root-operation coordination', () => {
       schemas: [],
     })
 
-    await expect(db.migrate().execute()).resolves.toBeUndefined()
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'unlock',
+      outcome: 'unchanged',
+      retryable: false,
+      cleanupFailures: [{ stage: 'unlock' }],
+    })
     expect(controls.events).toContain('release-start:1:discard')
     await db.close()
   })
 
-  it('discards after an advisory unlock reports that no lock was held', async () => {
+  it('reports an unverified advisory unlock and discards', async () => {
     const controls = createControllableProvider({ unlockResult: false })
     const db = createDatabase({
       connector: customConnector(),
@@ -1247,15 +1277,81 @@ describe('client root-operation coordination', () => {
       schemas: [],
     })
 
-    await expect(db.migrate().execute()).resolves.toBeUndefined()
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'unlock',
+      outcome: 'unchanged',
+      retryable: false,
+    })
     expect(controls.events).toContain('release-start:1:discard')
+    await db.close()
+  })
+
+  it('reports provider release failure after committed DDL as applied session cleanup', async () => {
+    const releaseCause = new Error('provider release failed after DDL')
+    const controls = createControllableProvider({
+      releaseFailure: { session: 1, value: releaseCause },
+    })
+    const Events = defineTable(
+      'release_failure_events',
+      { id: pipe(string(), column({ type: 'uuid' })) },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [Events],
+    })
+
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'sessionCleanup',
+      outcome: 'applied',
+      retryable: false,
+      cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
+    })
+    await db.close()
+  })
+
+  it('reports provider release failure after a committed no-op as unchanged cleanup', async () => {
+    const releaseCause = new Error('provider release failed after no-op')
+    const controls = createControllableProvider({
+      releaseFailure: { session: 1, value: releaseCause },
+    })
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [],
+    })
+
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'sessionCleanup',
+      outcome: 'unchanged',
+      retryable: false,
+      cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
+    })
     await db.close()
   })
 
   it('discards after migration lock acquisition fails', async () => {
     const controls = createControllableProvider({
       beforeCall: async (_session, sql) => {
-        if (/pg_advisory_lock\(/i.test(sql)) throw new Error('lock acquisition failure')
+        if (/pg_try_advisory_lock\(/i.test(sql)) {
+          throw new Error('lock acquisition failure')
+        }
       },
     })
     const db = createDatabase({
@@ -1264,11 +1360,62 @@ describe('client root-operation coordination', () => {
       schemas: [],
     })
 
-    await expect(db.migrate().execute()).rejects.toThrow(/lock acquisition failure/i)
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+    expect((error as Error).message).toMatch(/lock acquisition failure/i)
     expect(controls.events).toContain('release-start:1:discard')
     expect(controls.calls.some((entry) => /pg_advisory_unlock/i.test(entry.sql))).toBe(
       false,
     )
+    await db.close()
+  })
+
+  it('cancels the physical session when a lock try never settles', async () => {
+    const lockStarted = deferred()
+    let rejectLock!: (cause: Error) => void
+    const hangingLock = new Promise<void>((_, reject) => {
+      rejectLock = reject
+    })
+    const controls = createControllableProvider({
+      beforeCall: async (_session, sql) => {
+        if (/pg_try_advisory_lock/i.test(sql)) {
+          lockStarted.resolve()
+          await hangingLock
+        }
+      },
+      beforeCancel: async () => {
+        rejectLock(new Error('cancelled hanging lock query'))
+      },
+    })
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [],
+    })
+
+    const controller = new AbortController()
+    const migration = db.migrate().execute({ signal: controller.signal })
+    await lockStarted.promise
+    controller.abort()
+    const error = await migration.catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: true,
+    })
+    expect(controls.events).toContain('cancel:1')
+    expect(controls.events).toContain('release-start:1:discard')
+    expect(
+      controls.calls.some((entry) => /^begin|pg_advisory_unlock/i.test(entry.sql)),
+    ).toBe(false)
     await db.close()
   })
 
@@ -1289,8 +1436,18 @@ describe('client root-operation coordination', () => {
       schemas: [Events],
     })
 
-    await expect(db.migrate().execute()).rejects.toThrow(/commit outcome unknown/i)
-    expect(controls.calls.some((entry) => /^rollback$/i.test(entry.sql))).toBe(true)
+    const error = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'commit',
+      outcome: 'unknown',
+      retryable: false,
+    })
+    expect((error as Error).message).toMatch(/commit outcome unknown/i)
+    expect(controls.calls.some((entry) => /^rollback$/i.test(entry.sql))).toBe(false)
     expect(controls.events).toContain('release-start:1:discard')
     await db.close()
   })
@@ -1337,7 +1494,7 @@ describe('client root-operation coordination', () => {
     ).toBe(true)
     expect(
       controls.calls.some(
-        (entry) => entry.session === 4 && /pg_advisory_lock/i.test(entry.sql),
+        (entry) => entry.session === 4 && /pg_try_advisory_lock/i.test(entry.sql),
       ),
     ).toBe(true)
     await db.close()

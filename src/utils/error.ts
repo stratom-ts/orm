@@ -107,7 +107,42 @@ export function catchTags<T, E extends ErrorHandlers<T>>(value: T, handlers: E) 
 export class MigrationError extends TaggedError('MigrationError')<{
   message: string
   cause?: unknown
+  stage?: MigrationExecutionStage
+  outcome?: MigrationExecutionOutcome
+  retryable?: boolean
+  actionIndex?: number
+  sourceStepIndexes?: readonly number[]
+  cleanupFailures?: readonly MigrationCleanupFailure[]
 }> {}
+
+/** Observable stage at which migration execution stopped. */
+export type MigrationExecutionStage =
+  | 'lock'
+  | 'transaction'
+  | 'introspection'
+  | 'planning'
+  | 'permission'
+  | 'lowering'
+  | 'precondition'
+  | 'ddl'
+  | 'commit'
+  | 'rollback'
+  | 'unlock'
+  | 'sessionCleanup'
+
+/** Database effect known after a migration execution attempt. */
+export type MigrationExecutionOutcome =
+  | 'unchanged'
+  | 'rolledBack'
+  | 'applied'
+  | 'partial'
+  | 'unknown'
+
+/** Secondary cleanup failure retained without replacing the primary cause. */
+export type MigrationCleanupFailure = Readonly<{
+  stage: 'rollback' | 'unlock' | 'sessionCleanup'
+  cause: unknown
+}>
 
 /**
  * Error thrown when table/column metadata is invalid or incomplete.

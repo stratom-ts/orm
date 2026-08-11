@@ -42,6 +42,7 @@ export type {
   MigrationAllow,
   MigrationColumnReference,
   MigrationColumnTarget,
+  MigrationExecuteOptions,
   MigrationIndexTarget,
   MigrationNamespaceTarget,
   MigrationPlan,

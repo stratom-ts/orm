@@ -24,6 +24,21 @@ type OperationFrame = {
 }
 
 const activeOperation = new AsyncLocalStorage<OperationFrame>()
+const operationReleaseCleanupFailures = new WeakMap<object, unknown[]>()
+
+/**
+ * Reads provider-release cleanup failures retained beside an object primary rejection.
+ *
+ * @example
+ *   const cleanupFailures = getOperationReleaseCleanupFailures(error)
+ *
+ * @param cause - Primary rejection that may have retained cleanup failures.
+ */
+export function getOperationReleaseCleanupFailures(cause: unknown): readonly unknown[] {
+  return (typeof cause === 'object' && cause !== null) || typeof cause === 'function'
+    ? (operationReleaseCleanupFailures.get(cause) ?? [])
+    : []
+}
 
 /**
  * Validates the operation session provider contract at runtime.
@@ -69,7 +84,12 @@ function assertSession(session: OperationSession): void {
 export type OperationContext = Readonly<{
   executor: Executor
   identity: OperationSessionIdentity
+
+  /** Marks the physical operation session for disposal. */
   discard(): void
+
+  /** Cancels work currently running on the physical operation session. */
+  cancel(): Promise<void>
 }>
 
 export class OperationCoordinator {
@@ -209,6 +229,8 @@ export class OperationCoordinator {
                 executor,
                 identity: token.identity,
                 discard: token.discard,
+                /** Cancels work currently running on the pinned session. */
+                cancel: () => session!.cancel(),
               }),
             )
             if (
@@ -235,6 +257,13 @@ export class OperationCoordinator {
             if (!operationFailed) {
               operationFailed = true
               operationError = cause
+            } else if (
+              (typeof operationError === 'object' && operationError !== null) ||
+              typeof operationError === 'function'
+            ) {
+              const failures = operationReleaseCleanupFailures.get(operationError) ?? []
+              failures.push(cause)
+              operationReleaseCleanupFailures.set(operationError, failures)
             }
           }
         }

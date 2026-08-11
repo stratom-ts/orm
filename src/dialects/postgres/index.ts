@@ -5,6 +5,7 @@ import { inferPostgresColumnType } from './infer'
 import { introspectPostgres } from './introspect'
 import { lowerPostgresDesiredSchema } from './lowerDesiredSchema'
 import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
+import { executePostgresMigration, lowerPostgresMigrationPlan } from './migration'
 import { normalizePostgresDataType } from './normalize'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
 
@@ -27,6 +28,10 @@ export const postgresDialect: Dialect = {
   id: 'postgresql',
   relationIdentity: 'postgresql',
   catalog: { introspectCatalog: introspectPostgres },
+  migration: {
+    lower: lowerPostgresMigrationPlan,
+    execute: executePostgresMigration,
+  },
 
   /**
    * Lowers an authored schema into PostgreSQL table ASTs.
