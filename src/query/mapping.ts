@@ -1,4 +1,4 @@
-import type { Dialect } from '@/dialects'
+import type { DialectCore, DialectMappingContext } from '@/dialects'
 import type { ColumnMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
@@ -28,13 +28,13 @@ export type ValueMapper = {
  * @param registered - Registered tables available for reference resolution.
  * @param resolving - Reference targets currently being resolved.
  */
-function resolveColumnDataType(
+function resolveColumnContext(
   handle: TableHandle,
   columnName: string,
-  dialect: Dialect,
+  dialect: DialectCore,
   registered: readonly TableHandle[],
   resolving: Set<string>,
-): string | undefined {
+): DialectMappingContext | undefined {
   const entries = handle.getSchema().entries as Record<
     string,
     { kind?: string } | undefined
@@ -42,7 +42,7 @@ function resolveColumnDataType(
   const columnSchema = entries[columnName]
   if (!columnSchema || columnSchema.kind !== 'schema') return undefined
 
-  const schema = columnSchema as Parameters<Dialect['inferColumnType']>[0]
+  const schema = columnSchema as Parameters<DialectCore['inferColumnType']>[0]
   const columnMetadata = getColumnMetadata(schema)
   const referenceMetadata = getReferenceMetadata(schema)
   if (referenceMetadata) {
@@ -70,7 +70,7 @@ function resolveColumnDataType(
       })
     }
     resolving.add(token)
-    const result = resolveColumnDataType(
+    const result = resolveColumnContext(
       target,
       referenceMetadata.target.column,
       dialect,
@@ -86,8 +86,14 @@ function resolveColumnDataType(
     return result
   }
   const selected = columnMetadata?.physicalType?.[dialect.id]
-  if (selected !== undefined) return String(selected)
-  return String(dialect.inferColumnType(schema))
+  const dataType =
+    selected !== undefined ? String(selected) : String(dialect.inferColumnType(schema))
+  return {
+    dataType,
+    schema,
+    column: columnName,
+    ...(columnMetadata === undefined ? {} : { metadata: columnMetadata }),
+  }
 }
 
 /**
@@ -121,11 +127,11 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
  *   `mapResultRows`
  */
 export function createValueMapper(
-  dialect: Dialect,
+  dialect: DialectCore,
   map?: ValueMapConfig,
   registered: readonly TableHandle[] = [],
 ): ValueMapper {
-  const typeCache = new WeakMap<TableHandle, Record<string, string>>()
+  const contextCache = new WeakMap<TableHandle, Record<string, DialectMappingContext>>()
 
   /**
    * Gets physical SQL data types keyed by column name.
@@ -133,15 +139,30 @@ export function createValueMapper(
    * @param handle - Table whose column types should be resolved.
    */
   const columnTypes = (handle: TableHandle): Record<string, string> => {
-    const cached = typeCache.get(handle)
-    if (cached) return cached
-    const types: Record<string, string> = {}
-    for (const name of Object.keys(handle.getSchema().entries)) {
-      const dt = resolveColumnDataType(handle, name, dialect, registered, new Set())
-      if (dt !== undefined) types[name] = dt
+    const cached = contextCache.get(handle)
+    if (cached) {
+      return Object.fromEntries(
+        Object.entries(cached).map(([name, context]) => [name, context.dataType]),
+      )
     }
-    typeCache.set(handle, types)
-    return types
+    const contexts: Record<string, DialectMappingContext> = {}
+    for (const name of Object.keys(handle.getSchema().entries)) {
+      const context = resolveColumnContext(handle, name, dialect, registered, new Set())
+      if (context !== undefined) contexts[name] = context
+    }
+    contextCache.set(handle, contexts)
+    return Object.fromEntries(
+      Object.entries(contexts).map(([name, context]) => [name, context.dataType]),
+    )
+  }
+
+  const contextFor = (
+    handle: TableHandle,
+    column: string,
+  ): DialectMappingContext | undefined => {
+    // columnTypes populates the same context cache while preserving its public shape.
+    columnTypes(handle)
+    return contextCache.get(handle)?.[column]
   }
 
   /**
@@ -156,11 +177,12 @@ export function createValueMapper(
     const meta = columnMeta(handle, column)
     if (meta?.mapParam) return meta.mapParam(value)
 
-    const dataType = columnTypes(handle)[column]
-    if (dataType === undefined) return value
+    const context = contextFor(handle, column)
+    if (context === undefined) return value
 
-    if (map?.mapParamValue) return map.mapParamValue(dataType, value)
-    if (dialect.mapParamValue) return dialect.mapParamValue(dataType, value)
+    if (map?.mapParamValue) return map.mapParamValue(context.dataType, value)
+    if (dialect.mapParamValueContext) return dialect.mapParamValueContext(context, value)
+    if (dialect.mapParamValue) return dialect.mapParamValue(context.dataType, value)
     return value
   }
 
@@ -179,11 +201,13 @@ export function createValueMapper(
     const meta = columnMeta(handle, column)
     if (meta?.mapResult) return meta.mapResult(value)
 
-    const dataType = columnTypes(handle)[column]
-    if (dataType === undefined) return value
+    const context = contextFor(handle, column)
+    if (context === undefined) return value
 
-    if (map?.mapResultValue) return map.mapResultValue(dataType, value)
-    if (dialect.mapResultValue) return dialect.mapResultValue(dataType, value)
+    if (map?.mapResultValue) return map.mapResultValue(context.dataType, value)
+    if (dialect.mapResultValueContext)
+      return dialect.mapResultValueContext(context, value)
+    if (dialect.mapResultValue) return dialect.mapResultValue(context.dataType, value)
     return value
   }
 

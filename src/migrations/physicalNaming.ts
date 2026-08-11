@@ -26,7 +26,7 @@ export type PhysicalNameSeed = Readonly<{
 }>
 
 export type PhysicalNamingProfile = Readonly<{
-  id: 'postgresql' | 'sqlite-fixture' | 'table-local-fixture'
+  id: 'postgresql' | 'sqlite' | 'table-local-fixture'
   maximumLength: number
   lengthUnit: 'utf8Bytes' | 'unicodeScalars'
   comparisonKey(name: string): string
@@ -48,10 +48,10 @@ function exactKey(name: string): string {
 }
 
 /**
- * Folds ASCII uppercase characters for SQLite fixture comparison.
+ * Folds ASCII uppercase characters for SQLite comparison.
  *
  * @example
- *   SQLITE_PHYSICAL_NAMING_FIXTURE.comparisonKey('Users')
+ *   SQLITE_PHYSICAL_NAMING.comparisonKey('Users')
  *
  * @param name - Identifier spelling.
  */
@@ -83,9 +83,9 @@ export const POSTGRES_PHYSICAL_NAMING: PhysicalNamingProfile = {
       : 'namespaceRelations',
 }
 
-/** SQLite naming semantics fixture; this is not a production SQLite dialect. */
-export const SQLITE_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
-  id: 'sqlite-fixture',
+/** SQLite physical naming semantics. */
+export const SQLITE_PHYSICAL_NAMING: PhysicalNamingProfile = {
+  id: 'sqlite',
   maximumLength: 255,
   lengthUnit: 'unicodeScalars',
   comparisonKey: sqliteKey,
@@ -93,7 +93,7 @@ export const SQLITE_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
    * Selects the SQLite fixture uniqueness scope for a physical name.
    *
    * @example
-   *   SQLITE_PHYSICAL_NAMING_FIXTURE.scope('unique')
+   *   SQLITE_PHYSICAL_NAMING.scope('unique')
    *
    * @param kind - Physical-name kind.
    */
@@ -129,9 +129,7 @@ export const TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
 export function physicalNamingProfile(
   adapter: RelationIdentityAdapter,
 ): PhysicalNamingProfile {
-  return adapter === 'postgresql'
-    ? POSTGRES_PHYSICAL_NAMING
-    : SQLITE_PHYSICAL_NAMING_FIXTURE
+  return adapter === 'postgresql' ? POSTGRES_PHYSICAL_NAMING : SQLITE_PHYSICAL_NAMING
 }
 
 /**

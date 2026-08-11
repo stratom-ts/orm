@@ -5,7 +5,7 @@ import { column, defineTable, postgresDialect } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import {
   POSTGRES_PHYSICAL_NAMING,
-  SQLITE_PHYSICAL_NAMING_FIXTURE,
+  SQLITE_PHYSICAL_NAMING,
   TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE,
   createPhysicalNameRegistry,
   generatedIndexName,
@@ -92,7 +92,7 @@ describe('generated physical naming', () => {
     const publicUsers = owner('public', 'users')
     const publicPosts = owner('public', 'posts')
 
-    for (const profile of [POSTGRES_PHYSICAL_NAMING, SQLITE_PHYSICAL_NAMING_FIXTURE]) {
+    for (const profile of [POSTGRES_PHYSICAL_NAMING, SQLITE_PHYSICAL_NAMING]) {
       const registry = createPhysicalNameRegistry(profile)
       registry.reserve({
         kind: 'index',
@@ -105,7 +105,7 @@ describe('generated physical naming', () => {
         registry.reserve({
           kind: 'index',
           owner: publicPosts,
-          name: profile.id === 'sqlite-fixture' ? 'SHARED_IDX' : 'shared_idx',
+          name: profile.id === 'sqlite' ? 'SHARED_IDX' : 'shared_idx',
           token: 'posts',
           description: 'posts index',
         }),

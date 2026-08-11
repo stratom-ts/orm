@@ -1,4 +1,5 @@
 export * from './postgres'
+export { sqliteCore } from './sqlite'
 export { resolveDialect } from './resolve'
 export type * from './catalog'
 export type * from './types'

@@ -20,6 +20,18 @@ export type * from './catalog'
 /** SQL type string produced by dialect type inference. */
 export type SqlDataType = string
 
+/** Logical and physical context supplied to dialect value mappers. */
+export type DialectMappingContext = Readonly<{
+  /** Resolved physical declaration (for example `TEXT` or `jsonb`). */
+  dataType: string
+  /** Authored schema, when mapping is for a registered column. */
+  schema?: AnySchema
+  /** Authored column name, when known. */
+  column?: string
+  /** Column metadata, when present. */
+  metadata?: ColumnMetadata
+}>
+
 /** One canonically registered authored column before physical lowering. */
 export type AuthoredDesiredColumn = Readonly<{
   name: string
@@ -364,17 +376,11 @@ export type SqlAst =
  *
  * V1 ships Postgres only; introspect may be a stub until migrate tickets.
  */
-export interface Dialect {
+export interface DialectCore {
   readonly id: SQLDialect
 
   /** Required adapter profile used by canonical migration relation identity. */
   readonly relationIdentity: RelationIdentityAdapter
-
-  /** Deep adapter module for scoped catalog observation. */
-  readonly catalog: CatalogIntrospector
-
-  /** Whole-plan lowering and coordinated migration execution. */
-  readonly migration?: DialectMigrationAdapter
 
   /** Physically resolves a complete, canonically registered desired schema graph. */
   lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
@@ -390,4 +396,16 @@ export interface Dialect {
 
   mapResultValue?(dataType: string, value: unknown): unknown
   mapParamValue?(dataType: string, value: unknown): unknown
+  /** Context-aware seam; legacy mappers continue to receive a bare type string. */
+  mapResultValueContext?(context: DialectMappingContext, value: unknown): unknown
+  mapParamValueContext?(context: DialectMappingContext, value: unknown): unknown
+}
+
+/** Complete dialect, including catalog and optional migration runtime support. */
+export interface Dialect extends DialectCore {
+  /** Deep adapter module for scoped catalog observation. */
+  readonly catalog: CatalogIntrospector
+
+  /** Whole-plan lowering and coordinated migration execution. */
+  readonly migration?: DialectMigrationAdapter
 }

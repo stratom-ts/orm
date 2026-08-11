@@ -2,7 +2,7 @@ import type {
   AuthoredDesiredColumn,
   AuthoredDesiredSchema,
   AuthoredDesiredTable,
-  Dialect,
+  DialectCore,
   LoweredDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -171,7 +171,7 @@ export function registerDesiredSchema(
 export function lowerDesiredSchema(
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
-  dialect: Dialect,
+  dialect: DialectCore,
 ): LoweredDesiredSchema {
   try {
     const graph = registerDesiredSchema(handles, identities)
