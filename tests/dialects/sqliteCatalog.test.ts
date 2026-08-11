@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CatalogExecutor, CatalogRequest } from '@/dialects'
-import { sqliteCatalog } from '@/dialects'
+import { sqliteCatalog } from '@/dialects/sqlite/catalog'
 
 const request: CatalogRequest = {
   relations: [],
