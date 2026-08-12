@@ -286,13 +286,10 @@ export async function acquireCoordination(
   for (const identity of identities) {
     let firstAttempt = true
     while (true) {
-      const timeout =
-        options.lockTimeoutMs === 0
-          ? MIGRATION_SESSION_CALL_TIMEOUT_MS
-          : Math.min(
-              MIGRATION_SESSION_CALL_TIMEOUT_MS,
-              Math.max(0, deadline - performance.now()),
-            )
+      // The per-call window guards against a hung session and is deliberately
+      // independent of lockTimeoutMs; the lock budget is enforced by the
+      // deadline checks below, which always allow one complete attempt.
+      const timeout = MIGRATION_SESSION_CALL_TIMEOUT_MS
       if (!firstAttempt && performance.now() >= deadline) {
         await stopCancelled(options, state, 'lock', true, acquired)
       }

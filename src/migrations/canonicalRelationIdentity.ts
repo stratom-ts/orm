@@ -71,10 +71,97 @@ function createRegistryNode<T>(): RegistryNode<T> {
  * @param left - First string.
  * @param right - Second string.
  */
-function compareCodeUnits(left: string, right: string): number {
+export function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
   return 0
+}
+
+/**
+ * Compares canonical namespaces by role then comparison key, then by length.
+ *
+ * Canonical identities carry their adapter's comparison keys already, so
+ * ordering and equality need no adapter state. These standalone primitives are
+ * the single definition of ADR-0001 identity semantics; callers that hold no
+ * identity module must use them rather than re-deriving the rules.
+ *
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
+ */
+export function compareCanonicalNamespaces(
+  left: readonly CanonicalNamespaceSegment[],
+  right: readonly CanonicalNamespaceSegment[],
+): number {
+  const length = Math.min(left.length, right.length)
+  for (let index = 0; index < length; index++) {
+    const role = compareCodeUnits(left[index]!.role, right[index]!.role)
+    if (role !== 0) return role
+    const identifier = compareCodeUnits(
+      left[index]!.identifier.comparisonKey,
+      right[index]!.identifier.comparisonKey,
+    )
+    if (identifier !== 0) return identifier
+  }
+  return left.length - right.length
+}
+
+/**
+ * Tests canonical namespaces for equality.
+ *
+ * @param left - First canonical namespace.
+ * @param right - Second canonical namespace.
+ */
+export function sameCanonicalNamespace(
+  left: readonly CanonicalNamespaceSegment[],
+  right: readonly CanonicalNamespaceSegment[],
+): boolean {
+  return compareCanonicalNamespaces(left, right) === 0
+}
+
+/**
+ * Compares canonical relation identities by namespace then relation.
+ *
+ * @param left - First canonical identity.
+ * @param right - Second canonical identity.
+ */
+export function compareCanonicalIdentities(
+  left: CanonicalRelationIdentity,
+  right: CanonicalRelationIdentity,
+): number {
+  const namespace = compareCanonicalNamespaces(left.namespace, right.namespace)
+  if (namespace !== 0) return namespace
+  return compareCodeUnits(left.relation.comparisonKey, right.relation.comparisonKey)
+}
+
+/**
+ * Tests canonical relation identities for equality.
+ *
+ * @param left - First canonical identity.
+ * @param right - Second canonical identity.
+ */
+export function canonicalIdentitiesEqual(
+  left: CanonicalRelationIdentity,
+  right: CanonicalRelationIdentity,
+): boolean {
+  return compareCanonicalIdentities(left, right) === 0
+}
+
+/**
+ * Formats a canonical identity and optional member for diagnostics.
+ *
+ * @param identity - Canonical relation identity.
+ * @param member - Optional relation member.
+ */
+export function formatCanonicalIdentity(
+  identity: CanonicalRelationIdentity,
+  member?: Readonly<{ role: 'column' | 'index'; spelling: string }>,
+): string {
+  const segments = identity.namespace.map(
+    ({ role, identifier }) => `${role}:${JSON.stringify(identifier.spelling)}`,
+  )
+  segments.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
+  if (member) segments.push(`${member.role}:${JSON.stringify(member.spelling)}`)
+  return `[${segments.join(', ')}]`
 }
 
 /**
@@ -115,7 +202,7 @@ function assertIdentifier(spelling: string, description: string): void {
  *
  * @param spelling - Authored identifier spelling.
  */
-function sqliteComparisonKey(spelling: string): string {
+export function sqliteComparisonKey(spelling: string): string {
   let key = ''
   for (const character of spelling) {
     const code = character.charCodeAt(0)
@@ -316,27 +403,7 @@ export function createCanonicalRelationIdentityModule(options: {
    * @param left - First canonical identity.
    * @param right - Second canonical identity.
    */
-  const compare = (
-    left: CanonicalRelationIdentity,
-    right: CanonicalRelationIdentity,
-  ): number => {
-    const length = Math.min(left.namespace.length, right.namespace.length)
-    for (let index = 0; index < length; index++) {
-      const leftSegment = left.namespace[index]!
-      const rightSegment = right.namespace[index]!
-      const role = compareCodeUnits(leftSegment.role, rightSegment.role)
-      if (role !== 0) return role
-      const identifier = compareCodeUnits(
-        leftSegment.identifier.comparisonKey,
-        rightSegment.identifier.comparisonKey,
-      )
-      if (identifier !== 0) return identifier
-    }
-
-    const namespaceLength = left.namespace.length - right.namespace.length
-    if (namespaceLength !== 0) return namespaceLength
-    return compareCodeUnits(left.relation.comparisonKey, right.relation.comparisonKey)
-  }
+  const compare = compareCanonicalIdentities
 
   /**
    * Creates a registry keyed by canonical relation identity.
@@ -452,14 +519,7 @@ export function createCanonicalRelationIdentityModule(options: {
      * @param identity - Canonical relation identity.
      * @param member - Optional relation member.
      */
-    format(identity, member) {
-      const segments = identity.namespace.map(
-        ({ role, identifier }) => `${role}:${JSON.stringify(identifier.spelling)}`,
-      )
-      segments.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
-      if (member) segments.push(`${member.role}:${JSON.stringify(member.spelling)}`)
-      return `[${segments.join(', ')}]`
-    },
+    format: formatCanonicalIdentity,
     createRegistry,
   }
 }

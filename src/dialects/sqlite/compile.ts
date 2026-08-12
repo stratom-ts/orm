@@ -1,3 +1,4 @@
+import { sqliteComparisonKey } from '@/migrations/canonicalRelationIdentity'
 import { QueryError } from '@/utils/error'
 
 import type {
@@ -21,14 +22,9 @@ import type {
 import { assertSafeSqliteDataType, formatSqliteLiteral } from './validate'
 
 const q = (name: string) => `"${name.replaceAll('"', '""')}"`
-function foldAscii(value: string): string {
-  let result = ''
-  for (const c of value) {
-    const code = c.charCodeAt(0)
-    result += code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : c
-  }
-  return result
-}
+// Identifier folding must match canonical identity comparison, or the compiler
+// and the planner disagree about whether two spellings name the same relation.
+const foldAscii = sqliteComparisonKey
 function isMain(schema: string | undefined): boolean {
   return schema === undefined || foldAscii(schema) === 'main'
 }
@@ -46,6 +42,8 @@ const referenceTable = (schema: string | undefined, name: string) => {
   assertMain(schema, 'foreign-key references')
   return q(name)
 }
+/** Matches the rowid-alias type, ignoring the padding assertSafeSqliteDataType trims. */
+const isIntegerType = (dataType: string) => /^integer$/i.test(dataType.trim())
 const op = (value: ComparisonOp) =>
   ({ eq: '=', neq: '<>', gt: '>', gte: '>=', lt: '<', lte: '<=' })[value]
 type Relation = { table: string; schema: string; alias: string }
@@ -276,7 +274,7 @@ function columnDef(c: CreateTableColumnAst, pk: boolean): string {
     })
   let sql = `${q(c.name)} ${type}`
   if (c.autoIncrement) {
-    if (!pk || !/^integer$/i.test(type))
+    if (!pk || !isIntegerType(type))
       throw new QueryError({
         message: 'SQLite AUTOINCREMENT requires the sole INTEGER primary key',
       })
@@ -285,9 +283,9 @@ function columnDef(c: CreateTableColumnAst, pk: boolean): string {
       throw new QueryError({
         message: 'SQLite AUTOINCREMENT columns cannot specify a default',
       })
-  } else if (pk && /^integer$/i.test(type)) sql += ' primary key'
+  } else if (pk && isIntegerType(type)) sql += ' primary key'
   if (c.notNull) sql += ' not null'
-  if (c.unique && !(pk && /^integer$/i.test(type))) sql += ' unique'
+  if (c.unique && !(pk && isIntegerType(type))) sql += ' unique'
   if (c.databaseDefault) sql += ` default ${c.databaseDefault.sql}`
   else if (c.defaultValue !== undefined)
     sql += ` default ${formatSqliteLiteral(c.defaultValue)}`
@@ -334,8 +332,7 @@ function compileCreateTable(n: CreateTableAst): string {
     sole &&
     n.columns.some(
       (c) =>
-        foldAscii(c.name) === foldAscii(n.primaryKey[0]!) &&
-        /^integer$/i.test(c.dataType),
+        foldAscii(c.name) === foldAscii(n.primaryKey[0]!) && isIntegerType(c.dataType),
     )
   const defs = n.columns.map((c) =>
     columnDef(c, inline && foldAscii(c.name) === foldAscii(n.primaryKey[0]!)),

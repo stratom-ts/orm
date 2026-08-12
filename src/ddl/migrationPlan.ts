@@ -15,7 +15,12 @@ import type {
   NamespaceIdentifierInput,
   RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
-import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import {
+  compareCanonicalNamespaces,
+  compareCodeUnits,
+  createCanonicalRelationIdentityModule,
+  sameCanonicalNamespace,
+} from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
 import {
@@ -215,18 +220,6 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
 }
 
 /**
- * Compares strings by locale-independent UTF-16 code-unit order.
- *
- * @param left - First string to compare.
- * @param right - Second string to compare.
- */
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1
-  if (left > right) return 1
-  return 0
-}
-
-/**
  * Builds an identity input whose omitted schema is resolved by the identity module.
  *
  * @param schema - Explicit schema spelling, or undefined to use namespace resolution.
@@ -280,38 +273,6 @@ function validateCanonicalRelationNames(
  * @param left - First canonical namespace.
  * @param right - Second canonical namespace.
  */
-function sameNamespace(
-  left: CanonicalRelationIdentity['namespace'],
-  right: CanonicalRelationIdentity['namespace'],
-): boolean {
-  return compareNamespaces(left, right) === 0
-}
-
-/**
- * Compares canonical namespaces by role then comparison key. Canonical plan order is a
- * structural property of the plan, so it is derived here rather than from the identity
- * module a caller may no longer hold.
- *
- * @param left - First canonical namespace.
- * @param right - Second canonical namespace.
- */
-function compareNamespaces(
-  left: readonly CanonicalNamespaceSegment[],
-  right: readonly CanonicalNamespaceSegment[],
-): number {
-  const length = Math.min(left.length, right.length)
-  for (let index = 0; index < length; index++) {
-    const role = compareCodeUnits(left[index]!.role, right[index]!.role)
-    if (role !== 0) return role
-    const identifier = compareCodeUnits(
-      left[index]!.identifier.comparisonKey,
-      right[index]!.identifier.comparisonKey,
-    )
-    if (identifier !== 0) return identifier
-  }
-  return left.length - right.length
-}
-
 /**
  * Reads the namespace addressed by any structured target.
  *
@@ -361,7 +322,7 @@ function targetTuple(
 function compareMigrationTargets(left: MigrationTarget, right: MigrationTarget): number {
   const namespaces = [targetNamespace(left), targetNamespace(right)] as const
   return (
-    compareNamespaces(...namespaces) ||
+    compareCanonicalNamespaces(...namespaces) ||
     compareStringArrays(
       targetTuple(left, 'comparisonKey'),
       targetTuple(right, 'comparisonKey'),
@@ -406,26 +367,6 @@ function comparePlanningIssues(
   return (
     ISSUE_PROPERTY_ORDER[left.property] - ISSUE_PROPERTY_ORDER[right.property] ||
     compareCodeUnits(left.message, right.message)
-  )
-}
-
-/**
- * Orders desired table handles by their resolved canonical relation identities.
- *
- * @param left - First desired table handle.
- * @param right - Second desired table handle.
- * @param identities - Identity module used to resolve and compare handles.
- */
-function compareTableHandles(
-  left: TableHandle,
-  right: TableHandle,
-  identities: CanonicalRelationIdentityModule,
-): number {
-  const leftInfo = left.getTableMetadata()
-  const rightInfo = right.getTableMetadata()
-  return identities.compare(
-    identities.resolve(relationInput(leftInfo.schema, leftInfo.name)),
-    identities.resolve(relationInput(rightInfo.schema, rightInfo.name)),
   )
 }
 
@@ -1024,16 +965,21 @@ function buildMigrationPlan(
   const steps: MigrationStep[] = []
   const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
   const issues: PlanningIssue[] = []
-  const sortedSchemas = [...schemas].sort((left, right) =>
-    compareTableHandles(left, right, identities),
-  )
+  // Resolved once per handle: identity resolution allocates a full canonical
+  // identity, and both this pass and the registration pass below need it.
+  const sortedTables = schemas
+    .map((handle) => {
+      const metadata = handle.getTableMetadata()
+      return {
+        handle,
+        identity: identities.resolve(relationInput(metadata.schema, metadata.name)),
+      }
+    })
+    .sort((left, right) => identities.compare(left.identity, right.identity))
+  const sortedSchemas = sortedTables.map(({ handle }) => handle)
   const namingProfile = physicalNamingProfile(dialect.relationIdentity)
-  for (const handle of sortedSchemas) {
-    const metadata = handle.getTableMetadata()
-    validateCanonicalRelationNames(
-      identities.resolve(relationInput(metadata.schema, metadata.name)),
-      namingProfile,
-    )
+  for (const { handle, identity } of sortedTables) {
+    validateCanonicalRelationNames(identity, namingProfile)
     for (const value of Object.values(handle.getSchema().entries)) {
       if (!value || value.kind !== 'schema') continue
       const reference = getReferenceMetadata(value)
@@ -1189,7 +1135,7 @@ function buildMigrationPlan(
   }
 
   for (const namespace of ownership.completeNamespaces) {
-    if (!ensuredSchemas.some((existing) => sameNamespace(existing, namespace))) {
+    if (!ensuredSchemas.some((existing) => sameCanonicalNamespace(existing, namespace))) {
       steps.push({ kind: 'ensure_namespace', target: { kind: 'namespace', namespace } })
       ensuredSchemas.push(namespace)
     }
@@ -1260,9 +1206,8 @@ function buildMigrationPlan(
     })
   }
 
-  for (const handle of sortedSchemas) {
+  for (const { handle, identity } of sortedTables) {
     const info = handle.getTableMetadata()
-    const identity = identities.resolve(relationInput(info.schema, info.name))
     if (registered.has(identity)) {
       issues.push({
         identity,
@@ -1310,7 +1255,9 @@ function buildMigrationPlan(
 
     if (!live) {
       if (
-        !ensuredSchemas.some((existing) => sameNamespace(existing, identity.namespace))
+        !ensuredSchemas.some((existing) =>
+          sameCanonicalNamespace(existing, identity.namespace),
+        )
       ) {
         steps.push({
           kind: 'ensure_namespace',

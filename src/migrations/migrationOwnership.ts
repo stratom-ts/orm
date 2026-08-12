@@ -10,6 +10,7 @@ import type {
   NamespaceIdentifierInput,
   RelationIdentityInput,
 } from './canonicalRelationIdentity'
+import { compareCodeUnits, sameCanonicalNamespace } from './canonicalRelationIdentity'
 
 export type MigrationRelationShape = 'complete' | 'additive'
 
@@ -37,18 +38,6 @@ export type ResolvedMigrationOwnership = {
   readonly completeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[]
   readonly explicitRelations: readonly CanonicalRelationIdentity[]
   readonly absentRelations: readonly CanonicalRelationIdentity[]
-}
-
-/**
- * Compares strings by locale-independent UTF-16 code-unit order.
- *
- * @param left - First string.
- * @param right - Second string.
- */
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1
-  if (left > right) return 1
-  return 0
 }
 
 /**
@@ -152,28 +141,6 @@ export function createCatalogRequest(
     completeNamespaces,
     ...(registrationDefault === undefined ? {} : { registrationDefault }),
   }
-}
-
-/**
- * Tests canonical namespaces for positional role and comparison-key equality.
- *
- * @param left - First canonical namespace.
- * @param right - Second canonical namespace.
- */
-function sameNamespace(
-  left: readonly CanonicalNamespaceSegment[],
-  right: readonly CanonicalNamespaceSegment[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((segment, index) => {
-      const other = right[index]
-      return (
-        segment.role === other?.role &&
-        segment.identifier.comparisonKey === other.identifier.comparisonKey
-      )
-    })
-  )
 }
 
 /**
@@ -303,7 +270,9 @@ export function resolveMigrationOwnership(
     })
 
   for (let index = 1; index < completeNamespaces.length; index++) {
-    if (sameNamespace(completeNamespaces[index - 1]!, completeNamespaces[index]!)) {
+    if (
+      sameCanonicalNamespace(completeNamespaces[index - 1]!, completeNamespaces[index]!)
+    ) {
       throw new InvariantError(
         `Duplicate complete-namespace migration ownership for ${formatNamespace(completeNamespaces[index]!)}`,
       )
@@ -338,7 +307,7 @@ export function resolveMigrationOwnership(
      * @param namespace - Canonical namespace segments.
      */
     ownsNamespace: (namespace) =>
-      completeNamespaces.some((owned) => sameNamespace(owned, namespace)),
+      completeNamespaces.some((owned) => sameCanonicalNamespace(owned, namespace)),
     completeNamespaces,
     explicitRelations: resolvedRelations
       .filter(({ declaration }) => declaration.kind === 'relation')

@@ -1,4 +1,10 @@
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
+import {
+  canonicalIdentitiesEqual,
+  compareCanonicalIdentities,
+  compareCodeUnits,
+  formatCanonicalIdentity,
+} from '@/migrations/canonicalRelationIdentity'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
 import { isSqlNullable } from '@/schemas'
 import { MigrationError } from '@/utils/error'
@@ -20,32 +26,14 @@ import {
   normalizeSqliteDefaultExpression,
 } from './validate'
 
-const same = (a: CanonicalRelationIdentity, b: CanonicalRelationIdentity) =>
-  a.relation.comparisonKey === b.relation.comparisonKey &&
-  a.namespace.length === b.namespace.length &&
-  a.namespace.every(
-    (x, i) =>
-      x.role === b.namespace[i]?.role &&
-      x.identifier.comparisonKey === b.namespace[i]?.identifier.comparisonKey,
-  )
+const same = canonicalIdentitiesEqual
+const compare = compareCodeUnits
+const compareIdentity = compareCanonicalIdentities
 const format = (i: CanonicalRelationIdentity, c?: string) =>
-  `[${i.namespace.map((x) => `${x.role}:${JSON.stringify(x.identifier.spelling)}`).join(', ')}, relation:${JSON.stringify(i.relation.spelling)}${c === undefined ? '' : `, column:${JSON.stringify(c)}`}]`
-const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
-const compareIdentity = (a: CanonicalRelationIdentity, b: CanonicalRelationIdentity) => {
-  for (let i = 0; i < Math.min(a.namespace.length, b.namespace.length); i++) {
-    const role = compare(a.namespace[i]!.role, b.namespace[i]!.role)
-    if (role) return role
-    const key = compare(
-      a.namespace[i]!.identifier.comparisonKey,
-      b.namespace[i]!.identifier.comparisonKey,
-    )
-    if (key) return key
-  }
-  return (
-    a.namespace.length - b.namespace.length ||
-    compare(a.relation.comparisonKey, b.relation.comparisonKey)
+  formatCanonicalIdentity(
+    i,
+    c === undefined ? undefined : { role: 'column', spelling: c },
   )
-}
 function database(i: CanonicalRelationIdentity): string {
   if (
     i.namespace.length !== 1 ||

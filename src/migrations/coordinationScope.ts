@@ -99,6 +99,13 @@ export function createMigrationCoordinationScope(
 /**
  * Returns the single coordination identity for a coordination scope.
  *
+ * A configured `applicationId` scopes the lock to that application so
+ * independent applications migrate the same database in parallel. Exclusion is
+ * therefore only as wide as the scope: every process that migrates one database
+ * must agree on `applicationId`, because a scoped holder and an unscoped holder
+ * do not exclude each other. Applications sharing a database must own disjoint
+ * relations.
+ *
  * @example
  *   const identities = migrationLockAcquisitionOrder(scope)
  *

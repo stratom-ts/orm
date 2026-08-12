@@ -1,7 +1,9 @@
 import type { MigrationStep, PlannedMigration } from '@/ddl/migrationPlan'
 import type { MigrationCapabilityIssue } from '@/ddl/migrationProgram'
+import type { PlanningCatalogTable } from '@/ddl/planningCatalog'
 import type { CompiledQuery } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
+import { sameCanonicalNamespace } from '@/migrations/canonicalRelationIdentity'
 
 export type ActionDraft = {
   step: MigrationStep
@@ -24,26 +26,6 @@ function stepRelation(step: MigrationStep): CanonicalRelationIdentity | undefine
 }
 
 /**
- * Compares canonical namespaces without relying on dotted encodings.
- *
- * @param left - First canonical namespace.
- * @param right - Second canonical namespace.
- */
-function sameNamespace(
-  left: CanonicalRelationIdentity['namespace'],
-  right: CanonicalRelationIdentity['namespace'],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every(
-      (segment, index) =>
-        segment.role === right[index]?.role &&
-        segment.identifier.comparisonKey === right[index]?.identifier.comparisonKey,
-    )
-  )
-}
-
-/**
  * Adds deterministic dependency edges and topologically orders action drafts.
  *
  * @example
@@ -58,6 +40,11 @@ export function orderActions(
 ): OrderedActions {
   const dependencies = drafts.map(() => new Set<number>())
   const identities = planned.identities
+  // Indexed once: the dependency scan is already quadratic in drafts, so a
+  // linear catalog search per pair would multiply in the catalog size too.
+  const catalogTables = identities.createRegistry<PlanningCatalogTable>()
+  for (const entry of planned.planningCatalog.tables)
+    catalogTables.set(entry.identity, entry)
   /**
    * Records that one action must follow another.
    *
@@ -76,7 +63,7 @@ export function orderActions(
       if (
         other.step.kind === 'ensure_namespace' &&
         relation &&
-        sameNamespace(other.step.target.namespace, relation.namespace)
+        sameCanonicalNamespace(other.step.target.namespace, relation.namespace)
       ) {
         dependsOn(action, candidate)
       }
@@ -133,9 +120,7 @@ export function orderActions(
         const relation = current.step.target.relation
         const column = current.step.target.column.spelling
         const indexName = other.step.target.index.spelling
-        const table = planned.planningCatalog.tables.find((entry) =>
-          identities.equals(entry.identity, relation),
-        )
+        const table = catalogTables.get(relation)
         const index = table?.indexes.find(
           (entry) => entry.name === indexName && entry.columns.includes(column),
         )
@@ -144,9 +129,7 @@ export function orderActions(
       if (current.step.kind === 'drop_table' && other.step.kind === 'drop_table') {
         const parentRelation = current.step.target.relation
         const childRelation = other.step.target.relation
-        const child = planned.planningCatalog.tables.find((entry) =>
-          identities.equals(entry.identity, childRelation),
-        )
+        const child = catalogTables.get(childRelation)
         if (
           child?.foreignKeys.some((foreignKey) =>
             identities.equals(foreignKey.referencedRelation, parentRelation),

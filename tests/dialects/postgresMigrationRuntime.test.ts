@@ -393,6 +393,19 @@ describe('PostgreSQL migration runtime failures', () => {
     expect(runtime.cancel).not.toHaveBeenCalled()
   })
 
+  it('allows a full response window for the first try under a small lockTimeoutMs', async () => {
+    const runtime = harness({ lockDelayMs: 10, lockResults: [true] })
+
+    await expect(runtime.execute(program(), { lockTimeoutMs: 5 })).resolves.toEqual({
+      outcome: 'applied',
+    })
+    expect(runtime.calls.filter((sql) => /pg_try_advisory_lock/i.test(sql))).toHaveLength(
+      1,
+    )
+    expect(runtime.cancel).not.toHaveBeenCalled()
+    expect(runtime.discard).not.toHaveBeenCalled()
+  })
+
   it('cancels and drains a never-settling physical lock query at its deadline', async () => {
     vi.useFakeTimers()
     try {

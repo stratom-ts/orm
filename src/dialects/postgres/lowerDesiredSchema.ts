@@ -7,6 +7,10 @@ import type {
   LoweredDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
+import {
+  canonicalIdentitiesEqual,
+  formatCanonicalIdentity,
+} from '@/migrations/canonicalRelationIdentity'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
 import { isSqlNullable } from '@/schemas'
 import { MigrationError } from '@/utils/error'
@@ -19,6 +23,13 @@ import {
   normalizePostgresDefaultExpression,
 } from './validate'
 
+const sameIdentity = canonicalIdentitiesEqual
+const formatIdentity = (identity: CanonicalRelationIdentity, column?: string) =>
+  formatCanonicalIdentity(
+    identity,
+    column === undefined ? undefined : { role: 'column', spelling: column },
+  )
+
 const IDENTITY_BASE_TYPES = new Set([
   'smallint',
   'integer',
@@ -27,43 +38,6 @@ const IDENTITY_BASE_TYPES = new Set([
   'int4',
   'int8',
 ])
-
-/**
- * Tests canonical relation identity equality.
- *
- * @param left - Left relation identity.
- * @param right - Right relation identity.
- */
-function sameIdentity(
-  left: CanonicalRelationIdentity,
-  right: CanonicalRelationIdentity,
-): boolean {
-  return (
-    left.relation.comparisonKey === right.relation.comparisonKey &&
-    left.namespace.length === right.namespace.length &&
-    left.namespace.every(
-      (segment, index) =>
-        segment.role === right.namespace[index]?.role &&
-        segment.identifier.comparisonKey ===
-          right.namespace[index]?.identifier.comparisonKey,
-    )
-  )
-}
-
-/**
- * Formats a relation or column identity for diagnostics.
- *
- * @param identity - Canonical relation identity.
- * @param column - Optional column name.
- */
-function formatIdentity(identity: CanonicalRelationIdentity, column?: string): string {
-  const parts = identity.namespace.map(
-    (segment) => `${segment.role}:${JSON.stringify(segment.identifier.spelling)}`,
-  )
-  parts.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
-  if (column !== undefined) parts.push(`column:${JSON.stringify(column)}`)
-  return `[${parts.join(', ')}]`
-}
 
 /**
  * Reads the schema spelling from a PostgreSQL relation identity.

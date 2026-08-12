@@ -359,6 +359,47 @@ describe('SQLite core facet', () => {
     ).toEqual({ sql: 'create index "main"."idx_name" on "items" ("name")', params: [] })
   })
 
+  it('inlines the INTEGER primary key regardless of declared-type padding', () => {
+    expect(
+      sqliteCore.compile({
+        kind: 'create_table',
+        table: 'items',
+        columns: [
+          {
+            name: 'id',
+            dataType: ' INTEGER ',
+            notNull: true,
+            unique: false,
+            autoIncrement: true,
+          },
+        ],
+        primaryKey: ['id'],
+      }),
+    ).toEqual({
+      sql: 'create table "main"."items" ("id" INTEGER primary key autoincrement not null)',
+      params: [],
+    })
+    expect(
+      sqliteCore.compile({
+        kind: 'create_table',
+        table: 'items',
+        columns: [
+          {
+            name: 'id',
+            dataType: 'INTEGER ',
+            notNull: true,
+            unique: false,
+            autoIncrement: false,
+          },
+        ],
+        primaryKey: ['id'],
+      }),
+    ).toEqual({
+      sql: 'create table "main"."items" ("id" INTEGER primary key not null)',
+      params: [],
+    })
+  })
+
   it('infers logical kinds and maps boolean/date/JSON values', () => {
     expect(sqliteCore.inferColumnType(string())).toBe('TEXT')
     expect(sqliteCore.inferColumnType(number())).toBe('REAL')
@@ -390,7 +431,7 @@ describe('SQLite core facet', () => {
         { dataType: 'TEXT', schema: nullableDate },
         new Date('2024-01-01T00:00:00.000Z'),
       ),
-    ).toBe('2024-01-01T00:00:00.000Z')
+    ).toBe('2024-01-01 00:00:00.000')
     expect(
       (
         sqliteCore.mapResultValueContext!(
@@ -399,6 +440,21 @@ describe('SQLite core facet', () => {
         ) as Date
       ).getTime(),
     ).toBe(Date.parse('2024-01-01T00:00:00.000Z'))
+    // Written dates must sort against current_timestamp defaults byte-wise.
+    const written = sqliteCore.mapParamValueContext!(
+      { dataType: 'TEXT', schema: nullableDate },
+      new Date('2024-01-01T00:00:01.000Z'),
+    ) as string
+    expect(written > '2024-01-01 00:00:00').toBe(true)
+    expect(written < '2024-01-01 00:00:02').toBe(true)
+    expect(
+      (
+        sqliteCore.mapResultValueContext!(
+          { dataType: 'TEXT', schema: nullableDate },
+          written,
+        ) as Date
+      ).toISOString(),
+    ).toBe('2024-01-01T00:00:01.000Z')
     const big = bigint()
     expect(
       sqliteCore.mapResultValueContext?.({ dataType: 'INTEGER', schema: big }, '42'),
@@ -409,6 +465,12 @@ describe('SQLite core facet', () => {
     expect(
       sqliteCore.mapResultValueContext?.({ dataType: 'INTEGER', schema: big }, 42n),
     ).toBe(42n)
+    expect(() =>
+      sqliteCore.mapResultValueContext!({ dataType: 'INTEGER', schema: big }, 1.5),
+    ).toThrow(/not an integer/i)
+    expect(() =>
+      sqliteCore.mapResultValueContext!({ dataType: 'INTEGER', schema: big }, '12e3'),
+    ).toThrow(/not an integer/i)
     expect(
       sqliteCore.mapParamValueContext?.({ dataType: 'INTEGER', schema: big }, 42n),
     ).toBe(42n)

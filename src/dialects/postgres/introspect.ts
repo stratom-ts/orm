@@ -22,7 +22,11 @@ import type {
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
 } from '@/migrations/canonicalRelationIdentity'
-import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import {
+  compareCodeUnits,
+  createCanonicalRelationIdentityModule,
+  sameCanonicalNamespace,
+} from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 import { toNumberOrNull } from '@/utils'
 import { InvariantError } from '@/utils/error'
@@ -51,18 +55,6 @@ function present<T>(value: T): CatalogFact<T> {
  */
 function unsupported(reason: string): CatalogNoEvidence {
   return { state: 'unsupported', by: 'adapter', reason }
-}
-
-/**
- * Compares strings by UTF-16 code-unit order.
- *
- * @param left - Left string.
- * @param right - Right string.
- */
-function compareCodeUnits(left: string, right: string): number {
-  if (left < right) return -1
-  if (left > right) return 1
-  return 0
 }
 
 /**
@@ -269,28 +261,6 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
 }
 
 /**
- * Tests canonical namespace equality.
- *
- * @param left - Left namespace.
- * @param right - Right namespace.
- */
-function sameNamespace(
-  left: readonly CanonicalNamespaceSegment[],
-  right: readonly CanonicalNamespaceSegment[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((segment, index) => {
-      const other = right[index]
-      return (
-        segment.role === other?.role &&
-        segment.identifier.comparisonKey === other.identifier.comparisonKey
-      )
-    })
-  )
-}
-
-/**
  * Builds a PostgreSQL relation identity input.
  *
  * @param schema - Schema spelling.
@@ -363,7 +333,8 @@ function resolveRequest(
     .map((namespace) => identities.resolveNamespace(namespace))
     .filter(
       (namespace, index, values) =>
-        values.findIndex((candidate) => sameNamespace(candidate, namespace)) === index,
+        values.findIndex((candidate) => sameCanonicalNamespace(candidate, namespace)) ===
+        index,
     )
     .sort(compareNamespaces)
 
@@ -382,7 +353,8 @@ function requestedNamespaces(request: ResolvedCatalogRequest) {
     ...request.completeNamespaces,
   ].filter(
     (namespace, index, values) =>
-      values.findIndex((candidate) => sameNamespace(candidate, namespace)) === index,
+      values.findIndex((candidate) => sameCanonicalNamespace(candidate, namespace)) ===
+      index,
   )
 }
 
@@ -570,7 +542,7 @@ export async function introspectPostgres(
   const relationRequested = (identity: CanonicalRelationIdentity) =>
     requestedRelations.has(identity) ||
     resolvedRequest.completeNamespaces.some((namespace) =>
-      sameNamespace(namespace, identity.namespace),
+      sameCanonicalNamespace(namespace, identity.namespace),
     )
   const diagnostics: CatalogDiagnostic[] = []
   if (versionNumber < 120000) {
@@ -860,7 +832,9 @@ export async function introspectPostgres(
           spelling: stringAt(row, 'schema', `${query} consistency`, index),
         },
       ])
-      return scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace))
+      return scopeNamespaces.some((candidate) =>
+        sameCanonicalNamespace(candidate, namespace),
+      )
     })
   /**
    * Filters rows to observations for requested relations.
@@ -1316,8 +1290,11 @@ export async function introspectPostgres(
     const identity = identities.resolveNamespace([
       { role: 'schema', spelling: stringAt(row, 'schema', 'namespace', index) },
     ])
-    if (!scopeNamespaces.some((namespace) => sameNamespace(namespace, identity))) continue
-    if (namespaces.some((namespace) => sameNamespace(namespace.identity, identity))) {
+    if (!scopeNamespaces.some((namespace) => sameCanonicalNamespace(namespace, identity)))
+      continue
+    if (
+      namespaces.some((namespace) => sameCanonicalNamespace(namespace.identity, identity))
+    ) {
       throw new InvariantError('Duplicate PostgreSQL namespace row')
     }
     namespaces.push({
@@ -1326,7 +1303,7 @@ export async function introspectPostgres(
       relations: {
         items: [],
         coverage: resolvedRequest.completeNamespaces.some((namespace) =>
-          sameNamespace(namespace, identity),
+          sameCanonicalNamespace(namespace, identity),
         )
           ? complete
           : {
@@ -1402,7 +1379,7 @@ export async function introspectPostgres(
 
   for (const relation of relationEntries) {
     const namespace = namespaces.find((candidate) =>
-      sameNamespace(candidate.identity, relation.identity.namespace),
+      sameCanonicalNamespace(candidate.identity, relation.identity.namespace),
     )
     if (!namespace) {
       throw new InvariantError(
@@ -1422,7 +1399,9 @@ export async function introspectPostgres(
         spelling: stringAt(row, 'schema', 'name reservation', index),
       },
     ])
-    if (!scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace)))
+    if (
+      !scopeNamespaces.some((candidate) => sameCanonicalNamespace(candidate, namespace))
+    )
       continue
     nameReservations.push({
       namespace,

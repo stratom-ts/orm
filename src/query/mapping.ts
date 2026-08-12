@@ -138,32 +138,27 @@ export function createValueMapper(
    *
    * @param handle - Table whose column types should be resolved.
    */
-  const columnTypes = (handle: TableHandle): Record<string, string> => {
+  const contexts = (handle: TableHandle): Record<string, DialectMappingContext> => {
     const cached = contextCache.get(handle)
-    if (cached) {
-      return Object.fromEntries(
-        Object.entries(cached).map(([name, context]) => [name, context.dataType]),
-      )
-    }
-    const contexts: Record<string, DialectMappingContext> = {}
+    if (cached) return cached
+    const resolved: Record<string, DialectMappingContext> = {}
     for (const name of Object.keys(handle.getSchema().entries)) {
       const context = resolveColumnContext(handle, name, dialect, registered, new Set())
-      if (context !== undefined) contexts[name] = context
+      if (context !== undefined) resolved[name] = context
     }
-    contextCache.set(handle, contexts)
-    return Object.fromEntries(
-      Object.entries(contexts).map(([name, context]) => [name, context.dataType]),
-    )
+    contextCache.set(handle, resolved)
+    return resolved
   }
+
+  const columnTypes = (handle: TableHandle): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(contexts(handle)).map(([name, context]) => [name, context.dataType]),
+    )
 
   const contextFor = (
     handle: TableHandle,
     column: string,
-  ): DialectMappingContext | undefined => {
-    // columnTypes populates the same context cache while preserving its public shape.
-    columnTypes(handle)
-    return contextCache.get(handle)?.[column]
-  }
+  ): DialectMappingContext | undefined => contexts(handle)[column]
 
   /**
    * Maps a JavaScript parameter value for a table column.

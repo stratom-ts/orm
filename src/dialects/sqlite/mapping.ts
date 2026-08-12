@@ -25,6 +25,16 @@ function logicalType(context: DialectMappingContext): string {
   if (!context.schema) return ''
   return String(getBaseSchema(context.schema).type)
 }
+/**
+ * Formats a date as SQLite's canonical UTC text, matching `current_timestamp`.
+ *
+ * SQLite compares TEXT byte-wise, so application writes must use the same
+ * spelling as database defaults or ordering and range filters mix two
+ * incomparable formats in one column.
+ */
+function formatSqliteDate(value: Date): string {
+  return value.toISOString().replace('T', ' ').replace('Z', '')
+}
 function parseSqliteDate(value: string): Date | undefined {
   const match = value.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?$/)
   if (match) {
@@ -65,6 +75,11 @@ export function mapSqliteResultValue(
           'SQLite bigint result is an unsafe integer number; return a numeric string or bigint',
       })
     if (typeof value === 'string' && /^-?\d+$/.test(value)) return BigInt(value)
+    // Falling through would hand back a number or string typed as bigint,
+    // which only fails later at the first arithmetic use.
+    throw new SchemaError({
+      message: `SQLite bigint result ${JSON.stringify(String(value))} is not an integer; return a numeric string or bigint`,
+    })
   }
   return value
 }
@@ -77,7 +92,8 @@ export function mapSqliteParamValue(
   if (isJsonSchema(context))
     return typeof value === 'string' ? value : JSON.stringify(value)
   if (logicalType(context) === 'boolean') return value ? 1 : 0
-  if (logicalType(context) === 'date' && value instanceof Date) return value.toISOString()
+  if (logicalType(context) === 'date' && value instanceof Date)
+    return formatSqliteDate(value)
   if (logicalType(context) === 'bigint') return value
   return value
 }
