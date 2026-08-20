@@ -34,6 +34,7 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
 
   if (base === 'json' || base === 'jsonb') {
     if (typeof value !== 'string') return value
+
     try {
       return JSON.parse(value) as unknown
     } catch {

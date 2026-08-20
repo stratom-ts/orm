@@ -93,6 +93,7 @@ function createNativeConnector(options?: {
         const signal = typeof query === 'string' ? undefined : query.signal
         const values = typeof query === 'string' ? [] : query.values
         queryCalls.push({ text, values })
+
         if (text === POSTGRES_OPERATION_IDENTITY_SQL) {
           return {
             rows: [
@@ -103,6 +104,7 @@ function createNativeConnector(options?: {
             ],
           }
         }
+
         if (
           text === POSTGRES_OPERATION_ROLLBACK_SQL ||
           text === POSTGRES_OPERATION_UNLOCK_SQL
@@ -110,10 +112,12 @@ function createNativeConnector(options?: {
           if (options?.releaseFailure) throw options.releaseFailure.value
           return { rows: [] }
         }
+
         activeQuery = {}
         nativeClient.readyForQuery = false
         activeCalls++
         maxActiveCalls = Math.max(maxActiveCalls, activeCalls)
+
         try {
           const terminated = new Promise<never>((_, reject) => {
             rejectActive = reject
@@ -149,10 +153,12 @@ function createNativeConnector(options?: {
     },
     async dispose() {
       disposeCount++
+
       if (disposeFailures > 0) {
         disposeFailures--
         throw new Error('connector dispose failed')
       }
+
       client = undefined
     },
     get disposeCount() {
@@ -213,6 +219,7 @@ function createControllableProvider(options?: {
           events.push(`call:${id}:${sql}`)
           activeCalls++
           maxActiveCalls = Math.max(maxActiveCalls, activeCalls)
+
           try {
             await options?.beforeCall?.(id, sql)
             if (options?.failSession === id) throw new Error(`session ${id} failed`)
@@ -244,15 +251,19 @@ function createControllableProvider(options?: {
                 },
               ]
             }
+
             if (/-- catalog:namespace/i.test(query.sql)) {
               return [{ schema: 'public', owner: 'app' }]
             }
+
             if (/pg_advisory_unlock\(/i.test(query.sql)) {
               return [{ unlocked: options?.unlockResult ?? true }]
             }
+
             if (/pg_try_advisory_lock\(/i.test(query.sql)) {
               return [{ locked: true }]
             }
+
             return []
           })
         },
@@ -269,9 +280,11 @@ function createControllableProvider(options?: {
           await queue
           events.push(`release-start:${id}:${disposition}`)
           await options?.beforeRelease?.(id)
+
           if (options?.releaseFailure?.session === id) {
             throw options.releaseFailure.value
           }
+
           events.push(`release-end:${id}:${disposition}`)
         },
       }
@@ -411,6 +424,7 @@ describe('db0 PostgreSQL operation sessions', () => {
         { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       ])
     }
+
     await provider.close()
   })
 
@@ -491,6 +505,7 @@ describe('db0 PostgreSQL operation sessions', () => {
     ]) {
       await client.query({ text: sql, values: [] })
     }
+
     await client.query({ text: 'update test set value = 1', values: [] })
 
     expect(allCalls).toBe(5)

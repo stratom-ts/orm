@@ -41,6 +41,7 @@ function colRef(column: ColumnRef | string): ColumnExprAst {
   if (typeof column === 'string') {
     return { kind: 'column', column }
   }
+
   return {
     kind: 'column',
     column: column.column,
@@ -118,6 +119,7 @@ function cmpLeaf(
   value: unknown,
 ): PredicateAst {
   const left = toQualified(column)
+
   if (isColumnRef(value)) {
     return {
       kind: 'cmp',
@@ -128,6 +130,7 @@ function cmpLeaf(
       right: toQualified(value),
     }
   }
+
   return {
     kind: 'cmp',
     column: left.column,
@@ -243,6 +246,7 @@ export function and(...preds: PredicateAst[]): PredicateAst {
   if (preds.length === 0) {
     throw new QueryError({ message: 'and() requires at least one predicate' })
   }
+
   if (preds.length === 1) return preds[0]!
   return { kind: 'and', preds }
 }
@@ -261,6 +265,7 @@ export function or(...preds: PredicateAst[]): PredicateAst {
   if (preds.length === 0) {
     throw new QueryError({ message: 'or() requires at least one predicate' })
   }
+
   if (preds.length === 1) return preds[0]!
   return { kind: 'or', preds }
 }

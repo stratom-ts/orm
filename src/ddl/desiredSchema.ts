@@ -65,6 +65,7 @@ export function registerDesiredSchema(
     const metadata = handle.getTableMetadata()
     const identity = identities.resolve(relationInput(metadata.schema, metadata.name))
     const columns: AuthoredDesiredColumn[] = []
+
     for (const [name, value] of Object.entries(handle.getSchema().entries)) {
       const schema = value as AnySchema
       if (!schema || schema.kind !== 'schema') continue
@@ -85,10 +86,12 @@ export function registerDesiredSchema(
             }),
       })
     }
+
     return { handle, identity, metadata, columns }
   })
 
   tables.sort((left, right) => identities.compare(left.identity, right.identity))
+
   for (const table of tables) {
     if (table.columns.length === 0) {
       throw new MigrationError({
@@ -96,12 +99,14 @@ export function registerDesiredSchema(
       })
     }
   }
+
   for (const table of tables) {
     if (registry.has(table.identity)) {
       throw new MigrationError({
         message: `Duplicate registered table ${identities.format(table.identity)}`,
       })
     }
+
     registry.set(table.identity, table)
   }
 
@@ -117,11 +122,13 @@ export function registerDesiredSchema(
         role: 'column',
         spelling: column.name,
       })
+
       if (!target) {
         throw new MigrationError({
           message: `Reference ${sourceName} targets unregistered relation ${identities.format(referenceIdentity)}`,
         })
       }
+
       if (
         !target.columns.some((candidate) => candidate.name === reference.targetColumn)
       ) {
@@ -135,6 +142,7 @@ export function registerDesiredSchema(
           )}`,
         })
       }
+
       if (!isCandidateKey(target, reference.targetColumn)) {
         throw new MigrationError({
           message: `Reference ${sourceName} must target a single-column primary or unique key; ${identities.format(

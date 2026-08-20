@@ -57,10 +57,12 @@ function exactKey(name: string): string {
  */
 function sqliteKey(name: string): string {
   let key = ''
+
   for (const character of name) {
     const code = character.charCodeAt(0)
     key += code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : character
   }
+
   return key
 }
 
@@ -179,10 +181,12 @@ export function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
  */
 export function physicalNameDigest(seed: PhysicalNameSeed): string {
   let digest = 0xcbf29ce484222325n
+
   for (const byte of UTF8_ENCODER.encode(serializePhysicalNameSeed(seed))) {
     digest ^= BigInt(byte)
     digest = BigInt.asUintN(64, digest * 0x100000001b3n)
   }
+
   return digest.toString(16).padStart(16, '0')
 }
 
@@ -211,10 +215,12 @@ function truncatePrefix(
   profile: PhysicalNamingProfile,
 ): string {
   let result = ''
+
   for (const scalar of prefix) {
     if (measuredLength(result + scalar, profile) > available) break
     result += scalar
   }
+
   return result
 }
 
@@ -255,11 +261,13 @@ export function generatePhysicalName(
   }
   const fixed = `__${physicalNameDigest(canonicalSeed)}_${SUFFIX[seed.kind]}`
   const available = profile.maximumLength - measuredLength(fixed, profile)
+
   if (available < 0) {
     throw new InvariantError(
       `Physical naming profile ${profile.id} cannot fit its digest`,
     )
   }
+
   return `${truncatePrefix(readable, available, profile)}${fixed}`
 }
 
@@ -374,25 +382,32 @@ export function validatePhysicalName(
   if (name.length === 0) {
     throw new InvariantError(`${description} must not be empty`)
   }
+
   if (name.includes('\0')) {
     throw new InvariantError(`${description} must not contain NUL`)
   }
+
   for (let index = 0; index < name.length; index++) {
     const codeUnit = name.charCodeAt(index)
     if (codeUnit < 0xd800 || codeUnit > 0xdfff) continue
+
     if (codeUnit > 0xdbff || index + 1 >= name.length) {
       throw new InvariantError(
         `${description} must not contain unpaired Unicode surrogates`,
       )
     }
+
     const next = name.charCodeAt(index + 1)
+
     if (next < 0xdc00 || next > 0xdfff) {
       throw new InvariantError(
         `${description} must not contain unpaired Unicode surrogates`,
       )
     }
+
     index++
   }
+
   if (measuredLength(name, profile) > profile.maximumLength) {
     throw new InvariantError(
       `${description} ${JSON.stringify(name)} exceeds ${profile.id} identifier limit of ${profile.maximumLength} ${profile.lengthUnit === 'utf8Bytes' ? 'UTF-8 bytes' : 'Unicode scalars'}`,
@@ -468,11 +483,13 @@ export function createPhysicalNameRegistry(
         profile.comparisonKey(name),
       )}`
       const current = names.get(key)
+
       if (current && current.token !== token) {
         throw new InvariantError(
           `Physical name collision for ${JSON.stringify(name)} between ${current.description} and ${description}`,
         )
       }
+
       names.set(key, { token, description })
     },
   }

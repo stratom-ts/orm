@@ -62,6 +62,7 @@ export function TaggedError<Tag extends string>(
      */
     constructor(args: Record<string, unknown>) {
       super()
+
       if (args) {
         Object.assign(this, args)
       }

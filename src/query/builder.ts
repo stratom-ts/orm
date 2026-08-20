@@ -139,13 +139,17 @@ function normalizeWhere(input: WhereInput): PredicateAst {
     const [column, op, value] = input
     return cmp(column, op, value)
   }
+
   if (isPredicateAst(input)) {
     return input
   }
+
   const entries = Object.entries(input)
+
   if (entries.length === 0) {
     throw new QueryError({ message: 'where({}) requires at least one key' })
   }
+
   const preds = entries.map(([column, value]) => cmp(column, 'eq', value))
   return preds.length === 1 ? preds[0]! : and(...preds)
 }
@@ -178,6 +182,7 @@ function resolveReturningColumns(columns: readonly (ColumnRef | string)[]): stri
   if (columns.length === 0) {
     throw new QueryError({ message: 'returning(...) requires at least one column' })
   }
+
   return columns.map((c) => columnName(c))
 }
 
@@ -217,17 +222,20 @@ function selectionColumn(column: ColumnRef | string): SelectItemAst {
  */
 function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
   let selection: SelectItemAst[]
+
   if (typeof input === 'function') {
     const items = input(eb)
     selection = items.map((item): SelectItemAst => {
       if (typeof item === 'string') {
         return { kind: 'column', column: item }
       }
+
       if (typeof item === 'object' && item !== null && 'kind' in item) {
         if (item.kind === 'all' || item.kind === 'column' || item.kind === 'expr') {
           return item as SelectItemAst
         }
       }
+
       if (
         typeof item === 'object' &&
         item !== null &&
@@ -240,14 +248,17 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
           alias: (item as { alias: string }).alias,
         }
       }
+
       return selectionColumn(item as ColumnRef)
     })
   } else {
     selection = input.map((c) => selectionColumn(c))
   }
+
   if (selection.length === 0) {
     throw new QueryError({ message: 'select(...) requires at least one item' })
   }
+
   return selection
 }
 
@@ -321,6 +332,7 @@ function mapPredicateParams(
   pred: PredicateAst | undefined,
 ): PredicateAst | undefined {
   if (!pred || !mapper) return pred
+
   switch (pred.kind) {
     case 'cmp': {
       // Column-vs-column join/on predicates have no bound params.
@@ -403,6 +415,7 @@ function resultColumnsForSelection(
         message: `select output column "${outputName}" is ambiguous; alias one of the selected columns`,
       })
     }
+
     outputNames.add(outputName)
     if (mapping) columns.set(outputName, mapping)
   }
@@ -424,11 +437,13 @@ function resultColumnsForSelection(
         for (const handle of handles) addAll(handle)
       } else {
         const handle = findHandle(handles, item.table, item.schema)
+
         if (!handle) {
           throw new QueryError({
             message: `selected table "${item.table}" is not joined`,
           })
         }
+
         addAll(handle)
       }
     } else if (item.kind === 'column') {
@@ -448,6 +463,7 @@ function resultColumnsForSelection(
       )
     }
   }
+
   return columns
 }
 
@@ -466,12 +482,14 @@ function mapSelectedRows(
   return rows.map((row) => {
     if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
     const output: Record<string, unknown> = {}
+
     for (const [key, value] of Object.entries(row)) {
       const mapping = columns.get(key)
       output[key] = mapping
         ? mapper.mapResultValue(mapping.handle, mapping.column, value)
         : value
     }
+
     return output
   })
 }
@@ -500,14 +518,18 @@ async function runQuery<T>(
   ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
 ): Promise<T> {
   const compiled = dialect.compile(ast)
+
   try {
     const rows = await executor.execute(compiled)
+
     if (mapper && ast.kind === 'select') {
       return mapSelectedRows(mapper, rows, resultColumns) as T
     }
+
     if (mapper && 'returning' in ast && ast.returning) {
       return mapper.mapResultRows(handle, rows) as T
     }
+
     return rows as T
   } catch (cause) {
     if (cause instanceof QueryError) throw cause
@@ -541,12 +563,15 @@ async function runWrite(
   ast: InsertAst | UpdateAst | DeleteAst,
 ): Promise<unknown[] | WriteResult> {
   const compiled = dialect.compile(ast)
+
   try {
     if (ast.returning) {
       const rows = await executor.execute(compiled)
       return mapper ? mapper.mapResultRows(handle, rows) : rows
     }
+
     await executor.run(compiled)
+
     // db0 does not expose affected-row counts portably
     return { rowCount: 0 }
   } catch (cause) {
@@ -573,9 +598,11 @@ async function runWrite(
  */
 function takeFirstOrThrow<T>(rows: T[], message: string): T {
   const row = rows[0]
+
   if (row === undefined) {
     throw new QueryError({ message })
   }
+
   return row
 }
 
@@ -632,6 +659,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
     // Union of keys across rows (stable order: first row keys, then extras)
     const columnSet: string[] = []
     const seen = new Set<string>()
+
     for (const row of rows) {
       for (const key of Object.keys(row)) {
         if (!seen.has(key)) {
@@ -640,7 +668,9 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
         }
       }
     }
+
     const info = handle.getTableMetadata()
+
     if (columnSet.length === 0) {
       throw new QueryError({
         message: `insert into "${info.name}" requires at least one column`,
@@ -675,9 +705,11 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
    */
   const executeTakeFirst = async () => {
     const result = await execute()
+
     if (returning) {
       return (result as unknown[])[0]
     }
+
     return result
   }
 
@@ -687,9 +719,11 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
    */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
+
     if (returning) {
       return takeFirstOrThrow(result as unknown[], 'No rows returned from insert')
     }
+
     return result
   }
 
@@ -810,11 +844,13 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   /** Builds the update AST. */
   const buildAst = (): UpdateAst => {
     const info = handle.getTableMetadata()
+
     if (!where && !allowAll) {
       throw new QueryError({
         message: `update on "${info.name}" requires where(...) or .all()`,
       })
     }
+
     const set = mapSetParams(
       handle,
       mapper,
@@ -853,9 +889,11 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
    */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
+
     if (returning) {
       return takeFirstOrThrow(result as unknown[], 'No rows returned from update')
     }
+
     return result
   }
 
@@ -886,6 +924,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
       if (args.length === 1) {
         return withWhere(args[0] as WhereInput) as never
       }
+
       return withWhere([
         args[0] as ColumnRef | string,
         args[1] as ComparisonOp,
@@ -1009,11 +1048,13 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   /** Builds the delete AST. */
   const buildAst = (): DeleteAst => {
     const info = handle.getTableMetadata()
+
     if (!where && !allowAll) {
       throw new QueryError({
         message: `delete from "${info.name}" requires where(...) or .all()`,
       })
     }
+
     return {
       kind: 'delete',
       table: info.name,
@@ -1046,9 +1087,11 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
    */
   const executeTakeFirstOrThrow = async () => {
     const result = await execute()
+
     if (returning) {
       return takeFirstOrThrow(result as unknown[], 'No rows returned from delete')
     }
+
     return result
   }
 
@@ -1078,6 +1121,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
       if (args.length === 1) {
         return withWhere(args[0] as WhereInput) as never
       }
+
       return withWhere([
         args[0] as ColumnRef | string,
         args[1] as ComparisonOp,
@@ -1375,8 +1419,10 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
      */
     where(...args: unknown[]) {
       let pred: PredicateAst
+
       if (args.length === 1) {
         const arg = args[0]
+
         if (typeof arg === 'function') {
           pred = (arg as (builder: ExpressionBuilder) => PredicateAst)(eb)
         } else {
@@ -1389,6 +1435,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
           args[2],
         ])
       }
+
       return next({ where: mergeWhere(state.where, pred) }) as never
     },
     /**

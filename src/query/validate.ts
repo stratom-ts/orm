@@ -38,9 +38,11 @@ function isInsertOptional(schema: AnySchema): boolean {
   const meta = getColumnMetadata(schema)
   if (!meta) return false
   const generation = meta.generation
+
   if (generation?.kind === 'identity' && generation.mode === 'byDefault') {
     return true
   }
+
   if (meta.databaseDefault !== undefined) return true
   return false
 }
@@ -173,6 +175,7 @@ export function validateInsertRow(
 
   const schema = buildInsertSchema(handle)
   const allowed = new Set(Object.keys(schema.entries))
+
   for (const key of Object.keys(row as object)) {
     if (!allowed.has(key)) {
       throw new ValidationError({
@@ -182,6 +185,7 @@ export function validateInsertRow(
   }
 
   const result = safeParse(schema, row)
+
   if (!result.success) {
     throw new ValidationError({
       message: `Invalid insert into "${handle.getTableMetadata().name}": ${formatIssues(result.issues)}`,
@@ -191,17 +195,20 @@ export function validateInsertRow(
 
   // Keep only provided keys (optional/default omitted → SQL DEFAULT)
   const cleaned: Record<string, unknown> = {}
+
   for (const key of Object.keys(row as object)) {
     if (key in (result.output as object)) {
       cleaned[key] = (result.output as Record<string, unknown>)[key]
     }
   }
+
   // Include parsed defaults from optional schemas that produced values
   for (const [key, value] of Object.entries(result.output as object)) {
     if (value !== undefined && !(key in cleaned)) {
       cleaned[key] = value
     }
   }
+
   return cleaned
 }
 
@@ -231,6 +238,7 @@ export function validateUpdatePatch(
 
   const schema = buildUpdateSchema(handle)
   const result = safeParse(schema, patch)
+
   if (!result.success) {
     throw new ValidationError({
       message: `Invalid update on "${handle.getTableMetadata().name}": ${formatIssues(result.issues)}`,
@@ -239,14 +247,17 @@ export function validateUpdatePatch(
   }
 
   const output = result.output as Record<string, unknown>
+
   // Drop undefined keys so SET only includes provided fields
   const cleaned: Record<string, unknown> = {}
+
   for (const [key, value] of Object.entries(output)) {
     if (value !== undefined) cleaned[key] = value
   }
 
   // Reject keys not in the update schema (Valibot object strips unknown by default)
   const allowed = new Set(Object.keys(schema.entries))
+
   for (const key of Object.keys(patch as object)) {
     if (!allowed.has(key)) {
       throw new ValidationError({

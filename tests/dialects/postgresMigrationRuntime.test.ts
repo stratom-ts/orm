@@ -105,10 +105,12 @@ function harness(
       calls.push(query.sql)
       queries.push(query)
       if (options.hangQuery?.test(query.sql)) await hang()
+
       if (/pg_try_advisory_lock/i.test(query.sql)) {
         if (options.lockDelayMs !== undefined) {
           await new Promise((resolve) => setTimeout(resolve, options.lockDelayMs))
         }
+
         const configured = options.lockResults?.shift()
         const result =
           configured ??
@@ -120,6 +122,7 @@ function harness(
         if (result instanceof Error) throw result
         return [{ locked: result }]
       }
+
       if (/pg_advisory_unlock/i.test(query.sql)) {
         if (options.failUnlock) throw new Error('unlock failed')
         const result = options.releaseResults?.shift() ?? options.unlockResults?.shift()
@@ -130,6 +133,7 @@ function harness(
         )
         return [{ unlocked: result ?? options.unlockResult ?? true }]
       }
+
       if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
       return []
     },
@@ -150,6 +154,7 @@ function harness(
       cancel,
       prepare: () => prepare(migrationProgram),
     })
+
   const semanticEvent = (query: { sql: string }): CoordinationContractEvent => {
     if (/pg_try_advisory_lock/i.test(query.sql)) return 'acquire'
     if (/pg_advisory_unlock/i.test(query.sql)) return 'release'
@@ -158,6 +163,7 @@ function harness(
     if (/create table/i.test(query.sql)) return 'ddl'
     return 'transaction'
   }
+
   const events = () => queries.map(semanticEvent)
   return {
     calls,
@@ -395,6 +401,7 @@ describe('PostgreSQL migration runtime failures', () => {
 
   it('cancels and drains a never-settling physical lock query at its deadline', async () => {
     vi.useFakeTimers()
+
     try {
       const runtime = harness({ hangQuery: /pg_try_advisory_lock/i })
       const pending = runtime
@@ -422,9 +429,11 @@ describe('PostgreSQL migration runtime failures', () => {
     const runtime = harness({ hangQuery: /pg_advisory_unlock/i })
     const controller = new AbortController()
     const pending = runtime.execute(program(), { signal: controller.signal })
+
     while (!runtime.calls.some((sql) => /pg_advisory_unlock/i.test(sql))) {
       await Promise.resolve()
     }
+
     controller.abort()
     const error = await pending.catch((cause: unknown) => cause)
 
@@ -440,6 +449,7 @@ describe('PostgreSQL migration runtime failures', () => {
 
   it('bounds a hung post-commit unlock without an external signal', async () => {
     vi.useFakeTimers()
+
     try {
       const runtime = harness({ hangQuery: /pg_advisory_unlock/i })
       const pending = runtime.execute(program()).catch((cause: unknown) => cause)
@@ -573,6 +583,7 @@ describe('PostgreSQL migration runtime failures', () => {
 
   it('enforces the deadline while the scoped lock is unavailable', async () => {
     vi.useFakeTimers()
+
     try {
       const runtime = harness({
         applicationId: 'billing',

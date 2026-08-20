@@ -281,6 +281,7 @@ function createMockConnector(options?: {
 
     return createMockStatement()
   }
+
   const nativeClient = createNativePostgresClient(prepare)
   const connector = {
     name: 'postgresql',

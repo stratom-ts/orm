@@ -116,8 +116,10 @@ function assertSafeExpression(expression: string): string {
   let quoted = false
   let parentheses = 0
   let unsafe = !value || /\$|;|--|\/\*|\*\//.test(value)
+
   for (let index = 0; index < value.length && !unsafe; index++) {
     const character = value[index]
+
     if (character === "'") {
       if (quoted && value[index + 1] === "'") {
         index++
@@ -131,12 +133,15 @@ function assertSafeExpression(expression: string): string {
       else parentheses--
     }
   }
+
   if (quoted || parentheses !== 0) unsafe = true
+
   if (unsafe) {
     throw new MigrationError({
       message: `Unsafe PostgreSQL database expression ${JSON.stringify(expression)}`,
     })
   }
+
   return value
 }
 
@@ -147,6 +152,7 @@ function assertSafeExpression(expression: string): string {
  */
 function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
   let sql: string
+
   switch (value.kind) {
     case 'literal':
       sql = formatPostgresLiteral(value.value)
@@ -160,9 +166,11 @@ function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
           message: `PostgreSQL cannot lower database expression tagged for dialect ${JSON.stringify(value.dialect)}`,
         })
       }
+
       sql = assertSafeExpression(value.expression)
       break
   }
+
   return { sql, normalized: normalizePostgresDefaultExpression(sql) }
 }
 
@@ -176,17 +184,20 @@ function lowerGeneration(
 ): 'always' | 'byDefault' | undefined {
   if (!generation) return
   if (generation.kind === 'identity') return generation.mode
+
   if (generation.kind === 'computed') {
     throw new MigrationError({
       message:
         'PostgreSQL computed generation is not supported by this migration adapter',
     })
   }
+
   if (generation.dialect !== 'postgresql') {
     throw new MigrationError({
       message: `PostgreSQL cannot lower generation tagged for dialect ${JSON.stringify(generation.dialect)}`,
     })
   }
+
   throw new MigrationError({
     message: `Unsupported PostgreSQL dialect generation ${JSON.stringify(generation.generation)}`,
   })
@@ -219,6 +230,7 @@ function validateReferencePhysicalType(
   const selected = column.metadata?.physicalType?.postgresql
   if (selected === undefined) return
   const localType = assertSafePostgresDataType(String(selected))
+
   if (normalizePostgresDataType(localType) !== normalizePostgresDataType(inheritedType)) {
     throw new MigrationError({
       message: `Reference column ${formatIdentity(table.identity, column.name)} selects PostgreSQL type ${JSON.stringify(localType)} but target type is ${JSON.stringify(inheritedType)}`,
@@ -239,28 +251,34 @@ function validatePostgresColumn(
   dataType: string,
 ): 'always' | 'byDefault' | undefined {
   const metadata = column.metadata
+
   if (metadata?.comment !== undefined) {
     throw new MigrationError({
       message: `PostgreSQL migration lowering does not support comments on ${formatIdentity(table.identity, column.name)}`,
     })
   }
+
   if (metadata?.onUpdate !== undefined) {
     throw new MigrationError({
       message: `PostgreSQL migration lowering does not support onUpdate on ${formatIdentity(table.identity, column.name)}`,
     })
   }
+
   const generated = lowerGeneration(metadata?.generation)
+
   if (generated !== undefined) {
     const base = normalizePostgresDataType(dataType)
       .toLowerCase()
       .replace(/\(.*\)$/, '')
       .trim()
+
     if (!IDENTITY_BASE_TYPES.has(base)) {
       throw new MigrationError({
         message: `column ${formatIdentity(table.identity, column.name)} uses identity generation with type ${JSON.stringify(dataType)}; PostgreSQL identity requires smallint, integer, or bigint`,
       })
     }
   }
+
   return generated
 }
 
@@ -325,12 +343,14 @@ export function lowerPostgresDesiredSchema(
   graph: AuthoredDesiredSchema,
 ): LoweredDesiredSchema {
   const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
+
   for (const table of graph.tables) {
     if (table.columns.length === 0) {
       throw new MigrationError({
         message: `table ${formatIdentity(table.identity)} has no columns`,
       })
     }
+
     for (const column of orderedColumns(table)) {
       if (!column.reference) resolvedTypes.set(column, physicalType(column))
     }
@@ -341,46 +361,57 @@ export function lowerPostgresDesiredSchema(
       .filter((column) => column.reference !== undefined)
       .map((column) => ({ table, column })),
   )
+
   while (pending.length > 0) {
     const unresolved: typeof pending = []
     let progress = false
+
     for (const item of pending) {
       const reference = item.column.reference!
       const targetTable = graph.tables.find((table) =>
         sameIdentity(table.identity, reference.targetRelation),
       )
+
       if (!targetTable) {
         throw new MigrationError({
           message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets unregistered relation ${formatIdentity(reference.targetRelation)}`,
         })
       }
+
       const targetColumn = targetTable.columns.find(
         (column) => column.name === reference.targetColumn,
       )
+
       if (!targetColumn) {
         throw new MigrationError({
           message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn)}`,
         })
       }
+
       const targetType = resolvedTypes.get(targetColumn)
+
       if (targetType === undefined) {
         unresolved.push(item)
         continue
       }
+
       validateReferencePhysicalType(item.table, item.column, targetType)
       resolvedTypes.set(item.column, targetType)
       progress = true
     }
+
     if (!progress) {
       const first = unresolved[0]!
       throw new MigrationError({
         message: `Cannot resolve reference-only physical type cycle at ${formatIdentity(first.table.identity, first.column.name)}`,
       })
     }
+
     pending = unresolved
   }
 
   const loweredColumns = new Map<AuthoredDesiredColumn, CreateTableColumnAst>()
+
   for (const table of graph.tables) {
     for (const column of orderedColumns(table)) {
       loweredColumns.set(column, lowerColumn(table, column, resolvedTypes.get(column)!))

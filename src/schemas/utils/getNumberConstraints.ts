@@ -23,6 +23,7 @@ export function getNumberConstraints(
     for (const item of pipeItems) {
       if (item && typeof item === 'object' && item !== null && 'type' in item) {
         const action = item as { type: string; requirement?: number }
+
         if (action.type === 'min_value') {
           constraints.minValue = action.requirement
         } else if (action.type === 'max_value') {

@@ -87,9 +87,11 @@ const ALLOWED_DEFAULT_EXPRESSIONS = new Set([
  */
 export function assertSafePostgresDataType(dataType: string): string {
   const trimmed = dataType.trim()
+
   if (!trimmed) {
     throw new InvariantError('column data type must be a non-empty string')
   }
+
   if (/[;"\\]|--|\/\*|\*\//.test(trimmed)) {
     throw new InvariantError(`unsafe column data type: ${JSON.stringify(dataType)}`)
   }
@@ -98,16 +100,21 @@ export function assertSafePostgresDataType(dataType: string): string {
   const match = lower.match(
     /^([a-z][a-z0-9 ]*?)(?:\s*\(\s*([0-9]+(?:\s*,\s*[0-9]+)?)\s*\))?$/,
   )
+
   if (!match) {
     throw new InvariantError(`unsupported column data type: ${JSON.stringify(dataType)}`)
   }
+
   const base = match[1]!.replace(/\s+/g, ' ').trim()
+
   if (!ALLOWED_PG_BASE_TYPES.has(base)) {
     throw new InvariantError(`unsupported column data type: ${JSON.stringify(dataType)}`)
   }
+
   if (match[2]) {
     return `${base}(${match[2].replace(/\s+/g, '')})`
   }
+
   return base
 }
 
@@ -133,15 +140,18 @@ export function assertSafePostgresDataType(dataType: string): string {
 export function formatPostgresDefault(value: string | number | boolean | null): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
+
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
       throw new InvariantError('column default number must be finite')
     }
+
     return String(value)
   }
 
   const trimmed = value.trim()
   const collapsed = trimmed.toLowerCase().replace(/\s+/g, ' ')
+
   if (ALLOWED_DEFAULT_EXPRESSIONS.has(collapsed)) {
     return collapsed
   }
@@ -181,11 +191,13 @@ export function formatPostgresLiteral(value: string | number | boolean | null): 
 function stripEnclosingParens(s: string): string {
   if (s.length < 2 || s[0] !== '(' || s[s.length - 1] !== ')') return s
   let depth = 0
+
   for (let i = 0; i < s.length; i++) {
     if (s[i] === '(') depth++
     else if (s[i] === ')') depth--
     if (depth === 0 && i < s.length - 1) return s
   }
+
   return depth === 0 ? s.slice(1, -1).trim() : s
 }
 
@@ -207,10 +219,12 @@ function stripEnclosingParens(s: string): string {
 export function normalizePostgresDefaultExpression(expression: string): string {
   let normalized = expression.trim()
   let prev: string
+
   do {
     prev = normalized
     normalized = stripEnclosingParens(normalized)
   } while (normalized !== prev)
+
   return normalized.replace(
     /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
     '',

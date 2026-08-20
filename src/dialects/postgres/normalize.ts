@@ -43,11 +43,13 @@ export function normalizePostgresDataType(dataType: string): string {
   }
   const withoutLength = normalized.replace(/\(\d+\)/, '').trim()
   const lengthMatch = normalized.match(/\((\d+)\)/)
+
   if (typeMappings[withoutLength]) {
     return lengthMatch
       ? `${typeMappings[withoutLength]}(${lengthMatch[1]})`
       : typeMappings[withoutLength]
   }
+
   return normalized
 }
 

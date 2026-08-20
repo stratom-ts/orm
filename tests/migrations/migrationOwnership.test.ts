@@ -224,6 +224,7 @@ describe('migration ownership', () => {
     const secondAttempt = attemptSync(second)
     expect(firstAttempt.ok).toBe(false)
     expect(secondAttempt.ok).toBe(false)
+
     if (!firstAttempt.ok && !secondAttempt.ok) {
       expect((firstAttempt.error as Error).message).toBe(
         (secondAttempt.error as Error).message,
@@ -310,6 +311,7 @@ describe('migration ownership', () => {
         writableDefault: [{ role: 'database', spelling: 'main' }],
       },
     })
+
     const message = (declarations: Parameters<typeof resolveMigrationOwnership>[1]) => {
       const resolution = attemptSync(() =>
         resolveMigrationOwnership([SqliteUsers], declarations, sqliteIdentities),

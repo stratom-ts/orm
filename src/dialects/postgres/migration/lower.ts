@@ -39,17 +39,21 @@ function sameNamespaceInput(
     input: readonly NamespaceIdentifierInput[] | undefined,
   ): CanonicalRelationIdentity['namespace'] | null | undefined {
     if (!input?.length) return undefined
+
     try {
       return identities.resolveNamespace(input)
     } catch {
       return null
     }
   }
+
   const selected = resolve(left)
   const other = resolve(right)
+
   if (selected == null || other == null) {
     return selected === undefined && other === undefined
   }
+
   return (
     selected.length === other.length &&
     selected.every(
@@ -71,6 +75,7 @@ function profileIssues(
   expected: MigrationSemanticProfile,
 ): MigrationCapabilityIssue[] {
   const issues: MigrationCapabilityIssue[] = []
+
   /**
    * Appends one profile mismatch in canonical issue form.
    *
@@ -79,16 +84,19 @@ function profileIssues(
   function add(message: string): void {
     issues.push({ code: 'profile_mismatch', message, sourceStepIndexes: [] })
   }
+
   if (expected.identityAdapter !== 'postgresql') {
     add(
       `Executing profile adapter '${expected.identityAdapter}' does not match PostgreSQL`,
     )
   }
+
   if (planned.profile.identityAdapter !== expected.identityAdapter) {
     add(
       `Identity adapter '${planned.profile.identityAdapter}' does not match executing adapter '${expected.identityAdapter}'`,
     )
   }
+
   if (
     !sameNamespaceInput(
       planned.profile.namespaceContext.writableDefault,
@@ -98,6 +106,7 @@ function profileIssues(
   ) {
     add('Writable namespace context does not match the executing session')
   }
+
   if (
     !sameNamespaceInput(
       planned.profile.registrationDefault,
@@ -107,6 +116,7 @@ function profileIssues(
   ) {
     add('Registration default does not match the executing configuration')
   }
+
   return issues
 }
 
@@ -133,12 +143,14 @@ function expectedDatabaseIdentifier(
       expectedProfile.namespaceContext.writableDefault,
     )
     const database = namespace[0]
+
     if (namespace.length === 2 && database?.role === 'database') {
       return database.identifier
     }
   } catch {
     // Profile and target validation report malformed context.
   }
+
   return undefined
 }
 
@@ -184,6 +196,7 @@ export function lowerPostgresMigrationPlan(
 
   for (const [sourceStepIndex, step] of planned.plan.steps.entries()) {
     const invalidTargets = stepTargetIssues(step, expectedDatabase)
+
     for (const message of invalidTargets) {
       issues.push({
         code: 'invalid_target',
@@ -191,8 +204,10 @@ export function lowerPostgresMigrationPlan(
         sourceStepIndexes: [sourceStepIndex],
       })
     }
+
     const missingDesiredTable =
       step.kind === 'create_table' && !planned.desiredTables.has(step.target.relation)
+
     if (missingDesiredTable) {
       issues.push({
         code: 'missing_desired_table',
@@ -200,10 +215,12 @@ export function lowerPostgresMigrationPlan(
         sourceStepIndexes: [sourceStepIndex],
       })
     }
+
     if (invalidTargets.length > 0 || missingDesiredTable) continue
 
     try {
       const ast = stepToAst(step, planned)
+
       if (!ast) {
         const relation =
           step.target.kind === 'namespace' ? undefined : step.target.relation
@@ -214,8 +231,10 @@ export function lowerPostgresMigrationPlan(
         })
         continue
       }
+
       const statement = compilePostgres(ast)
       drafts.push({ step, sourceStepIndex, statement })
+
       if (step.kind === 'set_not_null') {
         preconditions.push({
           kind: 'column_has_no_nulls',

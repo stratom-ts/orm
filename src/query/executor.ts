@@ -29,9 +29,11 @@ export function createDb0Executor(database: Database): Executor {
    */
   const runPrepared = async (query: CompiledQuery) => {
     const statement = database.prepare(query.sql)
+
     if (query.params.length === 0) {
       return statement
     }
+
     return statement.bind(...(query.params as never[]))
   }
 

@@ -29,10 +29,12 @@ function createMockConnector(options?: {
   onPrepare?: (sql: string) => Statement
 }): Connector & { disposed: boolean; prepared: string[] } {
   const prepared: string[] = []
+
   const prepare = (sql: string) => {
     prepared.push(sql)
     return options?.onPrepare?.(sql) ?? createMockStatement()
   }
+
   const nativeClient = createNativePostgresClient(prepare)
   const connector = {
     name: 'postgresql',
@@ -86,10 +88,12 @@ describe('createDatabase', () => {
 
   it('should dispose via Symbol.asyncDispose', async () => {
     const connector = createMockConnector()
+
     {
       await using db = createDatabase({ connector, schemas: [] })
       await db.ping()
     }
+
     expect(connector.disposed).toBe(true)
   })
 

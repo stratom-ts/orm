@@ -23,10 +23,12 @@ const DIALECTS: Partial<Record<SQLDialect, Dialect>> = {
  */
 export function resolveDialect(id: SQLDialect): Dialect {
   const dialect = DIALECTS[id]
+
   if (!dialect) {
     throw new SchemaError({
       message: `unsupported connector dialect "${id}"; supported: postgresql`,
     })
   }
+
   return dialect
 }

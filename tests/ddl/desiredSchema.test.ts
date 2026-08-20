@@ -54,18 +54,22 @@ function fakeSqliteDialect(): Dialect {
     relationIdentity: 'sqlite',
     lowerDesiredSchema(graph) {
       const types = new Map<string, string>()
+
       for (const table of graph.tables) {
         for (const authored of table.columns) {
           if (authored.reference) continue
           const selected = authored.metadata?.physicalType?.sqlite
+
           if (!selected) {
             throw new MigrationError({
               message: `fake SQLite requires a sqlite physical type for ${authored.name}`,
             })
           }
+
           types.set(`${identityKey(table.identity)}\0${authored.name}`, selected)
         }
       }
+
       return {
         tables: graph.tables.map((table) => ({
           handle: table.handle,
@@ -79,11 +83,13 @@ function fakeSqliteDialect(): Dialect {
                     `${identityKey(authored.reference.targetRelation)}\0${authored.reference.targetColumn}`,
                   )
                 : types.get(`${identityKey(table.identity)}\0${authored.name}`)
+
               if (dataType === undefined) {
                 throw new MigrationError({
                   message: `fake SQLite requires a resolved physical type for ${authored.name}`,
                 })
               }
+
               return {
                 name: authored.name,
                 dataType,
@@ -479,6 +485,7 @@ describe('PostgreSQL desired-schema lowering', () => {
         expect(error).toBeInstanceOf(MigrationError)
         return error as MigrationError
       }
+
       throw new Error('Expected desired-schema lowering to fail')
     }
 
@@ -626,6 +633,7 @@ describe('PostgreSQL desired-schema lowering', () => {
       },
       { primaryKey: 'id' },
     )
+
     for (const source of [LegacyMismatch, SelectedMismatch]) {
       expect(() =>
         lowerDesiredSchema([source, Target], postgresIdentities(), postgresDialect),

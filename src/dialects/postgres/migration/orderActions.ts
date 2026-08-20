@@ -58,6 +58,7 @@ export function orderActions(
 ): OrderedActions {
   const dependencies = drafts.map(() => new Set<number>())
   const identities = planned.identities
+
   /**
    * Records that one action must follow another.
    *
@@ -71,8 +72,10 @@ export function orderActions(
   for (let action = 0; action < drafts.length; action++) {
     const current = drafts[action]!
     const relation = stepRelation(current.step)
+
     for (let candidate = 0; candidate < drafts.length; candidate++) {
       const other = drafts[candidate]!
+
       if (
         other.step.kind === 'ensure_namespace' &&
         relation &&
@@ -80,6 +83,7 @@ export function orderActions(
       ) {
         dependsOn(action, candidate)
       }
+
       if (
         other.step.kind === 'create_table' &&
         relation &&
@@ -89,6 +93,7 @@ export function orderActions(
       ) {
         dependsOn(action, candidate)
       }
+
       if (
         current.step.kind === 'add_foreign_key' &&
         other.step.kind === 'create_table' &&
@@ -96,12 +101,14 @@ export function orderActions(
       ) {
         dependsOn(action, candidate)
       }
+
       if (
         current.step.kind === 'create_index' &&
         other.step.kind === 'add_column' &&
         identities.equals(current.step.target.relation, other.step.target.relation)
       ) {
         const addedColumn = other.step.target.column
+
         if (
           current.step.columns.some(
             (column) => column.comparisonKey === addedColumn.comparisonKey,
@@ -110,6 +117,7 @@ export function orderActions(
           dependsOn(action, candidate)
         }
       }
+
       if (
         current.step.kind === 'add_foreign_key' &&
         other.step.kind === 'add_column' &&
@@ -125,6 +133,7 @@ export function orderActions(
       ) {
         dependsOn(action, candidate)
       }
+
       if (
         current.step.kind === 'drop_column' &&
         other.step.kind === 'drop_index' &&
@@ -141,12 +150,14 @@ export function orderActions(
         )
         if (index) dependsOn(action, candidate)
       }
+
       if (current.step.kind === 'drop_table' && other.step.kind === 'drop_table') {
         const parentRelation = current.step.target.relation
         const childRelation = other.step.target.relation
         const child = planned.planningCatalog.tables.find((entry) =>
           identities.equals(entry.identity, childRelation),
         )
+
         if (
           child?.foreignKeys.some((foreignKey) =>
             identities.equals(foreignKey.referencedRelation, parentRelation),
@@ -163,12 +174,14 @@ export function orderActions(
     .map((_, index) => index)
     .filter((index) => remaining[index]!.size === 0)
   const ordered: ActionDraft[] = []
+
   while (available.length > 0) {
     available.sort(
       (left, right) => drafts[left]!.sourceStepIndex - drafts[right]!.sourceStepIndex,
     )
     const next = available.shift()!
     ordered.push(drafts[next]!)
+
     for (let index = 0; index < remaining.length; index++) {
       if (!remaining[index]!.delete(next) || remaining[index]!.size !== 0) continue
       if (!ordered.includes(drafts[index]!)) available.push(index)
@@ -193,6 +206,7 @@ export function orderActions(
     lowLinks[node] = nextIndex++
     stack.push(node)
     onStack.add(node)
+
     for (const dependency of dependencies[node]!) {
       if (indexes[dependency] === undefined) {
         visit(dependency)
@@ -201,14 +215,17 @@ export function orderActions(
         lowLinks[node] = Math.min(lowLinks[node]!, indexes[dependency]!)
       }
     }
+
     if (lowLinks[node] !== indexes[node]) return
     const component: number[] = []
     let member: number
+
     do {
       member = stack.pop()!
       onStack.delete(member)
       component.push(member)
     } while (member !== node)
+
     if (
       component.length > 1 ||
       (component.length === 1 && dependencies[node]!.has(node))
@@ -220,6 +237,7 @@ export function orderActions(
   for (let node = 0; node < drafts.length; node++) {
     if (indexes[node] === undefined) visit(node)
   }
+
   const issues = cycles.map((cycle) => {
     const sourceStepIndexes = cycle
       .map((index) => drafts[index]!.sourceStepIndex)

@@ -42,11 +42,13 @@ export function schemaFromNamespace(
   namespace: CanonicalRelationIdentity['namespace'],
 ): string {
   const schema = namespace.find((segment) => segment.role === 'schema')
+
   if (!schema) {
     throw new MigrationError({
       message: 'PostgreSQL migration target has no schema namespace',
     })
   }
+
   return schema.identifier.spelling
 }
 
@@ -90,6 +92,7 @@ export function stepToAst(
   planned: PlannedMigration,
 ): SqlAst | undefined {
   const profile = POSTGRES_NAMING_PROFILE
+
   switch (step.kind) {
     case 'ensure_namespace': {
       const ast: CreateSchemaAst = {
@@ -222,14 +225,17 @@ export function stepToAst(
  */
 function identifierIssues(identifier: CanonicalIdentifier, label: string): string[] {
   const issues: string[] = []
+
   if (identifier.comparisonKey !== identifier.spelling) {
     issues.push(`${label} is not canonical under PostgreSQL identifier rules`)
   }
+
   try {
     validatePhysicalName(identifier.spelling, label, POSTGRES_NAMING_PROFILE)
   } catch (cause) {
     issues.push(cause instanceof Error ? cause.message : `${label} is not addressable`)
   }
+
   return issues
 }
 
@@ -246,20 +252,26 @@ function namespaceIssues(
   label: string,
 ): string[] {
   const issues: string[] = []
+
   if (namespace.length !== 2) {
     issues.push(`${label} must contain exactly database and schema segments`)
   }
+
   const database = namespace[0]
   const schema = namespace[1]
+
   if (database?.role !== 'database') {
     issues.push(`${label} segment 0 must have role 'database'`)
   }
+
   if (schema?.role !== 'schema') {
     issues.push(`${label} segment 1 must have role 'schema'`)
   }
+
   for (const [index, segment] of namespace.entries()) {
     issues.push(...identifierIssues(segment.identifier, `${label} segment ${index}`))
   }
+
   if (!expectedDatabase) {
     issues.push('Executing PostgreSQL profile has no canonical database segment')
   } else if (
@@ -270,6 +282,7 @@ function namespaceIssues(
       `${label} database ${JSON.stringify(database.identifier.spelling)} does not match executing database ${JSON.stringify(expectedDatabase.spelling)}`,
     )
   }
+
   return issues
 }
 
@@ -294,14 +307,17 @@ export function stepTargetIssues(
   issues.push(
     ...namespaceIssues(namespace, expectedDatabase, 'Migration target namespace'),
   )
+
   if (step.target.kind !== 'namespace') {
     issues.push(...identifierIssues(step.target.relation.relation, 'Migration relation'))
   }
+
   if (step.target.kind === 'column') {
     issues.push(...identifierIssues(step.target.column, 'Migration column'))
   } else if (step.target.kind === 'index') {
     issues.push(...identifierIssues(step.target.index, 'Migration index'))
   }
+
   if (step.kind === 'add_foreign_key') {
     issues.push(
       ...namespaceIssues(
@@ -313,10 +329,12 @@ export function stepTargetIssues(
       ...identifierIssues(step.references.column, 'Referenced column'),
     )
   }
+
   if (step.kind === 'create_index') {
     for (const column of step.columns) {
       issues.push(...identifierIssues(column, 'Indexed column'))
     }
   }
+
   return issues
 }

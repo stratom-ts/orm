@@ -35,8 +35,10 @@ function assertStableIdentifier(value: unknown, label: string): asserts value is
       message: `${label} must be a non-empty string containing no NUL`,
     })
   }
+
   for (let index = 0; index < value.length; index++) {
     const codeUnit = value.charCodeAt(index)
+
     if (
       codeUnit >= 0xd800 &&
       codeUnit <= 0xdfff &&
@@ -51,6 +53,7 @@ function assertStableIdentifier(value: unknown, label: string): asserts value is
         message: `${label} must not contain unpaired Unicode surrogates`,
       })
     }
+
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) index++
   }
 }

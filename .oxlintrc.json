@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["import"],
+  "jsPlugins": ["./tools/oxlint-whitespace-plugin.mjs"],
   "categories": {
     "correctness": "off"
   },
@@ -12,6 +13,7 @@
   },
   "ignorePatterns": ["**/.output", "**/dist", "**/node_modules"],
   "rules": {
+    "stratom-style/pad-multiline-blocks": "error",
     "constructor-super": "error",
     "for-direction": "error",
     "getter-return": "error",

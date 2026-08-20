@@ -109,7 +109,9 @@ function asNativePostgresClient(value: unknown): NativePostgresClient {
         'The db0 PostgreSQL connector did not expose the exact native pg.Client identity, readiness, queue, and cancellation capabilities',
     })
   }
+
   const client = value as NativePostgresClient
+
   if (
     typeof client.database !== 'string' ||
     client.database.length === 0 ||
@@ -130,6 +132,7 @@ function asNativePostgresClient(value: unknown): NativePostgresClient {
         'The db0 PostgreSQL connector did not expose the exact native pg.Client identity, readiness, queue, and cancellation capabilities',
     })
   }
+
   return client
 }
 
@@ -147,6 +150,7 @@ async function readIdentity(
     | undefined
   const database = row?.database
   const physicalSession = row?.physicalSession
+
   if (
     typeof database !== 'string' ||
     database.length === 0 ||
@@ -159,6 +163,7 @@ async function readIdentity(
         'The db0 PostgreSQL connector could not prove backend and database identity',
     })
   }
+
   return Object.freeze({ database, physicalSession })
 }
 
@@ -203,6 +208,7 @@ export function createDb0PostgresqlOperationSessionProvider(
         'Automatic operation sessions require the db0 PostgreSQL connector; provide an explicit operationSessionProvider for a custom connector',
     })
   }
+
   /** Disposes the connector while normalizing synchronous failures to rejections. */
   const disposeConnector = (): Promise<void> => {
     try {
@@ -211,6 +217,7 @@ export function createDb0PostgresqlOperationSessionProvider(
       return Promise.reject(cause)
     }
   }
+
   const identities = new WeakMap<object, OperationSessionIdentity>()
 
   let leased = false
@@ -231,11 +238,13 @@ export function createDb0PostgresqlOperationSessionProvider(
       if (closed) {
         throw new QueryError({ message: 'Operation session provider has been closed' })
       }
+
       if (leased) {
         throw new QueryError({
           message: 'PostgreSQL operation session is already leased',
         })
       }
+
       leased = true
       let finishLease!: () => void
       const lease = new Promise<void>((resolve) => {
@@ -245,10 +254,12 @@ export function createDb0PostgresqlOperationSessionProvider(
 
       let client: NativePostgresClient
       let identity: OperationSessionIdentity
+
       try {
         client = asNativePostgresClient(await connector.getInstance())
         assertReusableNativeClient(client)
         const cachedIdentity = identities.get(client)
+
         if (cachedIdentity) {
           if (
             cachedIdentity.database !== client.database ||
@@ -258,6 +269,7 @@ export function createDb0PostgresqlOperationSessionProvider(
               message: 'PostgreSQL cached session identity no longer matches the client',
             })
           }
+
           identity = cachedIdentity
         } else {
           identity = await readIdentity(client)
@@ -295,15 +307,18 @@ export function createDb0PostgresqlOperationSessionProvider(
             new QueryError({ message: 'Operation session has been released' }),
           )
         }
+
         if (cancelled) {
           return Promise.reject(
             new QueryError({ message: 'Operation session has been cancelled' }),
           )
         }
+
         const result = queue.then(() => {
           if (cancelled) {
             throw new QueryError({ message: 'Operation session has been cancelled' })
           }
+
           return operation()
         })
         queue = result.then(
@@ -326,9 +341,11 @@ export function createDb0PostgresqlOperationSessionProvider(
             message: 'PostgreSQL physical session changed during an operation',
           })
         }
+
         const controller = new AbortController()
         activeController = controller
         requiresCleanup ||= scanPostgresSql(query.sql).requiresCleanup
+
         try {
           return await client.query({
             text: query.sql,
@@ -379,8 +396,10 @@ export function createDb0PostgresqlOperationSessionProvider(
           if (released) {
             throw new QueryError({ message: 'Operation session has been released' })
           }
+
           cancelled = true
           activeController?.abort()
+
           if (getActiveQuery(client) != null) {
             if (client.end) {
               // This hard-discard teardown is not a PostgreSQL backend cancel request.
@@ -405,22 +424,27 @@ export function createDb0PostgresqlOperationSessionProvider(
               message: 'Operation session was released more than once',
             })
           }
+
           released = true
           await queue
 
           let releaseFailed = false
           let releaseError: unknown
+
           try {
             if (disposition === 'discard' || cancelled) {
               await disposeConnector()
               return
             }
+
             assertReusableNativeClient(client)
+
             if (asNativePostgresClient(await connector.getInstance()) !== client) {
               throw new QueryError({
                 message: 'PostgreSQL physical session changed before release',
               })
             }
+
             if (
               identity.database !== client.database ||
               identity.physicalSession !== String(client.processID)
@@ -429,10 +453,12 @@ export function createDb0PostgresqlOperationSessionProvider(
                 message: 'PostgreSQL session identity changed before release',
               })
             }
+
             if (requiresCleanup) {
               await client.query(POSTGRES_OPERATION_ROLLBACK_SQL)
               await client.query(POSTGRES_OPERATION_UNLOCK_SQL)
               const releasedIdentity = await readIdentity(client)
+
               if (
                 releasedIdentity.database !== identity.database ||
                 releasedIdentity.physicalSession !== identity.physicalSession
@@ -451,6 +477,7 @@ export function createDb0PostgresqlOperationSessionProvider(
             activeLease = undefined
             finishLease()
           }
+
           if (releaseFailed) throw releaseError
         },
       }

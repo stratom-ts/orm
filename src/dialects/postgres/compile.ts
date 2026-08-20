@@ -82,6 +82,7 @@ function createRelationContext(
     postgresTableAlias(relation.schema, relation.table),
   )
   const counts = new Map<string, number>()
+
   for (const candidate of candidates) {
     counts.set(candidate, (counts.get(candidate) ?? 0) + 1)
   }
@@ -117,11 +118,13 @@ function resolveRelationAlias(
       relation.table === table && (schema === undefined || relation.schema === schema),
   )
   if (matches.length === 1) return matches[0]!.alias
+
   if (matches.length === 0) {
     throw new QueryError({
       message: `table reference "${schema ? `${schema}.` : ''}${table}" is not in query`,
     })
   }
+
   throw new QueryError({
     message: `table reference "${table}" is ambiguous; specify its schema`,
   })
@@ -165,9 +168,11 @@ function comparisonSql(op: ComparisonOp): string {
 function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
+
   if (returning.columns.length === 0) {
     throw new QueryError({ message: 'returning columns must not be empty' })
   }
+
   return ` returning ${returning.columns.map((c) => quoteIdent(c)).join(', ')}`
 }
 
@@ -226,14 +231,17 @@ function compilePredicate(
     case 'cmp': {
       const left = qualifyColumn(pred.column, relations, pred.table, pred.schema)
       const op = comparisonSql(pred.op)
+
       if (pred.right) {
         return `${left} ${op} ${compileQualifiedColumn(pred.right, relations)}`
       }
+
       if (pred.value === null) {
         if (pred.op === 'eq') return `${left} is null`
         if (pred.op === 'neq') return `${left} is not null`
         throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
       }
+
       params.push(pred.value)
       return `${left} ${op} $${params.length}`
     }
@@ -395,6 +403,7 @@ function compileJoin(
   const tableAlias = quoteIdent(relation.alias)
 
   let type: string
+
   switch (join.type) {
     case 'inner':
       type = 'inner join'
@@ -425,34 +434,44 @@ function compileSelect(node: SelectAst): CompiledQuery {
   ])
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
+
   if (!node.selection || node.selection.length === 0) {
     throw new QueryError({ message: 'select items must not be empty' })
   }
+
   const selection = node.selection
     .map((item) => compileSelectItem(item, params, relations))
     .join(', ')
   let sql = `select ${selection} from ${tableSql} as ${tableAlias}`
+
   if (node.joins) {
     for (const [index, join] of node.joins.entries()) {
       sql += compileJoin(join, relations[index + 1]!, params, relations)
     }
   }
+
   sql += compileWhereClause(node.where, params, relations)
+
   if (node.groupBy && node.groupBy.length > 0) {
     sql += ` group by ${node.groupBy.map((c) => compileQualifiedColumn(c, relations)).join(', ')}`
   }
+
   if (node.having) {
     sql += ` having ${compilePredicate(node.having, params, relations)}`
   }
+
   sql += compileOrderBy(node.orderBy, relations)
+
   if (node.limit !== undefined) {
     params.push(node.limit)
     sql += ` limit $${params.length}`
   }
+
   if (node.offset !== undefined) {
     params.push(node.offset)
     sql += ` offset $${params.length}`
   }
+
   return { sql, params }
 }
 
@@ -493,9 +512,11 @@ function compileUpdate(node: UpdateAst): CompiledQuery {
   const relations = createRelationContext([node])
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
+
   if (node.set.length === 0) {
     throw new QueryError({ message: 'update requires at least one SET column' })
   }
+
   const setSql = node.set
     .map((item) => {
       params.push(item.value)
@@ -560,6 +581,7 @@ function compileColumnDefinition(
 
   if (col.notNull) parts.push('not null')
   if (isPrimaryKey) parts.push('primary key')
+
   if (col.unique) {
     if (col.uniqueConstraintName) {
       parts.push(`constraint ${quoteIdent(col.uniqueConstraintName)} unique`)
@@ -578,12 +600,15 @@ function compileColumnDefinition(
     const refTable = qualifyPostgresTable(col.references.schema, col.references.table)
     const refCol = quoteIdent(col.references.column)
     let ref = `references ${refTable} (${refCol})`
+
     if (col.references.onDelete) {
       ref += ` on delete ${formatReferentialAction(col.references.onDelete)}`
     }
+
     if (col.references.onUpdate) {
       ref += ` on update ${formatReferentialAction(col.references.onUpdate)}`
     }
+
     parts.push(ref)
   }
 
@@ -607,8 +632,10 @@ function compileCreateTable(node: CreateTableAst): string {
       if (node.primaryKeyName) {
         return compileColumnDefinition(col)
       }
+
       return compileColumnDefinition(col, true)
     }
+
     return compileColumnDefinition(col)
   })
 
@@ -690,12 +717,15 @@ function compileAddForeignKey(node: {
   )
   const constraint = node.name ? `constraint ${quoteIdent(node.name)} ` : ''
   let sql = `alter table ${tableSql} add ${constraint}foreign key (${quoteIdent(node.column)}) references ${referenceTableSql} (${quoteIdent(node.references.column)})`
+
   if (node.references.onDelete) {
     sql += ` on delete ${formatReferentialAction(node.references.onDelete)}`
   }
+
   if (node.references.onUpdate) {
     sql += ` on update ${formatReferentialAction(node.references.onUpdate)}`
   }
+
   return sql
 }
 

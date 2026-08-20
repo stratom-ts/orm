@@ -43,9 +43,11 @@ function executor(
           },
         ]
       }
+
       if (sql.includes('-- catalog:namespace')) {
         return [{ schema: 'public', owner: 'app' }]
       }
+
       if (sql.includes('as relation_kind')) {
         relationQueries++
         if (options.raced) return []
@@ -70,6 +72,7 @@ function executor(
             partition_bound: null,
           },
         ]
+
         if (options.unrelatedRace) {
           rows.push({
             ...rows[0]!,
@@ -77,8 +80,10 @@ function executor(
             name: 'audit_log',
           })
         }
+
         return rows
       }
+
       if (sql.includes('-- catalog:column')) {
         columnQueries++
         const rows = [
@@ -160,6 +165,7 @@ function executor(
         if (options.changedMembers && columnQueries > 1) rows.pop()
         return order(rows)
       }
+
       if (sql.includes('from pg_index i')) {
         return order([
           {
@@ -199,6 +205,7 @@ function executor(
           },
         ])
       }
+
       if (sql.includes('from pg_constraint con')) {
         return [
           {
@@ -217,6 +224,7 @@ function executor(
           },
         ]
       }
+
       if (sql.includes('as object_kind')) {
         return [
           {
@@ -228,12 +236,14 @@ function executor(
           },
         ]
       }
+
       if (sql.includes('as object_name')) {
         return order([
           { schema: 'public', object_name: 'events' },
           { schema: 'public', object_name: 'events_payload_idx' },
         ])
       }
+
       return []
     },
   }
@@ -311,6 +321,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
       state: 'partial',
       remainder: { state: 'unmanaged' },
     })
+
     for (const query of queries.slice(1)) {
       expect(query.sql).toContain('n.nspname = any($1::text[])')
       expect(query.params).toEqual([['public']])

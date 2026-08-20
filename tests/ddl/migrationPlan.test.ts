@@ -346,6 +346,7 @@ function planningError(
     expect(error).toBeInstanceOf(MigrationError)
     return error as MigrationError
   }
+
   throw new Error('Expected migration planning to fail')
 }
 
@@ -930,6 +931,7 @@ describe('Migration Plan construction', () => {
     const catalogs = [catalog, structuredClone(catalog), structuredClone(catalog)]
     catalogs[1]!.tables.reverse()
     catalogs[2]!.tables = rotate(catalogs[2]!.tables)
+
     for (const candidate of catalogs.slice(1)) {
       for (const table of candidate.tables) {
         table.columns = rotate(table.columns)
@@ -942,6 +944,7 @@ describe('Migration Plan construction', () => {
         expect(planMigration(registered, candidate, postgresDialect)).toEqual(expected)
       }
     }
+
     expect(catalog).toEqual(originalCatalog)
   })
 
@@ -1139,6 +1142,7 @@ describe('Migration Plan construction', () => {
 
     const permuted = structuredClone(catalog)
     permuted.tables.reverse()
+
     for (const table of permuted.tables) {
       table.columns.reverse()
       table.uniqueConstraints?.reverse()
@@ -1373,6 +1377,7 @@ describe('Migration Plan construction', () => {
       { name: 'email', dataType: 'text', isNullable: false },
     ])
     catalog.namespaces = ['other_app']
+
     // An unrelated object named 'users' occupies the other namespace, not this one.
     catalog.nameReservations = [{ schema: 'other_app', name: 'users' }]
 

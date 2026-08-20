@@ -112,23 +112,28 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
       malformed = true
       break
     }
+
     if (/\s/.test(character)) {
       index++
       continue
     }
+
     if (character === ';') {
       finishStatement()
       index++
       continue
     }
+
     if (character === '-' && next === '-') {
       const newline = sql.indexOf('\n', index + 2)
       index = newline === -1 ? sql.length : newline + 1
       continue
     }
+
     if (character === '/' && next === '*') {
       let depth = 1
       index += 2
+
       while (index < sql.length && depth > 0) {
         if (sql[index] === '/' && sql[index + 1] === '*') {
           depth++
@@ -140,9 +145,11 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
           index++
         }
       }
+
       if (depth > 0) malformed = true
       continue
     }
+
     if (character === "'") {
       const escapeString =
         index > 0 &&
@@ -152,6 +159,7 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
       pendingAdvisoryCall = false
       index++
       let closed = false
+
       while (index < sql.length) {
         if (sql[index] === "'" && sql[index + 1] === "'") {
           index += 2
@@ -165,15 +173,18 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
           index++
         }
       }
+
       if (!closed) malformed = true
       continue
     }
+
     if (character === '"') {
       statement.executable = true
       pendingAdvisoryCall = false
       index++
       let closed = false
       let identifier = ''
+
       while (index < sql.length) {
         if (sql[index] === '"' && sql[index + 1] === '"') {
           identifier += '"'
@@ -187,30 +198,39 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
           index++
         }
       }
+
       if (!closed) malformed = true
       pendingAdvisoryCall = closed && ADVISORY_FUNCTION_RE.test(identifier)
       continue
     }
+
     if (character === '$') {
       const delimiter = dollarQuoteDelimiter(sql, index)
+
       if (delimiter) {
         statement.executable = true
         pendingAdvisoryCall = false
         const closing = sql.indexOf(delimiter, index + delimiter.length)
+
         if (closing === -1) {
           malformed = true
           break
         }
+
         index = closing + delimiter.length
         continue
       }
+
       const parameter = /^\$(\d+)/.exec(sql.slice(index))
+
       if (parameter) {
         const parameterIndex = Number(parameter[1])
+
         if (!Number.isSafeInteger(parameterIndex) || parameterIndex < 1) {
           malformed = true
           break
         }
+
         statement.executable = true
         pendingAdvisoryCall = false
         parameters.push({
@@ -222,6 +242,7 @@ export function scanPostgresSql(sql: string): PostgresSqlScan {
         continue
       }
     }
+
     if (isWordStart(character)) {
       const start = index++
       while (index < sql.length && isWordPart(sql[index]!)) index++

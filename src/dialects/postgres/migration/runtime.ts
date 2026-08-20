@@ -23,6 +23,7 @@ function primaryCause(cause: unknown): unknown {
   if (cause instanceof MigrationError && cause.cause !== undefined) {
     return cause.cause
   }
+
   return cause
 }
 
@@ -145,6 +146,7 @@ export async function executePostgresMigration(
 ): Promise<{ outcome: 'applied' | 'unchanged' }> {
   let acquiredLocks: readonly PostgresAdvisoryLockIdentity[] = []
   const cancellation: CancellationState = { cancelled: false }
+
   try {
     acquiredLocks = await acquireCoordination(options, cancellation)
   } catch (cause) {
@@ -196,12 +198,14 @@ export async function executePostgresMigration(
         cause,
         stage: cancellationStage(cause, 'transaction'),
       }
+
       if (cause instanceof MigrationCancellationError) {
         cleanupFailures.push(...cause.cleanupFailures)
       }
     }
 
     let program
+
     if (!primary) {
       try {
         program = await runCancellable({
@@ -210,6 +214,7 @@ export async function executePostgresMigration(
           stage: 'introspection',
           operation: options.prepare,
         })
+
         if (program.atomicity !== 'plan-atomic') {
           throw new MigrationError({
             message: `Migration execution requires plan-atomic programs; received ${program.atomicity}`,
@@ -218,9 +223,11 @@ export async function executePostgresMigration(
             retryable: false,
           })
         }
+
         const invalidAction = program.actions.find(
           (action) => action.transaction !== 'required',
         )
+
         if (invalidAction) {
           throw new MigrationError({
             message: `Plan-atomic PostgreSQL actions must require a transaction; received ${invalidAction.transaction}`,
@@ -234,6 +241,7 @@ export async function executePostgresMigration(
           cause,
           stage: reportedStage(cause, 'lowering'),
         }
+
         if (cause instanceof MigrationCancellationError) {
           cleanupFailures.push(...cause.cleanupFailures)
         }
@@ -255,9 +263,11 @@ export async function executePostgresMigration(
             stage: cancellationStage(cause, 'precondition'),
             sourceStepIndexes: precondition.sourceStepIndexes,
           }
+
           if (cause instanceof MigrationCancellationError) {
             cleanupFailures.push(...cause.cleanupFailures)
           }
+
           break
         }
       }
@@ -266,8 +276,10 @@ export async function executePostgresMigration(
     if (!primary && program) {
       for (let actionIndex = 0; actionIndex < program.actions.length; actionIndex++) {
         const action = program.actions[actionIndex]!
+
         try {
           ddlStarted = true
+
           for (const statement of action.statements) {
             await runCancellable({
               runtime: options,
@@ -283,9 +295,11 @@ export async function executePostgresMigration(
             actionIndex,
             sourceStepIndexes: action.sourceStepIndexes,
           }
+
           if (cause instanceof MigrationCancellationError) {
             cleanupFailures.push(...cause.cleanupFailures)
           }
+
           break
         }
       }
@@ -308,6 +322,7 @@ export async function executePostgresMigration(
           cause,
           stage: cancellationStage(cause, 'commit'),
         }
+
         if (cause instanceof MigrationCancellationError) {
           cleanupFailures.push(...cause.cleanupFailures)
         }
@@ -326,6 +341,7 @@ export async function executePostgresMigration(
         transactionOpen = false
         options.discard()
         cleanupFailures.push({ stage: 'rollback', cause })
+
         if (cause instanceof MigrationCancellationError) {
           cleanupFailures.push(...cause.cleanupFailures)
         }
@@ -349,6 +365,7 @@ export async function executePostgresMigration(
           timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
           operation: () => releaseCoordinationFailures(options, acquiredLocks),
         })
+
         if (failures.length > 0) {
           options.discard()
           cleanupFailures.push(...failures)
@@ -356,6 +373,7 @@ export async function executePostgresMigration(
       } catch (cause) {
         options.discard()
         cleanupFailures.push({ stage: 'unlock', cause })
+
         if (cause instanceof MigrationCancellationError) {
           cleanupFailures.push(...cause.cleanupFailures)
         }

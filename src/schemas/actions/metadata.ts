@@ -24,6 +24,7 @@ function actionMetadata(value: unknown): MetadataRecord | undefined {
   ) {
     return undefined
   }
+
   return value.metadata as MetadataRecord
 }
 
@@ -43,8 +44,10 @@ export function findSchemaMetadata<T extends MetadataRecord>(
   kind: T['kind'],
 ): T | undefined {
   const traversable = schema as TraversableSchema
+
   if (traversable.pipe) {
     const actions = traversable.pipe.slice(1)
+
     for (let index = actions.length - 1; index >= 0; index--) {
       const metadata = actionMetadata(actions[index])
       if (metadata?.kind === kind) return metadata as T
@@ -60,6 +63,7 @@ export function findSchemaMetadata<T extends MetadataRecord>(
     }
 
     const first = traversable.pipe[0]
+
     if (typeof first === 'object' && first !== null && 'kind' in first) {
       const nested = findSchemaMetadata<T>(first as AnySchema, kind)
       if (nested) return nested
@@ -69,5 +73,6 @@ export function findSchemaMetadata<T extends MetadataRecord>(
   if (traversable.wrapped) {
     return findSchemaMetadata<T>(traversable.wrapped, kind)
   }
+
   return undefined
 }

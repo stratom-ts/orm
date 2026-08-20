@@ -73,6 +73,7 @@ export function postgresAdvisoryLockIdentity(
       canonicalIdentity: identity.canonicalIdentity,
     }
   }
+
   const digest = createHash('sha256').update(identity.canonicalIdentity, 'utf8').digest()
   return {
     kind: 'scoped',
@@ -111,12 +112,14 @@ async function cancelSession(
   options.discard()
   const cleanupFailures: MigrationCleanupFailure[] = []
   let cancelSucceeded = true
+
   try {
     await options.cancel()
   } catch (cause) {
     cancelSucceeded = false
     cleanupFailures.push({ stage: 'sessionCleanup', cause })
   }
+
   const settled = inFlight?.then(
     () => undefined,
     () => undefined,
@@ -155,6 +158,7 @@ export async function runCancellable<T>(options: {
   timeoutMessage?: string
 }): Promise<T> {
   const { runtime, state, stage, timeoutMs } = options
+
   if (runtime.signal?.aborted) {
     const cleanupFailures = await cancelSession(runtime, state)
     throw new MigrationSignalAbortedError(
@@ -163,12 +167,14 @@ export async function runCancellable<T>(options: {
       cleanupFailures,
     )
   }
+
   const operation = options.operation()
 
   let timer: ReturnType<typeof setTimeout> | undefined
   let abort: (() => void) | undefined
   const interrupted = new Promise<'timeout' | 'abort'>((resolve) => {
     if (timeoutMs !== undefined) timer = setTimeout(() => resolve('timeout'), timeoutMs)
+
     if (runtime.signal) {
       abort = () => resolve('abort')
       runtime.signal.addEventListener('abort', abort, { once: true })
@@ -181,8 +187,10 @@ export async function runCancellable<T>(options: {
   const result = await Promise.race([settled, interrupted])
   if (timer) clearTimeout(timer)
   if (abort) runtime.signal?.removeEventListener('abort', abort)
+
   if (result === 'timeout' || result === 'abort') {
     const cleanupFailures = await cancelSession(runtime, state, operation)
+
     if (result === 'timeout') {
       throw new MigrationLockTimeoutError(
         options.timeoutMessage ??
@@ -191,12 +199,14 @@ export async function runCancellable<T>(options: {
         cleanupFailures,
       )
     }
+
     throw new MigrationSignalAbortedError(
       'Migration execution was aborted',
       stage,
       cleanupFailures,
     )
   }
+
   if (result.kind === 'error') throw result.cause
   return result.value
 }
@@ -219,6 +229,7 @@ async function stopCancelled(
 ): Promise<never> {
   const cleanupFailures: MigrationCleanupFailure[] = []
   let sessionCancelled = false
+
   if (!state.sessionUncertain) {
     for (const identity of [...acquired].reverse()) {
       try {
@@ -233,6 +244,7 @@ async function stopCancelled(
         cleanupFailures.push(...failures)
       } catch (cause) {
         cleanupFailures.push({ stage: 'unlock', cause })
+
         if (cause instanceof MigrationCancellationError) {
           sessionCancelled = true
           cleanupFailures.push(...cause.cleanupFailures)
@@ -241,7 +253,9 @@ async function stopCancelled(
       }
     }
   }
+
   if (!sessionCancelled) cleanupFailures.push(...(await cancelSession(options, state)))
+
   if (timeout) {
     throw new MigrationLockTimeoutError(
       options.lockTimeoutMs === 0
@@ -251,6 +265,7 @@ async function stopCancelled(
       cleanupFailures,
     )
   }
+
   throw new MigrationSignalAbortedError(
     'Migration execution was aborted',
     stage,
@@ -283,8 +298,10 @@ export async function acquireCoordination(
   )
   const acquired: PostgresAdvisoryLockIdentity[] = []
   const deadline = performance.now() + options.lockTimeoutMs
+
   for (const identity of identities) {
     let firstAttempt = true
+
     while (true) {
       const timeout =
         options.lockTimeoutMs === 0
@@ -293,13 +310,17 @@ export async function acquireCoordination(
               MIGRATION_SESSION_CALL_TIMEOUT_MS,
               Math.max(0, deadline - performance.now()),
             )
+
       if (!firstAttempt && performance.now() >= deadline) {
         await stopCancelled(options, state, 'lock', true, acquired)
       }
+
       if (options.signal?.aborted) {
         await stopCancelled(options, state, 'lock', false, acquired)
       }
+
       let row
+
       try {
         ;[row] = await runCancellable({
           runtime: options,
@@ -318,33 +339,42 @@ export async function acquireCoordination(
         state.sessionUncertain = true
         throw cause
       }
+
       firstAttempt = false
+
       if (typeof row !== 'object' || row === null || !('locked' in row)) {
         state.sessionUncertain = true
         throw new InvariantError(
           'PostgreSQL did not return a migration advisory lock result',
         )
       }
+
       if (row.locked === true) {
         acquired.push(identity)
         break
       }
+
       if (row.locked !== false) {
         state.sessionUncertain = true
         throw new InvariantError(
           'PostgreSQL returned an invalid migration advisory lock result',
         )
       }
+
       if (options.lockTimeoutMs === 0) {
         await stopCancelled(options, state, 'lock', true, acquired)
       }
+
       if (options.signal?.aborted) {
         await stopCancelled(options, state, 'lock', false, acquired)
       }
+
       const waitRemaining = deadline - performance.now()
+
       if (waitRemaining <= 0) {
         await stopCancelled(options, state, 'lock', true, acquired)
       }
+
       const wait = new Promise<'elapsed' | 'aborted'>((resolve) => {
         const timer = setTimeout(
           () => {
@@ -353,18 +383,22 @@ export async function acquireCoordination(
           },
           Math.min(MIGRATION_LOCK_POLL_INTERVAL_MS, waitRemaining),
         )
+
         const abort = () => {
           clearTimeout(timer)
           options.signal?.removeEventListener('abort', abort)
           resolve('aborted')
         }
+
         options.signal?.addEventListener('abort', abort, { once: true })
       })
+
       if ((await wait) === 'aborted') {
         await stopCancelled(options, state, 'lock', false, acquired)
       }
     }
   }
+
   return acquired
 }
 
@@ -413,12 +447,14 @@ export async function releaseCoordinationFailures(
   ],
 ): Promise<MigrationCleanupFailure[]> {
   const failures: MigrationCleanupFailure[] = []
+
   for (const identity of [...identities].reverse()) {
     try {
       const [row] = await options.executor.execute({
         sql: 'select pg_advisory_unlock($1, $2) as "unlocked"',
         params: [identity.classId, identity.lockId],
       })
+
       if (
         typeof row !== 'object' ||
         row === null ||
@@ -433,6 +469,7 @@ export async function releaseCoordinationFailures(
       failures.push({ stage: 'unlock', cause })
     }
   }
+
   return failures
 }
 
@@ -456,6 +493,7 @@ export async function assertPrecondition(
     params: [],
   })
   const count = Number((row as { count?: unknown } | undefined)?.count ?? 0)
+
   if (count > 0) {
     throw new InvariantError(
       `Cannot set column '${schema}.${precondition.relation.relation.spelling}.${precondition.column}' as NOT NULL - column has NULL values`,
