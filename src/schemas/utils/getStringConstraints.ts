@@ -23,6 +23,7 @@ export function getStringConstraints(
     for (const item of pipeItems) {
       if (item && typeof item === 'object' && item !== null && 'type' in item) {
         const action = item as { type: string; requirement?: number }
+
         if (action.type === 'min_length') {
           constraints.minLength = action.requirement
         } else if (action.type === 'max_length') {

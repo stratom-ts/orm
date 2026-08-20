@@ -100,6 +100,7 @@ function withReleaseCleanup(error: MigrationError): MigrationError {
  */
 function lockTimeout(options: MigrationExecuteOptions | undefined): number {
   const value = options?.lockTimeoutMs ?? DEFAULT_MIGRATION_LOCK_TIMEOUT_MS
+
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     throw new MigrationError({
       message: 'Migration lockTimeoutMs must be a finite non-negative number',
@@ -108,6 +109,7 @@ function lockTimeout(options: MigrationExecuteOptions | undefined): number {
       retryable: false,
     })
   }
+
   return value
 }
 
@@ -195,18 +197,23 @@ export function createMigrateBuilder(options: {
    */
   const buildPlan = async (executor: Executor) => {
     let request
+
     try {
       request = createCatalogRequest(schemas, migrationOwnership ?? [], defaultNamespace)
     } catch (cause) {
       throw phaseError(cause, 'planning')
     }
+
     let catalog
+
     try {
       catalog = await dialect.catalog.introspectCatalog(executor, request)
     } catch (cause) {
       throw phaseError(cause, 'introspection')
     }
+
     let planned
+
     try {
       planned = planMigration(schemas, catalog, dialect, {
         ...(defaultNamespace === undefined
@@ -217,6 +224,7 @@ export function createMigrateBuilder(options: {
     } catch (cause) {
       throw phaseError(cause, 'planning')
     }
+
     const expected: MigrationSemanticProfile = {
       identityAdapter: dialect.relationIdentity,
       namespaceContext: catalog.namespaceContext,
@@ -260,15 +268,19 @@ export function createMigrateBuilder(options: {
      */
     async execute(executeOptions) {
       const lockTimeoutMs = lockTimeout(executeOptions)
+
       try {
         assertCanExecute?.()
       } catch (cause) {
         throw phaseError(cause, 'permission')
       }
+
       let runtimeSuccess: { outcome: 'applied' | 'unchanged' } | undefined
       let operationCallbackReturned = false
+
       try {
         const migration = dialect.migration
+
         if (!migration) {
           throw new MigrationError({
             message: `Dialect '${dialect.id}' does not support migration execution`,
@@ -277,6 +289,7 @@ export function createMigrateBuilder(options: {
             retryable: false,
           })
         }
+
         await runOperation(async (executor, databaseIdentity, discard, cancel) => {
           const execution = await attempt(() =>
             migration.execute({
@@ -292,8 +305,10 @@ export function createMigrateBuilder(options: {
               /** Builds, validates, and lowers the plan inside the execution snapshot. */
               prepare: async () => {
                 const { planned, expected } = await buildPlan(executor)
+
                 for (const step of planned.plan.steps) {
                   const permission = allowForStep(step)
+
                   if (permission && !allowed.has(permission)) {
                     throw new MigrationError({
                       message: `Destructive migration step '${step.kind}' requires allow('${permission}')`,
@@ -303,9 +318,11 @@ export function createMigrateBuilder(options: {
                     })
                   }
                 }
+
                 const lowering = attemptSync(() => migration.lower(planned, expected))
                 if (!lowering.ok) throw phaseError(lowering.error, 'lowering')
                 const lowered = lowering.value
+
                 if (lowered.issues) {
                   const sourceStepIndexes = [
                     ...new Set(
@@ -320,10 +337,12 @@ export function createMigrateBuilder(options: {
                     sourceStepIndexes,
                   })
                 }
+
                 return lowered.program
               },
             }),
           )
+
           if (!execution.ok) {
             if (execution.error instanceof MigrationError) throw execution.error
             discard()
@@ -338,12 +357,14 @@ export function createMigrateBuilder(options: {
               retryable: false,
             })
           }
+
           runtimeSuccess = execution.value
           operationCallbackReturned = true
           return runtimeSuccess
         })
       } catch (cause) {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+
         if (operationCallbackReturned && runtimeSuccess) {
           throw new MigrationError({
             message:
@@ -355,6 +376,7 @@ export function createMigrateBuilder(options: {
             cleanupFailures: [{ stage: 'sessionCleanup', cause }],
           })
         }
+
         throw new MigrationError({
           message:
             cause instanceof Error ? cause.message : 'Migration operation session failed',

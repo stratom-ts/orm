@@ -62,6 +62,7 @@ function compareNamespaceSpelling(
   right: readonly CanonicalNamespaceSegment[],
 ): number {
   const length = Math.min(left.length, right.length)
+
   for (let index = 0; index < length; index++) {
     const role = compareCodeUnits(left[index]!.role, right[index]!.role)
     if (role !== 0) return role
@@ -71,6 +72,7 @@ function compareNamespaceSpelling(
     )
     if (spelling !== 0) return spelling
   }
+
   return left.length - right.length
 }
 
@@ -134,10 +136,12 @@ export function createCatalogRequest(
       completeNamespaces.push(declaration.namespace ?? [])
       continue
     }
+
     if (declaration.kind === 'absentRelation') {
       absentRelations.push(declaration.relation)
       continue
     }
+
     relations.push({
       relation: isTableHandle(declaration.relation)
         ? relationInput(declaration.relation)
@@ -249,16 +253,19 @@ export function resolveMigrationOwnership(
           `Migration ownership for ${identities.format(identity)} requires a registered table handle`,
         )
       }
+
       if (explicitlyShaped.has(identity)) {
         throw new InvariantError(
           `Duplicate migration ownership relation ${identities.format(identity)}`,
         )
       }
+
       if (absent.has(identity)) {
         throw new InvariantError(
           `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
         )
       }
+
       explicitlyShaped.set(identity, true)
       shapes.set(identity, declaration.shape)
       continue
@@ -269,11 +276,13 @@ export function resolveMigrationOwnership(
         `Duplicate absent-relation migration ownership for ${identities.format(identity)}`,
       )
     }
+
     if (registered.has(identity)) {
       throw new InvariantError(
         `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
       )
     }
+
     absent.set(identity, true)
   }
 

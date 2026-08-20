@@ -49,17 +49,20 @@ function validatePrimaryKey(
 
   for (const pk of primaryKeys) {
     assertNonEmptyString(pk, 'primaryKey column')
+
     if (!columnNames.includes(pk)) {
       throw new SchemaError({
         message: `primaryKey column "${pk}" is not defined on table "${metadata.name}"`,
       })
     }
   }
+
   if (new Set(primaryKeys).size !== primaryKeys.length) {
     throw new SchemaError({
       message: `primaryKey on table "${metadata.name}" contains duplicate columns`,
     })
   }
+
   for (const pk of primaryKeys) {
     if (isSqlNullable(schema.entries[pk] as AnySchema)) {
       throw new SchemaError({
@@ -87,42 +90,53 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
 
   const names = new Set<string>()
   const definitions = new Set<string>()
+
   for (const raw of metadata.indexes) {
     const index = raw
+
     if (index.name !== undefined) {
       assertNonEmptyString(index.name, 'index name')
     }
+
     if (!index.columns || index.columns.length === 0) {
       throw new SchemaError({
         message: `index on table "${metadata.name}" must list at least one column`,
       })
     }
+
     for (const col of index.columns) {
       assertNonEmptyString(col, 'index column')
+
       if (!columnNames.includes(col)) {
         throw new SchemaError({
           message: `index column "${col}" is not defined on table "${metadata.name}"`,
         })
       }
     }
+
     if (new Set(index.columns).size !== index.columns.length) {
       throw new SchemaError({
         message: `index on table "${metadata.name}" contains duplicate columns`,
       })
     }
+
     const definition = JSON.stringify([index.columns, index.unique ?? false])
+
     if (definitions.has(definition)) {
       throw new SchemaError({
         message: `duplicate index definition on table "${metadata.name}"`,
       })
     }
+
     definitions.add(definition)
     if (index.name === undefined) continue
+
     if (names.has(index.name)) {
       throw new SchemaError({
         message: `duplicate explicit index name "${index.name}" on table "${metadata.name}"`,
       })
     }
+
     names.add(index.name)
   }
 }
@@ -148,11 +162,13 @@ function validateColumnOptions(
   if (!metadata) return
   const hasDefault = metadata.databaseDefault !== undefined
   const hasGeneration = metadata.generation !== undefined
+
   if (hasDefault && hasGeneration) {
     throw new SchemaError({
       message: `column "${columnName}" on table "${tableName}" cannot combine a default with identity generation`,
     })
   }
+
   if (
     !isSqlNullable(colSchema) &&
     metadata.databaseDefault?.kind === 'literal' &&
@@ -179,11 +195,13 @@ function validateColumnReference(columnName: string, ref: ReferenceMetadata): vo
   if (!ref) {
     return
   }
+
   if (!ref.table) {
     throw new SchemaError({
       message: `reference on column "${columnName}" is missing a target table`,
     })
   }
+
   if (!ref.key) {
     throw new SchemaError({
       message: `reference on column "${columnName}" is missing a target key`,
@@ -238,6 +256,7 @@ function validateOptionalColumn(
 
   const metadata = getColumnMetadata(colSchema)
   const schemaDefault = (colSchema as AnySchema & { default?: unknown }).default
+
   if (
     (metadata?.databaseDefault?.kind === 'literal' &&
       metadata.databaseDefault.value === null) ||
@@ -269,21 +288,26 @@ function validateOptionalColumn(
 function validateColumns(schema: TableSchema, tableName: string): void {
   for (const [columnName, columnSchema] of Object.entries(schema.entries)) {
     const colSchema = columnSchema as AnySchema
+
     if (colSchema.kind !== 'schema') {
       continue
     }
+
     const ref = getReferenceMetadata(colSchema)
     validateOptionalColumn(tableName, columnName, colSchema)
     validateColumnOptions(tableName, columnName, colSchema)
     validateColumnReference(columnName, ref)
     const actions = [ref?.onDelete, ref?.onUpdate]
+
     if (actions.includes('set null') && !isSqlNullable(colSchema)) {
       throw new SchemaError({
         message: `reference on "${tableName}.${columnName}" uses SET NULL but local storage is NOT NULL`,
       })
     }
+
     if (actions.includes('set default')) {
       const columnMetadata = getColumnMetadata(colSchema)
+
       if (columnMetadata?.databaseDefault === undefined) {
         throw new SchemaError({
           message: `reference on "${tableName}.${columnName}" uses SET DEFAULT without a database default`,
@@ -343,6 +367,7 @@ function buildTableHandle<
   TSchema extends string | undefined = string | undefined,
 >(schema: S): TableHandle<S, TSchema> {
   const metadata = getTableMetadata(schema)
+
   if (!metadata) {
     throw new SchemaError({
       message: 'defineTable requires table() metadata (name, primaryKey) on the schema',
@@ -372,6 +397,7 @@ function buildTableHandle<
   validateTableMetadata(schema, metadata, columnNames)
 
   const columns = {} as Record<string, ColumnRef>
+
   for (const columnName of columnNames) {
     columns[columnName] = {
       table: metadata.name,

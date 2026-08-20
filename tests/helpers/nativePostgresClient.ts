@@ -19,25 +19,31 @@ let nextProcessId = 10_000
 
 function normalizeQueryStart(sql: string): string {
   let offset = 0
+
   while (offset < sql.length) {
     while (/\s/.test(sql[offset] ?? '')) offset++
+
     if (sql.startsWith('--', offset)) {
       const newline = sql.indexOf('\n', offset + 2)
       offset = newline === -1 ? sql.length : newline + 1
       continue
     }
+
     if (sql.startsWith('/*', offset)) {
       const closing = sql.indexOf('*/', offset + 2)
       if (closing === -1) return sql.slice(offset)
       offset = closing + 2
       continue
     }
+
     if (sql[offset] === '(') {
       offset++
       continue
     }
+
     break
   }
+
   return sql.slice(offset)
 }
 
@@ -61,6 +67,7 @@ export function createNativePostgresClient(prepare: (sql: string) => Statement) 
           rows: [{ physicalSession: String(processID), database: 'test' }],
         }
       }
+
       if (
         text === POSTGRES_OPERATION_ROLLBACK_SQL ||
         text === POSTGRES_OPERATION_UNLOCK_SQL
@@ -71,10 +78,12 @@ export function createNativePostgresClient(prepare: (sql: string) => Statement) 
       const scan = scanPostgresSql(text)
       let cursor = 0
       let db0Sql = ''
+
       for (const parameter of scan.parameters) {
         db0Sql += `${text.slice(cursor, parameter.start)}?`
         cursor = parameter.end
       }
+
       db0Sql += text.slice(cursor)
       const orderedParams =
         scan.parameters.length === 0
@@ -85,9 +94,11 @@ export function createNativePostgresClient(prepare: (sql: string) => Statement) 
         orderedParams.length === 0
           ? statement
           : statement.bind(...(orderedParams as never[]))
+
       if (/^(?:select|with)\b|\breturning\b/i.test(normalizeQueryStart(text))) {
         return { rows: await bound.all() }
       }
+
       await bound.run()
       return { rows: [] }
     },
@@ -122,6 +133,7 @@ export function createMockPostgresConnector(options?: {
 } {
   const prepared: string[] = []
   const binds: unknown[][] = []
+
   const prepare = (sql: string) => {
     prepared.push(sql)
     const base =
@@ -136,6 +148,7 @@ export function createMockPostgresConnector(options?: {
       get: () => base.get(),
     }
   }
+
   const nativeClient = createNativePostgresClient(prepare)
   const connector = {
     name: 'postgresql',

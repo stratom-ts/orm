@@ -284,6 +284,7 @@ export function completePostgresCatalog(
       },
     }))
   }
+
   const namespaces = buildNamespaces()
 
   return {

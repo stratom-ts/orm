@@ -507,15 +507,18 @@ describe('@/dialects/postgres', () => {
       const executor: Executor = {
         async execute({ sql }) {
           executedSql.push(sql)
+
           if (sql.includes('current_database()')) {
             return [{ database: 'test', schema: 'public', version: '160000' }]
           }
+
           if (sql.includes('-- catalog:namespace')) {
             return [
               { schema: 'public', owner: 'app' },
               { schema: 'app', owner: 'app' },
             ]
           }
+
           if (sql.includes('as relation_kind')) {
             return [
               {
@@ -556,6 +559,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           if (sql.includes('-- catalog:column')) {
             return [
               {
@@ -683,6 +687,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           if (sql.includes('from pg_index i')) {
             return [
               {
@@ -722,6 +727,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           if (sql.includes('from pg_constraint con')) {
             return [
               {
@@ -812,6 +818,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           if (sql.includes('c.relname as object_name')) {
             return [
               { schema: 'public', object_name: 'accounts' },
@@ -823,6 +830,7 @@ describe('@/dialects/postgres', () => {
               { schema: 'public', object_name: 'accounts_email_include_key' },
             ]
           }
+
           return []
         },
         async run() {},
@@ -1037,12 +1045,14 @@ describe('@/dialects/postgres', () => {
           if (sql.includes('current_database()')) {
             return [{ database: 'test', schema: 'public', version: '160000' }]
           }
+
           if (sql.includes('-- catalog:namespace')) {
             return [
               { schema: 'a.b', owner: 'app' },
               { schema: 'a', owner: 'app' },
             ]
           }
+
           if (sql.includes('as relation_kind')) {
             return [
               {
@@ -1083,6 +1093,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           if (sql.includes('-- catalog:column')) {
             return [
               {
@@ -1117,6 +1128,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           return []
         },
         async run() {},
@@ -1147,9 +1159,11 @@ describe('@/dialects/postgres', () => {
           if (sql.includes('current_database()')) {
             return [{ database: 'test', schema: 'public', version: '160000' }]
           }
+
           if (sql.includes('-- catalog:namespace')) {
             return [{ schema: 'public', owner: 'app' }]
           }
+
           if (sql.includes('as relation_kind')) {
             return [
               {
@@ -1172,6 +1186,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           if (sql.includes('pg_constraint')) {
             return [
               {
@@ -1192,6 +1207,7 @@ describe('@/dialects/postgres', () => {
               },
             ]
           }
+
           return []
         },
         async run() {},

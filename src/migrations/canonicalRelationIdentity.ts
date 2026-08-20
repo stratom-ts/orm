@@ -87,11 +87,14 @@ function assertIdentifier(spelling: string, description: string): void {
   if (spelling.length === 0) {
     throw new InvariantError(`${description} must not be empty`)
   }
+
   if (spelling.includes('\0')) {
     throw new InvariantError(`${description} must not contain NUL`)
   }
+
   for (let index = 0; index < spelling.length; index++) {
     const codeUnit = spelling.charCodeAt(index)
+
     if (
       codeUnit >= 0xd800 &&
       codeUnit <= 0xdfff &&
@@ -106,6 +109,7 @@ function assertIdentifier(spelling: string, description: string): void {
         `${description} must not contain unpaired Unicode surrogates`,
       )
     }
+
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) index++
   }
 }
@@ -117,10 +121,12 @@ function assertIdentifier(spelling: string, description: string): void {
  */
 function sqliteComparisonKey(spelling: string): string {
   let key = ''
+
   for (const character of spelling) {
     const code = character.charCodeAt(0)
     key += code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : character
   }
+
   return key
 }
 
@@ -201,6 +207,7 @@ function resolvePostgresNamespace(
   if (selected.length === 1 && selected[0]?.role === 'schema') {
     return [writableDefault[0]!, selected[0]]
   }
+
   requireRoles(selected, ['database', 'schema'], 'PostgreSQL relation namespace')
 
   if (selected[0]!.spelling !== writableDefault[0]!.spelling) {
@@ -208,6 +215,7 @@ function resolvePostgresNamespace(
       'PostgreSQL relation database must match the writable database',
     )
   }
+
   return selected
 }
 
@@ -321,6 +329,7 @@ export function createCanonicalRelationIdentityModule(options: {
     right: CanonicalRelationIdentity,
   ): number => {
     const length = Math.min(left.namespace.length, right.namespace.length)
+
     for (let index = 0; index < length; index++) {
       const leftSegment = left.namespace[index]!
       const rightSegment = right.namespace[index]!
@@ -355,21 +364,27 @@ export function createCanonicalRelationIdentityModule(options: {
      */
     const find = (identity: CanonicalRelationIdentity, create: boolean) => {
       let node = root
+
       for (const part of identityParts(identity)) {
         let byIdentifier = node.children.get(part.role)
+
         if (!byIdentifier) {
           if (!create) return undefined
           byIdentifier = new Map()
           node.children.set(part.role, byIdentifier)
         }
+
         let child = byIdentifier.get(part.comparisonKey)
+
         if (!child) {
           if (!create) return undefined
           child = createRegistryNode<T>()
           byIdentifier.set(part.comparisonKey, child)
         }
+
         node = child
       }
+
       return node
     }
 

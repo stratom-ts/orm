@@ -231,6 +231,7 @@ export function catalogForPlanning(
       })
     }
   }
+
   for (const namespace of ownership.completeNamespaces) {
     if (
       !snapshot.request.completeNamespaces.some((requested) =>
@@ -262,21 +263,26 @@ export function catalogForPlanning(
       namespace.relations.coverage.remainder.state === 'unmanaged'
         ? namespace.relations.items
         : requireComplete(namespace.relations, namespaceTarget)
+
     for (const relation of relations) {
       const target = identities.format(relation.identity)
+
       if (relation.management === 'unmanaged') {
         if (desiredTables.has(relation.identity)) {
           throw new MigrationError({
             message: `Desired table ${target} collides with an unmanaged catalog relation`,
           })
         }
+
         continue
       }
+
       if (relation.kind !== 'table' && relation.kind !== 'partitionedTable') {
         throw new MigrationError({
           message: `Managed catalog target ${target} is a ${relation.kind}, not a table`,
         })
       }
+
       const table = requireFact(relation.table, `${target} table definition`)
       const columns = requireComplete(table.columns, `${target} columns`)
       const uniqueConstraints = requireComplete(
@@ -315,11 +321,13 @@ export function catalogForPlanning(
           column.generation.state === 'absent'
             ? null
             : requireFact(column.generation, `${target} column ${column.name} generation`)
+
         if (generation && generation.kind !== 'identity') {
           throw new MigrationError({
             message: `Unsupported catalog generation for ${target} column ${JSON.stringify(column.name)}`,
           })
         }
+
         return {
           name: column.name,
           dataType: dataType.comparisonKey,

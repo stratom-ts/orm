@@ -85,6 +85,7 @@ describe('db.transaction', () => {
           throw new Error('inner fail')
         }),
       ).rejects.toThrow('inner fail')
+
       // outer continues after inner rollback to savepoint
       await trx.insert(Users).values({ id: '3', email: 'c@b.com' }).execute()
     })
@@ -191,6 +192,7 @@ describe('db.transaction', () => {
 
     await db.transaction(async (trx) => {
       escapedQuery = trx.from(Users)
+
       useEscapedClient = () => {
         trx.from(Users)
       }
@@ -299,6 +301,7 @@ describe('value mapping', () => {
           if (dataType === 'timestamptz' || dataType === 'timestamp') {
             return `as-string:${String(value)}`
           }
+
           return value
         },
       },

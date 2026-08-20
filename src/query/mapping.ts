@@ -45,6 +45,7 @@ function resolveColumnDataType(
   const schema = columnSchema as Parameters<Dialect['inferColumnType']>[0]
   const columnMetadata = getColumnMetadata(schema)
   const referenceMetadata = getReferenceMetadata(schema)
+
   if (referenceMetadata) {
     const targetSchema = referenceMetadata.target.relation.namespace?.find(
       (segment) => segment.role === 'schema',
@@ -58,17 +59,21 @@ function resolveColumnDataType(
           : metadata.schema === targetSchema)
       )
     })
+
     if (!target) {
       throw new SchemaError({
         message: `Reference target ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not registered`,
       })
     }
+
     const token = `${targetSchema ?? ''}\0${referenceMetadata.target.relation.relation}\0${referenceMetadata.target.column}`
+
     if (resolving.has(token)) {
       throw new SchemaError({
         message: `Cannot resolve reference-only column type cycle at ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column}`,
       })
     }
+
     resolving.add(token)
     const result = resolveColumnDataType(
       target,
@@ -78,13 +83,16 @@ function resolveColumnDataType(
       resolving,
     )
     resolving.delete(token)
+
     if (result === undefined) {
       throw new SchemaError({
         message: `Reference target column ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not defined`,
       })
     }
+
     return result
   }
+
   const selected = columnMetadata?.physicalType?.[dialect.id]
   if (selected !== undefined) return String(selected)
   return String(dialect.inferColumnType(schema))
@@ -136,10 +144,12 @@ export function createValueMapper(
     const cached = typeCache.get(handle)
     if (cached) return cached
     const types: Record<string, string> = {}
+
     for (const name of Object.keys(handle.getSchema().entries)) {
       const dt = resolveColumnDataType(handle, name, dialect, registered, new Set())
       if (dt !== undefined) types[name] = dt
     }
+
     typeCache.set(handle, types)
     return types
   }
@@ -198,9 +208,11 @@ export function createValueMapper(
     row: Record<string, unknown>,
   ): Record<string, unknown> => {
     const out: Record<string, unknown> = {}
+
     for (const [key, value] of Object.entries(row)) {
       out[key] = mapResultValue(handle, key, value)
     }
+
     return out
   }
 
@@ -215,6 +227,7 @@ export function createValueMapper(
       if (row === null || typeof row !== 'object' || Array.isArray(row)) {
         return row
       }
+
       return mapResultRow(handle, row as Record<string, unknown>)
     })
 

@@ -65,6 +65,7 @@ function assertProvider(provider: OperationSessionProvider): void {
  */
 function assertSession(session: OperationSession): void {
   const identity = session?.identity
+
   if (
     typeof session?.query !== 'function' ||
     typeof session.run !== 'function' ||
@@ -129,10 +130,12 @@ export class OperationCoordinator {
    */
   currentToken(): OperationToken | undefined {
     let frame = activeOperation.getStore()
+
     while (frame) {
       if (this.isActiveToken(frame.token)) return frame.token
       frame = frame.parent
     }
+
     return undefined
   }
 
@@ -153,6 +156,7 @@ export class OperationCoordinator {
         }),
       )
     }
+
     if (this.closing) {
       return Promise.reject(new QueryError({ message: 'Database has been closed' }))
     }
@@ -235,6 +239,7 @@ export class OperationCoordinator {
           .finally(() => {
             token.active = false
           })
+
         if (
           session.identity.database !== database ||
           session.identity.physicalSession !== physicalSession
@@ -245,6 +250,7 @@ export class OperationCoordinator {
           })
         }
       })
+
       if (!operationAttempt.ok) {
         operationFailed = true
         operationError = operationAttempt.error
@@ -252,6 +258,7 @@ export class OperationCoordinator {
 
       if (session) {
         const release = await attempt(() => session!.release(disposition))
+
         if (!release.ok) {
           if (!operationFailed) {
             operationFailed = true

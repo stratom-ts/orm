@@ -74,12 +74,14 @@ function stableObservation(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableObservation).join(',')}]`
   }
+
   if (typeof value === 'object' && value !== null) {
     return `{${Object.entries(value)
       .sort(([left], [right]) => compareCodeUnits(left, right))
       .map(([key, item]) => `${JSON.stringify(key)}:${stableObservation(item)}`)
       .join(',')}}`
   }
+
   if (typeof value === 'bigint') return JSON.stringify(value.toString())
   return JSON.stringify(value)
 }
@@ -116,6 +118,7 @@ function rowAt(value: unknown, query: string, index: number): Row {
       `Malformed PostgreSQL ${query} row ${index}: expected an object`,
     )
   }
+
   return value as Row
 }
 
@@ -129,11 +132,13 @@ function rowAt(value: unknown, query: string, index: number): Row {
  */
 function stringAt(row: Row, key: string, query: string, index: number): string {
   const value = row[key]
+
   if (typeof value !== 'string' || value.length === 0) {
     throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a non-empty string`,
     )
   }
+
   return value
 }
 
@@ -153,11 +158,13 @@ function nullableStringAt(
 ): string | null {
   const value = row[key]
   if (value === null) return null
+
   if (typeof value !== 'string') {
     throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a string or null`,
     )
   }
+
   return value
 }
 
@@ -189,11 +196,13 @@ function booleanAt(row: Row, key: string, query: string, index: number): boolean
  */
 function positiveIntegerAt(row: Row, key: string, query: string, index: number): number {
   const value = toNumberOrNull(row[key])
+
   if (value === null || !Number.isInteger(value) || value < 1) {
     throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a positive integer`,
     )
   }
+
   return value
 }
 
@@ -207,13 +216,16 @@ function positiveIntegerAt(row: Row, key: string, query: string, index: number):
  */
 function stringArrayAt(row: Row, key: string, query: string, index: number): string[] {
   const value = row[key]
+
   if (Array.isArray(value)) {
     if (value.every((item): item is string => typeof item === 'string')) return [...value]
   } else if (typeof value === 'string') {
     const trimmed = value.trim()
+
     if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
       try {
         const parsed = JSON.parse(trimmed) as unknown
+
         if (
           Array.isArray(parsed) &&
           parsed.every((item): item is string => typeof item === 'string')
@@ -224,6 +236,7 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
         // The canonical error below includes query and row location.
       }
     }
+
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
       const inner = trimmed.slice(1, -1)
       if (inner.length === 0) return []
@@ -233,6 +246,7 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
       let quoted = false
       let partWasQuoted = false
       let escaped = false
+
       for (const character of inner) {
         if (escaped) {
           part += character
@@ -251,6 +265,7 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
           part += character
         }
       }
+
       if (!quoted && !escaped) {
         quotedParts.push(partWasQuoted)
         parts.push(partWasQuoted ? part : part.trim())
@@ -263,6 +278,7 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
       }
     }
   }
+
   throw new InvariantError(
     `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must contain only string members`,
   )
@@ -314,6 +330,7 @@ function compareNamespaces(
   right: readonly CanonicalNamespaceSegment[],
 ): number {
   const length = Math.min(left.length, right.length)
+
   for (let index = 0; index < length; index++) {
     const leftSegment = left[index]!
     const rightSegment = right[index]!
@@ -325,6 +342,7 @@ function compareNamespaces(
     )
     if (identifier !== 0) return identifier
   }
+
   return left.length - right.length
 }
 
@@ -340,20 +358,24 @@ function resolveRequest(
 ): ResolvedCatalogRequest {
   const relationMap =
     identities.createRegistry<ResolvedCatalogRequest['relations'][number]>()
+
   for (const relation of request.relations) {
     const identity = identities.resolve(relation.relation)
     relationMap.set(identity, { identity, shape: relation.shape })
   }
+
   const relations = request.relations
     .map(({ relation }) => relationMap.get(identities.resolve(relation))!)
     .filter((value, index, values) => values.indexOf(value) === index)
     .sort((left, right) => identities.compare(left.identity, right.identity))
 
   const absentMap = identities.createRegistry<CanonicalRelationIdentity>()
+
   for (const input of request.absentRelations) {
     const identity = identities.resolve(input)
     absentMap.set(identity, identity)
   }
+
   const absentRelations = request.absentRelations
     .map((input) => absentMap.get(identities.resolve(input))!)
     .filter((value, index, values) => values.indexOf(value) === index)
@@ -397,6 +419,7 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   if (typeof row.formatted_type === 'string' && row.formatted_type.length > 0) {
     return row.formatted_type
   }
+
   const dataType = stringAt(row, 'data_type', query, index).toLowerCase()
   const udt = stringAt(row, 'udt_name', query, index).toLowerCase()
   const maxLen = toNumberOrNull(row.character_maximum_length)
@@ -406,14 +429,17 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   if (dataType === 'character varying' || dataType === 'varchar' || udt === 'varchar') {
     return maxLen !== null ? `varchar(${maxLen})` : 'varchar'
   }
+
   if (dataType === 'character' || dataType === 'char' || udt === 'bpchar') {
     return maxLen !== null ? `char(${maxLen})` : 'char'
   }
+
   if (dataType === 'numeric' || dataType === 'decimal') {
     if (precision !== null && scale !== null) return `numeric(${precision},${scale})`
     if (precision !== null) return `numeric(${precision})`
     return 'numeric'
   }
+
   if (udt === 'int2') return 'smallint'
   if (udt === 'int4') return 'integer'
   if (udt === 'int8') return 'bigint'
@@ -448,6 +474,7 @@ function referentialAction(
   ) {
     return value
   }
+
   throw new InvariantError(`Malformed PostgreSQL ${query} row ${index}: invalid action`)
 }
 
@@ -492,6 +519,7 @@ function factName(fact: CatalogFact<string>): string {
       'PostgreSQL catalog object is missing its required physical name',
     )
   }
+
   return fact.value
 }
 
@@ -516,21 +544,25 @@ export async function introspectPostgres(
     `,
     params: [],
   })
+
   if (contextRows.length !== 1) {
     throw new InvariantError(
       'PostgreSQL introspection could not resolve a writable namespace',
     )
   }
+
   const contextRow = rowAt(contextRows[0], 'context', 0)
   const database = stringAt(contextRow, 'database', 'context', 0)
   const schema = stringAt(contextRow, 'schema', 'context', 0)
   const version = stringAt(contextRow, 'version', 'context', 0)
   const versionNumber = Number(version)
+
   if (!/^\d+$/.test(version) || !Number.isSafeInteger(versionNumber)) {
     throw new InvariantError(
       'Malformed PostgreSQL context row 0: "version" must be numeric',
     )
   }
+
   const namespaceContext = {
     writableDefault: [
       { role: 'database' as const, spelling: database },
@@ -548,20 +580,25 @@ export async function introspectPostgres(
   const scopeNamespaces = requestedNamespaces(resolvedRequest)
   const scopeSchemas = scopeNamespaces.map((namespace) => {
     const segment = namespace.find(({ role }) => role === 'schema')
+
     if (!segment) {
       throw new InvariantError(
         'PostgreSQL introspection scope is missing a schema namespace',
       )
     }
+
     return segment.identifier.spelling
   })
   const requestedRelations = identities.createRegistry<true>()
+
   for (const { identity } of resolvedRequest.relations) {
     requestedRelations.set(identity, true)
   }
+
   for (const identity of resolvedRequest.absentRelations) {
     requestedRelations.set(identity, true)
   }
+
   /**
    * Tests whether a relation belongs to the requested ownership scope.
    *
@@ -573,6 +610,7 @@ export async function introspectPostgres(
       sameNamespace(namespace, identity.namespace),
     )
   const diagnostics: CatalogDiagnostic[] = []
+
   if (versionNumber < 120000) {
     const versionEvidence = {
       state: 'unavailable' as const,
@@ -934,6 +972,7 @@ export async function introspectPostgres(
           : []
       })
       .sort(compareCodeUnits)
+
   if (
     JSON.stringify(relationFingerprint(relationRows)) !==
     JSON.stringify(relationFingerprint(finalRelationRows))
@@ -967,11 +1006,13 @@ export async function introspectPostgres(
       ),
     )
     if (!relationRequested(identity)) continue
+
     if (relationRegistry.has(identity)) {
       throw new InvariantError(
         `Duplicate PostgreSQL relation row for ${identities.format(identity)}`,
       )
     }
+
     const kind = relationKind(stringAt(row, 'relation_kind', 'relation', index))
     const mutableTable: MutableTable | undefined =
       kind === 'table' || kind === 'partitionedTable'
@@ -1041,11 +1082,13 @@ export async function introspectPostgres(
                   'relation',
                   index,
                 )
+
                 if (isPartition && partitionBound === null) {
                   throw new InvariantError(
                     `Malformed PostgreSQL relation row ${index}: partition is missing its bound`,
                   )
                 }
+
                 return partitionBound === null
                   ? []
                   : [{ name: 'partitionBound', value: partitionBound }]
@@ -1087,11 +1130,13 @@ export async function introspectPostgres(
     )
     if (!relationRequested(identity)) return undefined
     const entry = relationRegistry.get(identity)
+
     if (!entry) {
       throw new InvariantError(
         `PostgreSQL catalog changed during introspection: ${query} row references missing table ${identities.format(identity)}`,
       )
     }
+
     if (!entry.table) return undefined
     return { identity, table: entry.table }
   }
@@ -1116,6 +1161,7 @@ export async function introspectPostgres(
       'column',
       index,
     )
+
     if (
       isIdentity &&
       identityGeneration !== 'ALWAYS' &&
@@ -1125,21 +1171,25 @@ export async function introspectPostgres(
         `Malformed PostgreSQL column row ${index}: identity_generation is invalid`,
       )
     }
+
     if (generated !== 'NEVER' && generated !== 'ALWAYS') {
       throw new InvariantError(
         `Malformed PostgreSQL column row ${index}: is_generated is invalid`,
       )
     }
+
     if (generated === 'ALWAYS' && generationExpression === null) {
       throw new InvariantError(
         `Malformed PostgreSQL column row ${index}: generated column is missing its expression`,
       )
     }
+
     if (isIdentity && generated === 'ALWAYS') {
       throw new InvariantError(
         `Malformed PostgreSQL column row ${index}: column cannot be identity and computed`,
       )
     }
+
     target.table.columns.push({
       name: stringAt(row, 'column_name', 'column', index),
       position: positiveIntegerAt(row, 'ordinal_position', 'column', index),
@@ -1193,6 +1243,7 @@ export async function introspectPostgres(
   }
 
   const constraintReservations: CatalogConstraintNameReservation[] = []
+
   for (let index = 0; index < constraintRows.length; index++) {
     const row = rowAt(constraintRows[index], 'constraint', index)
     const target = requireTable(row, 'constraint', index)
@@ -1223,12 +1274,14 @@ export async function introspectPostgres(
       validity: present(valid ? 'valid' : 'invalid'),
       nativeDefinition: present(nativeDefinition),
     }
+
     if (type === 'p') {
       if (target.table.primaryKey.state !== 'absent') {
         throw new InvariantError(
           `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
         )
       }
+
       target.table.primaryKey = present(key)
     } else if (type === 'u') {
       target.table.uniqueConstraints.push(key)
@@ -1241,6 +1294,7 @@ export async function introspectPostgres(
           `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
         )
       }
+
       const referencedSchema = stringAt(row, 'referenced_schema', 'constraint', index)
       const referencedTable = stringAt(row, 'referenced_table', 'constraint', index)
       target.table.foreignKeys.push({
@@ -1295,11 +1349,13 @@ export async function introspectPostgres(
     const target = requireTable(row, 'opaque object', index)
     if (!target) continue
     const kind = stringAt(row, 'object_kind', 'opaque object', index)
+
     if (kind !== 'trigger' && kind !== 'policy' && kind !== 'other') {
       throw new InvariantError(
         `Malformed PostgreSQL opaque object row ${index}: unsupported kind ${JSON.stringify(kind)}`,
       )
     }
+
     target.table.opaqueObjects.push({
       kind,
       name: present(stringAt(row, 'object_name', 'opaque object', index)),
@@ -1311,15 +1367,18 @@ export async function introspectPostgres(
   }
 
   const namespaces: CatalogNamespace[] = []
+
   for (let index = 0; index < namespaceRows.length; index++) {
     const row = rowAt(namespaceRows[index], 'namespace', index)
     const identity = identities.resolveNamespace([
       { role: 'schema', spelling: stringAt(row, 'schema', 'namespace', index) },
     ])
     if (!scopeNamespaces.some((namespace) => sameNamespace(namespace, identity))) continue
+
     if (namespaces.some((namespace) => sameNamespace(namespace.identity, identity))) {
       throw new InvariantError('Duplicate PostgreSQL namespace row')
     }
+
     namespaces.push({
       identity,
       owner: present(stringAt(row, 'owner', 'namespace', index)),
@@ -1341,6 +1400,7 @@ export async function introspectPostgres(
   }
 
   const relationEntries: CatalogRelation[] = []
+
   for (let index = 0; index < relationRows.length; index++) {
     const row = rowAt(relationRows[index], 'relation', index)
     const identity = identities.resolve(
@@ -1352,6 +1412,7 @@ export async function introspectPostgres(
     const entry = relationRegistry.get(identity)
     if (!entry) continue
     let table: CatalogTable | undefined
+
     if (entry.table) {
       /**
        * Compares catalog objects by their required physical names.
@@ -1393,27 +1454,33 @@ export async function introspectPostgres(
         },
       }
     }
+
     relationEntries.push({
       ...entry.relation,
       table: table === undefined ? absent : present(table),
     })
   }
+
   relationEntries.sort((left, right) => identities.compare(left.identity, right.identity))
 
   for (const relation of relationEntries) {
     const namespace = namespaces.find((candidate) =>
       sameNamespace(candidate.identity, relation.identity.namespace),
     )
+
     if (!namespace) {
       throw new InvariantError(
         `PostgreSQL catalog changed during introspection: relation ${identities.format(relation.identity)} references a missing namespace`,
       )
     }
+
     ;(namespace.relations.items as CatalogRelation[]).push(relation)
   }
+
   namespaces.sort((left, right) => compareNamespaces(left.identity, right.identity))
 
   const nameReservations: CatalogNameReservation[] = []
+
   for (let index = 0; index < reservationRows.length; index++) {
     const row = rowAt(reservationRows[index], 'name reservation', index)
     const namespace = identities.resolveNamespace([
@@ -1429,6 +1496,7 @@ export async function introspectPostgres(
       name: stringAt(row, 'object_name', 'name reservation', index),
     })
   }
+
   nameReservations.sort(
     (left, right) =>
       compareNamespaces(left.namespace, right.namespace) ||

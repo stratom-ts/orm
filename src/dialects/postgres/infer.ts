@@ -57,9 +57,11 @@ function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
   if ((isNumber(min) && min < INT32_MIN) || (isNumber(max) && max > INT32_MAX)) {
     return 'bigint'
   }
+
   if (isNumber(min) && min >= INT16_MIN && isNumber(max) && max <= INT16_MAX) {
     return 'smallint'
   }
+
   return 'integer'
 }
 
@@ -97,6 +99,7 @@ function inferPostgresLiteralType(literal: Literal) {
 export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
   const baseSchema = getBaseSchema(schema)
   const unwrapped = unwrapDeep(schema)
+
   switch (baseSchema.type) {
     case 'string': {
       const constraints = getStringConstraints(unwrapped)

@@ -69,10 +69,12 @@ function isDescendantScope(
   ancestor: TransactionScope,
 ): boolean {
   let scope: TransactionScope | undefined = candidate.parent
+
   while (scope) {
     if (scope === ancestor) return true
     scope = scope.parent
   }
+
   return false
 }
 
@@ -94,6 +96,7 @@ function scheduleTransactionScope<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   let frame = activeTransactionScope.getStore()
+
   while (frame) {
     if (
       frame.scope.active &&
@@ -107,8 +110,10 @@ function scheduleTransactionScope<T>(
         }),
       )
     }
+
     frame = frame.parent
   }
+
   if (!scope.active) {
     return Promise.reject(
       new QueryError({ message: 'Transaction client is no longer active' }),
@@ -123,10 +128,12 @@ function scheduleTransactionScope<T>(
 
   return (async () => {
     await previous
+
     try {
       if (!scope.active) {
         throw new QueryError({ message: 'Transaction client is no longer active' })
       }
+
       if (scope.context.poisoned) throw transactionPoisonedError()
       return await operation()
     } finally {
@@ -245,23 +252,28 @@ function formatAuthoredRelation(schema: string | undefined, relation: string): s
  */
 function assertHandles(schemas: readonly TableHandle[]): void {
   const seen = new Map<string | undefined, Set<string>>()
+
   for (const schema of schemas) {
     if (!isTableHandle(schema)) {
       throw new SchemaError({
         message: 'createDatabase schemas must be table handles from defineTable()',
       })
     }
+
     const info = schema.getTableMetadata()
     let relations = seen.get(info.schema)
+
     if (!relations) {
       relations = new Set()
       seen.set(info.schema, relations)
     }
+
     if (relations.has(info.name)) {
       throw new SchemaError({
         message: `duplicate table registration for ${formatAuthoredRelation(info.schema, info.name)}`,
       })
     }
+
     relations.add(info.name)
   }
 }
@@ -295,13 +307,16 @@ export function createDatabase<
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
   const registry = new Map<string | undefined, Map<string, TableHandle>>()
+
   for (const handle of schemas) {
     const info = handle.getTableMetadata()
     let relations = registry.get(info.schema)
+
     if (!relations) {
       relations = new Map()
       registry.set(info.schema, relations)
     }
+
     relations.set(info.name, handle)
   }
 
@@ -361,6 +376,7 @@ export function createDatabase<
         }),
       )
     }
+
     if (closePromise) return closePromise
     closed = true
     return (closePromise = coordinator.close())
@@ -420,6 +436,7 @@ export function createDatabase<
      */
     const ping = async (): Promise<void> => {
       ensureClientOpen()
+
       try {
         await clientExecutor.execute({ sql: 'select 1', params: [] })
       } catch (cause) {
@@ -443,17 +460,21 @@ export function createDatabase<
       handle: THandle,
     ): QueryBuilder<THandle> => {
       ensureClientOpen()
+
       if (!isTableHandle(handle)) {
         throw new SchemaError({
           message: 'db.from() expects a table handle from defineTable()',
         })
       }
+
       const info = handle.getTableMetadata()
+
       if (!isRegistered(handle)) {
         throw new SchemaError({
           message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
+
       return createTableBuilder({ handle, dialect, executor: clientExecutor, mapper })
     }
 
@@ -469,17 +490,21 @@ export function createDatabase<
       handle: THandle,
     ): InsertValuesBuilder<THandle> => {
       ensureClientOpen()
+
       if (!isTableHandle(handle)) {
         throw new SchemaError({
           message: 'db.insert() expects a table handle from defineTable()',
         })
       }
+
       const info = handle.getTableMetadata()
+
       if (!isRegistered(handle)) {
         throw new SchemaError({
           message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
+
       return {
         /**
          * Supplies one or more rows for the insert.
@@ -492,11 +517,13 @@ export function createDatabase<
          */
         values: (rowOrRows) => {
           const list = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]
+
           if (list.length === 0) {
             throw new QueryError({
               message: `insert into "${info.name}" requires at least one row`,
             })
           }
+
           const validated = list.map((row) => validateInsertRow(handle, row))
           return createInsertBuilder({
             handle,
@@ -522,7 +549,9 @@ export function createDatabase<
           message: `db.${method}() expects a table handle from defineTable()`,
         })
       }
+
       const info = handle.getTableMetadata()
+
       if (!isRegistered(handle)) {
         throw new SchemaError({
           message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
@@ -616,6 +645,7 @@ export function createDatabase<
               transactionScope.operation.cancel,
             )
           }
+
           ensureOpen()
           return coordinator.run(({ executor, identity, discard, cancel }) =>
             operation(executor, identity.database, discard, cancel),
@@ -665,6 +695,7 @@ export function createDatabase<
             parent: undefined,
             queue: Promise.resolve(),
           }
+
           try {
             const callback = await attempt(() =>
               activeTransactionScope.run(
@@ -692,6 +723,7 @@ export function createDatabase<
       return scheduleTransactionScope(transactionScope, async () => {
         const rawExecutor = transactionScope.operation.executor
         const savepointName = `sp_${transactionScope.context.nextSavepointId++}`
+
         try {
           await rawExecutor.run({ sql: `savepoint ${savepointName}`, params: [] })
         } catch (error) {
@@ -699,6 +731,7 @@ export function createDatabase<
           transactionScope.operation.discard()
           throw error
         }
+
         const nestedScope: TransactionScope = {
           active: true,
           context: transactionScope.context,
@@ -709,6 +742,7 @@ export function createDatabase<
         let callbackFailed = false
         let callbackError: unknown
         let result: T | undefined
+
         try {
           result = await activeTransactionScope.run(
             { scope: nestedScope, parent: inheritedTransactionFrame },
@@ -718,11 +752,13 @@ export function createDatabase<
           callbackFailed = true
           callbackError = cause
         }
+
         await drainTransactionScope(nestedScope)
         nestedScope.active = false
 
         if (callbackFailed) {
           if (transactionScope.context.poisoned) throw callbackError
+
           try {
             await rawExecutor.run({
               sql: `rollback to savepoint ${savepointName}`,
@@ -733,6 +769,7 @@ export function createDatabase<
             transactionScope.operation.discard()
             throw callbackError
           }
+
           try {
             await rawExecutor.run({
               sql: `release savepoint ${savepointName}`,
@@ -743,10 +780,12 @@ export function createDatabase<
             transactionScope.operation.discard()
             throw callbackError
           }
+
           throw callbackError
         }
 
         if (transactionScope.context.poisoned) throw transactionPoisonedError()
+
         try {
           await rawExecutor.run({
             sql: `release savepoint ${savepointName}`,
@@ -757,6 +796,7 @@ export function createDatabase<
           transactionScope.operation.discard()
           throw error
         }
+
         return result as T
       })
     }
@@ -774,10 +814,12 @@ export function createDatabase<
         } catch (cause) {
           return Promise.reject(cause)
         }
+
         return Promise.reject(
           new QueryError({ message: 'Transaction clients cannot close the database' }),
         )
       }
+
       return close()
     }
 
