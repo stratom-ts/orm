@@ -2,7 +2,7 @@ import { nullable, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import type { Dialect } from '@/dialects'
+import type { AuthoredDesiredSchema, Dialect } from '@/dialects'
 import {
   MigrationError,
   column,
@@ -11,7 +11,18 @@ import {
   postgresDialect,
   reference,
 } from '@/index'
+import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import type {
+  NamespaceContext,
+  NamespaceIdentifierInput,
+} from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
+import {
+  POSTGRES_PHYSICAL_NAMING,
+  createPhysicalNameRegistry,
+  generatePhysicalName,
+  validatePhysicalName,
+} from '@/migrations/physicalNaming'
 import type { TableHandle } from '@/types'
 
 import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
@@ -410,67 +421,112 @@ describe('Migration Plan construction', () => {
       completePostgresCatalog(emptyCatalog(), request),
     )
     const compile = vi.fn(() => ({ sql: '', params: [] }))
-    const dialect: Dialect = {
-      id: 'mysql',
-      relationIdentity: 'postgresql',
-      catalog: { introspectCatalog: introspect },
-      lowerDesiredSchema: (graph) => ({
-        tables: graph.tables.map((table) => ({
-          handle: table.handle,
-          identity: table.identity,
-          ast: {
-            kind: 'create_table',
-            table: table.metadata.name,
-            ...(table.identity.namespace.find((segment) => segment.role === 'schema') ===
-            undefined
+    const identity = {
+      create(options: {
+        context: NamespaceContext
+        registrationDefault?: readonly NamespaceIdentifierInput[]
+      }) {
+        return createCanonicalRelationIdentityModule({
+          adapter: 'postgresql',
+          ...options,
+        })
+      },
+    }
+    const naming = {
+      generate: (seed: Parameters<typeof generatePhysicalName>[0]) =>
+        generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
+      validate: (name: string, description: string) =>
+        validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
+      createRegistry: () => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
+    }
+    const lowerDesiredSchema = (graph: AuthoredDesiredSchema) => ({
+      tables: graph.tables.map((table) => ({
+        handle: table.handle,
+        identity: table.identity,
+        ast: {
+          kind: 'create_table' as const,
+          table: table.metadata.name,
+          ...(table.identity.namespace.find((segment) => segment.role === 'schema') ===
+          undefined
+            ? {}
+            : {
+                schema: table.identity.namespace.find(
+                  (segment) => segment.role === 'schema',
+                )!.identifier.spelling,
+              }),
+          columns: table.columns.map((column) => ({
+            name: column.name,
+            dataType: 'custom_string',
+            notNull: !isSqlNullable(column.schema),
+            unique: column.metadata?.unique ?? false,
+            autoIncrement: false,
+            ...(column.metadata?.databaseDefault === undefined
               ? {}
               : {
-                  schema: table.identity.namespace.find(
-                    (segment) => segment.role === 'schema',
-                  )!.identifier.spelling,
+                  databaseDefault: {
+                    sql: `custom_database:${String(
+                      column.metadata.databaseDefault.kind === 'literal'
+                        ? column.metadata.databaseDefault.value
+                        : column.metadata.databaseDefault.expression,
+                    )}`,
+                    normalized: `custom_database:${String(
+                      column.metadata.databaseDefault.kind === 'literal'
+                        ? column.metadata.databaseDefault.value
+                        : column.metadata.databaseDefault.expression,
+                    )}`,
+                  },
                 }),
-            columns: table.columns.map((column) => ({
-              name: column.name,
-              dataType: 'custom_string',
-              notNull: !isSqlNullable(column.schema),
-              unique: column.metadata?.unique ?? false,
-              autoIncrement: false,
-              ...(column.metadata?.databaseDefault === undefined
-                ? {}
-                : {
-                    databaseDefault: {
-                      sql: `custom_database:${String(
-                        column.metadata.databaseDefault.kind === 'literal'
-                          ? column.metadata.databaseDefault.value
-                          : column.metadata.databaseDefault.expression,
-                      )}`,
-                      normalized: `custom_database:${String(
-                        column.metadata.databaseDefault.kind === 'literal'
-                          ? column.metadata.databaseDefault.value
-                          : column.metadata.databaseDefault.expression,
-                      )}`,
-                    },
-                  }),
-              ...(column.name === 'taggedStatus'
-                ? {
-                    defaultValue: 'legacy',
-                    databaseDefault: {
-                      sql: 'custom_database:ready',
-                      normalized: 'custom_database:ready',
-                    },
-                  }
-                : {}),
-            })),
-            primaryKey: Array.isArray(table.metadata.primaryKey)
-              ? table.metadata.primaryKey
-              : [table.metadata.primaryKey],
-          },
-        })),
-      }),
-      inferColumnType: () => 'custom_string',
-      normalizeDataType: (dataType) =>
-        dataType === 'custom_string_alias' ? 'custom_string' : dataType,
-      normalizeDefaultValue: (value) => `custom_default:${String(value)}`,
+            ...(column.name === 'taggedStatus'
+              ? {
+                  defaultValue: 'legacy',
+                  databaseDefault: {
+                    sql: 'custom_database:ready',
+                    normalized: 'custom_database:ready',
+                  },
+                }
+              : {}),
+          })),
+          primaryKey: Array.isArray(table.metadata.primaryKey)
+            ? table.metadata.primaryKey
+            : [table.metadata.primaryKey],
+        },
+      })),
+    })
+    const inferColumnType = () => 'custom_string'
+    const normalizeDataType = (dataType: string) =>
+      dataType === 'custom_string_alias' ? 'custom_string' : dataType
+    const normalizeDefaultValue = (value: string | number | boolean | null) =>
+      `custom_default:${String(value)}`
+    const dialect: Dialect = {
+      id: 'mysql',
+      identity,
+      naming,
+      schema: {
+        lowerDesiredSchema,
+        inferColumnType,
+        normalizeDataType,
+        normalizeDefaultValue,
+      },
+      query: { compile },
+      operations: {
+        createSessionProvider: () => {
+          throw new Error('fake migration-planning operations are outside this contract')
+        },
+      },
+      migration: {
+        lower: () => {
+          throw new Error('fake migration lowering is outside this contract')
+        },
+        execute: async () => {
+          throw new Error('fake migration execution is outside this contract')
+        },
+      },
+      relationIdentity: 'postgresql',
+      catalog: { introspectCatalog: introspect },
+      lowerDesiredSchema,
+      inferColumnType,
+      normalizeDataType,
+      normalizeDefaultValue,
       compile,
     }
     const catalog: CatalogSnapshot = {
