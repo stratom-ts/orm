@@ -1,10 +1,15 @@
-import { SQLDialect } from 'db0'
+import type { Connector, SQLDialect } from 'db0'
 
 import type { DialectMigrationAdapter } from '@/ddl/migrationProgram'
 import type {
   CanonicalRelationIdentity,
+  CanonicalRelationIdentityModule,
+  NamespaceContext,
+  NamespaceIdentifierInput,
   RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
+import type { PhysicalNameRegistry, PhysicalNameSeed } from '@/migrations/physicalNaming'
+import type { OperationSessionProvider } from '@/operations/operationSession'
 import type {
   ColumnMetadata,
   ReferenceMetadata,
@@ -19,6 +24,31 @@ export type * from './catalog'
 
 /** SQL type string produced by dialect type inference. */
 export type SqlDataType = string
+
+/**
+ * Dialect identity and writable-namespace selection.
+ *
+ * The module binds the selected dialect's identity semantics while allowing
+ * callers to provide the session namespace context and registration default.
+ */
+export type DialectIdentity = Readonly<{
+  create(options: {
+    context: NamespaceContext
+    registrationDefault?: readonly NamespaceIdentifierInput[]
+  }): CanonicalRelationIdentityModule
+}>
+
+/**
+ * Dialect-bound physical naming behavior.
+ *
+ * The underlying profile and its low-level comparison and scope rules remain
+ * implementation details of the selected dialect.
+ */
+export type DialectNaming = Readonly<{
+  generate(seed: PhysicalNameSeed): string
+  validate(name: string, description: string): void
+  createRegistry(): PhysicalNameRegistry
+}>
 
 /** One canonically registered authored column before physical lowering. */
 export type AuthoredDesiredColumn = Readonly<{
@@ -63,11 +93,31 @@ export type LoweredDesiredSchema = Readonly<{
   tables: readonly LoweredDesiredTable[]
 }>
 
+/** Whole-graph schema lowering and physical column type behavior. */
+export type DialectSchema = Readonly<{
+  lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+  inferColumnType(schema: AnySchema): SqlDataType
+  normalizeDataType(dataType: string): string
+  normalizeDefaultValue?: (value: string | number | boolean | null) => string
+}>
+
 /** Parameterized SQL produced by dialect compilation. */
 export type CompiledQuery = {
   sql: string
   params: unknown[]
 }
+
+/** SQL compilation and optional dialect value conversion behavior. */
+export type DialectQuery = Readonly<{
+  compile(node: SqlAst): CompiledQuery
+  mapResultValue?: (dataType: string, value: unknown) => unknown
+  mapParamValue?: (dataType: string, value: unknown) => unknown
+}>
+
+/** Adapts a selected connector to an exclusive operation-session provider. */
+export type DialectOperations = Readonly<{
+  createSessionProvider(connector: Connector): OperationSessionProvider
+}>
 
 /** Comparison operators for simple where predicates. */
 export type ComparisonOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte'
@@ -360,34 +410,62 @@ export type SqlAst =
   | DropIndexAst
 
 /**
- * Dialect plugin: type mapping, introspection, and AST compilation.
+ * Complete connector-selected dialect member.
  *
- * V1 ships Postgres only; introspect may be a stub until migrate tickets.
+ * Each cohesive facet owns one stage of database semantics: identity and
+ * namespace resolution, physical naming, schema lowering, query behavior,
+ * catalog observation, operation-session adaptation, and migration lowering.
+ * PostgreSQL is the production implementation; test-only adapters may expose
+ * explicit unsupported stubs for capabilities outside their contract.
  */
 export interface Dialect {
   readonly id: SQLDialect
 
-  /** Required adapter profile used by canonical migration relation identity. */
-  readonly relationIdentity: RelationIdentityAdapter
+  /** Identity and writable-namespace selection for canonical relations. */
+  readonly identity: DialectIdentity
+
+  /** Physical identifier limits, comparison, and uniqueness rules. */
+  readonly naming: DialectNaming
+
+  /** Whole-graph schema lowering and physical type behavior. */
+  readonly schema: DialectSchema
+
+  /** SQL compilation and value mapping behavior. */
+  readonly query: DialectQuery
 
   /** Deep adapter module for scoped catalog observation. */
   readonly catalog: CatalogIntrospector
 
-  /** Whole-plan lowering and coordinated migration execution. */
-  readonly migration?: DialectMigrationAdapter
+  /** Operation-session adaptation for the selected connector. */
+  readonly operations: DialectOperations
 
-  /** Physically resolves a complete, canonically registered desired schema graph. */
+  /** Whole-plan lowering and coordinated migration execution. */
+  readonly migration: DialectMigrationAdapter
+
+  /** @deprecated Use {@link identity}. Kept during the dialect migration. */
+  readonly relationIdentity: RelationIdentityAdapter
+
+  /** @deprecated Use {@link schema}.lowerDesiredSchema. Kept during the dialect migration. */
   lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
 
+  /** @deprecated Use {@link schema}.inferColumnType. Kept during the dialect migration. */
   inferColumnType(schema: AnySchema): SqlDataType
 
+  /** @deprecated Use {@link schema}.normalizeDataType. Kept during the dialect migration. */
   normalizeDataType(dataType: string): string
 
-  /** Canonical SQL expression used to compare a declared column default. */
-  normalizeDefaultValue?(value: string | number | boolean | null): string
+  /**
+   * @deprecated Use {@link schema}.normalizeDefaultValue. Kept during the dialect
+   *   migration.
+   */
+  normalizeDefaultValue?: (value: string | number | boolean | null) => string
 
+  /** @deprecated Use {@link query}.compile. Kept during the dialect migration. */
   compile(node: SqlAst): CompiledQuery
 
-  mapResultValue?(dataType: string, value: unknown): unknown
-  mapParamValue?(dataType: string, value: unknown): unknown
+  /** @deprecated Use {@link query}.mapResultValue. Kept during the dialect migration. */
+  mapResultValue?: (dataType: string, value: unknown) => unknown
+
+  /** @deprecated Use {@link query}.mapParamValue. Kept during the dialect migration. */
+  mapParamValue?: (dataType: string, value: unknown) => unknown
 }

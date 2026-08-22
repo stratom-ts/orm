@@ -1,3 +1,16 @@
+import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import type {
+  NamespaceContext,
+  NamespaceIdentifierInput,
+} from '@/migrations/canonicalRelationIdentity'
+import {
+  POSTGRES_PHYSICAL_NAMING,
+  createPhysicalNameRegistry,
+  generatePhysicalName,
+  validatePhysicalName,
+} from '@/migrations/physicalNaming'
+import { createDb0PostgresqlOperationSessionProvider } from '@/operations/operationSession'
+
 import type { Dialect } from '../types'
 
 import { compilePostgres } from './compile'
@@ -9,16 +22,41 @@ import { executePostgresMigration, lowerPostgresMigrationPlan } from './migratio
 import { normalizePostgresDataType } from './normalize'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
 
+const POSTGRES_IDENTITY = 'postgresql' as const
+
+const POSTGRES_IDENTITY_MODULE = {
+  create(options: {
+    context: NamespaceContext
+    registrationDefault?: readonly NamespaceIdentifierInput[]
+  }) {
+    return createCanonicalRelationIdentityModule({
+      adapter: POSTGRES_IDENTITY,
+      ...options,
+    })
+  },
+}
+
+const POSTGRES_NAMING = {
+  generate: (seed: Parameters<typeof generatePhysicalName>[0]) =>
+    generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
+  validate: (name: string, description: string) =>
+    validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
+  createRegistry: () => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
+}
+
+const normalizePostgresDefaultValue = (value: string | number | boolean | null) =>
+  normalizePostgresDefaultExpression(formatPostgresDefault(value))
+
 /**
- * PostgreSQL dialect plugin for the db0 stack.
+ * Complete PostgreSQL dialect member for the db0 stack.
  *
- * Provides type inference, SQL compilation, introspection, and value mapping
- * for PostgreSQL databases.
+ * Provides PostgreSQL identity, naming, schema, query, catalog, operation-session,
+ * and migration behavior through cohesive facets.
  *
  * @example
  *   import { postgresDialect } from '@/dialects/postgres'
  *
- *   const query = postgresDialect.compile({
+ *   const query = postgresDialect.query.compile({
  *     kind: 'select',
  *     table: 'users',
  *     selection: [{ kind: 'all' }],
@@ -26,96 +64,42 @@ import { formatPostgresDefault, normalizePostgresDefaultExpression } from './val
  */
 export const postgresDialect: Dialect = {
   id: 'postgresql',
-  relationIdentity: 'postgresql',
+  identity: POSTGRES_IDENTITY_MODULE,
+  naming: POSTGRES_NAMING,
+  schema: {
+    lowerDesiredSchema: lowerPostgresDesiredSchema,
+    inferColumnType: inferPostgresColumnType,
+    normalizeDataType: normalizePostgresDataType,
+    normalizeDefaultValue: normalizePostgresDefaultValue,
+  },
+  query: {
+    compile: compilePostgres,
+    mapResultValue: mapPostgresResultValue,
+    mapParamValue: mapPostgresParamValue,
+  },
   catalog: { introspectCatalog: introspectPostgres },
+  operations: {
+    createSessionProvider: createDb0PostgresqlOperationSessionProvider,
+  },
   migration: {
     lower: lowerPostgresMigrationPlan,
     execute: executePostgresMigration,
   },
 
-  /**
-   * Lowers an authored schema into PostgreSQL table ASTs.
-   *
-   * @example
-   *   postgresDialect.lowerDesiredSchema(authoredSchema)
-   *
-   * @param graph - Canonically registered authored schema graph.
-   */
-  lowerDesiredSchema(graph) {
-    return lowerPostgresDesiredSchema(graph)
-  },
-
-  /**
-   * Infers the PostgreSQL data type for a column schema.
-   *
-   * @example
-   *   postgresDialect.inferColumnType(string()) // 'text'
-   *
-   * @param schema - Column schema to inspect.
-   */
-  inferColumnType(schema) {
-    return inferPostgresColumnType(schema)
-  },
-
-  /**
-   * Normalizes a PostgreSQL data type for comparison.
-   *
-   * @example
-   *   postgresDialect.normalizeDataType('int4') // 'integer'
-   *
-   * @param dataType - PostgreSQL data type to normalize.
-   */
-  normalizeDataType(dataType) {
-    return normalizePostgresDataType(dataType)
-  },
-
-  /**
-   * Formats and normalizes a declared PostgreSQL default value.
-   *
-   * @example
-   *   postgresDialect.normalizeDefaultValue('now()') // 'now()'
-   *
-   * @param value - Declared default value.
-   */
-  normalizeDefaultValue(value) {
-    return normalizePostgresDefaultExpression(formatPostgresDefault(value))
-  },
-
-  /**
-   * Compiles a SQL AST node into a PostgreSQL query.
-   *
-   * @example
-   *   postgresDialect.compile({ kind: 'select', table: 'users', selection: [{ kind: 'all' }] })
-   *
-   * @param node - SQL AST node to compile.
-   */
-  compile(node) {
-    return compilePostgres(node)
-  },
-
-  /**
-   * Maps a PostgreSQL result value to its JavaScript representation.
-   *
-   * @example
-   *   postgresDialect.mapResultValue('jsonb', '{"active":true}')
-   *
-   * @param dataType - PostgreSQL result data type.
-   * @param value - Raw database result value.
-   */
-  mapResultValue(dataType, value) {
-    return mapPostgresResultValue(dataType, value)
-  },
-
-  /**
-   * Maps a JavaScript value to its PostgreSQL parameter representation.
-   *
-   * @example
-   *   postgresDialect.mapParamValue('jsonb', { active: true })
-   *
-   * @param dataType - PostgreSQL parameter data type.
-   * @param value - JavaScript value to map.
-   */
-  mapParamValue(dataType, value) {
-    return mapPostgresParamValue(dataType, value)
-  },
+  /** @deprecated Use `schema.lowerDesiredSchema`. */
+  lowerDesiredSchema: lowerPostgresDesiredSchema,
+  /** @deprecated Use `schema.inferColumnType`. */
+  inferColumnType: inferPostgresColumnType,
+  /** @deprecated Use `schema.normalizeDataType`. */
+  normalizeDataType: normalizePostgresDataType,
+  /** @deprecated Use `schema.normalizeDefaultValue`. */
+  normalizeDefaultValue: normalizePostgresDefaultValue,
+  /** @deprecated Use `query.compile`. */
+  compile: compilePostgres,
+  /** @deprecated Use `query.mapResultValue`. */
+  mapResultValue: mapPostgresResultValue,
+  /** @deprecated Use `query.mapParamValue`. */
+  mapParamValue: mapPostgresParamValue,
+  /** @deprecated Use `identity`. */
+  relationIdentity: POSTGRES_IDENTITY,
 }

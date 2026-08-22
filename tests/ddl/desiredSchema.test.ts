@@ -12,6 +12,16 @@ import {
   reference,
 } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import type {
+  NamespaceContext,
+  NamespaceIdentifierInput,
+} from '@/migrations/canonicalRelationIdentity'
+import {
+  SQLITE_PHYSICAL_NAMING_FIXTURE,
+  createPhysicalNameRegistry,
+  generatePhysicalName,
+  validatePhysicalName,
+} from '@/migrations/physicalNaming'
 import { createValueMapper, validateInsertRow } from '@/query'
 import type { TableHandle } from '@/types'
 
@@ -49,76 +59,133 @@ function identityKey(
 }
 
 function fakeSqliteDialect(): Dialect {
+  const identity = {
+    create(options: {
+      context: NamespaceContext
+      registrationDefault?: readonly NamespaceIdentifierInput[]
+    }) {
+      return createCanonicalRelationIdentityModule({ adapter: 'sqlite', ...options })
+    },
+  }
+
+  const naming = {
+    generate: (seed: Parameters<typeof generatePhysicalName>[0]) =>
+      generatePhysicalName(seed, SQLITE_PHYSICAL_NAMING_FIXTURE),
+    validate: (name: string, description: string) =>
+      validatePhysicalName(name, description, SQLITE_PHYSICAL_NAMING_FIXTURE),
+    createRegistry: () => createPhysicalNameRegistry(SQLITE_PHYSICAL_NAMING_FIXTURE),
+  }
+
+  const lowerDesiredSchema = (graph: AuthoredDesiredSchema) => {
+    const types = new Map<string, string>()
+
+    for (const table of graph.tables) {
+      for (const authored of table.columns) {
+        if (authored.reference) continue
+        const selected = authored.metadata?.physicalType?.sqlite
+
+        if (!selected) {
+          throw new MigrationError({
+            message: `fake SQLite requires a sqlite physical type for ${authored.name}`,
+          })
+        }
+
+        types.set(`${identityKey(table.identity)}\0${authored.name}`, selected)
+      }
+    }
+
+    return {
+      tables: graph.tables.map((table) => ({
+        handle: table.handle,
+        identity: table.identity,
+        ast: {
+          kind: 'create_table' as const,
+          table: table.metadata.name,
+          columns: table.columns.map((authored) => {
+            const dataType = authored.reference
+              ? types.get(
+                  `${identityKey(authored.reference.targetRelation)}\0${authored.reference.targetColumn}`,
+                )
+              : types.get(`${identityKey(table.identity)}\0${authored.name}`)
+
+            if (dataType === undefined) {
+              throw new MigrationError({
+                message: `fake SQLite requires a resolved physical type for ${authored.name}`,
+              })
+            }
+
+            return {
+              name: authored.name,
+              dataType,
+              notNull: true,
+              unique: authored.metadata?.unique ?? false,
+              autoIncrement: false,
+            }
+          }),
+          primaryKey: Array.isArray(table.metadata.primaryKey)
+            ? table.metadata.primaryKey
+            : [table.metadata.primaryKey],
+        },
+      })),
+    }
+  }
+
+  const inferColumnType = vi.fn(() => {
+    throw new Error('fake adapter inference must not be used by this contract')
+  })
+  const normalizeDataType = vi.fn((value: string) => value)
+  const compile = vi.fn(() => ({ sql: '', params: [] }))
+  const catalog = {
+    introspectCatalog: vi.fn(async () => {
+      throw new Error('fake adapter introspection is outside this contract')
+    }),
+  }
+
   return {
     id: 'sqlite',
+    identity,
+    naming,
+    schema: {
+      lowerDesiredSchema,
+      inferColumnType,
+      normalizeDataType,
+    },
+    query: { compile },
+    catalog,
+    operations: {
+      createSessionProvider: () => {
+        throw new Error('fake SQLite operations are outside this contract')
+      },
+    },
+    migration: {
+      lower: () => {
+        throw new Error('fake SQLite migration is outside this contract')
+      },
+      execute: async () => {
+        throw new Error('fake SQLite migration is outside this contract')
+      },
+    },
+    // This fake is intentionally non-production; these aliases preserve the
+    // transitional Dialect paths exercised by the desired-schema tests.
     relationIdentity: 'sqlite',
-    lowerDesiredSchema(graph) {
-      const types = new Map<string, string>()
-
-      for (const table of graph.tables) {
-        for (const authored of table.columns) {
-          if (authored.reference) continue
-          const selected = authored.metadata?.physicalType?.sqlite
-
-          if (!selected) {
-            throw new MigrationError({
-              message: `fake SQLite requires a sqlite physical type for ${authored.name}`,
-            })
-          }
-
-          types.set(`${identityKey(table.identity)}\0${authored.name}`, selected)
-        }
-      }
-
-      return {
-        tables: graph.tables.map((table) => ({
-          handle: table.handle,
-          identity: table.identity,
-          ast: {
-            kind: 'create_table',
-            table: table.metadata.name,
-            columns: table.columns.map((authored) => {
-              const dataType = authored.reference
-                ? types.get(
-                    `${identityKey(authored.reference.targetRelation)}\0${authored.reference.targetColumn}`,
-                  )
-                : types.get(`${identityKey(table.identity)}\0${authored.name}`)
-
-              if (dataType === undefined) {
-                throw new MigrationError({
-                  message: `fake SQLite requires a resolved physical type for ${authored.name}`,
-                })
-              }
-
-              return {
-                name: authored.name,
-                dataType,
-                notNull: true,
-                unique: authored.metadata?.unique ?? false,
-                autoIncrement: false,
-              }
-            }),
-            primaryKey: Array.isArray(table.metadata.primaryKey)
-              ? table.metadata.primaryKey
-              : [table.metadata.primaryKey],
-          },
-        })),
-      }
-    },
-    inferColumnType: vi.fn(() => {
-      throw new Error('fake adapter inference must not be used by this contract')
-    }),
-    normalizeDataType: vi.fn((value) => value),
-    catalog: {
-      introspectCatalog: vi.fn(async () => {
-        throw new Error('fake adapter introspection is outside this contract')
-      }),
-    },
-    compile: vi.fn(() => ({ sql: '', params: [] })),
+    lowerDesiredSchema,
+    inferColumnType,
+    normalizeDataType,
+    compile,
   }
 }
 
 describe('whole-graph desired-schema lowering', () => {
+  it('binds SQLite identity semantics behind the test dialect facet', () => {
+    const identity = fakeSqliteDialect().identity.create({
+      context: { writableDefault: [{ role: 'database', spelling: 'main' }] },
+    })
+    const resolved = identity.resolve({ relation: 'Users' })
+
+    expect(resolved.namespace[0]?.identifier.spelling).toBe('main')
+    expect(resolved.relation.comparisonKey).toBe('users')
+  })
+
   it('inherits the selected adapter target type without PostgreSQL leakage', () => {
     const Parent = defineTable(
       'parents',
