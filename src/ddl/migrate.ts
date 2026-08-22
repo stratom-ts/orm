@@ -226,7 +226,7 @@ export function createMigrateBuilder(options: {
     }
 
     const expected: MigrationSemanticProfile = {
-      identityAdapter: dialect.relationIdentity,
+      identityAdapter: dialect.identity.id,
       namespaceContext: catalog.namespaceContext,
       ...(defaultNamespace === undefined
         ? {}

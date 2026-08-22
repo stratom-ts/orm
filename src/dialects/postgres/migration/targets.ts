@@ -8,14 +8,9 @@ import type {
   CanonicalIdentifier,
   CanonicalRelationIdentity,
 } from '@/migrations/canonicalRelationIdentity'
-import {
-  generatedForeignKeyName,
-  generatedPrimaryKeyName,
-  generatedUniqueName,
-  physicalNamingProfile,
-  validatePhysicalName,
-} from '@/migrations/physicalNaming'
 import { MigrationError } from '@/utils/error'
+
+import { postgresNaming } from '../naming'
 
 type PostgresRelationFields = {
   schema: string
@@ -27,8 +22,6 @@ type PostgresReferenceFields = PostgresRelationFields & {
   onDelete?: string
   onUpdate?: string
 }
-
-const POSTGRES_NAMING_PROFILE = physicalNamingProfile('postgresql')
 
 /**
  * Reads the schema spelling a PostgreSQL statement must name.
@@ -91,8 +84,6 @@ export function stepToAst(
   step: MigrationStep,
   planned: PlannedMigration,
 ): SqlAst | undefined {
-  const profile = POSTGRES_NAMING_PROFILE
-
   switch (step.kind) {
     case 'ensure_namespace': {
       const ast: CreateSchemaAst = {
@@ -108,13 +99,21 @@ export function stepToAst(
       const projected: CreateTableAst = {
         ...ast,
         ...relationFields(identity),
-        primaryKeyName: generatedPrimaryKeyName(identity, ast.primaryKey, profile),
+        primaryKeyName: postgresNaming.generate({
+          kind: 'primaryKey',
+          owner: identity,
+          columns: ast.primaryKey,
+        }),
         columns: ast.columns.map((column) => ({
           ...column,
           references: undefined,
           ...(column.unique
             ? {
-                uniqueConstraintName: generatedUniqueName(identity, column.name, profile),
+                uniqueConstraintName: postgresNaming.generate({
+                  kind: 'unique',
+                  owner: identity,
+                  columns: [column.name],
+                }),
               }
             : {}),
         })),
@@ -134,7 +133,11 @@ export function stepToAst(
           unique: step.unique ?? false,
           ...(step.unique
             ? {
-                uniqueConstraintName: generatedUniqueName(identity, column, profile),
+                uniqueConstraintName: postgresNaming.generate({
+                  kind: 'unique',
+                  owner: identity,
+                  columns: [column],
+                }),
               }
             : {}),
           autoIncrement: step.autoIncrement ?? false,
@@ -158,26 +161,26 @@ export function stepToAst(
         kind: 'add_unique_constraint',
         ...relationFields(step.target.relation),
         column: step.target.column.spelling,
-        name: generatedUniqueName(
-          step.target.relation,
-          step.target.column.spelling,
-          profile,
-        ),
+        name: postgresNaming.generate({
+          kind: 'unique',
+          owner: step.target.relation,
+          columns: [step.target.column.spelling],
+        }),
       }
     case 'add_foreign_key':
       return {
         kind: 'add_foreign_key',
         ...relationFields(step.target.relation),
         column: step.target.column.spelling,
-        name: generatedForeignKeyName(
-          step.target.relation,
-          step.target.column.spelling,
-          step.references.relation,
-          step.references.column.spelling,
-          step.references.onDelete,
-          step.references.onUpdate,
-          profile,
-        ),
+        name: postgresNaming.generate({
+          kind: 'foreignKey',
+          owner: step.target.relation,
+          columns: [step.target.column.spelling],
+          referencedRelation: step.references.relation,
+          referencedColumns: [step.references.column.spelling],
+          onDelete: step.references.onDelete?.toLowerCase() ?? 'no action',
+          onUpdate: step.references.onUpdate?.toLowerCase() ?? 'no action',
+        }),
         references: referenceFields(step.references),
       }
     case 'set_not_null':
@@ -231,7 +234,7 @@ function identifierIssues(identifier: CanonicalIdentifier, label: string): strin
   }
 
   try {
-    validatePhysicalName(identifier.spelling, label, POSTGRES_NAMING_PROFILE)
+    postgresNaming.validate(identifier.spelling, label)
   } catch (cause) {
     issues.push(cause instanceof Error ? cause.message : `${label} is not addressable`)
   }

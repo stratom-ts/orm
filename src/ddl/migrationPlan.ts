@@ -3,6 +3,7 @@ import type {
   CreateTableAst,
   CreateTableColumnAst,
   Dialect,
+  DialectNaming,
   LoweredDatabaseDefault,
 } from '@/dialects/types'
 import type {
@@ -13,21 +14,9 @@ import type {
   CanonicalRelationRegistry,
   NamespaceContext,
   NamespaceIdentifierInput,
-  RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
-import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
-import {
-  createPhysicalNameRegistry,
-  generatedForeignKeyName,
-  generatedIndexName,
-  generatedPrimaryKeyName,
-  generatedUniqueName,
-  physicalNamingProfile,
-  validatePhysicalName,
-} from '@/migrations/physicalNaming'
-import type { PhysicalNamingProfile } from '@/migrations/physicalNaming'
 import { getReferenceMetadata } from '@/schemas/actions/reference'
 import type { TableHandle } from '@/types'
 import { MigrationError } from '@/utils/error'
@@ -155,7 +144,8 @@ export type MigrationPlan = Readonly<{
  * reject a plan whose profile does not match its own dialect and registration inputs.
  */
 export type MigrationSemanticProfile = Readonly<{
-  identityAdapter: RelationIdentityAdapter
+  /** Stable identity semantic key supplied by the selected Dialect member. */
+  identityAdapter: string
   namespaceContext: NamespaceContext
   registrationDefault?: readonly NamespaceIdentifierInput[]
 }>
@@ -249,14 +239,10 @@ function relationInput(schema: string | undefined, relation: string) {
  */
 function validateCanonicalNamespaceNames(
   namespace: CanonicalRelationIdentity['namespace'],
-  profile: PhysicalNamingProfile,
+  naming: DialectNaming,
 ): void {
   for (const segment of namespace) {
-    validatePhysicalName(
-      segment.identifier.spelling,
-      `${segment.role} identifier`,
-      profile,
-    )
+    naming.validate(segment.identifier.spelling, `${segment.role} identifier`)
   }
 }
 
@@ -268,10 +254,10 @@ function validateCanonicalNamespaceNames(
  */
 function validateCanonicalRelationNames(
   identity: CanonicalRelationIdentity,
-  profile: PhysicalNamingProfile,
+  naming: DialectNaming,
 ): void {
-  validateCanonicalNamespaceNames(identity.namespace, profile)
-  validatePhysicalName(identity.relation.spelling, 'relation identifier', profile)
+  validateCanonicalNamespaceNames(identity.namespace, naming)
+  naming.validate(identity.relation.spelling, 'relation identifier')
 }
 
 /**
@@ -980,13 +966,19 @@ function desiredIndexes(
   unique: boolean
   origin: 'explicit' | 'generated'
 }> {
-  const profile = physicalNamingProfile(dialect.relationIdentity)
   return (info.indexes ?? [])
     .map((raw) => {
       const index = raw
       const unique = index.unique ?? false
       return {
-        name: index.name ?? generatedIndexName(identity, index.columns, unique, profile),
+        name:
+          index.name ??
+          dialect.naming.generate({
+            kind: 'index',
+            owner: identity,
+            columns: index.columns,
+            unique,
+          }),
         columns: [...index.columns],
         unique,
         origin: index.name === undefined ? ('generated' as const) : ('explicit' as const),
@@ -1042,8 +1034,7 @@ function buildMigrationPlan(
   registrationDefault?: readonly NamespaceIdentifierInput[],
   ownershipDeclarations: readonly MigrationOwnershipDeclaration[] = [],
 ): PlannedMigration {
-  const identities = createCanonicalRelationIdentityModule({
-    adapter: dialect.relationIdentity,
+  const identities = dialect.identity.create({
     context: catalog.namespaceContext,
     ...(registrationDefault === undefined ? {} : { registrationDefault }),
   })
@@ -1053,13 +1044,13 @@ function buildMigrationPlan(
   const sortedSchemas = [...schemas].sort((left, right) =>
     compareTableHandles(left, right, identities),
   )
-  const namingProfile = physicalNamingProfile(dialect.relationIdentity)
+  const naming = dialect.naming
 
   for (const handle of sortedSchemas) {
     const metadata = handle.getTableMetadata()
     validateCanonicalRelationNames(
       identities.resolve(relationInput(metadata.schema, metadata.name)),
-      namingProfile,
+      naming,
     )
 
     for (const value of Object.values(handle.getSchema().entries)) {
@@ -1068,13 +1059,9 @@ function buildMigrationPlan(
       if (!reference) continue
       validateCanonicalRelationNames(
         identities.resolve(reference.target.relation),
-        namingProfile,
+        naming,
       )
-      validatePhysicalName(
-        reference.target.column,
-        'referenced column name',
-        namingProfile,
-      )
+      naming.validate(reference.target.column, 'referenced column name')
     }
   }
 
@@ -1095,15 +1082,15 @@ function buildMigrationPlan(
   const existing = catalogTableMap(sortedCatalogTables, issues, identities)
   const ensuredSchemas = [...planningCatalog.namespaces]
   const registered = identities.createRegistry<TableHandle>()
-  const physicalNames = createPhysicalNameRegistry(namingProfile)
+  const physicalNames = naming.createRegistry()
   const representedCatalogNames = new Set<string>()
 
   for (const identity of [...ownership.explicitRelations, ...ownership.absentRelations]) {
-    validateCanonicalRelationNames(identity, namingProfile)
+    validateCanonicalRelationNames(identity, naming)
   }
 
   for (const namespace of ownership.completeNamespaces) {
-    validateCanonicalNamespaceNames(namespace, namingProfile)
+    validateCanonicalNamespaceNames(namespace, naming)
   }
 
   for (const table of sortedCatalogTables) {
@@ -1246,15 +1233,15 @@ function buildMigrationPlan(
     const referenced = identities.resolve(
       relationInput(reference.schema, reference.table),
     )
-    const name = generatedForeignKeyName(
+    const name = naming.generate({
+      kind: 'foreignKey',
       owner,
-      column,
-      referenced,
-      reference.column,
-      reference.onDelete,
-      reference.onUpdate,
-      namingProfile,
-    )
+      columns: [column],
+      referencedRelation: referenced,
+      referencedColumns: [reference.column],
+      onDelete: normalizeAction(reference.onDelete),
+      onUpdate: normalizeAction(reference.onUpdate),
+    })
     physicalNames.reserve({
       kind: 'foreignKey',
       owner,
@@ -1274,7 +1261,7 @@ function buildMigrationPlan(
    * @param column - Unique column name.
    */
   const reserveUniqueConstraint = (owner: CanonicalRelationIdentity, column: string) => {
-    const name = generatedUniqueName(owner, column, namingProfile)
+    const name = naming.generate({ kind: 'unique', owner, columns: [column] })
     const token = `generated-unique:${identities.format(owner)}:${column}`
     const description = `generated unique constraint on ${identities.format(owner, {
       role: 'column',
@@ -1323,23 +1310,19 @@ function buildMigrationPlan(
       continue
     }
 
-    validateCanonicalRelationNames(identity, namingProfile)
+    validateCanonicalRelationNames(identity, naming)
 
     for (const column of createAst.columns) {
-      validatePhysicalName(column.name, 'column name', namingProfile)
+      naming.validate(column.name, 'column name')
 
       if (column.references) {
         validateCanonicalRelationNames(
           identities.resolve(
             relationInput(column.references.schema, column.references.table),
           ),
-          namingProfile,
+          naming,
         )
-        validatePhysicalName(
-          column.references.column,
-          'referenced column name',
-          namingProfile,
-        )
+        naming.validate(column.references.column, 'referenced column name')
       }
     }
 
@@ -1347,7 +1330,7 @@ function buildMigrationPlan(
 
     for (const index of indexes) {
       if (index.origin === 'explicit') {
-        validatePhysicalName(index.name, 'explicit index name', namingProfile)
+        naming.validate(index.name, 'explicit index name')
       }
     }
 
@@ -1374,11 +1357,11 @@ function buildMigrationPlan(
         description: `desired relation ${identities.format(identity)}`,
       })
 
-      const primaryKeyName = generatedPrimaryKeyName(
-        identity,
-        createAst.primaryKey,
-        namingProfile,
-      )
+      const primaryKeyName = naming.generate({
+        kind: 'primaryKey',
+        owner: identity,
+        columns: createAst.primaryKey,
+      })
       physicalNames.reserve({
         kind: 'primaryKey',
         owner: identity,
@@ -1739,7 +1722,7 @@ function buildMigrationPlan(
   return {
     plan: { steps: steps.sort(compareMigrationSteps) },
     profile: {
-      identityAdapter: dialect.relationIdentity,
+      identityAdapter: dialect.identity.id,
       namespaceContext: catalog.namespaceContext,
       ...(registrationDefault === undefined ? {} : { registrationDefault }),
     },

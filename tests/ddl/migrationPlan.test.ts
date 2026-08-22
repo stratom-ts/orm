@@ -13,6 +13,7 @@ import {
 } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type {
+  CanonicalRelationIdentityModule,
   NamespaceContext,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
@@ -421,23 +422,31 @@ describe('Migration Plan construction', () => {
       completePostgresCatalog(emptyCatalog(), request),
     )
     const compile = vi.fn(() => ({ sql: '', params: [] }))
+    const identityModules: CanonicalRelationIdentityModule[] = []
     const identity = {
-      create(options: {
-        context: NamespaceContext
-        registrationDefault?: readonly NamespaceIdentifierInput[]
-      }) {
-        return createCanonicalRelationIdentityModule({
-          adapter: 'postgresql',
-          ...options,
-        })
-      },
+      id: 'custom-identity',
+      create: vi.fn(
+        (options: {
+          context: NamespaceContext
+          registrationDefault?: readonly NamespaceIdentifierInput[]
+        }) => {
+          const identities = createCanonicalRelationIdentityModule({
+            adapter: 'postgresql',
+            ...options,
+          })
+          identityModules.push(identities)
+          return identities
+        },
+      ),
     }
     const naming = {
-      generate: (seed: Parameters<typeof generatePhysicalName>[0]) =>
+      generate: vi.fn((seed: Parameters<typeof generatePhysicalName>[0]) =>
         generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
-      validate: (name: string, description: string) =>
+      ),
+      validate: vi.fn((name: string, description: string) =>
         validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
-      createRegistry: () => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
+      ),
+      createRegistry: vi.fn(() => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING)),
     }
     const lowerDesiredSchema = (graph: AuthoredDesiredSchema) => ({
       tables: graph.tables.map((table) => ({
@@ -563,6 +572,28 @@ describe('Migration Plan construction', () => {
     expect(planMigration([PortableSettings], catalog, dialect)).toEqual({ steps: [] })
     expect(introspect).not.toHaveBeenCalled()
     expect(compile).not.toHaveBeenCalled()
+
+    const planned = planMigrationWithContext(
+      [PortableSettings],
+      completePostgresCatalog(
+        emptyCatalog(),
+        createCatalogRequest([PortableSettings], []),
+      ),
+      dialect,
+    )
+    expect(planned.profile.identityAdapter).toBe('custom-identity')
+    expect(identity.create).toHaveBeenCalled()
+    expect(
+      identityModules[0]!.resolve({ relation: 'portable_settings' }).namespace,
+    ).toEqual(
+      identityModules[0]!.resolve({
+        namespace: [{ role: 'schema', spelling: 'public' }],
+        relation: 'portable_settings',
+      }).namespace,
+    )
+    expect(naming.generate).toHaveBeenCalled()
+    expect(naming.validate).toHaveBeenCalled()
+    expect(naming.createRegistry).toHaveBeenCalled()
   })
 
   it('returns a constructive step for a missing column', () => {

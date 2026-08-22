@@ -1,48 +1,17 @@
-import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import type {
-  NamespaceContext,
-  NamespaceIdentifierInput,
-} from '@/migrations/canonicalRelationIdentity'
-import {
-  POSTGRES_PHYSICAL_NAMING,
-  createPhysicalNameRegistry,
-  generatePhysicalName,
-  validatePhysicalName,
-} from '@/migrations/physicalNaming'
 import { createDb0PostgresqlOperationSessionProvider } from '@/operations/operationSession'
 
 import type { Dialect } from '../types'
 
 import { compilePostgres } from './compile'
+import { postgresIdentity } from './identity'
 import { inferPostgresColumnType } from './infer'
 import { introspectPostgres } from './introspect'
 import { lowerPostgresDesiredSchema } from './lowerDesiredSchema'
 import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
 import { executePostgresMigration, lowerPostgresMigrationPlan } from './migration'
+import { postgresNaming } from './naming'
 import { normalizePostgresDataType } from './normalize'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
-
-const POSTGRES_IDENTITY = 'postgresql' as const
-
-const POSTGRES_IDENTITY_MODULE = {
-  create(options: {
-    context: NamespaceContext
-    registrationDefault?: readonly NamespaceIdentifierInput[]
-  }) {
-    return createCanonicalRelationIdentityModule({
-      adapter: POSTGRES_IDENTITY,
-      ...options,
-    })
-  },
-}
-
-const POSTGRES_NAMING = {
-  generate: (seed: Parameters<typeof generatePhysicalName>[0]) =>
-    generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
-  validate: (name: string, description: string) =>
-    validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
-  createRegistry: () => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
-}
 
 const normalizePostgresDefaultValue = (value: string | number | boolean | null) =>
   normalizePostgresDefaultExpression(formatPostgresDefault(value))
@@ -64,8 +33,8 @@ const normalizePostgresDefaultValue = (value: string | number | boolean | null) 
  */
 export const postgresDialect: Dialect = {
   id: 'postgresql',
-  identity: POSTGRES_IDENTITY_MODULE,
-  naming: POSTGRES_NAMING,
+  identity: postgresIdentity,
+  naming: postgresNaming,
   schema: {
     lowerDesiredSchema: lowerPostgresDesiredSchema,
     inferColumnType: inferPostgresColumnType,
@@ -101,5 +70,5 @@ export const postgresDialect: Dialect = {
   /** @deprecated Use `query.mapParamValue`. */
   mapParamValue: mapPostgresParamValue,
   /** @deprecated Use `identity`. */
-  relationIdentity: POSTGRES_IDENTITY,
+  relationIdentity: postgresIdentity.id,
 }

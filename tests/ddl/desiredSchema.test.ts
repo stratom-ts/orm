@@ -143,7 +143,7 @@ function fakeSqliteDialect(): Dialect {
 
   return {
     id: 'sqlite',
-    identity,
+    identity: { id: 'sqlite-fixture', ...identity },
     naming,
     schema: {
       lowerDesiredSchema,
