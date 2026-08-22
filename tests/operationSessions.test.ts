@@ -2,6 +2,12 @@ import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import {
+  POSTGRES_OPERATION_IDENTITY_SQL,
+  POSTGRES_OPERATION_ROLLBACK_SQL,
+  POSTGRES_OPERATION_UNLOCK_SQL,
+} from '@/dialects/postgres/operationSession'
+import { scanPostgresSql } from '@/dialects/postgres/postgresSql'
 import type { OperationSession, OperationSessionProvider } from '@/index'
 import {
   QueryError,
@@ -10,12 +16,6 @@ import {
   createDb0PostgresqlOperationSessionProvider,
   defineTable,
 } from '@/index'
-import {
-  POSTGRES_OPERATION_IDENTITY_SQL,
-  POSTGRES_OPERATION_ROLLBACK_SQL,
-  POSTGRES_OPERATION_UNLOCK_SQL,
-} from '@/operations/operationSession'
-import { scanPostgresSql } from '@/operations/postgresSql'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 

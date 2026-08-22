@@ -9,7 +9,6 @@ import {
   generatePhysicalName,
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
-import { createDb0PostgresqlOperationSessionProvider } from '@/operations/operationSession'
 
 import type { Dialect } from '../types'
 
@@ -20,7 +19,10 @@ import { lowerPostgresDesiredSchema } from './lowerDesiredSchema'
 import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
 import { executePostgresMigration, lowerPostgresMigrationPlan } from './migration'
 import { normalizePostgresDataType } from './normalize'
+import { createDb0PostgresqlOperationSessionProvider } from './operationSession'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
+
+export { createDb0PostgresqlOperationSessionProvider } from './operationSession'
 
 const POSTGRES_IDENTITY = 'postgresql' as const
 

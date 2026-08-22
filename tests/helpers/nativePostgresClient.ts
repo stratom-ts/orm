@@ -4,8 +4,8 @@ import {
   POSTGRES_OPERATION_IDENTITY_SQL,
   POSTGRES_OPERATION_ROLLBACK_SQL,
   POSTGRES_OPERATION_UNLOCK_SQL,
-} from '@/operations/operationSession'
-import { scanPostgresSql } from '@/operations/postgresSql'
+} from '@/dialects/postgres/operationSession'
+import { scanPostgresSql } from '@/dialects/postgres/postgresSql'
 
 type NativeQuery =
   | string
