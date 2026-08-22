@@ -1,7 +1,6 @@
-export {
-  createDb0PostgresqlOperationSessionProvider,
-  type OperationSession,
-  type OperationSessionDisposition,
-  type OperationSessionIdentity,
-  type OperationSessionProvider,
+export type {
+  OperationSession,
+  OperationSessionDisposition,
+  OperationSessionIdentity,
+  OperationSessionProvider,
 } from './operationSession'

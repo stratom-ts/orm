@@ -62,7 +62,6 @@ export type {
   RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
 export {
-  createDb0PostgresqlOperationSessionProvider,
   type OperationSession,
   type OperationSessionDisposition,
   type OperationSessionIdentity,

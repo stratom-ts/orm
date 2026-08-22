@@ -11,7 +11,6 @@ import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwners
 import type { OperationContext } from '@/operations/coordinator'
 import { OperationCoordinator } from '@/operations/coordinator'
 import type { OperationSessionProvider } from '@/operations/operationSession'
-import { createDb0PostgresqlOperationSessionProvider } from '@/operations/operationSession'
 import type {
   DeleteBuilder,
   Executor,
@@ -332,7 +331,7 @@ export function createDatabase<
 
   const operationSessionProvider =
     config.operationSessionProvider ??
-    createDb0PostgresqlOperationSessionProvider(config.connector)
+    dialect.operations.createSessionProvider(config.connector)
   const coordinator = new OperationCoordinator(operationSessionProvider)
   const mapper = createValueMapper(dialect, config.map, schemas)
   let closed = false
