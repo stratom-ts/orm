@@ -1,5 +1,3 @@
-import { createDb0PostgresqlOperationSessionProvider } from '@/operations/operationSession'
-
 import type { Dialect } from '../types'
 
 import { compilePostgres } from './compile'
@@ -11,7 +9,10 @@ import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
 import { executePostgresMigration, lowerPostgresMigrationPlan } from './migration'
 import { postgresNaming } from './naming'
 import { normalizePostgresDataType } from './normalize'
+import { createDb0PostgresqlOperationSessionProvider } from './operationSession'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
+
+export { createDb0PostgresqlOperationSessionProvider } from './operationSession'
 
 const normalizePostgresDefaultValue = (value: string | number | boolean | null) =>
   normalizePostgresDefaultExpression(formatPostgresDefault(value))

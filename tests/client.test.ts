@@ -2,7 +2,14 @@ import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { QueryError, SchemaError, column, createDatabase, defineTable } from '@/index'
+import {
+  QueryError,
+  SchemaError,
+  column,
+  createDatabase,
+  defineTable,
+  postgresDialect,
+} from '@/index'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 
@@ -190,6 +197,54 @@ describe('registry and from()', () => {
     const compiled = db.from(Users).compile()
     expect(compiled.sql).toContain('"public"')
     expect(compiled.sql).toContain('"users"')
+  })
+
+  it('passes the exact connector to the selected dialect operation provider', async () => {
+    const connector = createMockConnector()
+    const createProvider = vi.spyOn(postgresDialect.operations, 'createSessionProvider')
+
+    const db = createDatabase({ connector, schemas: [] })
+
+    expect(createProvider).toHaveBeenCalledTimes(1)
+    expect(createProvider).toHaveBeenCalledWith(connector)
+    await db.close()
+    createProvider.mockRestore()
+  })
+
+  it('does not call the dialect provider when an explicit provider is supplied', async () => {
+    const connector = createMockConnector()
+    const createProvider = vi.spyOn(postgresDialect.operations, 'createSessionProvider')
+    const provider = {
+      nativeTransactions: true as const,
+      open: vi.fn(),
+      close: vi.fn(async () => undefined),
+    }
+
+    const db = createDatabase({
+      connector,
+      schemas: [Users],
+      operationSessionProvider: provider,
+    })
+
+    expect(createProvider).not.toHaveBeenCalled()
+    expect(db.from(Users).compile().sql).toContain('"public"')
+    await db.close()
+    expect(provider.close).toHaveBeenCalledOnce()
+    expect(connector.disposed).toBe(false)
+    createProvider.mockRestore()
+  })
+
+  it('rejects an invalid automatic connector/member combination before database work', () => {
+    const connector = createMockConnector()
+    const getInstance = vi.spyOn(connector, 'getInstance')
+    ;(connector as { name: string }).name = 'custom'
+
+    expect(() => createDatabase({ connector, schemas: [] })).toThrow(QueryError)
+    expect(() => createDatabase({ connector, schemas: [] })).toThrow(
+      /automatic operation sessions require/i,
+    )
+    expect(getInstance).not.toHaveBeenCalled()
+    expect(connector.prepared).toHaveLength(0)
   })
 
   it('should reject unsupported connector dialects', () => {
