@@ -31,7 +31,21 @@ export type CanonicalRelationIdentity = Readonly<{
   relation: CanonicalIdentifier
 }>
 
+/**
+ * Legacy adapter label retained for fixture callers. Production identity
+ * construction is supplied by the selected Dialect identity member.
+ */
 export type RelationIdentityAdapter = 'postgresql' | 'sqlite'
+
+/** Low-level identity rules implemented by an individual dialect member. */
+export type CanonicalRelationIdentityPolicy = Readonly<{
+  id: string
+  comparisonKey(spelling: string): string
+  resolveNamespace(
+    selected: readonly NamespaceIdentifierInput[],
+    writableDefault: readonly NamespaceIdentifierInput[],
+  ): readonly NamespaceIdentifierInput[]
+}>
 
 export type CanonicalRelationRegistry<T> = {
   get(identity: CanonicalRelationIdentity): T | undefined
@@ -136,8 +150,22 @@ function sqliteComparisonKey(spelling: string): string {
  * @param adapter - Relation identity adapter.
  * @param spelling - Authored identifier spelling.
  */
-function comparisonKey(adapter: RelationIdentityAdapter, spelling: string): string {
-  return adapter === 'sqlite' ? sqliteComparisonKey(spelling) : spelling
+function adapterPolicy(
+  adapter: RelationIdentityAdapter,
+): CanonicalRelationIdentityPolicy {
+  if (adapter === 'sqlite') {
+    return {
+      id: adapter,
+      comparisonKey: sqliteComparisonKey,
+      resolveNamespace: resolveSqliteNamespace,
+    }
+  }
+
+  return {
+    id: adapter,
+    comparisonKey: (spelling) => spelling,
+    resolveNamespace: resolvePostgresNamespace,
+  }
 }
 
 /**
@@ -148,12 +176,12 @@ function comparisonKey(adapter: RelationIdentityAdapter, spelling: string): stri
  * @param description - Identifier description used in errors.
  */
 function canonicalIdentifier(
-  adapter: RelationIdentityAdapter,
+  policy: CanonicalRelationIdentityPolicy,
   spelling: string,
   description: string,
 ): CanonicalIdentifier {
   assertIdentifier(spelling, description)
-  return { spelling, comparisonKey: comparisonKey(adapter, spelling) }
+  return { spelling, comparisonKey: policy.comparisonKey(spelling) }
 }
 
 /**
@@ -163,12 +191,12 @@ function canonicalIdentifier(
  * @param input - Authored namespace segment.
  */
 function canonicalSegment(
-  adapter: RelationIdentityAdapter,
+  policy: CanonicalRelationIdentityPolicy,
   input: NamespaceIdentifierInput,
 ): CanonicalNamespaceSegment {
   return {
     role: input.role,
-    identifier: canonicalIdentifier(adapter, input.spelling, `${input.role} identifier`),
+    identifier: canonicalIdentifier(policy, input.spelling, `${input.role} identifier`),
   }
 }
 
@@ -266,14 +294,30 @@ function identityParts(
  *     },
  *   })
  *
- * @param options - Adapter, writable context, and optional registration default.
+ * @param options - Identity policy (or transitional adapter), writable context,
+ *   and optional registration default.
  */
-export function createCanonicalRelationIdentityModule(options: {
-  adapter: RelationIdentityAdapter
-  context: NamespaceContext
-  registrationDefault?: readonly NamespaceIdentifierInput[]
-}): CanonicalRelationIdentityModule {
-  const { adapter, context, registrationDefault } = options
+export function createCanonicalRelationIdentityModule(
+  options:
+    | {
+        policy: CanonicalRelationIdentityPolicy
+        adapter?: never
+        context: NamespaceContext
+        registrationDefault?: readonly NamespaceIdentifierInput[]
+      }
+    | {
+        /** @deprecated Supply an open policy from the selected identity member. */
+        adapter: RelationIdentityAdapter
+        policy?: never
+        context: NamespaceContext
+        registrationDefault?: readonly NamespaceIdentifierInput[]
+      },
+): CanonicalRelationIdentityModule {
+  const { context, registrationDefault } = options
+  const policy =
+    'policy' in options && options.policy !== undefined
+      ? options.policy
+      : adapterPolicy(options.adapter)
 
   /**
    * Resolves an optional namespace against the configured defaults.
@@ -292,12 +336,9 @@ export function createCanonicalRelationIdentityModule(options: {
         : registrationDefault && registrationDefault.length > 0
           ? registrationDefault
           : context.writableDefault
-    const namespace =
-      adapter === 'postgresql'
-        ? resolvePostgresNamespace(selected, context.writableDefault)
-        : resolveSqliteNamespace(selected, context.writableDefault)
+    const namespace = policy.resolveNamespace(selected, context.writableDefault)
 
-    return namespace.map((segment) => canonicalSegment(adapter, segment))
+    return namespace.map((segment) => canonicalSegment(policy, segment))
   }
 
   /**
@@ -311,7 +352,7 @@ export function createCanonicalRelationIdentityModule(options: {
   const resolve = (input: RelationIdentityInput): CanonicalRelationIdentity => {
     return {
       namespace: resolveNamespace(input.namespace),
-      relation: canonicalIdentifier(adapter, input.relation, 'relation identifier'),
+      relation: canonicalIdentifier(policy, input.relation, 'relation identifier'),
     }
   }
 
@@ -443,7 +484,7 @@ export function createCanonicalRelationIdentityModule(options: {
      * @param spelling - Authored identifier spelling.
      */
     member(role, spelling) {
-      return canonicalIdentifier(adapter, spelling, `${role} identifier`)
+      return canonicalIdentifier(policy, spelling, `${role} identifier`)
     },
     /**
      * Tests canonical relation identities for equality.

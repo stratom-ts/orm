@@ -22,11 +22,11 @@ import type {
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
 } from '@/migrations/canonicalRelationIdentity'
-import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 import { toNumberOrNull } from '@/utils'
 import { InvariantError } from '@/utils/error'
 
+import { postgresIdentity } from './identity'
 import { normalizePostgresDataType } from './normalize'
 import { normalizePostgresDefaultExpression } from './validate'
 
@@ -569,8 +569,7 @@ export async function introspectPostgres(
       { role: 'schema' as const, spelling: schema },
     ],
   }
-  const identities = createCanonicalRelationIdentityModule({
-    adapter: 'postgresql',
+  const identities = postgresIdentity.create({
     context: namespaceContext,
     ...(request.registrationDefault === undefined
       ? {}

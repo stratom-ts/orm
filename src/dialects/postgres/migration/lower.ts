@@ -13,6 +13,7 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 
 import { compilePostgres } from '../compile'
+import { postgresIdentity } from '../identity'
 
 import type { ActionDraft } from './orderActions'
 import { orderActions } from './orderActions'
@@ -85,7 +86,7 @@ function profileIssues(
     issues.push({ code: 'profile_mismatch', message, sourceStepIndexes: [] })
   }
 
-  if (expected.identityAdapter !== 'postgresql') {
+  if (expected.identityAdapter !== postgresIdentity.id) {
     add(
       `Executing profile adapter '${expected.identityAdapter}' does not match PostgreSQL`,
     )

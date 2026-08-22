@@ -32,6 +32,8 @@ export type SqlDataType = string
  * callers to provide the session namespace context and registration default.
  */
 export type DialectIdentity = Readonly<{
+  /** Stable semantic identity key for MigrationSemanticProfile comparison. */
+  readonly id: string
   create(options: {
     context: NamespaceContext
     registrationDefault?: readonly NamespaceIdentifierInput[]
