@@ -132,6 +132,42 @@ const Users = defineTable(
 )
 
 describe('registry and from()', () => {
+  it('allows equal relation names in different structured namespaces', async () => {
+    const AppUsers = defineTable(
+      'users',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'app' }] },
+    )
+    const TenantUsers = defineTable(
+      'users',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'tenant' }] },
+    )
+    const db = createDatabase({
+      connector: createMockConnector(),
+      schemas: [AppUsers, TenantUsers],
+    })
+
+    expect(() => db.from(AppUsers)).not.toThrow()
+    expect(() => db.from(TenantUsers)).not.toThrow()
+    const Missing = defineTable(
+      'users',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [
+          { role: 'catalog', spelling: 'app' },
+          { role: 'database', spelling: 'tenant' },
+          { role: 'schema', spelling: 'missing' },
+        ],
+      },
+    )
+    expect(() => db.from(Missing)).toThrow(
+      '[catalog:"app", database:"tenant", schema:"missing", relation:"users"]',
+    )
+    await db.close()
+  })
+
   it('should retain registered schemas on the client', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })

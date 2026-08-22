@@ -9,6 +9,7 @@ import type {
 import { getMetadata, metadata, pipe } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
+import { SchemaError } from '@/utils/error'
 
 import { findSchemaMetadata } from './metadata'
 import { isTableMetadata } from './table'
@@ -23,7 +24,11 @@ type ReferenceTargetHandle = {
       MetadataAction<unknown, Record<string, unknown>>,
     ]
   >
-  getTableMetadata(): { name: string; schema?: string }
+  getTableMetadata(): {
+    name: string
+    schema?: string
+    relation: ReferenceMetadata['target']['relation']
+  }
 }
 
 type ReferenceTargetSchema = SchemaWithPipe<
@@ -128,7 +133,13 @@ export function reference<
 
   const tableName = tableInfo?.name ?? tableMeta?.name ?? ''
 
-  const pgSchema = tableInfo ? tableInfo.schema : tableMeta?.schema
+  const targetRelation = isReferenceTargetHandle(tableOrSchema)
+    ? tableInfo?.relation
+    : tableMeta?.relation
+
+  if (targetRelation === undefined) {
+    throw new SchemaError({ message: 'reference target is missing relation metadata' })
+  }
 
   return pipe(
     schema.entries[key as string] as never,
@@ -137,12 +148,7 @@ export function reference<
       table: tableName,
       key: key as string,
       target: {
-        relation: {
-          ...(pgSchema === undefined
-            ? {}
-            : { namespace: [{ role: 'schema' as const, spelling: pgSchema }] }),
-          relation: tableName,
-        },
+        relation: targetRelation,
         column: key as string,
       },
       ...(options?.onDelete !== undefined ? { onDelete: options.onDelete } : {}),

@@ -2,8 +2,20 @@ import type { MetadataAction } from 'valibot'
 import { getMetadata, metadata } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
+import { SchemaError } from '@/utils/error'
 
+import { createRelationInput } from './relation'
+import type { NamespaceIdentifierInput } from './relation'
 import type { TableIndex, TableMetadata } from './types'
+
+type TableActionConfig = {
+  name: string
+  primaryKey: string | readonly string[]
+  indexes?: TableIndex[]
+} & (
+  | { schema?: string; namespace?: never }
+  | { schema?: never; namespace?: readonly NamespaceIdentifierInput[] }
+)
 
 /**
  * Attaches table metadata to a Valibot object schema for migrations.
@@ -26,13 +38,19 @@ import type { TableIndex, TableMetadata } from './types'
  */
 export function table<
   TInput = unknown,
-  const TConfig extends {
-    name: string
-    primaryKey: string | readonly string[]
-    indexes?: TableIndex[]
-    schema?: string
-  } = { name: string; primaryKey: string },
+  const TConfig extends TableActionConfig = { name: string; primaryKey: string },
 >(config: TConfig): MetadataAction<TInput, TableMetadata<TConfig['name']>> {
+  if (config.schema !== undefined && config.namespace !== undefined) {
+    throw new SchemaError({
+      message: 'table schema and namespace are mutually exclusive',
+    })
+  }
+
+  const namespace =
+    config.schema === undefined
+      ? config.namespace
+      : [{ role: 'schema' as const, spelling: config.schema }]
+  const relation = createRelationInput(config.name, namespace)
   const primaryKey = Array.isArray(config.primaryKey)
     ? [...config.primaryKey]
     : config.primaryKey
@@ -40,6 +58,7 @@ export function table<
   return metadata({
     kind: 'table',
     name: config.name,
+    relation,
     primaryKey,
     ...(config.indexes !== undefined ? { indexes: config.indexes } : {}),
     ...(config.schema !== undefined ? { schema: config.schema } : {}),

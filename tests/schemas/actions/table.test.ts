@@ -1,7 +1,17 @@
 import { object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { getTableMetadata, table } from '@/index'
+import { SchemaError, getTableMetadata, table } from '@/index'
+
+export const relationOptionTypeCoverage = () => {
+  // @ts-expect-error schema and namespace are mutually exclusive
+  table({
+    name: 'events',
+    primaryKey: 'id',
+    schema: 'app',
+    namespace: [{ role: 'schema', spelling: 'app' }] as const,
+  })
+}
 
 describe('table action', () => {
   it('should create table metadata action with correct kind', () => {
@@ -38,6 +48,75 @@ describe('table action', () => {
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata.indexes).toBeUndefined()
     expect(metadata.schema).toBeUndefined()
+    expect(metadata.relation).toEqual({ relation: 'tags' })
+  })
+
+  it('retains ordered portable namespace intent', () => {
+    const action = table({
+      name: 'events',
+      primaryKey: 'id',
+      namespace: [
+        { role: 'catalog', spelling: 'app' },
+        { role: 'database', spelling: 'tenant' },
+        { role: 'schema', spelling: 'audit' },
+      ],
+    })
+
+    expect((action.metadata as Record<string, unknown>).relation).toEqual({
+      namespace: [
+        { role: 'catalog', spelling: 'app' },
+        { role: 'database', spelling: 'tenant' },
+        { role: 'schema', spelling: 'audit' },
+      ],
+      relation: 'events',
+    })
+  })
+
+  it('treats an empty namespace as omitted/default intent', () => {
+    const action = table({
+      name: 'events',
+      primaryKey: 'id',
+      namespace: [],
+    })
+
+    expect((action.metadata as Record<string, unknown>).relation).toEqual({
+      relation: 'events',
+    })
+  })
+
+  it('rejects conflicting and malformed namespace intent', () => {
+    expect(() =>
+      table({
+        name: 'events',
+        primaryKey: 'id',
+        schema: 'app',
+        namespace: [{ role: 'schema', spelling: 'app' }],
+      } as never),
+    ).toThrow(SchemaError)
+    expect(() =>
+      table({
+        name: 'events',
+        primaryKey: 'id',
+        namespace: [
+          { role: 'schema', spelling: 'app' },
+          { role: 'schema', spelling: 'other' },
+        ],
+      } as never),
+    ).toThrow(/duplicate namespace role/)
+    expect(() =>
+      table({
+        name: 'events',
+        primaryKey: 'id',
+        namespace: [{ role: 'schema', spelling: '' }],
+      } as never),
+    ).toThrow(/non-empty/)
+    expect(() =>
+      table({
+        name: 'events',
+        primaryKey: 'id',
+        namespace: 'app' as never,
+      } as never),
+    ).toThrow(SchemaError)
   })
 
   it('should accept composite primary keys and index configs', () => {

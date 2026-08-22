@@ -364,7 +364,7 @@ function planningError(
 
 function invalidTableHandle(name: string): TableHandle {
   return {
-    getTableMetadata: () => ({ name, primaryKey: 'id' }),
+    getTableMetadata: () => ({ name, relation: { relation: name }, primaryKey: 'id' }),
     getSchema: () => ({ entries: {} }),
   } as unknown as TableHandle
 }
@@ -377,6 +377,27 @@ describe('Migration Plan construction', () => {
     ])
 
     expect(planMigration([Users], catalog, postgresDialect)).toEqual({ steps: [] })
+  })
+
+  it('plans authored namespace intent from table metadata', () => {
+    const Scoped = defineTable(
+      'scoped_events',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [{ role: 'schema', spelling: 'audit' }],
+      },
+    )
+
+    expect(planMigration([Scoped], emptyCatalog(), postgresDialect)).toEqual({
+      steps: [
+        { kind: 'ensure_namespace', target: namespaceTarget('audit') },
+        {
+          kind: 'create_table',
+          target: relationTarget('audit', 'scoped_events'),
+        },
+      ],
+    })
   })
 
   it('uses PostgreSQL lowering and normalization for comparisons', () => {
@@ -1380,7 +1401,11 @@ describe('Migration Plan construction', () => {
 
   it('breaks otherwise identical issue ties deterministically', () => {
     const missingPrimaryKey = {
-      getTableMetadata: () => ({ name: 'users', primaryKey: '' }),
+      getTableMetadata: () => ({
+        name: 'users',
+        relation: { relation: 'users' },
+        primaryKey: '',
+      }),
       getSchema: () => ({ entries: {} }),
     } as unknown as TableHandle
     const noColumns = invalidTableHandle('users')

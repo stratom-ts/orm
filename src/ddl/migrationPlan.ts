@@ -222,7 +222,7 @@ function compareCodeUnits(left: string, right: string): number {
  * @param schema - Explicit schema spelling, or undefined to use namespace resolution.
  * @param relation - Relation spelling.
  */
-function relationInput(schema: string | undefined, relation: string) {
+function physicalRelationInput(schema: string | undefined, relation: string) {
   return {
     ...(schema === undefined
       ? {}
@@ -412,8 +412,8 @@ function compareTableHandles(
   const leftInfo = left.getTableMetadata()
   const rightInfo = right.getTableMetadata()
   return identities.compare(
-    identities.resolve(relationInput(leftInfo.schema, leftInfo.name)),
-    identities.resolve(relationInput(rightInfo.schema, rightInfo.name)),
+    identities.resolve(leftInfo.relation),
+    identities.resolve(rightInfo.relation),
   )
 }
 
@@ -629,7 +629,7 @@ function canonicalDesiredForeignKey(
   return {
     columns: [column.name],
     referencedRelation: identities.resolve(
-      relationInput(reference.schema, reference.table),
+      physicalRelationInput(reference.schema, reference.table),
     ),
     referencedColumns: [reference.column],
     onDelete: normalizeAction(reference.onDelete),
@@ -940,7 +940,9 @@ function structuredReference(
   reference: NonNullable<CreateTableColumnAst['references']>,
   identities: CanonicalRelationIdentityModule,
 ): MigrationColumnReference {
-  const relation = identities.resolve(relationInput(reference.schema, reference.table))
+  const relation = identities.resolve(
+    physicalRelationInput(reference.schema, reference.table),
+  )
   return {
     relation,
     column: memberIdentifier(relation, 'column', reference.column, identities),
@@ -1048,10 +1050,7 @@ function buildMigrationPlan(
 
   for (const handle of sortedSchemas) {
     const metadata = handle.getTableMetadata()
-    validateCanonicalRelationNames(
-      identities.resolve(relationInput(metadata.schema, metadata.name)),
-      naming,
-    )
+    validateCanonicalRelationNames(identities.resolve(metadata.relation), naming)
 
     for (const value of Object.values(handle.getSchema().entries)) {
       if (!value || value.kind !== 'schema') continue
@@ -1231,7 +1230,7 @@ function buildMigrationPlan(
     reference: NonNullable<CreateTableColumnAst['references']>,
   ) => {
     const referenced = identities.resolve(
-      relationInput(reference.schema, reference.table),
+      physicalRelationInput(reference.schema, reference.table),
     )
     const name = naming.generate({
       kind: 'foreignKey',
@@ -1285,7 +1284,7 @@ function buildMigrationPlan(
 
   for (const handle of sortedSchemas) {
     const info = handle.getTableMetadata()
-    const identity = identities.resolve(relationInput(info.schema, info.name))
+    const identity = identities.resolve(info.relation)
 
     if (registered.has(identity)) {
       issues.push({
@@ -1318,7 +1317,7 @@ function buildMigrationPlan(
       if (column.references) {
         validateCanonicalRelationNames(
           identities.resolve(
-            relationInput(column.references.schema, column.references.table),
+            physicalRelationInput(column.references.schema, column.references.table),
           ),
           naming,
         )

@@ -98,13 +98,7 @@ function compareIdentitySpelling(
  * @param handle - Registered table handle.
  */
 function relationInput(handle: TableHandle): RelationIdentityInput {
-  const metadata = handle.getTableMetadata()
-  return {
-    ...(metadata.schema === undefined
-      ? {}
-      : { namespace: [{ role: 'schema' as const, spelling: metadata.schema }] }),
-    relation: metadata.name,
-  }
+  return handle.getTableMetadata().relation
 }
 
 /**

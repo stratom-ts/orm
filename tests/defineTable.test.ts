@@ -89,6 +89,10 @@ describe('defineTable', () => {
       name: 'users',
       schema: 'public',
       primaryKey: 'id',
+      relation: {
+        namespace: [{ role: 'schema', spelling: 'public' }],
+        relation: 'users',
+      },
     })
 
     expect(User.getSchema().entries.email).toBeDefined()
@@ -102,6 +106,31 @@ describe('defineTable', () => {
     })
 
     expect(User.id.column).toBe('id')
+  })
+
+  it('retains ordered multi-role namespace intent without changing query schema refs', () => {
+    const TenantEvents = defineTable(
+      'events',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [
+          { role: 'catalog', spelling: 'app' },
+          { role: 'database', spelling: 'tenant' },
+          { role: 'schema', spelling: 'audit' },
+        ],
+      },
+    )
+
+    expect(TenantEvents.getTableMetadata().relation).toEqual({
+      namespace: [
+        { role: 'catalog', spelling: 'app' },
+        { role: 'database', spelling: 'tenant' },
+        { role: 'schema', spelling: 'audit' },
+      ],
+      relation: 'events',
+    })
+    expect(TenantEvents.id.schema).toBeUndefined()
   })
 
   it('should support composite primary keys and index configs', () => {

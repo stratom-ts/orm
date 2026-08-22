@@ -1,6 +1,14 @@
 import type { SQLDialect } from 'db0'
 import type { ObjectEntries } from 'valibot'
 
+import type { NamespaceIdentifierInput, RelationIdentityInput } from './relation'
+
+export type {
+  NamespaceIdentifierInput,
+  NamespaceRole,
+  RelationIdentityInput,
+} from './relation'
+
 /** Referential action for foreign-key ON DELETE / ON UPDATE. */
 export type ReferentialAction =
   | 'cascade'
@@ -28,6 +36,8 @@ export type TableMetadata<N extends string = string> = {
   kind: 'table'
   /** Database table name. */
   name: N
+  /** Dialect-neutral authored relation intent. */
+  relation: RelationIdentityInput
   /** Primary key column name, or composite key column list. */
   primaryKey: string | string[]
   /** Named, composite, or unique indexes. */
@@ -62,11 +72,20 @@ export type TableOptions<
 > = {
   /** Primary key column name, or composite key column list. */
   primaryKey: ColumnKey<TCols> | readonly ColumnKey<TCols>[]
-  /** Database schema (Postgres namespace) */
-  schema?: TSchema
   /** Named, composite, or unique indexes. */
   indexes?: TableIndexOf<TCols>[]
-}
+} & (
+  | {
+      /** Deliberate PostgreSQL schema shorthand. */
+      schema?: TSchema
+      namespace?: never
+    }
+  | {
+      /** Ordered, role-tagged portable namespace intent. */
+      schema?: never
+      namespace?: readonly NamespaceIdentifierInput[]
+    }
+)
 
 /** Primitive value stored as a database literal default. */
 export type DatabaseLiteralValue = string | number | boolean | null
@@ -147,12 +166,7 @@ export type ReferenceMetadata = {
   key: string
   /** Structured logical target retained until canonical graph registration. */
   target: {
-    readonly relation: {
-      readonly namespace?: readonly [
-        { readonly role: 'schema'; readonly spelling: string },
-      ]
-      readonly relation: string
-    }
+    readonly relation: RelationIdentityInput
     readonly column: string
   }
   /** ON DELETE action. */
