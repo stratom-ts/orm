@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
+import {
+  createCatalogRequest,
+  resolveMigrationOwnership,
+} from '@/migrations/migrationOwnership'
 import { InvariantError, attemptSync } from '@/utils/error'
 
 import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
@@ -82,6 +85,24 @@ function catalog(): CatalogSnapshot {
 }
 
 describe('migration ownership', () => {
+  it('projects registered handles using their structured relation metadata', () => {
+    const Scoped = defineTable(
+      'users',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [
+          { role: 'database', spelling: 'test' },
+          { role: 'schema', spelling: 'audit' },
+        ],
+      },
+    )
+
+    expect(createCatalogRequest([Scoped], [], undefined).relations[0]!.relation).toBe(
+      Scoped.getTableMetadata().relation,
+    )
+  })
+
   it('owns only the exact registered relation with complete shape by default', () => {
     expect(planMigration([Users], catalog(), postgresDialect)).toEqual({
       steps: [

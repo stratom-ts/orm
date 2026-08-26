@@ -12,21 +12,6 @@ import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
 
 /**
- * Builds a canonical identity input with an optional schema namespace.
- *
- * @param schema - Explicit schema spelling, or undefined for default resolution.
- * @param relation - Relation spelling.
- */
-function relationInput(schema: string | undefined, relation: string) {
-  return {
-    ...(schema === undefined
-      ? {}
-      : { namespace: [{ role: 'schema' as const, spelling: schema }] }),
-    relation,
-  }
-}
-
-/**
  * Checks whether a column is a single-column primary or unique key.
  *
  * @param table - Authored table containing the candidate column.
@@ -63,7 +48,7 @@ export function registerDesiredSchema(
   const registry = identities.createRegistry<AuthoredDesiredTable>()
   const tables: AuthoredDesiredTable[] = handles.map((handle) => {
     const metadata = handle.getTableMetadata()
-    const identity = identities.resolve(relationInput(metadata.schema, metadata.name))
+    const identity = identities.resolve(metadata.relation)
     const columns: AuthoredDesiredColumn[] = []
 
     for (const [name, value] of Object.entries(handle.getSchema().entries)) {
@@ -183,7 +168,7 @@ export function lowerDesiredSchema(
 ): LoweredDesiredSchema {
   try {
     const graph = registerDesiredSchema(handles, identities)
-    return dialect.lowerDesiredSchema(graph)
+    return dialect.schema.lowerDesiredSchema(graph)
   } catch (cause) {
     if (cause instanceof MigrationError) throw cause
     throw new MigrationError({

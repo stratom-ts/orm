@@ -176,6 +176,35 @@ function fakeSqliteDialect(): Dialect {
 }
 
 describe('whole-graph desired-schema lowering', () => {
+  it('defers structured namespace validation to the selected identity member', () => {
+    const Attached = defineTable(
+      'events',
+      { id: pipe(string(), column({ physicalType: { sqlite: 'text' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [{ role: 'database', spelling: 'attached' }],
+      },
+    )
+
+    const sqlite = fakeSqliteDialect()
+    const registered = registerDesiredSchema(
+      [Attached],
+      sqlite.identity.create({
+        context: { writableDefault: [{ role: 'database', spelling: 'main' }] },
+      }),
+    )
+    expect(registered.tables[0]!.identity.namespace).toEqual([
+      {
+        role: 'database',
+        identifier: { spelling: 'attached', comparisonKey: 'attached' },
+      },
+    ])
+
+    expect(() =>
+      lowerDesiredSchema([Attached], postgresIdentities(), postgresDialect),
+    ).toThrow(MigrationError)
+  })
+
   it('binds SQLite identity semantics behind the test dialect facet', () => {
     const identity = fakeSqliteDialect().identity.create({
       context: { writableDefault: [{ role: 'database', spelling: 'main' }] },

@@ -433,7 +433,7 @@ describe('postgresDialect.compile migration steps', () => {
 describe('db.migrate() adapters and execution', () => {
   it('lowers the desired schema once per migration operation', async () => {
     const connector = createMockConnector()
-    const lower = vi.spyOn(postgresDialect, 'lowerDesiredSchema')
+    const lower = vi.spyOn(postgresDialect.schema, 'lowerDesiredSchema')
     const db = createDatabase({ connector, schemas: [Users] })
 
     try {

@@ -3,13 +3,40 @@ import { describe, expect, it } from 'vitest'
 
 import {
   column,
+  defineTable,
   getColumnMetadata,
   getReferenceMetadata,
+  getTableMetadata,
   reference,
   table,
 } from '@/index'
 
 describe('reference action', () => {
+  it('copies complete structured relation intent from raw schemas and handles', () => {
+    const namespace = [
+      { role: 'catalog' as const, spelling: 'app' },
+      { role: 'database' as const, spelling: 'tenant' },
+      { role: 'schema' as const, spelling: 'audit' },
+    ]
+    const TargetSchema = pipe(
+      object({ id: string() }),
+      title('events'),
+      table({ name: 'events', primaryKey: 'id', namespace }),
+    )
+    const TargetHandle = defineTable(
+      'events',
+      { id: string() },
+      { primaryKey: 'id', namespace },
+    )
+
+    expect(getReferenceMetadata(reference(TargetSchema, 'id'))?.target.relation).toBe(
+      getTableMetadata(TargetSchema)!.relation,
+    )
+    expect(getReferenceMetadata(reference(TargetHandle, 'id'))?.target.relation).toBe(
+      TargetHandle.getTableMetadata().relation,
+    )
+  })
+
   it('should create reference metadata with table and key from referenced schema', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),

@@ -5,7 +5,10 @@ import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
 import { resolveDialect } from '@/dialects'
-import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
+import type {
+  NamespaceIdentifierInput,
+  RelationIdentityInput,
+} from '@/migrations/canonicalRelationIdentity'
 import { validateApplicationId } from '@/migrations/coordinationScope'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import type { OperationContext } from '@/operations/coordinator'
@@ -228,15 +231,25 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
 }
 
 /**
- * Formats an authored schema and relation for diagnostics.
+ * Formats a structured authored relation for diagnostics.
  *
- * @param schema - Optional authored schema name.
- * @param relation - Authored relation name.
+ * @param relation - Structured authored relation intent.
  */
-function formatAuthoredRelation(schema: string | undefined, relation: string): string {
-  return schema === undefined
-    ? JSON.stringify(relation)
-    : `${JSON.stringify(schema)}.${JSON.stringify(relation)}`
+function formatAuthoredRelation(relation: RelationIdentityInput): string {
+  const segments =
+    relation.namespace?.map(
+      ({ role, spelling }) => `${role}:${JSON.stringify(spelling)}`,
+    ) ?? []
+  segments.push(`relation:${JSON.stringify(relation.relation)}`)
+  return `[${segments.join(', ')}]`
+}
+
+/** Exact authored relation key used before dialect/session resolution. */
+function authoredRelationKey(info: ReturnType<TableHandle['getTableMetadata']>): string {
+  return JSON.stringify([
+    info.relation.namespace?.map((segment) => [segment.role, segment.spelling]),
+    info.relation.relation,
+  ])
 }
 
 /**
@@ -250,7 +263,7 @@ function formatAuthoredRelation(schema: string | undefined, relation: string): s
  * @throws SchemaError - When a value is not a table handle or keys are duplicated.
  */
 function assertHandles(schemas: readonly TableHandle[]): void {
-  const seen = new Map<string | undefined, Set<string>>()
+  const seen = new Set<string>()
 
   for (const schema of schemas) {
     if (!isTableHandle(schema)) {
@@ -260,20 +273,15 @@ function assertHandles(schemas: readonly TableHandle[]): void {
     }
 
     const info = schema.getTableMetadata()
-    let relations = seen.get(info.schema)
+    const key = authoredRelationKey(info)
 
-    if (!relations) {
-      relations = new Set()
-      seen.set(info.schema, relations)
-    }
-
-    if (relations.has(info.name)) {
+    if (seen.has(key)) {
       throw new SchemaError({
-        message: `duplicate table registration for ${formatAuthoredRelation(info.schema, info.name)}`,
+        message: `duplicate table registration for ${formatAuthoredRelation(info.relation)}`,
       })
     }
 
-    relations.add(info.name)
+    seen.add(key)
   }
 }
 
@@ -305,18 +313,11 @@ export function createDatabase<
 
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
-  const registry = new Map<string | undefined, Map<string, TableHandle>>()
+  const registry = new Map<string, TableHandle>()
 
   for (const handle of schemas) {
     const info = handle.getTableMetadata()
-    let relations = registry.get(info.schema)
-
-    if (!relations) {
-      relations = new Map()
-      registry.set(info.schema, relations)
-    }
-
-    relations.set(info.name, handle)
+    registry.set(authoredRelationKey(info), handle)
   }
 
   /**
@@ -326,7 +327,7 @@ export function createDatabase<
    */
   const isRegistered = (handle: TableHandle): boolean => {
     const info = handle.getTableMetadata()
-    return registry.get(info.schema)?.has(info.name) ?? false
+    return registry.has(authoredRelationKey(info))
   }
 
   const operationSessionProvider =
@@ -470,7 +471,7 @@ export function createDatabase<
 
       if (!isRegistered(handle)) {
         throw new SchemaError({
-          message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
+          message: `table ${formatAuthoredRelation(info.relation)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
 
@@ -500,7 +501,7 @@ export function createDatabase<
 
       if (!isRegistered(handle)) {
         throw new SchemaError({
-          message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
+          message: `table ${formatAuthoredRelation(info.relation)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
 
@@ -553,7 +554,7 @@ export function createDatabase<
 
       if (!isRegistered(handle)) {
         throw new SchemaError({
-          message: `table ${formatAuthoredRelation(info.schema, info.name)} is not registered on this client; pass it in createDatabase({ schemas })`,
+          message: `table ${formatAuthoredRelation(info.relation)} is not registered on this client; pass it in createDatabase({ schemas })`,
         })
       }
     }

@@ -1,16 +1,15 @@
+import type {
+  NamespaceIdentifierInput,
+  NamespaceRole,
+  RelationIdentityInput,
+} from '@/schemas/actions/relation'
 import { InvariantError } from '@/utils/error'
 
-export type NamespaceRole = 'catalog' | 'database' | 'schema'
-
-export type NamespaceIdentifierInput = Readonly<{
-  role: NamespaceRole
-  spelling: string
-}>
-
-export type RelationIdentityInput = Readonly<{
-  namespace?: readonly NamespaceIdentifierInput[]
-  relation: string
-}>
+export type {
+  NamespaceIdentifierInput,
+  NamespaceRole,
+  RelationIdentityInput,
+} from '@/schemas/actions/relation'
 
 export type NamespaceContext = Readonly<{
   writableDefault: readonly NamespaceIdentifierInput[]
