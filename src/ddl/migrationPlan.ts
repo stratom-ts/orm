@@ -1,10 +1,12 @@
 import type {
+  AuthoredDesiredSchema,
   CatalogSnapshot,
   CreateTableAst,
   CreateTableColumnAst,
-  Dialect,
+  DialectIdentity,
   DialectNaming,
   LoweredDatabaseDefault,
+  LoweredDesiredSchema,
 } from '@/dialects/types'
 import type {
   CanonicalIdentifier,
@@ -148,6 +150,22 @@ export type MigrationSemanticProfile = Readonly<{
   identityAdapter: string
   namespaceContext: NamespaceContext
   registrationDefault?: readonly NamespaceIdentifierInput[]
+}>
+
+/**
+ * Dialect-neutral planning context bound by one selected migration member.
+ *
+ * The pure planner depends only on the semantic policies needed to reconcile desired
+ * and observed state. It does not select those policies from the complete Dialect.
+ */
+export type MigrationPlanningContext = Readonly<{
+  identity: DialectIdentity
+  naming: DialectNaming
+  schema: Readonly<{
+    lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+    normalizeDataType(dataType: string): string
+    normalizeDefaultValue?: (value: string | number | boolean | null) => string
+  }>
 }>
 
 type PlanningIssue = {
@@ -494,20 +512,20 @@ function normalizeAction(action: string | undefined): string {
  * @param target - Structured diagnostic target for the column.
  * @param live - Introspected column definition.
  * @param desired - Desired column definition.
- * @param dialect - Dialect used to normalize desired default values.
+ * @param planning - Selected member's bound planning semantics.
  */
 function defaultMismatch(
   target: string,
   live: CatalogColumn,
   desired: CreateTableColumnAst,
-  dialect: Dialect,
+  planning: MigrationPlanningContext,
 ): string | undefined {
   if (live.defaultExpression === undefined) return
   const expected =
     desired.databaseDefault?.normalized ??
     (desired.defaultValue === undefined
       ? null
-      : dialect.normalizeDefaultValue?.(desired.defaultValue))
+      : planning.schema.normalizeDefaultValue?.(desired.defaultValue))
 
   if (
     desired.databaseDefault === undefined &&
@@ -676,7 +694,7 @@ function matchForeignKeys(
  * @param live - Introspected table definition.
  * @param desired - Dialect-lowered desired table definition.
  * @param shape - Ownership shape controlling whether extra objects are drift.
- * @param dialect - Dialect used to normalize managed values.
+ * @param planning - Selected member's bound planning semantics.
  * @param issues - Mutable collection that receives unsupported-drift issues.
  * @param identities - Identity module used for comparison and diagnostics.
  */
@@ -684,7 +702,7 @@ function collectManagedPropertyIssues(
   live: CatalogTable,
   desired: CreateTableAst,
   shape: 'complete' | 'additive',
-  dialect: Dialect,
+  planning: MigrationPlanningContext,
   issues: PlanningIssue[],
   identities: CanonicalRelationIdentityModule,
 ): void {
@@ -716,7 +734,7 @@ function collectManagedPropertyIssues(
       role: 'column',
       spelling: column.name,
     })
-    const defaultMessage = defaultMismatch(columnLabel, current, column, dialect)
+    const defaultMessage = defaultMismatch(columnLabel, current, column, planning)
 
     if (defaultMessage) {
       issues.push({
@@ -956,12 +974,12 @@ function structuredReference(
  *
  * @param info - Desired table metadata containing index declarations.
  * @param identity - Canonical identity of the desired table.
- * @param dialect - Dialect supplying physical naming rules.
+ * @param naming - Selected member's physical naming rules.
  */
 function desiredIndexes(
   info: ReturnType<TableHandle['getTableMetadata']>,
   identity: CanonicalRelationIdentity,
-  dialect: Dialect,
+  naming: DialectNaming,
 ): Array<{
   name: string
   columns: string[]
@@ -975,7 +993,7 @@ function desiredIndexes(
       return {
         name:
           index.name ??
-          dialect.naming.generate({
+          naming.generate({
             kind: 'index',
             owner: identity,
             columns: index.columns,
@@ -1025,18 +1043,18 @@ function namespaceNameKey(
  *
  * @param schemas - Registered desired table handles.
  * @param catalog - Introspected catalog snapshot and namespace context.
- * @param dialect - Dialect used for identity, lowering, and value normalization.
+ * @param planning - Selected member's bound planning semantics.
  * @param registrationDefault - Optional namespace for registrations that omit one.
  * @param ownershipDeclarations - Explicit relation and namespace authority declarations.
  */
 function buildMigrationPlan(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
-  dialect: Dialect,
+  planning: MigrationPlanningContext,
   registrationDefault?: readonly NamespaceIdentifierInput[],
   ownershipDeclarations: readonly MigrationOwnershipDeclaration[] = [],
 ): PlannedMigration {
-  const identities = dialect.identity.create({
+  const identities = planning.identity.create({
     context: catalog.namespaceContext,
     ...(registrationDefault === undefined ? {} : { registrationDefault }),
   })
@@ -1046,7 +1064,7 @@ function buildMigrationPlan(
   const sortedSchemas = [...schemas].sort((left, right) =>
     compareTableHandles(left, right, identities),
   )
-  const naming = dialect.naming
+  const naming = planning.naming
 
   for (const handle of sortedSchemas) {
     const metadata = handle.getTableMetadata()
@@ -1064,7 +1082,7 @@ function buildMigrationPlan(
     }
   }
 
-  const lowered = lowerDesiredSchema(sortedSchemas, identities, dialect)
+  const lowered = lowerDesiredSchema(sortedSchemas, identities, planning.schema)
   const desiredTables = identities.createRegistry<CreateTableAst>()
   for (const table of lowered.tables) desiredTables.set(table.identity, table.ast)
   const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
@@ -1325,7 +1343,7 @@ function buildMigrationPlan(
       }
     }
 
-    const indexes = desiredIndexes(info, identity, dialect)
+    const indexes = desiredIndexes(info, identity, naming)
 
     for (const index of indexes) {
       if (index.origin === 'explicit') {
@@ -1413,7 +1431,7 @@ function buildMigrationPlan(
 
     // This window contains only this relation's steps; deferred foreign keys follow the loop.
     const relationStepStart = steps.length
-    collectManagedPropertyIssues(live, createAst, shape, dialect, issues, identities)
+    collectManagedPropertyIssues(live, createAst, shape, planning, issues, identities)
 
     const liveColumns = new Map(
       (live.columns ?? []).map((column) => [column.name, column]),
@@ -1473,8 +1491,8 @@ function buildMigrationPlan(
         })
       }
 
-      const desiredType = dialect.normalizeDataType(desired.dataType)
-      const currentType = dialect.normalizeDataType(current.dataType)
+      const desiredType = planning.schema.normalizeDataType(desired.dataType)
+      const currentType = planning.schema.normalizeDataType(current.dataType)
 
       if (desiredType !== currentType) {
         steps.push({
@@ -1721,7 +1739,7 @@ function buildMigrationPlan(
   return {
     plan: { steps: steps.sort(compareMigrationSteps) },
     profile: {
-      identityAdapter: dialect.identity.id,
+      identityAdapter: planning.identity.id,
       namespaceContext: catalog.namespaceContext,
       ...(registrationDefault === undefined ? {} : { registrationDefault }),
     },
@@ -1736,23 +1754,12 @@ function buildMigrationPlan(
  * This interface is synchronous and performs no database operations.
  *
  * @example
- *   const { plan } = planMigration(
- *     [Users],
- *     {
- *       tables: [],
- *       namespaceContext: {
- *         writableDefault: [
- *           { role: 'database', spelling: 'app' },
- *           { role: 'schema', spelling: 'public' },
- *         ],
- *       },
- *     },
- *     postgresDialect,
- *   )
+ *   const planning = selectedMigration.planning
+ *   const { plan } = planMigration([Users], observedCatalog, planning)
  *
  * @param schemas - Registered desired table handles.
  * @param catalog - Introspected catalog snapshot and namespace context.
- * @param dialect - Dialect used for identity, lowering, and value normalization.
+ * @param planning - Selected member's bound planning semantics.
  * @param options - Migration registration options.
  * @param options.registrationDefault - Namespace for registrations that omit one.
  * @param options.migrationOwnership - Explicit relation/namespace authority declarations.
@@ -1765,7 +1772,7 @@ function buildMigrationPlan(
 export function planMigration(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
-  dialect: Dialect,
+  planning: MigrationPlanningContext,
   options: {
     registrationDefault?: readonly NamespaceIdentifierInput[]
     migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -1775,7 +1782,7 @@ export function planMigration(
     return buildMigrationPlan(
       schemas,
       catalog,
-      dialect,
+      planning,
       options.registrationDefault,
       options.migrationOwnership ?? [],
     )

@@ -629,7 +629,7 @@ export function createDatabase<
       ensureClientOpen()
       return createMigrateBuilder({
         schemas,
-        dialect,
+        migration: dialect.migration,
         /**
          * Runs migration work in the current transaction scope or a root operation.
          *

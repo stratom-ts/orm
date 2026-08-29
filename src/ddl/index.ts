@@ -6,8 +6,6 @@ export {
 export { lowerDesiredSchema, registerDesiredSchema } from './desiredSchema'
 export {
   createMigrateBuilder,
-  MIGRATE_ADVISORY_LOCK_CLASS,
-  MIGRATE_ADVISORY_LOCK_ID,
   type MigrateBuilder,
   type MigrationAllow,
   type MigrationExecuteOptions,
@@ -18,7 +16,9 @@ export type {
   MigrationIndexTarget,
   MigrationNamespaceTarget,
   MigrationPlan,
+  MigrationPlanningContext,
   MigrationRelationTarget,
   MigrationStep,
   MigrationTarget,
 } from './migrationPlan'
+export type { DialectMigrationAdapter } from './migrationProgram'

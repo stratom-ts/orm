@@ -17,6 +17,21 @@ export { createDb0PostgresqlOperationSessionProvider } from './operationSession'
 const normalizePostgresDefaultValue = (value: string | number | boolean | null) =>
   normalizePostgresDefaultExpression(formatPostgresDefault(value))
 
+const postgresSchema = {
+  lowerDesiredSchema: lowerPostgresDesiredSchema,
+  inferColumnType: inferPostgresColumnType,
+  normalizeDataType: normalizePostgresDataType,
+  normalizeDefaultValue: normalizePostgresDefaultValue,
+}
+
+const postgresCatalog = { introspectCatalog: introspectPostgres }
+
+const postgresMigrationPlanning = {
+  identity: postgresIdentity,
+  naming: postgresNaming,
+  schema: postgresSchema,
+}
+
 /**
  * Complete PostgreSQL dialect member for the db0 stack.
  *
@@ -36,22 +51,19 @@ export const postgresDialect: Dialect = {
   id: 'postgresql',
   identity: postgresIdentity,
   naming: postgresNaming,
-  schema: {
-    lowerDesiredSchema: lowerPostgresDesiredSchema,
-    inferColumnType: inferPostgresColumnType,
-    normalizeDataType: normalizePostgresDataType,
-    normalizeDefaultValue: normalizePostgresDefaultValue,
-  },
+  schema: postgresSchema,
   query: {
     compile: compilePostgres,
     mapResultValue: mapPostgresResultValue,
     mapParamValue: mapPostgresParamValue,
   },
-  catalog: { introspectCatalog: introspectPostgres },
+  catalog: postgresCatalog,
   operations: {
     createSessionProvider: createDb0PostgresqlOperationSessionProvider,
   },
   migration: {
+    planning: postgresMigrationPlanning,
+    catalog: postgresCatalog,
     lower: lowerPostgresMigrationPlan,
     execute: executePostgresMigration,
   },

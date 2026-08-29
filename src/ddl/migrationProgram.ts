@@ -1,8 +1,13 @@
+import type { CatalogIntrospector } from '@/dialects/catalog'
 import type { CompiledQuery } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
 
-import type { MigrationSemanticProfile, PlannedMigration } from './migrationPlan'
+import type {
+  MigrationPlanningContext,
+  MigrationSemanticProfile,
+  PlannedMigration,
+} from './migrationPlan'
 
 /** Transaction guarantee provided by a complete lowered migration program. */
 export type MigrationAtomicity = 'plan-atomic' | 'statement-atomic' | 'non-atomic'
@@ -55,7 +60,8 @@ export type MigrationRuntimeOptions = Readonly<{
   databaseIdentity: string
   applicationId?: string
   signal?: AbortSignal
-  lockTimeoutMs: number
+  /** Optional coordination deadline; the selected member owns its physical default. */
+  lockTimeoutMs?: number
 
   /** Marks the physical operation session for disposal. */
   discard(): void
@@ -72,8 +78,17 @@ export type MigrationRuntimeSuccess = Readonly<{
   outcome: 'applied' | 'unchanged'
 }>
 
-/** Migration-only dialect facet; ordinary query compilation remains single-query. */
+/**
+ * Cohesive migration member selected with the connector. Generic orchestration reaches
+ * database semantics only through this interface.
+ */
 export type DialectMigrationAdapter = Readonly<{
+  /** Pure planning policies bound by this selected dialect member. */
+  planning: MigrationPlanningContext
+
+  /** Catalog observation used by both dry-run and authoritative execution planning. */
+  catalog: CatalogIntrospector
+
   /**
    * Lowers a complete semantic plan into an executable dialect program.
    *

@@ -15,6 +15,10 @@ import { InvariantError, TaggedError } from '@/utils/error'
 import { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from './constants'
 import { schemaFromNamespace } from './targets'
 
+/** PostgreSQL runtime input after the member has resolved coordination defaults. */
+export type PostgresMigrationRuntimeOptions = MigrationRuntimeOptions &
+  Readonly<{ lockTimeoutMs: number }>
+
 export class MigrationCancellationError extends TaggedError(
   'MigrationCancellationError',
 )<{
@@ -103,7 +107,7 @@ function quoteIdent(identifier: string): string {
  * @param inFlight - Optional session operation whose settlement must be drained.
  */
 async function cancelSession(
-  options: MigrationRuntimeOptions,
+  options: PostgresMigrationRuntimeOptions,
   state: CancellationState,
   inFlight?: Promise<unknown>,
 ): Promise<MigrationCleanupFailure[]> {
@@ -148,7 +152,7 @@ async function cancelSession(
  * @param options.timeoutMessage - Optional message reported when the deadline expires.
  */
 export async function runCancellable<T>(options: {
-  runtime: MigrationRuntimeOptions
+  runtime: PostgresMigrationRuntimeOptions
   state: CancellationState
 
   /** Runs one physical-session operation. */
@@ -221,7 +225,7 @@ export async function runCancellable<T>(options: {
  * @param acquired - Confirmed locks to release in reverse order before cancellation.
  */
 async function stopCancelled(
-  options: MigrationRuntimeOptions,
+  options: PostgresMigrationRuntimeOptions,
   state: CancellationState,
   stage: MigrationExecutionStage,
   timeout: boolean,
@@ -283,7 +287,7 @@ async function stopCancelled(
  * @param state - Shared cancellation and session-certainty state.
  */
 export async function acquireCoordination(
-  options: MigrationRuntimeOptions,
+  options: PostgresMigrationRuntimeOptions,
   state: CancellationState,
 ): Promise<readonly PostgresAdvisoryLockIdentity[]> {
   const scope = createMigrationCoordinationScope({
@@ -412,7 +416,7 @@ export async function acquireCoordination(
  * @param identities - Confirmed locks to release in reverse acquisition order.
  */
 export async function releaseCoordination(
-  options: MigrationRuntimeOptions,
+  options: PostgresMigrationRuntimeOptions,
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
       kind: 'database',
@@ -436,7 +440,7 @@ export async function releaseCoordination(
  * @param identities - Confirmed locks to release in reverse acquisition order.
  */
 export async function releaseCoordinationFailures(
-  options: MigrationRuntimeOptions,
+  options: PostgresMigrationRuntimeOptions,
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
       kind: 'database',
@@ -483,7 +487,7 @@ export async function releaseCoordinationFailures(
  * @param precondition - Semantic assertion to evaluate.
  */
 export async function assertPrecondition(
-  options: MigrationRuntimeOptions,
+  options: PostgresMigrationRuntimeOptions,
   precondition: MigrationPrecondition,
 ): Promise<void> {
   const schema = schemaFromNamespace(precondition.relation.namespace)

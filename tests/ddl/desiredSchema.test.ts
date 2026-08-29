@@ -158,6 +158,12 @@ function fakeSqliteDialect(): Dialect {
       },
     },
     migration: {
+      planning: {
+        identity: { id: 'sqlite-fixture', ...identity },
+        naming,
+        schema: { lowerDesiredSchema, normalizeDataType },
+      },
+      catalog,
       lower: () => {
         throw new Error('fake SQLite migration is outside this contract')
       },

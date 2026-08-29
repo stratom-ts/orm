@@ -2,7 +2,6 @@ import type {
   AuthoredDesiredColumn,
   AuthoredDesiredSchema,
   AuthoredDesiredTable,
-  Dialect,
   LoweredDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -164,11 +163,11 @@ export function registerDesiredSchema(
 export function lowerDesiredSchema(
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
-  dialect: Dialect,
+  lowerer: AuthoredDesiredSchemaLowerer,
 ): LoweredDesiredSchema {
   try {
     const graph = registerDesiredSchema(handles, identities)
-    return dialect.schema.lowerDesiredSchema(graph)
+    return lowerer.lowerDesiredSchema(graph)
   } catch (cause) {
     if (cause instanceof MigrationError) throw cause
     throw new MigrationError({
@@ -177,3 +176,8 @@ export function lowerDesiredSchema(
     })
   }
 }
+
+/** Dialect-bound whole-graph lowering used by generic desired-schema registration. */
+type AuthoredDesiredSchemaLowerer = Readonly<{
+  lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+}>

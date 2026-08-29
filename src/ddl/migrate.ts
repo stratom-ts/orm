@@ -1,4 +1,4 @@
-import type { Dialect } from '@/dialects'
+import type { DialectMigrationAdapter } from '@/ddl/migrationProgram'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
@@ -14,11 +14,6 @@ import type {
   MigrationStep,
 } from './migrationPlan'
 import { planMigration } from './migrationPlan'
-
-export {
-  MIGRATE_ADVISORY_LOCK_CLASS,
-  MIGRATE_ADVISORY_LOCK_ID,
-} from '@/dialects/postgres/migration/constants'
 
 /** Destructive migrate operations that require explicit execution permission. */
 export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
@@ -47,8 +42,6 @@ export type MigrateBuilder = {
    */
   execute(options?: MigrationExecuteOptions): Promise<void>
 }
-
-const DEFAULT_MIGRATION_LOCK_TIMEOUT_MS = 30_000
 
 /**
  * Adds an execution phase without replacing an already structured migration failure.
@@ -98,8 +91,10 @@ function withReleaseCleanup(error: MigrationError): MigrationError {
  *
  * @param options - Migration execution options containing an optional lock timeout.
  */
-function lockTimeout(options: MigrationExecuteOptions | undefined): number {
-  const value = options?.lockTimeoutMs ?? DEFAULT_MIGRATION_LOCK_TIMEOUT_MS
+function lockTimeout(options: MigrationExecuteOptions | undefined): number | undefined {
+  const value = options?.lockTimeoutMs
+
+  if (value === undefined) return undefined
 
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     throw new MigrationError({
@@ -136,12 +131,12 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
  * lowering and all execution mechanics belong to the selected dialect migration facet.
  *
  * @example
- *   const migrate = createMigrateBuilder({ schemas, dialect, runOperation })
+ *   const migrate = createMigrateBuilder({ schemas, migration, runOperation })
  *   await migrate.allow('dropColumn').execute()
  *
- * @param options - Migration schemas, dialect, operation runner, and execution policy.
+ * @param options - Migration schemas, selected member, operation runner, and policy.
  * @param options.schemas - Registered desired-state table handles.
- * @param options.dialect - Dialect used for planning, lowering, and execution.
+ * @param options.migration - Connector-selected migration member.
  * @param options.runOperation - Runs migration work on one pinned operation session.
  * @param options.applicationId - Optional application identity for coordination.
  * @param options.defaultNamespace - Optional namespace for unqualified registrations.
@@ -150,7 +145,7 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
  */
 export function createMigrateBuilder(options: {
   schemas: readonly TableHandle[]
-  dialect: Dialect
+  migration: DialectMigrationAdapter
   /**
    * Runs migration work on one pinned operation session.
    *
@@ -181,7 +176,7 @@ export function createMigrateBuilder(options: {
 }): MigrateBuilder {
   const {
     schemas,
-    dialect,
+    migration,
     runOperation,
     applicationId,
     defaultNamespace,
@@ -207,7 +202,7 @@ export function createMigrateBuilder(options: {
     let catalog
 
     try {
-      catalog = await dialect.catalog.introspectCatalog(executor, request)
+      catalog = await migration.catalog.introspectCatalog(executor, request)
     } catch (cause) {
       throw phaseError(cause, 'introspection')
     }
@@ -215,7 +210,7 @@ export function createMigrateBuilder(options: {
     let planned
 
     try {
-      planned = planMigration(schemas, catalog, dialect, {
+      planned = planMigration(schemas, catalog, migration.planning, {
         ...(defaultNamespace === undefined
           ? {}
           : { registrationDefault: defaultNamespace }),
@@ -226,7 +221,7 @@ export function createMigrateBuilder(options: {
     }
 
     const expected: MigrationSemanticProfile = {
-      identityAdapter: dialect.identity.id,
+      identityAdapter: migration.planning.identity.id,
       namespaceContext: catalog.namespaceContext,
       ...(defaultNamespace === undefined
         ? {}
@@ -279,17 +274,6 @@ export function createMigrateBuilder(options: {
       let operationCallbackReturned = false
 
       try {
-        const migration = dialect.migration
-
-        if (!migration) {
-          throw new MigrationError({
-            message: `Dialect '${dialect.id}' does not support migration execution`,
-            stage: 'lowering',
-            outcome: 'unchanged',
-            retryable: false,
-          })
-        }
-
         await runOperation(async (executor, databaseIdentity, discard, cancel) => {
           const execution = await attempt(() =>
             migration.execute({
@@ -297,7 +281,7 @@ export function createMigrateBuilder(options: {
               databaseIdentity,
               discard,
               cancel,
-              lockTimeoutMs,
+              ...(lockTimeoutMs === undefined ? {} : { lockTimeoutMs }),
               ...(applicationId === undefined ? {} : { applicationId }),
               ...(executeOptions?.signal === undefined
                 ? {}
