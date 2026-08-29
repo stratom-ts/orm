@@ -11,7 +11,7 @@ import {
 } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import type { ColumnRef, InferSelect, TableHandle } from '@/index'
+import type { ColumnRef, InferSelect, TableHandle, TableIdentityOf } from '@/index'
 import {
   SchemaError,
   column,
@@ -100,15 +100,17 @@ describe('defineTable', () => {
 
   it('should expose column refs on the handle', () => {
     expect(User.email).toMatchObject({
-      table: 'users',
+      relation: {
+        namespace: [{ role: 'schema', spelling: 'public' }],
+        relation: 'users',
+      },
       column: 'email',
-      schema: 'public',
     })
 
     expect(User.id.column).toBe('id')
   })
 
-  it('retains ordered multi-role namespace intent without changing query schema refs', () => {
+  it('retains ordered multi-role namespace intent on column refs', () => {
     const TenantEvents = defineTable(
       'events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
@@ -130,7 +132,24 @@ describe('defineTable', () => {
       ],
       relation: 'events',
     })
-    expect(TenantEvents.id.schema).toBeUndefined()
+    expect(TenantEvents.id.relation).toEqual(TenantEvents.getTableMetadata().relation)
+  })
+
+  it('normalizes an empty namespace to omitted intent in runtime and types', () => {
+    const Events = defineTable(
+      'events',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
+      { primaryKey: 'id', namespace: [] },
+    )
+
+    expect(Events.getTableMetadata().relation).toEqual({ relation: 'events' })
+    expect(Events.id.relation).toEqual({ relation: 'events' })
+    expectTypeOf<typeof Events.id.relation>().toEqualTypeOf<
+      Readonly<{ relation: 'events' }>
+    >()
+    expectTypeOf<TableIdentityOf<typeof Events>>().toEqualTypeOf<
+      Readonly<{ relation: 'events' }>
+    >()
   })
 
   it('should support composite primary keys and index configs', () => {
@@ -585,7 +604,10 @@ describe('table handle typing', () => {
 
   it('should type column refs on the handle', () => {
     type EmailRef = (typeof User)['email']
-    expectTypeOf<EmailRef['table']>().toEqualTypeOf<'users'>()
+    expectTypeOf<EmailRef['relation']>().toEqualTypeOf<{
+      readonly namespace: readonly [Readonly<{ role: 'schema'; spelling: 'public' }>]
+      readonly relation: 'users'
+    }>()
     expectTypeOf<EmailRef['column']>().toEqualTypeOf<'email'>()
     expectTypeOf<EmailRef>().toExtend<ColumnRef>()
     expectTypeOf<typeof User>().toExtend<TableHandle>()

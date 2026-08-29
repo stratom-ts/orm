@@ -28,7 +28,7 @@ const normalizePostgresDefaultValue = (value: string | number | boolean | null) 
  *
  *   const query = postgresDialect.query.compile({
  *     kind: 'select',
- *     table: 'users',
+ *     relation: { relation: 'users' },
  *     selection: [{ kind: 'all' }],
  *   })
  */

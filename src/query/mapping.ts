@@ -1,6 +1,7 @@
 import type { Dialect } from '@/dialects'
 import type { ColumnMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
+import { sameRelationInput } from '@/schemas/actions/relation'
 import type { TableHandle } from '@/types'
 import { SchemaError } from '@/utils/error'
 
@@ -33,7 +34,7 @@ function resolveColumnDataType(
   columnName: string,
   dialect: Dialect,
   registered: readonly TableHandle[],
-  resolving: Set<string>,
+  resolving: readonly { handle: TableHandle; column: string }[],
 ): string | undefined {
   const entries = handle.getSchema().entries as Record<
     string,
@@ -42,51 +43,48 @@ function resolveColumnDataType(
   const columnSchema = entries[columnName]
   if (!columnSchema || columnSchema.kind !== 'schema') return undefined
 
-  const schema = columnSchema as Parameters<Dialect['inferColumnType']>[0]
+  const schema = columnSchema as Parameters<Dialect['schema']['inferColumnType']>[0]
   const columnMetadata = getColumnMetadata(schema)
   const referenceMetadata = getReferenceMetadata(schema)
 
   if (referenceMetadata) {
-    const targetSchema = referenceMetadata.target.relation.namespace?.find(
-      (segment) => segment.role === 'schema',
-    )?.spelling
-    const target = registered.find((candidate) => {
-      const metadata = candidate.getTableMetadata()
-      return (
-        metadata.name === referenceMetadata.target.relation.relation &&
-        (targetSchema === undefined
-          ? metadata.schema === undefined
-          : metadata.schema === targetSchema)
-      )
-    })
+    const target = registered.find((candidate) =>
+      sameRelationInput(
+        candidate.getTableMetadata().relation,
+        referenceMetadata.target.relation,
+      ),
+    )
+    const targetLabel = referenceMetadata.target.relation.relation
 
     if (!target) {
       throw new SchemaError({
-        message: `Reference target ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not registered`,
+        message: `Reference target ${targetLabel}.${referenceMetadata.target.column} is not registered`,
       })
     }
 
-    const token = `${targetSchema ?? ''}\0${referenceMetadata.target.relation.relation}\0${referenceMetadata.target.column}`
-
-    if (resolving.has(token)) {
+    if (
+      resolving.some(
+        (candidate) =>
+          candidate.handle === target &&
+          candidate.column === referenceMetadata.target.column,
+      )
+    ) {
       throw new SchemaError({
-        message: `Cannot resolve reference-only column type cycle at ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column}`,
+        message: `Cannot resolve reference-only column type cycle at ${targetLabel}.${referenceMetadata.target.column}`,
       })
     }
 
-    resolving.add(token)
     const result = resolveColumnDataType(
       target,
       referenceMetadata.target.column,
       dialect,
       registered,
-      resolving,
+      [...resolving, { handle: target, column: referenceMetadata.target.column }],
     )
-    resolving.delete(token)
 
     if (result === undefined) {
       throw new SchemaError({
-        message: `Reference target column ${targetSchema === undefined ? '' : `${targetSchema}.`}${referenceMetadata.target.relation.relation}.${referenceMetadata.target.column} is not defined`,
+        message: `Reference target column ${targetLabel}.${referenceMetadata.target.column} is not defined`,
       })
     }
 
@@ -95,7 +93,7 @@ function resolveColumnDataType(
 
   const selected = columnMetadata?.physicalType?.[dialect.id]
   if (selected !== undefined) return String(selected)
-  return String(dialect.inferColumnType(schema))
+  return String(dialect.schema.inferColumnType(schema))
 }
 
 /**
@@ -146,7 +144,7 @@ export function createValueMapper(
     const types: Record<string, string> = {}
 
     for (const name of Object.keys(handle.getSchema().entries)) {
-      const dt = resolveColumnDataType(handle, name, dialect, registered, new Set())
+      const dt = resolveColumnDataType(handle, name, dialect, registered, [])
       if (dt !== undefined) types[name] = dt
     }
 
@@ -170,7 +168,11 @@ export function createValueMapper(
     if (dataType === undefined) return value
 
     if (map?.mapParamValue) return map.mapParamValue(dataType, value)
-    if (dialect.mapParamValue) return dialect.mapParamValue(dataType, value)
+
+    if (dialect.query.mapParamValue) {
+      return dialect.query.mapParamValue(dataType, value)
+    }
+
     return value
   }
 
@@ -193,7 +195,11 @@ export function createValueMapper(
     if (dataType === undefined) return value
 
     if (map?.mapResultValue) return map.mapResultValue(dataType, value)
-    if (dialect.mapResultValue) return dialect.mapResultValue(dataType, value)
+
+    if (dialect.query.mapResultValue) {
+      return dialect.query.mapResultValue(dataType, value)
+    }
+
     return value
   }
 

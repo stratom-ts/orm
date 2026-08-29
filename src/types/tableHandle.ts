@@ -1,6 +1,6 @@
 import type { InferOutput } from 'valibot'
 
-import type { TableMetadata, TableSchema } from '@/schemas'
+import type { RelationIdentityInput, TableMetadata, TableSchema } from '@/schemas'
 
 /** Runtime brand for table handles returned by `defineTable`. */
 export const TABLE_HANDLE = Symbol.for('stratom.TableHandle')
@@ -10,11 +10,12 @@ export type ColumnRef<
   TTable extends string = string,
   TColumn extends string = string,
   TType = unknown,
-  TSchema extends string | undefined = string | undefined,
+  TRelation extends RelationIdentityInput = RelationIdentityInput & {
+    relation: TTable
+  },
 > = {
-  readonly table: TTable
+  readonly relation: TRelation
   readonly column: TColumn
-  readonly schema: TSchema
   readonly __type: TType
 }
 
@@ -25,22 +26,20 @@ export type SchemaNameOf<S extends TableSchema> =
 
 export type ColumnRefsOf<
   S extends TableSchema,
-  TSchema extends string | undefined = string | undefined,
+  TRelation extends RelationIdentityInput = RelationIdentityInput,
 > = {
   readonly [K in keyof ColumnEntries<S> & string]: ColumnRef<
     SchemaNameOf<S>,
     K,
     InferOutput<ColumnEntries<S>[K]>,
-    TSchema
+    TRelation
   >
 }
 
 type HandleTableMetadata<
   TName extends string,
-  TSchema extends string | undefined,
-> = TSchema extends string
-  ? TableMetadata<TName> & { schema: TSchema }
-  : Omit<TableMetadata<TName>, 'schema'> & { schema?: undefined }
+  TRelation extends RelationIdentityInput,
+> = TableMetadata<TName, TRelation>
 
 /**
  * Table handle produced by `defineTable` — the unit accepted by `createDatabase` /
@@ -48,11 +47,11 @@ type HandleTableMetadata<
  */
 export type TableHandle<
   S extends TableSchema = TableSchema,
-  TSchema extends string | undefined = string | undefined,
+  TRelation extends RelationIdentityInput = RelationIdentityInput,
 > = {
   readonly [TABLE_HANDLE]: true
   /** Underlying Valibot table schema (source of validation + column metadata). */
   getSchema(): S
   /** Table metadata from `table()` / `getTableMetadata()`. */
-  getTableMetadata(): HandleTableMetadata<SchemaNameOf<S>, TSchema>
-} & ColumnRefsOf<S, TSchema>
+  getTableMetadata(): HandleTableMetadata<SchemaNameOf<S>, TRelation>
+} & ColumnRefsOf<S, TRelation>

@@ -2,7 +2,14 @@ import { date, number, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import type { InferSelect, Prettify } from '@/index'
-import { column, createDatabase, defineTable, eq, postgresDialect } from '@/index'
+import {
+  QueryError,
+  column,
+  createDatabase,
+  defineTable,
+  eq,
+  postgresDialect,
+} from '@/index'
 
 import { createMockPostgresConnector as createMockConnector } from '../helpers/nativePostgresClient'
 
@@ -187,16 +194,28 @@ describe('joins compile', () => {
     await db.close()
   })
 
-  it('should resolve schema-less AST references against a custom-schema query', async () => {
+  it('should resolve structured AST references against a custom-schema query', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [AppUsers] })
 
     const compiled = db
       .from(AppUsers)
-      .select(() => [{ kind: 'column', table: 'users', column: 'email' } as const])
+      .select(() => [
+        {
+          kind: 'column',
+          relation: {
+            namespace: [{ role: 'schema', spelling: 'app' }],
+            relation: 'users',
+          },
+          column: 'email',
+        } as const,
+      ])
       .where({
         kind: 'cmp',
-        table: 'users',
+        relation: {
+          namespace: [{ role: 'schema', spelling: 'app' }],
+          relation: 'users',
+        },
         column: 'email',
         op: 'eq',
         value: 'a@b.com',
@@ -211,22 +230,27 @@ describe('joins compile', () => {
   })
 
   it('should generate distinct aliases when schema-table concatenations collide', () => {
-    const compiled = postgresDialect.compile({
+    const schemaRelation = {
+      namespace: [{ role: 'schema', spelling: 'a.b' }] as const,
+      relation: 'c',
+    }
+    const dottedRelation = {
+      namespace: [{ role: 'schema', spelling: 'a' }] as const,
+      relation: 'b.c',
+    }
+    const compiled = postgresDialect.query.compile({
       kind: 'select',
-      table: 'c',
-      schema: 'a.b',
+      relation: schemaRelation,
       selection: [
         {
           kind: 'column',
-          table: 'c',
-          schema: 'a.b',
+          relation: schemaRelation,
           column: 'id',
           alias: 'schemaId',
         },
         {
           kind: 'column',
-          table: 'b.c',
-          schema: 'a',
+          relation: dottedRelation,
           column: 'id',
           alias: 'tableId',
         },
@@ -234,15 +258,13 @@ describe('joins compile', () => {
       joins: [
         {
           type: 'inner',
-          table: 'b.c',
-          schema: 'a',
+          relation: dottedRelation,
           on: {
             kind: 'cmp',
-            table: 'c',
-            schema: 'a.b',
+            relation: schemaRelation,
             column: 'id',
             op: 'eq',
-            right: { table: 'b.c', schema: 'a', column: 'id' },
+            right: { relation: dottedRelation, column: 'id' },
           },
         },
       ],
@@ -269,6 +291,36 @@ describe('joins compile', () => {
     expect(compiled.sql).toContain('select "__stratom_0"."id"')
 
     await db.close()
+  })
+
+  it('should reject namespace shapes unsupported by PostgreSQL queries', () => {
+    expect(() =>
+      postgresDialect.query.compile({
+        kind: 'select',
+        relation: {
+          namespace: [{ role: 'database', spelling: 'analytics' }],
+          relation: 'events',
+        },
+        selection: [{ kind: 'all' }],
+      }),
+    ).toThrow(/namespace must be omitted or contain one schema segment/)
+  })
+
+  it('should reject malformed PostgreSQL query relation namespaces', () => {
+    const compile = (namespace: never) =>
+      postgresDialect.query.compile({
+        kind: 'select',
+        relation: { namespace, relation: 'events' },
+        selection: [{ kind: 'all' }],
+      })
+
+    expect(() => compile({} as never)).toThrow(QueryError)
+    expect(() => compile({} as never)).toThrow(/namespace must be an array/)
+    expect(() => compile([null] as never)).toThrow(QueryError)
+    expect(() => compile([null] as never)).toThrow(/segment must be an object/)
+    expect(() => compile([{ role: 'schema', spelling: 42 }] as never)).toThrow(
+      /schema name must be a non-empty string/,
+    )
   })
 
   it('should reject duplicate flat output names', async () => {

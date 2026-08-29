@@ -215,19 +215,12 @@ export type TableNameOf<T> = T extends {
   ? N
   : never
 
-type EffectiveSchema<TSchema> = TSchema extends string ? TSchema : 'public'
-
-/** Schema-and-table identity used to distinguish same-named relations. */
+/** Authored relation identity used to distinguish same-named relations. */
 export type TableIdentityOf<T> = T extends {
   getTableMetadata(): infer TMetadata
 }
-  ? TMetadata extends { name: infer TName extends string }
-    ? {
-        table: TName
-        schema: EffectiveSchema<
-          TMetadata extends { schema: infer TSchema } ? TSchema : undefined
-        >
-      }
+  ? TMetadata extends { relation: infer TRelation }
+    ? TRelation
     : never
   : never
 
@@ -238,16 +231,14 @@ export type NullableFields<T> = {
 
 type MaybeJoinNullable<TValue, TIdentity, TNullable> = TIdentity extends TNullable
   ? TValue | null
-  : TIdentity extends { table: infer TTable }
-    ? TTable extends Extract<TNullable, string>
+  : TIdentity extends { relation: infer TRelation }
+    ? TRelation extends Extract<TNullable, string>
       ? TValue | null
       : TValue
     : TValue
 
 type ColumnIdentity<C> =
-  C extends ColumnRef<infer TTable, string, unknown, infer TSchema>
-    ? { table: TTable; schema: EffectiveSchema<TSchema> }
-    : never
+  C extends ColumnRef<string, string, unknown, infer TRelation> ? TRelation : never
 
 type SelectedColumnBaseValue<T, C> =
   C extends ColumnRef<string, infer N extends string, infer TType>
