@@ -2,7 +2,11 @@ import type { MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { MigrationError } from '@/utils/error'
 
-import type { CancellationState, PostgresAdvisoryLockIdentity } from './coordination'
+import type {
+  CancellationState,
+  PostgresAdvisoryLockIdentity,
+  PostgresMigrationRuntimeOptions,
+} from './coordination'
 import {
   MIGRATION_SESSION_CALL_TIMEOUT_MS,
   MigrationCancellationError,
@@ -13,6 +17,8 @@ import {
   releaseCoordinationFailures,
   runCancellable,
 } from './coordination'
+
+const DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS = 30_000
 
 /**
  * Reads the primary cause through an existing structured migration error.
@@ -139,11 +145,15 @@ function successfulOutcome(
  * @example
  *   const result = await executePostgresMigration(runtime)
  *
- * @param options - Runtime session capabilities and migration preparation callback.
+ * @param input - Runtime session capabilities and migration preparation callback.
  */
 export async function executePostgresMigration(
-  options: MigrationRuntimeOptions,
+  input: MigrationRuntimeOptions,
 ): Promise<{ outcome: 'applied' | 'unchanged' }> {
+  const options: PostgresMigrationRuntimeOptions = {
+    ...input,
+    lockTimeoutMs: input.lockTimeoutMs ?? DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS,
+  }
   let acquiredLocks: readonly PostgresAdvisoryLockIdentity[] = []
   const cancellation: CancellationState = { cancelled: false }
 

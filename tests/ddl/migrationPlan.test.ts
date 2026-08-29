@@ -544,6 +544,16 @@ describe('Migration Plan construction', () => {
         },
       },
       migration: {
+        planning: {
+          identity,
+          naming,
+          schema: {
+            lowerDesiredSchema,
+            normalizeDataType,
+            normalizeDefaultValue,
+          },
+        },
+        catalog: { introspectCatalog: introspect },
         lower: () => {
           throw new Error('fake migration lowering is outside this contract')
         },

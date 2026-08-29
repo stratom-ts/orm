@@ -9,6 +9,7 @@ import type {
   CreateDatabaseConfig,
   Dialect,
   DialectIdentity,
+  DialectMigrationAdapter,
   DialectNaming,
   DialectOperations,
   DialectQuery,
@@ -23,6 +24,7 @@ describe('public dialect member contract', () => {
     expectTypeOf<Dialect['schema']>().toEqualTypeOf<DialectSchema>()
     expectTypeOf<Dialect['query']>().toEqualTypeOf<DialectQuery>()
     expectTypeOf<Dialect['operations']>().toEqualTypeOf<DialectOperations>()
+    expectTypeOf<Dialect['migration']>().toEqualTypeOf<DialectMigrationAdapter>()
     expectTypeOf<DialectNaming>().not.toHaveProperty('comparisonKey')
     expectTypeOf<DialectNaming>().not.toHaveProperty('maximumLength')
     expectTypeOf<DialectNaming>().not.toHaveProperty('scope')
@@ -48,7 +50,10 @@ describe('public dialect member contract', () => {
       createDb0PostgresqlOperationSessionProvider,
     )
     expect(postgresDialect.catalog).toBeDefined()
-    expect(postgresDialect.migration).toBeDefined()
+    expect(postgresDialect.migration.planning.identity).toBe(postgresDialect.identity)
+    expect(postgresDialect.migration.planning.naming).toBe(postgresDialect.naming)
+    expect(postgresDialect.migration.planning.schema).toBe(postgresDialect.schema)
+    expect(postgresDialect.migration.catalog).toBe(postgresDialect.catalog)
   })
 
   it('binds PostgreSQL identity and naming semantics behind the facets', () => {

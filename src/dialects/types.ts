@@ -432,7 +432,7 @@ export interface Dialect {
   /** Operation-session adaptation for the selected connector. */
   readonly operations: DialectOperations
 
-  /** Whole-plan lowering and coordinated migration execution. */
+  /** Bound planning, catalog observation, lowering, and coordinated execution. */
   readonly migration: DialectMigrationAdapter
 
   /** @deprecated Use {@link identity}. Kept during the dialect migration. */

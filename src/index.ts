@@ -38,6 +38,7 @@ export {
   upper,
 } from '@/query'
 export type {
+  DialectMigrationAdapter,
   MigrateBuilder,
   MigrationAllow,
   MigrationColumnReference,
@@ -46,11 +47,11 @@ export type {
   MigrationIndexTarget,
   MigrationNamespaceTarget,
   MigrationPlan,
+  MigrationPlanningContext,
   MigrationRelationTarget,
   MigrationStep,
   MigrationTarget,
 } from '@/ddl'
-export { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from '@/ddl'
 export type {
   CanonicalIdentifier,
   CanonicalNamespaceSegment,
