@@ -1,4 +1,4 @@
-import type { Connector, SQLDialect } from 'db0'
+import type { Connector } from 'db0'
 
 import type { DialectMigrationAdapter } from '@/ddl/migrationProgram'
 import type {
@@ -6,7 +6,6 @@ import type {
   CanonicalRelationIdentityModule,
   NamespaceContext,
   NamespaceIdentifierInput,
-  RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
 import type { PhysicalNameRegistry, PhysicalNameSeed } from '@/migrations/physicalNaming'
 import type { OperationSessionProvider } from '@/operations/operationSession'
@@ -117,9 +116,19 @@ export type DialectQuery = Readonly<{
   mapParamValue?: (dataType: string, value: unknown) => unknown
 }>
 
-/** Adapts a selected connector to an exclusive operation-session provider. */
+/** Structured operation lifecycle command compiled by the selected dialect. */
+export type OperationCommand =
+  | Readonly<{ kind: 'ping' }>
+  | Readonly<{ kind: 'begin' | 'commit' | 'rollback' }>
+  | Readonly<{
+      kind: 'createSavepoint' | 'rollbackToSavepoint' | 'releaseSavepoint'
+      id: number
+    }>
+
+/** Adapts a selected connector and compiles its operation lifecycle commands. */
 export type DialectOperations = Readonly<{
   createSessionProvider(connector: Connector): OperationSessionProvider
+  compile(command: OperationCommand): CompiledQuery
 }>
 
 /** Comparison operators for simple where predicates. */
@@ -412,7 +421,7 @@ export type SqlAst =
  * explicit unsupported stubs for capabilities outside their contract.
  */
 export interface Dialect {
-  readonly id: SQLDialect
+  readonly id: string
 
   /** Identity and writable-namespace selection for canonical relations. */
   readonly identity: DialectIdentity
@@ -434,31 +443,4 @@ export interface Dialect {
 
   /** Bound planning, catalog observation, lowering, and coordinated execution. */
   readonly migration: DialectMigrationAdapter
-
-  /** @deprecated Use {@link identity}. Kept during the dialect migration. */
-  readonly relationIdentity: RelationIdentityAdapter
-
-  /** @deprecated Use {@link schema}.lowerDesiredSchema. Kept during the dialect migration. */
-  lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
-
-  /** @deprecated Use {@link schema}.inferColumnType. Kept during the dialect migration. */
-  inferColumnType(schema: AnySchema): SqlDataType
-
-  /** @deprecated Use {@link schema}.normalizeDataType. Kept during the dialect migration. */
-  normalizeDataType(dataType: string): string
-
-  /**
-   * @deprecated Use {@link schema}.normalizeDefaultValue. Kept during the dialect
-   *   migration.
-   */
-  normalizeDefaultValue?: (value: string | number | boolean | null) => string
-
-  /** @deprecated Use {@link query}.compile. Kept during the dialect migration. */
-  compile(node: SqlAst): CompiledQuery
-
-  /** @deprecated Use {@link query}.mapResultValue. Kept during the dialect migration. */
-  mapResultValue?: (dataType: string, value: unknown) => unknown
-
-  /** @deprecated Use {@link query}.mapParamValue. Kept during the dialect migration. */
-  mapParamValue?: (dataType: string, value: unknown) => unknown
 }

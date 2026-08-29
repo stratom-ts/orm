@@ -157,15 +157,16 @@ function col(
   }
 }
 
-const { inferColumnType, compile } = postgresDialect
+const { inferColumnType } = postgresDialect.schema
+const { compile } = postgresDialect.query
 
 describe('@/dialects/postgres', () => {
   describe('normalizeDataType', () => {
     it('should keep real and double precision distinct', () => {
-      expect(postgresDialect.normalizeDataType('float4')).toBe('real')
-      expect(postgresDialect.normalizeDataType('real')).toBe('real')
-      expect(postgresDialect.normalizeDataType('float8')).toBe('double precision')
-      expect(postgresDialect.normalizeDataType('double precision')).toBe(
+      expect(postgresDialect.schema.normalizeDataType('float4')).toBe('real')
+      expect(postgresDialect.schema.normalizeDataType('real')).toBe('real')
+      expect(postgresDialect.schema.normalizeDataType('float8')).toBe('double precision')
+      expect(postgresDialect.schema.normalizeDataType('double precision')).toBe(
         'double precision',
       )
     })

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
 import type { AuthoredDesiredSchema, Dialect } from '@/dialects'
 import { postgresDialect } from '@/dialects'
+import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import {
   MigrationError,
   column,
@@ -17,7 +18,6 @@ import type {
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
 import {
-  SQLITE_PHYSICAL_NAMING_FIXTURE,
   createPhysicalNameRegistry,
   generatePhysicalName,
   validatePhysicalName,
@@ -25,13 +25,18 @@ import {
 import { createValueMapper, validateInsertRow } from '@/query'
 import type { TableHandle } from '@/types'
 
+import {
+  SQLITE_IDENTITY_POLICY,
+  SQLITE_PHYSICAL_NAMING_FIXTURE,
+} from '../helpers/dialectPolicies'
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
 const postgresIdentities = () =>
   createCanonicalRelationIdentityModule({
-    adapter: 'postgresql',
+    policy: POSTGRES_POLICY,
     context: {
       writableDefault: [
         { role: 'database', spelling: 'test' },
@@ -42,7 +47,7 @@ const postgresIdentities = () =>
 
 const sqliteIdentities = () =>
   createCanonicalRelationIdentityModule({
-    adapter: 'sqlite',
+    policy: SQLITE_IDENTITY_POLICY,
     context: { writableDefault: [{ role: 'database', spelling: 'main' }] },
   })
 
@@ -64,7 +69,10 @@ function fakeSqliteDialect(): Dialect {
       context: NamespaceContext
       registrationDefault?: readonly NamespaceIdentifierInput[]
     }) {
-      return createCanonicalRelationIdentityModule({ adapter: 'sqlite', ...options })
+      return createCanonicalRelationIdentityModule({
+        policy: SQLITE_IDENTITY_POLICY,
+        ...options,
+      })
     },
   }
 
@@ -156,6 +164,7 @@ function fakeSqliteDialect(): Dialect {
       createSessionProvider: () => {
         throw new Error('fake SQLite operations are outside this contract')
       },
+      compile,
     },
     migration: {
       planning: {
@@ -171,13 +180,6 @@ function fakeSqliteDialect(): Dialect {
         throw new Error('fake SQLite migration is outside this contract')
       },
     },
-    // This fake is intentionally non-production; these aliases preserve the
-    // transitional Dialect paths exercised by the desired-schema tests.
-    relationIdentity: 'sqlite',
-    lowerDesiredSchema,
-    inferColumnType,
-    normalizeDataType,
-    compile,
   }
 }
 
@@ -207,7 +209,7 @@ describe('whole-graph desired-schema lowering', () => {
     ])
 
     expect(() =>
-      lowerDesiredSchema([Attached], postgresIdentities(), postgresDialect),
+      lowerDesiredSchema([Attached], postgresIdentities(), postgresDialect.schema),
     ).toThrow(MigrationError)
   })
 
@@ -254,12 +256,12 @@ describe('whole-graph desired-schema lowering', () => {
       { primaryKey: 'id' },
     )
 
-    const inferSpy = vi.spyOn(postgresDialect, 'inferColumnType')
-    const normalizeSpy = vi.spyOn(postgresDialect, 'normalizeDataType')
-    const compileSpy = vi.spyOn(postgresDialect, 'compile')
+    const inferSpy = vi.spyOn(postgresDialect.schema, 'inferColumnType')
+    const normalizeSpy = vi.spyOn(postgresDialect.schema, 'normalizeDataType')
+    const compileSpy = vi.spyOn(postgresDialect.query, 'compile')
     const fake = fakeSqliteDialect()
     expect(getColumnMetadata(Child.getSchema().entries.parentId)).toBeUndefined()
-    const sqlite = lowerDesiredSchema([Child, Parent], sqliteIdentities(), fake)
+    const sqlite = lowerDesiredSchema([Child, Parent], sqliteIdentities(), fake.schema)
 
     const sqliteParent = sqlite.tables.find((table) => table.ast.table === 'parents')!
     const sqliteChild = sqlite.tables.find((table) => table.ast.table === 'children')!
@@ -279,7 +281,7 @@ describe('whole-graph desired-schema lowering', () => {
     const postgres = lowerDesiredSchema(
       [Parent, Child],
       postgresIdentities(),
-      postgresDialect,
+      postgresDialect.schema,
     )
     const postgresChild = postgres.tables.find((table) => table.ast.table === 'children')!
     expect(
@@ -306,10 +308,10 @@ describe('whole-graph desired-schema lowering', () => {
     )
 
     expect(() =>
-      lowerDesiredSchema([Ref], postgresIdentities(), postgresDialect),
+      lowerDesiredSchema([Ref], postgresIdentities(), postgresDialect.schema),
     ).toThrow(/unregistered relation/i)
     expect(() =>
-      lowerDesiredSchema([Composite, Ref], postgresIdentities(), postgresDialect),
+      lowerDesiredSchema([Composite, Ref], postgresIdentities(), postgresDialect.schema),
     ).toThrow(/not a candidate key/i)
   })
 
@@ -337,7 +339,7 @@ describe('whole-graph desired-schema lowering', () => {
     )
 
     expect(() =>
-      lowerDesiredSchema([B, A], postgresIdentities(), postgresDialect),
+      lowerDesiredSchema([B, A], postgresIdentities(), postgresDialect.schema),
     ).not.toThrow()
   })
 
@@ -360,7 +362,7 @@ describe('whole-graph desired-schema lowering', () => {
     const lowered = lowerDesiredSchema(
       [Leaf, Middle, Root],
       postgresIdentities(),
-      postgresDialect,
+      postgresDialect.schema,
     )
     expect(
       lowered.tables
@@ -384,7 +386,7 @@ describe('whole-graph desired-schema lowering', () => {
       { primaryKey: 'id' },
     )
     expect(() =>
-      lowerDesiredSchema([CycleB, CycleA], postgresIdentities(), postgresDialect),
+      lowerDesiredSchema([CycleB, CycleA], postgresIdentities(), postgresDialect.schema),
     ).toThrow(/reference-only physical type cycle.*cycle_a/i)
   })
 
@@ -407,7 +409,7 @@ describe('whole-graph desired-schema lowering', () => {
     )
 
     expect(() =>
-      lowerDesiredSchema([Source, Target], postgresIdentities(), postgresDialect),
+      lowerDesiredSchema([Source, Target], postgresIdentities(), postgresDialect.schema),
     ).not.toThrow()
   })
 
@@ -426,7 +428,7 @@ describe('whole-graph desired-schema lowering', () => {
     const [table] = lowerDesiredSchema(
       [Membership],
       postgresIdentities(),
-      postgresDialect,
+      postgresDialect.schema,
     ).tables
 
     expect(table!.ast.columns.find((value) => value.name === 'tenantId')?.unique).toBe(
@@ -476,7 +478,7 @@ describe('whole-graph desired-schema lowering', () => {
     const source = lowerDesiredSchema(
       [Source, Target],
       postgresIdentities(),
-      postgresDialect,
+      postgresDialect.schema,
     ).tables.find((table) => table.ast.table === 'composed_sources')!
     const targetId = source.ast.columns.find((value) => value.name === 'targetId')!
     const nullableTargetId = source.ast.columns.find(
@@ -585,7 +587,7 @@ describe('PostgreSQL desired-schema lowering', () => {
   it('reports the same first lowering error across column-order permutations', () => {
     const loweringError = (table: TableHandle): MigrationError => {
       try {
-        lowerDesiredSchema([table], postgresIdentities(), postgresDialect)
+        lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema)
       } catch (error) {
         expect(error).toBeInstanceOf(MigrationError)
         return error as MigrationError
@@ -708,7 +710,7 @@ describe('PostgreSQL desired-schema lowering', () => {
     const matching = lowerDesiredSchema(
       [Matching, Target],
       postgresIdentities(),
-      postgresDialect,
+      postgresDialect.schema,
     ).tables.find((table) => table.ast.table === 'matching_refs')!
     expect(
       matching.ast.columns
@@ -741,10 +743,18 @@ describe('PostgreSQL desired-schema lowering', () => {
 
     for (const source of [LegacyMismatch, SelectedMismatch]) {
       expect(() =>
-        lowerDesiredSchema([source, Target], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema(
+          [source, Target],
+          postgresIdentities(),
+          postgresDialect.schema,
+        ),
       ).toThrow(MigrationError)
       expect(() =>
-        lowerDesiredSchema([source, Target], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema(
+          [source, Target],
+          postgresIdentities(),
+          postgresDialect.schema,
+        ),
       ).toThrow(/selects PostgreSQL type.*target type/i)
     }
   })
@@ -792,9 +802,12 @@ describe('PostgreSQL desired-schema lowering', () => {
       },
       { primaryKey: 'id' },
     )
-    const table = lowerDesiredSchema([Defaults], postgresIdentities(), postgresDialect)
-      .tables[0]!
-    const sql = postgresDialect.compile(table.ast).sql
+    const table = lowerDesiredSchema(
+      [Defaults],
+      postgresIdentities(),
+      postgresDialect.schema,
+    ).tables[0]!
+    const sql = postgresDialect.query.compile(table.ast).sql
 
     expect(sql).toContain(`default 'now()'`)
     expect(sql).toContain("default E'C:\\\\O''Brien\\\\'")
@@ -829,7 +842,7 @@ describe('PostgreSQL desired-schema lowering', () => {
         { primaryKey: 'id' },
       )
       expect(() =>
-        lowerDesiredSchema([Invalid], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema([Invalid], postgresIdentities(), postgresDialect.schema),
       ).toThrow(/unsafe PostgreSQL database expression/i)
     }
 
@@ -852,7 +865,7 @@ describe('PostgreSQL desired-schema lowering', () => {
       { primaryKey: 'id' },
     )
     expect(() =>
-      lowerDesiredSchema([Valid], postgresIdentities(), postgresDialect),
+      lowerDesiredSchema([Valid], postgresIdentities(), postgresDialect.schema),
     ).not.toThrow()
   })
 
@@ -876,13 +889,13 @@ describe('PostgreSQL desired-schema lowering', () => {
     const graph = registerDesiredSchema([Source, Target], postgresIdentities())
 
     expect(() =>
-      postgresDialect.lowerDesiredSchema({
+      postgresDialect.schema.lowerDesiredSchema({
         tables: graph.tables.filter((table) => table.handle !== Target),
       }),
     ).toThrow(/unregistered relation/i)
 
     expect(() =>
-      postgresDialect.lowerDesiredSchema({
+      postgresDialect.schema.lowerDesiredSchema({
         tables: graph.tables.map((table) =>
           table.handle === Target
             ? {
@@ -939,7 +952,7 @@ describe('PostgreSQL desired-schema lowering', () => {
 
     for (const table of [Mismatched, Computed]) {
       expect(() =>
-        lowerDesiredSchema([table], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema),
       ).toThrow(MigrationError)
     }
   })
@@ -987,10 +1000,10 @@ describe('PostgreSQL desired-schema lowering', () => {
       [Updated, /onUpdate/i],
     ] as const) {
       expect(() =>
-        lowerDesiredSchema([table], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema),
       ).toThrow(MigrationError)
       expect(() =>
-        lowerDesiredSchema([table], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema),
       ).toThrow(message)
     }
   })
@@ -1045,10 +1058,18 @@ describe('PostgreSQL desired-schema lowering', () => {
       [Computed, /computed generation/i],
     ] as const) {
       expect(() =>
-        lowerDesiredSchema([source, Target], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema(
+          [source, Target],
+          postgresIdentities(),
+          postgresDialect.schema,
+        ),
       ).toThrow(MigrationError)
       expect(() =>
-        lowerDesiredSchema([source, Target], postgresIdentities(), postgresDialect),
+        lowerDesiredSchema(
+          [source, Target],
+          postgresIdentities(),
+          postgresDialect.schema,
+        ),
       ).toThrow(message)
     }
   })
@@ -1121,7 +1142,7 @@ describe('PostgreSQL desired-schema lowering', () => {
     const columns = lowerDesiredSchema(
       [Identities],
       postgresIdentities(),
-      postgresDialect,
+      postgresDialect.schema,
     ).tables[0]!.ast.columns
 
     expect(columns.find((value) => value.name === 'id')?.generated).toBe('byDefault')

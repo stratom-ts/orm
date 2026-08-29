@@ -2,6 +2,8 @@ import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import {
   MigrationError,
   column,
@@ -11,7 +13,7 @@ import {
   reference,
 } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import { POSTGRES_PHYSICAL_NAMING, generatedIndexName } from '@/migrations/physicalNaming'
+import { generatedIndexName } from '@/migrations/physicalNaming'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 import { columnTarget, namespaceTarget, relationTarget } from './helpers/planTargets'
@@ -346,10 +348,10 @@ function matchingUsers(extra?: Partial<LiveTable>): LiveTable {
   }
 }
 
-describe('postgresDialect.compile migration steps', () => {
+describe('postgresDialect.query.compile migration steps', () => {
   it('compiles constructive descriptive steps', () => {
     expect(
-      postgresDialect.compile({
+      postgresDialect.query.compile({
         kind: 'create_index',
         schema: 'public',
         table: 'users',
@@ -360,7 +362,7 @@ describe('postgresDialect.compile migration steps', () => {
     ).toContain('create index "users_email_idx"')
 
     expect(
-      postgresDialect.compile({
+      postgresDialect.query.compile({
         kind: 'add_column',
         schema: 'public',
         table: 'users',
@@ -375,7 +377,7 @@ describe('postgresDialect.compile migration steps', () => {
     ).toContain('alter table "public"."users" add column "nickname" text not null')
 
     expect(
-      postgresDialect.compile({
+      postgresDialect.query.compile({
         kind: 'add_unique_constraint',
         schema: 'public',
         table: 'users',
@@ -386,7 +388,7 @@ describe('postgresDialect.compile migration steps', () => {
       'alter table "public"."users" add constraint "users_email_key" unique ("email")',
     )
 
-    const foreignKey = postgresDialect.compile({
+    const foreignKey = postgresDialect.query.compile({
       kind: 'add_foreign_key',
       schema: 'public',
       table: 'posts',
@@ -405,7 +407,7 @@ describe('postgresDialect.compile migration steps', () => {
 
   it('compiles destructive descriptive steps', () => {
     expect(
-      postgresDialect.compile({
+      postgresDialect.query.compile({
         kind: 'drop_column',
         schema: 'public',
         table: 'users',
@@ -413,7 +415,7 @@ describe('postgresDialect.compile migration steps', () => {
       }).sql,
     ).toContain('alter table "public"."users" drop column "legacy"')
     expect(
-      postgresDialect.compile({
+      postgresDialect.query.compile({
         kind: 'drop_index',
         schema: 'public',
         table: 'users',
@@ -421,7 +423,7 @@ describe('postgresDialect.compile migration steps', () => {
       }).sql,
     ).toContain('drop index "public"."users_legacy_idx"')
     expect(
-      postgresDialect.compile({
+      postgresDialect.query.compile({
         kind: 'drop_table',
         schema: 'public',
         table: 'orphan',
@@ -566,7 +568,7 @@ describe('db.migrate() adapters and execution', () => {
       { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
     )
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: {
         writableDefault: [
           { role: 'database', spelling: 'test' },

@@ -1,12 +1,11 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import { column, defineTable, postgresDialect } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import {
-  POSTGRES_PHYSICAL_NAMING,
-  SQLITE_PHYSICAL_NAMING_FIXTURE,
-  TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE,
   createPhysicalNameRegistry,
   generatedIndexName,
   physicalNameDigest,
@@ -18,6 +17,10 @@ import {
   catalogPrimaryKey as createCatalogPrimaryKey,
   planMigration,
 } from '../helpers/catalog'
+import {
+  SQLITE_PHYSICAL_NAMING_FIXTURE,
+  TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE,
+} from '../helpers/dialectPolicies'
 
 const context = {
   writableDefault: [
@@ -26,7 +29,7 @@ const context = {
   ],
 }
 const identities = createCanonicalRelationIdentityModule({
-  adapter: 'postgresql',
+  policy: POSTGRES_POLICY,
   context,
 })
 const emptyReservations = {

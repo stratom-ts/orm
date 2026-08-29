@@ -9,6 +9,7 @@ import { mapPostgresParamValue, mapPostgresResultValue } from './mapping'
 import { executePostgresMigration, lowerPostgresMigrationPlan } from './migration'
 import { postgresNaming } from './naming'
 import { normalizePostgresDataType } from './normalize'
+import { compilePostgresOperationCommand } from './operations'
 import { createDb0PostgresqlOperationSessionProvider } from './operationSession'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
 
@@ -60,6 +61,7 @@ export const postgresDialect: Dialect = {
   catalog: postgresCatalog,
   operations: {
     createSessionProvider: createDb0PostgresqlOperationSessionProvider,
+    compile: compilePostgresOperationCommand,
   },
   migration: {
     planning: postgresMigrationPlanning,
@@ -67,21 +69,4 @@ export const postgresDialect: Dialect = {
     lower: lowerPostgresMigrationPlan,
     execute: executePostgresMigration,
   },
-
-  /** @deprecated Use `schema.lowerDesiredSchema`. */
-  lowerDesiredSchema: lowerPostgresDesiredSchema,
-  /** @deprecated Use `schema.inferColumnType`. */
-  inferColumnType: inferPostgresColumnType,
-  /** @deprecated Use `schema.normalizeDataType`. */
-  normalizeDataType: normalizePostgresDataType,
-  /** @deprecated Use `schema.normalizeDefaultValue`. */
-  normalizeDefaultValue: normalizePostgresDefaultValue,
-  /** @deprecated Use `query.compile`. */
-  compile: compilePostgres,
-  /** @deprecated Use `query.mapResultValue`. */
-  mapResultValue: mapPostgresResultValue,
-  /** @deprecated Use `query.mapParamValue`. */
-  mapParamValue: mapPostgresParamValue,
-  /** @deprecated Use `identity`. */
-  relationIdentity: postgresIdentity.id,
 }

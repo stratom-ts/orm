@@ -60,7 +60,6 @@ export type {
   NamespaceIdentifierInput,
   NamespaceRole,
   RelationIdentityInput,
-  RelationIdentityAdapter,
 } from '@/migrations/canonicalRelationIdentity'
 export {
   type OperationSession,
