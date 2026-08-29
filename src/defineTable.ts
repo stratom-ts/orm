@@ -1,7 +1,14 @@
 import type { ObjectEntries } from 'valibot'
 import { object, pipe, title } from 'valibot'
 
-import type { ColumnMetadata, TableMetadata, TableOptions, TableSchema } from '@/schemas'
+import type {
+  ColumnMetadata,
+  NamespaceIdentifierInput,
+  RelationIdentityInput,
+  TableMetadata,
+  TableOptions,
+  TableSchema,
+} from '@/schemas'
 import {
   getColumnMetadata,
   getReferenceMetadata,
@@ -364,8 +371,8 @@ function validateTableMetadata(
  */
 function buildTableHandle<
   S extends TableSchema,
-  TSchema extends string | undefined = string | undefined,
->(schema: S): TableHandle<S, TSchema> {
+  TRelation extends RelationIdentityInput = RelationIdentityInput,
+>(schema: S): TableHandle<S, TRelation> {
   const metadata = getTableMetadata(schema)
 
   if (!metadata) {
@@ -400,16 +407,15 @@ function buildTableHandle<
 
   for (const columnName of columnNames) {
     columns[columnName] = {
-      table: metadata.name,
+      relation: metadata.relation,
       column: columnName,
-      schema: metadata.schema,
       __type: undefined as never,
     }
   }
 
   // Column refs first; reserved handle methods win if a column reuses those names.
   const handle = {
-    ...(columns as ColumnRefsOf<S, TSchema>),
+    ...(columns as ColumnRefsOf<S, TRelation>),
     [TABLE_HANDLE]: true as const,
     /** Returns the original table schema. */
     getSchema: () => schema,
@@ -417,8 +423,23 @@ function buildTableHandle<
     getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
   }
 
-  return handle as TableHandle<S, TSchema>
+  return handle as TableHandle<S, TRelation>
 }
+
+type RelationForOptions<TName extends string, TOptions> = TOptions extends {
+  schema: infer TSchema extends string
+}
+  ? Readonly<{
+      namespace: readonly [Readonly<{ role: 'schema'; spelling: TSchema }>]
+      relation: TName
+    }>
+  : TOptions extends {
+        namespace: infer TNamespace extends readonly NamespaceIdentifierInput[]
+      }
+    ? TNamespace extends readonly []
+      ? Readonly<{ relation: TName }>
+      : Readonly<{ namespace: TNamespace; relation: TName }>
+    : Readonly<{ relation: TName }>
 
 /**
  * Defines a table from a name, column map, and table options.
@@ -459,10 +480,10 @@ function buildTableHandle<
 export function defineTable<
   const TName extends string,
   TCols extends ObjectEntries,
-  const TSchema extends string | undefined = undefined,
->(name: TName, columns: TCols, options: TableOptions<TCols, TSchema>) {
+  const TOptions extends TableOptions<TCols> = TableOptions<TCols>,
+>(name: TName, columns: TCols, options: TOptions) {
   const schema = pipe(object(columns), title(name), table({ name, ...options }))
-  return buildTableHandle<typeof schema, TSchema>(schema)
+  return buildTableHandle<typeof schema, RelationForOptions<TName, TOptions>>(schema)
 }
 
 /**

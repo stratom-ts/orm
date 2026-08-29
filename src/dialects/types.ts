@@ -13,6 +13,7 @@ import type { OperationSessionProvider } from '@/operations/operationSession'
 import type {
   ColumnMetadata,
   ReferenceMetadata,
+  RelationIdentityInput,
   TableMetadata,
 } from '@/schemas/actions/types'
 import type { TableHandle } from '@/types'
@@ -128,8 +129,7 @@ export type ComparisonOp = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte'
 export type ColumnExprAst = {
   readonly kind: 'column'
   readonly column: string
-  readonly table?: string
-  readonly schema?: string
+  readonly relation?: RelationIdentityInput
 }
 
 /** Aggregate / scalar expressions supported in v1. */
@@ -163,12 +163,11 @@ export type SqlExprAst =
 
 /** Select list item. */
 export type SelectItemAst =
-  | { readonly kind: 'all'; readonly table?: string; readonly schema?: string }
+  | { readonly kind: 'all'; readonly relation?: RelationIdentityInput }
   | {
       readonly kind: 'column'
       readonly column: string
-      readonly table?: string
-      readonly schema?: string
+      readonly relation?: RelationIdentityInput
       readonly alias?: string
     }
   | {
@@ -190,8 +189,7 @@ export type WhereClause = {
 /** Optional table-qualified column name in predicates / order / group. */
 export type QualifiedColumnAst = {
   readonly column: string
-  readonly table?: string
-  readonly schema?: string
+  readonly relation?: RelationIdentityInput
 }
 
 /**
@@ -202,8 +200,7 @@ export type PredicateAst =
   | {
       readonly kind: 'cmp'
       readonly column: string
-      readonly table?: string
-      readonly schema?: string
+      readonly relation?: RelationIdentityInput
       readonly op: ComparisonOp
       readonly value?: unknown
       readonly right?: QualifiedColumnAst
@@ -214,23 +211,20 @@ export type PredicateAst =
 
 export type OrderByAst = {
   readonly column: string
-  readonly table?: string
-  readonly schema?: string
+  readonly relation?: RelationIdentityInput
   readonly direction: 'asc' | 'desc'
 }
 
 /** Explicit join clause (no FK relation sugar). */
 export type JoinAst = {
   readonly type: 'inner' | 'left' | 'right'
-  readonly table: string
-  readonly schema?: string
+  readonly relation: RelationIdentityInput
   readonly on: PredicateAst
 }
 
 export type SelectAst = {
   readonly kind: 'select'
-  readonly table: string
-  readonly schema?: string
+  readonly relation: RelationIdentityInput
   /** Empty or `[{ kind: 'all' }]` → `select *`. */
   readonly selection: readonly SelectItemAst[]
   readonly joins?: readonly JoinAst[]
@@ -249,8 +243,7 @@ export type ReturningAst =
 
 export type InsertAst = {
   readonly kind: 'insert'
-  readonly table: string
-  readonly schema?: string
+  readonly relation: RelationIdentityInput
   /** Column names shared by every values row (order fixed). */
   readonly columns: readonly string[]
   /** One or more value tuples aligned with `columns`. */
@@ -260,8 +253,7 @@ export type InsertAst = {
 
 export type UpdateAst = {
   readonly kind: 'update'
-  readonly table: string
-  readonly schema?: string
+  readonly relation: RelationIdentityInput
   readonly set: readonly { readonly column: string; readonly value: unknown }[]
   /** Predicate; empty + allowAll is full-table update. */
   readonly where?: PredicateAst
@@ -271,8 +263,7 @@ export type UpdateAst = {
 
 export type DeleteAst = {
   readonly kind: 'delete'
-  readonly table: string
-  readonly schema?: string
+  readonly relation: RelationIdentityInput
   readonly where?: PredicateAst
   readonly allowAll: boolean
   readonly returning?: ReturningAst

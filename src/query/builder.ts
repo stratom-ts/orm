@@ -13,6 +13,8 @@ import type {
   SqlExprAst,
   UpdateAst,
 } from '@/dialects'
+import type { RelationIdentityInput } from '@/schemas'
+import { sameRelationInput } from '@/schemas/actions/relation'
 import type { ColumnRef, Prettify, TableHandle } from '@/types'
 import type {
   InferInsert,
@@ -30,15 +32,7 @@ import { QueryError } from '@/utils/error'
 
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
-import {
-  and,
-  cmp,
-  columnName,
-  columnSchema,
-  columnTable,
-  eb,
-  toQualified,
-} from './expressions'
+import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
 import type { ValueMapper } from './mapping'
 
 /** Result when a write runs without `returning`. */
@@ -108,8 +102,7 @@ function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): 
   const info = table.getTableMetadata()
   return {
     type,
-    table: info.name,
-    ...(info.schema !== undefined ? { schema: info.schema } : {}),
+    relation: info.relation,
     on: resolveOn(on),
   }
 }
@@ -203,14 +196,12 @@ type SelectSelectionInput =
  * @param column - Column to select.
  */
 function selectionColumn(column: ColumnRef | string): SelectItemAst {
-  const table = columnTable(column)
-  const schema = columnSchema(column)
-  return table
+  const relation = columnRelation(column)
+  return relation
     ? {
         kind: 'column',
         column: columnName(column),
-        table,
-        ...(schema !== undefined ? { schema } : {}),
+        relation,
       }
     : { kind: 'column', column: columnName(column) }
 }
@@ -337,7 +328,10 @@ function mapPredicateParams(
     case 'cmp': {
       // Column-vs-column join/on predicates have no bound params.
       if (pred.right || pred.value === null) return pred
-      const handle = findHandle(handles, pred.table, pred.schema) ?? handles[0]!
+      const handle = findHandle(handles, pred.relation)
+
+      if (!handle) return pred
+
       return {
         ...pred,
         value: mapper.mapParam(handle, pred.column, pred.value),
@@ -369,22 +363,16 @@ function mapPredicateParams(
  * Finds the unambiguous handle for a qualified table reference.
  *
  * @param handles - Table handles to search.
- * @param table - Optional table name.
- * @param schema - Optional schema name.
+ * @param relation - Optional authored relation intent.
  */
 function findHandle(
   handles: readonly TableHandle[],
-  table: string | undefined,
-  schema: string | undefined,
+  relation: RelationIdentityInput | undefined,
 ): TableHandle | undefined {
-  if (!table) return handles[0]
-  const matches = handles.filter((handle) => {
-    const metadata = handle.getTableMetadata()
-    return (
-      metadata.name === table &&
-      (schema === undefined || (metadata.schema ?? 'public') === schema)
-    )
-  })
+  if (!relation) return handles[0]
+  const matches = handles.filter((handle) =>
+    sameRelationInput(handle.getTableMetadata().relation, relation),
+  )
   return matches.length === 1 ? matches[0] : undefined
 }
 
@@ -433,27 +421,27 @@ function resultColumnsForSelection(
 
   for (const item of selection) {
     if (item.kind === 'all') {
-      if (!item.table) {
+      if (!item.relation) {
         for (const handle of handles) addAll(handle)
       } else {
-        const handle = findHandle(handles, item.table, item.schema)
+        const handle = findHandle(handles, item.relation)
 
         if (!handle) {
           throw new QueryError({
-            message: `selected table "${item.table}" is not joined`,
+            message: `selected relation "${item.relation.relation}" is not joined`,
           })
         }
 
         addAll(handle)
       }
     } else if (item.kind === 'column') {
-      const handle = findHandle(handles, item.table, item.schema)
+      const handle = findHandle(handles, item.relation)
       add(item.alias ?? item.column, handle ? { handle, column: item.column } : undefined)
     } else {
       const expression = item.expr
       const handle =
         expression.kind === 'column'
-          ? findHandle(handles, expression.table, expression.schema)
+          ? findHandle(handles, expression.relation)
           : undefined
       add(
         item.alias,
@@ -517,7 +505,7 @@ async function runQuery<T>(
   resultColumns: ReadonlyMap<string, ResultColumn>,
   ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
 ): Promise<T> {
-  const compiled = dialect.compile(ast)
+  const compiled = dialect.query.compile(ast)
 
   try {
     const rows = await executor.execute(compiled)
@@ -562,7 +550,7 @@ async function runWrite(
   mapper: ValueMapper | undefined,
   ast: InsertAst | UpdateAst | DeleteAst,
 ): Promise<unknown[] | WriteResult> {
-  const compiled = dialect.compile(ast)
+  const compiled = dialect.query.compile(ast)
 
   try {
     if (ast.returning) {
@@ -685,8 +673,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
 
     return {
       kind: 'insert',
-      table: info.name,
-      ...(info.schema !== undefined ? { schema: info.schema } : {}),
+      relation: info.relation,
       columns: columnSet,
       values,
       ...(returning ? { returning } : {}),
@@ -694,7 +681,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
   }
 
   /** Compiles the current insert query. */
-  const compile = () => dialect.compile(buildAst())
+  const compile = () => dialect.query.compile(buildAst())
 
   /** Executes the current insert query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
@@ -858,8 +845,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
     )
     return {
       kind: 'update',
-      table: info.name,
-      ...(info.schema !== undefined ? { schema: info.schema } : {}),
+      relation: info.relation,
       set,
       ...(where ? { where: mapPredicateParams([handle], mapper, where) } : {}),
       allowAll,
@@ -868,7 +854,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   }
 
   /** Compiles the current update query. */
-  const compile = () => dialect.compile(buildAst())
+  const compile = () => dialect.query.compile(buildAst())
 
   /** Executes the current update query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
@@ -1057,8 +1043,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
 
     return {
       kind: 'delete',
-      table: info.name,
-      ...(info.schema !== undefined ? { schema: info.schema } : {}),
+      relation: info.relation,
       ...(where ? { where: mapPredicateParams([handle], mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
@@ -1066,7 +1051,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   }
 
   /** Compiles the current delete query. */
-  const compile = () => dialect.compile(buildAst())
+  const compile = () => dialect.query.compile(buildAst())
 
   /** Executes the current delete query. */
   const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
@@ -1322,8 +1307,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     const resultColumns = resultColumnsForSelection(handles, selection)
     const ast: SelectAst = {
       kind: 'select',
-      table: info.name,
-      ...(info.schema !== undefined ? { schema: info.schema } : {}),
+      relation: info.relation,
       selection,
       ...(state.joins.length > 0
         ? { joins: mapJoinsParams(handles, mapper, state.joins) }
@@ -1365,7 +1349,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     })
 
   /** Compiles the current select query. */
-  const compile = () => dialect.compile(buildQuery().ast)
+  const compile = () => dialect.query.compile(buildQuery().ast)
 
   /** Executes the current select query. */
   const execute = async () => {
@@ -1396,8 +1380,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
       const item: SelectItemAst = metadata
         ? {
             kind: 'all',
-            table: metadata.name,
-            schema: metadata.schema ?? 'public',
+            relation: metadata.relation,
           }
         : { kind: 'all' }
       return next({ selection: [...state.selection, item] }) as never
@@ -1451,8 +1434,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
           ...state.orderBy,
           {
             column: q.column,
-            ...(q.table !== undefined ? { table: q.table } : {}),
-            ...(q.schema !== undefined ? { schema: q.schema } : {}),
+            ...(q.relation !== undefined ? { relation: q.relation } : {}),
             direction,
           },
         ],

@@ -31,13 +31,16 @@ export type IndexConfig = {
 export type TableIndex = IndexConfig
 
 /** Table-level metadata attached via `table()`. */
-export type TableMetadata<N extends string = string> = {
+export type TableMetadata<
+  N extends string = string,
+  TRelation extends RelationIdentityInput = RelationIdentityInput,
+> = {
   /** Discriminant for table metadata. */
   kind: 'table'
   /** Database table name. */
   name: N
   /** Dialect-neutral authored relation intent. */
-  relation: RelationIdentityInput
+  relation: TRelation
   /** Primary key column name, or composite key column list. */
   primaryKey: string | string[]
   /** Named, composite, or unique indexes. */
@@ -69,6 +72,9 @@ export type TableIndexOf<TCols extends ObjectEntries> = IndexConfigOf<TCols>
 export type TableOptions<
   TCols extends ObjectEntries,
   TSchema extends string | undefined = string | undefined,
+  TNamespace extends readonly NamespaceIdentifierInput[] | undefined =
+    | readonly NamespaceIdentifierInput[]
+    | undefined,
 > = {
   /** Primary key column name, or composite key column list. */
   primaryKey: ColumnKey<TCols> | readonly ColumnKey<TCols>[]
@@ -83,7 +89,7 @@ export type TableOptions<
   | {
       /** Ordered, role-tagged portable namespace intent. */
       schema?: never
-      namespace?: readonly NamespaceIdentifierInput[]
+      namespace?: TNamespace
     }
 )
 

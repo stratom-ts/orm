@@ -24,6 +24,7 @@ import type {
   InferSelect,
   InferSelectedColumns,
   InferUpdate,
+  TableIdentityOf,
 } from '@/index'
 import { column, defineTable, table } from '@/index'
 
@@ -198,6 +199,40 @@ describe('InferSelectedColumns', () => {
     expectTypeOf<Row>().toEqualTypeOf<{
       title: string
       email: string | null
+    }>()
+  })
+
+  it('should distinguish same-named tables by ordered namespace intent', () => {
+    const NumericItem = defineTable(
+      'items',
+      {
+        id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+      },
+      {
+        primaryKey: 'id',
+        namespace: [{ role: 'database', spelling: 'numeric' }],
+      },
+    )
+    const TextItem = defineTable(
+      'items',
+      {
+        label: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+      },
+      {
+        primaryKey: 'label',
+        namespace: [{ role: 'database', spelling: 'textual' }],
+      },
+    )
+
+    type Row = InferSelectedColumns<
+      typeof NumericItem,
+      readonly [typeof NumericItem.id, typeof TextItem.label],
+      TableIdentityOf<typeof TextItem>
+    >
+
+    expectTypeOf<Row>().toEqualTypeOf<{
+      id: number
+      label: string | null
     }>()
   })
 })

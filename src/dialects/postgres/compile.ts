@@ -1,3 +1,4 @@
+import type { RelationIdentityInput } from '@/schemas'
 import { QueryError } from '@/utils/error'
 
 import type {
@@ -45,6 +46,86 @@ function qualifyPostgresTable(schema: string | undefined, table: string): string
   return `${quoteIdent(schemaName)}.${quoteIdent(table)}`
 }
 
+/** Resolves authored relation intent according to PostgreSQL query semantics. */
+function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
+  schema: string
+  table: string
+} {
+  if (typeof relation !== 'object' || relation === null) {
+    throw new QueryError({
+      message: 'PostgreSQL query relation must be an object',
+    })
+  }
+
+  const candidate = relation as {
+    relation?: unknown
+    namespace?: unknown
+  }
+
+  if (typeof candidate.relation !== 'string' || candidate.relation.length === 0) {
+    throw new QueryError({
+      message: 'PostgreSQL query relation name must be a non-empty string',
+    })
+  }
+
+  if (candidate.namespace !== undefined && !Array.isArray(candidate.namespace)) {
+    throw new QueryError({
+      message: 'PostgreSQL query relation namespace must be an array',
+    })
+  }
+
+  const namespace = candidate.namespace ?? []
+
+  if (namespace.length > 1) {
+    throw new QueryError({
+      message:
+        'PostgreSQL query relation namespace must be omitted or contain one schema segment',
+    })
+  }
+
+  let schema = 'public'
+
+  if (namespace.length === 1) {
+    const segment = namespace[0] as unknown
+
+    if (typeof segment !== 'object' || segment === null) {
+      throw new QueryError({
+        message: 'PostgreSQL query namespace segment must be an object',
+      })
+    }
+
+    if (!('role' in segment) || segment.role !== 'schema') {
+      throw new QueryError({
+        message:
+          'PostgreSQL query relation namespace must be omitted or contain one schema segment',
+      })
+    }
+
+    if (
+      !('spelling' in segment) ||
+      typeof segment.spelling !== 'string' ||
+      segment.spelling.length === 0
+    ) {
+      throw new QueryError({
+        message: 'PostgreSQL query schema name must be a non-empty string',
+      })
+    }
+
+    schema = segment.spelling
+  }
+
+  return {
+    schema,
+    table: candidate.relation,
+  }
+}
+
+/** Qualifies a structured query relation after PostgreSQL namespace resolution. */
+function qualifyPostgresQueryRelation(relation: RelationIdentityInput): string {
+  const resolved = resolvePostgresQueryRelation(relation)
+  return qualifyPostgresTable(resolved.schema, resolved.table)
+}
+
 /**
  * Builds the canonical alias candidate for a PostgreSQL table.
  *
@@ -76,9 +157,10 @@ function utf8ByteLength(value: string): number {
  * @param relations - Relations participating in the query.
  */
 function createRelationContext(
-  relations: readonly { schema?: string; table: string }[],
+  relations: readonly RelationIdentityInput[],
 ): PostgresRelation[] {
-  const candidates = relations.map((relation) =>
+  const resolved = relations.map(resolvePostgresQueryRelation)
+  const candidates = resolved.map((relation) =>
     postgresTableAlias(relation.schema, relation.table),
   )
   const counts = new Map<string, number>()
@@ -87,14 +169,14 @@ function createRelationContext(
     counts.set(candidate, (counts.get(candidate) ?? 0) + 1)
   }
 
-  return relations.map((relation, index) => {
+  return resolved.map((relation, index) => {
     const candidate = candidates[index]!
     const alias =
       counts.get(candidate) === 1 && utf8ByteLength(candidate) <= 63
         ? candidate
         : `__stratom_${index}`
     return {
-      schema: relation.schema ?? 'public',
+      schema: relation.schema,
       table: relation.table,
       alias,
     }
@@ -105,28 +187,27 @@ function createRelationContext(
  * Finds the alias for a table reference in the query relation context.
  *
  * @param relations - Relations participating in the query.
- * @param table - Referenced table name.
- * @param schema - Optional referenced schema name.
+ * @param target - Authored relation target.
  */
 function resolveRelationAlias(
   relations: readonly PostgresRelation[],
-  table: string,
-  schema?: string,
+  target: RelationIdentityInput,
 ): string {
+  const resolved = resolvePostgresQueryRelation(target)
   const matches = relations.filter(
     (relation) =>
-      relation.table === table && (schema === undefined || relation.schema === schema),
+      relation.table === resolved.table && relation.schema === resolved.schema,
   )
   if (matches.length === 1) return matches[0]!.alias
 
   if (matches.length === 0) {
     throw new QueryError({
-      message: `table reference "${schema ? `${schema}.` : ''}${table}" is not in query`,
+      message: `relation reference "${target.relation}" is not in query`,
     })
   }
 
   throw new QueryError({
-    message: `table reference "${table}" is ambiguous; specify its schema`,
+    message: `relation reference "${target.relation}" is ambiguous`,
   })
 }
 
@@ -181,20 +262,18 @@ function compileReturning(returning: ReturningAst | undefined): string {
  *
  * @param column - Column name.
  * @param relations - Relations participating in the query.
- * @param table - Optional table name.
- * @param schema - Optional schema name.
+ * @param relation - Optional authored relation intent.
  *
  * @returns Qualified column reference (e.g. `"users"."id"`)
  */
 function qualifyColumn(
   column: string,
   relations: readonly PostgresRelation[],
-  table?: string,
-  schema?: string,
+  relation?: RelationIdentityInput,
 ): string {
   const col = quoteIdent(column)
-  return table
-    ? `${quoteIdent(resolveRelationAlias(relations, table, schema))}.${col}`
+  return relation
+    ? `${quoteIdent(resolveRelationAlias(relations, relation))}.${col}`
     : col
 }
 
@@ -210,7 +289,7 @@ function compileQualifiedColumn(
   col: QualifiedColumnAst,
   relations: readonly PostgresRelation[],
 ): string {
-  return qualifyColumn(col.column, relations, col.table, col.schema)
+  return qualifyColumn(col.column, relations, col.relation)
 }
 
 /**
@@ -229,7 +308,7 @@ function compilePredicate(
 ): string {
   switch (pred.kind) {
     case 'cmp': {
-      const left = qualifyColumn(pred.column, relations, pred.table, pred.schema)
+      const left = qualifyColumn(pred.column, relations, pred.relation)
       const op = comparisonSql(pred.op)
 
       if (pred.right) {
@@ -300,7 +379,7 @@ function compileExpr(
 ): string {
   switch (expr.kind) {
     case 'column':
-      return qualifyColumn(expr.column, relations, expr.table, expr.schema)
+      return qualifyColumn(expr.column, relations, expr.relation)
     case 'count_all':
       return 'count(*)'
     case 'count':
@@ -347,11 +426,11 @@ function compileSelectItem(
 ): string {
   switch (item.kind) {
     case 'all':
-      return item.table
-        ? `${quoteIdent(resolveRelationAlias(relations, item.table, item.schema))}.*`
+      return item.relation
+        ? `${quoteIdent(resolveRelationAlias(relations, item.relation))}.*`
         : '*'
     case 'column': {
-      const col = qualifyColumn(item.column, relations, item.table, item.schema)
+      const col = qualifyColumn(item.column, relations, item.relation)
       return item.alias ? `${col} as ${quoteIdent(item.alias)}` : col
     }
     case 'expr':
@@ -378,7 +457,7 @@ function compileOrderBy(
   if (!orderBy || orderBy.length === 0) return ''
   const parts = orderBy.map(
     (o) =>
-      `${qualifyColumn(o.column, relations, o.table, o.schema)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
+      `${qualifyColumn(o.column, relations, o.relation)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
   )
   return ` order by ${parts.join(', ')}`
 }
@@ -399,7 +478,7 @@ function compileJoin(
   params: unknown[],
   relations: readonly PostgresRelation[],
 ): string {
-  const tableSql = qualifyPostgresTable(join.schema, join.table)
+  const tableSql = qualifyPostgresQueryRelation(join.relation)
   const tableAlias = quoteIdent(relation.alias)
 
   let type: string
@@ -427,10 +506,10 @@ function compileJoin(
  * @returns Compiled query with SQL string and parameters
  */
 function compileSelect(node: SelectAst): CompiledQuery {
-  const tableSql = qualifyPostgresTable(node.schema, node.table)
+  const tableSql = qualifyPostgresQueryRelation(node.relation)
   const relations = createRelationContext([
-    { table: node.table, ...(node.schema !== undefined ? { schema: node.schema } : {}) },
-    ...(node.joins ?? []),
+    node.relation,
+    ...(node.joins ?? []).map((join) => join.relation),
   ])
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
@@ -483,7 +562,7 @@ function compileSelect(node: SelectAst): CompiledQuery {
  * @returns Compiled query with SQL string and parameters
  */
 function compileInsert(node: InsertAst): CompiledQuery {
-  const tableSql = qualifyPostgresTable(node.schema, node.table)
+  const tableSql = qualifyPostgresQueryRelation(node.relation)
   const cols = node.columns.map((c) => quoteIdent(c)).join(', ')
   const params: unknown[] = []
   const rowSql = node.values.map((row) => {
@@ -508,8 +587,8 @@ function compileInsert(node: InsertAst): CompiledQuery {
  * @throws Error when SET clause is empty
  */
 function compileUpdate(node: UpdateAst): CompiledQuery {
-  const tableSql = qualifyPostgresTable(node.schema, node.table)
-  const relations = createRelationContext([node])
+  const tableSql = qualifyPostgresQueryRelation(node.relation)
+  const relations = createRelationContext([node.relation])
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
 
@@ -536,8 +615,8 @@ function compileUpdate(node: UpdateAst): CompiledQuery {
  * @returns Compiled query with SQL string and parameters
  */
 function compileDelete(node: DeleteAst): CompiledQuery {
-  const tableSql = qualifyPostgresTable(node.schema, node.table)
-  const relations = createRelationContext([node])
+  const tableSql = qualifyPostgresQueryRelation(node.relation)
+  const relations = createRelationContext([node.relation])
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
   const whereSql = compileWhereClause(node.where, params, relations)
@@ -748,7 +827,11 @@ function compileAddUniqueConstraint(node: {
  * Compiles a PostgreSQL AST node to a parameterized SQL query.
  *
  * @example
- *   compilePostgres({ kind: 'select', table: 'users', selection: [{ kind: 'all' }] })
+ *   compilePostgres({
+ *     kind: 'select',
+ *     relation: { relation: 'users' },
+ *     selection: [{ kind: 'all' }],
+ *   })
  *   // { sql: 'select * from "public"."users"', params: [] }
  *
  * @param node - SQL AST node.

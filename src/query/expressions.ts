@@ -24,7 +24,7 @@ function isColumnRef(value: unknown): value is ColumnRef {
     typeof value === 'object' &&
     value !== null &&
     'column' in value &&
-    'table' in value &&
+    'relation' in value &&
     '__type' in value
   )
 }
@@ -45,8 +45,7 @@ function colRef(column: ColumnRef | string): ColumnExprAst {
   return {
     kind: 'column',
     column: column.column,
-    table: column.table,
-    ...(column.schema !== undefined ? { schema: column.schema } : {}),
+    relation: column.relation,
   }
 }
 
@@ -63,27 +62,15 @@ function columnName(column: ColumnRef | string): string {
 }
 
 /**
- * Gets the table name from a column reference.
+ * Gets the authored relation intent from a column reference.
  *
  * @example
- *   columnTable(User.id) // 'users'
+ *   columnRelation(User.id) // { relation: 'users' }
  *
  * @param column - Column reference or name.
  */
-function columnTable(column: ColumnRef | string): string | undefined {
-  return typeof column === 'string' ? undefined : column.table
-}
-
-/**
- * Gets the schema name from a column reference.
- *
- * @example
- *   columnSchema(User.id)
- *
- * @param column - Column reference or name.
- */
-function columnSchema(column: ColumnRef | string): string | undefined {
-  return typeof column === 'string' ? undefined : (column.schema ?? 'public')
+function columnRelation(column: ColumnRef | string): ColumnRef['relation'] | undefined {
+  return typeof column === 'string' ? undefined : column.relation
 }
 
 /**
@@ -95,13 +82,11 @@ function columnSchema(column: ColumnRef | string): string | undefined {
  * @param column - Column reference or unqualified name.
  */
 function toQualified(column: ColumnRef | string): QualifiedColumnAst {
-  const table = columnTable(column)
-  const schema = columnSchema(column)
-  return table
+  const relation = columnRelation(column)
+  return relation
     ? {
         column: columnName(column),
-        table,
-        ...(schema !== undefined ? { schema } : {}),
+        relation,
       }
     : { column: columnName(column) }
 }
@@ -124,8 +109,7 @@ function cmpLeaf(
     return {
       kind: 'cmp',
       column: left.column,
-      ...(left.table !== undefined ? { table: left.table } : {}),
-      ...(left.schema !== undefined ? { schema: left.schema } : {}),
+      ...(left.relation !== undefined ? { relation: left.relation } : {}),
       op,
       right: toQualified(value),
     }
@@ -134,8 +118,7 @@ function cmpLeaf(
   return {
     kind: 'cmp',
     column: left.column,
-    ...(left.table !== undefined ? { table: left.table } : {}),
-    ...(left.schema !== undefined ? { schema: left.schema } : {}),
+    ...(left.relation !== undefined ? { relation: left.relation } : {}),
     op,
     value,
   }
@@ -503,4 +486,4 @@ export function cmp(
   return cmpLeaf(column, op, value)
 }
 
-export { columnName, columnSchema, columnTable, colRef, isColumnRef, toQualified }
+export { columnName, columnRelation, colRef, isColumnRef, toQualified }

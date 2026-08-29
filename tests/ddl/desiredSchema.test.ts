@@ -563,7 +563,10 @@ describe('whole-graph desired-schema lowering', () => {
 
     const dialectMap = vi.fn((_dataType: string, value: unknown) => `dialect:${value}`)
     const dialectMapper = createValueMapper(
-      { ...postgresDialect, mapParamValue: dialectMap },
+      {
+        ...postgresDialect,
+        query: { ...postgresDialect.query, mapParamValue: dialectMap },
+      },
       undefined,
       [Source, Target],
     )

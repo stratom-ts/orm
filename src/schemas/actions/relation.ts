@@ -73,3 +73,21 @@ export function createRelationInput(
     ? { relation }
     : { namespace: [...input.namespace], relation }
 }
+
+/** Compares authored relation intent without flattening namespace identifiers. */
+export function sameRelationInput(
+  left: RelationIdentityInput,
+  right: RelationIdentityInput,
+): boolean {
+  if (left.relation !== right.relation) return false
+  const leftNamespace = left.namespace ?? []
+  const rightNamespace = right.namespace ?? []
+  return (
+    leftNamespace.length === rightNamespace.length &&
+    leftNamespace.every(
+      (segment, index) =>
+        segment.role === rightNamespace[index]?.role &&
+        segment.spelling === rightNamespace[index]?.spelling,
+    )
+  )
+}
