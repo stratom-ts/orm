@@ -5,8 +5,33 @@ import { SchemaError } from '@/utils/error'
 import { postgresDialect } from './postgres'
 import type { Dialect } from './types'
 
-const DIALECTS: Partial<Record<SQLDialect, Dialect>> = {
-  postgresql: postgresDialect,
+const DIALECTS = new Map<string, Dialect>([[postgresDialect.id, postgresDialect]])
+
+/**
+ * Registers an isolated contract-test dialect and returns exact cleanup.
+ *
+ * This seam intentionally is not exported by the dialect barrel: production support
+ * remains the static PostgreSQL registration above.
+ */
+export function registerDialectForTest(dialect: Dialect): () => void {
+  if (
+    typeof dialect.id !== 'string' ||
+    dialect.id.length === 0 ||
+    dialect.id.trim() !== dialect.id ||
+    dialect.id.includes('\0')
+  ) {
+    throw new SchemaError({ message: 'dialect id must be a non-empty identifier' })
+  }
+
+  if (DIALECTS.has(dialect.id)) {
+    throw new SchemaError({ message: `dialect "${dialect.id}" is already registered` })
+  }
+
+  DIALECTS.set(dialect.id, dialect)
+
+  return () => {
+    if (DIALECTS.get(dialect.id) === dialect) DIALECTS.delete(dialect.id)
+  }
 }
 
 /**
@@ -22,11 +47,11 @@ const DIALECTS: Partial<Record<SQLDialect, Dialect>> = {
  * @throws SchemaError - When the connector dialect is not supported
  */
 export function resolveDialect(id: SQLDialect): Dialect {
-  const dialect = DIALECTS[id]
+  const dialect = DIALECTS.get(id)
 
   if (!dialect) {
     throw new SchemaError({
-      message: `unsupported connector dialect "${id}"; supported: postgresql`,
+      message: `unsupported connector dialect "${id}"; supported: ${[...DIALECTS.keys()].join(', ')}`,
     })
   }
 

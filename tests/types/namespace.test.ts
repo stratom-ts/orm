@@ -1,11 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest'
 
-import type {
-  NamespaceContext,
-  NamespaceIdentifierInput,
-  NamespaceRole,
-  RelationIdentityAdapter,
-} from '@/index'
+import type { NamespaceContext, NamespaceIdentifierInput, NamespaceRole } from '@/index'
 
 describe('public migration namespace types', () => {
   it('exports the custom dialect namespace contract', () => {
@@ -16,6 +11,5 @@ describe('public migration namespace types', () => {
     expectTypeOf<NamespaceContext>().toEqualTypeOf<
       Readonly<{ writableDefault: readonly NamespaceIdentifierInput[] }>
     >()
-    expectTypeOf<RelationIdentityAdapter>().toEqualTypeOf<'postgresql' | 'sqlite'>()
   })
 })

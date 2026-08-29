@@ -14,6 +14,7 @@ import type {
   DialectOperations,
   DialectQuery,
   DialectSchema,
+  OperationCommand,
 } from '@/index'
 import type { NamespaceContext } from '@/migrations/canonicalRelationIdentity'
 
@@ -25,27 +26,24 @@ describe('public dialect member contract', () => {
     expectTypeOf<Dialect['query']>().toEqualTypeOf<DialectQuery>()
     expectTypeOf<Dialect['operations']>().toEqualTypeOf<DialectOperations>()
     expectTypeOf<Dialect['migration']>().toEqualTypeOf<DialectMigrationAdapter>()
+    expectTypeOf<
+      Parameters<DialectOperations['compile']>[0]
+    >().toEqualTypeOf<OperationCommand>()
     expectTypeOf<DialectNaming>().not.toHaveProperty('comparisonKey')
     expectTypeOf<DialectNaming>().not.toHaveProperty('maximumLength')
     expectTypeOf<DialectNaming>().not.toHaveProperty('scope')
     expectTypeOf<CreateDatabaseConfig>().not.toHaveProperty('dialect')
   })
 
-  it('exposes PostgreSQL behavior through reference-identical transitional aliases', () => {
-    expect(postgresDialect.relationIdentity).toBe('postgresql')
-    expect(postgresDialect.schema.lowerDesiredSchema).toBe(
-      postgresDialect.lowerDesiredSchema,
-    )
-    expect(postgresDialect.schema.inferColumnType).toBe(postgresDialect.inferColumnType)
-    expect(postgresDialect.schema.normalizeDataType).toBe(
-      postgresDialect.normalizeDataType,
-    )
-    expect(postgresDialect.schema.normalizeDefaultValue).toBe(
-      postgresDialect.normalizeDefaultValue,
-    )
-    expect(postgresDialect.query.compile).toBe(postgresDialect.compile)
-    expect(postgresDialect.query.mapResultValue).toBe(postgresDialect.mapResultValue)
-    expect(postgresDialect.query.mapParamValue).toBe(postgresDialect.mapParamValue)
+  it('exposes PostgreSQL behavior only through cohesive facets', () => {
+    expectTypeOf<Dialect>().not.toHaveProperty('relationIdentity')
+    expectTypeOf<Dialect>().not.toHaveProperty('lowerDesiredSchema')
+    expectTypeOf<Dialect>().not.toHaveProperty('inferColumnType')
+    expectTypeOf<Dialect>().not.toHaveProperty('normalizeDataType')
+    expectTypeOf<Dialect>().not.toHaveProperty('normalizeDefaultValue')
+    expectTypeOf<Dialect>().not.toHaveProperty('compile')
+    expectTypeOf<Dialect>().not.toHaveProperty('mapResultValue')
+    expectTypeOf<Dialect>().not.toHaveProperty('mapParamValue')
     expect(postgresDialect.operations.createSessionProvider).toBe(
       createDb0PostgresqlOperationSessionProvider,
     )

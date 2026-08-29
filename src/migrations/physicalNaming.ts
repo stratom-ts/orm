@@ -1,9 +1,6 @@
 import { InvariantError } from '@/utils/error'
 
-import type {
-  CanonicalRelationIdentity,
-  RelationIdentityAdapter,
-} from './canonicalRelationIdentity'
+import type { CanonicalRelationIdentity } from './canonicalRelationIdentity'
 
 export type GeneratedPhysicalNameKind =
   | 'index'
@@ -26,7 +23,7 @@ export type PhysicalNameSeed = Readonly<{
 }>
 
 export type PhysicalNamingProfile = Readonly<{
-  id: 'postgresql' | 'sqlite-fixture' | 'table-local-fixture'
+  id: string
   maximumLength: number
   lengthUnit: 'utf8Bytes' | 'unicodeScalars'
   comparisonKey(name: string): string
@@ -34,107 +31,6 @@ export type PhysicalNamingProfile = Readonly<{
     kind: PhysicalNameKind,
   ): 'namespaceRelations' | 'relationConstraints' | 'tableLocal'
 }>
-
-/**
- * Returns a name unchanged for exact identifier comparison.
- *
- * @example
- *   POSTGRES_PHYSICAL_NAMING.comparisonKey('Users')
- *
- * @param name - Identifier spelling.
- */
-function exactKey(name: string): string {
-  return name
-}
-
-/**
- * Folds ASCII uppercase characters for SQLite fixture comparison.
- *
- * @example
- *   SQLITE_PHYSICAL_NAMING_FIXTURE.comparisonKey('Users')
- *
- * @param name - Identifier spelling.
- */
-function sqliteKey(name: string): string {
-  let key = ''
-
-  for (const character of name) {
-    const code = character.charCodeAt(0)
-    key += code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : character
-  }
-
-  return key
-}
-
-export const POSTGRES_PHYSICAL_NAMING: PhysicalNamingProfile = {
-  id: 'postgresql',
-  maximumLength: 63,
-  lengthUnit: 'utf8Bytes',
-  comparisonKey: exactKey,
-  /**
-   * Selects the PostgreSQL uniqueness scope for a physical name.
-   *
-   * @example
-   *   POSTGRES_PHYSICAL_NAMING.scope('index')
-   *
-   * @param kind - Physical-name kind.
-   */
-  scope: (kind) =>
-    kind === 'foreignKey' || kind === 'check'
-      ? 'relationConstraints'
-      : 'namespaceRelations',
-}
-
-/** SQLite naming semantics fixture; this is not a production SQLite dialect. */
-export const SQLITE_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
-  id: 'sqlite-fixture',
-  maximumLength: 255,
-  lengthUnit: 'unicodeScalars',
-  comparisonKey: sqliteKey,
-  /**
-   * Selects the SQLite fixture uniqueness scope for a physical name.
-   *
-   * @example
-   *   SQLITE_PHYSICAL_NAMING_FIXTURE.scope('unique')
-   *
-   * @param kind - Physical-name kind.
-   */
-  scope: (kind) =>
-    kind === 'foreignKey' || kind === 'check'
-      ? 'relationConstraints'
-      : 'namespaceRelations',
-}
-
-/** Adapter fixture proving that index names may be table-local. */
-export const TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
-  id: 'table-local-fixture',
-  maximumLength: 64,
-  lengthUnit: 'unicodeScalars',
-  comparisonKey: sqliteKey,
-  /**
-   * Selects the table-local uniqueness scope.
-   *
-   * @example
-   *   TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE.scope('index')
-   */
-  scope: () => 'tableLocal',
-}
-
-/**
- * Selects the physical naming profile for a relation identity adapter.
- *
- * @example
- *   const profile = physicalNamingProfile('postgresql')
- *
- * @param adapter - Relation identity adapter.
- */
-export function physicalNamingProfile(
-  adapter: RelationIdentityAdapter,
-): PhysicalNamingProfile {
-  return adapter === 'postgresql'
-    ? POSTGRES_PHYSICAL_NAMING
-    : SQLITE_PHYSICAL_NAMING_FIXTURE
-}
 
 /**
  * Projects an identity into its canonical digest tuple.
@@ -236,7 +132,7 @@ const SUFFIX: Record<GeneratedPhysicalNameKind, string> = {
  * Generates a deterministic physical name within a profile's length limit.
  *
  * @example
- *   const name = generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING)
+ *   const name = generatePhysicalName(seed, profile)
  *
  * @param seed - Canonical physical-name seed.
  * @param profile - Physical naming profile.

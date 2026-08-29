@@ -30,12 +30,6 @@ export type CanonicalRelationIdentity = Readonly<{
   relation: CanonicalIdentifier
 }>
 
-/**
- * Legacy adapter label retained for fixture callers. Production identity
- * construction is supplied by the selected Dialect identity member.
- */
-export type RelationIdentityAdapter = 'postgresql' | 'sqlite'
-
 /** Low-level identity rules implemented by an individual dialect member. */
 export type CanonicalRelationIdentityPolicy = Readonly<{
   id: string
@@ -128,46 +122,6 @@ function assertIdentifier(spelling: string, description: string): void {
 }
 
 /**
- * Folds ASCII uppercase characters for SQLite identifier comparison.
- *
- * @param spelling - Authored identifier spelling.
- */
-function sqliteComparisonKey(spelling: string): string {
-  let key = ''
-
-  for (const character of spelling) {
-    const code = character.charCodeAt(0)
-    key += code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : character
-  }
-
-  return key
-}
-
-/**
- * Produces an adapter-specific identifier comparison key.
- *
- * @param adapter - Relation identity adapter.
- * @param spelling - Authored identifier spelling.
- */
-function adapterPolicy(
-  adapter: RelationIdentityAdapter,
-): CanonicalRelationIdentityPolicy {
-  if (adapter === 'sqlite') {
-    return {
-      id: adapter,
-      comparisonKey: sqliteComparisonKey,
-      resolveNamespace: resolveSqliteNamespace,
-    }
-  }
-
-  return {
-    id: adapter,
-    comparisonKey: (spelling) => spelling,
-    resolveNamespace: resolvePostgresNamespace,
-  }
-}
-
-/**
  * Validates and canonicalizes an identifier.
  *
  * @param adapter - Relation identity adapter.
@@ -200,68 +154,6 @@ function canonicalSegment(
 }
 
 /**
- * Asserts that namespace roles exactly match an ordered role list.
- *
- * @param namespace - Namespace segments to validate.
- * @param roles - Required ordered roles.
- * @param description - Namespace description used in errors.
- */
-function requireRoles(
-  namespace: readonly NamespaceIdentifierInput[],
-  roles: readonly NamespaceRole[],
-  description: string,
-): void {
-  if (
-    namespace.length !== roles.length ||
-    namespace.some((segment, index) => segment.role !== roles[index])
-  ) {
-    throw new InvariantError(`${description} must have ordered roles ${roles.join(', ')}`)
-  }
-}
-
-/**
- * Resolves and validates a PostgreSQL relation namespace.
- *
- * @param selected - Selected relation namespace.
- * @param writableDefault - Session writable namespace.
- */
-function resolvePostgresNamespace(
-  selected: readonly NamespaceIdentifierInput[],
-  writableDefault: readonly NamespaceIdentifierInput[],
-): readonly NamespaceIdentifierInput[] {
-  requireRoles(writableDefault, ['database', 'schema'], 'PostgreSQL writable default')
-
-  if (selected.length === 1 && selected[0]?.role === 'schema') {
-    return [writableDefault[0]!, selected[0]]
-  }
-
-  requireRoles(selected, ['database', 'schema'], 'PostgreSQL relation namespace')
-
-  if (selected[0]!.spelling !== writableDefault[0]!.spelling) {
-    throw new InvariantError(
-      'PostgreSQL relation database must match the writable database',
-    )
-  }
-
-  return selected
-}
-
-/**
- * Resolves and validates a SQLite fixture relation namespace.
- *
- * @param selected - Selected relation namespace.
- * @param writableDefault - Session writable namespace.
- */
-function resolveSqliteNamespace(
-  selected: readonly NamespaceIdentifierInput[],
-  writableDefault: readonly NamespaceIdentifierInput[],
-): readonly NamespaceIdentifierInput[] {
-  requireRoles(writableDefault, ['database'], 'SQLite writable default')
-  requireRoles(selected, ['database'], 'SQLite relation namespace')
-  return selected
-}
-
-/**
  * Projects a canonical relation identity into ordered registry parts.
  *
  * @param identity - Canonical relation identity.
@@ -284,7 +176,7 @@ function identityParts(
  *
  * @example
  *   const identities = createCanonicalRelationIdentityModule({
- *     adapter: 'postgresql',
+ *     policy,
  *     context: {
  *       writableDefault: [
  *         { role: 'database', spelling: 'app' },
@@ -293,30 +185,14 @@ function identityParts(
  *     },
  *   })
  *
- * @param options - Identity policy (or transitional adapter), writable context,
- *   and optional registration default.
+ * @param options - Identity policy, writable context, and optional registration default.
  */
-export function createCanonicalRelationIdentityModule(
-  options:
-    | {
-        policy: CanonicalRelationIdentityPolicy
-        adapter?: never
-        context: NamespaceContext
-        registrationDefault?: readonly NamespaceIdentifierInput[]
-      }
-    | {
-        /** @deprecated Supply an open policy from the selected identity member. */
-        adapter: RelationIdentityAdapter
-        policy?: never
-        context: NamespaceContext
-        registrationDefault?: readonly NamespaceIdentifierInput[]
-      },
-): CanonicalRelationIdentityModule {
-  const { context, registrationDefault } = options
-  const policy =
-    'policy' in options && options.policy !== undefined
-      ? options.policy
-      : adapterPolicy(options.adapter)
+export function createCanonicalRelationIdentityModule(options: {
+  policy: CanonicalRelationIdentityPolicy
+  context: NamespaceContext
+  registrationDefault?: readonly NamespaceIdentifierInput[]
+}): CanonicalRelationIdentityModule {
+  const { context, registrationDefault, policy } = options
 
   /**
    * Resolves an optional namespace against the configured defaults.

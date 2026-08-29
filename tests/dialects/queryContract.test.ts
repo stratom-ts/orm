@@ -32,14 +32,10 @@ describe('dialect query contract', () => {
       ])
       return { sql: 'test member compiled query', params: [] }
     })
-    const legacyCompile = vi.fn(() => {
-      throw new Error('legacy PostgreSQL compilation must not run')
-    })
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
       query: { ...postgresDialect.query, compile: selectedCompile as never },
-      compile: legacyCompile,
     }
 
     const compiled = createTableBuilder({
@@ -55,7 +51,6 @@ describe('dialect query contract', () => {
 
     expect(compiled.sql).toBe('test member compiled query')
     expect(selectedCompile).toHaveBeenCalledOnce()
-    expect(legacyCompile).not.toHaveBeenCalled()
   })
 
   it('keeps omitted qualification omitted for the selected member', () => {

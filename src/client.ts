@@ -438,7 +438,7 @@ export function createDatabase<
       ensureClientOpen()
 
       try {
-        await clientExecutor.execute({ sql: 'select 1', params: [] })
+        await clientExecutor.execute(dialect.operations.compile({ kind: 'ping' }))
       } catch (cause) {
         if (cause instanceof QueryError) throw cause
         throw new QueryError({
@@ -687,7 +687,7 @@ export function createDatabase<
 
       if (!transactionScope) {
         return coordinator.run(async (operation) => {
-          await operation.executor.run({ sql: 'begin', params: [] })
+          await operation.executor.run(dialect.operations.compile({ kind: 'begin' }))
           const scope: TransactionScope = {
             active: true,
             context: { nextSavepointId: 1, poisoned: false },
@@ -707,12 +707,12 @@ export function createDatabase<
             if (!callback.ok) throw callback.error
             if (scope.context.poisoned) throw transactionPoisonedError()
             scope.active = false
-            await operation.executor.run({ sql: 'commit', params: [] })
+            await operation.executor.run(dialect.operations.compile({ kind: 'commit' }))
             return callback.value
           } catch (error) {
             scope.active = false
             const rollback = await attempt(() =>
-              operation.executor.run({ sql: 'rollback', params: [] }),
+              operation.executor.run(dialect.operations.compile({ kind: 'rollback' })),
             )
             if (!rollback.ok) operation.discard()
             throw error
@@ -722,10 +722,12 @@ export function createDatabase<
 
       return scheduleTransactionScope(transactionScope, async () => {
         const rawExecutor = transactionScope.operation.executor
-        const savepointName = `sp_${transactionScope.context.nextSavepointId++}`
+        const savepointId = transactionScope.context.nextSavepointId++
 
         try {
-          await rawExecutor.run({ sql: `savepoint ${savepointName}`, params: [] })
+          await rawExecutor.run(
+            dialect.operations.compile({ kind: 'createSavepoint', id: savepointId }),
+          )
         } catch (error) {
           transactionScope.context.poisoned = true
           transactionScope.operation.discard()
@@ -760,10 +762,12 @@ export function createDatabase<
           if (transactionScope.context.poisoned) throw callbackError
 
           try {
-            await rawExecutor.run({
-              sql: `rollback to savepoint ${savepointName}`,
-              params: [],
-            })
+            await rawExecutor.run(
+              dialect.operations.compile({
+                kind: 'rollbackToSavepoint',
+                id: savepointId,
+              }),
+            )
           } catch {
             transactionScope.context.poisoned = true
             transactionScope.operation.discard()
@@ -771,10 +775,9 @@ export function createDatabase<
           }
 
           try {
-            await rawExecutor.run({
-              sql: `release savepoint ${savepointName}`,
-              params: [],
-            })
+            await rawExecutor.run(
+              dialect.operations.compile({ kind: 'releaseSavepoint', id: savepointId }),
+            )
           } catch {
             transactionScope.context.poisoned = true
             transactionScope.operation.discard()
@@ -787,10 +790,9 @@ export function createDatabase<
         if (transactionScope.context.poisoned) throw transactionPoisonedError()
 
         try {
-          await rawExecutor.run({
-            sql: `release savepoint ${savepointName}`,
-            params: [],
-          })
+          await rawExecutor.run(
+            dialect.operations.compile({ kind: 'releaseSavepoint', id: savepointId }),
+          )
         } catch (error) {
           transactionScope.context.poisoned = true
           transactionScope.operation.discard()

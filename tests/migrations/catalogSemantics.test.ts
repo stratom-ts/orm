@@ -1,12 +1,11 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import {
-  POSTGRES_PHYSICAL_NAMING,
-  generatedUniqueName,
-} from '@/migrations/physicalNaming'
+import { generatedUniqueName } from '@/migrations/physicalNaming'
 
 import type {
   PostgresCatalogForeignKeyFixture as CatalogForeignKey,
@@ -303,7 +302,7 @@ describe('catalog semantic adoption', () => {
 
   it('reserves check and exclusion constraint names against generated constraints', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: namespaceContext,
     })
     const generated = generatedUniqueName(

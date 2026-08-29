@@ -215,18 +215,28 @@ dialect-tagged intent; the selected adapter either lowers the requested form or
 throws `MigrationError`. `physicalType` is keyed by dialect id, so an override
 for another adapter is never selected accidentally.
 
-#### Dialect adapter migration
+#### Dialect member contract
 
-The publicly re-exported `Dialect` contract now requires whole-graph desired-schema
-lowering. Third-party adapters must add and implement:
+`createDatabase({ connector, ... })` selects exactly one complete `Dialect` member from
+`connector.dialect`. Callers do not select identity, migration, query, or operation
+adapters separately. Each supported member owns these cohesive facets:
 
-```typescript
-lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
-```
+- `identity`: identifier comparison and writable-namespace resolution;
+- `naming`: generated physical names, validation, and collision scope;
+- `schema`: whole-graph lowering plus physical type/default normalization;
+- `query`: AST compilation and parameter/result value mapping;
+- `catalog`: scoped catalog observation with explicit supported, unsupported, or
+  unavailable capability evidence;
+- `operations`: connector session adaptation and structured ping, transaction, and
+  savepoint command compilation; and
+- `migration`: planning policies, whole-plan lowering, and physical execution.
 
-The implementation must preserve each table handle and canonical identity while
-returning one physical `CreateTableAst` per table. Adapters should report unsupported
-type mappings and capabilities with `MigrationError`.
+Whole-graph schema lowering preserves every table handle and canonical identity while
+returning one physical `CreateTableAst` per table. Unsupported type mappings and
+migration capabilities fail explicitly with `MigrationError`; catalog capabilities use
+the structured unsupported/unavailable states instead of falling back to PostgreSQL.
+Adding package-supported database behavior is therefore local to one complete member and
+one dispatcher registration. PostgreSQL is currently the only production member.
 
 A tagged literal string is always a literal, while a tagged expression is
 always an expression. By-default identity columns may be omitted on insert or

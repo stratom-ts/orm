@@ -14,6 +14,7 @@ import {
   catalogPrimaryKey as createCatalogPrimaryKey,
   planMigration,
 } from '../helpers/catalog'
+import { SQLITE_IDENTITY_POLICY } from '../helpers/dialectPolicies'
 import {
   columnTarget,
   indexTarget,
@@ -327,7 +328,7 @@ describe('migration ownership', () => {
       { primaryKey: 'id' },
     )
     const sqliteIdentities = createCanonicalRelationIdentityModule({
-      adapter: 'sqlite',
+      policy: SQLITE_IDENTITY_POLICY,
       context: {
         writableDefault: [{ role: 'database', spelling: 'main' }],
       },

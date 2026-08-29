@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { AuthoredDesiredSchema, Dialect } from '@/dialects'
+import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import {
   MigrationError,
   column,
@@ -19,7 +21,6 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import {
-  POSTGRES_PHYSICAL_NAMING,
   createPhysicalNameRegistry,
   generatePhysicalName,
   validatePhysicalName,
@@ -452,7 +453,7 @@ describe('Migration Plan construction', () => {
           registrationDefault?: readonly NamespaceIdentifierInput[]
         }) => {
           const identities = createCanonicalRelationIdentityModule({
-            adapter: 'postgresql',
+            policy: POSTGRES_POLICY,
             ...options,
           })
           identityModules.push(identities)
@@ -542,6 +543,7 @@ describe('Migration Plan construction', () => {
         createSessionProvider: () => {
           throw new Error('fake migration-planning operations are outside this contract')
         },
+        compile,
       },
       migration: {
         planning: {
@@ -561,13 +563,7 @@ describe('Migration Plan construction', () => {
           throw new Error('fake migration execution is outside this contract')
         },
       },
-      relationIdentity: 'postgresql',
       catalog: { introspectCatalog: introspect },
-      lowerDesiredSchema,
-      inferColumnType,
-      normalizeDataType,
-      normalizeDefaultValue,
-      compile,
     }
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,

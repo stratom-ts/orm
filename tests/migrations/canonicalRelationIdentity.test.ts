@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+
+import { SQLITE_IDENTITY_POLICY } from '../helpers/dialectPolicies'
 
 const POSTGRES_CONTEXT = {
   writableDefault: [
@@ -17,7 +20,7 @@ const SQLITE_CONTEXT = {
 describe('canonical relation identity', () => {
   it('preserves spelling and compares ordered namespace roles structurally', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
     const identity = identities.resolve({
@@ -47,7 +50,7 @@ describe('canonical relation identity', () => {
 
   it('keeps dotted, quoted, case-distinct, and Unicode tuples separate', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
     const inputs = [
@@ -70,11 +73,11 @@ describe('canonical relation identity', () => {
 
   it('resolves PostgreSQL omission from registration before session context', () => {
     const sessionIdentities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
     const registeredIdentities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
       registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
     })
@@ -110,7 +113,7 @@ describe('canonical relation identity', () => {
 
   it('treats an empty PostgreSQL namespace as omitted', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
       registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
     })
@@ -128,7 +131,7 @@ describe('canonical relation identity', () => {
 
   it('sorts comparison-key tuples by locale-independent UTF-16 code units', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
     const ordered = ['A', 'Z', 'a', '\u00e9', '\ud83d\ude00']
@@ -143,7 +146,7 @@ describe('canonical relation identity', () => {
 
   it('models PostgreSQL as database/schema/relation', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
 
@@ -167,7 +170,7 @@ describe('canonical relation identity', () => {
 
   it('models SQLite as database-alias/relation with ASCII-insensitive keys', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'sqlite',
+      policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
     const omitted = identities.resolve({ relation: 'Users' })
@@ -195,7 +198,7 @@ describe('canonical relation identity', () => {
 
   it('resolves SQLite omission from registration before session context', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'sqlite',
+      policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
       registrationDefault: [{ role: 'database', spelling: 'audit' }],
     })
@@ -222,7 +225,7 @@ describe('canonical relation identity', () => {
 
   it('compares SQLite namespace roles structurally', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'sqlite',
+      policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
     const identity = identities.resolve({ relation: 'events' })
@@ -236,7 +239,7 @@ describe('canonical relation identity', () => {
 
   it('keeps SQLite tuples collision-free under its comparison keys', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'sqlite',
+      policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
     const inputs = [
@@ -278,7 +281,7 @@ describe('canonical relation identity', () => {
 
   it('sorts SQLite comparison keys by locale-independent UTF-16 code units', () => {
     const identities = createCanonicalRelationIdentityModule({
-      adapter: 'sqlite',
+      policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
     const shuffled = ['\ud83d\ude00', 'Z', '\u00e9', 'a'].map((relation) =>
@@ -297,11 +300,11 @@ describe('canonical relation identity', () => {
 
   it('rejects invalid identifiers and dialect namespace shapes', () => {
     const postgres = createCanonicalRelationIdentityModule({
-      adapter: 'postgresql',
+      policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
     const sqlite = createCanonicalRelationIdentityModule({
-      adapter: 'sqlite',
+      policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
 
