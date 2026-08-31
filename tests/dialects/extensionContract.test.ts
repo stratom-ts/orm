@@ -1,15 +1,16 @@
 import type { Connector } from 'db0'
-import { pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { registerDialectForTest, resolveDialect } from '@/dialects/resolve'
-import { column, createDatabase, defineTable } from '@/index'
 
 import {
   EXTENSION_CONTRACT_DIALECT_ID,
+  EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
   createExtensionContractCalls,
   createExtensionContractDialect,
 } from '../helpers/extensionContractDialect'
+
+import { registerDialectMemberContract } from './dialectMemberContract'
 
 let unregister: (() => void) | undefined
 
@@ -46,110 +47,51 @@ function createContractConnector() {
   }
 }
 
+function createContractRuntime(migration: 'supported' | 'unsupported') {
+  const calls = createExtensionContractCalls()
+  const dialect = createExtensionContractDialect(calls, { migration })
+  const { connector, directMethods, disposed } = createContractConnector()
+  return {
+    dialect,
+    connector,
+    events: calls.events,
+    operationCommands: calls.operationCommands,
+    statements: calls.statements,
+    catalog: () => calls.catalog,
+    selectedConnector: () => calls.connector,
+    disposed,
+    directConnectorMethods: Object.values(directMethods),
+    expected: {
+      queryRows: [
+        {
+          id: 'fixture-result:row-1',
+          label: 'fixture-result:stored-value',
+        },
+      ],
+      querySql: 'fixture query',
+      queryParam: 'fixture-param:authored-value',
+      pingSql: 'fixture operation ping',
+      forbiddenSql: /postgres|pg_|public/i,
+    },
+    migration:
+      migration === 'supported'
+        ? { state: 'supported' as const, outcomes: calls.migrationOutcomes }
+        : {
+            state: 'unsupported' as const,
+            reason: EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
+          },
+  }
+}
+
+registerDialectMemberContract('minimal non-PostgreSQL', () =>
+  createContractRuntime('supported'),
+)
+
+registerDialectMemberContract('explicitly migration-limited', () =>
+  createContractRuntime('unsupported'),
+)
+
 describe('dialect extension contract', () => {
-  it('routes the complete database lifecycle through one connector-selected member', async () => {
-    const calls = createExtensionContractCalls()
-    const member = createExtensionContractDialect(calls)
-    unregister = registerDialectForTest(member)
-    const { connector, directMethods, disposed } = createContractConnector()
-    const Records = defineTable(
-      'records',
-      {
-        id: pipe(
-          string(),
-          column({
-            physicalType: { [EXTENSION_CONTRACT_DIALECT_ID]: 'fixture_id' },
-          }),
-        ),
-        label: string(),
-      },
-      { primaryKey: 'id' },
-    )
-    const db = createDatabase({ connector, schemas: [Records] })
-
-    expect(calls.connector).toBe(connector)
-    await db.ping()
-    const rows = await db
-      .from(Records)
-      .where(Records.label, 'eq', 'authored-value')
-      .execute()
-    expect(rows).toEqual([
-      {
-        id: 'fixture-result:row-1',
-        label: 'fixture-result:stored-value',
-      },
-    ])
-    expect(
-      calls.statements.find((statement) => statement.sql === 'fixture query')?.params,
-    ).toEqual(['fixture-param:authored-value'])
-
-    await db.transaction(async (transaction) => {
-      await transaction.ping()
-      await transaction.transaction(async (nested) => nested.ping())
-      await expect(
-        transaction.transaction(async () => {
-          throw new Error('nested contract rollback')
-        }),
-      ).rejects.toThrow('nested contract rollback')
-    })
-    await expect(
-      db.transaction(async () => {
-        throw new Error('root contract rollback')
-      }),
-    ).rejects.toThrow('root contract rollback')
-
-    const dryRun = await db.migrate().dryRun()
-    expect(dryRun.steps.length).toBeGreaterThan(0)
-    await db.migrate().execute()
-    await db.close()
-
-    expect(calls.events).toEqual(
-      expect.arrayContaining([
-        'operations.createSessionProvider',
-        'identity.create',
-        'naming.generate',
-        'naming.validate',
-        'naming.createRegistry',
-        'schema.lowerDesiredSchema',
-        'schema.inferColumnType',
-        'query.compile',
-        'query.mapParamValue',
-        'query.mapResultValue',
-        'catalog.introspect',
-        'migration.execute',
-        'migration.lower',
-        'migration.prepared',
-        'session.open',
-        'session.release:reuse',
-        'sessionProvider.close',
-      ]),
-    )
-    expect(calls.operationCommands).toEqual(
-      expect.arrayContaining([
-        { kind: 'ping' },
-        { kind: 'begin' },
-        { kind: 'commit' },
-        { kind: 'rollback' },
-        { kind: 'createSavepoint', id: 1 },
-        { kind: 'releaseSavepoint', id: 1 },
-        { kind: 'rollbackToSavepoint', id: 2 },
-        { kind: 'releaseSavepoint', id: 2 },
-      ]),
-    )
-    expect(calls.catalog?.capabilities.identity).toEqual({
-      state: 'unsupported',
-      by: 'engine',
-      reason: 'The contract fixture deliberately has no identity generation',
-    })
-    expect(calls.statements.some(({ sql }) => /postgres|pg_|public/i.test(sql))).toBe(
-      false,
-    )
-    expect(disposed()).toBe(true)
-    expect(directMethods.getInstance).not.toHaveBeenCalled()
-    expect(directMethods.exec).not.toHaveBeenCalled()
-    expect(directMethods.prepare).not.toHaveBeenCalled()
-  })
-
   it('keeps contract registration isolated and rejects duplicate members', () => {
     const member = createExtensionContractDialect(createExtensionContractCalls())
     unregister = registerDialectForTest(member)

@@ -1,0 +1,215 @@
+import type { Connector } from 'db0'
+import { describe, expect, it } from 'vitest'
+
+import { createDatabase } from '@/index'
+import {
+  OperationCoordinator,
+  getOperationReleaseCleanupFailures,
+} from '@/operations/coordinator'
+import type { OperationSessionProvider } from '@/operations/operationSession'
+import type { TableHandle } from '@/types'
+
+type Deferred = Readonly<{
+  promise: Promise<void>
+  resolve(): void
+}>
+
+function deferred(): Deferred {
+  let resolve!: () => void
+  return {
+    promise: new Promise<void>((done) => {
+      resolve = done
+    }),
+    resolve,
+  }
+}
+
+export type ProviderContractFactoryOptions = Readonly<{
+  beforeCall?: (session: number, sql: string) => Promise<void>
+  releaseFailure?: Readonly<{ session: number; value: unknown }>
+  mutateIdentityAfterCall?: boolean
+}>
+
+export type ProviderContractControls = Readonly<{
+  provider: OperationSessionProvider
+  events: string[]
+  calls: Array<{ session: number; sql: string }>
+  readonly openCount: number
+  readonly maxActiveCalls: number
+  readonly closeCount: number
+}>
+
+export type ProviderContractFactory = (
+  options?: ProviderContractFactoryOptions,
+) => ProviderContractControls
+
+export type ProviderMigrationContract = Readonly<{
+  connector(): Connector
+  appliedSchemas(): readonly TableHandle[]
+}>
+
+/**
+ * Registers the common contract for an exclusive native operation-session provider.
+ *
+ * Migration scenarios are optional because not every member advertises migration
+ * support. When supplied, the suite also verifies that cleanup retains the member's
+ * acknowledged applied/unchanged outcome.
+ */
+export function registerOperationSessionProviderContract(
+  name: string,
+  createProvider: ProviderContractFactory,
+  migration?: ProviderMigrationContract,
+): void {
+  describe(`${name} operation-session provider contract`, () => {
+    it('provides non-empty stable physical identity and a complete lifecycle', async () => {
+      const controls = createProvider()
+      const session = await controls.provider.open()
+      const identity = session.identity
+
+      expect(identity.database.length).toBeGreaterThan(0)
+      expect(identity.physicalSession.length).toBeGreaterThan(0)
+      await Promise.all([
+        session.query({ sql: 'contract query', params: [] }),
+        session.run({ sql: 'contract run', params: [] }),
+      ])
+      expect(session.identity).toBe(identity)
+      await session.release('reuse')
+      await controls.provider.close()
+
+      expect(controls.events).toContain('release-end:1:reuse')
+      expect(controls.events.at(-1)).toBe('provider-close')
+      expect(controls.maxActiveCalls).toBe(1)
+      expect(controls.closeCount).toBe(1)
+    })
+
+    it('serializes leases and drains release before shutdown', async () => {
+      const started = deferred()
+      const finish = deferred()
+      const controls = createProvider({
+        beforeCall: async (session) => {
+          if (session !== 1) return
+          started.resolve()
+          await finish.promise
+        },
+      })
+      const coordinator = new OperationCoordinator(controls.provider)
+      const first = coordinator.run(({ executor }) =>
+        executor.run({ sql: 'first', params: [] }),
+      )
+      await started.promise
+      const second = coordinator.run(({ executor }) =>
+        executor.run({ sql: 'second', params: [] }),
+      )
+      const close = coordinator.close()
+
+      expect(controls.openCount).toBe(1)
+      expect(controls.events).not.toContain('provider-close')
+      finish.resolve()
+      await Promise.all([first, second, close])
+
+      expect(controls.events.indexOf('release-end:2:reuse')).toBeLessThan(
+        controls.events.indexOf('provider-close'),
+      )
+    })
+
+    it('forwards cancellation and honours discard disposition', async () => {
+      const controls = createProvider()
+      const coordinator = new OperationCoordinator(controls.provider)
+
+      try {
+        await coordinator.run(async ({ cancel, discard }) => {
+          await cancel()
+          discard()
+        })
+
+        expect(controls.events).toContain('cancel:1')
+        expect(controls.events).toContain('release-end:1:discard')
+      } finally {
+        await coordinator.close()
+      }
+    })
+
+    it('discards a session whose physical identity changes', async () => {
+      const controls = createProvider({ mutateIdentityAfterCall: true })
+      const coordinator = new OperationCoordinator(controls.provider)
+
+      try {
+        await expect(
+          coordinator.run(({ executor }) =>
+            executor.run({ sql: 'mutate identity', params: [] }),
+          ),
+        ).rejects.toThrow(/identity changed/i)
+        expect(controls.events).toContain('release-end:1:discard')
+      } finally {
+        await coordinator.close()
+      }
+    })
+
+    it('retains release cleanup without replacing the primary failure', async () => {
+      const primary = new Error('primary operation failure')
+      const release = new Error('release cleanup failure')
+      const controls = createProvider({
+        releaseFailure: { session: 1, value: release },
+      })
+      const coordinator = new OperationCoordinator(controls.provider)
+
+      try {
+        const error = await coordinator
+          .run(async () => {
+            throw primary
+          })
+          .catch((cause: unknown) => cause)
+
+        expect(error).toBe(primary)
+        expect(getOperationReleaseCleanupFailures(error)).toEqual([release])
+      } finally {
+        await coordinator.close()
+      }
+    })
+
+    if (migration) {
+      it('preserves applied and unchanged migration outcomes across release failure', async () => {
+        const release = new Error('migration session release failure')
+        const appliedControls = createProvider({
+          releaseFailure: { session: 1, value: release },
+        })
+        const applied = createDatabase({
+          connector: migration.connector(),
+          operationSessionProvider: appliedControls.provider,
+          schemas: migration.appliedSchemas(),
+        })
+
+        try {
+          await expect(applied.migrate().execute()).rejects.toMatchObject({
+            _tag: 'MigrationError',
+            stage: 'sessionCleanup',
+            outcome: 'applied',
+            cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
+          })
+        } finally {
+          await applied.close()
+        }
+
+        const unchangedControls = createProvider({
+          releaseFailure: { session: 1, value: release },
+        })
+        const unchanged = createDatabase({
+          connector: migration.connector(),
+          operationSessionProvider: unchangedControls.provider,
+          schemas: [],
+        })
+
+        try {
+          await expect(unchanged.migrate().execute()).rejects.toMatchObject({
+            _tag: 'MigrationError',
+            stage: 'sessionCleanup',
+            outcome: 'unchanged',
+            cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
+          })
+        } finally {
+          await unchanged.close()
+        }
+      })
+    }
+  })
+}

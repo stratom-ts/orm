@@ -17,6 +17,8 @@ import {
   defineTable,
 } from '@/index'
 
+import { registerOperationSessionProviderContract } from './dialects/operationSessionProviderContract'
+import type { ProviderContractFactoryOptions } from './dialects/operationSessionProviderContract'
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 
 type Deferred = {
@@ -186,16 +188,16 @@ type ProviderControls = {
   get closeCount(): number
 }
 
-function createControllableProvider(options?: {
-  beforeCall?: (session: number, sql: string) => Promise<void>
-  beforeCancel?: (session: number) => Promise<void>
-  beforeRelease?: (session: number) => Promise<void>
-  failSession?: number
-  openFailure?: { session: number; value: unknown }
-  releaseFailure?: { session: number; value: unknown }
-  closeFailure?: { value: unknown }
-  unlockResult?: boolean
-}): ProviderControls {
+function createControllableProvider(
+  options?: ProviderContractFactoryOptions & {
+    beforeCancel?: (session: number) => Promise<void>
+    beforeRelease?: (session: number) => Promise<void>
+    failSession?: number
+    openFailure?: { session: number; value: unknown }
+    closeFailure?: { value: unknown }
+    unlockResult?: boolean
+  },
+): ProviderControls {
   const events: string[] = []
   const calls: { session: number; sql: string }[] = []
   let openCount = 0
@@ -211,6 +213,11 @@ function createControllableProvider(options?: {
       if (options?.openFailure?.session === id) throw options.openFailure.value
       let released = false
       let queue = Promise.resolve()
+      const identity = {
+        database: 'coordinator_test',
+        physicalSession: `physical-${id}`,
+      }
+      let identityMutated = false
 
       const call = <T>(sql: string, operation: () => Promise<T>): Promise<T> => {
         if (released) throw new Error('released session used')
@@ -226,6 +233,11 @@ function createControllableProvider(options?: {
             return await operation()
           } finally {
             activeCalls--
+
+            if (options?.mutateIdentityAfterCall && !identityMutated) {
+              identityMutated = true
+              identity.physicalSession = `changed-${id}`
+            }
           }
         })
         queue = result.then(
@@ -236,10 +248,7 @@ function createControllableProvider(options?: {
       }
 
       const session: OperationSession = {
-        identity: Object.freeze({
-          database: 'coordinator_test',
-          physicalSession: `physical-${id}`,
-        }),
+        identity,
         query(query) {
           return call(query.sql, async () => {
             if (/current_database\(\)/i.test(query.sql)) {
@@ -324,6 +333,21 @@ function customConnector(): Connector {
     },
   }
 }
+
+registerOperationSessionProviderContract(
+  'custom connector adaptation',
+  createControllableProvider,
+  {
+    connector: customConnector,
+    appliedSchemas: () => [
+      defineTable(
+        'provider_contract_events',
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+        { primaryKey: 'id', schema: 'public' },
+      ),
+    ],
+  },
+)
 
 describe('db0 PostgreSQL operation sessions', () => {
   it('avoids extra round trips for plain operations and fully cleans stateful work', async () => {
@@ -1303,61 +1327,6 @@ describe('client root-operation coordination', () => {
       retryable: false,
     })
     expect(controls.events).toContain('release-start:1:discard')
-    await db.close()
-  })
-
-  it('reports provider release failure after committed DDL as applied session cleanup', async () => {
-    const releaseCause = new Error('provider release failed after DDL')
-    const controls = createControllableProvider({
-      releaseFailure: { session: 1, value: releaseCause },
-    })
-    const Events = defineTable(
-      'release_failure_events',
-      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
-    )
-    const db = createDatabase({
-      connector: customConnector(),
-      operationSessionProvider: controls.provider,
-      schemas: [Events],
-    })
-
-    const error = await db
-      .migrate()
-      .execute()
-      .catch((cause: unknown) => cause)
-    expect(error).toMatchObject({
-      _tag: 'MigrationError',
-      stage: 'sessionCleanup',
-      outcome: 'applied',
-      retryable: false,
-      cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
-    })
-    await db.close()
-  })
-
-  it('reports provider release failure after a committed no-op as unchanged cleanup', async () => {
-    const releaseCause = new Error('provider release failed after no-op')
-    const controls = createControllableProvider({
-      releaseFailure: { session: 1, value: releaseCause },
-    })
-    const db = createDatabase({
-      connector: customConnector(),
-      operationSessionProvider: controls.provider,
-      schemas: [],
-    })
-
-    const error = await db
-      .migrate()
-      .execute()
-      .catch((cause: unknown) => cause)
-    expect(error).toMatchObject({
-      _tag: 'MigrationError',
-      stage: 'sessionCleanup',
-      outcome: 'unchanged',
-      retryable: false,
-      cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
-    })
     await db.close()
   })
 

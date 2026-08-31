@@ -217,6 +217,9 @@ for another adapter is never selected accidentally.
 
 #### Dialect member contract
 
+See the [Dialect maintainer guide](docs/dialects.md) for the complete member,
+connector/session, capability-evidence, registration, and reusable test contracts.
+
 `createDatabase({ connector, ... })` selects exactly one complete `Dialect` member from
 `connector.dialect`. Callers do not select identity, migration, query, or operation
 adapters separately. Each supported member owns these cohesive facets:
