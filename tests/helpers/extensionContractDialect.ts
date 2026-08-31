@@ -28,18 +28,27 @@ import { InvariantError } from '@/utils/error'
 
 /** Real db0 selector used only to prove the test member contract; not production support. */
 export const EXTENSION_CONTRACT_DIALECT_ID = 'sqlite'
+export const EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON =
+  'The contract fixture deliberately does not support migration execution'
 
 export type ExtensionContractCalls = {
   events: string[]
   operationCommands: OperationCommand[]
   compiledAst: SqlAst[]
   statements: Array<{ sql: string; params: unknown[] }>
+  migrationOutcomes: Array<'applied' | 'unchanged'>
   connector?: Connector
   catalog?: CatalogSnapshot
 }
 
 export function createExtensionContractCalls(): ExtensionContractCalls {
-  return { events: [], operationCommands: [], compiledAst: [], statements: [] }
+  return {
+    events: [],
+    operationCommands: [],
+    compiledAst: [],
+    statements: [],
+    migrationOutcomes: [],
+  }
 }
 
 const identityPolicy: CanonicalRelationIdentityPolicy = {
@@ -238,7 +247,10 @@ function createSessionProvider(
   }
 }
 
-export function createExtensionContractDialect(calls: ExtensionContractCalls): Dialect {
+export function createExtensionContractDialect(
+  calls: ExtensionContractCalls,
+  options?: Readonly<{ migration?: 'supported' | 'unsupported' }>,
+): Dialect {
   const identity = createIdentity(calls)
   const naming = createNaming(calls)
   const catalog = createCatalog(calls, identity)
@@ -313,6 +325,18 @@ export function createExtensionContractDialect(calls: ExtensionContractCalls): D
           }
         }
 
+        if (options?.migration === 'unsupported') {
+          return {
+            issues: [
+              {
+                code: 'compile_failure',
+                message: EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
+                sourceStepIndexes: planned.plan.steps.map((_step, index) => index),
+              },
+            ],
+          }
+        }
+
         const actions: MigrationProgram['actions'] = planned.plan.steps.map(
           (step, index) => ({
             sourceStepIndexes: [index],
@@ -333,7 +357,9 @@ export function createExtensionContractDialect(calls: ExtensionContractCalls): D
           for (const statement of action.statements) await options.executor.run(statement)
         }
 
-        return { outcome: program.actions.length === 0 ? 'unchanged' : 'applied' }
+        const outcome = program.actions.length === 0 ? 'unchanged' : 'applied'
+        calls.migrationOutcomes.push(outcome)
+        return { outcome }
       },
     },
   }
