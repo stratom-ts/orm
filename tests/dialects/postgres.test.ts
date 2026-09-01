@@ -21,12 +21,12 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { compilePostgres } from '@/dialects/postgres/compile'
 import type {
-  CatalogRequest,
-  CatalogSnapshot,
-  CreateTableAst,
-  CreateTableColumnAst,
-} from '@/index'
+  PostgresCreateTableAst as CreateTableAst,
+  PostgresCreateTableColumnAst as CreateTableColumnAst,
+} from '@/dialects/postgres/migration/ast'
+import type { CatalogRequest, CatalogSnapshot } from '@/index'
 import { SchemaError, postgresDialect } from '@/index'
 import type { Executor } from '@/query'
 
@@ -138,6 +138,7 @@ function createTable(...columns: CreateTableColumnAst[]): CreateTableAst {
   return {
     kind: 'create_table',
     table: 't',
+    schema: 'public',
     columns,
     primaryKey: ['id'],
   }
@@ -158,7 +159,7 @@ function col(
 }
 
 const { inferColumnType } = postgresDialect.schema
-const { compile } = postgresDialect.query
+const compile = compilePostgres
 
 describe('@/dialects/postgres', () => {
   describe('normalizeDataType', () => {
@@ -339,6 +340,7 @@ describe('@/dialects/postgres', () => {
         compile({
           kind: 'alter_column_type',
           table: 't',
+          schema: 'public',
           column: 'x',
           dataType: 'evil(); drop table x',
         }),
@@ -349,6 +351,7 @@ describe('@/dialects/postgres', () => {
       const sql = compile({
         kind: 'alter_column_type',
         table: 't',
+        schema: 'public',
         column: 'x',
         dataType: 'integer',
       }).sql.toLowerCase()
@@ -361,6 +364,7 @@ describe('@/dialects/postgres', () => {
         compile({
           kind: 'add_column',
           table: 't',
+          schema: 'public',
           column: col('x', { dataType: 'text; drop table y' }),
         }),
       ).toThrow(/unsafe/)

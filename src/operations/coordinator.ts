@@ -170,7 +170,9 @@ export class OperationCoordinator {
 
     return (async () => {
       let session: OperationSession | undefined
-      let disposition: OperationSessionDisposition = 'reuse'
+
+      // Fresh sessions remain discard-only until their capabilities and identity pass.
+      let disposition: OperationSessionDisposition = 'discard'
       let operationFailed = false
       let operationError: unknown
       let result: T | undefined
@@ -178,6 +180,7 @@ export class OperationCoordinator {
         await previous
         session = await this.provider.open()
         assertSession(session)
+        disposition = 'reuse'
         const database = session.identity.database
         const physicalSession = session.identity.physicalSession
         const executor: Executor = {
@@ -233,7 +236,10 @@ export class OperationCoordinator {
               identity: token.identity,
               discard: token.discard,
               /** Cancels work currently running on the pinned session. */
-              cancel: () => session!.cancel(),
+              cancel: () => {
+                disposition = 'discard'
+                return session!.cancel()
+              },
             }),
           )
           .finally(() => {

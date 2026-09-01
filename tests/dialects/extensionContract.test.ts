@@ -72,6 +72,7 @@ function createContractRuntime(migration: 'supported' | 'unsupported') {
       queryParam: 'fixture-param:authored-value',
       pingSql: 'fixture operation ping',
       forbiddenSql: /postgres|pg_|public/i,
+      memberComparison: 'caseFolded' as const,
     },
     migration:
       migration === 'supported'

@@ -214,7 +214,7 @@ function createControllableProvider(
       let released = false
       let queue = Promise.resolve()
       const identity = {
-        database: 'coordinator_test',
+        database: options?.invalidInitialSession === 'identity' ? '' : 'coordinator_test',
         physicalSession: `physical-${id}`,
       }
       let identityMutated = false
@@ -297,6 +297,11 @@ function createControllableProvider(
           events.push(`release-end:${id}:${disposition}`)
         },
       }
+
+      if (options?.invalidInitialSession === 'capability') {
+        Object.assign(session as unknown as { cancel?: unknown }, { cancel: undefined })
+      }
+
       return session
     },
     async close() {

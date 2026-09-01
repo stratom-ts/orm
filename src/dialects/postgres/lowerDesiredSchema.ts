@@ -2,8 +2,8 @@ import type {
   AuthoredDesiredColumn,
   AuthoredDesiredSchema,
   AuthoredDesiredTable,
-  CreateTableColumnAst,
   LoweredDatabaseDefault,
+  LoweredDesiredColumn,
   LoweredDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
@@ -70,11 +70,6 @@ function formatIdentity(identity: CanonicalRelationIdentity, column?: string): s
  *
  * @param identity - Canonical relation identity.
  */
-function postgresSchema(identity: CanonicalRelationIdentity): string | undefined {
-  return identity.namespace.find((segment) => segment.role === 'schema')?.identifier
-    .spelling
-}
-
 /**
  * Returns table columns in deterministic name order.
  *
@@ -293,14 +288,14 @@ function lowerColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
   dataType: string,
-): CreateTableColumnAst {
+): LoweredDesiredColumn {
   const generated = validatePostgresColumn(table, column, dataType)
   const primaryKey = Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
     : [table.metadata.primaryKey]
   const reference = column.reference
   return Object.freeze({
-    name: column.name,
+    identifier: column.identifier,
     dataType,
     notNull: !isSqlNullable(column.schema),
     unique:
@@ -314,12 +309,9 @@ function lowerColumn(
     ...(reference === undefined
       ? {}
       : {
-          references: {
-            table: reference.targetRelation.relation.spelling,
+          reference: {
+            relation: reference.targetRelation,
             column: reference.targetColumn,
-            ...(postgresSchema(reference.targetRelation) === undefined
-              ? {}
-              : { schema: postgresSchema(reference.targetRelation) }),
             ...(reference.metadata.onDelete === undefined
               ? {}
               : { onDelete: reference.metadata.onDelete }),
@@ -379,12 +371,13 @@ export function lowerPostgresDesiredSchema(
       }
 
       const targetColumn = targetTable.columns.find(
-        (column) => column.name === reference.targetColumn,
+        (column) =>
+          column.identifier.comparisonKey === reference.targetColumn.comparisonKey,
       )
 
       if (!targetColumn) {
         throw new MigrationError({
-          message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn)}`,
+          message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn.spelling)}`,
         })
       }
 
@@ -410,7 +403,7 @@ export function lowerPostgresDesiredSchema(
     pending = unresolved
   }
 
-  const loweredColumns = new Map<AuthoredDesiredColumn, CreateTableColumnAst>()
+  const loweredColumns = new Map<AuthoredDesiredColumn, LoweredDesiredColumn>()
 
   for (const table of graph.tables) {
     for (const column of orderedColumns(table)) {
@@ -427,18 +420,23 @@ export function lowerPostgresDesiredSchema(
         return Object.freeze({
           handle: table.handle,
           identity: table.identity,
-          ast: Object.freeze({
-            kind: 'create_table' as const,
-            table: table.metadata.name,
-            ...(postgresSchema(table.identity) === undefined
-              ? {}
-              : { schema: postgresSchema(table.identity) }),
-            // Resolution is sorted for determinism; emitted DDL preserves authored order.
-            columns: Object.freeze(
-              table.columns.map((column) => loweredColumns.get(column)!),
-            ),
-            primaryKey: Object.freeze(primaryKey),
-          }),
+          // Resolution is sorted for determinism; emitted DDL preserves authored order.
+          columns: Object.freeze(
+            table.columns.map((column) => loweredColumns.get(column)!),
+          ),
+          primaryKey: Object.freeze(
+            primaryKey.map((name) => {
+              const column = table.columns.find((candidate) => candidate.name === name)
+
+              if (!column) {
+                throw new MigrationError({
+                  message: `Primary key ${formatIdentity(table.identity, name)} does not name a desired column`,
+                })
+              }
+
+              return column.identifier
+            }),
+          ),
         })
       }),
     ),

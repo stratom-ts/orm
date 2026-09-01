@@ -6,7 +6,7 @@ import type {
   CatalogSet,
   CatalogSnapshot,
 } from '@/dialects/catalog'
-import type { CreateTableAst } from '@/dialects/types'
+import type { LoweredDesiredTable } from '@/dialects/types'
 import type {
   CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
@@ -178,8 +178,24 @@ function keyConstraint(
  * @param desired - Lowered desired table, or undefined for an unmanaged relation.
  * @param name - Column name to find.
  */
-function desiredColumn(desired: CreateTableAst | undefined, name: string) {
-  return desired?.columns.find((column) => column.name === name)
+function desiredColumn(
+  desired: LoweredDesiredTable | undefined,
+  name: string,
+  identities: CanonicalRelationIdentityModule,
+  relation: CanonicalRelationIdentity,
+) {
+  let key: string
+
+  try {
+    key = identities.member('column', name).comparisonKey
+  } catch (cause) {
+    throw new MigrationError({
+      message: `Cannot address column ${JSON.stringify(name)} of ${identities.format(relation)}: ${cause instanceof Error ? cause.message : 'invalid identifier'}`,
+      ...(cause === undefined ? {} : { cause }),
+    })
+  }
+
+  return desired?.columns.find((column) => column.identifier.comparisonKey === key)
 }
 
 /**
@@ -204,7 +220,7 @@ function desiredColumn(desired: CreateTableAst | undefined, name: string) {
 export function catalogForPlanning(
   snapshot: CatalogSnapshot,
   identities: CanonicalRelationIdentityModule,
-  desiredTables: CanonicalRelationRegistry<CreateTableAst>,
+  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
   desiredRelations: readonly CanonicalRelationIdentity[],
   ownership: ResolvedMigrationOwnership,
 ): PlanningCatalog {
@@ -299,7 +315,12 @@ export function catalogForPlanning(
       const desired = desiredTables.get(relation.identity)
 
       const projectedColumns: PlanningCatalogColumn[] = columns.map((column) => {
-        const expected = desiredColumn(desired, column.name)
+        const expected = desiredColumn(
+          desired,
+          column.name,
+          identities,
+          relation.identity,
+        )
         if (!expected) return { name: column.name }
         const dataType = requireFact(
           column.dataType,

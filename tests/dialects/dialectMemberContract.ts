@@ -2,10 +2,12 @@ import type { Connector } from 'db0'
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { planMigration } from '@/ddl/migrationPlan'
 import type { CatalogSnapshot } from '@/dialects/catalog'
 import { registerDialectForTest } from '@/dialects/resolve'
 import type { Dialect, OperationCommand } from '@/dialects/types'
-import { column, createDatabase, defineTable } from '@/index'
+import { column, createDatabase, defineTable, reference } from '@/index'
+import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
 export type DialectMemberContractRuntime = Readonly<{
   dialect: Dialect
@@ -23,6 +25,7 @@ export type DialectMemberContractRuntime = Readonly<{
     queryParam: unknown
     pingSql: string
     forbiddenSql?: RegExp
+    memberComparison: 'caseFolded' | 'caseSensitive'
   }>
   migration:
     | Readonly<{ state: 'supported'; outcomes: Array<'applied' | 'unchanged'> }>
@@ -108,7 +111,27 @@ export function registerDialectMemberContract(
         if (runtime.migration.state === 'supported') {
           await db.migrate().execute()
         } else {
-          await expect(db.migrate().execute()).rejects.toThrow(runtime.migration.reason)
+          const error = await db
+            .migrate()
+            .execute()
+            .catch((cause: unknown) => cause)
+          expect(error).toMatchObject({
+            _tag: 'MigrationError',
+            stage: 'lowering',
+            outcome: 'unchanged',
+            retryable: false,
+            sourceStepIndexes: dryRun.steps.map((_step, index) => index),
+            capabilityIssues: [
+              {
+                code: 'compile_failure',
+                message: runtime.migration.reason,
+                sourceStepIndexes: dryRun.steps.map((_step, index) => index),
+              },
+            ],
+          })
+          expect(
+            runtime.statements.some(({ sql }) => /fixture migration/i.test(sql)),
+          ).toBe(false)
         }
 
         await db.close()
@@ -225,6 +248,435 @@ export function registerDialectMemberContract(
           unregister()
         }
       }
+    })
+
+    it('rejects every mismatched Semantic Profile field before physical lowering', async () => {
+      const runtime = createRuntime()
+      const Records = defineTable(
+        'profile_records',
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_id' } }),
+          ),
+        },
+        { primaryKey: 'id' },
+      )
+      const request = createCatalogRequest([Records], [])
+      const catalog = await runtime.dialect.catalog.introspectCatalog(
+        { execute: async () => [] },
+        request,
+      )
+      const planned = planMigration(
+        [Records],
+        catalog,
+        runtime.dialect.migration.planning,
+      )
+      const expected = {
+        identityAdapter: runtime.dialect.identity.id,
+        namespaceContext: catalog.namespaceContext,
+      }
+      const profiles = [
+        { ...expected, identityAdapter: `${runtime.dialect.identity.id}-other` },
+        {
+          ...expected,
+          namespaceContext: {
+            writableDefault: [{ role: 'database' as const, spelling: 'other_db' }],
+          },
+        },
+        {
+          ...expected,
+          registrationDefault: [
+            { role: 'database' as const, spelling: 'other_registration' },
+          ],
+        },
+        {
+          ...expected,
+          registrationDefault: catalog.namespaceContext.writableDefault,
+        },
+      ]
+
+      for (const profile of profiles) {
+        const result = runtime.dialect.migration.lower(planned, profile)
+        expect(result.program).toBeUndefined()
+        expect(result.issues).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              code: 'profile_mismatch',
+              sourceStepIndexes: [],
+            }),
+          ]),
+        )
+      }
+
+      expect(runtime.statements.some(({ sql }) => /fixture migration/i.test(sql))).toBe(
+        false,
+      )
+      await runtime.connector.dispose?.()
+    })
+
+    it('reconciles case-folded members and preserves structured database references', () => {
+      const runtime = createRuntime()
+      if (runtime.expected.memberComparison !== 'caseFolded') return
+      const namespace = [{ role: 'database' as const, spelling: 'fixture_db' }]
+      const Parents = defineTable(
+        'contract_parents',
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+        },
+        { primaryKey: 'id', namespace },
+      )
+      const Children = defineTable(
+        'contract_children',
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+          parentId: reference(Parents, 'id'),
+          code: pipe(
+            string(),
+            column({
+              physicalType: { [runtime.dialect.id]: 'fixture_text' },
+              unique: true,
+            }),
+          ),
+        },
+        {
+          primaryKey: 'id',
+          namespace,
+          indexes: [
+            { name: 'children_code_idx', columns: ['code'] },
+            { columns: ['parentId'] },
+          ],
+        },
+      )
+      const schemas = [Parents, Children]
+      const namespaceContext = { writableDefault: namespace }
+      const identities = runtime.dialect.identity.create({ context: namespaceContext })
+      const parent = identities.resolve(Parents.getTableMetadata().relation)
+      const child = identities.resolve(Children.getTableMetadata().relation)
+      const request = createCatalogRequest(schemas, [])
+      const resolvedRequest = {
+        relations: request.relations.map((entry) => ({
+          identity: identities.resolve(entry.relation),
+          shape: entry.shape,
+        })),
+        absentRelations: request.absentRelations.map((entry) =>
+          identities.resolve(entry),
+        ),
+        completeNamespaces: request.completeNamespaces.map((entry) =>
+          identities.resolveNamespace(entry),
+        ),
+      }
+      const absent = { state: 'absent' as const }
+      const present = <T>(value: T) => ({ state: 'present' as const, value })
+      const complete = { state: 'complete' as const }
+      const semantics = present({ kind: 'simple' as const })
+      const validity = present('valid' as const)
+      const catalogColumn = (name: string, position: number) => ({
+        name,
+        position,
+        dataType: present({
+          native: 'fixture_text',
+          comparisonKey: 'fixture_text',
+          family: 'text',
+          parameters: [],
+          userDefined: absent,
+        }),
+        nullable: present(false),
+        default: absent,
+        generation: absent,
+        nativeDefinition: absent,
+      })
+      const key = (name: string, columns: readonly string[]) => ({
+        name: present(name),
+        columns,
+        semantics,
+        validity,
+        nativeDefinition: absent,
+      })
+      const generatedIndex = runtime.dialect.naming.generate({
+        kind: 'index',
+        owner: child,
+        columns: ['parentId'],
+        unique: false,
+      })
+      const table = (
+        columns: ReturnType<typeof catalogColumn>[],
+        primaryKey: ReturnType<typeof key>,
+        options?: {
+          uniqueConstraints?: ReturnType<typeof key>[]
+          foreignKeys?: Array<
+            ReturnType<typeof key> & {
+              referencedRelation: typeof parent
+              referencedColumns: readonly string[]
+              onDelete: 'no action'
+              onUpdate: 'no action'
+            }
+          >
+          indexes?: Array<{
+            name: ReturnType<typeof present<string>>
+            origin: 'user'
+            columns: readonly string[]
+            unique: boolean
+            semantics: typeof semantics
+            validity: typeof validity
+            nativeDefinition: typeof absent
+          }>
+        },
+      ) => ({
+        columns: { items: columns, coverage: complete },
+        primaryKey: present(primaryKey),
+        uniqueConstraints: {
+          items: options?.uniqueConstraints ?? [],
+          coverage: complete,
+        },
+        foreignKeys: { items: options?.foreignKeys ?? [], coverage: complete },
+        indexes: { items: options?.indexes ?? [], coverage: complete },
+        options: { items: [], coverage: complete },
+        opaqueObjects: { items: [], coverage: complete },
+      })
+      const snapshot = (
+        withRelations: boolean,
+        duplicates?: {
+          columns?: readonly string[]
+          indexes?: readonly string[]
+        },
+      ): CatalogSnapshot => ({
+        source: { dialect: runtime.dialect.id, version: 'contract-case-folding' },
+        request: resolvedRequest,
+        capabilities: {
+          namespaces: { state: 'supported', fidelity: 'portable' },
+          relationOwner: { state: 'supported', fidelity: 'portable' },
+          identity: { state: 'supported', fidelity: 'portable' },
+          richObjects: { state: 'supported', fidelity: 'portable' },
+        },
+        namespaceContext,
+        namespaces: {
+          items: withRelations
+            ? [
+                {
+                  identity: parent.namespace,
+                  owner: absent,
+                  relations: {
+                    coverage: complete,
+                    items: [
+                      {
+                        identity: parent,
+                        kind: 'table',
+                        persistence: 'permanent',
+                        owner: absent,
+                        management: 'managed',
+                        nativeDefinition: absent,
+                        table: present(
+                          table(
+                            [
+                              catalogColumn('ID', 1),
+                              ...(duplicates?.columns ?? []).map((name, index) =>
+                                catalogColumn(name, index + 2),
+                              ),
+                            ],
+                            key('PARENTS_PK', ['ID']),
+                          ),
+                        ),
+                      },
+                      {
+                        identity: child,
+                        kind: 'table',
+                        persistence: 'permanent',
+                        owner: absent,
+                        management: 'managed',
+                        nativeDefinition: absent,
+                        table: present(
+                          table(
+                            [
+                              catalogColumn('ID', 1),
+                              catalogColumn('PARENTID', 2),
+                              catalogColumn('CODE', 3),
+                            ],
+                            key('CHILDREN_PK', ['ID']),
+                            {
+                              uniqueConstraints: [key('CHILDREN_CODE_KEY', ['CODE'])],
+                              foreignKeys: [
+                                {
+                                  ...key('CHILDREN_PARENT_FK', ['PARENTID']),
+                                  referencedRelation: parent,
+                                  referencedColumns: ['ID'],
+                                  onDelete: 'no action',
+                                  onUpdate: 'no action',
+                                },
+                              ],
+                              indexes: [
+                                {
+                                  name: present('CHILDREN_CODE_IDX'),
+                                  origin: 'user',
+                                  columns: ['CODE'],
+                                  unique: false,
+                                  semantics,
+                                  validity,
+                                  nativeDefinition: absent,
+                                },
+                                {
+                                  name: present(generatedIndex.toUpperCase()),
+                                  origin: 'user',
+                                  columns: ['PARENTID'],
+                                  unique: false,
+                                  semantics,
+                                  validity,
+                                  nativeDefinition: absent,
+                                },
+                                ...(duplicates?.indexes ?? []).map((name) => ({
+                                  name: present(name),
+                                  origin: 'user' as const,
+                                  columns: ['CODE'],
+                                  unique: false,
+                                  semantics,
+                                  validity,
+                                  nativeDefinition: absent,
+                                })),
+                              ],
+                            },
+                          ),
+                        ),
+                      },
+                    ],
+                  },
+                },
+              ]
+            : [],
+          coverage: complete,
+        },
+        nameReservations: { items: [], coverage: complete },
+        constraintNameReservations: { items: [], coverage: complete },
+        diagnostics: [],
+      })
+
+      const matching = planMigration(
+        schemas,
+        snapshot(true),
+        runtime.dialect.migration.planning,
+      )
+      expect(matching.plan.steps).toEqual([])
+
+      const fresh = planMigration(
+        schemas,
+        snapshot(false),
+        runtime.dialect.migration.planning,
+      )
+      const referenceStep = fresh.plan.steps.find(
+        (step) => step.kind === 'add_foreign_key',
+      )
+      expect(referenceStep).toMatchObject({
+        target: {
+          relation: {
+            namespace: [{ role: 'database', identifier: { spelling: 'fixture_db' } }],
+          },
+          column: { spelling: 'parentId', comparisonKey: 'parentid' },
+        },
+        references: {
+          relation: {
+            namespace: [{ role: 'database', identifier: { spelling: 'fixture_db' } }],
+            relation: { spelling: 'contract_parents' },
+          },
+          column: { spelling: 'id', comparisonKey: 'id' },
+        },
+      })
+      expect(
+        fresh.desiredTables
+          .get(child)
+          ?.columns.find((column) => column.identifier.comparisonKey === 'parentid')
+          ?.reference,
+      ).toMatchObject({ relation: parent, column: { comparisonKey: 'id' } })
+
+      const planningMessage = (catalog: CatalogSnapshot) => {
+        try {
+          planMigration(schemas, catalog, runtime.dialect.migration.planning)
+          throw new Error('Expected case-folded duplicate planning to fail')
+        } catch (cause) {
+          return cause instanceof Error ? cause.message : String(cause)
+        }
+      }
+
+      expect([
+        planningMessage(snapshot(true, { columns: ['DUPLICATE', 'duplicate'] })),
+        planningMessage(snapshot(true, { columns: ['duplicate', 'DUPLICATE'] })),
+      ]).toEqual([
+        'Duplicate catalog column [database:"fixture_db", relation:"contract_parents", column:"duplicate"]',
+        'Duplicate catalog column [database:"fixture_db", relation:"contract_parents", column:"duplicate"]',
+      ])
+      expect([
+        planningMessage(snapshot(true, { indexes: ['DUPLICATE_IDX', 'duplicate_idx'] })),
+        planningMessage(snapshot(true, { indexes: ['duplicate_idx', 'DUPLICATE_IDX'] })),
+      ]).toEqual([
+        'Duplicate catalog index [database:"fixture_db", relation:"contract_children", index:"duplicate_idx"]',
+        'Duplicate catalog index [database:"fixture_db", relation:"contract_children", index:"duplicate_idx"]',
+      ])
+
+      const DuplicateColumns = defineTable(
+        'duplicate_columns',
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+          ID: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+        },
+        { primaryKey: 'id', namespace },
+      )
+      expect(() =>
+        planMigration(
+          [DuplicateColumns],
+          snapshot(false),
+          runtime.dialect.migration.planning,
+        ),
+      ).toThrow(/Duplicate desired columns.*column:"ID".*column:"id"/)
+
+      const DuplicateIndexes = defineTable(
+        'duplicate_indexes',
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+          code: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+        },
+        {
+          primaryKey: 'id',
+          namespace,
+          indexes: [
+            { name: 'by_code', columns: ['code'] },
+            { name: 'BY_CODE', columns: ['id'] },
+          ],
+        },
+      )
+      const duplicateIndexRequest = createCatalogRequest([DuplicateIndexes], [])
+      expect(() =>
+        planMigration(
+          [DuplicateIndexes],
+          {
+            ...snapshot(false),
+            request: {
+              relations: duplicateIndexRequest.relations.map((entry) => ({
+                identity: identities.resolve(entry.relation),
+                shape: entry.shape,
+              })),
+              absentRelations: [],
+              completeNamespaces: [],
+            },
+          },
+          runtime.dialect.migration.planning,
+        ),
+      ).toThrow(/Duplicate desired indexes.*index:"BY_CODE".*index:"by_code"/)
     })
 
     it('reports applied and unchanged migration outcomes when advertised', async () => {

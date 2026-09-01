@@ -26,8 +26,10 @@ function deferred(): Deferred {
 
 export type ProviderContractFactoryOptions = Readonly<{
   beforeCall?: (session: number, sql: string) => Promise<void>
+  beforeCancel?: (session: number) => Promise<void>
   releaseFailure?: Readonly<{ session: number; value: unknown }>
   mutateIdentityAfterCall?: boolean
+  invalidInitialSession?: 'identity' | 'capability'
 }>
 
 export type ProviderContractControls = Readonly<{
@@ -122,6 +124,59 @@ export function registerOperationSessionProviderContract(
           discard()
         })
 
+        expect(controls.events).toContain('cancel:1')
+        expect(controls.events).toContain('release-end:1:discard')
+      } finally {
+        await coordinator.close()
+      }
+    })
+
+    it.each(['identity', 'capability'] as const)(
+      'discards a session with invalid initial %s evidence',
+      async (invalidInitialSession) => {
+        const controls = createProvider({ invalidInitialSession })
+        const coordinator = new OperationCoordinator(controls.provider)
+
+        try {
+          await expect(coordinator.run(async () => undefined)).rejects.toThrow(
+            /invalid pinned session/i,
+          )
+          expect(controls.events).toContain('release-end:1:discard')
+          expect(controls.events).not.toContain('release-end:1:reuse')
+        } finally {
+          await coordinator.close()
+        }
+      },
+    )
+
+    it('cancels active unsettled work, settles it, and discards uncertain state', async () => {
+      const started = deferred()
+      const cancelled = deferred()
+      const controls = createProvider({
+        beforeCall: async (_session, sql) => {
+          if (sql !== 'active unsettled') return
+          started.resolve()
+          await cancelled.promise
+        },
+        beforeCancel: async () => cancelled.resolve(),
+      })
+      const coordinator = new OperationCoordinator(controls.provider)
+
+      try {
+        const operation = coordinator.run(async ({ executor, cancel }) => {
+          const unsettled = executor.run({ sql: 'active unsettled', params: [] })
+          await started.promise
+          await cancel()
+          await unsettled
+        })
+        await expect(
+          Promise.race([
+            operation.then(() => 'settled' as const),
+            new Promise<'timeout'>((resolve) =>
+              setTimeout(() => resolve('timeout'), 1_000),
+            ),
+          ]),
+        ).resolves.toBe('settled')
         expect(controls.events).toContain('cancel:1')
         expect(controls.events).toContain('release-end:1:discard')
       } finally {

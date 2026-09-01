@@ -2,6 +2,7 @@ import type { Connector, Statement } from 'db0'
 import { pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { compilePostgres } from '@/dialects/postgres/compile'
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import {
@@ -348,10 +349,10 @@ function matchingUsers(extra?: Partial<LiveTable>): LiveTable {
   }
 }
 
-describe('postgresDialect.query.compile migration steps', () => {
+describe('PostgreSQL migration AST compilation', () => {
   it('compiles constructive descriptive steps', () => {
     expect(
-      postgresDialect.query.compile({
+      compilePostgres({
         kind: 'create_index',
         schema: 'public',
         table: 'users',
@@ -362,7 +363,7 @@ describe('postgresDialect.query.compile migration steps', () => {
     ).toContain('create index "users_email_idx"')
 
     expect(
-      postgresDialect.query.compile({
+      compilePostgres({
         kind: 'add_column',
         schema: 'public',
         table: 'users',
@@ -377,7 +378,7 @@ describe('postgresDialect.query.compile migration steps', () => {
     ).toContain('alter table "public"."users" add column "nickname" text not null')
 
     expect(
-      postgresDialect.query.compile({
+      compilePostgres({
         kind: 'add_unique_constraint',
         schema: 'public',
         table: 'users',
@@ -388,7 +389,7 @@ describe('postgresDialect.query.compile migration steps', () => {
       'alter table "public"."users" add constraint "users_email_key" unique ("email")',
     )
 
-    const foreignKey = postgresDialect.query.compile({
+    const foreignKey = compilePostgres({
       kind: 'add_foreign_key',
       schema: 'public',
       table: 'posts',
@@ -407,7 +408,7 @@ describe('postgresDialect.query.compile migration steps', () => {
 
   it('compiles destructive descriptive steps', () => {
     expect(
-      postgresDialect.query.compile({
+      compilePostgres({
         kind: 'drop_column',
         schema: 'public',
         table: 'users',
@@ -415,7 +416,7 @@ describe('postgresDialect.query.compile migration steps', () => {
       }).sql,
     ).toContain('alter table "public"."users" drop column "legacy"')
     expect(
-      postgresDialect.query.compile({
+      compilePostgres({
         kind: 'drop_index',
         schema: 'public',
         table: 'users',
@@ -423,7 +424,7 @@ describe('postgresDialect.query.compile migration steps', () => {
       }).sql,
     ).toContain('drop index "public"."users_legacy_idx"')
     expect(
-      postgresDialect.query.compile({
+      compilePostgres({
         kind: 'drop_table',
         schema: 'public',
         table: 'orphan',

@@ -212,7 +212,7 @@ export function lowerPostgresMigrationPlan(
     if (missingDesiredTable) {
       issues.push({
         code: 'missing_desired_table',
-        message: `Cannot create table ${planned.identities.format(step.target.relation)}: lowered CreateTableAst not found`,
+        message: `Cannot create table ${planned.identities.format(step.target.relation)}: lowered desired table not found`,
         sourceStepIndexes: [sourceStepIndex],
       })
     }
@@ -227,7 +227,7 @@ export function lowerPostgresMigrationPlan(
           step.target.kind === 'namespace' ? undefined : step.target.relation
         issues.push({
           code: 'missing_desired_table',
-          message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered CreateTableAst not found`,
+          message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered desired table not found`,
           sourceStepIndexes: [sourceStepIndex],
         })
         continue

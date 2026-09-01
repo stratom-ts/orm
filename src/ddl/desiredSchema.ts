@@ -17,15 +17,29 @@ import { MigrationError } from '@/utils/error'
  * @param column - Column name to check.
  */
 function isCandidateKey(table: AuthoredDesiredTable, column: string): boolean {
+  const columnKey = table.columns.find(
+    (candidate) => candidate.identifier.spelling === column,
+  )?.identifier.comparisonKey
+  if (columnKey === undefined) return false
   const primaryKey = Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
     : [table.metadata.primaryKey]
-  if (primaryKey.length === 1 && primaryKey[0] === column) return true
-  const authoredColumn = table.columns.find((candidate) => candidate.name === column)
+  if (
+    primaryKey.length === 1 &&
+    table.columns.find((candidate) => candidate.name === primaryKey[0])?.identifier
+      .comparisonKey === columnKey
+  )
+    return true
+  const authoredColumn = table.columns.find(
+    (candidate) => candidate.identifier.comparisonKey === columnKey,
+  )
   if (authoredColumn?.metadata?.unique) return true
   return (table.metadata.indexes ?? []).some((index) => {
     return (
-      index.unique === true && index.columns.length === 1 && index.columns[0] === column
+      index.unique === true &&
+      index.columns.length === 1 &&
+      table.columns.find((candidate) => candidate.name === index.columns[0])?.identifier
+        .comparisonKey === columnKey
     )
   })
 }
@@ -55,8 +69,10 @@ export function registerDesiredSchema(
       if (!schema || schema.kind !== 'schema') continue
       const reference = getReferenceMetadata(schema)
       const columnMetadata = getColumnMetadata(schema)
+      const identifier = identities.member('column', name)
       columns.push({
         name,
+        identifier,
         schema,
         ...(columnMetadata === undefined ? {} : { metadata: columnMetadata }),
         ...(reference === undefined
@@ -65,7 +81,7 @@ export function registerDesiredSchema(
               reference: {
                 metadata: reference,
                 targetRelation: identities.resolve(reference.target.relation),
-                targetColumn: reference.target.column,
+                targetColumn: identities.member('column', reference.target.column),
               },
             }),
       })
@@ -80,6 +96,30 @@ export function registerDesiredSchema(
     if (table.columns.length === 0) {
       throw new MigrationError({
         message: `table ${identities.format(table.identity)} has no columns`,
+      })
+    }
+
+    const ordered = [...table.columns].sort(
+      (left, right) =>
+        (left.identifier.comparisonKey < right.identifier.comparisonKey
+          ? -1
+          : left.identifier.comparisonKey > right.identifier.comparisonKey
+            ? 1
+            : 0) || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
+    )
+
+    for (let index = 1; index < ordered.length; index++) {
+      const previous = ordered[index - 1]!
+      const current = ordered[index]!
+      if (previous.identifier.comparisonKey !== current.identifier.comparisonKey) continue
+      throw new MigrationError({
+        message: `Duplicate desired columns ${identities.format(table.identity, {
+          role: 'column',
+          spelling: previous.name,
+        })} and ${identities.format(table.identity, {
+          role: 'column',
+          spelling: current.name,
+        })}`,
       })
     }
   }
@@ -114,26 +154,34 @@ export function registerDesiredSchema(
       }
 
       if (
-        !target.columns.some((candidate) => candidate.name === reference.targetColumn)
+        !target.columns.some(
+          (candidate) =>
+            candidate.identifier.comparisonKey === reference.targetColumn.comparisonKey,
+        )
       ) {
         throw new MigrationError({
           message: `Reference ${sourceName} targets missing column ${identities.format(
             referenceIdentity,
             {
               role: 'column',
-              spelling: reference.targetColumn,
+              spelling: reference.targetColumn.spelling,
             },
           )}`,
         })
       }
 
-      if (!isCandidateKey(target, reference.targetColumn)) {
+      const targetSpelling = target.columns.find(
+        (candidate) =>
+          candidate.identifier.comparisonKey === reference.targetColumn.comparisonKey,
+      )!.name
+
+      if (!isCandidateKey(target, targetSpelling)) {
         throw new MigrationError({
           message: `Reference ${sourceName} must target a single-column primary or unique key; ${identities.format(
             referenceIdentity,
             {
               role: 'column',
-              spelling: reference.targetColumn,
+              spelling: reference.targetColumn.spelling,
             },
           )} is not a candidate key`,
         })

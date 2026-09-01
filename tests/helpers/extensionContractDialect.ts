@@ -1,5 +1,6 @@
 import type { Connector } from 'db0'
 
+import type { MigrationSemanticProfile } from '@/ddl/migrationPlan'
 import type { MigrationProgram } from '@/ddl/migrationProgram'
 import type { CatalogRequest, CatalogSnapshot } from '@/dialects/catalog'
 import type {
@@ -75,7 +76,10 @@ const namingProfile: PhysicalNamingProfile = {
   maximumLength: 96,
   lengthUnit: 'unicodeScalars',
   comparisonKey: (name) => name.toLowerCase(),
-  scope: () => 'tableLocal',
+  scope: (kind) =>
+    kind === 'foreignKey' || kind === 'check'
+      ? 'relationConstraints'
+      : 'namespaceRelations',
 }
 
 function createIdentity(calls: ExtensionContractCalls) {
@@ -118,22 +122,33 @@ function lowerSchema(graph: AuthoredDesiredSchema) {
     tables: graph.tables.map((table) => ({
       handle: table.handle,
       identity: table.identity,
-      ast: {
-        kind: 'create_table' as const,
-        table: table.identity.relation.spelling,
-        columns: table.columns.map((column) => ({
-          name: column.name,
-          dataType:
-            column.metadata?.physicalType?.[EXTENSION_CONTRACT_DIALECT_ID] ??
-            'fixture_text',
-          notNull: true,
-          unique: column.metadata?.unique ?? false,
-          autoIncrement: false,
-        })),
-        primaryKey: Array.isArray(table.metadata.primaryKey)
-          ? table.metadata.primaryKey
-          : [table.metadata.primaryKey],
-      },
+      columns: table.columns.map((column) => ({
+        identifier: column.identifier,
+        dataType:
+          column.metadata?.physicalType?.[EXTENSION_CONTRACT_DIALECT_ID] ??
+          'fixture_text',
+        notNull: true,
+        unique: column.metadata?.unique ?? false,
+        autoIncrement: false,
+        ...(column.reference === undefined
+          ? {}
+          : {
+              reference: {
+                relation: column.reference.targetRelation,
+                column: column.reference.targetColumn,
+                ...(column.reference.metadata.onDelete === undefined
+                  ? {}
+                  : { onDelete: column.reference.metadata.onDelete }),
+                ...(column.reference.metadata.onUpdate === undefined
+                  ? {}
+                  : { onUpdate: column.reference.metadata.onUpdate }),
+              },
+            }),
+      })),
+      primaryKey: (Array.isArray(table.metadata.primaryKey)
+        ? table.metadata.primaryKey
+        : [table.metadata.primaryKey]
+      ).map((name) => table.columns.find((column) => column.name === name)!.identifier),
     })),
   }
 }
@@ -247,6 +262,89 @@ function createSessionProvider(
   }
 }
 
+function sameNamespaceInput(
+  identity: ReturnType<typeof createIdentity>,
+  context: NamespaceContext,
+  left: readonly NamespaceIdentifierInput[] | undefined,
+  right: readonly NamespaceIdentifierInput[] | undefined,
+): boolean {
+  const resolve = (input: readonly NamespaceIdentifierInput[] | undefined) => {
+    if (!input?.length) return undefined
+
+    try {
+      return identity.create({ context }).resolveNamespace(input)
+    } catch {
+      return null
+    }
+  }
+
+  const selected = resolve(left)
+  const expected = resolve(right)
+
+  if (selected == null || expected == null) {
+    return selected === undefined && expected === undefined
+  }
+
+  try {
+    return (
+      selected.length === expected.length &&
+      selected.every(
+        (segment, index) =>
+          segment.role === expected[index]?.role &&
+          segment.identifier.comparisonKey === expected[index]?.identifier.comparisonKey,
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+function profileIssues(
+  identity: ReturnType<typeof createIdentity>,
+  planned: MigrationSemanticProfile,
+  expected: MigrationSemanticProfile,
+) {
+  const issues: Array<{
+    code: 'profile_mismatch'
+    message: string
+    sourceStepIndexes: readonly number[]
+  }> = []
+  const add = (message: string) =>
+    issues.push({ code: 'profile_mismatch', message, sourceStepIndexes: [] })
+
+  if (planned.identityAdapter !== expected.identityAdapter) {
+    add('Contract fixture identity adapter does not match the executing profile')
+  }
+
+  if (expected.identityAdapter !== identity.id) {
+    add('Executing identity adapter does not select the contract fixture')
+  }
+
+  if (
+    !sameNamespaceInput(
+      identity,
+      expected.namespaceContext,
+      planned.namespaceContext.writableDefault,
+      expected.namespaceContext.writableDefault,
+    )
+  ) {
+    add('Contract fixture writable namespace context does not match')
+  }
+
+  if (
+    !sameNamespaceInput(
+      identity,
+      expected.namespaceContext,
+      planned.registrationDefault,
+      expected.registrationDefault,
+    )
+  ) {
+    add('Contract fixture registration default does not match')
+  }
+
+  return issues
+}
+
 export function createExtensionContractDialect(
   calls: ExtensionContractCalls,
   options?: Readonly<{ migration?: 'supported' | 'unsupported' }>,
@@ -309,21 +407,8 @@ export function createExtensionContractDialect(
       catalog,
       lower(planned, expectedProfile) {
         calls.events.push('migration.lower')
-
-        if (
-          planned.profile.identityAdapter !== identity.id ||
-          expectedProfile.identityAdapter !== identity.id
-        ) {
-          return {
-            issues: [
-              {
-                code: 'profile_mismatch',
-                message: 'Contract fixture received a foreign semantic profile',
-                sourceStepIndexes: [],
-              },
-            ],
-          }
-        }
+        const mismatches = profileIssues(identity, planned.profile, expectedProfile)
+        if (mismatches.length > 0) return { issues: mismatches }
 
         if (options?.migration === 'unsupported') {
           return {
