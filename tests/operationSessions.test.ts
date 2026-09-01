@@ -229,6 +229,11 @@ function createControllableProvider(
 
           try {
             await options?.beforeCall?.(id, sql)
+
+            if (options?.mutationFailure?.session === id) {
+              throw options.mutationFailure.value
+            }
+
             if (options?.failSession === id) throw new Error(`session ${id} failed`)
             return await operation()
           } finally {

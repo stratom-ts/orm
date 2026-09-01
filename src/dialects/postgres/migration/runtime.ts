@@ -43,6 +43,7 @@ function primaryCause(cause: unknown): unknown {
  * @param options.retryable - Whether a safe retry is permitted.
  * @param options.actionIndex - Optional physical action index that failed.
  * @param options.sourceStepIndexes - Optional semantic steps that produced the action.
+ * @param options.capabilityIssues - Deterministic whole-plan lowering evidence to retain.
  * @param options.cleanupFailures - Secondary cleanup failures to retain.
  */
 function executionError(options: {
@@ -52,12 +53,14 @@ function executionError(options: {
   retryable: boolean
   actionIndex?: number
   sourceStepIndexes?: readonly number[]
+  capabilityIssues?: MigrationError['capabilityIssues']
   cleanupFailures?: readonly MigrationCleanupFailure[]
 }): MigrationError {
   const { cause } = options
   const structured = cause instanceof MigrationError ? cause : undefined
   const actionIndex = options.actionIndex ?? structured?.actionIndex
   const sourceStepIndexes = options.sourceStepIndexes ?? structured?.sourceStepIndexes
+  const capabilityIssues = options.capabilityIssues ?? structured?.capabilityIssues
   const cleanupFailures = [
     ...(structured?.cleanupFailures ?? []),
     ...(options.cleanupFailures ?? []),
@@ -73,6 +76,7 @@ function executionError(options: {
     retryable,
     ...(actionIndex === undefined ? {} : { actionIndex }),
     ...(sourceStepIndexes === undefined ? {} : { sourceStepIndexes }),
+    ...(capabilityIssues === undefined ? {} : { capabilityIssues }),
     ...(cleanupFailures.length ? { cleanupFailures } : {}),
   })
 }

@@ -28,6 +28,7 @@ function sourceFiles(path: string): string[] {
 }
 
 const coreFiles = CORE_PATHS.flatMap(sourceFiles)
+const DIALECT_BARREL_RUNTIME_ALLOWLIST = new Set(['resolveDialect'])
 
 function parseSource(text: string, file = 'architecture-fixture.ts'): ts.SourceFile {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
@@ -78,14 +79,11 @@ function isDialectBarrel(specifier: string): boolean {
   return specifier.replaceAll('\\', '/').endsWith('/dialects')
 }
 
-function isEngineMemberName(name: string): boolean {
-  return /(?:postgres(?:ql)?|sqlite|mysql|libsql)/i.test(name)
-}
-
-function concreteBarrelMember(node: ts.Node): string | undefined {
+function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   if (ts.isImportDeclaration(node)) {
     const clause = node.importClause
-    if (!clause || clause.isTypeOnly) return undefined
+    if (!clause) return '*'
+    if (clause.isTypeOnly) return undefined
     if (clause.name) return clause.name.text
     const bindings = clause.namedBindings
     if (!bindings) return undefined
@@ -94,15 +92,20 @@ function concreteBarrelMember(node: ts.Node): string | undefined {
     return bindings.elements.find(
       (element) =>
         !element.isTypeOnly &&
-        isEngineMemberName((element.propertyName ?? element.name).text),
+        !DIALECT_BARREL_RUNTIME_ALLOWLIST.has(
+          (element.propertyName ?? element.name).text,
+        ),
     )?.name.text
   }
 
   if (!ts.isExportDeclaration(node) || node.isTypeOnly) return undefined
   const exports = node.exportClause
-  if (!exports || ts.isNamespaceExport(exports)) return '*'
-  return exports.elements.find((element) =>
-    isEngineMemberName((element.propertyName ?? element.name).text),
+  if (!exports) return '*'
+  if (ts.isNamespaceExport(exports)) return exports.name.text
+  return exports.elements.find(
+    (element) =>
+      !element.isTypeOnly &&
+      !DIALECT_BARREL_RUNTIME_ALLOWLIST.has((element.propertyName ?? element.name).text),
   )?.name.text
 }
 
@@ -111,7 +114,7 @@ function concreteDialectReference(node: ts.Node): string | undefined {
 
   if (specifier) {
     if (isConcreteDialectImport(specifier.text)) return specifier.text
-    if (isDialectBarrel(specifier.text)) return concreteBarrelMember(node)
+    if (isDialectBarrel(specifier.text)) return nonAllowlistedBarrelRuntimeMember(node)
   }
 
   if (
@@ -286,11 +289,25 @@ describe('dialect extension locality architecture', () => {
 
   it.each([
     ["import type { Dialect } from '@/dialects'", false],
+    ["import type DefaultDialect from '@/dialects'", false],
     ["import { resolveDialect } from '@/dialects'", false],
+    ["import { resolveDialect as resolve } from '@/dialects'", false],
+    ["export { resolveDialect } from '@/dialects'", false],
+    ["export { resolveDialect as resolve } from '@/dialects'", false],
+    ["export type { Dialect } from '@/dialects'", false],
     ["import { postgresDialect } from '@/dialects'", true],
+    ["import { oracleDialect } from '@/dialects'", true],
     ["import { postgresDialect as selected } from '@/dialects'", true],
     ["import { createDb0PostgresqlOperationSessionProvider } from '@/dialects'", true],
     ["export { sqliteDialect } from '@/dialects'", true],
+    ["export { mssqlDialect } from '@/dialects'", true],
+    ["import { resolveDialect, oracleDialect } from '@/dialects'", true],
+    ["export { resolveDialect, mssqlDialect } from '@/dialects'", true],
+    ["import defaultDialect from '@/dialects'", true],
+    ["import * as dialects from '@/dialects'", true],
+    ["import '@/dialects'", true],
+    ["export * from '@/dialects'", true],
+    ["export * as dialects from '@/dialects'", true],
     ["import { member } from '@/dialects/postgres'", true],
     ["const member = import('@/dialects/postgres')", true],
     ["const members = import('@/dialects')", true],

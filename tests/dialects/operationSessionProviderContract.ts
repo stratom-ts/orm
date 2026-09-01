@@ -29,6 +29,7 @@ export type ProviderContractFactoryOptions = Readonly<{
   beforeCancel?: (session: number) => Promise<void>
   releaseFailure?: Readonly<{ session: number; value: unknown }>
   mutateIdentityAfterCall?: boolean
+  mutationFailure?: Readonly<{ session: number; value: unknown }>
   invalidInitialSession?: 'identity' | 'capability'
 }>
 
@@ -195,6 +196,29 @@ export function registerOperationSessionProviderContract(
           ),
         ).rejects.toThrow(/identity changed/i)
         expect(controls.events).toContain('release-end:1:discard')
+      } finally {
+        await coordinator.close()
+      }
+    })
+
+    it('keeps a call failure primary when identity verification also fails', async () => {
+      const primary = new Error('primary operation failure after identity mutation')
+      const controls = createProvider({
+        mutateIdentityAfterCall: true,
+        mutationFailure: { session: 1, value: primary },
+      })
+      const coordinator = new OperationCoordinator(controls.provider)
+
+      try {
+        const error = await coordinator
+          .run(({ executor }) => executor.run({ sql: 'mutate then fail', params: [] }))
+          .catch((cause: unknown) => cause)
+
+        expect(error).toBeInstanceOf(Error)
+        expect(error).toMatchObject({ cause: primary })
+        expect((error as Error).message).toBe(primary.message)
+        expect(controls.events).toContain('release-end:1:discard')
+        expect(controls.events).not.toContain('release-end:1:reuse')
       } finally {
         await coordinator.close()
       }
