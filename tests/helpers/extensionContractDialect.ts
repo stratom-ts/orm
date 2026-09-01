@@ -25,6 +25,8 @@ import type {
   OperationSession,
   OperationSessionProvider,
 } from '@/operations/operationSession'
+import type { RelationIdentityInput } from '@/schemas'
+import type { TableHandle } from '@/types'
 import { InvariantError } from '@/utils/error'
 
 /** Real db0 selector used only to prove the test member contract; not production support. */
@@ -115,6 +117,55 @@ function createNaming(calls: ExtensionContractCalls) {
 function valueParameters(node: SqlAst): unknown[] {
   if (node.kind !== 'select' || node.where?.kind !== 'cmp') return []
   return node.where.value === undefined ? [] : [node.where.value]
+}
+
+function resolveContractQueryRelation(relation: RelationIdentityInput): {
+  database: string
+  table: string
+} {
+  if (relation.namespace === undefined || relation.namespace.length === 0) {
+    return {
+      database: identityPolicy.comparisonKey('fixture_db'),
+      table: identityPolicy.comparisonKey(relation.relation),
+    }
+  }
+
+  if (
+    relation.namespace.length !== 1 ||
+    relation.namespace[0]?.role !== 'database' ||
+    relation.namespace[0].spelling.length === 0
+  ) {
+    throw new InvariantError(
+      'Extension contract query relations must omit namespace or provide one database segment',
+    )
+  }
+
+  return {
+    database: identityPolicy.comparisonKey(relation.namespace[0].spelling),
+    table: identityPolicy.comparisonKey(relation.relation),
+  }
+}
+
+function findContractQueryRelationMatches(
+  handles: readonly TableHandle[],
+  relation: RelationIdentityInput,
+): readonly TableHandle[] {
+  const expected = resolveContractQueryRelation(relation)
+
+  return handles.filter((handle) => {
+    const candidate = resolveContractQueryRelation(handle.getTableMetadata().relation)
+    return candidate.database === expected.database && candidate.table === expected.table
+  })
+}
+
+function findContractQueryColumnMatches(
+  handle: TableHandle,
+  column: string,
+): readonly string[] {
+  const expected = identityPolicy.comparisonKey(column)
+  return Object.keys(handle.getSchema().entries).filter(
+    (candidate) => identityPolicy.comparisonKey(candidate) === expected,
+  )
 }
 
 function lowerSchema(graph: AuthoredDesiredSchema) {
@@ -370,6 +421,17 @@ export function createExtensionContractDialect(
       calls.events.push('query.compile')
       calls.compiledAst.push(node)
       return { sql: 'fixture query', params: valueParameters(node) }
+    },
+    findRelationMatches(
+      handles: readonly TableHandle[],
+      relation: RelationIdentityInput,
+    ) {
+      calls.events.push('query.findRelationMatches')
+      return findContractQueryRelationMatches(handles, relation)
+    },
+    findColumnMatches(handle: TableHandle, column: string) {
+      calls.events.push('query.findColumnMatches')
+      return findContractQueryColumnMatches(handle, column)
     },
     mapParamValue(_dataType: string, value: unknown) {
       calls.events.push('query.mapParamValue')

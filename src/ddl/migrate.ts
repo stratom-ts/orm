@@ -90,6 +90,20 @@ function withReleaseCleanup(error: MigrationError): MigrationError {
 }
 
 /**
+ * Maps retained coordinator release failures into observable migration cleanup evidence.
+ *
+ * @param cause - Primary rejection that may retain secondary release failures.
+ */
+function sessionCleanupFailures(
+  cause: unknown,
+): readonly Readonly<{ stage: 'sessionCleanup'; cause: unknown }>[] {
+  return getOperationReleaseCleanupFailures(cause).map((failure) => ({
+    stage: 'sessionCleanup' as const,
+    cause: failure,
+  }))
+}
+
+/**
  * Resolves and validates the finite migration lock deadline.
  *
  * @param options - Migration execution options containing an optional lock timeout.
@@ -251,10 +265,12 @@ export function createMigrateBuilder(options: {
           async (executor) => (await buildPlan(executor)).planned.plan,
         )
       } catch (cause) {
-        if (cause instanceof MigrationError) throw cause
+        if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+        const cleanupFailures = sessionCleanupFailures(cause)
         throw new MigrationError({
           message: cause instanceof Error ? cause.message : 'Migration dry-run failed',
           ...(cause !== undefined ? { cause } : {}),
+          ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
         })
       }
     },
@@ -352,6 +368,7 @@ export function createMigrateBuilder(options: {
         })
       } catch (cause) {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+        const cleanupFailures = sessionCleanupFailures(cause)
 
         if (operationCallbackReturned && runtimeSuccess) {
           throw new MigrationError({
@@ -361,7 +378,7 @@ export function createMigrateBuilder(options: {
             stage: 'sessionCleanup',
             outcome: runtimeSuccess.outcome,
             retryable: false,
-            cleanupFailures: [{ stage: 'sessionCleanup', cause }],
+            cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
           })
         }
 
@@ -372,7 +389,7 @@ export function createMigrateBuilder(options: {
           stage: 'sessionCleanup',
           outcome: 'unchanged',
           retryable: false,
-          cleanupFailures: [{ stage: 'sessionCleanup', cause }],
+          cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
         })
       }
     },

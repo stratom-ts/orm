@@ -23,9 +23,12 @@ import {
   not,
   now,
   or,
+  postgresDialect,
+  reference,
   sum,
   upper,
 } from '@/index'
+import { createValueMapper } from '@/query'
 
 import { createMockPostgresConnector as createMockConnector } from '../helpers/nativePostgresClient'
 
@@ -292,6 +295,158 @@ describe('select compile', () => {
       expect(or(eq(Users.id, 1))).toEqual(eq(Users.id, 1))
       expect(() => and()).toThrow(/at least one predicate/)
       expect(() => or()).toThrow(/at least one predicate/)
+    } finally {
+      await db.close()
+    }
+  })
+
+  it('maps omitted and explicit public relation spellings through PostgreSQL query semantics', async () => {
+    const BareUsers = defineTable(
+      'users',
+      {
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
+      },
+      { primaryKey: 'id' },
+    )
+    const when = new Date('2026-01-02T03:04:05.000Z')
+    const relation = BareUsers.getTableMetadata().relation
+    const connector = createMockConnector({
+      rowsBySql: () => [{ createdAt: when.toISOString() }],
+    })
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    try {
+      const query = db
+        .from(Users)
+        .select(() => [
+          {
+            kind: 'column',
+            relation,
+            column: 'createdAt',
+            alias: 'createdAt',
+          } as const,
+        ])
+        .where({
+          kind: 'cmp',
+          relation,
+          column: 'createdAt',
+          op: 'eq',
+          value: when,
+        })
+
+      expect(query.compile().params).toEqual([when.toISOString()])
+      expect(query.compile().sql).toContain('"public.users"."createdAt"')
+
+      const row = await query.executeTakeFirstOrThrow()
+      const createdAt = row.createdAt as Date
+      expect(createdAt).toBeInstanceOf(Date)
+      expect(createdAt.toISOString()).toBe(when.toISOString())
+    } finally {
+      await db.close()
+    }
+  })
+
+  it('resolves reference column types when PostgreSQL omitted and explicit public qualify the same relation', () => {
+    const BareUsers = defineTable(
+      'users',
+      {
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+    const PublicUsers = defineTable(
+      'users',
+      {
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+      },
+      { primaryKey: 'id', schema: 'public' },
+    )
+    const Posts = defineTable(
+      'posts',
+      {
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        userId: reference(BareUsers, 'id'),
+      },
+      { primaryKey: 'id', schema: 'public' },
+    )
+
+    const mapper = createValueMapper(postgresDialect, undefined, [PublicUsers, Posts])
+
+    expect(mapper.columnTypes(Posts).userId).toBe('integer')
+  })
+
+  it('throws explicitly when omitted and explicit public both match the same query relation', async () => {
+    const BareUsers = defineTable(
+      'users',
+      {
+        id: pipe(
+          number(),
+          column({
+            physicalType: { postgresql: 'integer' },
+            generation: { kind: 'identity', mode: 'byDefault' },
+          }),
+        ),
+        createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
+      },
+      { primaryKey: 'id' },
+    )
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [BareUsers, Users] })
+
+    try {
+      expect(() =>
+        db
+          .from(BareUsers)
+          .innerJoin(Users, eq(BareUsers.id, Users.id))
+          .select(() => [
+            {
+              kind: 'column',
+              relation: { relation: 'users' },
+              column: 'createdAt',
+              alias: 'createdAt',
+            } as const,
+          ])
+          .compile(),
+      ).toThrow(QueryError)
+      expect(() =>
+        db
+          .from(BareUsers)
+          .innerJoin(Users, eq(BareUsers.id, Users.id))
+          .select(() => [
+            {
+              kind: 'column',
+              relation: { relation: 'users' },
+              column: 'createdAt',
+              alias: 'createdAt',
+            } as const,
+          ])
+          .compile(),
+      ).toThrow(/ambiguous in this query/i)
     } finally {
       await db.close()
     }

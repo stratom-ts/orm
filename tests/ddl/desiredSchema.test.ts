@@ -29,6 +29,7 @@ import {
   SQLITE_IDENTITY_POLICY,
   SQLITE_PHYSICAL_NAMING_FIXTURE,
 } from '../helpers/dialectPolicies'
+import { exactQueryAddressing } from '../helpers/queryAddressing'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -155,7 +156,7 @@ function fakeSqliteDialect(): Dialect {
       inferColumnType,
       normalizeDataType,
     },
-    query: { compile },
+    query: { compile, ...exactQueryAddressing() },
     catalog,
     operations: {
       createSessionProvider: () => {

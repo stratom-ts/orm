@@ -218,6 +218,20 @@ function createControllableProvider(
         physicalSession: `physical-${id}`,
       }
       let identityMutated = false
+      let identityReads = 0
+
+      const readIdentity = () => {
+        identityReads++
+
+        if (
+          options?.identityReadFailure?.session === id &&
+          options.identityReadFailure.read === identityReads
+        ) {
+          throw options.identityReadFailure.value
+        }
+
+        return identity
+      }
 
       const call = <T>(sql: string, operation: () => Promise<T>): Promise<T> => {
         if (released) throw new Error('released session used')
@@ -253,7 +267,9 @@ function createControllableProvider(
       }
 
       const session: OperationSession = {
-        identity,
+        get identity() {
+          return readIdentity()
+        },
         query(query) {
           return call(query.sql, async () => {
             if (/current_database\(\)/i.test(query.sql)) {
@@ -352,6 +368,18 @@ registerOperationSessionProviderContract(
     appliedSchemas: () => [
       defineTable(
         'provider_contract_events',
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+        { primaryKey: 'id', schema: 'public' },
+      ),
+    ],
+    planningFailureSchemas: () => [
+      defineTable(
+        'provider_planning_events',
+        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+        { primaryKey: 'id' },
+      ),
+      defineTable(
+        'provider_planning_events',
         { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
         { primaryKey: 'id', schema: 'public' },
       ),

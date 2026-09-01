@@ -11,6 +11,10 @@ import { postgresNaming } from './naming'
 import { normalizePostgresDataType } from './normalize'
 import { compilePostgresOperationCommand } from './operations'
 import { createDb0PostgresqlOperationSessionProvider } from './operationSession'
+import {
+  findPostgresQueryColumnMatches,
+  findPostgresQueryRelationMatches,
+} from './queryAddressing'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
 
 export { createDb0PostgresqlOperationSessionProvider } from './operationSession'
@@ -55,6 +59,8 @@ export const postgresDialect: Dialect = {
   schema: postgresSchema,
   query: {
     compile: compilePostgres,
+    findRelationMatches: findPostgresQueryRelationMatches,
+    findColumnMatches: findPostgresQueryColumnMatches,
     mapResultValue: mapPostgresResultValue,
     mapParamValue: mapPostgresParamValue,
   },

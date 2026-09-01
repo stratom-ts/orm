@@ -6,8 +6,9 @@ import { planMigration } from '@/ddl/migrationPlan'
 import type { CatalogSnapshot } from '@/dialects/catalog'
 import { registerDialectForTest } from '@/dialects/resolve'
 import type { Dialect, OperationCommand } from '@/dialects/types'
-import { column, createDatabase, defineTable, reference } from '@/index'
+import { QueryError, column, createDatabase, defineTable, eq, reference } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
+import { createValueMapper } from '@/query'
 
 export type DialectMemberContractRuntime = Readonly<{
   dialect: Dialect
@@ -677,6 +678,148 @@ export function registerDialectMemberContract(
           runtime.dialect.migration.planning,
         ),
       ).toThrow(/Duplicate desired indexes.*index:"BY_CODE".*index:"by_code"/)
+    })
+
+    it('routes case-folded query relation and member semantics through the selected member', async () => {
+      const runtime = createRuntime()
+      if (runtime.expected.memberComparison !== 'caseFolded') return
+      const unregister = registerDialectForTest(runtime.dialect)
+      const namespace = [{ role: 'database' as const, spelling: 'fixture_db' }]
+      const CanonicalRecords = defineTable(
+        'records',
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+          label: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+        },
+        { primaryKey: 'id', namespace },
+      )
+      const AliasRecords = defineTable(
+        'RECORDS',
+        {
+          ID: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+          LABEL: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+        },
+        {
+          primaryKey: 'ID',
+          namespace: [{ role: 'database', spelling: 'FIXTURE_DB' }],
+        },
+      )
+      const Links = defineTable(
+        'links',
+        {
+          id: pipe(
+            string(),
+            column({ physicalType: { [runtime.dialect.id]: 'fixture_text' } }),
+          ),
+          recordId: reference(AliasRecords, 'ID'),
+        },
+        { primaryKey: 'id', namespace },
+      )
+      const relation = {
+        namespace: [{ role: 'database' as const, spelling: 'FIXTURE_DB' }],
+        relation: 'RECORDS',
+      }
+
+      try {
+        const mapper = createValueMapper(runtime.dialect, undefined, [
+          CanonicalRecords,
+          Links,
+        ])
+        expect(mapper.columnTypes(Links).recordId).toBe('fixture_text')
+
+        const db = createDatabase({
+          connector: runtime.connector,
+          schemas: [CanonicalRecords, Links],
+        })
+
+        try {
+          const rows = await db
+            .from(CanonicalRecords)
+            .select(() => [
+              {
+                kind: 'column',
+                relation,
+                column: 'ID',
+                alias: 'id',
+              } as const,
+              {
+                kind: 'column',
+                relation,
+                column: 'LABEL',
+                alias: 'label',
+              } as const,
+            ])
+            .where({
+              kind: 'cmp',
+              relation,
+              column: 'LABEL',
+              op: 'eq',
+              value: 'authored-value',
+            })
+            .execute()
+
+          expect(rows).toEqual([
+            {
+              id: 'fixture-result:row-1',
+              label: 'fixture-result:stored-value',
+            },
+          ])
+        } finally {
+          await db.close()
+        }
+
+        const ambiguous = createDatabase({
+          connector: runtime.connector,
+          schemas: [CanonicalRecords, AliasRecords],
+        })
+
+        try {
+          expect(() =>
+            ambiguous
+              .from(CanonicalRecords)
+              .innerJoin(AliasRecords, eq(CanonicalRecords.id, AliasRecords.ID))
+              .select(() => [
+                {
+                  kind: 'column',
+                  relation,
+                  column: 'ID',
+                  alias: 'id',
+                } as const,
+              ])
+              .compile(),
+          ).toThrow(QueryError)
+          expect(() =>
+            ambiguous
+              .from(CanonicalRecords)
+              .innerJoin(AliasRecords, eq(CanonicalRecords.id, AliasRecords.ID))
+              .select(() => [
+                {
+                  kind: 'column',
+                  relation,
+                  column: 'ID',
+                  alias: 'id',
+                } as const,
+              ])
+              .compile(),
+          ).toThrow(/ambiguous in this query/i)
+        } finally {
+          await ambiguous.close()
+        }
+      } finally {
+        unregister()
+      }
     })
 
     it('reports applied and unchanged migration outcomes when advertised', async () => {
