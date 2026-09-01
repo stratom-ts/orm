@@ -835,19 +835,20 @@ describe('db.migrate() policy and coordination', () => {
   it('executes no DDL when whole-plan lowering reports a capability issue', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
+    const capabilityIssues = [
+      {
+        code: 'compile_failure' as const,
+        message: 'deterministic capability failure',
+        sourceStepIndexes: [2, 0],
+      },
+      {
+        code: 'invalid_target' as const,
+        message: 'second deterministic capability failure',
+        sourceStepIndexes: [2],
+      },
+    ]
     vi.spyOn(postgresDialect.migration!, 'lower').mockReturnValueOnce({
-      issues: [
-        {
-          code: 'compile_failure',
-          message: 'deterministic capability failure',
-          sourceStepIndexes: [2, 0],
-        },
-        {
-          code: 'invalid_target',
-          message: 'second deterministic capability failure',
-          sourceStepIndexes: [2],
-        },
-      ],
+      issues: capabilityIssues,
     })
 
     const error = await db
@@ -860,10 +861,13 @@ describe('db.migrate() policy and coordination', () => {
       retryable: false,
       sourceStepIndexes: [0, 2],
     })
-    expect(connector.runSql).toContain('rollback')
-    expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
-      false,
+    expect((error as { capabilityIssues?: unknown }).capabilityIssues).toEqual(
+      capabilityIssues,
     )
+    expect(connector.runSql).toContain('rollback')
+    expect(
+      connector.runSql.filter((sql) => /^(?:create|alter|drop)\s/i.test(sql)),
+    ).toHaveLength(0)
     await db.close()
   })
 

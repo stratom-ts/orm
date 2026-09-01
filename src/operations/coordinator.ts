@@ -82,6 +82,43 @@ function assertSession(session: OperationSession): void {
   }
 }
 
+/**
+ * Proves that a validated leased session still identifies the captured physical backend.
+ *
+ * @param session - Leased session to verify before release.
+ * @param expected - Identity captured after initial session validation.
+ */
+function assertStableSessionIdentity(
+  session: OperationSession,
+  expected: OperationSessionIdentity,
+): void {
+  let database: unknown
+  let physicalSession: unknown
+
+  try {
+    const identity = session.identity
+    database = identity?.database
+    physicalSession = identity?.physicalSession
+  } catch (cause) {
+    throw new QueryError({
+      message: 'Unable to verify operation session identity before release',
+      cause,
+    })
+  }
+
+  if (typeof database !== 'string' || typeof physicalSession !== 'string') {
+    throw new QueryError({
+      message: 'Unable to verify operation session identity before release',
+    })
+  }
+
+  if (database !== expected.database || physicalSession !== expected.physicalSession) {
+    throw new QueryError({
+      message: 'Operation session identity changed before release',
+    })
+  }
+}
+
 export type OperationContext = Readonly<{
   executor: Executor
   identity: OperationSessionIdentity
@@ -176,13 +213,16 @@ export class OperationCoordinator {
       let operationFailed = false
       let operationError: unknown
       let result: T | undefined
+      let capturedIdentity: OperationSessionIdentity | undefined
       const operationAttempt = await attempt(async () => {
         await previous
         session = await this.provider.open()
         assertSession(session)
         disposition = 'reuse'
-        const database = session.identity.database
-        const physicalSession = session.identity.physicalSession
+        capturedIdentity = {
+          database: session.identity.database,
+          physicalSession: session.identity.physicalSession,
+        }
         const executor: Executor = {
           /**
            * Executes a query through the pinned operation session.
@@ -245,16 +285,6 @@ export class OperationCoordinator {
           .finally(() => {
             token.active = false
           })
-
-        if (
-          session.identity.database !== database ||
-          session.identity.physicalSession !== physicalSession
-        ) {
-          disposition = 'discard'
-          throw new QueryError({
-            message: 'Operation session identity changed before release',
-          })
-        }
       })
 
       if (!operationAttempt.ok) {
@@ -263,6 +293,21 @@ export class OperationCoordinator {
       }
 
       if (session) {
+        if (capturedIdentity) {
+          const verification = await attempt(async () =>
+            assertStableSessionIdentity(session!, capturedIdentity!),
+          )
+
+          if (!verification.ok) {
+            disposition = 'discard'
+
+            if (!operationFailed) {
+              operationFailed = true
+              operationError = verification.error
+            }
+          }
+        }
+
         const release = await attempt(() => session!.release(disposition))
 
         if (!release.ok) {
