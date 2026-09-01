@@ -1,8 +1,3 @@
-export {
-  type ColumnDefAst,
-  type ColumnReferenceAst,
-  type CreateTableAst,
-} from './createTable'
 export { lowerDesiredSchema, registerDesiredSchema } from './desiredSchema'
 export {
   createMigrateBuilder,

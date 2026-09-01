@@ -106,34 +106,31 @@ function fakeSqliteDialect(): Dialect {
       tables: graph.tables.map((table) => ({
         handle: table.handle,
         identity: table.identity,
-        ast: {
-          kind: 'create_table' as const,
-          table: table.metadata.name,
-          columns: table.columns.map((authored) => {
-            const dataType = authored.reference
-              ? types.get(
-                  `${identityKey(authored.reference.targetRelation)}\0${authored.reference.targetColumn}`,
-                )
-              : types.get(`${identityKey(table.identity)}\0${authored.name}`)
+        columns: table.columns.map((authored) => {
+          const dataType = authored.reference
+            ? types.get(
+                `${identityKey(authored.reference.targetRelation)}\0${authored.reference.targetColumn.spelling}`,
+              )
+            : types.get(`${identityKey(table.identity)}\0${authored.name}`)
 
-            if (dataType === undefined) {
-              throw new MigrationError({
-                message: `fake SQLite requires a resolved physical type for ${authored.name}`,
-              })
-            }
+          if (dataType === undefined) {
+            throw new MigrationError({
+              message: `fake SQLite requires a resolved physical type for ${authored.name}`,
+            })
+          }
 
-            return {
-              name: authored.name,
-              dataType,
-              notNull: true,
-              unique: authored.metadata?.unique ?? false,
-              autoIncrement: false,
-            }
-          }),
-          primaryKey: Array.isArray(table.metadata.primaryKey)
-            ? table.metadata.primaryKey
-            : [table.metadata.primaryKey],
-        },
+          return {
+            identifier: authored.identifier,
+            dataType,
+            notNull: true,
+            unique: authored.metadata?.unique ?? false,
+            autoIncrement: false,
+          }
+        }),
+        primaryKey: (Array.isArray(table.metadata.primaryKey)
+          ? table.metadata.primaryKey
+          : [table.metadata.primaryKey]
+        ).map((name) => table.columns.find((column) => column.name === name)!.identifier),
       })),
     }
   }
@@ -263,13 +260,19 @@ describe('whole-graph desired-schema lowering', () => {
     expect(getColumnMetadata(Child.getSchema().entries.parentId)).toBeUndefined()
     const sqlite = lowerDesiredSchema([Child, Parent], sqliteIdentities(), fake.schema)
 
-    const sqliteParent = sqlite.tables.find((table) => table.ast.table === 'parents')!
-    const sqliteChild = sqlite.tables.find((table) => table.ast.table === 'children')!
+    const sqliteParent = sqlite.tables.find(
+      (table) => table.identity.relation.spelling === 'parents',
+    )!
+    const sqliteChild = sqlite.tables.find(
+      (table) => table.identity.relation.spelling === 'children',
+    )!
     expect(
-      sqliteParent.ast.columns.find((column) => column.name === 'id')?.dataType,
+      sqliteParent.columns.find((column) => column.identifier.spelling === 'id')
+        ?.dataType,
     ).toBe('blob_id')
     expect(
-      sqliteChild.ast.columns.find((column) => column.name === 'parentId')?.dataType,
+      sqliteChild.columns.find((column) => column.identifier.spelling === 'parentId')
+        ?.dataType,
     ).toBe('blob_id')
     expect(inferSpy).not.toHaveBeenCalled()
     expect(normalizeSpy).not.toHaveBeenCalled()
@@ -283,9 +286,12 @@ describe('whole-graph desired-schema lowering', () => {
       postgresIdentities(),
       postgresDialect.schema,
     )
-    const postgresChild = postgres.tables.find((table) => table.ast.table === 'children')!
+    const postgresChild = postgres.tables.find(
+      (table) => table.identity.relation.spelling === 'children',
+    )!
     expect(
-      postgresChild.ast.columns.find((column) => column.name === 'parentId')?.dataType,
+      postgresChild.columns.find((column) => column.identifier.spelling === 'parentId')
+        ?.dataType,
     ).toBe('uuid')
   })
 
@@ -366,8 +372,8 @@ describe('whole-graph desired-schema lowering', () => {
     )
     expect(
       lowered.tables
-        .find((table) => table.ast.table === 'leaf')!
-        .ast.columns.find((value) => value.name === 'id')?.dataType,
+        .find((table) => table.identity.relation.spelling === 'leaf')!
+        .columns.find((value) => value.identifier.spelling === 'id')?.dataType,
     ).toBe('uuid')
 
     const InitialB = defineTable(
@@ -431,9 +437,9 @@ describe('whole-graph desired-schema lowering', () => {
       postgresDialect.schema,
     ).tables
 
-    expect(table!.ast.columns.find((value) => value.name === 'tenantId')?.unique).toBe(
-      true,
-    )
+    expect(
+      table!.columns.find((value) => value.identifier.spelling === 'tenantId')?.unique,
+    ).toBe(true)
   })
 
   it('lowers composed reference metadata without copying target column options', () => {
@@ -479,21 +485,23 @@ describe('whole-graph desired-schema lowering', () => {
       [Source, Target],
       postgresIdentities(),
       postgresDialect.schema,
-    ).tables.find((table) => table.ast.table === 'composed_sources')!
-    const targetId = source.ast.columns.find((value) => value.name === 'targetId')!
-    const nullableTargetId = source.ast.columns.find(
-      (value) => value.name === 'nullableTargetId',
+    ).tables.find((table) => table.identity.relation.spelling === 'composed_sources')!
+    const targetId = source.columns.find(
+      (value) => value.identifier.spelling === 'targetId',
     )!
-    const plainTargetId = source.ast.columns.find(
-      (value) => value.name === 'plainTargetId',
+    const nullableTargetId = source.columns.find(
+      (value) => value.identifier.spelling === 'nullableTargetId',
+    )!
+    const plainTargetId = source.columns.find(
+      (value) => value.identifier.spelling === 'plainTargetId',
     )!
 
     expect(targetId).toMatchObject({
       dataType: 'uuid',
       unique: true,
-      references: {
-        table: 'composed_targets',
-        column: 'id',
+      reference: {
+        relation: { relation: { spelling: 'composed_targets' } },
+        column: { spelling: 'id' },
         onDelete: 'set default',
       },
       databaseDefault: {
@@ -504,11 +512,14 @@ describe('whole-graph desired-schema lowering', () => {
       dataType: 'uuid',
       notNull: false,
       unique: true,
-      references: { table: 'composed_targets', column: 'id' },
+      reference: {
+        relation: { relation: { spelling: 'composed_targets' } },
+        column: { spelling: 'id' },
+      },
     })
-    expect(plainTargetId.references).toMatchObject({
-      table: 'composed_targets',
-      column: 'id',
+    expect(plainTargetId.reference).toMatchObject({
+      relation: { relation: { spelling: 'composed_targets' } },
+      column: { spelling: 'id' },
     })
     expect(plainTargetId).not.toHaveProperty('defaultValue')
     expect(plainTargetId).not.toHaveProperty('databaseDefault')
@@ -711,10 +722,10 @@ describe('PostgreSQL desired-schema lowering', () => {
       [Matching, Target],
       postgresIdentities(),
       postgresDialect.schema,
-    ).tables.find((table) => table.ast.table === 'matching_refs')!
+    ).tables.find((table) => table.identity.relation.spelling === 'matching_refs')!
     expect(
-      matching.ast.columns
-        .filter((value) => value.name !== 'id')
+      matching.columns
+        .filter((value) => value.identifier.spelling !== 'id')
         .map((value) => value.dataType),
     ).toEqual(['integer', 'integer', 'integer'])
 
@@ -807,12 +818,12 @@ describe('PostgreSQL desired-schema lowering', () => {
       postgresIdentities(),
       postgresDialect.schema,
     ).tables[0]!
-    const sql = postgresDialect.query.compile(table.ast).sql
+    const defaults = table.columns.map((column) => column.databaseDefault?.sql)
 
-    expect(sql).toContain(`default 'now()'`)
-    expect(sql).toContain("default E'C:\\\\O''Brien\\\\'")
-    expect(sql).toContain('default current_timestamp')
-    expect(sql).toContain('default now()')
+    expect(defaults).toContain(`'now()'`)
+    expect(defaults).toContain("E'C:\\\\O''Brien\\\\'")
+    expect(defaults).toContain('current_timestamp')
+    expect(defaults).toContain('now()')
   })
 
   it('rejects unbalanced or dollar-quoted dialect expressions', () => {
@@ -1143,9 +1154,13 @@ describe('PostgreSQL desired-schema lowering', () => {
       [Identities],
       postgresIdentities(),
       postgresDialect.schema,
-    ).tables[0]!.ast.columns
+    ).tables[0]!.columns
 
-    expect(columns.find((value) => value.name === 'id')?.generated).toBe('byDefault')
-    expect(columns.find((value) => value.name === 'always')?.generated).toBe('always')
+    expect(columns.find((value) => value.identifier.spelling === 'id')?.generated).toBe(
+      'byDefault',
+    )
+    expect(
+      columns.find((value) => value.identifier.spelling === 'always')?.generated,
+    ).toBe('always')
   })
 })

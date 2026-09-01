@@ -3,7 +3,6 @@ import type {
   MigrationStep,
   PlannedMigration,
 } from '@/ddl/migrationPlan'
-import type { CreateSchemaAst, CreateTableAst, SqlAst } from '@/dialects/types'
 import type {
   CanonicalIdentifier,
   CanonicalRelationIdentity,
@@ -11,6 +10,8 @@ import type {
 import { MigrationError } from '@/utils/error'
 
 import { postgresNaming } from '../naming'
+
+import type { PostgresAst, PostgresCreateTableAst } from './ast'
 
 type PostgresRelationFields = {
   schema: string
@@ -83,10 +84,10 @@ function referenceFields(reference: MigrationColumnReference): PostgresReference
 export function stepToAst(
   step: MigrationStep,
   planned: PlannedMigration,
-): SqlAst | undefined {
+): PostgresAst | undefined {
   switch (step.kind) {
     case 'ensure_namespace': {
-      const ast: CreateSchemaAst = {
+      const ast: PostgresAst = {
         kind: 'create_schema',
         schema: schemaFromNamespace(step.target.namespace),
       }
@@ -96,27 +97,38 @@ export function stepToAst(
       const identity = step.target.relation
       const ast = planned.desiredTables.get(identity)
       if (!ast) return undefined
-      const projected: CreateTableAst = {
-        ...ast,
+      const projected: PostgresCreateTableAst = {
+        kind: 'create_table',
         ...relationFields(identity),
         primaryKeyName: postgresNaming.generate({
           kind: 'primaryKey',
           owner: identity,
-          columns: ast.primaryKey,
+          columns: ast.primaryKey.map((column) => column.spelling),
         }),
         columns: ast.columns.map((column) => ({
-          ...column,
-          references: undefined,
+          name: column.identifier.spelling,
+          dataType: column.dataType,
+          notNull: column.notNull,
+          unique: column.unique,
+          autoIncrement: column.autoIncrement,
+          ...(column.defaultValue === undefined
+            ? {}
+            : { defaultValue: column.defaultValue }),
+          ...(column.databaseDefault === undefined
+            ? {}
+            : { databaseDefault: column.databaseDefault }),
+          ...(column.generated === undefined ? {} : { generated: column.generated }),
           ...(column.unique
             ? {
                 uniqueConstraintName: postgresNaming.generate({
                   kind: 'unique',
                   owner: identity,
-                  columns: [column.name],
+                  columns: [column.identifier.spelling],
                 }),
               }
             : {}),
         })),
+        primaryKey: ast.primaryKey.map((column) => column.spelling),
       }
       return projected
     }

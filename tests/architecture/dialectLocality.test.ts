@@ -42,7 +42,7 @@ function location(source: ts.SourceFile, node: ts.Node): string {
   return `${relative(ROOT, source.fileName)}:${point.line + 1}`
 }
 
-function descendants(source: ts.SourceFile): ts.Node[] {
+function descendants(source: ts.Node): ts.Node[] {
   const nodes: ts.Node[] = []
 
   const visit = (node: ts.Node) => {
@@ -185,6 +185,90 @@ function looksLikePhysicalSql(value: string): boolean {
   )
 }
 
+function containsProperty(node: ts.Node, property: string): boolean {
+  return descendants(node).some(
+    (candidate) =>
+      ts.isPropertyAccessExpression(candidate) && candidate.name.text === property,
+  )
+}
+
+function memberCollectionName(node: ts.Expression): string | undefined {
+  if (!ts.isIdentifier(node)) return undefined
+  return /(?:column|index)(?:names?)?$/i.test(node.text) ||
+    /(?:columns|indexes|columnnames|indexnames)/i.test(node.text)
+    ? node.text
+    : undefined
+}
+
+function isCanonicalMemberArray(node: ts.Expression): boolean {
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'memberKeys'
+  ) {
+    return true
+  }
+
+  return containsProperty(node, 'comparisonKey')
+}
+
+/** Finds generic Migration expressions that use member spellings as semantic keys. */
+function rawMemberComparisonLeaks(source: ts.SourceFile): string[] {
+  return descendants(source).flatMap((node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'arraysEqual' &&
+      node.arguments.some((argument) => !isCanonicalMemberArray(argument))
+    ) {
+      return [`${location(source, node)} compares raw member arrays`]
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ['get', 'has', 'set', 'add'].includes(node.expression.name.text) &&
+      memberCollectionName(node.expression.expression) &&
+      node.arguments[0] &&
+      containsProperty(node.arguments[0], 'name') &&
+      !containsProperty(node.arguments[0], 'comparisonKey')
+    ) {
+      return [`${location(source, node)} keys a member collection by raw name`]
+    }
+
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      (node.expression.text === 'Map' || node.expression.text === 'Set') &&
+      ts.isVariableDeclaration(node.parent) &&
+      ts.isIdentifier(node.parent.name) &&
+      memberCollectionName(node.parent.name) &&
+      node.arguments?.some(
+        (argument) =>
+          containsProperty(argument, 'name') &&
+          !containsProperty(argument, 'comparisonKey'),
+      )
+    ) {
+      return [`${location(source, node)} constructs a member collection from raw names`]
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'compareCodeUnits' &&
+      node.arguments.length === 2 &&
+      node.arguments.every(
+        (argument) =>
+          ts.isPropertyAccessExpression(argument) && argument.name.text === 'name',
+      )
+    ) {
+      return [`${location(source, node)} orders members by raw names`]
+    }
+
+    return []
+  })
+}
+
 describe('dialect extension locality architecture', () => {
   it('keeps concrete dialect imports outside Client, Schema, Query, Migration, and Operations', () => {
     const violations = coreFiles.flatMap((file) => {
@@ -270,6 +354,79 @@ describe('dialect extension locality architecture', () => {
     })
 
     expect(violations).toEqual([])
+  })
+
+  it('keeps physical DDL addressing out of generic Migration and Dialect interfaces', () => {
+    const migrationFiles = sourceFiles('src/ddl')
+    const roleViolations = migrationFiles.flatMap((file) => {
+      const source = parse(file)
+      return descendants(source).flatMap((node) => {
+        if (
+          ts.isPropertyAssignment(node) &&
+          propertyName(node.name) === 'role' &&
+          ts.isStringLiteralLike(node.initializer) &&
+          node.initializer.text === 'schema'
+        ) {
+          return [location(source, node)]
+        }
+
+        return []
+      })
+    })
+    const sharedTypes = parse(join(ROOT, 'src/dialects/types.ts'))
+    const physicalDdlTypes = descendants(sharedTypes).flatMap((node) => {
+      if (
+        (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) &&
+        /^(?:CreateTable|CreateSchema|CreateIndex|AlterTable|AddForeignKey|AddUniqueConstraint|AlterColumn|SetNotNull|Drop)/.test(
+          node.name.text,
+        )
+      ) {
+        return [`${location(sharedTypes, node)} declares ${node.name.text}`]
+      }
+
+      return []
+    })
+    const migrationText = migrationFiles
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n')
+
+    expect(roleViolations).toEqual([])
+    expect(physicalDdlTypes).toEqual([])
+    expect(migrationText).not.toContain('physicalRelationInput')
+  })
+
+  it('uses canonical comparison keys for generic Migration member reconciliation', () => {
+    const source = parse(join(ROOT, 'src/ddl/migrationPlan.ts'))
+    expect(rawMemberComparisonLeaks(source)).toEqual([])
+  })
+
+  it.each([
+    [
+      'canonical arrays',
+      "arraysEqual(memberKeys('column', current.columns, identities), desired.primaryKey.map((column) => column.comparisonKey))",
+      false,
+    ],
+    ['raw arrays', 'arraysEqual(current.columns, desired.primaryKey)', true],
+    ['canonical map key', 'liveColumns.get(desired.identifier.comparisonKey)', false],
+    ['raw map key', 'liveColumns.get(desired.name)', true],
+    [
+      'canonical set construction',
+      'const desiredColumnNames = new Set(createAst.columns.map((column) => column.identifier.comparisonKey))',
+      false,
+    ],
+    [
+      'raw set construction',
+      'const desiredColumnNames = new Set(createAst.columns.map((column) => column.name))',
+      true,
+    ],
+    [
+      'canonical member order',
+      'compareCodeUnits(left.name.comparisonKey, right.name.comparisonKey)',
+      false,
+    ],
+    ['raw member order', 'compareCodeUnits(left.name, right.name)', true],
+  ] as const)('classifies %s comparison', (_label, code, rejected) => {
+    expect(rawMemberComparisonLeaks(parseSource(code)).length > 0).toBe(rejected)
   })
 
   it('allows connector dialect only as the resolver input and forbids policy branches', () => {

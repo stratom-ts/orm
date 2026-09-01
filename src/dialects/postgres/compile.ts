@@ -4,8 +4,6 @@ import { QueryError } from '@/utils/error'
 import type {
   ComparisonOp,
   CompiledQuery,
-  CreateTableAst,
-  CreateTableColumnAst,
   DeleteAst,
   InsertAst,
   JoinAst,
@@ -15,11 +13,15 @@ import type {
   ReturningAst,
   SelectAst,
   SelectItemAst,
-  SqlAst,
   SqlExprAst,
   UpdateAst,
 } from '../types'
 
+import type {
+  PostgresAst,
+  PostgresCreateTableAst,
+  PostgresCreateTableColumnAst,
+} from './migration/ast'
 import { assertSafePostgresDataType, formatPostgresDefault } from './validate'
 
 /**
@@ -644,7 +646,7 @@ function formatReferentialAction(action: string): string {
  * @returns SQL column definition fragment
  */
 function compileColumnDefinition(
-  col: CreateTableColumnAst,
+  col: PostgresCreateTableColumnAst,
   isPrimaryKey = false,
 ): string {
   const safeType = assertSafePostgresDataType(col.dataType)
@@ -701,7 +703,7 @@ function compileColumnDefinition(
  *
  * @returns CREATE TABLE DDL statement
  */
-function compileCreateTable(node: CreateTableAst): string {
+function compileCreateTable(node: PostgresCreateTableAst): string {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
   const primaryKey = [...node.primaryKey]
   const singlePk = primaryKey.length === 1 ? primaryKey[0] : undefined
@@ -760,7 +762,7 @@ function compileCreateIndex(node: {
 function compileAddColumn(node: {
   schema?: string
   table: string
-  column: CreateTableColumnAst
+  column: PostgresCreateTableColumnAst
 }): string {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
   return `alter table ${tableSql} add column ${compileColumnDefinition(node.column)}`
@@ -838,7 +840,7 @@ function compileAddUniqueConstraint(node: {
  *
  * @returns Compiled query with SQL string and bound parameters
  */
-export function compilePostgres(node: SqlAst): CompiledQuery {
+export function compilePostgres(node: PostgresAst): CompiledQuery {
   switch (node.kind) {
     case 'select':
       return compileSelect(node)

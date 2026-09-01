@@ -474,53 +474,42 @@ describe('Migration Plan construction', () => {
       tables: graph.tables.map((table) => ({
         handle: table.handle,
         identity: table.identity,
-        ast: {
-          kind: 'create_table' as const,
-          table: table.metadata.name,
-          ...(table.identity.namespace.find((segment) => segment.role === 'schema') ===
-          undefined
+        columns: table.columns.map((column) => ({
+          identifier: column.identifier,
+          dataType: 'custom_string',
+          notNull: !isSqlNullable(column.schema),
+          unique: column.metadata?.unique ?? false,
+          autoIncrement: false,
+          ...(column.metadata?.databaseDefault === undefined
             ? {}
             : {
-                schema: table.identity.namespace.find(
-                  (segment) => segment.role === 'schema',
-                )!.identifier.spelling,
+                databaseDefault: {
+                  sql: `custom_database:${String(
+                    column.metadata.databaseDefault.kind === 'literal'
+                      ? column.metadata.databaseDefault.value
+                      : column.metadata.databaseDefault.expression,
+                  )}`,
+                  normalized: `custom_database:${String(
+                    column.metadata.databaseDefault.kind === 'literal'
+                      ? column.metadata.databaseDefault.value
+                      : column.metadata.databaseDefault.expression,
+                  )}`,
+                },
               }),
-          columns: table.columns.map((column) => ({
-            name: column.name,
-            dataType: 'custom_string',
-            notNull: !isSqlNullable(column.schema),
-            unique: column.metadata?.unique ?? false,
-            autoIncrement: false,
-            ...(column.metadata?.databaseDefault === undefined
-              ? {}
-              : {
-                  databaseDefault: {
-                    sql: `custom_database:${String(
-                      column.metadata.databaseDefault.kind === 'literal'
-                        ? column.metadata.databaseDefault.value
-                        : column.metadata.databaseDefault.expression,
-                    )}`,
-                    normalized: `custom_database:${String(
-                      column.metadata.databaseDefault.kind === 'literal'
-                        ? column.metadata.databaseDefault.value
-                        : column.metadata.databaseDefault.expression,
-                    )}`,
-                  },
-                }),
-            ...(column.name === 'taggedStatus'
-              ? {
-                  defaultValue: 'legacy',
-                  databaseDefault: {
-                    sql: 'custom_database:ready',
-                    normalized: 'custom_database:ready',
-                  },
-                }
-              : {}),
-          })),
-          primaryKey: Array.isArray(table.metadata.primaryKey)
-            ? table.metadata.primaryKey
-            : [table.metadata.primaryKey],
-        },
+          ...(column.name === 'taggedStatus'
+            ? {
+                defaultValue: 'legacy',
+                databaseDefault: {
+                  sql: 'custom_database:ready',
+                  normalized: 'custom_database:ready',
+                },
+              }
+            : {}),
+        })),
+        primaryKey: (Array.isArray(table.metadata.primaryKey)
+          ? table.metadata.primaryKey
+          : [table.metadata.primaryKey]
+        ).map((name) => table.columns.find((column) => column.name === name)!.identifier),
       })),
     })
     const inferColumnType = () => 'custom_string'

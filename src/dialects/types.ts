@@ -2,6 +2,7 @@ import type { Connector } from 'db0'
 
 import type { DialectMigrationAdapter } from '@/ddl/migrationProgram'
 import type {
+  CanonicalIdentifier,
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
   NamespaceContext,
@@ -55,12 +56,13 @@ export type DialectNaming = Readonly<{
 /** One canonically registered authored column before physical lowering. */
 export type AuthoredDesiredColumn = Readonly<{
   name: string
+  identifier: CanonicalIdentifier
   schema: AnySchema
   metadata?: ColumnMetadata
   reference?: Readonly<{
     metadata: ReferenceMetadata
     targetRelation: CanonicalRelationIdentity
-    targetColumn: string
+    targetColumn: CanonicalIdentifier
   }>
 }>
 
@@ -83,11 +85,30 @@ export type LoweredDatabaseDefault = Readonly<{
   normalized: string
 }>
 
+/** One physically resolved desired column with portable canonical addressing. */
+export type LoweredDesiredColumn = Readonly<{
+  identifier: CanonicalIdentifier
+  dataType: string
+  notNull: boolean
+  unique: boolean
+  autoIncrement: boolean
+  defaultValue?: string | number | boolean | null
+  databaseDefault?: LoweredDatabaseDefault
+  generated?: 'always' | 'byDefault'
+  reference?: Readonly<{
+    relation: CanonicalRelationIdentity
+    column: CanonicalIdentifier
+    onDelete?: string
+    onUpdate?: string
+  }>
+}>
+
 /** One physically resolved desired table. */
 export type LoweredDesiredTable = Readonly<{
   handle: TableHandle
   identity: CanonicalRelationIdentity
-  ast: CreateTableAst
+  columns: readonly LoweredDesiredColumn[]
+  primaryKey: readonly CanonicalIdentifier[]
 }>
 
 /** Immutable selected-adapter result for the complete desired graph. */
@@ -278,138 +299,7 @@ export type DeleteAst = {
   readonly returning?: ReturningAst
 }
 
-export type CreateTableColumnAst = {
-  readonly name: string
-  readonly dataType: string
-  readonly notNull: boolean
-  readonly unique: boolean
-  readonly uniqueConstraintName?: string
-  readonly autoIncrement: boolean
-  readonly defaultValue?: string | number | boolean | null
-  readonly databaseDefault?: LoweredDatabaseDefault
-  readonly generated?: 'always' | 'byDefault'
-  readonly references?: {
-    readonly table: string
-    readonly column: string
-    /** Postgres schema of the referenced table; omit for default (`public`). */
-    readonly schema?: string
-    readonly onDelete?: string
-    readonly onUpdate?: string
-  }
-}
-
-export type CreateTableAst = {
-  readonly kind: 'create_table'
-  readonly table: string
-  readonly schema?: string
-  readonly columns: readonly CreateTableColumnAst[]
-  readonly primaryKey: readonly string[]
-  readonly primaryKeyName?: string
-}
-
-export type CreateSchemaAst = {
-  readonly kind: 'create_schema'
-  readonly schema: string
-}
-
-export type CreateIndexAst = {
-  readonly kind: 'create_index'
-  readonly table: string
-  readonly schema?: string
-  readonly name: string
-  readonly columns: readonly string[]
-  readonly unique: boolean
-}
-
-export type AlterTableAddColumnAst = {
-  readonly kind: 'add_column'
-  readonly table: string
-  readonly schema?: string
-  readonly column: CreateTableColumnAst
-}
-
-export type AddForeignKeyAst = {
-  readonly kind: 'add_foreign_key'
-  readonly table: string
-  readonly schema?: string
-  readonly column: string
-  readonly name?: string
-  readonly references: {
-    readonly table: string
-    readonly column: string
-    readonly schema?: string
-    readonly onDelete?: string
-    readonly onUpdate?: string
-  }
-}
-
-export type AddUniqueConstraintAst = {
-  readonly kind: 'add_unique_constraint'
-  readonly table: string
-  readonly schema?: string
-  readonly column: string
-  readonly name: string
-}
-
-export type AlterColumnTypeAst = {
-  readonly kind: 'alter_column_type'
-  readonly table: string
-  readonly schema?: string
-  readonly column: string
-  readonly dataType: string
-}
-
-export type SetNotNullAst = {
-  readonly kind: 'set_not_null'
-  readonly table: string
-  readonly schema?: string
-  readonly column: string
-}
-
-export type DropNotNullAst = {
-  readonly kind: 'drop_not_null'
-  readonly table: string
-  readonly schema?: string
-  readonly column: string
-}
-
-export type DropColumnAst = {
-  readonly kind: 'drop_column'
-  readonly table: string
-  readonly schema?: string
-  readonly column: string
-}
-
-export type DropTableAst = {
-  readonly kind: 'drop_table'
-  readonly table: string
-  readonly schema?: string
-}
-
-export type DropIndexAst = {
-  readonly kind: 'drop_index'
-  readonly table: string
-  readonly schema?: string
-  readonly index: string
-}
-
-export type SqlAst =
-  | SelectAst
-  | InsertAst
-  | UpdateAst
-  | DeleteAst
-  | CreateTableAst
-  | CreateSchemaAst
-  | CreateIndexAst
-  | AlterTableAddColumnAst
-  | AddUniqueConstraintAst
-  | AddForeignKeyAst
-  | AlterColumnTypeAst
-  | SetNotNullAst
-  | DropNotNullAst
-  | DropColumnAst
-  | DropTableAst
-  | DropIndexAst
+export type SqlAst = SelectAst | InsertAst | UpdateAst | DeleteAst
 
 /**
  * Complete connector-selected dialect member.

@@ -79,6 +79,9 @@ function withReleaseCleanup(error: MigrationError): MigrationError {
     ...(error.sourceStepIndexes === undefined
       ? {}
       : { sourceStepIndexes: error.sourceStepIndexes }),
+    ...(error.capabilityIssues === undefined
+      ? {}
+      : { capabilityIssues: error.capabilityIssues }),
     cleanupFailures: [
       ...(error.cleanupFailures ?? []),
       ...failures.map((cause) => ({ stage: 'sessionCleanup' as const, cause })),
@@ -319,6 +322,7 @@ export function createMigrateBuilder(options: {
                     outcome: 'unchanged',
                     retryable: false,
                     sourceStepIndexes,
+                    capabilityIssues: lowered.issues,
                   })
                 }
 

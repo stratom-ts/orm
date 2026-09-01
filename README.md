@@ -235,7 +235,9 @@ adapters separately. Each supported member owns these cohesive facets:
 - `migration`: planning policies, whole-plan lowering, and physical execution.
 
 Whole-graph schema lowering preserves every table handle and canonical identity while
-returning one physical `CreateTableAst` per table. Unsupported type mappings and
+returning canonical lowered tables whose columns retain physical properties and
+structured references. The selected migration member alone projects those tables into
+its physical DDL AST. Unsupported type mappings and
 migration capabilities fail explicitly with `MigrationError`; catalog capabilities use
 the structured unsupported/unavailable states instead of falling back to PostgreSQL.
 Adding package-supported database behavior is therefore local to one complete member and

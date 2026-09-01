@@ -1,3 +1,4 @@
+import type { MigrationCapabilityIssue } from '@/ddl/migrationProgram'
 import type { Equals } from '@/types/equals'
 
 type ErrorHandlers<T> = {
@@ -135,6 +136,7 @@ export class MigrationError extends TaggedError('MigrationError')<{
   retryable?: boolean
   actionIndex?: number
   sourceStepIndexes?: readonly number[]
+  capabilityIssues?: readonly MigrationCapabilityIssue[]
   cleanupFailures?: readonly MigrationCleanupFailure[]
 }> {}
 
