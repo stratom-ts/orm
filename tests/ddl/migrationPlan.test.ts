@@ -41,6 +41,7 @@ import {
   namespaceTarget,
   relationTarget,
 } from '../helpers/planTargets'
+import { exactQueryAddressing } from '../helpers/queryAddressing'
 
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
@@ -527,7 +528,7 @@ describe('Migration Plan construction', () => {
         normalizeDataType,
         normalizeDefaultValue,
       },
-      query: { compile },
+      query: { compile, ...exactQueryAddressing() },
       operations: {
         createSessionProvider: () => {
           throw new Error('fake migration-planning operations are outside this contract')

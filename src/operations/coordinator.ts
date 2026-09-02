@@ -59,27 +59,55 @@ function assertProvider(provider: OperationSessionProvider): void {
 }
 
 /**
- * Validates a pinned operation session and its stable identity.
+ * Validates a pinned operation session lifecycle.
  *
  * @param session - Session to validate.
  */
 function assertSession(session: OperationSession): void {
-  const identity = session?.identity
-
   if (
     typeof session?.query !== 'function' ||
     typeof session.run !== 'function' ||
     typeof session.cancel !== 'function' ||
-    typeof session.release !== 'function' ||
-    typeof identity?.database !== 'string' ||
-    identity.database.length === 0 ||
-    typeof identity.physicalSession !== 'string' ||
-    identity.physicalSession.length === 0
+    typeof session.release !== 'function'
   ) {
     throw new QueryError({
       message: 'Operation session provider returned an invalid pinned session',
     })
   }
+}
+
+/**
+ * Captures and validates one immutable session-identity snapshot.
+ *
+ * @param session - Session to validate and snapshot.
+ */
+function captureSessionIdentity(session: OperationSession): OperationSessionIdentity {
+  let database: unknown
+  let physicalSession: unknown
+
+  try {
+    const identity = session.identity
+    database = identity?.database
+    physicalSession = identity?.physicalSession
+  } catch (cause) {
+    throw new QueryError({
+      message: 'Unable to capture operation session identity',
+      cause,
+    })
+  }
+
+  if (
+    typeof database !== 'string' ||
+    database.length === 0 ||
+    typeof physicalSession !== 'string' ||
+    physicalSession.length === 0
+  ) {
+    throw new QueryError({
+      message: 'Operation session provider returned an invalid pinned session',
+    })
+  }
+
+  return Object.freeze({ database, physicalSession })
 }
 
 /**
@@ -218,11 +246,8 @@ export class OperationCoordinator {
         await previous
         session = await this.provider.open()
         assertSession(session)
+        capturedIdentity = captureSessionIdentity(session)
         disposition = 'reuse'
-        capturedIdentity = {
-          database: session.identity.database,
-          physicalSession: session.identity.physicalSession,
-        }
         const executor: Executor = {
           /**
            * Executes a query through the pinned operation session.
@@ -262,7 +287,7 @@ export class OperationCoordinator {
         const token: OperationToken = {
           coordinator: this,
           executor,
-          identity: session.identity,
+          identity: capturedIdentity,
           active: true,
           /** Marks the physical session for disposal after the operation. */
           discard() {

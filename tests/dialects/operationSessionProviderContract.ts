@@ -28,6 +28,7 @@ export type ProviderContractFactoryOptions = Readonly<{
   beforeCall?: (session: number, sql: string) => Promise<void>
   beforeCancel?: (session: number) => Promise<void>
   releaseFailure?: Readonly<{ session: number; value: unknown }>
+  identityReadFailure?: Readonly<{ session: number; read: number; value: unknown }>
   mutateIdentityAfterCall?: boolean
   mutationFailure?: Readonly<{ session: number; value: unknown }>
   invalidInitialSession?: 'identity' | 'capability'
@@ -49,6 +50,7 @@ export type ProviderContractFactory = (
 export type ProviderMigrationContract = Readonly<{
   connector(): Connector
   appliedSchemas(): readonly TableHandle[]
+  planningFailureSchemas?(): readonly TableHandle[]
 }>
 
 /**
@@ -224,6 +226,72 @@ export function registerOperationSessionProviderContract(
       }
     })
 
+    it('captures immutable context identity before reuse and discards when the next live read fails', async () => {
+      const controls = createProvider({
+        identityReadFailure: {
+          session: 1,
+          read: 2,
+          value: new Error('identity verification failed'),
+        },
+      })
+      const coordinator = new OperationCoordinator(controls.provider)
+      let captured:
+        | { readonly database: string; readonly physicalSession: string }
+        | undefined
+
+      try {
+        const error = await coordinator
+          .run(async ({ identity }) => {
+            captured = identity
+            expect(identity).toEqual({
+              database: 'coordinator_test',
+              physicalSession: 'physical-1',
+            })
+            expect(Object.isFrozen(identity)).toBe(true)
+          })
+          .catch((cause: unknown) => cause)
+
+        expect(captured).toEqual({
+          database: 'coordinator_test',
+          physicalSession: 'physical-1',
+        })
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toMatch(/verify operation session identity/i)
+        expect(controls.events).toContain('release-end:1:discard')
+        expect(controls.events).not.toContain('release-end:1:reuse')
+      } finally {
+        await coordinator.close()
+      }
+    })
+
+    it('discards when initial identity capture cannot be proven and never invokes the callback', async () => {
+      const controls = createProvider({
+        identityReadFailure: {
+          session: 1,
+          read: 1,
+          value: new Error('initial identity capture failed'),
+        },
+      })
+      const coordinator = new OperationCoordinator(controls.provider)
+      let invoked = false
+
+      try {
+        const error = await coordinator
+          .run(async () => {
+            invoked = true
+          })
+          .catch((cause: unknown) => cause)
+
+        expect(invoked).toBe(false)
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toMatch(/capture operation session identity/i)
+        expect(controls.events).toContain('release-end:1:discard')
+        expect(controls.events).not.toContain('release-end:1:reuse')
+      } finally {
+        await coordinator.close()
+      }
+    })
+
     it('retains release cleanup without replacing the primary failure', async () => {
       const primary = new Error('primary operation failure')
       const release = new Error('release cleanup failure')
@@ -240,6 +308,31 @@ export function registerOperationSessionProviderContract(
           .catch((cause: unknown) => cause)
 
         expect(error).toBe(primary)
+        expect(getOperationReleaseCleanupFailures(error)).toEqual([release])
+      } finally {
+        await coordinator.close()
+      }
+    })
+
+    it('retains release cleanup when final identity verification also fails', async () => {
+      const release = new Error('release cleanup failure')
+      const controls = createProvider({
+        identityReadFailure: {
+          session: 1,
+          read: 2,
+          value: new Error('identity verification failed'),
+        },
+        releaseFailure: { session: 1, value: release },
+      })
+      const coordinator = new OperationCoordinator(controls.provider)
+
+      try {
+        const error = await coordinator
+          .run(async () => undefined)
+          .catch((cause: unknown) => cause)
+
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toMatch(/verify operation session identity/i)
         expect(getOperationReleaseCleanupFailures(error)).toEqual([release])
       } finally {
         await coordinator.close()
@@ -289,6 +382,81 @@ export function registerOperationSessionProviderContract(
           await unchanged.close()
         }
       })
+
+      it('preserves final identity cleanup evidence across dry-run and execute wrapping', async () => {
+        const release = new Error('release cleanup failure')
+        const createCleanupFailureDb = () =>
+          createDatabase({
+            connector: migration.connector(),
+            operationSessionProvider: createProvider({
+              identityReadFailure: {
+                session: 1,
+                read: 2,
+                value: new Error('identity verification failed'),
+              },
+              releaseFailure: { session: 1, value: release },
+            }).provider,
+            schemas: migration.appliedSchemas(),
+          })
+
+        const dryRunDb = createCleanupFailureDb()
+
+        try {
+          await expect(dryRunDb.migrate().dryRun()).rejects.toMatchObject({
+            _tag: 'MigrationError',
+            cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
+          })
+        } finally {
+          await dryRunDb.close()
+        }
+
+        const executeDb = createCleanupFailureDb()
+
+        try {
+          await expect(executeDb.migrate().execute()).rejects.toMatchObject({
+            _tag: 'MigrationError',
+            stage: 'sessionCleanup',
+            outcome: 'applied',
+            cleanupFailures: [
+              {
+                stage: 'sessionCleanup',
+                cause: expect.objectContaining({
+                  _tag: 'QueryError',
+                  message: expect.stringMatching(/verify operation session identity/i),
+                }),
+              },
+              { stage: 'sessionCleanup', cause: release },
+            ],
+          })
+        } finally {
+          await executeDb.close()
+        }
+      })
+
+      const planningFailureSchemas = migration.planningFailureSchemas
+
+      if (planningFailureSchemas) {
+        it('retains exact release cleanup when dry-run planning already failed structurally', async () => {
+          const release = new Error('release cleanup failure')
+          const db = createDatabase({
+            connector: migration.connector(),
+            operationSessionProvider: createProvider({
+              releaseFailure: { session: 1, value: release },
+            }).provider,
+            schemas: planningFailureSchemas(),
+          })
+
+          try {
+            await expect(db.migrate().dryRun()).rejects.toMatchObject({
+              _tag: 'MigrationError',
+              stage: 'planning',
+              cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
+            })
+          } finally {
+            await db.close()
+          }
+        })
+      }
     }
   })
 }

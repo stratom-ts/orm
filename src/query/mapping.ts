@@ -1,7 +1,7 @@
 import type { Dialect } from '@/dialects'
 import type { ColumnMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
-import { sameRelationInput } from '@/schemas/actions/relation'
+import type { RelationIdentityInput } from '@/schemas/actions/relation'
 import type { TableHandle } from '@/types'
 import { SchemaError } from '@/utils/error'
 
@@ -18,6 +18,77 @@ export type ValueMapper = {
   mapResultValue(handle: TableHandle, column: string, value: unknown): unknown
   mapResultRow(handle: TableHandle, row: Record<string, unknown>): Record<string, unknown>
   mapResultRows(handle: TableHandle, rows: unknown[]): unknown[]
+}
+
+/**
+ * Formats an authored relation for diagnostics.
+ *
+ * @param relation - Authored relation intent.
+ */
+function formatRelationInput(relation: RelationIdentityInput): string {
+  const segments =
+    relation.namespace?.map(
+      ({ role, spelling }) => `${role}:${JSON.stringify(spelling)}`,
+    ) ?? []
+  segments.push(`relation:${JSON.stringify(relation.relation)}`)
+  return `[${segments.join(', ')}]`
+}
+
+/**
+ * Resolves the one registered handle matched by the selected query member.
+ *
+ * @param dialect - Selected dialect query semantics.
+ * @param registered - Registered table handles to search.
+ * @param relation - Authored relation intent.
+ */
+function resolveReferencedHandle(
+  dialect: Dialect,
+  registered: readonly TableHandle[],
+  relation: RelationIdentityInput,
+): TableHandle {
+  const matches = dialect.query.findRelationMatches(registered, relation)
+
+  if (matches.length === 1) return matches[0]!
+
+  if (matches.length === 0) {
+    throw new SchemaError({
+      message: `Reference target ${formatRelationInput(relation)} is not registered`,
+    })
+  }
+
+  throw new SchemaError({
+    message: `Reference target ${formatRelationInput(relation)} is ambiguous`,
+  })
+}
+
+/**
+ * Resolves one column name on a registered handle under selected query semantics.
+ *
+ * @param dialect - Selected dialect query semantics.
+ * @param handle - Handle whose members are being addressed.
+ * @param columnName - Authored column spelling to resolve.
+ * @param relation - Optional authored relation for diagnostics.
+ */
+function resolveColumnName(
+  dialect: Dialect,
+  handle: TableHandle,
+  columnName: string,
+  relation?: RelationIdentityInput,
+): string {
+  const matches = dialect.query.findColumnMatches(handle, columnName)
+  const table = relation ? formatRelationInput(relation) : handle.getTableMetadata().name
+
+  if (matches.length === 1) return matches[0]!
+
+  if (matches.length === 0) {
+    throw new SchemaError({
+      message: `Reference target ${table}.${columnName} is not defined`,
+    })
+  }
+
+  throw new SchemaError({
+    message: `Reference target ${table}.${columnName} is ambiguous`,
+  })
 }
 
 /**
@@ -48,43 +119,37 @@ function resolveColumnDataType(
   const referenceMetadata = getReferenceMetadata(schema)
 
   if (referenceMetadata) {
-    const target = registered.find((candidate) =>
-      sameRelationInput(
-        candidate.getTableMetadata().relation,
-        referenceMetadata.target.relation,
-      ),
+    const target = resolveReferencedHandle(
+      dialect,
+      registered,
+      referenceMetadata.target.relation,
     )
     const targetLabel = referenceMetadata.target.relation.relation
-
-    if (!target) {
-      throw new SchemaError({
-        message: `Reference target ${targetLabel}.${referenceMetadata.target.column} is not registered`,
-      })
-    }
+    const targetColumn = resolveColumnName(
+      dialect,
+      target,
+      referenceMetadata.target.column,
+      referenceMetadata.target.relation,
+    )
 
     if (
       resolving.some(
-        (candidate) =>
-          candidate.handle === target &&
-          candidate.column === referenceMetadata.target.column,
+        (candidate) => candidate.handle === target && candidate.column === targetColumn,
       )
     ) {
       throw new SchemaError({
-        message: `Cannot resolve reference-only column type cycle at ${targetLabel}.${referenceMetadata.target.column}`,
+        message: `Cannot resolve reference-only column type cycle at ${targetLabel}.${targetColumn}`,
       })
     }
 
-    const result = resolveColumnDataType(
-      target,
-      referenceMetadata.target.column,
-      dialect,
-      registered,
-      [...resolving, { handle: target, column: referenceMetadata.target.column }],
-    )
+    const result = resolveColumnDataType(target, targetColumn, dialect, registered, [
+      ...resolving,
+      { handle: target, column: targetColumn },
+    ])
 
     if (result === undefined) {
       throw new SchemaError({
-        message: `Reference target column ${targetLabel}.${referenceMetadata.target.column} is not defined`,
+        message: `Reference target column ${targetLabel}.${targetColumn} is not defined`,
       })
     }
 

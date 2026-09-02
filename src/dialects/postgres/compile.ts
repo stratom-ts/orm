@@ -49,7 +49,7 @@ function qualifyPostgresTable(schema: string | undefined, table: string): string
 }
 
 /** Resolves authored relation intent according to PostgreSQL query semantics. */
-function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
+export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
   schema: string
   table: string
 } {

@@ -133,6 +133,11 @@ export type CompiledQuery = {
 /** SQL compilation and optional dialect value conversion behavior. */
 export type DialectQuery = Readonly<{
   compile(node: SqlAst): CompiledQuery
+  findRelationMatches(
+    handles: readonly TableHandle[],
+    relation: RelationIdentityInput,
+  ): readonly TableHandle[]
+  findColumnMatches(handle: TableHandle, column: string): readonly string[]
   mapResultValue?: (dataType: string, value: unknown) => unknown
   mapParamValue?: (dataType: string, value: unknown) => unknown
 }>

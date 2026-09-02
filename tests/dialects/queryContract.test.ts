@@ -2,8 +2,10 @@ import { number, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Dialect, SelectAst } from '@/index'
-import { column, defineTable, postgresDialect, reference } from '@/index'
+import { QueryError, column, defineTable, eq, postgresDialect, reference } from '@/index'
 import { createTableBuilder, createValueMapper } from '@/query'
+
+import { exactQueryAddressing } from '../helpers/queryAddressing'
 
 describe('dialect query contract', () => {
   it('delivers authored relation intent to the selected query member', () => {
@@ -35,7 +37,11 @@ describe('dialect query contract', () => {
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
-      query: { ...postgresDialect.query, compile: selectedCompile as never },
+      query: {
+        ...postgresDialect.query,
+        ...exactQueryAddressing(),
+        compile: selectedCompile as never,
+      },
     }
 
     const compiled = createTableBuilder({
@@ -67,7 +73,11 @@ describe('dialect query contract', () => {
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
-      query: { ...postgresDialect.query, compile: selectedCompile as never },
+      query: {
+        ...postgresDialect.query,
+        ...exactQueryAddressing(),
+        compile: selectedCompile as never,
+      },
     }
 
     const compiled = createTableBuilder({
@@ -115,10 +125,142 @@ describe('dialect query contract', () => {
         ...postgresDialect.schema,
         inferColumnType: () => 'fallback',
       },
+      query: {
+        ...postgresDialect.query,
+        ...exactQueryAddressing(),
+      },
     }
 
     const mapper = createValueMapper(dialect, undefined, [NumericItem, TextItem, Link])
 
     expect(mapper.columnTypes(Link).itemId).toBe('text')
+  })
+
+  it('throws tagged errors when semantic relation lookup finds zero matches', () => {
+    const Events = defineTable(
+      'events',
+      { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [{ role: 'database', spelling: 'analytics' }],
+      },
+    )
+    const dialect: Dialect = {
+      ...postgresDialect,
+      id: 'sqlite',
+      query: {
+        ...postgresDialect.query,
+        ...exactQueryAddressing(),
+        compile: () => ({ sql: 'query', params: [] }),
+      },
+    }
+
+    expect(() =>
+      createTableBuilder({
+        handle: Events,
+        dialect,
+        executor: { execute: async () => [], run: async () => undefined },
+      })
+        .select(() => [
+          {
+            kind: 'column',
+            relation: {
+              namespace: [{ role: 'database', spelling: 'missing' }],
+              relation: 'events',
+            },
+            column: 'id',
+            alias: 'id',
+          } as const,
+        ])
+        .compile(),
+    ).toThrow(QueryError)
+    expect(() =>
+      createTableBuilder({
+        handle: Events,
+        dialect,
+        executor: { execute: async () => [], run: async () => undefined },
+      })
+        .select(() => [
+          {
+            kind: 'column',
+            relation: {
+              namespace: [{ role: 'database', spelling: 'missing' }],
+              relation: 'events',
+            },
+            column: 'id',
+            alias: 'id',
+          } as const,
+        ])
+        .compile(),
+    ).toThrow(/not available in this query/i)
+  })
+
+  it('throws tagged errors when semantic relation lookup finds multiple matches', () => {
+    const Events = defineTable(
+      'events',
+      { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [{ role: 'database', spelling: 'analytics' }],
+      },
+    )
+    const DuplicateEvents = defineTable(
+      'events',
+      { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [{ role: 'database', spelling: 'analytics' }],
+      },
+    )
+    const dialect: Dialect = {
+      ...postgresDialect,
+      id: 'sqlite',
+      query: {
+        ...postgresDialect.query,
+        ...exactQueryAddressing(),
+        compile: () => ({ sql: 'query', params: [] }),
+      },
+    }
+
+    expect(() =>
+      createTableBuilder({
+        handle: Events,
+        dialect,
+        executor: { execute: async () => [], run: async () => undefined },
+      })
+        .innerJoin(DuplicateEvents, eq(Events.id, DuplicateEvents.id))
+        .select(() => [
+          {
+            kind: 'column',
+            relation: {
+              namespace: [{ role: 'database', spelling: 'analytics' }],
+              relation: 'events',
+            },
+            column: 'id',
+            alias: 'id',
+          } as const,
+        ])
+        .compile(),
+    ).toThrow(QueryError)
+    expect(() =>
+      createTableBuilder({
+        handle: Events,
+        dialect,
+        executor: { execute: async () => [], run: async () => undefined },
+      })
+        .innerJoin(DuplicateEvents, eq(Events.id, DuplicateEvents.id))
+        .select(() => [
+          {
+            kind: 'column',
+            relation: {
+              namespace: [{ role: 'database', spelling: 'analytics' }],
+              relation: 'events',
+            },
+            column: 'id',
+            alias: 'id',
+          } as const,
+        ])
+        .compile(),
+    ).toThrow(/ambiguous in this query/i)
   })
 })

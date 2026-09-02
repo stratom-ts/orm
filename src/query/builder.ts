@@ -14,7 +14,6 @@ import type {
   UpdateAst,
 } from '@/dialects'
 import type { RelationIdentityInput } from '@/schemas'
-import { sameRelationInput } from '@/schemas/actions/relation'
 import type { ColumnRef, Prettify, TableHandle } from '@/types'
 import type {
   InferInsert,
@@ -75,6 +74,7 @@ function resolveOn(on: JoinOnInput): PredicateAst {
  * @returns Mapped join AST nodes, or the original when no mapper or joins
  */
 function mapJoinsParams(
+  dialect: Dialect,
   handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
   joins: readonly JoinAst[] | undefined,
@@ -82,7 +82,7 @@ function mapJoinsParams(
   if (!joins || joins.length === 0) return joins
   return joins.map((join) => ({
     ...join,
-    on: mapPredicateParams(handles, mapper, join.on)!,
+    on: mapPredicateParams(dialect, handles, mapper, join.on)!,
   }))
 }
 
@@ -318,6 +318,7 @@ function mapSetParams(
  * @returns Mapped predicate, or the original when no mapper or predicate
  */
 function mapPredicateParams(
+  dialect: Dialect,
   handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
   pred: PredicateAst | undefined,
@@ -328,29 +329,28 @@ function mapPredicateParams(
     case 'cmp': {
       // Column-vs-column join/on predicates have no bound params.
       if (pred.right || pred.value === null) return pred
-      const handle = findHandle(handles, pred.relation)
-
-      if (!handle) return pred
+      const handle = findHandle(dialect, handles, pred.relation)
+      const column = findColumn(dialect, handle, pred.column, pred.relation)
 
       return {
         ...pred,
-        value: mapper.mapParam(handle, pred.column, pred.value),
+        value: mapper.mapParam(handle, column, pred.value),
       }
     }
     case 'and':
       return {
         kind: 'and',
-        preds: pred.preds.map((p) => mapPredicateParams(handles, mapper, p)!),
+        preds: pred.preds.map((p) => mapPredicateParams(dialect, handles, mapper, p)!),
       }
     case 'or':
       return {
         kind: 'or',
-        preds: pred.preds.map((p) => mapPredicateParams(handles, mapper, p)!),
+        preds: pred.preds.map((p) => mapPredicateParams(dialect, handles, mapper, p)!),
       }
     case 'not':
       return {
         kind: 'not',
-        pred: mapPredicateParams(handles, mapper, pred.pred)!,
+        pred: mapPredicateParams(dialect, handles, mapper, pred.pred)!,
       }
     default: {
       const _exhaustive: never = pred
@@ -360,20 +360,77 @@ function mapPredicateParams(
 }
 
 /**
+ * Formats authored relation intent for diagnostics.
+ *
+ * @param relation - Authored relation intent.
+ */
+function formatRelationInput(relation: RelationIdentityInput): string {
+  const segments =
+    relation.namespace?.map(
+      ({ role, spelling }) => `${role}:${JSON.stringify(spelling)}`,
+    ) ?? []
+  segments.push(`relation:${JSON.stringify(relation.relation)}`)
+  return `[${segments.join(', ')}]`
+}
+
+/**
  * Finds the unambiguous handle for a qualified table reference.
  *
+ * @param dialect - Selected dialect query semantics.
  * @param handles - Table handles to search.
  * @param relation - Optional authored relation intent.
  */
 function findHandle(
+  dialect: Dialect,
   handles: readonly TableHandle[],
   relation: RelationIdentityInput | undefined,
-): TableHandle | undefined {
-  if (!relation) return handles[0]
-  const matches = handles.filter((handle) =>
-    sameRelationInput(handle.getTableMetadata().relation, relation),
-  )
-  return matches.length === 1 ? matches[0] : undefined
+): TableHandle {
+  if (!relation) return handles[0]!
+  const matches = dialect.query.findRelationMatches(handles, relation)
+
+  if (matches.length === 1) return matches[0]!
+
+  if (matches.length === 0) {
+    throw new QueryError({
+      message: `query relation ${formatRelationInput(relation)} is not available in this query`,
+    })
+  }
+
+  throw new QueryError({
+    message: `query relation ${formatRelationInput(relation)} is ambiguous in this query`,
+  })
+}
+
+/**
+ * Finds the unambiguous column owned by a matched handle.
+ *
+ * @param dialect - Selected dialect query semantics.
+ * @param handle - Handle whose columns are being addressed.
+ * @param column - Authored column spelling to resolve.
+ * @param relation - Optional authored relation for diagnostics.
+ */
+function findColumn(
+  dialect: Dialect,
+  handle: TableHandle,
+  column: string,
+  relation: RelationIdentityInput | undefined,
+): string {
+  const matches = dialect.query.findColumnMatches(handle, column)
+  const target = relation
+    ? `${formatRelationInput(relation)}.${column}`
+    : `${handle.getTableMetadata().name}.${column}`
+
+  if (matches.length === 1) return matches[0]!
+
+  if (matches.length === 0) {
+    throw new QueryError({
+      message: `query column ${target} is not available in this query`,
+    })
+  }
+
+  throw new QueryError({
+    message: `query column ${target} is ambiguous in this query`,
+  })
 }
 
 type ResultColumn = { handle: TableHandle; column: string }
@@ -385,6 +442,7 @@ type ResultColumn = { handle: TableHandle; column: string }
  * @param selection - Selected AST items.
  */
 function resultColumnsForSelection(
+  dialect: Dialect,
   handles: readonly TableHandle[],
   selection: readonly SelectItemAst[],
 ): Map<string, ResultColumn> {
@@ -424,29 +482,28 @@ function resultColumnsForSelection(
       if (!item.relation) {
         for (const handle of handles) addAll(handle)
       } else {
-        const handle = findHandle(handles, item.relation)
-
-        if (!handle) {
-          throw new QueryError({
-            message: `selected relation "${item.relation.relation}" is not joined`,
-          })
-        }
-
+        const handle = findHandle(dialect, handles, item.relation)
         addAll(handle)
       }
     } else if (item.kind === 'column') {
-      const handle = findHandle(handles, item.relation)
-      add(item.alias ?? item.column, handle ? { handle, column: item.column } : undefined)
+      const handle = findHandle(dialect, handles, item.relation)
+      add(item.alias ?? item.column, {
+        handle,
+        column: findColumn(dialect, handle, item.column, item.relation),
+      })
     } else {
       const expression = item.expr
       const handle =
         expression.kind === 'column'
-          ? findHandle(handles, expression.relation)
+          ? findHandle(dialect, handles, expression.relation)
           : undefined
       add(
         item.alias,
         handle && expression.kind === 'column'
-          ? { handle, column: expression.column }
+          ? {
+              handle,
+              column: findColumn(dialect, handle, expression.column, expression.relation),
+            }
           : undefined,
       )
     }
@@ -847,7 +904,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
       kind: 'update',
       relation: info.relation,
       set,
-      ...(where ? { where: mapPredicateParams([handle], mapper, where) } : {}),
+      ...(where ? { where: mapPredicateParams(dialect, [handle], mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
     }
@@ -1044,7 +1101,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
     return {
       kind: 'delete',
       relation: info.relation,
-      ...(where ? { where: mapPredicateParams([handle], mapper, where) } : {}),
+      ...(where ? { where: mapPredicateParams(dialect, [handle], mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
     }
@@ -1304,21 +1361,23 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     const handles = [handle, ...state.joinedHandles]
     const selection =
       state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
-    const resultColumns = resultColumnsForSelection(handles, selection)
+    const resultColumns = resultColumnsForSelection(dialect, handles, selection)
     const ast: SelectAst = {
       kind: 'select',
       relation: info.relation,
       selection,
       ...(state.joins.length > 0
-        ? { joins: mapJoinsParams(handles, mapper, state.joins) }
+        ? { joins: mapJoinsParams(dialect, handles, mapper, state.joins) }
         : {}),
-      ...(state.where ? { where: mapPredicateParams(handles, mapper, state.where) } : {}),
+      ...(state.where
+        ? { where: mapPredicateParams(dialect, handles, mapper, state.where) }
+        : {}),
       ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
       ...(state.limit !== undefined ? { limit: state.limit } : {}),
       ...(state.offset !== undefined ? { offset: state.offset } : {}),
       ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
       ...(state.having
-        ? { having: mapPredicateParams(handles, mapper, state.having) }
+        ? { having: mapPredicateParams(dialect, handles, mapper, state.having) }
         : {}),
     }
     return { ast, resultColumns }
