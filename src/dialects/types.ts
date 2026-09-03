@@ -153,9 +153,18 @@ export type DialectQueryResolution = Readonly<{
   findColumnMatches(handle: TableHandle, column: string): readonly string[]
 }>
 
+/** Client registration context consumed by one selected Query member. */
+export type DialectQueryResolveOptions = Readonly<{
+  /** Optional namespace applied to omitted authored relation registrations. */
+  registrationDefault?: readonly NamespaceIdentifierInput[]
+}>
+
 /** SQL resolution, compilation, and optional dialect value conversion behavior. */
 export type DialectQuery = Readonly<{
-  resolve(handles: readonly TableHandle[]): DialectQueryResolution
+  resolve(
+    handles: readonly TableHandle[],
+    options?: DialectQueryResolveOptions,
+  ): DialectQueryResolution
   mapResultValue?: (dataType: string, value: unknown) => unknown
   mapParamValue?: (dataType: string, value: unknown) => unknown
 }>

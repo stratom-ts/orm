@@ -1,3 +1,4 @@
+import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { RelationIdentityInput } from '@/schemas'
 import { QueryError } from '@/utils/error'
 
@@ -48,12 +49,28 @@ function qualifyPostgresTable(schema: string | undefined, table: string): string
   return `${quoteIdent(schemaName)}.${quoteIdent(table)}`
 }
 
-/** Resolves authored relation intent according to PostgreSQL query semantics. */
-export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
+export type PostgresQueryRelation = {
   database?: string
   schema?: string
   table: string
-} {
+}
+
+export type PostgresQueryRelationResolver = (
+  relation: RelationIdentityInput,
+) => PostgresQueryRelation
+
+/** Binds PostgreSQL query addressing to one client registration default. */
+export function createPostgresQueryRelationResolver(
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+): PostgresQueryRelationResolver {
+  return (relation) => resolvePostgresQueryRelation(relation, registrationDefault)
+}
+
+/** Resolves authored relation intent according to PostgreSQL query semantics. */
+export function resolvePostgresQueryRelation(
+  relation: RelationIdentityInput,
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+): PostgresQueryRelation {
   if (typeof relation !== 'object' || relation === null) {
     throw new QueryError({
       message: 'PostgreSQL query relation must be an object',
@@ -77,7 +94,11 @@ export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
     })
   }
 
-  const namespace = candidate.namespace ?? []
+  const authoredNamespace = candidate.namespace ?? []
+  const namespace =
+    authoredNamespace.length === 0 && registrationDefault !== undefined
+      ? registrationDefault
+      : authoredNamespace
 
   if (namespace.length > 2) {
     throw new QueryError({
@@ -129,8 +150,11 @@ export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
 }
 
 /** Qualifies a structured query relation after PostgreSQL namespace resolution. */
-function qualifyPostgresQueryRelation(relation: RelationIdentityInput): string {
-  const resolved = resolvePostgresQueryRelation(relation)
+function qualifyPostgresQueryRelation(
+  relation: RelationIdentityInput,
+  resolveRelation: PostgresQueryRelationResolver,
+): string {
+  const resolved = resolveRelation(relation)
   return resolved.schema
     ? `${quoteIdent(resolved.schema)}.${quoteIdent(resolved.table)}`
     : quoteIdent(resolved.table)
@@ -174,8 +198,9 @@ function utf8ByteLength(value: string): number {
  */
 function createRelationContext(
   relations: readonly RelationIdentityInput[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): PostgresRelation[] {
-  const resolved = relations.map(resolvePostgresQueryRelation)
+  const resolved = relations.map(resolveRelation)
   const candidates = resolved.map((relation) =>
     postgresTableAlias(relation.database, relation.schema, relation.table),
   )
@@ -209,8 +234,9 @@ function createRelationContext(
 function resolveRelationAlias(
   relations: readonly PostgresRelation[],
   target: RelationIdentityInput,
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
-  const resolved = resolvePostgresQueryRelation(target)
+  const resolved = resolveRelation(target)
   const exactMatches = relations.filter(
     (relation) =>
       relation.database === resolved.database &&
@@ -304,11 +330,12 @@ function compileReturning(returning: ReturningAst | undefined): string {
 function qualifyColumn(
   column: string,
   relations: readonly PostgresRelation[],
-  relation?: RelationIdentityInput,
+  relation: RelationIdentityInput | undefined,
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
   const col = quoteIdent(column)
   return relation
-    ? `${quoteIdent(resolveRelationAlias(relations, relation))}.${col}`
+    ? `${quoteIdent(resolveRelationAlias(relations, relation, resolveRelation))}.${col}`
     : col
 }
 
@@ -323,8 +350,9 @@ function qualifyColumn(
 function compileQualifiedColumn(
   col: QualifiedColumnAst,
   relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
-  return qualifyColumn(col.column, relations, col.relation)
+  return qualifyColumn(col.column, relations, col.relation, resolveRelation)
 }
 
 /**
@@ -340,14 +368,15 @@ function compilePredicate(
   pred: PredicateAst,
   params: unknown[],
   relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
   switch (pred.kind) {
     case 'cmp': {
-      const left = qualifyColumn(pred.column, relations, pred.relation)
+      const left = qualifyColumn(pred.column, relations, pred.relation, resolveRelation)
       const op = comparisonSql(pred.op)
 
       if (pred.right) {
-        return `${left} ${op} ${compileQualifiedColumn(pred.right, relations)}`
+        return `${left} ${op} ${compileQualifiedColumn(pred.right, relations, resolveRelation)}`
       }
 
       if (pred.value === null) {
@@ -362,17 +391,17 @@ function compilePredicate(
     case 'and': {
       if (pred.preds.length === 0) return 'true'
       if (pred.preds.length === 1)
-        return compilePredicate(pred.preds[0]!, params, relations)
-      return `(${pred.preds.map((p) => compilePredicate(p, params, relations)).join(' and ')})`
+        return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
+      return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' and ')})`
     }
     case 'or': {
       if (pred.preds.length === 0) return 'false'
       if (pred.preds.length === 1)
-        return compilePredicate(pred.preds[0]!, params, relations)
-      return `(${pred.preds.map((p) => compilePredicate(p, params, relations)).join(' or ')})`
+        return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
+      return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' or ')})`
     }
     case 'not':
-      return `(not ${compilePredicate(pred.pred, params, relations)})`
+      return `(not ${compilePredicate(pred.pred, params, relations, resolveRelation)})`
     default: {
       const _exhaustive: never = pred
       return _exhaustive
@@ -393,9 +422,10 @@ function compileWhereClause(
   where: PredicateAst | undefined,
   params: unknown[],
   relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
   if (!where) return ''
-  return ` where ${compilePredicate(where, params, relations)}`
+  return ` where ${compilePredicate(where, params, relations, resolveRelation)}`
 }
 
 /**
@@ -411,32 +441,33 @@ function compileExpr(
   expr: SqlExprAst,
   params: unknown[],
   relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
   switch (expr.kind) {
     case 'column':
-      return qualifyColumn(expr.column, relations, expr.relation)
+      return qualifyColumn(expr.column, relations, expr.relation, resolveRelation)
     case 'count_all':
       return 'count(*)'
     case 'count':
-      return `count(${compileExpr(expr.arg, params, relations)})`
+      return `count(${compileExpr(expr.arg, params, relations, resolveRelation)})`
     case 'min':
-      return `min(${compileExpr(expr.arg, params, relations)})`
+      return `min(${compileExpr(expr.arg, params, relations, resolveRelation)})`
     case 'max':
-      return `max(${compileExpr(expr.arg, params, relations)})`
+      return `max(${compileExpr(expr.arg, params, relations, resolveRelation)})`
     case 'sum':
-      return `sum(${compileExpr(expr.arg, params, relations)})`
+      return `sum(${compileExpr(expr.arg, params, relations, resolveRelation)})`
     case 'lower':
-      return `lower(${compileExpr(expr.arg, params, relations)})`
+      return `lower(${compileExpr(expr.arg, params, relations, resolveRelation)})`
     case 'upper':
-      return `upper(${compileExpr(expr.arg, params, relations)})`
+      return `upper(${compileExpr(expr.arg, params, relations, resolveRelation)})`
     case 'length':
-      return `length(${compileExpr(expr.arg, params, relations)})`
+      return `length(${compileExpr(expr.arg, params, relations, resolveRelation)})`
     case 'now':
       return 'now()'
     case 'date_trunc': {
       params.push(expr.unit)
       const unitParam = `$${params.length}`
-      return `date_trunc(${unitParam}, ${compileExpr(expr.arg, params, relations)})`
+      return `date_trunc(${unitParam}, ${compileExpr(expr.arg, params, relations, resolveRelation)})`
     }
     default: {
       const _exhaustive: never = expr
@@ -458,18 +489,19 @@ function compileSelectItem(
   item: SelectItemAst,
   params: unknown[],
   relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
   switch (item.kind) {
     case 'all':
       return item.relation
-        ? `${quoteIdent(resolveRelationAlias(relations, item.relation))}.*`
+        ? `${quoteIdent(resolveRelationAlias(relations, item.relation, resolveRelation))}.*`
         : '*'
     case 'column': {
-      const col = qualifyColumn(item.column, relations, item.relation)
+      const col = qualifyColumn(item.column, relations, item.relation, resolveRelation)
       return item.alias ? `${col} as ${quoteIdent(item.alias)}` : col
     }
     case 'expr':
-      return `${compileExpr(item.expr, params, relations)} as ${quoteIdent(item.alias)}`
+      return `${compileExpr(item.expr, params, relations, resolveRelation)} as ${quoteIdent(item.alias)}`
     default: {
       const _exhaustive: never = item
       return _exhaustive
@@ -488,11 +520,12 @@ function compileSelectItem(
 function compileOrderBy(
   orderBy: readonly OrderByAst[] | undefined,
   relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
   if (!orderBy || orderBy.length === 0) return ''
   const parts = orderBy.map(
     (o) =>
-      `${qualifyColumn(o.column, relations, o.relation)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
+      `${qualifyColumn(o.column, relations, o.relation, resolveRelation)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
   )
   return ` order by ${parts.join(', ')}`
 }
@@ -512,8 +545,9 @@ function compileJoin(
   relation: PostgresRelation,
   params: unknown[],
   relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
 ): string {
-  const tableSql = qualifyPostgresQueryRelation(join.relation)
+  const tableSql = qualifyPostgresQueryRelation(join.relation, resolveRelation)
   const tableAlias = quoteIdent(relation.alias)
 
   let type: string
@@ -530,7 +564,7 @@ function compileJoin(
       break
   }
 
-  return ` ${type} ${tableSql} as ${tableAlias} on ${compilePredicate(join.on, params, relations)}`
+  return ` ${type} ${tableSql} as ${tableAlias} on ${compilePredicate(join.on, params, relations, resolveRelation)}`
 }
 
 /**
@@ -540,12 +574,15 @@ function compileJoin(
  *
  * @returns Compiled query with SQL string and parameters
  */
-function compileSelect(node: SelectAst): CompiledQuery {
-  const tableSql = qualifyPostgresQueryRelation(node.relation)
-  const relations = createRelationContext([
-    node.relation,
-    ...(node.joins ?? []).map((join) => join.relation),
-  ])
+function compileSelect(
+  node: SelectAst,
+  resolveRelation: PostgresQueryRelationResolver,
+): CompiledQuery {
+  const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
+  const relations = createRelationContext(
+    [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
+    resolveRelation,
+  )
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
 
@@ -554,27 +591,27 @@ function compileSelect(node: SelectAst): CompiledQuery {
   }
 
   const selection = node.selection
-    .map((item) => compileSelectItem(item, params, relations))
+    .map((item) => compileSelectItem(item, params, relations, resolveRelation))
     .join(', ')
   let sql = `select ${selection} from ${tableSql} as ${tableAlias}`
 
   if (node.joins) {
     for (const [index, join] of node.joins.entries()) {
-      sql += compileJoin(join, relations[index + 1]!, params, relations)
+      sql += compileJoin(join, relations[index + 1]!, params, relations, resolveRelation)
     }
   }
 
-  sql += compileWhereClause(node.where, params, relations)
+  sql += compileWhereClause(node.where, params, relations, resolveRelation)
 
   if (node.groupBy && node.groupBy.length > 0) {
-    sql += ` group by ${node.groupBy.map((c) => compileQualifiedColumn(c, relations)).join(', ')}`
+    sql += ` group by ${node.groupBy.map((c) => compileQualifiedColumn(c, relations, resolveRelation)).join(', ')}`
   }
 
   if (node.having) {
-    sql += ` having ${compilePredicate(node.having, params, relations)}`
+    sql += ` having ${compilePredicate(node.having, params, relations, resolveRelation)}`
   }
 
-  sql += compileOrderBy(node.orderBy, relations)
+  sql += compileOrderBy(node.orderBy, relations, resolveRelation)
 
   if (node.limit !== undefined) {
     params.push(node.limit)
@@ -596,8 +633,11 @@ function compileSelect(node: SelectAst): CompiledQuery {
  *
  * @returns Compiled query with SQL string and parameters
  */
-function compileInsert(node: InsertAst): CompiledQuery {
-  const tableSql = qualifyPostgresQueryRelation(node.relation)
+function compileInsert(
+  node: InsertAst,
+  resolveRelation: PostgresQueryRelationResolver,
+): CompiledQuery {
+  const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const cols = node.columns.map((c) => quoteIdent(c)).join(', ')
   const params: unknown[] = []
   const rowSql = node.values.map((row) => {
@@ -621,9 +661,12 @@ function compileInsert(node: InsertAst): CompiledQuery {
  *
  * @throws Error when SET clause is empty
  */
-function compileUpdate(node: UpdateAst): CompiledQuery {
-  const tableSql = qualifyPostgresQueryRelation(node.relation)
-  const relations = createRelationContext([node.relation])
+function compileUpdate(
+  node: UpdateAst,
+  resolveRelation: PostgresQueryRelationResolver,
+): CompiledQuery {
+  const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
+  const relations = createRelationContext([node.relation], resolveRelation)
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
 
@@ -637,7 +680,7 @@ function compileUpdate(node: UpdateAst): CompiledQuery {
       return `${quoteIdent(item.column)} = $${params.length}`
     })
     .join(', ')
-  const whereSql = compileWhereClause(node.where, params, relations)
+  const whereSql = compileWhereClause(node.where, params, relations, resolveRelation)
   const sql = `update ${tableSql} as ${tableAlias} set ${setSql}${whereSql}${compileReturning(node.returning)}`
   return { sql, params }
 }
@@ -649,12 +692,15 @@ function compileUpdate(node: UpdateAst): CompiledQuery {
  *
  * @returns Compiled query with SQL string and parameters
  */
-function compileDelete(node: DeleteAst): CompiledQuery {
-  const tableSql = qualifyPostgresQueryRelation(node.relation)
-  const relations = createRelationContext([node.relation])
+function compileDelete(
+  node: DeleteAst,
+  resolveRelation: PostgresQueryRelationResolver,
+): CompiledQuery {
+  const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
+  const relations = createRelationContext([node.relation], resolveRelation)
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
-  const whereSql = compileWhereClause(node.where, params, relations)
+  const whereSql = compileWhereClause(node.where, params, relations, resolveRelation)
   const sql = `delete from ${tableSql} as ${tableAlias}${whereSql}${compileReturning(node.returning)}`
   return { sql, params }
 }
@@ -713,8 +759,8 @@ function selectRelationReferences(node: SelectAst): RelationIdentityInput[] {
 }
 
 function relationSessionRequirement(
-  physical: ReturnType<typeof resolvePostgresQueryRelation>,
-  reference: ReturnType<typeof resolvePostgresQueryRelation>,
+  physical: PostgresQueryRelation,
+  reference: PostgresQueryRelation,
 ): Readonly<{ database?: string; schema?: string }> | undefined {
   if (physical.table !== reference.table) return undefined
 
@@ -752,8 +798,9 @@ function guardQuerySession(
   compiled: CompiledQuery,
   physicalRelations: readonly RelationIdentityInput[],
   references: readonly RelationIdentityInput[] = [],
+  resolveRelation: PostgresQueryRelationResolver,
 ): CompiledQuery {
-  const resolvedPhysical = physicalRelations.map(resolvePostgresQueryRelation)
+  const resolvedPhysical = physicalRelations.map(resolveRelation)
   const requirements = new Map<string, Readonly<{ database?: string; schema?: string }>>()
 
   for (const relation of resolvedPhysical) {
@@ -764,7 +811,7 @@ function guardQuerySession(
   }
 
   for (const input of references) {
-    const reference = resolvePostgresQueryRelation(input)
+    const reference = resolveRelation(input)
     const matches = resolvedPhysical.flatMap((physical) => {
       const requirement = relationSessionRequirement(physical, reference)
       return requirement === undefined ? [] : [requirement]
@@ -1021,27 +1068,38 @@ function compileAddUniqueConstraint(node: {
  *
  * @returns Compiled query with SQL string and bound parameters
  */
-export function compilePostgres(node: PostgresAst): CompiledQuery {
+export function compilePostgres(
+  node: PostgresAst,
+  resolveRelation: PostgresQueryRelationResolver = createPostgresQueryRelationResolver(),
+): CompiledQuery {
   switch (node.kind) {
     case 'select':
       return guardQuerySession(
-        compileSelect(node),
+        compileSelect(node, resolveRelation),
         [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
         selectRelationReferences(node),
+        resolveRelation,
       )
     case 'insert':
-      return guardQuerySession(compileInsert(node), [node.relation])
+      return guardQuerySession(
+        compileInsert(node, resolveRelation),
+        [node.relation],
+        [],
+        resolveRelation,
+      )
     case 'update':
       return guardQuerySession(
-        compileUpdate(node),
+        compileUpdate(node, resolveRelation),
         [node.relation],
         [...queryPredicateRelations(node.where)],
+        resolveRelation,
       )
     case 'delete':
       return guardQuerySession(
-        compileDelete(node),
+        compileDelete(node, resolveRelation),
         [node.relation],
         [...queryPredicateRelations(node.where)],
+        resolveRelation,
       )
     case 'create_schema':
       return {

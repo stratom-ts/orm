@@ -94,7 +94,10 @@ The complete Query facet is intentionally small:
 
 ```typescript
 type DialectQuery = {
-  resolve(handles: readonly TableHandle[]): {
+  resolve(
+    handles: readonly TableHandle[],
+    options?: { registrationDefault?: readonly NamespaceIdentifierInput[] },
+  ): {
     compile(node: SqlAst): CompiledQuery
     findRelationMatches(relation, availableHandles?): readonly TableHandle[]
     findColumnMatches(handle, column): readonly string[]
@@ -104,7 +107,9 @@ type DialectQuery = {
 }
 ```
 
-`query.resolve()` runs once for a client registry. Its client-scoped result is shared by
+`query.resolve()` runs once for a client registry. Its optional registration default is
+the same `createDatabase({ defaultNamespace })` input used by Migration planning. Its
+client-scoped result is shared by
 compilation, predicate parameter mapping, selected and returned result mapping, and
 reference-target physical-type resolution. The member must apply one case-folding,
 namespace-defaulting, and structured-identity policy across those methods. Agreement is
@@ -132,8 +137,11 @@ it cannot implement explicitly; it must not reinterpret another member's namespa
 conventions.
 
 PostgreSQL query relations accept omission, schema-only, or ordered database-plus-schema
-namespaces. Omission stays unqualified in SQL so the pinned session's `search_path` and
-`current_schema()` choose the same effective schema observed by migration identity.
+namespaces. An explicit registration default wins over the session context: omitted
+relations use its schema in SQL, while a database-plus-schema default also preserves its
+database execution check. Without that default, omission stays unqualified in SQL so the
+pinned session's `search_path` and `current_schema()` choose the same effective schema
+observed by migration identity.
 There is no implicit `public` equivalence: omitted and explicit `public` agree only when
 resolved session evidence names `public`. When synchronous mapping provisionally
 matches omission to an explicit schema, the compiled query carries that schema as an
@@ -168,9 +176,10 @@ An `OperationSessionProvider` must advertise `nativeTransactions: true`, impleme
 `release('reuse' | 'discard')`. Each session exposes non-empty `database` and
 `physicalSession` identity strings and may expose a dialect-neutral writable namespace
 context. PostgreSQL includes its database-plus-current-schema context for Query and
-migration identity. Those values must identify the same database, namespace context,
-and physical backend for the entire lease. A changing or unprovable identity is an
-error and the session is discarded.
+migration identity. It freshly proves that evidence at every physical-session lease and,
+after stateful cleanup, before reuse. Reuse compares the full database, physical-session,
+and ordered namespace role/spelling evidence to the lease identity. A changing or
+unprovable identity is an error and the session is discarded.
 
 One root operation exclusively owns one pinned session. Root operations are FIFO; close
 stops new work, drains accepted work and its releases, then closes the provider once.

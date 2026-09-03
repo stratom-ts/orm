@@ -16,7 +16,10 @@ import {
   createDb0PostgresqlOperationSessionProvider,
   defineTable,
 } from '@/index'
-import { OperationCoordinator } from '@/operations/coordinator'
+import {
+  OperationCoordinator,
+  getOperationReleaseCleanupFailures,
+} from '@/operations/coordinator'
 
 import { registerOperationSessionProviderContract } from './dialects/operationSessionProviderContract'
 import type { ProviderContractFactoryOptions } from './dialects/operationSessionProviderContract'
@@ -62,6 +65,8 @@ function createNativeConnector(options?: {
   beforeEnd?: () => Promise<void>
   disposeFailures?: number
   releaseFailure?: { value: unknown }
+  currentSchema?: string | (() => string)
+  identityFailureAt?: number
 }) {
   let nextProcessId = 4000
   let client: ReturnType<typeof createClient> | undefined
@@ -70,6 +75,7 @@ function createNativeConnector(options?: {
   let activeCalls = 0
   let maxActiveCalls = 0
   let disposeFailures = options?.disposeFailures ?? 0
+  let identityReads = 0
   const queryCalls: { text: string; values: unknown[] }[] = []
 
   const createClient = () => {
@@ -98,12 +104,21 @@ function createNativeConnector(options?: {
         queryCalls.push({ text, values })
 
         if (text === POSTGRES_OPERATION_IDENTITY_SQL) {
+          identityReads++
+
+          if (identityReads === options?.identityFailureAt) {
+            throw new Error('identity evidence unavailable')
+          }
+
           return {
             rows: [
               {
                 physicalSession: String(processID),
                 database: 'operations_test',
-                schema: 'public',
+                schema:
+                  typeof options?.currentSchema === 'function'
+                    ? options.currentSchema()
+                    : (options?.currentSchema ?? 'public'),
               },
             ],
           }
@@ -390,7 +405,7 @@ registerOperationSessionProviderContract(
 )
 
 describe('db0 PostgreSQL operation sessions', () => {
-  it('avoids extra round trips for plain operations and fully cleans stateful work', async () => {
+  it('proves identity at every lease and after reuse cleanup', async () => {
     const connector = createNativeConnector()
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
     const plainSql = `select '?' as "?", $1::text as value`
@@ -401,6 +416,7 @@ describe('db0 PostgreSQL operation sessions', () => {
     expect(connector.queryCalls).toEqual([
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: plainSql, values: ['bound'] },
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
     ])
 
     const beforeSecond = connector.queryCalls.length
@@ -408,7 +424,9 @@ describe('db0 PostgreSQL operation sessions', () => {
     await second.query({ sql: 'select 2', params: [] })
     await second.release('reuse')
     expect(connector.queryCalls.slice(beforeSecond)).toEqual([
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: 'select 2', values: [] },
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
     ])
 
     const beforeTransaction = connector.queryCalls.length
@@ -417,6 +435,7 @@ describe('db0 PostgreSQL operation sessions', () => {
     await transaction.run({ sql: 'commit', params: [] })
     await transaction.release('reuse')
     expect(connector.queryCalls.slice(beforeTransaction)).toEqual([
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: 'begin', values: [] },
       { text: 'commit', values: [] },
       { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
@@ -429,12 +448,102 @@ describe('db0 PostgreSQL operation sessions', () => {
     await advisory.run({ sql: 'select pg_advisory_lock(1, 2)', params: [] })
     await advisory.release('reuse')
     expect(connector.queryCalls.slice(beforeAdvisory)).toEqual([
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: 'select pg_advisory_lock(1, 2)', values: [] },
       { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
       { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
     ])
     await provider.close()
+  })
+
+  it('reads changed current_schema for a fresh physical-session lease', async () => {
+    let schema = 'public'
+    const connector = createNativeConnector({ currentSchema: () => schema })
+    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+
+    const first = await provider.open()
+    expect(first.identity.namespaceContext?.writableDefault).toEqual([
+      { role: 'database', spelling: 'operations_test' },
+      { role: 'schema', spelling: 'public' },
+    ])
+    await first.release('reuse')
+
+    schema = 'tenant'
+    const second = await provider.open()
+    expect(second.identity.namespaceContext?.writableDefault).toEqual([
+      { role: 'database', spelling: 'operations_test' },
+      { role: 'schema', spelling: 'tenant' },
+    ])
+    await second.release('reuse')
+
+    expect(
+      connector.queryCalls.filter(({ text }) => text === POSTGRES_OPERATION_IDENTITY_SQL),
+    ).toHaveLength(4)
+    await provider.close()
+  })
+
+  it('discards a reused session when DDL changes current_schema during its lease', async () => {
+    let schema = 'public'
+    const connector = createNativeConnector({
+      currentSchema: () => schema,
+      onQuery: async (text) => {
+        if (/^create schema/i.test(text)) schema = 'tenant'
+        return []
+      },
+    })
+    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const session = await provider.open()
+
+    await session.run({ sql: 'create schema tenant', params: [] })
+    await expect(session.release('reuse')).rejects.toThrow(
+      /session identity changed before release/i,
+    )
+    expect(connector.disposeCount).toBe(1)
+    await provider.close()
+  })
+
+  it('discards a reused session when final namespace evidence cannot be read', async () => {
+    const connector = createNativeConnector({ identityFailureAt: 2 })
+    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const session = await provider.open()
+
+    await session.run({ sql: 'select 1', params: [] })
+    await expect(session.release('reuse')).rejects.toThrow(
+      /identity evidence unavailable/i,
+    )
+    expect(connector.disposeCount).toBe(1)
+    await provider.close()
+  })
+
+  it('retains final namespace-evidence cleanup without replacing a primary operation failure', async () => {
+    const primary = new Error('primary native operation failure')
+    const connector = createNativeConnector({
+      identityFailureAt: 2,
+      onQuery: async (text) => {
+        if (text === 'select primary failure') throw primary
+        return []
+      },
+    })
+    const coordinator = new OperationCoordinator(
+      createDb0PostgresqlOperationSessionProvider(connector),
+    )
+
+    const error = await coordinator
+      .run(({ executor }) => executor.run({ sql: 'select primary failure', params: [] }))
+      .catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(QueryError)
+    expect(error).toMatchObject({
+      message: 'primary native operation failure',
+      cause: primary,
+    })
+    expect(getOperationReleaseCleanupFailures(error)).toHaveLength(1)
+    expect(getOperationReleaseCleanupFailures(error)[0]).toMatchObject({
+      message: 'identity evidence unavailable',
+    })
+    expect(connector.disposeCount).toBe(1)
+    await coordinator.close()
   })
 
   it('lexically classifies stateful SQL without matching inert quoted text', async () => {
@@ -464,7 +573,11 @@ describe('db0 PostgreSQL operation sessions', () => {
       'merge into target using source on false when not matched then insert default values',
       'table users',
     ]) {
-      expect(await run(sql)).toEqual([{ text: sql, values: [] }])
+      expect(await run(sql)).toEqual([
+        { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+        { text: sql, values: [] },
+        { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+      ])
     }
 
     for (const sql of [
@@ -482,6 +595,7 @@ describe('db0 PostgreSQL operation sessions', () => {
       'mystery command',
     ]) {
       expect(await run(sql)).toEqual([
+        { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
         { text: sql, values: [] },
         { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
         { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },

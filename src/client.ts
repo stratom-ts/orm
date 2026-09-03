@@ -334,7 +334,12 @@ export function createDatabase<
     config.operationSessionProvider ??
     dialect.operations.createSessionProvider(config.connector)
   const coordinator = new OperationCoordinator(operationSessionProvider)
-  const query = dialect.query.resolve(schemas)
+  const query = dialect.query.resolve(
+    schemas,
+    config.defaultNamespace === undefined
+      ? undefined
+      : { registrationDefault: config.defaultNamespace },
+  )
   const mapper = createValueMapper(dialect, config.map, schemas, query)
   let closed = false
   let closePromise: Promise<void> | undefined
