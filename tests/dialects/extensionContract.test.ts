@@ -1,7 +1,9 @@
 import type { Connector } from 'db0'
+import { pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { registerDialectForTest, resolveDialect } from '@/dialects/resolve'
+import { column, createDatabase, defineTable } from '@/index'
 
 import {
   EXTENSION_CONTRACT_DIALECT_ID,
@@ -10,7 +12,10 @@ import {
   createExtensionContractDialect,
 } from '../helpers/extensionContractDialect'
 
-import { registerDialectMemberContract } from './dialectMemberContract'
+import {
+  assertDialectQueryAgreement,
+  registerDialectMemberContract,
+} from './dialectMemberContract'
 
 let unregister: (() => void) | undefined
 
@@ -64,11 +69,12 @@ function createContractRuntime(migration: 'supported' | 'unsupported') {
     expected: {
       queryRows: [
         {
-          id: 'fixture-result:row-1',
-          label: 'fixture-result:stored-value',
+          id: 'fixture-result:fixture_db.records.id:row-1',
+          label: 'fixture-result:fixture_db.records.label:fixture-param:authored-value',
         },
       ],
-      querySql: 'fixture query',
+      querySql:
+        'fixture query:{"database":"fixture_db","relation":"records","columns":[{"output":"id","physical":"id"},{"output":"label","physical":"label"}],"parameterColumns":["label"]}',
       queryParam: 'fixture-param:authored-value',
       pingSql: 'fixture operation ping',
       forbiddenSql: /postgres|pg_|public/i,
@@ -93,6 +99,49 @@ registerDialectMemberContract('explicitly migration-limited', () =>
 )
 
 describe('dialect extension contract', () => {
+  it('rejects a compiler that disagrees with the reusable Query agreement case', async () => {
+    const runtime = createContractRuntime('supported')
+    const matching = runtime.dialect.query
+    const mismatched = {
+      ...runtime,
+      dialect: {
+        ...runtime.dialect,
+        query: {
+          ...matching,
+          resolve(handles: Parameters<typeof matching.resolve>[0]) {
+            return {
+              ...matching.resolve(handles),
+              compile: () => ({ sql: 'mismatched query', params: [] }),
+            }
+          },
+        },
+      },
+    }
+    const Records = defineTable(
+      'records',
+      {
+        id: pipe(
+          string(),
+          column({ physicalType: { [runtime.dialect.id]: 'fixture_id' } }),
+        ),
+        label: string(),
+      },
+      { primaryKey: 'id' },
+    )
+    unregister = registerDialectForTest(mismatched.dialect)
+    const db = createDatabase({ connector: mismatched.connector, schemas: [Records] })
+
+    try {
+      const rows = await db
+        .from(Records)
+        .where(Records.label, 'eq', 'authored-value')
+        .execute()
+      expect(() => assertDialectQueryAgreement(mismatched, rows)).toThrow()
+    } finally {
+      await db.close()
+    }
+  })
+
   it('keeps contract registration isolated and rejects duplicate members', () => {
     const member = createExtensionContractDialect(createExtensionContractCalls())
     unregister = registerDialectForTest(member)

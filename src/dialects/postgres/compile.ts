@@ -50,7 +50,8 @@ function qualifyPostgresTable(schema: string | undefined, table: string): string
 
 /** Resolves authored relation intent according to PostgreSQL query semantics. */
 export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
-  schema: string
+  database?: string
+  schema?: string
   table: string
 } {
   if (typeof relation !== 'object' || relation === null) {
@@ -78,28 +79,17 @@ export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
 
   const namespace = candidate.namespace ?? []
 
-  if (namespace.length > 1) {
+  if (namespace.length > 2) {
     throw new QueryError({
       message:
-        'PostgreSQL query relation namespace must be omitted or contain one schema segment',
+        'PostgreSQL query relation namespace must be omitted, schema-only, or database plus schema',
     })
   }
 
-  let schema = 'public'
-
-  if (namespace.length === 1) {
-    const segment = namespace[0] as unknown
-
+  for (const segment of namespace as unknown[]) {
     if (typeof segment !== 'object' || segment === null) {
       throw new QueryError({
         message: 'PostgreSQL query namespace segment must be an object',
-      })
-    }
-
-    if (!('role' in segment) || segment.role !== 'schema') {
-      throw new QueryError({
-        message:
-          'PostgreSQL query relation namespace must be omitted or contain one schema segment',
       })
     }
 
@@ -109,15 +99,31 @@ export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
       segment.spelling.length === 0
     ) {
       throw new QueryError({
-        message: 'PostgreSQL query schema name must be a non-empty string',
+        message: 'PostgreSQL query namespace names must be non-empty strings',
       })
     }
+  }
 
-    schema = segment.spelling
+  const schemaOnly = namespace.length === 1 && namespace[0]?.role === 'schema'
+  const databaseAndSchema =
+    namespace.length === 2 &&
+    namespace[0]?.role === 'database' &&
+    namespace[1]?.role === 'schema'
+
+  if (namespace.length > 0 && !schemaOnly && !databaseAndSchema) {
+    throw new QueryError({
+      message:
+        'PostgreSQL query relation namespace must be omitted, schema-only, or database plus schema',
+    })
   }
 
   return {
-    schema,
+    ...(databaseAndSchema ? { database: namespace[0]!.spelling } : {}),
+    ...(schemaOnly
+      ? { schema: namespace[0]!.spelling }
+      : databaseAndSchema
+        ? { schema: namespace[1]!.spelling }
+        : {}),
     table: candidate.relation,
   }
 }
@@ -125,21 +131,29 @@ export function resolvePostgresQueryRelation(relation: RelationIdentityInput): {
 /** Qualifies a structured query relation after PostgreSQL namespace resolution. */
 function qualifyPostgresQueryRelation(relation: RelationIdentityInput): string {
   const resolved = resolvePostgresQueryRelation(relation)
-  return qualifyPostgresTable(resolved.schema, resolved.table)
+  return resolved.schema
+    ? `${quoteIdent(resolved.schema)}.${quoteIdent(resolved.table)}`
+    : quoteIdent(resolved.table)
 }
 
 /**
  * Builds the canonical alias candidate for a PostgreSQL table.
  *
- * @param schema - Schema name, or `undefined` for `public`.
+ * @param database - Explicit authored database, when present.
+ * @param schema - Explicit authored schema, when present.
  * @param table - Table name.
  */
-function postgresTableAlias(schema: string | undefined, table: string): string {
-  return `${schema ?? 'public'}.${table}`
+function postgresTableAlias(
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+): string {
+  return [database, schema, table].filter((part) => part !== undefined).join('.')
 }
 
 type PostgresRelation = {
-  schema: string
+  database?: string
+  schema?: string
   table: string
   alias: string
 }
@@ -163,7 +177,7 @@ function createRelationContext(
 ): PostgresRelation[] {
   const resolved = relations.map(resolvePostgresQueryRelation)
   const candidates = resolved.map((relation) =>
-    postgresTableAlias(relation.schema, relation.table),
+    postgresTableAlias(relation.database, relation.schema, relation.table),
   )
   const counts = new Map<string, number>()
 
@@ -178,7 +192,8 @@ function createRelationContext(
         ? candidate
         : `__stratom_${index}`
     return {
-      schema: relation.schema,
+      ...(relation.database === undefined ? {} : { database: relation.database }),
+      ...(relation.schema === undefined ? {} : { schema: relation.schema }),
       table: relation.table,
       alias,
     }
@@ -196,9 +211,27 @@ function resolveRelationAlias(
   target: RelationIdentityInput,
 ): string {
   const resolved = resolvePostgresQueryRelation(target)
+  const exactMatches = relations.filter(
+    (relation) =>
+      relation.database === resolved.database &&
+      relation.schema === resolved.schema &&
+      relation.table === resolved.table,
+  )
+  if (exactMatches.length === 1) return exactMatches[0]!.alias
+
   const matches = relations.filter(
     (relation) =>
-      relation.table === resolved.table && relation.schema === resolved.schema,
+      relation.table === resolved.table &&
+      !(
+        relation.database !== undefined &&
+        resolved.database !== undefined &&
+        relation.database !== resolved.database
+      ) &&
+      !(
+        relation.schema !== undefined &&
+        resolved.schema !== undefined &&
+        relation.schema !== resolved.schema
+      ),
   )
   if (matches.length === 1) return matches[0]!.alias
 
@@ -626,6 +659,154 @@ function compileDelete(node: DeleteAst): CompiledQuery {
   return { sql, params }
 }
 
+/** Adds the database precondition carried by explicitly database-qualified relations. */
+function queryExpressionRelations(expression: SqlExprAst): RelationIdentityInput[] {
+  if (expression.kind === 'now') return []
+
+  if (expression.kind === 'column') {
+    return expression.relation === undefined ? [] : [expression.relation]
+  }
+
+  if (expression.kind === 'count_all') return []
+
+  return expression.arg.relation === undefined ? [] : [expression.arg.relation]
+}
+
+function queryPredicateRelations(
+  predicate: PredicateAst | undefined,
+): RelationIdentityInput[] {
+  if (predicate === undefined) return []
+
+  if (predicate.kind === 'not') return queryPredicateRelations(predicate.pred)
+
+  if (predicate.kind === 'and' || predicate.kind === 'or') {
+    return predicate.preds.flatMap(queryPredicateRelations)
+  }
+
+  return [
+    ...(predicate.relation === undefined ? [] : [predicate.relation]),
+    ...(predicate.right?.relation === undefined ? [] : [predicate.right.relation]),
+  ]
+}
+
+function selectRelationReferences(node: SelectAst): RelationIdentityInput[] {
+  return [
+    ...node.selection.flatMap((item) => {
+      if (item.kind === 'all') return item.relation === undefined ? [] : [item.relation]
+
+      if (item.kind === 'column') {
+        return item.relation === undefined ? [] : [item.relation]
+      }
+
+      return queryExpressionRelations(item.expr)
+    }),
+    ...(node.joins ?? []).flatMap((join) => queryPredicateRelations(join.on)),
+    ...queryPredicateRelations(node.where),
+    ...(node.orderBy ?? []).flatMap((item) =>
+      item.relation === undefined ? [] : [item.relation],
+    ),
+    ...(node.groupBy ?? []).flatMap((item) =>
+      item.relation === undefined ? [] : [item.relation],
+    ),
+    ...queryPredicateRelations(node.having),
+  ]
+}
+
+function relationSessionRequirement(
+  physical: ReturnType<typeof resolvePostgresQueryRelation>,
+  reference: ReturnType<typeof resolvePostgresQueryRelation>,
+): Readonly<{ database?: string; schema?: string }> | undefined {
+  if (physical.table !== reference.table) return undefined
+
+  if (
+    physical.database !== undefined &&
+    reference.database !== undefined &&
+    physical.database !== reference.database
+  ) {
+    return undefined
+  }
+
+  if (
+    physical.schema !== undefined &&
+    reference.schema !== undefined &&
+    physical.schema !== reference.schema
+  ) {
+    return undefined
+  }
+
+  return {
+    ...(physical.database === undefined && reference.database !== undefined
+      ? { database: reference.database }
+      : reference.database === undefined && physical.database !== undefined
+        ? { database: physical.database }
+        : {}),
+    ...(physical.schema === undefined && reference.schema !== undefined
+      ? { schema: reference.schema }
+      : reference.schema === undefined && physical.schema !== undefined
+        ? { schema: physical.schema }
+        : {}),
+  }
+}
+
+function guardQuerySession(
+  compiled: CompiledQuery,
+  physicalRelations: readonly RelationIdentityInput[],
+  references: readonly RelationIdentityInput[] = [],
+): CompiledQuery {
+  const resolvedPhysical = physicalRelations.map(resolvePostgresQueryRelation)
+  const requirements = new Map<string, Readonly<{ database?: string; schema?: string }>>()
+
+  for (const relation of resolvedPhysical) {
+    if (relation.database !== undefined) {
+      const requirement = { database: relation.database }
+      requirements.set(JSON.stringify(requirement), requirement)
+    }
+  }
+
+  for (const input of references) {
+    const reference = resolvePostgresQueryRelation(input)
+    const matches = resolvedPhysical.flatMap((physical) => {
+      const requirement = relationSessionRequirement(physical, reference)
+      return requirement === undefined ? [] : [requirement]
+    })
+
+    if (matches.length === 1) {
+      const requirement = matches[0]!
+
+      if (requirement.database !== undefined || requirement.schema !== undefined) {
+        requirements.set(JSON.stringify(requirement), requirement)
+      }
+    }
+  }
+
+  if (requirements.size === 0) return compiled
+
+  return {
+    ...compiled,
+    assertSession(identity) {
+      const namespace = identity.namespaceContext?.writableDefault
+      const database =
+        namespace?.find((segment) => segment.role === 'database')?.spelling ??
+        identity.database
+      const schema = namespace?.find((segment) => segment.role === 'schema')?.spelling
+
+      for (const requirement of requirements.values()) {
+        if (requirement.database !== undefined && requirement.database !== database) {
+          throw new QueryError({
+            message: `PostgreSQL query database ${JSON.stringify(requirement.database)} does not match executing database ${JSON.stringify(database)}`,
+          })
+        }
+
+        if (requirement.schema !== undefined && requirement.schema !== schema) {
+          throw new QueryError({
+            message: `PostgreSQL query schema ${JSON.stringify(requirement.schema)} does not match executing current schema ${JSON.stringify(schema)}`,
+          })
+        }
+      }
+    },
+  }
+}
+
 /**
  * Formats a referential action (ON DELETE / ON UPDATE) to uppercase SQL.
  *
@@ -843,13 +1024,25 @@ function compileAddUniqueConstraint(node: {
 export function compilePostgres(node: PostgresAst): CompiledQuery {
   switch (node.kind) {
     case 'select':
-      return compileSelect(node)
+      return guardQuerySession(
+        compileSelect(node),
+        [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
+        selectRelationReferences(node),
+      )
     case 'insert':
-      return compileInsert(node)
+      return guardQuerySession(compileInsert(node), [node.relation])
     case 'update':
-      return compileUpdate(node)
+      return guardQuerySession(
+        compileUpdate(node),
+        [node.relation],
+        [...queryPredicateRelations(node.where)],
+      )
     case 'delete':
-      return compileDelete(node)
+      return guardQuerySession(
+        compileDelete(node),
+        [node.relation],
+        [...queryPredicateRelations(node.where)],
+      )
     case 'create_schema':
       return {
         sql: `create schema if not exists ${quoteIdent(node.schema)}`,

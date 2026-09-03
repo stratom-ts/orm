@@ -90,11 +90,55 @@ to a convenient PostgreSQL or text default.
 
 ### Query compilation and values
 
-`query.compile()` accepts Stratom's dialect-neutral query/DDL AST and returns
-parameterized SQL plus ordered parameters. Optional `mapParamValue()` and
-`mapResultValue()` convert values at the selected member boundary. Compilation must
-honour structured relation input and must reject unsupported AST behavior explicitly;
-it must not reinterpret another member's namespace conventions.
+The complete Query facet is intentionally small:
+
+```typescript
+type DialectQuery = {
+  resolve(handles: readonly TableHandle[]): {
+    compile(node: SqlAst): CompiledQuery
+    findRelationMatches(relation, availableHandles?): readonly TableHandle[]
+    findColumnMatches(handle, column): readonly string[]
+  }
+  mapParamValue?(dataType: string, value: unknown): unknown
+  mapResultValue?(dataType: string, value: unknown): unknown
+}
+```
+
+`query.resolve()` runs once for a client registry. Its client-scoped result is shared by
+compilation, predicate parameter mapping, selected and returned result mapping, and
+reference-target physical-type resolution. The member must apply one case-folding,
+namespace-defaulting, and structured-identity policy across those methods. Agreement is
+an enforced adapter invariant, proven by the reusable Dialect member contract: a member
+whose compiler addresses a different database, relation, or column from its lookup
+result fails the contract.
+
+Relation and member lookup returns candidate sets so the shared boundary can preserve
+its outward tags: zero semantic matches and multiple semantic matches are explicit
+`QueryError` failures during query construction, or `SchemaError` failures when client
+creation cannot resolve referenced-column physical types. They never select a first
+match. `compile()` remains synchronous and performs no database work. A compiled query
+may carry a member-owned session assertion; shared operation execution evaluates it
+against the pinned session identity before issuing SQL. PostgreSQL uses this to reject
+an authored database-plus-schema relation when its database differs from the executing
+session.
+
+The current `SqlAst` scope is select, insert, update, and delete. Select supports
+structured inner/left/right joins, column and `*` projections, aliased scalar and
+aggregate expressions (`count`, `min`, `max`, `sum`, string functions, `now`, and
+`date_trunc`), composable comparison predicates, grouping, having, ordering, limit,
+and offset. Writes support multi-row values with `default`, structured predicates,
+full-table opt-in, and `returning` all or named columns. A member must reject an AST form
+it cannot implement explicitly; it must not reinterpret another member's namespace
+conventions.
+
+PostgreSQL query relations accept omission, schema-only, or ordered database-plus-schema
+namespaces. Omission stays unqualified in SQL so the pinned session's `search_path` and
+`current_schema()` choose the same effective schema observed by migration identity.
+There is no implicit `public` equivalence: omitted and explicit `public` agree only when
+resolved session evidence names `public`. When synchronous mapping provisionally
+matches omission to an explicit schema, the compiled query carries that schema as an
+execution precondition. PostgreSQL operation sessions probe `current_schema()` with
+their database/backend identity, and shared execution rejects a mismatch before SQL.
 
 ### Catalog observation
 
@@ -122,9 +166,11 @@ all other facets.
 An `OperationSessionProvider` must advertise `nativeTransactions: true`, implement
 `open()` and `close()`, and return sessions with `query`, `run`, `cancel`, and
 `release('reuse' | 'discard')`. Each session exposes non-empty `database` and
-`physicalSession` identity strings. Those values must identify the same database and
-physical backend for the entire lease. A changing or unprovable identity is an error and
-the session is discarded.
+`physicalSession` identity strings and may expose a dialect-neutral writable namespace
+context. PostgreSQL includes its database-plus-current-schema context for Query and
+migration identity. Those values must identify the same database, namespace context,
+and physical backend for the entire lease. A changing or unprovable identity is an
+error and the session is discarded.
 
 One root operation exclusively owns one pinned session. Root operations are FIFO; close
 stops new work, drains accepted work and its releases, then closes the provider once.

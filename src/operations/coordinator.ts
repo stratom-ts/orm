@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
+import type { NamespaceContext } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
+import type { NamespaceRole } from '@/schemas'
 import { QueryError, attempt } from '@/utils/error'
 
 import type {
@@ -76,6 +78,68 @@ function assertSession(session: OperationSession): void {
   }
 }
 
+const NAMESPACE_ROLES = new Set<NamespaceRole>(['catalog', 'database', 'schema'])
+
+/** Validates and snapshots optional writable-namespace session evidence. */
+function captureNamespaceContext(value: unknown): NamespaceContext | undefined {
+  if (value === undefined) return undefined
+
+  if (typeof value !== 'object' || value === null || !('writableDefault' in value)) {
+    throw new QueryError({
+      message: 'Operation session provider returned an invalid namespace context',
+    })
+  }
+
+  const writableDefault = value.writableDefault
+
+  if (!Array.isArray(writableDefault)) {
+    throw new QueryError({
+      message: 'Operation session provider returned an invalid namespace context',
+    })
+  }
+
+  const roles = new Set<NamespaceRole>()
+  const snapshot = writableDefault.map((segment: unknown) => {
+    if (
+      typeof segment !== 'object' ||
+      segment === null ||
+      !('role' in segment) ||
+      !NAMESPACE_ROLES.has(segment.role as NamespaceRole) ||
+      roles.has(segment.role as NamespaceRole) ||
+      !('spelling' in segment) ||
+      typeof segment.spelling !== 'string' ||
+      segment.spelling.length === 0
+    ) {
+      throw new QueryError({
+        message: 'Operation session provider returned an invalid namespace context',
+      })
+    }
+
+    const role = segment.role as NamespaceRole
+    roles.add(role)
+    return Object.freeze({ role, spelling: segment.spelling })
+  })
+
+  return Object.freeze({ writableDefault: Object.freeze(snapshot) })
+}
+
+/** Compares ordered writable-namespace snapshots without object serialization. */
+function sameNamespaceContext(
+  left: NamespaceContext | undefined,
+  right: NamespaceContext | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right
+
+  return (
+    left.writableDefault.length === right.writableDefault.length &&
+    left.writableDefault.every(
+      (segment, index) =>
+        segment.role === right.writableDefault[index]?.role &&
+        segment.spelling === right.writableDefault[index]?.spelling,
+    )
+  )
+}
+
 /**
  * Captures and validates one immutable session-identity snapshot.
  *
@@ -84,11 +148,13 @@ function assertSession(session: OperationSession): void {
 function captureSessionIdentity(session: OperationSession): OperationSessionIdentity {
   let database: unknown
   let physicalSession: unknown
+  let namespaceContext: OperationSessionIdentity['namespaceContext']
 
   try {
     const identity = session.identity
     database = identity?.database
     physicalSession = identity?.physicalSession
+    namespaceContext = captureNamespaceContext(identity?.namespaceContext)
   } catch (cause) {
     throw new QueryError({
       message: 'Unable to capture operation session identity',
@@ -107,7 +173,11 @@ function captureSessionIdentity(session: OperationSession): OperationSessionIden
     })
   }
 
-  return Object.freeze({ database, physicalSession })
+  return Object.freeze({
+    database,
+    physicalSession,
+    ...(namespaceContext === undefined ? {} : { namespaceContext }),
+  })
 }
 
 /**
@@ -122,11 +192,13 @@ function assertStableSessionIdentity(
 ): void {
   let database: unknown
   let physicalSession: unknown
+  let namespaceContext: OperationSessionIdentity['namespaceContext']
 
   try {
     const identity = session.identity
     database = identity?.database
     physicalSession = identity?.physicalSession
+    namespaceContext = captureNamespaceContext(identity?.namespaceContext)
   } catch (cause) {
     throw new QueryError({
       message: 'Unable to verify operation session identity before release',
@@ -140,7 +212,11 @@ function assertStableSessionIdentity(
     })
   }
 
-  if (database !== expected.database || physicalSession !== expected.physicalSession) {
+  if (
+    database !== expected.database ||
+    physicalSession !== expected.physicalSession ||
+    !sameNamespaceContext(namespaceContext, expected.namespaceContext)
+  ) {
     throw new QueryError({
       message: 'Operation session identity changed before release',
     })

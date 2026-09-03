@@ -238,7 +238,7 @@ describe('joins compile', () => {
       namespace: [{ role: 'schema', spelling: 'a' }] as const,
       relation: 'b.c',
     }
-    const compiled = postgresDialect.query.compile({
+    const compiled = postgresDialect.query.resolve([]).compile({
       kind: 'select',
       relation: schemaRelation,
       selection: [
@@ -293,22 +293,87 @@ describe('joins compile', () => {
     await db.close()
   })
 
+  it('should support database-plus-schema PostgreSQL query relations', () => {
+    const compiled = postgresDialect.query.resolve([]).compile({
+      kind: 'select',
+      relation: {
+        namespace: [
+          { role: 'database', spelling: 'analytics' },
+          { role: 'schema', spelling: 'tenant' },
+        ],
+        relation: 'events',
+      },
+      selection: [{ kind: 'all' }],
+    })
+
+    expect(compiled.sql).toContain('from "tenant"."events"')
+    expect(() => compiled.assertSession?.({ database: 'analytics' })).not.toThrow()
+    expect(() => compiled.assertSession?.({ database: 'other' })).toThrow(QueryError)
+  })
+
+  it('guards conditionally matched omitted and explicit-schema relation references', () => {
+    const compiled = postgresDialect.query.resolve([]).compile({
+      kind: 'select',
+      relation: { relation: 'events' },
+      selection: [
+        {
+          kind: 'column',
+          relation: {
+            namespace: [{ role: 'schema', spelling: 'tenant' }],
+            relation: 'events',
+          },
+          column: 'id',
+        },
+      ],
+    })
+    const session = (schema: string) => ({
+      database: 'analytics',
+      namespaceContext: {
+        writableDefault: [
+          { role: 'database' as const, spelling: 'analytics' },
+          { role: 'schema' as const, spelling: schema },
+        ],
+      },
+    })
+
+    expect(() => compiled.assertSession?.(session('tenant'))).not.toThrow()
+    expect(() => compiled.assertSession?.(session('public'))).toThrow(
+      /schema "tenant" does not match executing current schema "public"/i,
+    )
+  })
+
   it('should reject namespace shapes unsupported by PostgreSQL queries', () => {
-    expect(() =>
-      postgresDialect.query.compile({
+    const compile = (namespace: never) =>
+      postgresDialect.query.resolve([]).compile({
         kind: 'select',
         relation: {
-          namespace: [{ role: 'database', spelling: 'analytics' }],
+          namespace,
           relation: 'events',
         },
         selection: [{ kind: 'all' }],
-      }),
-    ).toThrow(/namespace must be omitted or contain one schema segment/)
+      })
+
+    expect(() => compile([{ role: 'database', spelling: 'analytics' }] as never)).toThrow(
+      /namespace must be omitted, schema-only, or database plus schema/,
+    )
+    expect(() =>
+      compile([
+        { role: 'schema', spelling: 'tenant' },
+        { role: 'database', spelling: 'analytics' },
+      ] as never),
+    ).toThrow(/namespace must be omitted, schema-only, or database plus schema/)
+    expect(() =>
+      compile([
+        { role: 'database', spelling: 'analytics' },
+        { role: 'schema', spelling: 'tenant' },
+        { role: 'schema', spelling: 'extra' },
+      ] as never),
+    ).toThrow(/namespace must be omitted, schema-only, or database plus schema/)
   })
 
   it('should reject malformed PostgreSQL query relation namespaces', () => {
     const compile = (namespace: never) =>
-      postgresDialect.query.compile({
+      postgresDialect.query.resolve([]).compile({
         kind: 'select',
         relation: { namespace, relation: 'events' },
         selection: [{ kind: 'all' }],
@@ -319,7 +384,7 @@ describe('joins compile', () => {
     expect(() => compile([null] as never)).toThrow(QueryError)
     expect(() => compile([null] as never)).toThrow(/segment must be an object/)
     expect(() => compile([{ role: 'schema', spelling: 42 }] as never)).toThrow(
-      /schema name must be a non-empty string/,
+      /namespace names must be non-empty strings/,
     )
   })
 

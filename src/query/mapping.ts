@@ -1,4 +1,4 @@
-import type { Dialect } from '@/dialects'
+import type { Dialect, DialectQueryResolution } from '@/dialects'
 import type { ColumnMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { RelationIdentityInput } from '@/schemas/actions/relation'
@@ -38,15 +38,13 @@ function formatRelationInput(relation: RelationIdentityInput): string {
  * Resolves the one registered handle matched by the selected query member.
  *
  * @param dialect - Selected dialect query semantics.
- * @param registered - Registered table handles to search.
  * @param relation - Authored relation intent.
  */
 function resolveReferencedHandle(
-  dialect: Dialect,
-  registered: readonly TableHandle[],
+  query: DialectQueryResolution,
   relation: RelationIdentityInput,
 ): TableHandle {
-  const matches = dialect.query.findRelationMatches(registered, relation)
+  const matches = query.findRelationMatches(relation)
 
   if (matches.length === 1) return matches[0]!
 
@@ -70,12 +68,12 @@ function resolveReferencedHandle(
  * @param relation - Optional authored relation for diagnostics.
  */
 function resolveColumnName(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   handle: TableHandle,
   columnName: string,
   relation?: RelationIdentityInput,
 ): string {
-  const matches = dialect.query.findColumnMatches(handle, columnName)
+  const matches = query.findColumnMatches(handle, columnName)
   const table = relation ? formatRelationInput(relation) : handle.getTableMetadata().name
 
   if (matches.length === 1) return matches[0]!
@@ -104,6 +102,7 @@ function resolveColumnDataType(
   handle: TableHandle,
   columnName: string,
   dialect: Dialect,
+  query: DialectQueryResolution,
   registered: readonly TableHandle[],
   resolving: readonly { handle: TableHandle; column: string }[],
 ): string | undefined {
@@ -119,14 +118,10 @@ function resolveColumnDataType(
   const referenceMetadata = getReferenceMetadata(schema)
 
   if (referenceMetadata) {
-    const target = resolveReferencedHandle(
-      dialect,
-      registered,
-      referenceMetadata.target.relation,
-    )
+    const target = resolveReferencedHandle(query, referenceMetadata.target.relation)
     const targetLabel = referenceMetadata.target.relation.relation
     const targetColumn = resolveColumnName(
-      dialect,
+      query,
       target,
       referenceMetadata.target.column,
       referenceMetadata.target.relation,
@@ -142,10 +137,14 @@ function resolveColumnDataType(
       })
     }
 
-    const result = resolveColumnDataType(target, targetColumn, dialect, registered, [
-      ...resolving,
-      { handle: target, column: targetColumn },
-    ])
+    const result = resolveColumnDataType(
+      target,
+      targetColumn,
+      dialect,
+      query,
+      registered,
+      [...resolving, { handle: target, column: targetColumn }],
+    )
 
     if (result === undefined) {
       throw new SchemaError({
@@ -195,6 +194,7 @@ export function createValueMapper(
   dialect: Dialect,
   map?: ValueMapConfig,
   registered: readonly TableHandle[] = [],
+  query: DialectQueryResolution = dialect.query.resolve(registered),
 ): ValueMapper {
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
 
@@ -209,7 +209,7 @@ export function createValueMapper(
     const types: Record<string, string> = {}
 
     for (const name of Object.keys(handle.getSchema().entries)) {
-      const dt = resolveColumnDataType(handle, name, dialect, registered, [])
+      const dt = resolveColumnDataType(handle, name, dialect, query, registered, [])
       if (dt !== undefined) types[name] = dt
     }
 

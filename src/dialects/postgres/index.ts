@@ -1,6 +1,5 @@
 import type { Dialect } from '../types'
 
-import { compilePostgres } from './compile'
 import { postgresIdentity } from './identity'
 import { inferPostgresColumnType } from './infer'
 import { introspectPostgres } from './introspect'
@@ -11,10 +10,7 @@ import { postgresNaming } from './naming'
 import { normalizePostgresDataType } from './normalize'
 import { compilePostgresOperationCommand } from './operations'
 import { createDb0PostgresqlOperationSessionProvider } from './operationSession'
-import {
-  findPostgresQueryColumnMatches,
-  findPostgresQueryRelationMatches,
-} from './queryAddressing'
+import { resolvePostgresQuery } from './queryAddressing'
 import { formatPostgresDefault, normalizePostgresDefaultExpression } from './validate'
 
 export { createDb0PostgresqlOperationSessionProvider } from './operationSession'
@@ -46,7 +42,7 @@ const postgresMigrationPlanning = {
  * @example
  *   import { postgresDialect } from '@/dialects/postgres'
  *
- *   const query = postgresDialect.query.compile({
+ *   const query = postgresDialect.query.resolve([]).compile({
  *     kind: 'select',
  *     relation: { relation: 'users' },
  *     selection: [{ kind: 'all' }],
@@ -58,9 +54,7 @@ export const postgresDialect: Dialect = {
   naming: postgresNaming,
   schema: postgresSchema,
   query: {
-    compile: compilePostgres,
-    findRelationMatches: findPostgresQueryRelationMatches,
-    findColumnMatches: findPostgresQueryColumnMatches,
+    resolve: resolvePostgresQuery,
     mapResultValue: mapPostgresResultValue,
     mapParamValue: mapPostgresParamValue,
   },

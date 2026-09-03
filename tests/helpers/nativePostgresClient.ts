@@ -47,11 +47,15 @@ function normalizeQueryStart(sql: string): string {
   return sql.slice(offset)
 }
 
-export function createNativePostgresClient(prepare: (sql: string) => Statement) {
+export function createNativePostgresClient(
+  prepare: (sql: string) => Statement,
+  database = 'test',
+  currentSchema = 'public',
+) {
   const processID = nextProcessId++
   return {
     processID,
-    database: 'test',
+    database,
     readyForQuery: true,
     activeQuery: null,
     queryQueue: [],
@@ -64,7 +68,7 @@ export function createNativePostgresClient(prepare: (sql: string) => Statement) 
 
       if (text === POSTGRES_OPERATION_IDENTITY_SQL) {
         return {
-          rows: [{ physicalSession: String(processID), database: 'test' }],
+          rows: [{ physicalSession: String(processID), database, schema: currentSchema }],
         }
       }
 
@@ -126,6 +130,8 @@ export function createMockStatement(rows: unknown[] = []): Statement {
 export function createMockPostgresConnector(options?: {
   onPrepare?: (sql: string) => Statement
   rowsBySql?: (sql: string) => unknown[]
+  database?: string
+  currentSchema?: string
 }): Connector & {
   disposed: boolean
   prepared: string[]
@@ -149,7 +155,11 @@ export function createMockPostgresConnector(options?: {
     }
   }
 
-  const nativeClient = createNativePostgresClient(prepare)
+  const nativeClient = createNativePostgresClient(
+    prepare,
+    options?.database,
+    options?.currentSchema,
+  )
   const connector = {
     name: 'postgresql',
     dialect: 'postgresql' as const,

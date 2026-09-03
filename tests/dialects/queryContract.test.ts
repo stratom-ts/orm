@@ -39,8 +39,7 @@ describe('dialect query contract', () => {
       id: 'sqlite',
       query: {
         ...postgresDialect.query,
-        ...exactQueryAddressing(),
-        compile: selectedCompile as never,
+        ...exactQueryAddressing(selectedCompile as never),
       },
     }
 
@@ -75,8 +74,7 @@ describe('dialect query contract', () => {
       id: 'sqlite',
       query: {
         ...postgresDialect.query,
-        ...exactQueryAddressing(),
-        compile: selectedCompile as never,
+        ...exactQueryAddressing(selectedCompile as never),
       },
     }
 
@@ -150,8 +148,7 @@ describe('dialect query contract', () => {
       id: 'sqlite',
       query: {
         ...postgresDialect.query,
-        ...exactQueryAddressing(),
-        compile: () => ({ sql: 'query', params: [] }),
+        ...exactQueryAddressing(() => ({ sql: 'query', params: [] })),
       },
     }
 
@@ -217,8 +214,7 @@ describe('dialect query contract', () => {
       id: 'sqlite',
       query: {
         ...postgresDialect.query,
-        ...exactQueryAddressing(),
-        compile: () => ({ sql: 'query', params: [] }),
+        ...exactQueryAddressing(() => ({ sql: 'query', params: [] })),
       },
     }
 

@@ -156,7 +156,7 @@ function fakeSqliteDialect(): Dialect {
       inferColumnType,
       normalizeDataType,
     },
-    query: { compile, ...exactQueryAddressing() },
+    query: exactQueryAddressing(compile),
     catalog,
     operations: {
       createSessionProvider: () => {
@@ -256,7 +256,6 @@ describe('whole-graph desired-schema lowering', () => {
 
     const inferSpy = vi.spyOn(postgresDialect.schema, 'inferColumnType')
     const normalizeSpy = vi.spyOn(postgresDialect.schema, 'normalizeDataType')
-    const compileSpy = vi.spyOn(postgresDialect.query, 'compile')
     const fake = fakeSqliteDialect()
     expect(getColumnMetadata(Child.getSchema().entries.parentId)).toBeUndefined()
     const sqlite = lowerDesiredSchema([Child, Parent], sqliteIdentities(), fake.schema)
@@ -277,7 +276,6 @@ describe('whole-graph desired-schema lowering', () => {
     ).toBe('blob_id')
     expect(inferSpy).not.toHaveBeenCalled()
     expect(normalizeSpy).not.toHaveBeenCalled()
-    expect(compileSpy).not.toHaveBeenCalled()
     expect(
       createValueMapper(fake, undefined, [Child, Parent]).columnTypes(Child),
     ).toMatchObject({ parentId: 'blob_id' })
