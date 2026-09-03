@@ -42,7 +42,7 @@ type NativePostgresClient = {
 }
 
 export const POSTGRES_OPERATION_IDENTITY_SQL =
-  'select pg_backend_pid()::text as "physicalSession", current_database() as "database"'
+  'select pg_backend_pid()::text as "physicalSession", current_database() as "database", current_schema() as "schema"'
 export const POSTGRES_OPERATION_ROLLBACK_SQL = 'rollback /* stratom operation release */'
 export const POSTGRES_OPERATION_UNLOCK_SQL =
   'select pg_advisory_unlock_all() /* stratom operation release */'
@@ -126,25 +126,37 @@ async function readIdentity(
 ): Promise<OperationSessionIdentity> {
   const result = await client.query(POSTGRES_OPERATION_IDENTITY_SQL)
   const row = result.rows?.[0] as
-    | { database?: unknown; physicalSession?: unknown }
+    | { database?: unknown; physicalSession?: unknown; schema?: unknown }
     | undefined
   const database = row?.database
   const physicalSession = row?.physicalSession
+  const schema = row?.schema
 
   if (
     typeof database !== 'string' ||
     database.length === 0 ||
+    typeof schema !== 'string' ||
+    schema.length === 0 ||
     typeof physicalSession !== 'string' ||
     physicalSession !== String(client.processID) ||
     (client.database !== undefined && client.database !== database)
   ) {
     throw new QueryError({
       message:
-        'The db0 PostgreSQL connector could not prove backend and database identity',
+        'The db0 PostgreSQL connector could not prove backend, database, and namespace identity',
     })
   }
 
-  return Object.freeze({ database, physicalSession })
+  return Object.freeze({
+    database,
+    physicalSession,
+    namespaceContext: Object.freeze({
+      writableDefault: Object.freeze([
+        Object.freeze({ role: 'database' as const, spelling: database }),
+        Object.freeze({ role: 'schema' as const, spelling: schema }),
+      ]),
+    }),
+  })
 }
 
 /**

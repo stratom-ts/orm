@@ -35,6 +35,17 @@ export type DialectMemberContractRuntime = Readonly<{
 
 export type DialectMemberContractFactory = () => DialectMemberContractRuntime
 
+/** Asserts that compiled addressing, parameters, provider rows, and result mapping agree. */
+export function assertDialectQueryAgreement(
+  runtime: DialectMemberContractRuntime,
+  rows: readonly unknown[],
+): void {
+  expect(rows).toEqual(runtime.expected.queryRows)
+  expect(
+    runtime.statements.find(({ sql }) => sql === runtime.expected.querySql)?.params,
+  ).toEqual([runtime.expected.queryParam])
+}
+
 function expectExplicitCapabilityEvidence(catalog: CatalogSnapshot): void {
   for (const capability of Object.values(catalog.capabilities)) {
     if (capability.state === 'supported') continue
@@ -86,10 +97,7 @@ export function registerDialectMemberContract(
           .where(Records.label, 'eq', 'authored-value')
           .execute()
 
-        expect(rows).toEqual(runtime.expected.queryRows)
-        expect(
-          runtime.statements.find(({ sql }) => sql === runtime.expected.querySql)?.params,
-        ).toEqual([runtime.expected.queryParam])
+        assertDialectQueryAgreement(runtime, rows)
 
         await db.transaction(async (transaction) => {
           await transaction.ping()
@@ -147,6 +155,7 @@ export function registerDialectMemberContract(
             'naming.createRegistry',
             'schema.lowerDesiredSchema',
             'schema.inferColumnType',
+            'query.resolve',
             'query.compile',
             'query.mapParamValue',
             'query.mapResultValue',
@@ -156,6 +165,9 @@ export function registerDialectMemberContract(
             'session.release:reuse',
             'sessionProvider.close',
           ]),
+        )
+        expect(runtime.events.filter((event) => event === 'query.resolve')).toHaveLength(
+          1,
         )
 
         if (runtime.migration.state === 'supported') {
@@ -772,8 +784,9 @@ export function registerDialectMemberContract(
 
           expect(rows).toEqual([
             {
-              id: 'fixture-result:row-1',
-              label: 'fixture-result:stored-value',
+              id: 'fixture-result:fixture_db.records.id:row-1',
+              label:
+                'fixture-result:fixture_db.records.label:fixture-param:authored-value',
             },
           ])
         } finally {

@@ -528,7 +528,7 @@ describe('Migration Plan construction', () => {
         normalizeDataType,
         normalizeDefaultValue,
       },
-      query: { compile, ...exactQueryAddressing() },
+      query: exactQueryAddressing(compile),
       operations: {
         createSessionProvider: () => {
           throw new Error('fake migration-planning operations are outside this contract')
@@ -783,6 +783,17 @@ describe('Migration Plan construction', () => {
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', schema: 'tenant' },
     )
+    const FullyQualifiedTenant = defineTable(
+      'items',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+      {
+        primaryKey: 'id',
+        namespace: [
+          { role: 'database', spelling: 'test' },
+          { role: 'schema', spelling: 'tenant' },
+        ],
+      },
+    )
     const tenantCatalog: CatalogSnapshot = {
       tables: [],
       ...emptyCatalogReservations(),
@@ -800,9 +811,20 @@ describe('Migration Plan construction', () => {
     expect(planMigration([Omitted], tenantCatalog, postgresDialect)).toEqual(
       planMigration([Tenant], tenantCatalog, postgresDialect),
     )
+    expect(planMigration([FullyQualifiedTenant], tenantCatalog, postgresDialect)).toEqual(
+      planMigration([Tenant], tenantCatalog, postgresDialect),
+    )
     expect(planMigration([Public], tenantCatalog, postgresDialect)).not.toEqual(
       planMigration([Omitted], tenantCatalog, postgresDialect),
     )
+    const omittedQuery = postgresDialect.query.resolve([Omitted]).compile({
+      kind: 'select',
+      relation: Omitted.getTableMetadata().relation,
+      selection: [{ kind: 'all' }],
+    })
+    expect(omittedQuery.sql).toContain('from "items" as "items"')
+    expect(omittedQuery.sql).not.toContain('"public"."items"')
+    expect(omittedQuery.sql).not.toContain('"tenant"."items"')
   })
 
   it('uses an explicit registration default before the session writable default', () => {

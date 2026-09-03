@@ -114,11 +114,6 @@ function createNaming(calls: ExtensionContractCalls) {
   }
 }
 
-function valueParameters(node: SqlAst): unknown[] {
-  if (node.kind !== 'select' || node.where?.kind !== 'cmp') return []
-  return node.where.value === undefined ? [] : [node.where.value]
-}
-
 function resolveContractQueryRelation(relation: RelationIdentityInput): {
   database: string
   table: string
@@ -144,6 +139,102 @@ function resolveContractQueryRelation(relation: RelationIdentityInput): {
     database: identityPolicy.comparisonKey(relation.namespace[0].spelling),
     table: identityPolicy.comparisonKey(relation.relation),
   }
+}
+
+type ContractCompiledShape = Readonly<{
+  database: string
+  relation: string
+  columns: readonly Readonly<{ output: string; physical: string }>[]
+  parameterColumns: readonly string[]
+}>
+
+const CONTRACT_QUERY_PREFIX = 'fixture query:'
+
+/** Compiles the fixture subset from the same case-folded/defaulted resolution. */
+function compileContractQuery(
+  node: SqlAst,
+  registered: readonly TableHandle[],
+): { sql: string; params: unknown[] } {
+  if (node.kind !== 'select') {
+    throw new InvariantError('Extension contract compiler only supports select queries')
+  }
+
+  const relation = resolveContractQueryRelation(node.relation)
+  const relationMatches = findContractQueryRelationMatches(registered, node.relation)
+
+  if (relationMatches.length !== 1) {
+    throw new InvariantError('Extension contract compiler requires one resolved relation')
+  }
+
+  const handle = relationMatches[0]!
+  const selection =
+    node.selection.length === 1 && node.selection[0]?.kind === 'all'
+      ? Object.keys(handle.getSchema().entries).map((column) => ({
+          output: column,
+          physical: identityPolicy.comparisonKey(column),
+        }))
+      : node.selection.map((item) => {
+          if (item.kind !== 'column') {
+            throw new InvariantError(
+              'Extension contract compiler only supports column selections',
+            )
+          }
+
+          const selectedHandle = item.relation
+            ? findContractQueryRelationMatches(registered, item.relation)
+            : [handle]
+          const columnMatches =
+            selectedHandle.length === 1
+              ? findContractQueryColumnMatches(selectedHandle[0]!, item.column)
+              : []
+
+          if (columnMatches.length !== 1) {
+            throw new InvariantError(
+              'Extension contract compiler requires one resolved selected column',
+            )
+          }
+
+          return {
+            output: item.alias ?? item.column,
+            physical: identityPolicy.comparisonKey(columnMatches[0]!),
+          }
+        })
+
+  const params: unknown[] = []
+  const parameterColumns: string[] = []
+
+  if (node.where !== undefined) {
+    if (node.where.kind !== 'cmp' || node.where.right) {
+      throw new InvariantError(
+        'Extension contract compiler only supports one value predicate',
+      )
+    }
+
+    const predicateHandle = node.where.relation
+      ? findContractQueryRelationMatches(registered, node.where.relation)
+      : [handle]
+    const columnMatches =
+      predicateHandle.length === 1
+        ? findContractQueryColumnMatches(predicateHandle[0]!, node.where.column)
+        : []
+
+    if (columnMatches.length !== 1) {
+      throw new InvariantError(
+        'Extension contract compiler requires one resolved predicate column',
+      )
+    }
+
+    parameterColumns.push(identityPolicy.comparisonKey(columnMatches[0]!))
+    if (node.where.value !== undefined) params.push(node.where.value)
+  }
+
+  const shape: ContractCompiledShape = {
+    database: relation.database,
+    relation: relation.table,
+    columns: selection,
+    parameterColumns,
+  }
+  return { sql: `${CONTRACT_QUERY_PREFIX}${JSON.stringify(shape)}`, params }
 }
 
 function findContractQueryRelationMatches(
@@ -290,9 +381,24 @@ function createSessionProvider(
         async query(query) {
           calls.statements.push(query)
           calls.events.push('session.query')
-          return query.sql === 'fixture query'
-            ? [{ id: 'row-1', label: 'stored-value' }]
-            : []
+          if (!query.sql.startsWith(CONTRACT_QUERY_PREFIX)) return []
+
+          const shape = JSON.parse(
+            query.sql.slice(CONTRACT_QUERY_PREFIX.length),
+          ) as ContractCompiledShape
+          return [
+            Object.fromEntries(
+              shape.columns.map(({ output, physical }) => {
+                const parameterIndex = shape.parameterColumns.indexOf(physical)
+                const source =
+                  parameterIndex < 0 ? 'row-1' : String(query.params[parameterIndex])
+                return [
+                  output,
+                  `${shape.database}.${shape.relation}.${physical}:${source}`,
+                ]
+              }),
+            ),
+          ]
         },
         async run(query) {
           calls.statements.push(query)
@@ -417,21 +523,26 @@ export function createExtensionContractDialect(
     },
   }
   const query = {
-    compile(node: SqlAst) {
-      calls.events.push('query.compile')
-      calls.compiledAst.push(node)
-      return { sql: 'fixture query', params: valueParameters(node) }
-    },
-    findRelationMatches(
-      handles: readonly TableHandle[],
-      relation: RelationIdentityInput,
-    ) {
-      calls.events.push('query.findRelationMatches')
-      return findContractQueryRelationMatches(handles, relation)
-    },
-    findColumnMatches(handle: TableHandle, column: string) {
-      calls.events.push('query.findColumnMatches')
-      return findContractQueryColumnMatches(handle, column)
+    resolve(registered: readonly TableHandle[]) {
+      calls.events.push('query.resolve')
+      return {
+        compile(node: SqlAst) {
+          calls.events.push('query.compile')
+          calls.compiledAst.push(node)
+          return compileContractQuery(node, registered)
+        },
+        findRelationMatches(
+          relation: RelationIdentityInput,
+          handles: readonly TableHandle[] = registered,
+        ) {
+          calls.events.push('query.findRelationMatches')
+          return findContractQueryRelationMatches(handles, relation)
+        },
+        findColumnMatches(handle: TableHandle, column: string) {
+          calls.events.push('query.findColumnMatches')
+          return findContractQueryColumnMatches(handle, column)
+        },
+      }
     },
     mapParamValue(_dataType: string, value: unknown) {
       calls.events.push('query.mapParamValue')

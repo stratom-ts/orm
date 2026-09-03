@@ -2,6 +2,7 @@ import type {
   ComparisonOp,
   DeleteAst,
   Dialect,
+  DialectQueryResolution,
   InsertAst,
   JoinAst,
   OrderByAst,
@@ -74,7 +75,7 @@ function resolveOn(on: JoinOnInput): PredicateAst {
  * @returns Mapped join AST nodes, or the original when no mapper or joins
  */
 function mapJoinsParams(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
   joins: readonly JoinAst[] | undefined,
@@ -82,7 +83,7 @@ function mapJoinsParams(
   if (!joins || joins.length === 0) return joins
   return joins.map((join) => ({
     ...join,
-    on: mapPredicateParams(dialect, handles, mapper, join.on)!,
+    on: mapPredicateParams(query, handles, mapper, join.on)!,
   }))
 }
 
@@ -318,7 +319,7 @@ function mapSetParams(
  * @returns Mapped predicate, or the original when no mapper or predicate
  */
 function mapPredicateParams(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   handles: readonly TableHandle[],
   mapper: ValueMapper | undefined,
   pred: PredicateAst | undefined,
@@ -329,8 +330,8 @@ function mapPredicateParams(
     case 'cmp': {
       // Column-vs-column join/on predicates have no bound params.
       if (pred.right || pred.value === null) return pred
-      const handle = findHandle(dialect, handles, pred.relation)
-      const column = findColumn(dialect, handle, pred.column, pred.relation)
+      const handle = findHandle(query, handles, pred.relation)
+      const column = findColumn(query, handle, pred.column, pred.relation)
 
       return {
         ...pred,
@@ -340,17 +341,17 @@ function mapPredicateParams(
     case 'and':
       return {
         kind: 'and',
-        preds: pred.preds.map((p) => mapPredicateParams(dialect, handles, mapper, p)!),
+        preds: pred.preds.map((p) => mapPredicateParams(query, handles, mapper, p)!),
       }
     case 'or':
       return {
         kind: 'or',
-        preds: pred.preds.map((p) => mapPredicateParams(dialect, handles, mapper, p)!),
+        preds: pred.preds.map((p) => mapPredicateParams(query, handles, mapper, p)!),
       }
     case 'not':
       return {
         kind: 'not',
-        pred: mapPredicateParams(dialect, handles, mapper, pred.pred)!,
+        pred: mapPredicateParams(query, handles, mapper, pred.pred)!,
       }
     default: {
       const _exhaustive: never = pred
@@ -381,12 +382,12 @@ function formatRelationInput(relation: RelationIdentityInput): string {
  * @param relation - Optional authored relation intent.
  */
 function findHandle(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   handles: readonly TableHandle[],
   relation: RelationIdentityInput | undefined,
 ): TableHandle {
   if (!relation) return handles[0]!
-  const matches = dialect.query.findRelationMatches(handles, relation)
+  const matches = query.findRelationMatches(relation, handles)
 
   if (matches.length === 1) return matches[0]!
 
@@ -410,12 +411,12 @@ function findHandle(
  * @param relation - Optional authored relation for diagnostics.
  */
 function findColumn(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   handle: TableHandle,
   column: string,
   relation: RelationIdentityInput | undefined,
 ): string {
-  const matches = dialect.query.findColumnMatches(handle, column)
+  const matches = query.findColumnMatches(handle, column)
   const target = relation
     ? `${formatRelationInput(relation)}.${column}`
     : `${handle.getTableMetadata().name}.${column}`
@@ -442,7 +443,7 @@ type ResultColumn = { handle: TableHandle; column: string }
  * @param selection - Selected AST items.
  */
 function resultColumnsForSelection(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   handles: readonly TableHandle[],
   selection: readonly SelectItemAst[],
 ): Map<string, ResultColumn> {
@@ -482,27 +483,27 @@ function resultColumnsForSelection(
       if (!item.relation) {
         for (const handle of handles) addAll(handle)
       } else {
-        const handle = findHandle(dialect, handles, item.relation)
+        const handle = findHandle(query, handles, item.relation)
         addAll(handle)
       }
     } else if (item.kind === 'column') {
-      const handle = findHandle(dialect, handles, item.relation)
+      const handle = findHandle(query, handles, item.relation)
       add(item.alias ?? item.column, {
         handle,
-        column: findColumn(dialect, handle, item.column, item.relation),
+        column: findColumn(query, handle, item.column, item.relation),
       })
     } else {
       const expression = item.expr
       const handle =
         expression.kind === 'column'
-          ? findHandle(dialect, handles, expression.relation)
+          ? findHandle(query, handles, expression.relation)
           : undefined
       add(
         item.alias,
         handle && expression.kind === 'column'
           ? {
               handle,
-              column: findColumn(dialect, handle, expression.column, expression.relation),
+              column: findColumn(query, handle, expression.column, expression.relation),
             }
           : undefined,
       )
@@ -555,14 +556,14 @@ function mapSelectedRows(
  * @returns Query result rows
  */
 async function runQuery<T>(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   executor: Executor,
   handle: TableHandle,
   mapper: ValueMapper | undefined,
   resultColumns: ReadonlyMap<string, ResultColumn>,
   ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
 ): Promise<T> {
-  const compiled = dialect.query.compile(ast)
+  const compiled = query.compile(ast)
 
   try {
     const rows = await executor.execute(compiled)
@@ -601,13 +602,13 @@ async function runQuery<T>(
  * @returns Mapped rows when RETURNING is used, or `WriteResult` with row count
  */
 async function runWrite(
-  dialect: Dialect,
+  query: DialectQueryResolution,
   executor: Executor,
   handle: TableHandle,
   mapper: ValueMapper | undefined,
   ast: InsertAst | UpdateAst | DeleteAst,
 ): Promise<unknown[] | WriteResult> {
-  const compiled = dialect.query.compile(ast)
+  const compiled = query.compile(ast)
 
   try {
     if (ast.returning) {
@@ -692,12 +693,14 @@ export type InsertBuilder<
 export function createInsertBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
+  query?: DialectQueryResolution
   executor: Executor
   mapper?: ValueMapper
   rows: Record<string, unknown>[]
   returning?: ReturningAst
 }): InsertBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, rows, returning } = options
+  const query = options.query ?? dialect.query.resolve([handle])
 
   /** Builds the insert AST. */
   const buildAst = (): InsertAst => {
@@ -738,10 +741,10 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
   }
 
   /** Compiles the current insert query. */
-  const compile = () => dialect.query.compile(buildAst())
+  const compile = () => query.compile(buildAst())
 
   /** Executes the current insert query. */
-  const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
 
   /**
    * Executes the insert and returns the first row when `returning` is configured.
@@ -777,6 +780,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
       return createInsertBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         rows,
@@ -792,6 +796,7 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
       return createInsertBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         rows,
@@ -876,6 +881,7 @@ export type UpdateBuilder<
 export function createUpdateBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
+  query?: DialectQueryResolution
   executor: Executor
   mapper?: ValueMapper
   patch: Record<string, unknown>
@@ -884,6 +890,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   returning?: ReturningAst
 }): UpdateBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, patch, where, allowAll, returning } = options
+  const query = options.query ?? dialect.query.resolve([handle])
 
   /** Builds the update AST. */
   const buildAst = (): UpdateAst => {
@@ -904,17 +911,17 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
       kind: 'update',
       relation: info.relation,
       set,
-      ...(where ? { where: mapPredicateParams(dialect, [handle], mapper, where) } : {}),
+      ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
     }
   }
 
   /** Compiles the current update query. */
-  const compile = () => dialect.query.compile(buildAst())
+  const compile = () => query.compile(buildAst())
 
   /** Executes the current update query. */
-  const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
 
   /**
    * Executes the update and returns the first row when `returning` is configured.
@@ -949,6 +956,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
     createUpdateBuilder({
       handle,
       dialect,
+      query,
       executor,
       mapper,
       patch,
@@ -979,6 +987,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
       return createUpdateBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         patch,
@@ -992,6 +1001,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
       return createUpdateBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         patch,
@@ -1009,6 +1019,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
       return createUpdateBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         patch,
@@ -1080,6 +1091,7 @@ export type DeleteBuilder<
 export function createDeleteBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
+  query?: DialectQueryResolution
   executor: Executor
   mapper?: ValueMapper
   where?: PredicateAst
@@ -1087,6 +1099,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   returning?: ReturningAst
 }): DeleteBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, where, allowAll, returning } = options
+  const query = options.query ?? dialect.query.resolve([handle])
 
   /** Builds the delete AST. */
   const buildAst = (): DeleteAst => {
@@ -1101,17 +1114,17 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
     return {
       kind: 'delete',
       relation: info.relation,
-      ...(where ? { where: mapPredicateParams(dialect, [handle], mapper, where) } : {}),
+      ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
       allowAll,
       ...(returning ? { returning } : {}),
     }
   }
 
   /** Compiles the current delete query. */
-  const compile = () => dialect.query.compile(buildAst())
+  const compile = () => query.compile(buildAst())
 
   /** Executes the current delete query. */
-  const execute = async () => runWrite(dialect, executor, handle, mapper, buildAst())
+  const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
 
   /**
    * Executes the delete and returns the first row when `returning` is configured.
@@ -1146,6 +1159,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
     createDeleteBuilder({
       handle,
       dialect,
+      query,
       executor,
       mapper,
       where: mergeWhere(where, normalizeWhere(input)),
@@ -1175,6 +1189,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
       return createDeleteBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         where,
@@ -1187,6 +1202,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
       return createDeleteBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         where,
@@ -1203,6 +1219,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
       return createDeleteBuilder({
         handle,
         dialect,
+        query,
         executor,
         mapper,
         where,
@@ -1349,11 +1366,12 @@ type SelectState = {
 function createSelectBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
+  query: DialectQueryResolution
   executor: Executor
   mapper?: ValueMapper
   state: SelectState
 }): SelectBuilder<THandle, unknown> {
-  const { handle, dialect, executor, mapper, state } = options
+  const { handle, dialect, query, executor, mapper, state } = options
 
   /** Builds the select AST and result-column mappings. */
   const buildQuery = () => {
@@ -1361,23 +1379,23 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     const handles = [handle, ...state.joinedHandles]
     const selection =
       state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
-    const resultColumns = resultColumnsForSelection(dialect, handles, selection)
+    const resultColumns = resultColumnsForSelection(query, handles, selection)
     const ast: SelectAst = {
       kind: 'select',
       relation: info.relation,
       selection,
       ...(state.joins.length > 0
-        ? { joins: mapJoinsParams(dialect, handles, mapper, state.joins) }
+        ? { joins: mapJoinsParams(query, handles, mapper, state.joins) }
         : {}),
       ...(state.where
-        ? { where: mapPredicateParams(dialect, handles, mapper, state.where) }
+        ? { where: mapPredicateParams(query, handles, mapper, state.where) }
         : {}),
       ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
       ...(state.limit !== undefined ? { limit: state.limit } : {}),
       ...(state.offset !== undefined ? { offset: state.offset } : {}),
       ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
       ...(state.having
-        ? { having: mapPredicateParams(dialect, handles, mapper, state.having) }
+        ? { having: mapPredicateParams(query, handles, mapper, state.having) }
         : {}),
     }
     return { ast, resultColumns }
@@ -1392,6 +1410,7 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     createSelectBuilder({
       handle,
       dialect,
+      query,
       executor,
       mapper,
       state: {
@@ -1408,12 +1427,12 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
     })
 
   /** Compiles the current select query. */
-  const compile = () => dialect.query.compile(buildQuery().ast)
+  const compile = () => query.compile(buildQuery().ast)
 
   /** Executes the current select query. */
   const execute = async () => {
     const { ast, resultColumns } = buildQuery()
-    return runQuery(dialect, executor, handle, mapper, resultColumns, ast)
+    return runQuery(query, executor, handle, mapper, resultColumns, ast)
   }
 
   /** Executes the select and returns its first row. */
@@ -1690,16 +1709,19 @@ function emptySelectState(): SelectState {
 export function createTableBuilder<THandle extends TableHandle>(options: {
   handle: THandle
   dialect: Dialect
+  query?: DialectQueryResolution
   executor: Executor
   mapper?: ValueMapper
 }): QueryBuilder<THandle> {
   const { handle, dialect, executor, mapper } = options
+  const query = options.query ?? dialect.query.resolve([handle])
 
   /** Creates a select builder rooted at the table. */
   const rootSelect = () =>
     createSelectBuilder({
       handle,
       dialect,
+      query,
       executor,
       mapper,
       state: emptySelectState(),
@@ -1709,6 +1731,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
   const defaultSelect = createSelectBuilder({
     handle,
     dialect,
+    query,
     executor,
     mapper,
     state: emptySelectState(),

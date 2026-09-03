@@ -16,6 +16,7 @@ import {
   createDb0PostgresqlOperationSessionProvider,
   defineTable,
 } from '@/index'
+import { OperationCoordinator } from '@/operations/coordinator'
 
 import { registerOperationSessionProviderContract } from './dialects/operationSessionProviderContract'
 import type { ProviderContractFactoryOptions } from './dialects/operationSessionProviderContract'
@@ -102,6 +103,7 @@ function createNativeConnector(options?: {
               {
                 physicalSession: String(processID),
                 database: 'operations_test',
+                schema: 'public',
               },
             ],
           }
@@ -746,6 +748,55 @@ describe('db0 PostgreSQL operation sessions', () => {
 })
 
 describe('client root-operation coordination', () => {
+  it('snapshots nested namespace identity and discards when the live context changes', async () => {
+    const namespaceContext = {
+      writableDefault: [
+        { role: 'database' as const, spelling: 'coordinator_test' },
+        { role: 'schema' as const, spelling: 'public' },
+      ],
+    }
+    const dispositions: string[] = []
+    const provider: OperationSessionProvider = {
+      nativeTransactions: true,
+      async open() {
+        return {
+          identity: {
+            database: 'coordinator_test',
+            physicalSession: 'physical-namespace',
+            namespaceContext,
+          },
+          async query() {
+            return []
+          },
+          async run() {},
+          async cancel() {},
+          async release(disposition) {
+            dispositions.push(disposition)
+          },
+        }
+      },
+      async close() {},
+    }
+    const coordinator = new OperationCoordinator(provider)
+    let capturedSchema: string | undefined
+
+    try {
+      const error = await coordinator
+        .run(async ({ identity }) => {
+          namespaceContext.writableDefault[1]!.spelling = 'tenant'
+          capturedSchema = identity.namespaceContext?.writableDefault[1]?.spelling
+        })
+        .catch((cause: unknown) => cause)
+
+      expect(capturedSchema).toBe('public')
+      expect(error).toBeInstanceOf(QueryError)
+      expect(error).toMatchObject({ message: expect.stringMatching(/identity changed/i) })
+      expect(dispositions).toEqual(['discard'])
+    } finally {
+      await coordinator.close()
+    }
+  })
+
   it('advances the queue and closes after an early provider-open failure', async () => {
     const controls = createControllableProvider({
       openFailure: { session: 1, value: new Error('open failed') },

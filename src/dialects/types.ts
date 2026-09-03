@@ -124,20 +124,38 @@ export type DialectSchema = Readonly<{
   normalizeDefaultValue?: (value: string | number | boolean | null) => string
 }>
 
+/** Database session evidence available immediately before physical execution. */
+export type QuerySessionIdentity = Readonly<{
+  database: string
+  namespaceContext?: NamespaceContext
+}>
+
 /** Parameterized SQL produced by dialect compilation. */
 export type CompiledQuery = {
   sql: string
   params: unknown[]
+  /** Optional member-owned execution guard evaluated on the pinned session. */
+  assertSession?: (identity: QuerySessionIdentity) => void
 }
 
-/** SQL compilation and optional dialect value conversion behavior. */
-export type DialectQuery = Readonly<{
+/**
+ * One client-scoped resolution of a member's relation and member semantics.
+ *
+ * Compilation and every semantic lookup use this same client-scoped result. The
+ * reusable member contract enforces that its addressing policies agree.
+ */
+export type DialectQueryResolution = Readonly<{
   compile(node: SqlAst): CompiledQuery
   findRelationMatches(
-    handles: readonly TableHandle[],
     relation: RelationIdentityInput,
+    handles?: readonly TableHandle[],
   ): readonly TableHandle[]
   findColumnMatches(handle: TableHandle, column: string): readonly string[]
+}>
+
+/** SQL resolution, compilation, and optional dialect value conversion behavior. */
+export type DialectQuery = Readonly<{
+  resolve(handles: readonly TableHandle[]): DialectQueryResolution
   mapResultValue?: (dataType: string, value: unknown) => unknown
   mapParamValue?: (dataType: string, value: unknown) => unknown
 }>

@@ -334,7 +334,8 @@ export function createDatabase<
     config.operationSessionProvider ??
     dialect.operations.createSessionProvider(config.connector)
   const coordinator = new OperationCoordinator(operationSessionProvider)
-  const mapper = createValueMapper(dialect, config.map, schemas)
+  const query = dialect.query.resolve(schemas)
+  const mapper = createValueMapper(dialect, config.map, schemas, query)
   let closed = false
   let closePromise: Promise<void> | undefined
 
@@ -351,18 +352,24 @@ export function createDatabase<
      *
      * @param query - Compiled query to execute.
      */
-    execute(query) {
+    execute(compiled) {
       ensureOpen()
-      return coordinator.run(({ executor }) => executor.execute(query))
+      return coordinator.run(({ executor, identity }) => {
+        compiled.assertSession?.(identity)
+        return executor.execute(compiled)
+      })
     },
     /**
      * Runs a statement through the operation coordinator.
      *
      * @param query - Compiled statement to run.
      */
-    run(query) {
+    run(compiled) {
       ensureOpen()
-      return coordinator.run(({ executor }) => executor.run(query))
+      return coordinator.run(({ executor, identity }) => {
+        compiled.assertSession?.(identity)
+        return executor.run(compiled)
+      })
     },
   }
 
@@ -410,20 +417,24 @@ export function createDatabase<
            *
            * @param query - Compiled query to execute.
            */
-          execute(query) {
+          execute(compiled) {
             ensureClientOpen()
-            return scheduleTransactionScope(transactionScope, () =>
-              executor.execute(query),
-            )
+            return scheduleTransactionScope(transactionScope, () => {
+              compiled.assertSession?.(transactionScope.operation.identity)
+              return executor.execute(compiled)
+            })
           },
           /**
            * Runs a statement in the transaction queue.
            *
            * @param query - Compiled statement to run.
            */
-          run(query) {
+          run(compiled) {
             ensureClientOpen()
-            return scheduleTransactionScope(transactionScope, () => executor.run(query))
+            return scheduleTransactionScope(transactionScope, () => {
+              compiled.assertSession?.(transactionScope.operation.identity)
+              return executor.run(compiled)
+            })
           },
         }
       : executor
@@ -475,7 +486,13 @@ export function createDatabase<
         })
       }
 
-      return createTableBuilder({ handle, dialect, executor: clientExecutor, mapper })
+      return createTableBuilder({
+        handle,
+        dialect,
+        query,
+        executor: clientExecutor,
+        mapper,
+      })
     }
 
     /**
@@ -528,6 +545,7 @@ export function createDatabase<
           return createInsertBuilder({
             handle,
             dialect,
+            query,
             executor: clientExecutor,
             mapper,
             rows: validated,
@@ -586,6 +604,7 @@ export function createDatabase<
           return createUpdateBuilder({
             handle,
             dialect,
+            query,
             executor: clientExecutor,
             mapper,
             patch: validated,
@@ -612,6 +631,7 @@ export function createDatabase<
       return createDeleteBuilder({
         handle,
         dialect,
+        query,
         executor: clientExecutor,
         mapper,
         allowAll: false,
