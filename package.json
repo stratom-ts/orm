@@ -33,23 +33,24 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "db0": "^0.3.4",
+    "db0": "^0.4.0",
     "valibot": "^1.4.2"
   },
   "devDependencies": {
-    "@microsoft/api-extractor": "^7.58.11",
-    "@types/node": "^26.1.1",
-    "@types/pg": "^8.20.0",
-    "@vitest/coverage-v8": "4.1.10",
+    "@microsoft/api-extractor": "^7.59.0",
+    "@types/node": "^26.4.1",
+    "@types/pg": "^8.23.1",
+    "@typescript/typescript6": "^6.0.2",
+    "@vitest/coverage-v8": "4.1.11",
     "husky": "^9.1.7",
-    "oxfmt": "^0.60.0",
-    "oxlint": "^1.74.0",
-    "oxlint-tsgolint": "^0.25.0",
-    "pg": "^8.22.0",
-    "typescript": "^6.0.2",
-    "vite": "^8.1.5",
-    "vite-plugin-dts": "^5.0.3",
-    "vitest": "^4.1.10"
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "pg": "^8.23.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vite-plugin-dts": "^5.1.0",
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=18"

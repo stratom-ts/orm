@@ -177,6 +177,26 @@ function assertReusableNativeClient(client: NativePostgresClient): void {
   }
 }
 
+/** Compares the complete evidence that makes a physical session reusable. */
+function sameOperationSessionIdentity(
+  left: OperationSessionIdentity,
+  right: OperationSessionIdentity,
+): boolean {
+  const leftNamespace = left.namespaceContext?.writableDefault
+  const rightNamespace = right.namespaceContext?.writableDefault
+
+  return (
+    left.database === right.database &&
+    left.physicalSession === right.physicalSession &&
+    leftNamespace?.length === rightNamespace?.length &&
+    leftNamespace?.every(
+      (segment, index) =>
+        segment.role === rightNamespace?.[index]?.role &&
+        segment.spelling === rightNamespace[index]?.spelling,
+    ) === true
+  )
+}
+
 /**
  * Creates the exact operation-session provider for db0 0.3.4's PostgreSQL
  * connector, whose `getInstance()` is one lazily connected native `pg.Client`.
@@ -209,8 +229,6 @@ export function createDb0PostgresqlOperationSessionProvider(
       return Promise.reject(cause)
     }
   }
-
-  const identities = new WeakMap<object, OperationSessionIdentity>()
 
   let leased = false
   let closed = false
@@ -250,23 +268,7 @@ export function createDb0PostgresqlOperationSessionProvider(
       try {
         client = asNativePostgresClient(await connector.getInstance())
         assertReusableNativeClient(client)
-        const cachedIdentity = identities.get(client)
-
-        if (cachedIdentity) {
-          if (
-            cachedIdentity.database !== client.database ||
-            cachedIdentity.physicalSession !== String(client.processID)
-          ) {
-            throw new QueryError({
-              message: 'PostgreSQL cached session identity no longer matches the client',
-            })
-          }
-
-          identity = cachedIdentity
-        } else {
-          identity = await readIdentity(client)
-          identities.set(client, identity)
-        }
+        identity = await readIdentity(client)
       } catch (cause) {
         await disposeConnector().catch(() => undefined)
         leased = false
@@ -437,28 +439,17 @@ export function createDb0PostgresqlOperationSessionProvider(
               })
             }
 
-            if (
-              identity.database !== client.database ||
-              identity.physicalSession !== String(client.processID)
-            ) {
-              throw new QueryError({
-                message: 'PostgreSQL session identity changed before release',
-              })
-            }
-
             if (requiresCleanup) {
               await client.query(POSTGRES_OPERATION_ROLLBACK_SQL)
               await client.query(POSTGRES_OPERATION_UNLOCK_SQL)
-              const releasedIdentity = await readIdentity(client)
+            }
 
-              if (
-                releasedIdentity.database !== identity.database ||
-                releasedIdentity.physicalSession !== identity.physicalSession
-              ) {
-                throw new QueryError({
-                  message: 'PostgreSQL session identity changed before release',
-                })
-              }
+            const releasedIdentity = await readIdentity(client)
+
+            if (!sameOperationSessionIdentity(releasedIdentity, identity)) {
+              throw new QueryError({
+                message: 'PostgreSQL session identity changed before release',
+              })
             }
           } catch (cause) {
             releaseFailed = true

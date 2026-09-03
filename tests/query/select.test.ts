@@ -354,6 +354,38 @@ describe('select compile', () => {
     }
   })
 
+  it('uses the registration default for omitted PostgreSQL relations over current_schema', async () => {
+    const TenantUsers = defineTable(
+      'tenant_users',
+      {
+        id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+        createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
+      },
+      { primaryKey: 'id' },
+    )
+    const when = new Date('2026-01-02T03:04:05.000Z')
+    const connector = createMockConnector({
+      currentSchema: 'public',
+      rowsBySql: () => [{ id: 1, createdAt: when.toISOString() }],
+    })
+    const db = createDatabase({
+      connector,
+      schemas: [TenantUsers],
+      defaultNamespace: [{ role: 'schema', spelling: 'tenant' }],
+    })
+
+    try {
+      const query = db.from(TenantUsers).select([TenantUsers.id, TenantUsers.createdAt])
+      expect(query.compile().sql).toContain('from "tenant"."tenant_users"')
+      expect(await query.execute()).toEqual([{ id: 1, createdAt: when }])
+      expect(
+        connector.prepared.some((sql) => sql.includes('"tenant"."tenant_users"')),
+      ).toBe(true)
+    } finally {
+      await db.close()
+    }
+  })
+
   it('resolves reference column types through matching omitted relation intent', () => {
     const BareUsers = defineTable(
       'users',

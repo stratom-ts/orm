@@ -7,6 +7,7 @@ import type { CatalogSnapshot } from '@/dialects/catalog'
 import { registerDialectForTest } from '@/dialects/resolve'
 import type { Dialect, OperationCommand } from '@/dialects/types'
 import { QueryError, column, createDatabase, defineTable, eq, reference } from '@/index'
+import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import { createValueMapper } from '@/query'
 
@@ -27,6 +28,7 @@ export type DialectMemberContractRuntime = Readonly<{
     pingSql: string
     forbiddenSql?: RegExp
     memberComparison: 'caseFolded' | 'caseSensitive'
+    registrationDefault: readonly NamespaceIdentifierInput[]
   }>
   migration:
     | Readonly<{ state: 'supported'; outcomes: Array<'applied' | 'unchanged'> }>
@@ -89,7 +91,11 @@ export function registerDialectMemberContract(
       let closeDatabase: (() => Promise<void>) | undefined
 
       try {
-        const db = createDatabase({ connector: runtime.connector, schemas: [Records] })
+        const db = createDatabase({
+          connector: runtime.connector,
+          schemas: [Records],
+          defaultNamespace: runtime.expected.registrationDefault,
+        })
         closeDatabase = () => db.close()
         await db.ping()
         const rows = await db

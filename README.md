@@ -244,18 +244,25 @@ Adding package-supported database behavior is therefore local to one complete me
 one dispatcher registration. PostgreSQL is currently the only production member.
 
 The Query facet first creates one client-scoped resolution of registered relations and
-members. Compilation, predicate parameter mapping, selected/returned result mapping,
-and referenced-column physical-type resolution all consume that same case-folding and
-namespace policy. Zero and multiple semantic matches are tagged failures; compilation
-is synchronous and non-executing. The supported AST covers select/insert/update/delete,
+members. `createDatabase({ defaultNamespace })` is supplied to that resolution and to
+Migration planning, so compilation, predicate parameter mapping, selected/returned
+result mapping, and referenced-column physical-type resolution all consume the same
+case-folding and namespace policy. Zero and multiple semantic matches are tagged
+failures; compilation is synchronous and non-executing. The supported AST covers select/insert/update/delete,
 structured joins and comparison predicates, projections and returning, grouping,
 aggregates and the documented scalar functions, ordering, limit, and offset.
 PostgreSQL accepts omitted, schema-only, and database-plus-schema relation identities:
-omission remains unqualified for `search_path`/`current_schema()`, while an explicit
-database is checked against the pinned session before SQL. Omission is equivalent to
+an explicit registration default takes precedence: an omitted relation is schema-qualified
+from that default, while a database-plus-schema default is also checked against the
+pinned session before SQL. Without a registration default, omission remains unqualified
+for `search_path`/`current_schema()`, while an explicit database is checked against the
+pinned session before SQL. Omission is equivalent to
 an explicit schema only when the pinned session's resolved namespace evidence names
 that schema; a mismatch is rejected before SQL. This preserves `public` behavior on a
-public session without introducing a shared or unconditional `public` default.
+public session without introducing a shared or unconditional `public` default. PostgreSQL
+operation sessions freshly prove their complete database, physical-session, and ordered
+current-schema namespace evidence for every lease and again before reuse; any mismatch
+or failed proof discards the session.
 
 A tagged literal string is always a literal, while a tagged expression is
 always an expression. By-default identity columns may be omitted on insert or

@@ -69,16 +69,18 @@ function createContractRuntime(migration: 'supported' | 'unsupported') {
     expected: {
       queryRows: [
         {
-          id: 'fixture-result:fixture_db.records.id:row-1',
-          label: 'fixture-result:fixture_db.records.label:fixture-param:authored-value',
+          id: 'fixture-result:fixture_tenant.records.id:row-1',
+          label:
+            'fixture-result:fixture_tenant.records.label:fixture-param:authored-value',
         },
       ],
       querySql:
-        'fixture query:{"database":"fixture_db","relation":"records","columns":[{"output":"id","physical":"id"},{"output":"label","physical":"label"}],"parameterColumns":["label"]}',
+        'fixture query:{"database":"fixture_tenant","relation":"records","columns":[{"output":"id","physical":"id"},{"output":"label","physical":"label"}],"parameterColumns":["label"]}',
       queryParam: 'fixture-param:authored-value',
       pingSql: 'fixture operation ping',
       forbiddenSql: /postgres|pg_|public/i,
       memberComparison: 'caseFolded' as const,
+      registrationDefault: [{ role: 'database' as const, spelling: 'fixture_tenant' }],
     },
     migration:
       migration === 'supported'

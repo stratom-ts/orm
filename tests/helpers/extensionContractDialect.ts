@@ -6,6 +6,7 @@ import type { CatalogRequest, CatalogSnapshot } from '@/dialects/catalog'
 import type {
   AuthoredDesiredSchema,
   Dialect,
+  DialectQueryResolveOptions,
   OperationCommand,
   SqlAst,
 } from '@/dialects/types'
@@ -114,13 +115,30 @@ function createNaming(calls: ExtensionContractCalls) {
   }
 }
 
-function resolveContractQueryRelation(relation: RelationIdentityInput): {
+function resolveContractQueryRelation(
+  relation: RelationIdentityInput,
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+): {
   database: string
   table: string
 } {
   if (relation.namespace === undefined || relation.namespace.length === 0) {
+    const defaultNamespace = registrationDefault ?? [
+      { role: 'database' as const, spelling: 'fixture_db' },
+    ]
+
+    if (
+      defaultNamespace.length !== 1 ||
+      defaultNamespace[0]?.role !== 'database' ||
+      defaultNamespace[0].spelling.length === 0
+    ) {
+      throw new InvariantError(
+        'Extension contract query registration default must provide one database segment',
+      )
+    }
+
     return {
-      database: identityPolicy.comparisonKey('fixture_db'),
+      database: identityPolicy.comparisonKey(defaultNamespace[0].spelling),
       table: identityPolicy.comparisonKey(relation.relation),
     }
   }
@@ -154,13 +172,18 @@ const CONTRACT_QUERY_PREFIX = 'fixture query:'
 function compileContractQuery(
   node: SqlAst,
   registered: readonly TableHandle[],
+  registrationDefault?: readonly NamespaceIdentifierInput[],
 ): { sql: string; params: unknown[] } {
   if (node.kind !== 'select') {
     throw new InvariantError('Extension contract compiler only supports select queries')
   }
 
-  const relation = resolveContractQueryRelation(node.relation)
-  const relationMatches = findContractQueryRelationMatches(registered, node.relation)
+  const relation = resolveContractQueryRelation(node.relation, registrationDefault)
+  const relationMatches = findContractQueryRelationMatches(
+    registered,
+    node.relation,
+    registrationDefault,
+  )
 
   if (relationMatches.length !== 1) {
     throw new InvariantError('Extension contract compiler requires one resolved relation')
@@ -181,7 +204,11 @@ function compileContractQuery(
           }
 
           const selectedHandle = item.relation
-            ? findContractQueryRelationMatches(registered, item.relation)
+            ? findContractQueryRelationMatches(
+                registered,
+                item.relation,
+                registrationDefault,
+              )
             : [handle]
           const columnMatches =
             selectedHandle.length === 1
@@ -211,7 +238,11 @@ function compileContractQuery(
     }
 
     const predicateHandle = node.where.relation
-      ? findContractQueryRelationMatches(registered, node.where.relation)
+      ? findContractQueryRelationMatches(
+          registered,
+          node.where.relation,
+          registrationDefault,
+        )
       : [handle]
     const columnMatches =
       predicateHandle.length === 1
@@ -240,11 +271,15 @@ function compileContractQuery(
 function findContractQueryRelationMatches(
   handles: readonly TableHandle[],
   relation: RelationIdentityInput,
+  registrationDefault?: readonly NamespaceIdentifierInput[],
 ): readonly TableHandle[] {
-  const expected = resolveContractQueryRelation(relation)
+  const expected = resolveContractQueryRelation(relation, registrationDefault)
 
   return handles.filter((handle) => {
-    const candidate = resolveContractQueryRelation(handle.getTableMetadata().relation)
+    const candidate = resolveContractQueryRelation(
+      handle.getTableMetadata().relation,
+      registrationDefault,
+    )
     return candidate.database === expected.database && candidate.table === expected.table
   })
 }
@@ -523,20 +558,24 @@ export function createExtensionContractDialect(
     },
   }
   const query = {
-    resolve(registered: readonly TableHandle[]) {
+    resolve(registered: readonly TableHandle[], options?: DialectQueryResolveOptions) {
       calls.events.push('query.resolve')
       return {
         compile(node: SqlAst) {
           calls.events.push('query.compile')
           calls.compiledAst.push(node)
-          return compileContractQuery(node, registered)
+          return compileContractQuery(node, registered, options?.registrationDefault)
         },
         findRelationMatches(
           relation: RelationIdentityInput,
           handles: readonly TableHandle[] = registered,
         ) {
           calls.events.push('query.findRelationMatches')
-          return findContractQueryRelationMatches(handles, relation)
+          return findContractQueryRelationMatches(
+            handles,
+            relation,
+            options?.registrationDefault,
+          )
         },
         findColumnMatches(handle: TableHandle, column: string) {
           calls.events.push('query.findColumnMatches')

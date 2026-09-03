@@ -1,12 +1,23 @@
-import { resolve } from 'path'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
 import dts from 'vite-plugin-dts'
 import { defineConfig } from 'vitest/config'
+
+const require = createRequire(import.meta.url)
+const typescript6Package = require.resolve('@typescript/typescript6/package.json')
+const typescript6CompilerFolder = dirname(
+  createRequire(typescript6Package).resolve('@typescript/old/package.json'),
+)
 
 export default defineConfig({
   plugins: [
     dts({
       include: ['src/**/*.ts'],
-      bundleTypes: true,
+      bundleTypes: {
+        invokeOptions: {
+          typescriptCompilerFolder: typescript6CompilerFolder,
+        },
+      },
       outDirs: ['dist', { dir: 'dist', moduleFormat: 'cjs' }],
     }),
   ],
@@ -45,7 +56,7 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: [{ find: /^@\/(.*)/, replacement: resolve(__dirname, 'src/$1') }],
+    alias: [{ find: /^@\/(.*)/, replacement: resolve(import.meta.dirname, 'src/$1') }],
   },
   build: {
     lib: {

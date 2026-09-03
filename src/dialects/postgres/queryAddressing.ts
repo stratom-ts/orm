@@ -2,7 +2,9 @@ import type { RelationIdentityInput } from '@/schemas'
 import type { TableHandle } from '@/types'
 import { QueryError } from '@/utils/error'
 
-import { compilePostgres, resolvePostgresQueryRelation } from './compile'
+import type { DialectQueryResolveOptions } from '../types'
+
+import { compilePostgres, createPostgresQueryRelationResolver } from './compile'
 
 /**
  * Finds registered table handles that address the same PostgreSQL query relation.
@@ -19,8 +21,8 @@ type SessionRequirement = Readonly<{
 
 /** Finds the session evidence needed for two authored relations to coincide. */
 function postgresRelationSessionRequirement(
-  left: ReturnType<typeof resolvePostgresQueryRelation>,
-  right: ReturnType<typeof resolvePostgresQueryRelation>,
+  left: ReturnType<ReturnType<typeof createPostgresQueryRelationResolver>>,
+  right: ReturnType<ReturnType<typeof createPostgresQueryRelationResolver>>,
 ): SessionRequirement | undefined {
   if (left.table !== right.table) return undefined
 
@@ -57,11 +59,12 @@ function postgresRelationSessionRequirement(
 function findPostgresQueryRelationMatches(
   handles: readonly TableHandle[],
   relation: RelationIdentityInput,
+  resolveRelation: ReturnType<typeof createPostgresQueryRelationResolver>,
 ): readonly Readonly<{ handle: TableHandle; requirement: SessionRequirement }>[] {
-  const expected = resolvePostgresQueryRelation(relation)
+  const expected = resolveRelation(relation)
 
   return handles.flatMap((handle) => {
-    const candidate = resolvePostgresQueryRelation(handle.getTableMetadata().relation)
+    const candidate = resolveRelation(handle.getTableMetadata().relation)
     const requirement = postgresRelationSessionRequirement(candidate, expected)
     return requirement === undefined ? [] : [{ handle, requirement }]
   })
@@ -86,13 +89,19 @@ function findPostgresQueryColumnMatches(
 }
 
 /** Creates one coherent PostgreSQL Query resolution for a client registry. */
-export function resolvePostgresQuery(handles: readonly TableHandle[]) {
+export function resolvePostgresQuery(
+  handles: readonly TableHandle[],
+  options?: DialectQueryResolveOptions,
+) {
   const registered = [...handles]
   const requirements = new Map<string, SessionRequirement>()
+  const resolveRelation = createPostgresQueryRelationResolver(
+    options?.registrationDefault,
+  )
 
   return Object.freeze({
     compile(node: Parameters<typeof compilePostgres>[0]) {
-      const compiled = compilePostgres(node)
+      const compiled = compilePostgres(node, resolveRelation)
       if (requirements.size === 0) return compiled
 
       return {
@@ -127,18 +136,20 @@ export function resolvePostgresQuery(handles: readonly TableHandle[]) {
       relation: RelationIdentityInput,
       candidates?: readonly TableHandle[],
     ) {
-      return findPostgresQueryRelationMatches(candidates ?? registered, relation).map(
-        ({ handle, requirement }) => {
-          if (
-            candidates === undefined &&
-            (requirement.database !== undefined || requirement.schema !== undefined)
-          ) {
-            requirements.set(JSON.stringify(requirement), requirement)
-          }
+      return findPostgresQueryRelationMatches(
+        candidates ?? registered,
+        relation,
+        resolveRelation,
+      ).map(({ handle, requirement }) => {
+        if (
+          candidates === undefined &&
+          (requirement.database !== undefined || requirement.schema !== undefined)
+        ) {
+          requirements.set(JSON.stringify(requirement), requirement)
+        }
 
-          return handle
-        },
-      )
+        return handle
+      })
     },
     findColumnMatches: findPostgresQueryColumnMatches,
   })

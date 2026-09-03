@@ -4,6 +4,7 @@ import { postgresBaseType } from './normalize'
  * Maps a PostgreSQL result value to its JavaScript representation.
  *
  * Handles common type conversions:
+ *
  * - `timestamp` / `timestamptz` → `Date`
  * - `json` / `jsonb` → parsed JSON
  * - `uuid` → string.
@@ -53,6 +54,7 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
  * Maps a JavaScript value to its PostgreSQL parameter representation.
  *
  * Handles common type conversions:
+ *
  * - `Date` → ISO string for timestamp types
  * - Objects/arrays → JSON string for json/jsonb
  * - Non-string values → string for uuid.
