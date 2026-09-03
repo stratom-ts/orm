@@ -173,11 +173,13 @@ export type InferInsertFromSchema<S extends TableSchema> = {
 
 /** Update view: partial patch; omit readonly and always-generated columns. */
 export type InferUpdateFromSchema<S extends TableSchema> = {
-  [K in keyof S['entries'] as IsGeneratedAlways<S['entries'][K]> extends true
-    ? never
-    : IsReadonlyColumn<S['entries'][K]> extends true
+  [
+    K in keyof S['entries'] as IsGeneratedAlways<S['entries'][K]> extends true
       ? never
-      : K]?: InsertColumnValue<S['entries'][K]>
+      : IsReadonlyColumn<S['entries'][K]> extends true
+        ? never
+        : K
+  ]?: InsertColumnValue<S['entries'][K]>
 }
 
 /** Resolve a table schema from a handle (`getSchema`) or raw Valibot table schema. */
