@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const projectRoot = resolve(import.meta.dirname, '../..')
+const projectRoot = resolve(import.meta.dirname, '../../..')
 const oxlintBin = resolve(projectRoot, 'node_modules/oxlint/bin/oxlint')
 const ruleConfig = resolve(projectRoot, '.oxlintrc.json')
 

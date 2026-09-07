@@ -6,9 +6,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
-      include: ['tests/integration/postgres.test.ts'],
-      setupFiles: ['tests/integration/postgres.setup.ts'],
-      fileParallelism: true,
+      include: ['tests/unit/**/*.test.ts'],
     },
   }),
 )

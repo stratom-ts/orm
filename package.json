@@ -23,9 +23,10 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "test": "vitest",
-    "test:postgres": "vitest run --config vitest.postgres.config.ts",
-    "test:coverage": "vitest run --coverage",
+    "test": "pnpm test:unit && pnpm test:integration",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:coverage": "vitest run --config vitest.unit.config.ts --coverage",
     "typecheck": "tsc",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

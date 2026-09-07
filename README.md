@@ -31,14 +31,15 @@ service, and run the dedicated command:
 ```bash
 cp .env.example .env
 docker compose up -d --wait
-pnpm test:postgres
+pnpm test:integration
 docker compose down -v
 ```
 
-On PowerShell, use `Copy-Item .env.example .env` for the first command. The ordinary
-`pnpm test` and `pnpm test:coverage` commands skip PostgreSQL cases when
-`POSTGRESQL_URL` is not configured; `pnpm test:postgres` fails with a setup message
-instead of silently passing when the service is unavailable.
+On PowerShell, use `Copy-Item .env.example .env` for the first command. Use
+`pnpm test:unit` when PostgreSQL is not configured. `pnpm test` runs the unit suite
+followed by the integration suite, while `pnpm test:integration` runs only integration
+tests; both fail with a setup message instead of silently passing when the service is
+unavailable.
 
 ## Quick start
 

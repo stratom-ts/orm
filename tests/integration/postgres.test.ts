@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { column, defineTable, eq, reference } from '@/index'
 
-import { createAdminClient, withPostgresDatabase } from '../helpers/postgresIntegration'
+import { createAdminClient, withPostgresDatabase } from './postgresIntegration'
 
 const Users = defineTable(
   'users',
@@ -45,7 +45,7 @@ const Posts = defineTable(
 
 const registeredSchemas = [Users, Posts] as const
 
-describe.runIf(Boolean(process.env.POSTGRESQL_URL))('PostgreSQL integration', () => {
+describe('PostgreSQL integration', () => {
   it('connects, migrates an isolated namespace, and observes an empty second plan', async () => {
     await withPostgresDatabase(registeredSchemas, async ({ db, schema, admin }) => {
       await expect(db.ping()).resolves.toBeUndefined()
