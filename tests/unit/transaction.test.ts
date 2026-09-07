@@ -11,7 +11,7 @@ const Users = defineTable(
     id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
     email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 const Mapped = defineTable(
@@ -29,7 +29,7 @@ const Mapped = defineTable(
       }),
     ),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 describe('db.transaction', () => {

@@ -135,6 +135,22 @@ function propertyName(node: ts.PropertyName): string | undefined {
   return ts.isIdentifier(node) || ts.isStringLiteral(node) ? node.text : undefined
 }
 
+function declaredPropertyNames(source: ts.SourceFile, declarationName: string): string[] {
+  const declaration = descendants(source).find(
+    (node) =>
+      (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) &&
+      node.name.text === declarationName,
+  )
+
+  if (!declaration) return []
+
+  return descendants(declaration)
+    .flatMap((node) =>
+      ts.isPropertySignature(node) && node.name ? [propertyName(node.name)] : [],
+    )
+    .filter((name): name is string => name !== undefined)
+}
+
 function containsConnectorDialect(node: ts.Node): boolean {
   let found = false
 
@@ -371,6 +387,27 @@ describe('dialect extension locality architecture', () => {
     })
 
     expect(violations).toEqual([])
+  })
+
+  it('keeps authored Schema metadata contracted to structured relation addressing', () => {
+    const sharedTypes = parse(join(ROOT, 'src/schemas/actions/types.ts'))
+    const tableAction = parse(join(ROOT, 'src/schemas/actions/table.ts'))
+    const referenceAction = parse(join(ROOT, 'src/schemas/actions/reference.ts'))
+
+    expect(declaredPropertyNames(sharedTypes, 'TableMetadata')).not.toContain('schema')
+    expect(declaredPropertyNames(sharedTypes, 'TableOptions')).not.toContain('schema')
+    expect(declaredPropertyNames(tableAction, 'TableActionConfig')).not.toContain(
+      'schema',
+    )
+    expect(declaredPropertyNames(sharedTypes, 'ReferenceMetadata')).not.toContain('table')
+    expect(declaredPropertyNames(sharedTypes, 'ReferenceMetadata')).not.toContain('key')
+
+    expect(readFileSync(tableAction.fileName, 'utf8')).not.toMatch(
+      /\b(?:config|metadata)\.schema\b/,
+    )
+    expect(readFileSync(referenceAction.fileName, 'utf8')).not.toMatch(
+      /\b(?:metadata|reference)\.(?:table|key)\b/,
+    )
   })
 
   it('keeps physical DDL addressing out of generic Migration and Dialect interfaces', () => {

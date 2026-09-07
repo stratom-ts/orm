@@ -37,7 +37,7 @@ describe('reference action', () => {
     )
   })
 
-  it('should create reference metadata with table and key from referenced schema', () => {
+  it('should create only structured target metadata from referenced schema', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
       title('users'),
@@ -49,8 +49,12 @@ describe('reference action', () => {
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
     expect(metadata!.kind).toBe('reference')
-    expect(metadata!.table).toBe('users')
-    expect(metadata!.key).toBe('id')
+    expect(metadata!.target).toEqual({
+      relation: { relation: 'users' },
+      column: 'id',
+    })
+    expect(metadata).not.toHaveProperty('table')
+    expect(metadata).not.toHaveProperty('key')
   })
 
   it('should retain a structured target without copying a physical type', () => {
@@ -99,8 +103,7 @@ describe('reference action', () => {
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toMatchObject({
       kind: 'reference',
-      table: 'users',
-      key: 'id',
+      target: { relation: { relation: 'users' }, column: 'id' },
       onDelete: 'cascade',
       onUpdate: 'set null',
     })
@@ -117,8 +120,7 @@ describe('reference action', () => {
     expect(getColumnMetadata(composed)).toMatchObject({ kind: 'column', unique: true })
     expect(getReferenceMetadata(composed)).toMatchObject({
       kind: 'reference',
-      table: 'users',
-      key: 'id',
+      target: { relation: { relation: 'users' }, column: 'id' },
     })
   })
 
@@ -141,8 +143,7 @@ describe('reference action', () => {
     })
     expect(getReferenceMetadata(composed)).toMatchObject({
       kind: 'reference',
-      table: 'users',
-      key: 'id',
+      target: { relation: { relation: 'users' }, column: 'id' },
     })
   })
 })

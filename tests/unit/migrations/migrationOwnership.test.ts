@@ -44,7 +44,7 @@ const Users = defineTable(
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
-  { schema: 'public', primaryKey: 'id' },
+  { namespace: [{ role: 'schema', spelling: 'public' }], primaryKey: 'id' },
 )
 
 function catalog(): CatalogSnapshot {

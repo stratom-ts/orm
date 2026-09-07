@@ -69,7 +69,7 @@ const Users = defineTable(
     deletedAt: nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
     createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 describe('select result types', () => {
@@ -557,7 +557,7 @@ describe('select compile', () => {
       {
         id: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
       },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const Posts = defineTable(
       'posts',
@@ -565,7 +565,7 @@ describe('select compile', () => {
         id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
         userId: reference(BareUsers, 'id'),
       },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const when = new Date('2026-04-05T06:07:08.000Z')
     const connector = createMockConnector({
@@ -592,7 +592,7 @@ describe('select compile', () => {
     const PublicUsers = defineTable(
       'users',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const Posts = defineTable(
       'posts',
@@ -600,7 +600,7 @@ describe('select compile', () => {
         id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
         userId: reference(BareUsers, 'id'),
       },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const connector = createMockConnector({ currentSchema: 'tenant' })
     const db = createDatabase({ connector, schemas: [PublicUsers, Posts] })

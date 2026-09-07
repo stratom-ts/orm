@@ -98,7 +98,7 @@ const Membership = defineTable(
     ),
   },
   {
-    schema: 'public', // Postgres namespace (optional; defaults to search_path)
+    namespace: [{ role: 'schema', spelling: 'public' }],
     primaryKey: ['orgId', 'userId'], // single column or composite
     indexes: [
       { columns: ['userId'] }, // non-unique
@@ -111,6 +111,10 @@ const Membership = defineTable(
   },
 )
 ```
+
+Qualified relations use ordered, role-tagged `namespace` intent. Omitting `namespace`
+keeps the relation unresolved during Schema construction; the connector-selected
+Dialect member resolves it from the registration default or session context.
 
 `primaryKey` and every index `columns` entry are constrained to the table's own
 column names, so a typo is a compile error:

@@ -64,6 +64,11 @@ There is no shared `public` fallback. Invalid or incompatible identity input fai
 explicitly with a tagged schema, migration, or invariant error at the boundary that
 consumes it.
 
+Public table authoring supplies only ordered, role-tagged `namespace` intent. Schema
+construction preserves omission as unresolved intent, and table/reference metadata
+retains only structured relation and column targets; it does not carry PostgreSQL
+`schema` shorthand or duplicate flat foreign-key addresses.
+
 ### Physical naming
 
 `naming` generates and validates physical identifiers and creates collision registries.

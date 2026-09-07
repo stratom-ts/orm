@@ -25,8 +25,6 @@ type ReferenceTargetHandle = {
     ]
   >
   getTableMetadata(): {
-    name: string
-    schema?: string
     relation: ReferenceMetadata['target']['relation']
   }
 }
@@ -131,8 +129,6 @@ export function reference<
     ? tableOrSchema.getTableMetadata()
     : null
 
-  const tableName = tableInfo?.name ?? tableMeta?.name ?? ''
-
   const targetRelation = isReferenceTargetHandle(tableOrSchema)
     ? tableInfo?.relation
     : tableMeta?.relation
@@ -145,8 +141,6 @@ export function reference<
     schema.entries[key as string] as never,
     metadata({
       kind: 'reference',
-      table: tableName,
-      key: key as string,
       target: {
         relation: targetRelation,
         column: key as string,
@@ -161,7 +155,7 @@ export function reference<
  * Type guard for reference metadata (`kind: 'reference'`).
  *
  * @example
- *   if (isReferenceMetadata(meta)) console.log(meta.table, meta.key)
+ *   if (isReferenceMetadata(meta)) console.log(meta.target)
  *
  * @param metadata - Value to check.
  *
@@ -178,7 +172,7 @@ export function isReferenceMetadata(
  *
  * @example
  *   const meta = getReferenceMetadata(PostSchema.entries.authorId)
- *   // { kind: 'reference', table: 'users', key: 'id', ... }
+ *   // { kind: 'reference', target: { relation: { relation: 'users' }, column: 'id' } }
  *
  * @param schema - Column schema that may include `reference()` metadata.
  *

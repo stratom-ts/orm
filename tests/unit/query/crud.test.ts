@@ -40,7 +40,7 @@ const Users = defineTable(
       }),
     ),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 const AlwaysId = defineTable(

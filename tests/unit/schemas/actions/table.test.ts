@@ -4,12 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { SchemaError, getTableMetadata, table } from '@/index'
 
 export const relationOptionTypeCoverage = () => {
-  // @ts-expect-error schema and namespace are mutually exclusive
   table({
     name: 'events',
     primaryKey: 'id',
+    // @ts-expect-error PostgreSQL schema shorthand is not portable table intent
     schema: 'app',
-    namespace: [{ role: 'schema', spelling: 'app' }] as const,
   })
 }
 
@@ -29,7 +28,7 @@ describe('table action', () => {
       name: 'posts',
       primaryKey: 'id',
       indexes: [{ columns: ['title'] }, { columns: ['created_at'] }],
-      schema: 'public',
+      namespace: [{ role: 'schema', spelling: 'public' }],
     })
 
     const metadata = action.metadata as Record<string, unknown>
@@ -38,8 +37,12 @@ describe('table action', () => {
       name: 'posts',
       primaryKey: 'id',
       indexes: [{ columns: ['title'] }, { columns: ['created_at'] }],
-      schema: 'public',
+      relation: {
+        namespace: [{ role: 'schema', spelling: 'public' }],
+        relation: 'posts',
+      },
     })
+    expect(metadata).not.toHaveProperty('schema')
   })
 
   it('should create table without optional fields', () => {
@@ -84,15 +87,7 @@ describe('table action', () => {
     })
   })
 
-  it('rejects conflicting and malformed namespace intent', () => {
-    expect(() =>
-      table({
-        name: 'events',
-        primaryKey: 'id',
-        schema: 'app',
-        namespace: [{ role: 'schema', spelling: 'app' }],
-      } as never),
-    ).toThrow(SchemaError)
+  it('rejects malformed namespace intent', () => {
     expect(() =>
       table({
         name: 'events',
@@ -127,7 +122,7 @@ describe('table action', () => {
         { name: 'memberships_role_idx', columns: ['role'] },
         { columns: ['orgId', 'role'], unique: true },
       ],
-      schema: 'app',
+      namespace: [{ role: 'schema', spelling: 'app' }],
     })
 
     const metadata = action.metadata as Record<string, unknown>
@@ -135,12 +130,16 @@ describe('table action', () => {
       kind: 'table',
       name: 'memberships',
       primaryKey: ['orgId', 'userId'],
-      schema: 'app',
+      relation: {
+        namespace: [{ role: 'schema', spelling: 'app' }],
+        relation: 'memberships',
+      },
       indexes: [
         { name: 'memberships_role_idx', columns: ['role'] },
         { columns: ['orgId', 'role'], unique: true },
       ],
     })
+    expect(metadata).not.toHaveProperty('schema')
   })
 })
 

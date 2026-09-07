@@ -26,7 +26,7 @@ const Users = defineTable(
     email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
     createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 const Posts = defineTable(
@@ -49,7 +49,7 @@ const Posts = defineTable(
       }),
     ),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 const AppUsers = defineTable(
@@ -58,7 +58,7 @@ const AppUsers = defineTable(
     id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
     email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
-  { primaryKey: 'id', schema: 'app' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'app' }] },
 )
 
 describe('joins compile', () => {
@@ -280,7 +280,7 @@ describe('joins compile', () => {
     const LongSchemaTable = defineTable(
       'events',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
-      { primaryKey: 'id', schema: longSchema },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: longSchema }] },
     )
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [LongSchemaTable] })
