@@ -1,0 +1,16 @@
+services:
+  postgres:
+    # Keep this aligned with the db0 v0.4.0 development service.
+    image: postgres:alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    ports:
+      - '127.0.0.1:5432:5432'
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: db0
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U test -d db0']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 2s

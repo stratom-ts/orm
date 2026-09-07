@@ -21,6 +21,25 @@ pnpm add stratom valibot db0
 # plus the driver required by your connector (e.g. pg for PostgreSQL)
 ```
 
+## PostgreSQL integration tests
+
+The repeatable PostgreSQL suite uses Docker Compose and an isolated schema per test.
+Docker Desktop provides Compose on Windows and macOS; Docker Engine with Compose is
+also supported on Linux. Copy the example environment file, start the health-checked
+service, and run the dedicated command:
+
+```bash
+cp .env.example .env
+docker compose up -d --wait
+pnpm test:postgres
+docker compose down -v
+```
+
+On PowerShell, use `Copy-Item .env.example .env` for the first command. The ordinary
+`pnpm test` and `pnpm test:coverage` commands skip PostgreSQL cases when
+`POSTGRESQL_URL` is not configured; `pnpm test:postgres` fails with a setup message
+instead of silently passing when the service is unavailable.
+
 ## Quick start
 
 ```typescript
