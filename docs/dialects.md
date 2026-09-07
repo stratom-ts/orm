@@ -219,14 +219,14 @@ database-specific logic to Client, Schema, Query, Migration, or Operations.
 
 The private `registerDialectForTest()` seam exists only for isolated contract tests. It
 is deliberately not a package export. Maintainers can adapt their member to the reusable
-`tests/dialects/dialectMemberContract.ts` suite, and connector/session adaptations to
-`tests/dialects/operationSessionProviderContract.ts`. The member contract exercises the
+`tests/unit/dialects/dialectMemberContract.ts` suite, and connector/session adaptations to
+`tests/unit/dialects/operationSessionProviderContract.ts`. The member contract exercises the
 observable `createDatabase({ connector, ... })` lifecycle and accepts explicit catalog
 no-evidence and unsupported migration capabilities. The provider contract verifies
 identity, serialized lifecycle and shutdown, cancellation, discard, cleanup
 preservation, and—when its migration scenarios are supplied—`applied` and `unchanged`
 outcome preservation.
 
-The minimal test member in `tests/helpers/extensionContractDialect.ts` demonstrates the
+The minimal test member in `tests/unit/helpers/extensionContractDialect.ts` demonstrates the
 extension boundary. It supplies every Dialect facet, is selected only by its connector,
 and requires no edits to the architectural consumers.
