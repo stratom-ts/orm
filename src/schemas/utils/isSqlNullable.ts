@@ -1,5 +1,19 @@
 import type { AnySchema } from '@/types/schema'
 
+/** Reports whether a schema pipeline contains an explicit nullable wrapper. */
+function pipeAllowsNull(schema: AnySchema): boolean {
+  if (!('pipe' in schema) || !Array.isArray((schema as { pipe: unknown[] }).pipe)) {
+    return false
+  }
+
+  const pipeItems = (schema as { pipe: unknown[] }).pipe
+  return pipeItems.some((item) => {
+    if (!item || typeof item !== 'object' || !('type' in item)) return false
+    const actionType = (item as { type: string }).type
+    return actionType === 'nullish' || actionType === 'nullable'
+  })
+}
+
 /**
  * Returns whether a column schema should map to SQL NULL-capable storage.
  *
@@ -31,19 +45,7 @@ export function isSqlNullable(schema: AnySchema): boolean {
       : false
   }
 
-  if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {
-    const pipeItems = (schema as { pipe: unknown[] }).pipe
-
-    for (const item of pipeItems) {
-      if (item && typeof item === 'object' && item !== null && 'type' in item) {
-        const actionType = (item as { type: string }).type
-
-        if (actionType === 'nullish' || actionType === 'nullable') {
-          return true
-        }
-      }
-    }
-  }
+  if (pipeAllowsNull(schema)) return true
 
   if ('wrapped' in schema && schema.wrapped && typeof schema.wrapped === 'object') {
     return isSqlNullable(schema.wrapped as AnySchema)

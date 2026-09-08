@@ -207,6 +207,72 @@ function positiveIntegerAt(row: Row, key: string, query: string, index: number):
   return value
 }
 
+/** Parses a JSON string array when the text has a JSON array shape. */
+function jsonStringArray(value: string): string[] | undefined {
+  if (!value.startsWith('[') || !value.endsWith(']')) return undefined
+
+  try {
+    const parsed = JSON.parse(value) as unknown
+
+    if (
+      Array.isArray(parsed) &&
+      parsed.every((item): item is string => typeof item === 'string')
+    ) {
+      return parsed
+    }
+  } catch {
+    // The caller reports the canonical query and row location.
+  }
+
+  return undefined
+}
+
+/** Parses one-dimensional PostgreSQL text-array syntax containing only strings. */
+function postgresStringArray(value: string): string[] | undefined {
+  if (!value.startsWith('{') || !value.endsWith('}')) return undefined
+  const inner = value.slice(1, -1)
+  if (inner.length === 0) return []
+  const parts: string[] = []
+  const quotedParts: boolean[] = []
+  let part = ''
+  let quoted = false
+  let partWasQuoted = false
+  let escaped = false
+
+  for (const character of inner) {
+    if (escaped) {
+      part += character
+      escaped = false
+    } else if (character === '\\') {
+      escaped = true
+    } else if (character === '"') {
+      quoted = !quoted
+      partWasQuoted = true
+    } else if (character === ',' && !quoted) {
+      quotedParts.push(partWasQuoted)
+      parts.push(partWasQuoted ? part : part.trim())
+      part = ''
+      partWasQuoted = false
+    } else {
+      part += character
+    }
+  }
+
+  if (quoted || escaped) return undefined
+  quotedParts.push(partWasQuoted)
+  parts.push(partWasQuoted ? part : part.trim())
+
+  if (
+    parts.every(
+      (item, index) => item.length > 0 && (quotedParts[index] || item !== 'NULL'),
+    )
+  ) {
+    return parts
+  }
+
+  return undefined
+}
+
 /**
  * Reads a string array from native, JSON, or PostgreSQL array syntax.
  *
@@ -218,66 +284,17 @@ function positiveIntegerAt(row: Row, key: string, query: string, index: number):
 function stringArrayAt(row: Row, key: string, query: string, index: number): string[] {
   const value = row[key]
 
-  if (Array.isArray(value)) {
-    if (value.every((item): item is string => typeof item === 'string')) return [...value]
-  } else if (typeof value === 'string') {
+  if (
+    Array.isArray(value) &&
+    value.every((item): item is string => typeof item === 'string')
+  ) {
+    return [...value]
+  }
+
+  if (typeof value === 'string') {
     const trimmed = value.trim()
-
-    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-      try {
-        const parsed = JSON.parse(trimmed) as unknown
-
-        if (
-          Array.isArray(parsed) &&
-          parsed.every((item): item is string => typeof item === 'string')
-        ) {
-          return parsed
-        }
-      } catch {
-        // The canonical error below includes query and row location.
-      }
-    }
-
-    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-      const inner = trimmed.slice(1, -1)
-      if (inner.length === 0) return []
-      const parts: string[] = []
-      const quotedParts: boolean[] = []
-      let part = ''
-      let quoted = false
-      let partWasQuoted = false
-      let escaped = false
-
-      for (const character of inner) {
-        if (escaped) {
-          part += character
-          escaped = false
-        } else if (character === '\\') {
-          escaped = true
-        } else if (character === '"') {
-          quoted = !quoted
-          partWasQuoted = true
-        } else if (character === ',' && !quoted) {
-          quotedParts.push(partWasQuoted)
-          parts.push(partWasQuoted ? part : part.trim())
-          part = ''
-          partWasQuoted = false
-        } else {
-          part += character
-        }
-      }
-
-      if (!quoted && !escaped) {
-        quotedParts.push(partWasQuoted)
-        parts.push(partWasQuoted ? part : part.trim())
-        if (
-          parts.every(
-            (item, index) => item.length > 0 && (quotedParts[index] || item !== 'NULL'),
-          )
-        )
-          return parts
-      }
-    }
+    const parsed = jsonStringArray(trimmed) ?? postgresStringArray(trimmed)
+    if (parsed) return parsed
   }
 
   throw new InvariantError(
@@ -409,6 +426,29 @@ function requestedNamespaces(request: ResolvedCatalogRequest) {
   )
 }
 
+/** Indexes every explicitly requested or explicitly absent relation. */
+function requestedRelationRegistry(
+  request: ResolvedCatalogRequest,
+  identities: CanonicalRelationIdentityModule,
+): CanonicalRelationRegistry<true> {
+  const requested = identities.createRegistry<true>()
+
+  for (const { identity } of request.relations) requested.set(identity, true)
+  for (const identity of request.absentRelations) requested.set(identity, true)
+  return requested
+}
+
+const POSTGRES_CATALOG_TYPE_ALIASES = new Map([
+  ['int2', 'smallint'],
+  ['int4', 'integer'],
+  ['int8', 'bigint'],
+  ['bool', 'boolean'],
+  ['float4', 'real'],
+  ['float8', 'double precision'],
+  ['timestamptz', 'timestamptz'],
+  ['timestamp', 'timestamp'],
+])
+
 /**
  * Reconstructs a PostgreSQL catalog column type.
  *
@@ -427,11 +467,11 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   const precision = toNumberOrNull(row.numeric_precision)
   const scale = toNumberOrNull(row.numeric_scale)
 
-  if (dataType === 'character varying' || dataType === 'varchar' || udt === 'varchar') {
+  if (['character varying', 'varchar'].includes(dataType) || udt === 'varchar') {
     return maxLen !== null ? `varchar(${maxLen})` : 'varchar'
   }
 
-  if (dataType === 'character' || dataType === 'char' || udt === 'bpchar') {
+  if (['character', 'char'].includes(dataType) || udt === 'bpchar') {
     return maxLen !== null ? `char(${maxLen})` : 'char'
   }
 
@@ -441,14 +481,8 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
     return 'numeric'
   }
 
-  if (udt === 'int2') return 'smallint'
-  if (udt === 'int4') return 'integer'
-  if (udt === 'int8') return 'bigint'
-  if (udt === 'bool') return 'boolean'
-  if (udt === 'float4') return 'real'
-  if (udt === 'float8') return 'double precision'
-  if (udt === 'timestamptz') return 'timestamptz'
-  if (udt === 'timestamp') return 'timestamp'
+  const alias = POSTGRES_CATALOG_TYPE_ALIASES.get(udt)
+  if (alias) return alias
   if (dataType === 'timestamp without time zone') return 'timestamp'
   if (dataType === 'timestamp with time zone') return 'timestamptz'
   return udt || dataType
@@ -992,15 +1026,7 @@ export async function introspectPostgres(
 
     return segment.identifier.spelling
   })
-  const requestedRelations = identities.createRegistry<true>()
-
-  for (const { identity } of resolvedRequest.relations) {
-    requestedRelations.set(identity, true)
-  }
-
-  for (const identity of resolvedRequest.absentRelations) {
-    requestedRelations.set(identity, true)
-  }
+  const requestedRelations = requestedRelationRegistry(resolvedRequest, identities)
 
   /**
    * Tests whether a relation belongs to the requested ownership scope.

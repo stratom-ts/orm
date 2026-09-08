@@ -293,60 +293,87 @@ function isCanonicalMemberArray(node: ts.Expression): boolean {
   return containsProperty(node, 'comparisonKey')
 }
 
+function rawArrayComparisonLeak(
+  source: ts.SourceFile,
+  node: ts.Node,
+): string | undefined {
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isIdentifier(node.expression) ||
+    node.expression.text !== 'arraysEqual' ||
+    !node.arguments.some((argument) => !isCanonicalMemberArray(argument))
+  ) {
+    return undefined
+  }
+
+  return `${location(source, node)} compares raw member arrays`
+}
+
+function rawCollectionKeyLeak(source: ts.SourceFile, node: ts.Node): string | undefined {
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isPropertyAccessExpression(node.expression) ||
+    !['get', 'has', 'set', 'add'].includes(node.expression.name.text) ||
+    !memberCollectionName(node.expression.expression) ||
+    !node.arguments[0] ||
+    !containsProperty(node.arguments[0], 'name') ||
+    containsProperty(node.arguments[0], 'comparisonKey')
+  ) {
+    return undefined
+  }
+
+  return `${location(source, node)} keys a member collection by raw name`
+}
+
+function rawCollectionConstructionLeak(
+  source: ts.SourceFile,
+  node: ts.Node,
+): string | undefined {
+  if (
+    !ts.isNewExpression(node) ||
+    !ts.isIdentifier(node.expression) ||
+    (node.expression.text !== 'Map' && node.expression.text !== 'Set') ||
+    !ts.isVariableDeclaration(node.parent) ||
+    !ts.isIdentifier(node.parent.name) ||
+    !memberCollectionName(node.parent.name) ||
+    !node.arguments?.some(
+      (argument) =>
+        containsProperty(argument, 'name') &&
+        !containsProperty(argument, 'comparisonKey'),
+    )
+  ) {
+    return undefined
+  }
+
+  return `${location(source, node)} constructs a member collection from raw names`
+}
+
+function rawOrderingLeak(source: ts.SourceFile, node: ts.Node): string | undefined {
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isIdentifier(node.expression) ||
+    node.expression.text !== 'compareCodeUnits' ||
+    node.arguments.length !== 2 ||
+    !node.arguments.every(
+      (argument) =>
+        ts.isPropertyAccessExpression(argument) && argument.name.text === 'name',
+    )
+  ) {
+    return undefined
+  }
+
+  return `${location(source, node)} orders members by raw names`
+}
+
 /** Finds generic Migration expressions that use member spellings as semantic keys. */
 function rawMemberComparisonLeaks(source: ts.SourceFile): string[] {
   return descendants(source).flatMap((node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === 'arraysEqual' &&
-      node.arguments.some((argument) => !isCanonicalMemberArray(argument))
-    ) {
-      return [`${location(source, node)} compares raw member arrays`]
-    }
-
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      ['get', 'has', 'set', 'add'].includes(node.expression.name.text) &&
-      memberCollectionName(node.expression.expression) &&
-      node.arguments[0] &&
-      containsProperty(node.arguments[0], 'name') &&
-      !containsProperty(node.arguments[0], 'comparisonKey')
-    ) {
-      return [`${location(source, node)} keys a member collection by raw name`]
-    }
-
-    if (
-      ts.isNewExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      (node.expression.text === 'Map' || node.expression.text === 'Set') &&
-      ts.isVariableDeclaration(node.parent) &&
-      ts.isIdentifier(node.parent.name) &&
-      memberCollectionName(node.parent.name) &&
-      node.arguments?.some(
-        (argument) =>
-          containsProperty(argument, 'name') &&
-          !containsProperty(argument, 'comparisonKey'),
-      )
-    ) {
-      return [`${location(source, node)} constructs a member collection from raw names`]
-    }
-
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === 'compareCodeUnits' &&
-      node.arguments.length === 2 &&
-      node.arguments.every(
-        (argument) =>
-          ts.isPropertyAccessExpression(argument) && argument.name.text === 'name',
-      )
-    ) {
-      return [`${location(source, node)} orders members by raw names`]
-    }
-
-    return []
+    const leak =
+      rawArrayComparisonLeak(source, node) ??
+      rawCollectionKeyLeak(source, node) ??
+      rawCollectionConstructionLeak(source, node) ??
+      rawOrderingLeak(source, node)
+    return leak === undefined ? [] : [leak]
   })
 }
 

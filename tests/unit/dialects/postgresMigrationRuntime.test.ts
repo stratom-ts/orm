@@ -93,6 +93,35 @@ function harness(
   const cancel = vi.fn(async () => {
     rejectInFlight?.(new Error('physical session cancelled'))
   })
+
+  async function acquire(query: { sql: string; params: unknown[] }) {
+    if (options.lockDelayMs !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, options.lockDelayMs))
+    }
+
+    const configured = options.lockResults?.shift()
+    const result =
+      configured ??
+      options.sharedLockManager?.tryAcquire(
+        options.clientId ?? 'client',
+        `${query.params[0]}:${query.params[1]}`,
+      ) ??
+      true
+    if (result instanceof Error) throw result
+    return [{ locked: result }]
+  }
+
+  function release(query: { sql: string; params: unknown[] }) {
+    if (options.failUnlock) throw new Error('unlock failed')
+    const result = options.releaseResults?.shift() ?? options.unlockResults?.shift()
+    if (result instanceof Error) throw result
+    options.sharedLockManager?.release(
+      options.clientId ?? 'client',
+      `${query.params[0]}:${query.params[1]}`,
+    )
+    return [{ unlocked: result ?? options.unlockResult ?? true }]
+  }
+
   const executor: Executor = {
     async run(query) {
       calls.push(query.sql)
@@ -107,31 +136,11 @@ function harness(
       if (options.hangQuery?.test(query.sql)) await hang()
 
       if (/pg_try_advisory_lock/i.test(query.sql)) {
-        if (options.lockDelayMs !== undefined) {
-          await new Promise((resolve) => setTimeout(resolve, options.lockDelayMs))
-        }
-
-        const configured = options.lockResults?.shift()
-        const result =
-          configured ??
-          options.sharedLockManager?.tryAcquire(
-            options.clientId ?? 'client',
-            `${query.params[0]}:${query.params[1]}`,
-          ) ??
-          true
-        if (result instanceof Error) throw result
-        return [{ locked: result }]
+        return acquire(query)
       }
 
       if (/pg_advisory_unlock/i.test(query.sql)) {
-        if (options.failUnlock) throw new Error('unlock failed')
-        const result = options.releaseResults?.shift() ?? options.unlockResults?.shift()
-        if (result instanceof Error) throw result
-        options.sharedLockManager?.release(
-          options.clientId ?? 'client',
-          `${query.params[0]}:${query.params[1]}`,
-        )
-        return [{ unlocked: result ?? options.unlockResult ?? true }]
+        return release(query)
       }
 
       if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
