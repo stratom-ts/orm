@@ -1338,6 +1338,213 @@ function validateDesiredNames(
   }
 }
 
+type ExistingColumnReconciliation = Readonly<{
+  live: CatalogTable
+  desired: LoweredDesiredTable
+  identity: CanonicalRelationIdentity
+  shape: 'complete' | 'additive'
+  steps: MigrationStep[]
+  deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[]
+  planning: MigrationPlanningContext
+  identities: CanonicalRelationIdentityModule
+  reserveForeignKey: (
+    owner: CanonicalRelationIdentity,
+    column: string,
+    reference: NonNullable<LoweredDesiredColumn['reference']>,
+  ) => void
+  reserveUniqueConstraint: (owner: CanonicalRelationIdentity, column: string) => void
+}>
+
+/** Reconciles columns and their column-owned constraints for one existing relation. */
+function reconcileExistingColumns({
+  live,
+  desired,
+  identity,
+  shape,
+  steps,
+  deferredForeignKeys,
+  planning,
+  identities,
+  reserveForeignKey,
+  reserveUniqueConstraint,
+}: ExistingColumnReconciliation): void {
+  const liveColumns = new Map(
+    (live.columns ?? []).map((column) => [
+      identities.member('column', column.name).comparisonKey,
+      column,
+    ]),
+  )
+  const desiredColumnNames = new Set(
+    desired.columns.map((column) => column.identifier.comparisonKey),
+  )
+
+  for (const desiredColumn of desired.columns) {
+    const current = liveColumns.get(desiredColumn.identifier.comparisonKey)
+
+    if (!current) {
+      if (desiredColumn.reference) {
+        reserveForeignKey(
+          identity,
+          desiredColumn.identifier.spelling,
+          desiredColumn.reference,
+        )
+        deferredForeignKeys.push({
+          kind: 'add_foreign_key',
+          target: {
+            kind: 'column',
+            relation: identity,
+            column: desiredColumn.identifier,
+          },
+          references: structuredReference(desiredColumn.reference),
+        })
+      }
+
+      steps.push({
+        kind: 'add_column',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+        dataType: desiredColumn.dataType,
+        notNull: desiredColumn.notNull,
+        ...(desiredColumn.unique ? { unique: true } : {}),
+        ...(desiredColumn.defaultValue !== undefined
+          ? { defaultValue: desiredColumn.defaultValue }
+          : {}),
+        ...(desiredColumn.databaseDefault !== undefined
+          ? { databaseDefault: desiredColumn.databaseDefault }
+          : {}),
+        ...(desiredColumn.generated ? { generated: desiredColumn.generated } : {}),
+        ...(desiredColumn.autoIncrement ? { autoIncrement: true } : {}),
+      })
+
+      if (desiredColumn.unique) {
+        reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+      }
+
+      continue
+    }
+
+    const columnLabel = identities.format(identity, {
+      role: 'column',
+      spelling: desiredColumn.identifier.spelling,
+    })
+
+    if (current.dataType === undefined) {
+      throw new MigrationError({
+        message: `Cannot plan desired-table column ${columnLabel}: catalog data type is unresolved`,
+      })
+    }
+
+    if (current.isNullable === undefined) {
+      throw new MigrationError({
+        message: `Cannot plan desired-table column ${columnLabel}: catalog nullability is unresolved`,
+      })
+    }
+
+    const desiredType = planning.schema.normalizeDataType(desiredColumn.dataType)
+    const currentType = planning.schema.normalizeDataType(current.dataType)
+
+    if (desiredType !== currentType) {
+      steps.push({
+        kind: 'alter_column_type',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+        dataType: desiredColumn.dataType,
+      })
+    }
+
+    if (desiredColumn.notNull && current.isNullable) {
+      steps.push({
+        kind: 'set_not_null',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+      })
+    } else if (!desiredColumn.notNull && !current.isNullable) {
+      steps.push({
+        kind: 'drop_not_null',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+      })
+    }
+  }
+
+  if (shape === 'complete') {
+    for (const liveColumn of live.columns ?? []) {
+      if (
+        desiredColumnNames.has(identities.member('column', liveColumn.name).comparisonKey)
+      )
+        continue
+      steps.push({
+        kind: 'drop_column',
+        target: columnTarget(identity, liveColumn.name, identities),
+      })
+    }
+  }
+
+  if (live.uniqueConstraints !== undefined) {
+    for (const desiredColumn of desired.columns) {
+      if (
+        !desiredColumn.unique ||
+        !liveColumns.has(desiredColumn.identifier.comparisonKey)
+      )
+        continue
+      const matches = matchUniqueConstraints(
+        live.uniqueConstraints,
+        desiredColumn.identifier,
+        identities,
+      )
+      if (matches.length !== 0) continue
+      reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+      steps.push({
+        kind: 'add_unique_constraint',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+      })
+    }
+  }
+
+  if (live.foreignKeys !== undefined) {
+    for (const desiredColumn of desired.columns) {
+      if (
+        !desiredColumn.reference ||
+        !liveColumns.has(desiredColumn.identifier.comparisonKey)
+      )
+        continue
+      const expected = canonicalDesiredForeignKey(desiredColumn)
+      const matches = matchForeignKeys(live.foreignKeys, expected, identities)
+      if (matches.length !== 0) continue
+      reserveForeignKey(
+        identity,
+        desiredColumn.identifier.spelling,
+        desiredColumn.reference,
+      )
+      deferredForeignKeys.push({
+        kind: 'add_foreign_key',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+        references: structuredReference(desiredColumn.reference),
+      })
+    }
+  }
+}
+
 /**
  * Reconciles desired tables with an introspected catalog into one canonical plan.
  *
@@ -1722,141 +1929,18 @@ function buildMigrationPlan(
     const relationStepStart = steps.length
     collectManagedPropertyIssues(live, createAst, shape, planning, issues, identities)
 
-    const liveColumns = new Map(
-      (live.columns ?? []).map((column) => [
-        identities.member('column', column.name).comparisonKey,
-        column,
-      ]),
-    )
-    const desiredColumnNames = new Set(
-      createAst.columns.map((column) => column.identifier.comparisonKey),
-    )
-
-    for (const desired of createAst.columns) {
-      const current = liveColumns.get(desired.identifier.comparisonKey)
-
-      if (!current) {
-        if (desired.reference) {
-          reserveForeignKey(identity, desired.identifier.spelling, desired.reference)
-          deferredForeignKeys.push({
-            kind: 'add_foreign_key',
-            target: { kind: 'column', relation: identity, column: desired.identifier },
-            references: structuredReference(desired.reference),
-          })
-        }
-
-        steps.push({
-          kind: 'add_column',
-          target: { kind: 'column', relation: identity, column: desired.identifier },
-          dataType: desired.dataType,
-          notNull: desired.notNull,
-          ...(desired.unique ? { unique: true } : {}),
-          ...(desired.defaultValue !== undefined
-            ? { defaultValue: desired.defaultValue }
-            : {}),
-          ...(desired.databaseDefault !== undefined
-            ? { databaseDefault: desired.databaseDefault }
-            : {}),
-          ...(desired.generated ? { generated: desired.generated } : {}),
-          ...(desired.autoIncrement ? { autoIncrement: true } : {}),
-        })
-
-        if (desired.unique) {
-          reserveUniqueConstraint(identity, desired.identifier.spelling)
-        }
-
-        continue
-      }
-
-      const columnLabel = identities.format(identity, {
-        role: 'column',
-        spelling: desired.identifier.spelling,
-      })
-
-      if (current.dataType === undefined) {
-        throw new MigrationError({
-          message: `Cannot plan desired-table column ${columnLabel}: catalog data type is unresolved`,
-        })
-      }
-
-      if (current.isNullable === undefined) {
-        throw new MigrationError({
-          message: `Cannot plan desired-table column ${columnLabel}: catalog nullability is unresolved`,
-        })
-      }
-
-      const desiredType = planning.schema.normalizeDataType(desired.dataType)
-      const currentType = planning.schema.normalizeDataType(current.dataType)
-
-      if (desiredType !== currentType) {
-        steps.push({
-          kind: 'alter_column_type',
-          target: { kind: 'column', relation: identity, column: desired.identifier },
-          dataType: desired.dataType,
-        })
-      }
-
-      if (desired.notNull && current.isNullable) {
-        steps.push({
-          kind: 'set_not_null',
-          target: { kind: 'column', relation: identity, column: desired.identifier },
-        })
-      } else if (!desired.notNull && !current.isNullable) {
-        steps.push({
-          kind: 'drop_not_null',
-          target: { kind: 'column', relation: identity, column: desired.identifier },
-        })
-      }
-    }
-
-    if (shape === 'complete') {
-      for (const liveColumn of live.columns ?? []) {
-        if (
-          desiredColumnNames.has(
-            identities.member('column', liveColumn.name).comparisonKey,
-          )
-        )
-          continue
-        steps.push({
-          kind: 'drop_column',
-          target: columnTarget(identity, liveColumn.name, identities),
-        })
-      }
-    }
-
-    if (live.uniqueConstraints !== undefined) {
-      for (const desired of createAst.columns) {
-        if (!desired.unique || !liveColumns.has(desired.identifier.comparisonKey))
-          continue
-        const matches = matchUniqueConstraints(
-          live.uniqueConstraints,
-          desired.identifier,
-          identities,
-        )
-        if (matches.length !== 0) continue
-        reserveUniqueConstraint(identity, desired.identifier.spelling)
-        steps.push({
-          kind: 'add_unique_constraint',
-          target: { kind: 'column', relation: identity, column: desired.identifier },
-        })
-      }
-    }
-
-    if (live.foreignKeys !== undefined) {
-      for (const desired of createAst.columns) {
-        if (!desired.reference || !liveColumns.has(desired.identifier.comparisonKey))
-          continue
-        const expected = canonicalDesiredForeignKey(desired)
-        const matches = matchForeignKeys(live.foreignKeys, expected, identities)
-        if (matches.length !== 0) continue
-        reserveForeignKey(identity, desired.identifier.spelling, desired.reference)
-        deferredForeignKeys.push({
-          kind: 'add_foreign_key',
-          target: { kind: 'column', relation: identity, column: desired.identifier },
-          references: structuredReference(desired.reference),
-        })
-      }
-    }
+    reconcileExistingColumns({
+      live,
+      desired: createAst,
+      identity,
+      shape,
+      steps,
+      deferredForeignKeys,
+      planning,
+      identities,
+      reserveForeignKey,
+      reserveUniqueConstraint,
+    })
 
     reconcileIndexes({
       live,

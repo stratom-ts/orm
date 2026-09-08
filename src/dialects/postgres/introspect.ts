@@ -21,6 +21,7 @@ import type {
   CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
+  CanonicalRelationRegistry,
 } from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 import { toNumberOrNull } from '@/utils'
@@ -523,6 +524,235 @@ function factName(fact: CatalogFact<string>): string {
   return fact.value
 }
 
+type MutableTable = {
+  columns: CatalogColumn[]
+  primaryKey: CatalogFact<CatalogKeyConstraint>
+  uniqueConstraints: CatalogKeyConstraint[]
+  foreignKeys: CatalogForeignKey[]
+  indexes: CatalogIndex[]
+  options: Array<Readonly<{ name: string; value: string }>>
+  opaqueObjects: OpaqueCatalogObject[]
+}
+
+type MutableRelation = {
+  relation: Omit<CatalogRelation, 'table'>
+  table?: MutableTable
+}
+
+type RequestedTable = Readonly<{
+  identity: CanonicalRelationIdentity
+  table: MutableTable
+}>
+
+type RequireTable = (row: Row, query: string, index: number) => RequestedTable | undefined
+
+/** Builds the mutable table shape used while catalog member rows are assembled. */
+function mutableTableForRelation(
+  kind: CatalogRelation['kind'],
+  row: Row,
+  index: number,
+): MutableTable | undefined {
+  if (kind !== 'table' && kind !== 'partitionedTable') return undefined
+
+  const partitionKey = nullableStringAt(row, 'partition_key', 'relation', index)
+  const accessMethod = nullableStringAt(row, 'access_method', 'relation', index)
+  const tablespace = nullableStringAt(row, 'tablespace', 'relation', index)
+  const isPartition = booleanAt(row, 'is_partition', 'relation', index)
+  const partitionBound = nullableStringAt(row, 'partition_bound', 'relation', index)
+
+  if (isPartition && partitionBound === null) {
+    throw new InvariantError(
+      `Malformed PostgreSQL relation row ${index}: partition is missing its bound`,
+    )
+  }
+
+  return {
+    columns: [],
+    primaryKey: absent,
+    uniqueConstraints: [],
+    foreignKeys: [],
+    indexes: [],
+    options: [
+      ...stringArrayAt(row, 'options', 'relation', index).map((option) => {
+        const separator = option.indexOf('=')
+        return separator < 0
+          ? { name: option, value: '' }
+          : {
+              name: option.slice(0, separator),
+              value: option.slice(separator + 1),
+            }
+      }),
+      ...(partitionKey === null ? [] : [{ name: 'partitionKey', value: partitionKey }]),
+      {
+        name: 'rowLevelSecurity',
+        value: String(booleanAt(row, 'row_level_security', 'relation', index)),
+      },
+      {
+        name: 'forceRowLevelSecurity',
+        value: String(booleanAt(row, 'force_row_level_security', 'relation', index)),
+      },
+      {
+        name: 'replicaIdentity',
+        value: stringAt(row, 'replica_identity', 'relation', index),
+      },
+      ...(accessMethod === null ? [] : [{ name: 'accessMethod', value: accessMethod }]),
+      ...(tablespace === null ? [] : [{ name: 'tablespace', value: tablespace }]),
+      ...(partitionBound === null
+        ? []
+        : [{ name: 'partitionBound', value: partitionBound }]),
+    ],
+    opaqueObjects: [],
+  }
+}
+
+/** Creates the requested relation registry before member rows are attached. */
+function createRelationRegistry(
+  rows: unknown[],
+  relationRequested: (identity: CanonicalRelationIdentity) => boolean,
+  identities: CanonicalRelationIdentityModule,
+): CanonicalRelationRegistry<MutableRelation> {
+  const registry = identities.createRegistry<MutableRelation>()
+
+  for (let index = 0; index < rows.length; index++) {
+    const row = rowAt(rows[index], 'relation', index)
+    const identity = identities.resolve(
+      relationInput(
+        stringAt(row, 'schema', 'relation', index),
+        stringAt(row, 'name', 'relation', index),
+      ),
+    )
+    if (!relationRequested(identity)) continue
+
+    if (registry.has(identity)) {
+      throw new InvariantError(
+        `Duplicate PostgreSQL relation row for ${identities.format(identity)}`,
+      )
+    }
+
+    const kind = relationKind(stringAt(row, 'relation_kind', 'relation', index))
+    const native = nullableStringAt(row, 'native_definition', 'relation', index)
+    registry.set(identity, {
+      table: mutableTableForRelation(kind, row, index),
+      relation: {
+        identity,
+        kind,
+        persistence: persistence(stringAt(row, 'persistence', 'relation', index)),
+        owner: present(stringAt(row, 'owner', 'relation', index)),
+        management: 'managed',
+        nativeDefinition:
+          native === null
+            ? unsupported('PostgreSQL does not expose canonical CREATE relation SQL')
+            : present(native),
+      },
+    })
+  }
+
+  return registry
+}
+
+/** Reports whether one PostgreSQL constraint has portable semantics. */
+function hasSupportedConstraintSemantics(row: Row, type: string, index: number): boolean {
+  if (booleanAt(row, 'is_deferrable', 'constraint', index)) return false
+  if (booleanAt(row, 'initially_deferred', 'constraint', index)) return false
+
+  if (type === 'p' || type === 'u') {
+    return (
+      booleanAt(row, 'has_supported_backing_index_semantics', 'constraint', index) &&
+      !booleanAt(row, 'backing_index_nulls_not_distinct', 'constraint', index)
+    )
+  }
+
+  if (type !== 'f') return true
+  return (
+    stringAt(row, 'match_type', 'constraint', index) === 's' &&
+    !booleanAt(row, 'has_column_specific_delete_action', 'constraint', index)
+  )
+}
+
+/** Reports whether one PostgreSQL constraint and its backing index are valid. */
+function constraintIsValid(row: Row, type: string, index: number): boolean {
+  if (!booleanAt(row, 'is_valid', 'constraint', index)) return false
+  if (type !== 'p' && type !== 'u') return true
+  return booleanAt(row, 'backing_index_is_valid', 'constraint', index)
+}
+
+/** Attaches primary, unique, foreign, and opaque constraints to requested tables. */
+function appendConstraints(
+  rows: unknown[],
+  requireTable: RequireTable,
+  identities: CanonicalRelationIdentityModule,
+  reservations: CatalogConstraintNameReservation[],
+): void {
+  for (let index = 0; index < rows.length; index++) {
+    const row = rowAt(rows[index], 'constraint', index)
+    const target = requireTable(row, 'constraint', index)
+    if (!target) continue
+    const type = stringAt(row, 'constraint_type', 'constraint', index)
+    const name = stringAt(row, 'constraint_name', 'constraint', index)
+    const nativeDefinition = stringAt(row, 'native_definition', 'constraint', index)
+    reservations.push({ relation: target.identity, name })
+    const supported = hasSupportedConstraintSemantics(row, type, index)
+    const valid = constraintIsValid(row, type, index)
+    const key: CatalogKeyConstraint = {
+      name: present(name),
+      columns: stringArrayAt(row, 'columns', 'constraint', index),
+      semantics: supported
+        ? present({ kind: 'simple' })
+        : unsupported('Constraint uses PostgreSQL-native semantics'),
+      validity: present(valid ? 'valid' : 'invalid'),
+      nativeDefinition: present(nativeDefinition),
+    }
+
+    if (type === 'p') {
+      if (target.table.primaryKey.state !== 'absent') {
+        throw new InvariantError(
+          `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
+        )
+      }
+
+      target.table.primaryKey = present(key)
+    } else if (type === 'u') {
+      target.table.uniqueConstraints.push(key)
+    } else if (type === 'f') {
+      if (
+        typeof row.referenced_schema !== 'string' ||
+        typeof row.referenced_table !== 'string'
+      ) {
+        throw new InvariantError(
+          `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
+        )
+      }
+
+      const referencedSchema = stringAt(row, 'referenced_schema', 'constraint', index)
+      const referencedTable = stringAt(row, 'referenced_table', 'constraint', index)
+      target.table.foreignKeys.push({
+        ...key,
+        referencedRelation: identities.resolve(
+          relationInput(referencedSchema, referencedTable),
+        ),
+        referencedColumns: stringArrayAt(row, 'referenced_columns', 'constraint', index),
+        onDelete: referentialAction(
+          stringAt(row, 'on_delete', 'constraint', index),
+          'constraint',
+          index,
+        ),
+        onUpdate: referentialAction(
+          stringAt(row, 'on_update', 'constraint', index),
+          'constraint',
+          index,
+        ),
+      })
+    } else {
+      target.table.opaqueObjects.push({
+        kind: 'constraint',
+        name: present(name),
+        nativeDefinition: present(nativeDefinition),
+        reason: `PostgreSQL constraint type ${JSON.stringify(type)} is not portable`,
+      })
+    }
+  }
+}
+
 /**
  * Strictly observes the exact migration ownership scope on one PostgreSQL session.
  *
@@ -981,137 +1211,11 @@ export async function introspectPostgres(
     )
   }
 
-  type MutableTable = {
-    columns: CatalogColumn[]
-    primaryKey: CatalogFact<CatalogKeyConstraint>
-    uniqueConstraints: CatalogKeyConstraint[]
-    foreignKeys: CatalogForeignKey[]
-    indexes: CatalogIndex[]
-    options: Array<Readonly<{ name: string; value: string }>>
-    opaqueObjects: OpaqueCatalogObject[]
-  }
-  type MutableRelation = {
-    relation: Omit<CatalogRelation, 'table'>
-    table?: MutableTable
-  }
-  const relationRegistry = identities.createRegistry<MutableRelation>()
-
-  for (let index = 0; index < relationRows.length; index++) {
-    const row = rowAt(relationRows[index], 'relation', index)
-    const identity = identities.resolve(
-      relationInput(
-        stringAt(row, 'schema', 'relation', index),
-        stringAt(row, 'name', 'relation', index),
-      ),
-    )
-    if (!relationRequested(identity)) continue
-
-    if (relationRegistry.has(identity)) {
-      throw new InvariantError(
-        `Duplicate PostgreSQL relation row for ${identities.format(identity)}`,
-      )
-    }
-
-    const kind = relationKind(stringAt(row, 'relation_kind', 'relation', index))
-    const mutableTable: MutableTable | undefined =
-      kind === 'table' || kind === 'partitionedTable'
-        ? {
-            columns: [],
-            primaryKey: absent,
-            uniqueConstraints: [],
-            foreignKeys: [],
-            indexes: [],
-            options: [
-              ...stringArrayAt(row, 'options', 'relation', index).map((option) => {
-                const separator = option.indexOf('=')
-                return separator < 0
-                  ? { name: option, value: '' }
-                  : {
-                      name: option.slice(0, separator),
-                      value: option.slice(separator + 1),
-                    }
-              }),
-              ...(() => {
-                const partitionKey = nullableStringAt(
-                  row,
-                  'partition_key',
-                  'relation',
-                  index,
-                )
-                return partitionKey === null
-                  ? []
-                  : [{ name: 'partitionKey', value: partitionKey }]
-              })(),
-              {
-                name: 'rowLevelSecurity',
-                value: String(booleanAt(row, 'row_level_security', 'relation', index)),
-              },
-              {
-                name: 'forceRowLevelSecurity',
-                value: String(
-                  booleanAt(row, 'force_row_level_security', 'relation', index),
-                ),
-              },
-              {
-                name: 'replicaIdentity',
-                value: stringAt(row, 'replica_identity', 'relation', index),
-              },
-              ...(() => {
-                const accessMethod = nullableStringAt(
-                  row,
-                  'access_method',
-                  'relation',
-                  index,
-                )
-                return accessMethod === null
-                  ? []
-                  : [{ name: 'accessMethod', value: accessMethod }]
-              })(),
-              ...(() => {
-                const tablespace = nullableStringAt(row, 'tablespace', 'relation', index)
-                return tablespace === null
-                  ? []
-                  : [{ name: 'tablespace', value: tablespace }]
-              })(),
-              ...(() => {
-                const isPartition = booleanAt(row, 'is_partition', 'relation', index)
-                const partitionBound = nullableStringAt(
-                  row,
-                  'partition_bound',
-                  'relation',
-                  index,
-                )
-
-                if (isPartition && partitionBound === null) {
-                  throw new InvariantError(
-                    `Malformed PostgreSQL relation row ${index}: partition is missing its bound`,
-                  )
-                }
-
-                return partitionBound === null
-                  ? []
-                  : [{ name: 'partitionBound', value: partitionBound }]
-              })(),
-            ],
-            opaqueObjects: [],
-          }
-        : undefined
-    const native = nullableStringAt(row, 'native_definition', 'relation', index)
-    relationRegistry.set(identity, {
-      table: mutableTable,
-      relation: {
-        identity,
-        kind,
-        persistence: persistence(stringAt(row, 'persistence', 'relation', index)),
-        owner: present(stringAt(row, 'owner', 'relation', index)),
-        management: 'managed',
-        nativeDefinition:
-          native === null
-            ? unsupported('PostgreSQL does not expose canonical CREATE relation SQL')
-            : present(native),
-      },
-    })
-  }
+  const relationRegistry = createRelationRegistry(
+    relationRows,
+    relationRequested,
+    identities,
+  )
 
   /**
    * Resolves a requested row to its mutable table entry.
@@ -1242,86 +1346,7 @@ export async function introspectPostgres(
   }
 
   const constraintReservations: CatalogConstraintNameReservation[] = []
-
-  for (let index = 0; index < constraintRows.length; index++) {
-    const row = rowAt(constraintRows[index], 'constraint', index)
-    const target = requireTable(row, 'constraint', index)
-    if (!target) continue
-    const type = stringAt(row, 'constraint_type', 'constraint', index)
-    const name = stringAt(row, 'constraint_name', 'constraint', index)
-    const nativeDefinition = stringAt(row, 'native_definition', 'constraint', index)
-    constraintReservations.push({ relation: target.identity, name })
-    const hasBackingIndex = type === 'p' || type === 'u'
-    const supported =
-      !booleanAt(row, 'is_deferrable', 'constraint', index) &&
-      !booleanAt(row, 'initially_deferred', 'constraint', index) &&
-      (hasBackingIndex
-        ? booleanAt(row, 'has_supported_backing_index_semantics', 'constraint', index) &&
-          !booleanAt(row, 'backing_index_nulls_not_distinct', 'constraint', index)
-        : type !== 'f' ||
-          (stringAt(row, 'match_type', 'constraint', index) === 's' &&
-            !booleanAt(row, 'has_column_specific_delete_action', 'constraint', index)))
-    const valid =
-      booleanAt(row, 'is_valid', 'constraint', index) &&
-      (!hasBackingIndex || booleanAt(row, 'backing_index_is_valid', 'constraint', index))
-    const key: CatalogKeyConstraint = {
-      name: present(name),
-      columns: stringArrayAt(row, 'columns', 'constraint', index),
-      semantics: supported
-        ? present({ kind: 'simple' })
-        : unsupported('Constraint uses PostgreSQL-native semantics'),
-      validity: present(valid ? 'valid' : 'invalid'),
-      nativeDefinition: present(nativeDefinition),
-    }
-
-    if (type === 'p') {
-      if (target.table.primaryKey.state !== 'absent') {
-        throw new InvariantError(
-          `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
-        )
-      }
-
-      target.table.primaryKey = present(key)
-    } else if (type === 'u') {
-      target.table.uniqueConstraints.push(key)
-    } else if (type === 'f') {
-      if (
-        typeof row.referenced_schema !== 'string' ||
-        typeof row.referenced_table !== 'string'
-      ) {
-        throw new InvariantError(
-          `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
-        )
-      }
-
-      const referencedSchema = stringAt(row, 'referenced_schema', 'constraint', index)
-      const referencedTable = stringAt(row, 'referenced_table', 'constraint', index)
-      target.table.foreignKeys.push({
-        ...key,
-        referencedRelation: identities.resolve(
-          relationInput(referencedSchema, referencedTable),
-        ),
-        referencedColumns: stringArrayAt(row, 'referenced_columns', 'constraint', index),
-        onDelete: referentialAction(
-          stringAt(row, 'on_delete', 'constraint', index),
-          'constraint',
-          index,
-        ),
-        onUpdate: referentialAction(
-          stringAt(row, 'on_update', 'constraint', index),
-          'constraint',
-          index,
-        ),
-      })
-    } else {
-      target.table.opaqueObjects.push({
-        kind: 'constraint',
-        name: present(name),
-        nativeDefinition: present(nativeDefinition),
-        reason: `PostgreSQL constraint type ${JSON.stringify(type)} is not portable`,
-      })
-    }
-  }
+  appendConstraints(constraintRows, requireTable, identities, constraintReservations)
 
   for (let index = 0; index < indexRows.length; index++) {
     const row = rowAt(indexRows[index], 'index', index)
