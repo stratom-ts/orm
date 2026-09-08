@@ -13,6 +13,12 @@ const CORE_PATHS = [
   'src/query',
   'src/schemas',
 ]
+const SHARED_EXECUTION_PATHS = [
+  'src/query',
+  'src/ddl',
+  'src/migrations',
+  'src/operations',
+]
 
 function sourceFiles(path: string): string[] {
   const absolute = join(ROOT, path)
@@ -28,6 +34,7 @@ function sourceFiles(path: string): string[] {
 }
 
 const coreFiles = CORE_PATHS.flatMap(sourceFiles)
+const sharedExecutionFiles = SHARED_EXECUTION_PATHS.flatMap(sourceFiles)
 const DIALECT_BARREL_RUNTIME_ALLOWLIST = new Set(['resolveDialect'])
 
 function parseSource(text: string, file = 'architecture-fixture.ts'): ts.SourceFile {
@@ -79,6 +86,11 @@ function isDialectBarrel(specifier: string): boolean {
   return specifier.replaceAll('\\', '/').endsWith('/dialects')
 }
 
+function isDb0ModuleSpecifier(specifier: string): boolean {
+  const normalized = specifier.replaceAll('\\', '/')
+  return normalized === 'db0' || normalized.startsWith('db0/')
+}
+
 function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   if (ts.isImportDeclaration(node)) {
     const clause = node.importClause
@@ -126,6 +138,56 @@ function concreteDialectReference(node: ts.Node): string | undefined {
       isDialectBarrel(node.arguments[0].text))
   ) {
     return node.arguments[0].text
+  }
+
+  return undefined
+}
+
+function rootIdentifier(node: ts.Expression): string | undefined {
+  if (ts.isIdentifier(node)) return node.text
+  if (ts.isParenthesizedExpression(node)) return rootIdentifier(node.expression)
+
+  if (
+    ts.isPropertyAccessExpression(node) ||
+    ts.isElementAccessExpression(node) ||
+    ts.isCallExpression(node)
+  ) {
+    return rootIdentifier(node.expression)
+  }
+
+  return undefined
+}
+
+function db0ExecutionReference(node: ts.Node): string | undefined {
+  const specifier = moduleSpecifier(node)
+
+  if (specifier && isDb0ModuleSpecifier(specifier.text)) return specifier.text
+
+  if (
+    ts.isCallExpression(node) &&
+    node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+    node.arguments.length === 1 &&
+    ts.isStringLiteral(node.arguments[0]) &&
+    isDb0ModuleSpecifier(node.arguments[0].text)
+  ) {
+    return node.arguments[0].text
+  }
+
+  const access = ts.isPropertyAccessExpression(node)
+    ? node
+    : ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      ? node.expression
+      : undefined
+
+  if (!access) return undefined
+
+  const method = access.name.text
+  if (!['prepare', 'bind', 'all'].includes(method)) return undefined
+
+  const root = rootIdentifier(access.expression)
+
+  if (root && /database|statement|prepared/i.test(root)) {
+    return `${root}.${method}`
   }
 
   return undefined
@@ -331,6 +393,45 @@ describe('dialect extension locality architecture', () => {
     const source = parseSource(code)
     const references = descendants(source).flatMap((node) =>
       concreteDialectReference(node) ? [node] : [],
+    )
+
+    expect(references.length > 0).toBe(rejected)
+  })
+
+  it('keeps db0 transport adaptation out of shared Query, Migration, and Operations', () => {
+    const violations = sharedExecutionFiles.flatMap((file) => {
+      const source = parse(file)
+      return descendants(source).flatMap((node) => {
+        const reference = db0ExecutionReference(node)
+        return reference ? [`${location(source, node)} references ${reference}`] : []
+      })
+    })
+
+    expect(violations).toEqual([])
+  })
+
+  it.each([
+    ['import type { Database } from "db0"', true],
+    ['import type { Database } from "db0/connectors/postgresql"', true],
+    ["export type { Database } from 'db0'", true],
+    ["export type { Database } from 'db0/connectors/postgresql'", true],
+    ["import { Database } from 'db0'", true],
+    ["import { Database } from 'db0/connectors/postgresql'", true],
+    ["export { Database } from 'db0'", true],
+    ["export { Database } from 'db0/connectors/postgresql'", true],
+    ["const db0 = import('db0')", true],
+    ["const db0 = import('db0/connectors/postgresql')", true],
+    ['database.prepare("select 1").bind(1).all()', true],
+    ['database.prepare("select 1")', true],
+    ['statement.bind(1)', true],
+    ['statement.all()', true],
+    ['executor.run(query)', false],
+    ['session.run(query)', false],
+    ['executor.execute(query)', false],
+  ])('classifies shared execution reference %s', (code, rejected) => {
+    const source = parseSource(code)
+    const references = descendants(source).flatMap((node) =>
+      db0ExecutionReference(node) ? [node] : [],
     )
 
     expect(references.length > 0).toBe(rejected)
