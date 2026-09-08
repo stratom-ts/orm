@@ -753,6 +753,54 @@ function appendConstraints(
   }
 }
 
+/** Attaches portable index observations to requested tables. */
+function appendIndexes(rows: unknown[], requireTable: RequireTable): void {
+  for (let index = 0; index < rows.length; index++) {
+    const row = rowAt(rows[index], 'index', index)
+    const target = requireTable(row, 'index', index)
+    if (!target) continue
+    const supported =
+      booleanAt(row, 'has_supported_semantics', 'index', index) &&
+      !booleanAt(row, 'nulls_not_distinct', 'index', index)
+    target.table.indexes.push({
+      name: present(stringAt(row, 'index_name', 'index', index)),
+      origin: 'user',
+      columns: stringArrayAt(row, 'columns', 'index', index),
+      unique: booleanAt(row, 'is_unique', 'index', index),
+      semantics: supported
+        ? present({ kind: 'simple' })
+        : unsupported('Index uses PostgreSQL-native semantics'),
+      validity: present(booleanAt(row, 'is_valid', 'index', index) ? 'valid' : 'invalid'),
+      nativeDefinition: present(stringAt(row, 'native_definition', 'index', index)),
+    })
+  }
+}
+
+/** Attaches catalog objects outside the portable model to requested tables. */
+function appendOpaqueObjects(rows: unknown[], requireTable: RequireTable): void {
+  for (let index = 0; index < rows.length; index++) {
+    const row = rowAt(rows[index], 'opaque object', index)
+    const target = requireTable(row, 'opaque object', index)
+    if (!target) continue
+    const kind = stringAt(row, 'object_kind', 'opaque object', index)
+
+    if (kind !== 'trigger' && kind !== 'policy' && kind !== 'other') {
+      throw new InvariantError(
+        `Malformed PostgreSQL opaque object row ${index}: unsupported kind ${JSON.stringify(kind)}`,
+      )
+    }
+
+    target.table.opaqueObjects.push({
+      kind,
+      name: present(stringAt(row, 'object_name', 'opaque object', index)),
+      nativeDefinition: present(
+        stringAt(row, 'native_definition', 'opaque object', index),
+      ),
+      reason: `PostgreSQL ${kind} is not managed by the portable schema model`,
+    })
+  }
+}
+
 /**
  * Strictly observes the exact migration ownership scope on one PostgreSQL session.
  *
@@ -1348,47 +1396,8 @@ export async function introspectPostgres(
   const constraintReservations: CatalogConstraintNameReservation[] = []
   appendConstraints(constraintRows, requireTable, identities, constraintReservations)
 
-  for (let index = 0; index < indexRows.length; index++) {
-    const row = rowAt(indexRows[index], 'index', index)
-    const target = requireTable(row, 'index', index)
-    if (!target) continue
-    const supported =
-      booleanAt(row, 'has_supported_semantics', 'index', index) &&
-      !booleanAt(row, 'nulls_not_distinct', 'index', index)
-    target.table.indexes.push({
-      name: present(stringAt(row, 'index_name', 'index', index)),
-      origin: 'user',
-      columns: stringArrayAt(row, 'columns', 'index', index),
-      unique: booleanAt(row, 'is_unique', 'index', index),
-      semantics: supported
-        ? present({ kind: 'simple' })
-        : unsupported('Index uses PostgreSQL-native semantics'),
-      validity: present(booleanAt(row, 'is_valid', 'index', index) ? 'valid' : 'invalid'),
-      nativeDefinition: present(stringAt(row, 'native_definition', 'index', index)),
-    })
-  }
-
-  for (let index = 0; index < opaqueRows.length; index++) {
-    const row = rowAt(opaqueRows[index], 'opaque object', index)
-    const target = requireTable(row, 'opaque object', index)
-    if (!target) continue
-    const kind = stringAt(row, 'object_kind', 'opaque object', index)
-
-    if (kind !== 'trigger' && kind !== 'policy' && kind !== 'other') {
-      throw new InvariantError(
-        `Malformed PostgreSQL opaque object row ${index}: unsupported kind ${JSON.stringify(kind)}`,
-      )
-    }
-
-    target.table.opaqueObjects.push({
-      kind,
-      name: present(stringAt(row, 'object_name', 'opaque object', index)),
-      nativeDefinition: present(
-        stringAt(row, 'native_definition', 'opaque object', index),
-      ),
-      reason: `PostgreSQL ${kind} is not managed by the portable schema model`,
-    })
-  }
+  appendIndexes(indexRows, requireTable)
+  appendOpaqueObjects(opaqueRows, requireTable)
 
   const namespaces: CatalogNamespace[] = []
 

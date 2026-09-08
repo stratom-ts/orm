@@ -81,6 +81,218 @@ function dollarQuoteDelimiter(sql: string, offset: number): string | undefined {
   return match?.[0]
 }
 
+/** Reports whether a statement requires a connection cleanup after execution. */
+function statementRequiresCleanup(statement: Statement): boolean {
+  if (statement.advisory) return true
+  const [first, second] = statement.words
+  if (!first) return true
+  if (TRANSACTION_STARTS.has(first)) return true
+  if (first === 'start') return true
+  if (first === 'prepare' && second === 'transaction') return true
+  if (first === 'set' && second === 'transaction') return true
+  return !PLAIN_STARTS.has(first)
+}
+
+/** Stateful scanner that keeps each PostgreSQL lexical form in one local method. */
+class PostgresSqlScanner {
+  readonly #parameters: ParameterReference[] = []
+  readonly #statements: Statement[] = []
+  #statement: Statement = { words: [], executable: false, advisory: false }
+  #pendingAdvisoryCall = false
+  #malformed = false
+  #index = 0
+
+  constructor(readonly sql: string) {}
+
+  scan(): PostgresSqlScan {
+    while (this.#index < this.sql.length && !this.#malformed) {
+      const character = this.sql[this.#index]!
+      const next = this.sql[this.#index + 1]
+
+      if (character === '\0') {
+        this.#malformed = true
+      } else if (/\s/.test(character)) {
+        this.#index++
+      } else if (character === ';') {
+        this.#finishStatement()
+        this.#index++
+      } else if (character === '-' && next === '-') {
+        this.#readLineComment()
+      } else if (character === '/' && next === '*') {
+        this.#readBlockComment()
+      } else if (character === "'") {
+        this.#readString()
+      } else if (character === '"') {
+        this.#readQuotedIdentifier()
+      } else if (character === '$' && this.#readDollarToken()) {
+        continue
+      } else if (isWordStart(character)) {
+        this.#readWord()
+      } else {
+        this.#readSymbol(character)
+      }
+    }
+
+    this.#finishStatement()
+    return Object.freeze({
+      requiresCleanup:
+        this.#malformed ||
+        this.#statements.length === 0 ||
+        this.#statements.some(statementRequiresCleanup),
+      malformed: this.#malformed,
+      parameters: Object.freeze(this.#parameters),
+    })
+  }
+
+  #finishStatement(): void {
+    if (this.#statement.executable) this.#statements.push(this.#statement)
+    this.#statement = { words: [], executable: false, advisory: false }
+    this.#pendingAdvisoryCall = false
+  }
+
+  #readLineComment(): void {
+    const newline = this.sql.indexOf('\n', this.#index + 2)
+    this.#index = newline === -1 ? this.sql.length : newline + 1
+  }
+
+  #readBlockComment(): void {
+    let depth = 1
+    this.#index += 2
+
+    while (this.#index < this.sql.length && depth > 0) {
+      if (this.sql[this.#index] === '/' && this.sql[this.#index + 1] === '*') {
+        depth++
+        this.#index += 2
+      } else if (this.sql[this.#index] === '*' && this.sql[this.#index + 1] === '/') {
+        depth--
+        this.#index += 2
+      } else {
+        this.#index++
+      }
+    }
+
+    if (depth > 0) this.#malformed = true
+  }
+
+  #readString(): void {
+    const escapeString =
+      this.#index > 0 &&
+      this.sql[this.#index - 1]!.toLowerCase() === 'e' &&
+      (this.#index === 1 || !isWordPart(this.sql[this.#index - 2]!))
+    this.#markExecutable()
+    this.#index++
+    let closed = false
+
+    while (this.#index < this.sql.length) {
+      if (this.sql[this.#index] === "'" && this.sql[this.#index + 1] === "'") {
+        this.#index += 2
+      } else if (this.sql[this.#index] === "'") {
+        this.#index++
+        closed = true
+        break
+      } else if (
+        escapeString &&
+        this.sql[this.#index] === '\\' &&
+        this.#index + 1 < this.sql.length
+      ) {
+        this.#index += 2
+      } else {
+        this.#index++
+      }
+    }
+
+    if (!closed) this.#malformed = true
+  }
+
+  #readQuotedIdentifier(): void {
+    this.#markExecutable()
+    this.#index++
+    let closed = false
+    let identifier = ''
+
+    while (this.#index < this.sql.length) {
+      if (this.sql[this.#index] === '"' && this.sql[this.#index + 1] === '"') {
+        identifier += '"'
+        this.#index += 2
+      } else if (this.sql[this.#index] === '"') {
+        this.#index++
+        closed = true
+        break
+      } else {
+        identifier += this.sql[this.#index]
+        this.#index++
+      }
+    }
+
+    if (!closed) this.#malformed = true
+    this.#pendingAdvisoryCall = closed && ADVISORY_FUNCTION_RE.test(identifier)
+  }
+
+  #readDollarToken(): boolean {
+    const delimiter = dollarQuoteDelimiter(this.sql, this.#index)
+
+    if (delimiter) {
+      this.#markExecutable()
+      const closing = this.sql.indexOf(delimiter, this.#index + delimiter.length)
+
+      if (closing === -1) {
+        this.#malformed = true
+      } else {
+        this.#index = closing + delimiter.length
+      }
+
+      return true
+    }
+
+    const parameter = /^\$(\d+)/.exec(this.sql.slice(this.#index))
+    if (!parameter) return false
+    const parameterIndex = Number(parameter[1])
+
+    if (!Number.isSafeInteger(parameterIndex) || parameterIndex < 1) {
+      this.#malformed = true
+      return true
+    }
+
+    this.#markExecutable()
+    this.#parameters.push({
+      start: this.#index,
+      end: this.#index + parameter[0].length,
+      index: parameterIndex - 1,
+    })
+    this.#index += parameter[0].length
+    return true
+  }
+
+  #readWord(): void {
+    const start = this.#index++
+
+    while (this.#index < this.sql.length && isWordPart(this.sql[this.#index]!)) {
+      this.#index++
+    }
+
+    const word = this.sql.slice(start, this.#index).toLowerCase()
+    this.#statement.executable = true
+    this.#statement.words.push(word)
+    this.#pendingAdvisoryCall = ADVISORY_FUNCTION_RE.test(word)
+  }
+
+  #readSymbol(character: string): void {
+    this.#statement.executable = true
+
+    if (character === '(' && this.#pendingAdvisoryCall) {
+      this.#statement.advisory = true
+    }
+
+    this.#pendingAdvisoryCall = false
+    this.#index++
+  }
+
+  #markExecutable(): void {
+    this.#statement.executable = true
+    this.#pendingAdvisoryCall = false
+  }
+}
+
 /**
  * Scans PostgreSQL SQL for parameters, malformed text, and cleanup requirements.
  *
@@ -90,194 +302,5 @@ function dollarQuoteDelimiter(sql: string, offset: number): string | undefined {
  * @param sql - PostgreSQL SQL text.
  */
 export function scanPostgresSql(sql: string): PostgresSqlScan {
-  const parameters: ParameterReference[] = []
-  const statements: Statement[] = []
-  let statement: Statement = { words: [], executable: false, advisory: false }
-  let pendingAdvisoryCall = false
-  let malformed = false
-  let index = 0
-
-  /** Finalizes the current executable statement and resets scanner state. */
-  const finishStatement = () => {
-    if (statement.executable) statements.push(statement)
-    statement = { words: [], executable: false, advisory: false }
-    pendingAdvisoryCall = false
-  }
-
-  while (index < sql.length) {
-    const character = sql[index]!
-    const next = sql[index + 1]
-
-    if (character === '\0') {
-      malformed = true
-      break
-    }
-
-    if (/\s/.test(character)) {
-      index++
-      continue
-    }
-
-    if (character === ';') {
-      finishStatement()
-      index++
-      continue
-    }
-
-    if (character === '-' && next === '-') {
-      const newline = sql.indexOf('\n', index + 2)
-      index = newline === -1 ? sql.length : newline + 1
-      continue
-    }
-
-    if (character === '/' && next === '*') {
-      let depth = 1
-      index += 2
-
-      while (index < sql.length && depth > 0) {
-        if (sql[index] === '/' && sql[index + 1] === '*') {
-          depth++
-          index += 2
-        } else if (sql[index] === '*' && sql[index + 1] === '/') {
-          depth--
-          index += 2
-        } else {
-          index++
-        }
-      }
-
-      if (depth > 0) malformed = true
-      continue
-    }
-
-    if (character === "'") {
-      const escapeString =
-        index > 0 &&
-        sql[index - 1]!.toLowerCase() === 'e' &&
-        (index === 1 || !isWordPart(sql[index - 2]!))
-      statement.executable = true
-      pendingAdvisoryCall = false
-      index++
-      let closed = false
-
-      while (index < sql.length) {
-        if (sql[index] === "'" && sql[index + 1] === "'") {
-          index += 2
-        } else if (sql[index] === "'") {
-          index++
-          closed = true
-          break
-        } else if (escapeString && sql[index] === '\\' && index + 1 < sql.length) {
-          index += 2
-        } else {
-          index++
-        }
-      }
-
-      if (!closed) malformed = true
-      continue
-    }
-
-    if (character === '"') {
-      statement.executable = true
-      pendingAdvisoryCall = false
-      index++
-      let closed = false
-      let identifier = ''
-
-      while (index < sql.length) {
-        if (sql[index] === '"' && sql[index + 1] === '"') {
-          identifier += '"'
-          index += 2
-        } else if (sql[index] === '"') {
-          index++
-          closed = true
-          break
-        } else {
-          identifier += sql[index]
-          index++
-        }
-      }
-
-      if (!closed) malformed = true
-      pendingAdvisoryCall = closed && ADVISORY_FUNCTION_RE.test(identifier)
-      continue
-    }
-
-    if (character === '$') {
-      const delimiter = dollarQuoteDelimiter(sql, index)
-
-      if (delimiter) {
-        statement.executable = true
-        pendingAdvisoryCall = false
-        const closing = sql.indexOf(delimiter, index + delimiter.length)
-
-        if (closing === -1) {
-          malformed = true
-          break
-        }
-
-        index = closing + delimiter.length
-        continue
-      }
-
-      const parameter = /^\$(\d+)/.exec(sql.slice(index))
-
-      if (parameter) {
-        const parameterIndex = Number(parameter[1])
-
-        if (!Number.isSafeInteger(parameterIndex) || parameterIndex < 1) {
-          malformed = true
-          break
-        }
-
-        statement.executable = true
-        pendingAdvisoryCall = false
-        parameters.push({
-          start: index,
-          end: index + parameter[0].length,
-          index: parameterIndex - 1,
-        })
-        index += parameter[0].length
-        continue
-      }
-    }
-
-    if (isWordStart(character)) {
-      const start = index++
-      while (index < sql.length && isWordPart(sql[index]!)) index++
-      const word = sql.slice(start, index).toLowerCase()
-      statement.executable = true
-      statement.words.push(word)
-      pendingAdvisoryCall = ADVISORY_FUNCTION_RE.test(word)
-      continue
-    }
-
-    statement.executable = true
-    if (character === '(' && pendingAdvisoryCall) statement.advisory = true
-    pendingAdvisoryCall = false
-    index++
-  }
-
-  finishStatement()
-
-  const requiresCleanup =
-    malformed ||
-    statements.length === 0 ||
-    statements.some((candidate) => {
-      if (candidate.advisory) return true
-      const [first, second] = candidate.words
-      if (!first) return true
-      if (TRANSACTION_STARTS.has(first)) return true
-      if (first === 'start') return true
-      if (first === 'prepare' && second === 'transaction') return true
-      if (first === 'set' && second === 'transaction') return true
-      return !PLAIN_STARTS.has(first)
-    })
-
-  return Object.freeze({
-    requiresCleanup,
-    malformed,
-    parameters: Object.freeze(parameters),
-  })
+  return new PostgresSqlScanner(sql).scan()
 }

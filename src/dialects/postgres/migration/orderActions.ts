@@ -43,132 +43,180 @@ function sameNamespace(
   )
 }
 
-/**
- * Adds deterministic dependency edges and topologically orders action drafts.
- *
- * @example
- *   const { ordered, issues } = orderActions(drafts, planned)
- *
- * @param drafts - Physical action drafts in source-step order.
- * @param planned - Planned migration supplying identities and catalog dependencies.
- */
-export function orderActions(
-  drafts: readonly ActionDraft[],
-  planned: PlannedMigration,
-): OrderedActions {
-  const dependencies = drafts.map(() => new Set<number>())
-  const identities = planned.identities
+function followsNamespace(
+  other: ActionDraft,
+  relation: CanonicalRelationIdentity | undefined,
+): boolean {
+  return (
+    other.step.kind === 'ensure_namespace' &&
+    relation !== undefined &&
+    sameNamespace(other.step.target.namespace, relation.namespace)
+  )
+}
 
-  /**
-   * Records that one action must follow another.
-   *
-   * @param action - Index of the dependent action.
-   * @param dependency - Index of the prerequisite action.
-   */
-  function dependsOn(action: number, dependency: number): void {
-    if (action !== dependency) dependencies[action]!.add(dependency)
+function followsCreatedRelation(
+  current: ActionDraft,
+  other: ActionDraft,
+  relation: CanonicalRelationIdentity | undefined,
+  planned: PlannedMigration,
+): boolean {
+  return (
+    other.step.kind === 'create_table' &&
+    relation !== undefined &&
+    current.step.kind !== 'create_table' &&
+    current.step.kind !== 'drop_table' &&
+    planned.identities.equals(other.step.target.relation, relation)
+  )
+}
+
+function followsReferencedRelation(
+  current: ActionDraft,
+  other: ActionDraft,
+  planned: PlannedMigration,
+): boolean {
+  return (
+    current.step.kind === 'add_foreign_key' &&
+    other.step.kind === 'create_table' &&
+    planned.identities.equals(
+      other.step.target.relation,
+      current.step.references.relation,
+    )
+  )
+}
+
+function followsIndexedColumn(
+  current: ActionDraft,
+  other: ActionDraft,
+  planned: PlannedMigration,
+): boolean {
+  if (current.step.kind !== 'create_index' || other.step.kind !== 'add_column') {
+    return false
   }
 
+  if (
+    !planned.identities.equals(current.step.target.relation, other.step.target.relation)
+  ) {
+    return false
+  }
+
+  const addedColumn = other.step.target.column.comparisonKey
+  return current.step.columns.some((column) => column.comparisonKey === addedColumn)
+}
+
+function followsForeignKeyColumn(
+  current: ActionDraft,
+  other: ActionDraft,
+  planned: PlannedMigration,
+): boolean {
+  if (current.step.kind !== 'add_foreign_key' || other.step.kind !== 'add_column') {
+    return false
+  }
+
+  const identities = planned.identities
+  const addedColumn = other.step.target.column
+  const addsSource =
+    identities.equals(current.step.target.relation, other.step.target.relation) &&
+    current.step.target.column.comparisonKey === addedColumn.comparisonKey
+  const addsTarget =
+    identities.equals(current.step.references.relation, other.step.target.relation) &&
+    current.step.references.column.comparisonKey === addedColumn.comparisonKey
+  return addsSource || addsTarget
+}
+
+function followsDroppedIndex(
+  current: ActionDraft,
+  other: ActionDraft,
+  planned: PlannedMigration,
+): boolean {
+  if (current.step.kind !== 'drop_column' || other.step.kind !== 'drop_index') {
+    return false
+  }
+
+  const identities = planned.identities
+
+  if (!identities.equals(current.step.target.relation, other.step.target.relation)) {
+    return false
+  }
+
+  const relation = current.step.target.relation
+  const column = current.step.target.column.spelling
+  const indexName = other.step.target.index.spelling
+  const table = planned.planningCatalog.tables.find((entry) =>
+    identities.equals(entry.identity, relation),
+  )
+  return (
+    table?.indexes.some(
+      (entry) => entry.name === indexName && entry.columns.includes(column),
+    ) === true
+  )
+}
+
+function followsReferencingTable(
+  current: ActionDraft,
+  other: ActionDraft,
+  planned: PlannedMigration,
+): boolean {
+  if (current.step.kind !== 'drop_table' || other.step.kind !== 'drop_table') {
+    return false
+  }
+
+  const identities = planned.identities
+  const parentRelation = current.step.target.relation
+  const childRelation = other.step.target.relation
+  const child = planned.planningCatalog.tables.find((entry) =>
+    identities.equals(entry.identity, childRelation),
+  )
+  return (
+    child?.foreignKeys.some((foreignKey) =>
+      identities.equals(foreignKey.referencedRelation, parentRelation),
+    ) === true
+  )
+}
+
+/** Reports whether one physical action must follow another. */
+function actionDependsOn(
+  current: ActionDraft,
+  other: ActionDraft,
+  planned: PlannedMigration,
+): boolean {
+  const relation = stepRelation(current.step)
+  return (
+    followsNamespace(other, relation) ||
+    followsCreatedRelation(current, other, relation, planned) ||
+    followsReferencedRelation(current, other, planned) ||
+    followsIndexedColumn(current, other, planned) ||
+    followsForeignKeyColumn(current, other, planned) ||
+    followsDroppedIndex(current, other, planned) ||
+    followsReferencingTable(current, other, planned)
+  )
+}
+
+/** Builds deterministic prerequisite indexes for every action draft. */
+function actionDependencies(
+  drafts: readonly ActionDraft[],
+  planned: PlannedMigration,
+): Set<number>[] {
+  const dependencies = drafts.map(() => new Set<number>())
+
   for (let action = 0; action < drafts.length; action++) {
-    const current = drafts[action]!
-    const relation = stepRelation(current.step)
-
     for (let candidate = 0; candidate < drafts.length; candidate++) {
-      const other = drafts[candidate]!
-
       if (
-        other.step.kind === 'ensure_namespace' &&
-        relation &&
-        sameNamespace(other.step.target.namespace, relation.namespace)
+        action !== candidate &&
+        actionDependsOn(drafts[action]!, drafts[candidate]!, planned)
       ) {
-        dependsOn(action, candidate)
-      }
-
-      if (
-        other.step.kind === 'create_table' &&
-        relation &&
-        current.step.kind !== 'create_table' &&
-        current.step.kind !== 'drop_table' &&
-        identities.equals(other.step.target.relation, relation)
-      ) {
-        dependsOn(action, candidate)
-      }
-
-      if (
-        current.step.kind === 'add_foreign_key' &&
-        other.step.kind === 'create_table' &&
-        identities.equals(other.step.target.relation, current.step.references.relation)
-      ) {
-        dependsOn(action, candidate)
-      }
-
-      if (
-        current.step.kind === 'create_index' &&
-        other.step.kind === 'add_column' &&
-        identities.equals(current.step.target.relation, other.step.target.relation)
-      ) {
-        const addedColumn = other.step.target.column
-
-        if (
-          current.step.columns.some(
-            (column) => column.comparisonKey === addedColumn.comparisonKey,
-          )
-        ) {
-          dependsOn(action, candidate)
-        }
-      }
-
-      if (
-        current.step.kind === 'add_foreign_key' &&
-        other.step.kind === 'add_column' &&
-        ((identities.equals(current.step.target.relation, other.step.target.relation) &&
-          current.step.target.column.comparisonKey ===
-            other.step.target.column.comparisonKey) ||
-          (identities.equals(
-            current.step.references.relation,
-            other.step.target.relation,
-          ) &&
-            current.step.references.column.comparisonKey ===
-              other.step.target.column.comparisonKey))
-      ) {
-        dependsOn(action, candidate)
-      }
-
-      if (
-        current.step.kind === 'drop_column' &&
-        other.step.kind === 'drop_index' &&
-        identities.equals(current.step.target.relation, other.step.target.relation)
-      ) {
-        const relation = current.step.target.relation
-        const column = current.step.target.column.spelling
-        const indexName = other.step.target.index.spelling
-        const table = planned.planningCatalog.tables.find((entry) =>
-          identities.equals(entry.identity, relation),
-        )
-        const index = table?.indexes.find(
-          (entry) => entry.name === indexName && entry.columns.includes(column),
-        )
-        if (index) dependsOn(action, candidate)
-      }
-
-      if (current.step.kind === 'drop_table' && other.step.kind === 'drop_table') {
-        const parentRelation = current.step.target.relation
-        const childRelation = other.step.target.relation
-        const child = planned.planningCatalog.tables.find((entry) =>
-          identities.equals(entry.identity, childRelation),
-        )
-
-        if (
-          child?.foreignKeys.some((foreignKey) =>
-            identities.equals(foreignKey.referencedRelation, parentRelation),
-          )
-        ) {
-          dependsOn(action, candidate)
-        }
+        dependencies[action]!.add(candidate)
       }
     }
   }
 
+  return dependencies
+}
+
+/** Returns the source-ordered topological prefix of an action graph. */
+function topologicalOrder(
+  drafts: readonly ActionDraft[],
+  dependencies: readonly Set<number>[],
+): ActionDraft[] {
   const remaining = dependencies.map((edges) => new Set(edges))
   const available = drafts
     .map((_, index) => index)
@@ -188,19 +236,18 @@ export function orderActions(
     }
   }
 
-  if (ordered.length === drafts.length) return { ordered, issues: [] }
+  return ordered
+}
+
+/** Finds strongly connected components in an action dependency graph. */
+function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
   let nextIndex = 0
-  const indexes = new Array<number | undefined>(drafts.length)
-  const lowLinks = new Array<number>(drafts.length)
+  const indexes = new Array<number | undefined>(dependencies.length)
+  const lowLinks = new Array<number>(dependencies.length)
   const stack: number[] = []
   const onStack = new Set<number>()
   const cycles: number[][] = []
 
-  /**
-   * Visits one dependency node while collecting strongly connected components.
-   *
-   * @param node - Action index to visit.
-   */
   function visit(node: number): void {
     indexes[node] = nextIndex
     lowLinks[node] = nextIndex++
@@ -234,11 +281,19 @@ export function orderActions(
     }
   }
 
-  for (let node = 0; node < drafts.length; node++) {
+  for (let node = 0; node < dependencies.length; node++) {
     if (indexes[node] === undefined) visit(node)
   }
 
-  const issues = cycles.map((cycle) => {
+  return cycles
+}
+
+/** Formats dependency cycles as deterministic lowering issues. */
+function cycleIssues(
+  drafts: readonly ActionDraft[],
+  dependencies: readonly Set<number>[],
+): MigrationCapabilityIssue[] {
+  return dependencyCycles(dependencies).map((cycle) => {
     const sourceStepIndexes = cycle
       .map((index) => drafts[index]!.sourceStepIndex)
       .sort((left, right) => left - right)
@@ -248,8 +303,23 @@ export function orderActions(
       sourceStepIndexes,
     }
   })
-  return {
-    ordered: [],
-    issues,
-  }
+}
+
+/**
+ * Adds deterministic dependency edges and topologically orders action drafts.
+ *
+ * @example
+ *   const { ordered, issues } = orderActions(drafts, planned)
+ *
+ * @param drafts - Physical action drafts in source-step order.
+ * @param planned - Planned migration supplying identities and catalog dependencies.
+ */
+export function orderActions(
+  drafts: readonly ActionDraft[],
+  planned: PlannedMigration,
+): OrderedActions {
+  const dependencies = actionDependencies(drafts, planned)
+  const ordered = topologicalOrder(drafts, dependencies)
+  if (ordered.length === drafts.length) return { ordered, issues: [] }
+  return { ordered: [], issues: cycleIssues(drafts, dependencies) }
 }
