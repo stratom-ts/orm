@@ -386,7 +386,7 @@ registerOperationSessionProviderContract(
       defineTable(
         'provider_contract_events',
         { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-        { primaryKey: 'id', schema: 'public' },
+        { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
       ),
     ],
     planningFailureSchemas: () => [
@@ -398,7 +398,7 @@ registerOperationSessionProviderContract(
       defineTable(
         'provider_planning_events',
         { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-        { primaryKey: 'id', schema: 'public' },
+        { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
       ),
     ],
   },
@@ -1368,7 +1368,7 @@ describe('client root-operation coordination', () => {
     const Events = defineTable(
       'operation_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const db = createDatabase({
       connector: customConnector(),
@@ -1408,7 +1408,7 @@ describe('client root-operation coordination', () => {
     const Events = defineTable(
       'cleanup_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const db = createDatabase({
       connector: customConnector(),
@@ -1435,7 +1435,7 @@ describe('client root-operation coordination', () => {
     const Events = defineTable(
       'primary_runtime_failure_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const db = createDatabase({
       connector: customConnector(),
@@ -1615,7 +1615,7 @@ describe('client root-operation coordination', () => {
     const Events = defineTable(
       'ambiguous_commit_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const db = createDatabase({
       connector: customConnector(),

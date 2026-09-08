@@ -78,7 +78,7 @@ const Users = defineTable(
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 const Settings = defineTable(
@@ -91,7 +91,7 @@ const Settings = defineTable(
       column({ databaseDefault: { kind: 'literal', value: 'pending' } }),
     ),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 const Accounts = defineTable(
@@ -131,7 +131,7 @@ const Comments = defineTable(
 const AuditEvents = defineTable(
   'events',
   { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-  { primaryKey: 'id', schema: 'audit' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'audit' }] },
 )
 
 const ManagedUsers = defineTable(
@@ -155,7 +155,7 @@ const ManagedUsers = defineTable(
   },
   {
     primaryKey: 'id',
-    schema: 'public',
+    namespace: [{ role: 'schema', spelling: 'public' }],
     indexes: [{ name: 'managed_users_status_idx', columns: ['status'] }],
   },
 )
@@ -169,7 +169,7 @@ const ManagedPosts = defineTable(
       onUpdate: 'restrict',
     }),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 function usersCatalog(
@@ -776,12 +776,12 @@ describe('Migration Plan construction', () => {
     const Public = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const Tenant = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'tenant' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'tenant' }] },
     )
     const FullyQualifiedTenant = defineTable(
       'items',
@@ -836,7 +836,7 @@ describe('Migration Plan construction', () => {
     const Tenant = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'tenant' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'tenant' }] },
     )
 
     expect(
@@ -855,7 +855,7 @@ describe('Migration Plan construction', () => {
     const Public = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const catalog: CatalogSnapshot = {
       ...emptyCatalogReservations(),
@@ -932,7 +932,7 @@ describe('Migration Plan construction', () => {
       defineTable(
         name,
         { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-        { primaryKey: 'id', schema },
+        { primaryKey: 'id', namespace: [{ role: 'schema', spelling: schema }] },
       ),
     )
 
@@ -959,12 +959,12 @@ describe('Migration Plan construction', () => {
     const DottedSchema = defineTable(
       'c',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'a.b' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
     )
     const DottedRelation = defineTable(
       'b.c',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'a' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
@@ -994,7 +994,7 @@ describe('Migration Plan construction', () => {
     const Anchor = defineTable(
       'anchor',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'a' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
     const mismatchedCatalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
@@ -1024,7 +1024,7 @@ describe('Migration Plan construction', () => {
     const Dotted = defineTable(
       'c',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'a.b' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
@@ -1084,7 +1084,10 @@ describe('Migration Plan construction', () => {
           column({ physicalType: { postgresql: 'uuid' }, unique: true }),
         ),
       },
-      { primaryKey: ['tenantId', 'teamId'], schema: 'public' },
+      {
+        primaryKey: ['tenantId', 'teamId'],
+        namespace: [{ role: 'schema', spelling: 'public' }],
+      },
     )
     const Memberships = defineTable(
       'memberships',
@@ -1101,7 +1104,7 @@ describe('Migration Plan construction', () => {
           column({ physicalType: { postgresql: 'text' }, unique: true }),
         ),
       },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
@@ -1500,7 +1503,7 @@ describe('Migration Plan construction', () => {
     const TenantUsers = defineTable(
       'users',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'other_app' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'other_app' }] },
     )
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },

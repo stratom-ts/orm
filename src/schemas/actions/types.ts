@@ -45,8 +45,6 @@ export type TableMetadata<
   primaryKey: string | string[]
   /** Named, composite, or unique indexes. */
   indexes?: TableIndex[]
-  /** Database schema (Postgres namespace) */
-  schema?: string
 }
 
 /** Column property names of a table's Valibot entries. */
@@ -71,7 +69,6 @@ export type TableIndexOf<TCols extends ObjectEntries> = IndexConfigOf<TCols>
  */
 export type TableOptions<
   TCols extends ObjectEntries,
-  TSchema extends string | undefined = string | undefined,
   TNamespace extends readonly NamespaceIdentifierInput[] | undefined =
     | readonly NamespaceIdentifierInput[]
     | undefined,
@@ -80,18 +77,9 @@ export type TableOptions<
   primaryKey: ColumnKey<TCols> | readonly ColumnKey<TCols>[]
   /** Named, composite, or unique indexes. */
   indexes?: TableIndexOf<TCols>[]
-} & (
-  | {
-      /** Deliberate PostgreSQL schema shorthand. */
-      schema?: TSchema
-      namespace?: never
-    }
-  | {
-      /** Ordered, role-tagged portable namespace intent. */
-      schema?: never
-      namespace?: TNamespace
-    }
-)
+  /** Ordered, role-tagged portable namespace intent. */
+  namespace?: TNamespace
+}
 
 /** Primitive value stored as a database literal default. */
 export type DatabaseLiteralValue = string | number | boolean | null
@@ -166,10 +154,6 @@ export type ColumnMetadata = {
 export type ReferenceMetadata = {
   /** Discriminant for reference metadata. */
   kind: 'reference'
-  /** Referenced table name. */
-  table: string
-  /** Referenced column name. */
-  key: string
   /** Structured logical target retained until canonical graph registration. */
   target: {
     readonly relation: RelationIdentityInput

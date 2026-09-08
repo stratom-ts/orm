@@ -2,7 +2,6 @@ import type { MetadataAction } from 'valibot'
 import { getMetadata, metadata } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
-import { SchemaError } from '@/utils/error'
 
 import { createRelationInput } from './relation'
 import type { NamespaceIdentifierInput } from './relation'
@@ -12,10 +11,8 @@ type TableActionConfig = {
   name: string
   primaryKey: string | readonly string[]
   indexes?: TableIndex[]
-} & (
-  | { schema?: string; namespace?: never }
-  | { schema?: never; namespace?: readonly NamespaceIdentifierInput[] }
-)
+  namespace?: readonly NamespaceIdentifierInput[]
+}
 
 /**
  * Attaches table metadata to a Valibot object schema for migrations.
@@ -28,29 +25,18 @@ type TableActionConfig = {
  *       name: 'users',
  *       primaryKey: 'id',
  *       indexes: [{ columns: ['email'], unique: true }],
- *       schema: 'public',
+ *       namespace: [{ role: 'schema', spelling: 'public' }],
  *     }),
  *   )
  *
- * @param config - Table name, primary key(s), optional indexes and DB schema.
+ * @param config - Table name, primary key(s), optional indexes and namespace intent.
  *
  * @returns Metadata action for use in a `pipe` after `title()`
  */
-export function table<
-  TInput = unknown,
-  const TConfig extends TableActionConfig = { name: string; primaryKey: string },
->(config: TConfig): MetadataAction<TInput, TableMetadata<TConfig['name']>> {
-  if (config.schema !== undefined && config.namespace !== undefined) {
-    throw new SchemaError({
-      message: 'table schema and namespace are mutually exclusive',
-    })
-  }
-
-  const namespace =
-    config.schema === undefined
-      ? config.namespace
-      : [{ role: 'schema' as const, spelling: config.schema }]
-  const relation = createRelationInput(config.name, namespace)
+export function table<TInput = unknown, const TName extends string = string>(
+  config: TableActionConfig & { name: TName },
+): MetadataAction<TInput, TableMetadata<TName>> {
+  const relation = createRelationInput(config.name, config.namespace)
   const primaryKey = Array.isArray(config.primaryKey)
     ? [...config.primaryKey]
     : config.primaryKey
@@ -61,8 +47,7 @@ export function table<
     relation,
     primaryKey,
     ...(config.indexes !== undefined ? { indexes: config.indexes } : {}),
-    ...(config.schema !== undefined ? { schema: config.schema } : {}),
-  }) as MetadataAction<TInput, TableMetadata<TConfig['name']>>
+  }) as MetadataAction<TInput, TableMetadata<TName>>
 }
 
 /**

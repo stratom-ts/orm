@@ -23,7 +23,11 @@ const Users = defineTable(
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     email: pipe(string(), column({ physicalType: { postgresql: 'text' }, unique: true })),
   },
-  { primaryKey: 'id', schema: 'public', indexes: [{ columns: ['email'] }] },
+  {
+    primaryKey: 'id',
+    namespace: [{ role: 'schema', spelling: 'public' }],
+    indexes: [{ columns: ['email'] }],
+  },
 )
 
 const Posts = defineTable(
@@ -32,7 +36,7 @@ const Posts = defineTable(
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     authorId: reference(Users, 'id', { onDelete: 'cascade' }),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 function emptyCatalog(): CatalogSnapshot {

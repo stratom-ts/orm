@@ -1,5 +1,6 @@
 import {
   boolean,
+  metadata,
   nullable,
   number,
   object,
@@ -56,7 +57,7 @@ const userColumns = {
 }
 
 const User = defineTable('users', userColumns, {
-  schema: 'public',
+  namespace: [{ role: 'schema', spelling: 'public' }],
   primaryKey: 'id',
   indexes: [
     { columns: ['email'], unique: true },
@@ -71,7 +72,7 @@ const UserSchema = pipe(
   title('users'),
   table({
     name: 'users',
-    schema: 'public',
+    namespace: [{ role: 'schema', spelling: 'public' }],
     primaryKey: 'id',
     indexes: [
       { columns: ['email'], unique: true },
@@ -87,7 +88,6 @@ describe('defineTable', () => {
     expect(User.getTableMetadata()).toMatchObject({
       kind: 'table',
       name: 'users',
-      schema: 'public',
       primaryKey: 'id',
       relation: {
         namespace: [{ role: 'schema', spelling: 'public' }],
@@ -551,6 +551,40 @@ describe('defineTable', () => {
       ),
     ).not.toThrow()
   })
+
+  it('validates structured reference targets instead of legacy flat fields', () => {
+    const defineWithReferenceMetadata = (referenceMetadata: Record<string, unknown>) =>
+      defineTable(
+        'posts',
+        {
+          id: string(),
+          authorId: pipe(string(), metadata(referenceMetadata)),
+        },
+        { primaryKey: 'id' },
+      )
+
+    expect(() =>
+      defineWithReferenceMetadata({
+        kind: 'reference',
+        table: 'users',
+        key: 'id',
+      }),
+    ).toThrow(/missing a structured target/i)
+
+    expect(() =>
+      defineWithReferenceMetadata({
+        kind: 'reference',
+        target: { relation: { relation: '' }, column: 'id' },
+      }),
+    ).toThrow(/relation must be a non-empty string/i)
+
+    expect(() =>
+      defineWithReferenceMetadata({
+        kind: 'reference',
+        target: { relation: { relation: 'users' }, column: '' },
+      }),
+    ).toThrow(/referenced column must be a non-empty string/i)
+  })
 })
 
 describe('reference with FK actions', () => {
@@ -570,12 +604,18 @@ describe('reference with FK actions', () => {
     const meta = getReferenceMetadata(Post.getSchema().entries.authorId)
     expect(meta).toMatchObject({
       kind: 'reference',
-      table: 'users',
-      key: 'id',
+      target: {
+        relation: {
+          namespace: [{ role: 'schema', spelling: 'public' }],
+          relation: 'users',
+        },
+        column: 'id',
+      },
       onDelete: 'cascade',
       onUpdate: 'restrict',
     })
-    expect(meta).not.toHaveProperty('schema')
+    expect(meta).not.toHaveProperty('table')
+    expect(meta).not.toHaveProperty('key')
   })
 
   it('should accept a table handle as reference target', () => {
@@ -589,7 +629,13 @@ describe('reference with FK actions', () => {
     )
 
     const meta = getReferenceMetadata(Post.getSchema().entries.authorId)
-    expect(meta?.table).toBe('users')
+    expect(meta?.target).toEqual({
+      relation: {
+        namespace: [{ role: 'schema', spelling: 'public' }],
+        relation: 'users',
+      },
+      column: 'id',
+    })
     expect(meta?.onDelete).toBe('set null')
   })
 })

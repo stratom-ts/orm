@@ -16,6 +16,7 @@ import {
   isSqlNullable,
   table,
 } from '@/schemas'
+import { validateRelationInput } from '@/schemas/actions/relation'
 import type { ColumnRef, ColumnRefsOf, SchemaNameOf, TableHandle } from '@/types'
 import { TABLE_HANDLE } from '@/types'
 import type { AnySchema } from '@/types/schema'
@@ -188,32 +189,37 @@ function validateColumnOptions(
 }
 
 /**
- * Asserts a foreign-key reference names both a target table and key.
+ * Asserts a foreign-key reference has a structured relation-and-column target.
  *
  * @example
- *   validateColumnReference('authorId', { table: 'users', key: 'id' })
+ *   validateColumnReference('authorId', {
+ *     target: { relation: { relation: 'users' }, column: 'id' },
+ *   })
  *
  * @param columnName - Column name for error context.
  * @param ref - Reference metadata to validate.
  *
- * @throws SchemaError - When the reference is missing a target table or key
+ * @throws SchemaError - When the reference target relation or column is invalid
  */
 function validateColumnReference(columnName: string, ref: ReferenceMetadata): void {
   if (!ref) {
     return
   }
 
-  if (!ref.table) {
+  if (typeof ref.target !== 'object' || ref.target === null) {
     throw new SchemaError({
-      message: `reference on column "${columnName}" is missing a target table`,
+      message: `reference on column "${columnName}" is missing a structured target`,
     })
   }
 
-  if (!ref.key) {
+  if (typeof ref.target.relation !== 'object' || ref.target.relation === null) {
     throw new SchemaError({
-      message: `reference on column "${columnName}" is missing a target key`,
+      message: `reference on column "${columnName}" is missing a target relation`,
     })
   }
+
+  validateRelationInput(ref.target.relation)
+  assertNonEmptyString(ref.target.column, 'referenced column')
 }
 
 /**
@@ -327,14 +333,14 @@ function validateColumns(schema: TableSchema, tableName: string): void {
 /**
  * Asserts that table metadata is internally consistent before a handle is built.
  *
- * Checks the table name/schema, the primary key, every index, and each column's
+ * Checks the table relation, the primary key, every index, and each column's
  * portable column structure against the declared columns.
  *
  * @example
  *   validateTableMetadata(schema, metadata, ['id', 'name'])
  *
  * @param schema - Valibot object schema whose entries hold the column schemas.
- * @param metadata - Resolved `table()` metadata (name, schema, primaryKey, indexes)
+ * @param metadata - Resolved `table()` metadata (relation, primaryKey, indexes)
  * @param columnNames - Declared column names that primary keys and indexes must
  *   reference.
  *
@@ -346,10 +352,7 @@ function validateTableMetadata(
   columnNames: string[],
 ): void {
   assertNonEmptyString(metadata.name, 'table name')
-
-  if (metadata.schema !== undefined) {
-    assertNonEmptyString(metadata.schema, 'table schema')
-  }
+  validateRelationInput(metadata.relation)
 
   validatePrimaryKey(schema, metadata, columnNames)
   validateIndexes(metadata, columnNames)
@@ -426,20 +429,14 @@ function buildTableHandle<
   return handle as TableHandle<S, TRelation>
 }
 
-type RelationForOptions<TName extends string, TOptions> = TOptions extends {
-  schema: infer TSchema extends string
-}
-  ? Readonly<{
-      namespace: readonly [Readonly<{ role: 'schema'; spelling: TSchema }>]
-      relation: TName
-    }>
-  : TOptions extends {
-        namespace: infer TNamespace extends readonly NamespaceIdentifierInput[]
-      }
-    ? TNamespace extends readonly []
-      ? Readonly<{ relation: TName }>
-      : Readonly<{ namespace: TNamespace; relation: TName }>
-    : Readonly<{ relation: TName }>
+type RelationForNamespace<
+  TName extends string,
+  TNamespace extends readonly NamespaceIdentifierInput[] | undefined,
+> = TNamespace extends readonly NamespaceIdentifierInput[]
+  ? TNamespace extends readonly []
+    ? Readonly<{ relation: TName }>
+    : Readonly<{ namespace: TNamespace; relation: TName }>
+  : Readonly<{ relation: TName }>
 
 /**
  * Defines a table from a name, column map, and table options.
@@ -462,7 +459,7 @@ type RelationForOptions<TName extends string, TOptions> = TOptions extends {
  *       ),
  *     },
  *     {
- *       schema: 'public',
+ *       namespace: [{ role: 'schema', spelling: 'public' }],
  *       primaryKey: 'id',
  *       indexes: [{ columns: ['email'], unique: true }],
  *     },
@@ -471,7 +468,7 @@ type RelationForOptions<TName extends string, TOptions> = TOptions extends {
  *
  * @param name - Database table name (also the logical name on column refs)
  * @param columns - Map of column name to Valibot column schema.
- * @param options - Primary key, optional DB schema, and indexes.
+ * @param options - Primary key, optional namespace intent, and indexes.
  *
  * @returns Table handle for registration, queries, and column references
  *
@@ -480,10 +477,10 @@ type RelationForOptions<TName extends string, TOptions> = TOptions extends {
 export function defineTable<
   const TName extends string,
   TCols extends ObjectEntries,
-  const TOptions extends TableOptions<TCols> = TableOptions<TCols>,
->(name: TName, columns: TCols, options: TOptions) {
+  const TNamespace extends readonly NamespaceIdentifierInput[] | undefined = undefined,
+>(name: TName, columns: TCols, options: TableOptions<TCols, TNamespace>) {
   const schema = pipe(object(columns), title(name), table({ name, ...options }))
-  return buildTableHandle<typeof schema, RelationForOptions<TName, TOptions>>(schema)
+  return buildTableHandle<typeof schema, RelationForNamespace<TName, TNamespace>>(schema)
 }
 
 /**

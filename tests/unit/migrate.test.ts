@@ -306,13 +306,13 @@ const Users = defineTable(
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
   },
-  { primaryKey: 'id', schema: 'public' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
 const AppUsers = defineTable(
   'users',
   { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-  { primaryKey: 'id', schema: 'app' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'app' }] },
 )
 
 const AppPosts = defineTable(
@@ -321,7 +321,7 @@ const AppPosts = defineTable(
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     authorId: reference(AppUsers, 'id', { onDelete: 'cascade' }),
   },
-  { primaryKey: 'id', schema: 'app' },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'app' }] },
 )
 
 const Memberships = defineTable(
@@ -330,7 +330,10 @@ const Memberships = defineTable(
     orgId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     userId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
   },
-  { primaryKey: ['orgId', 'userId'], schema: 'app' },
+  {
+    primaryKey: ['orgId', 'userId'],
+    namespace: [{ role: 'schema', spelling: 'app' }],
+  },
 )
 
 function matchingUsers(extra?: Partial<LiveTable>): LiveTable {
@@ -461,7 +464,7 @@ describe('db.migrate() adapters and execution', () => {
     const PublicItems = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
 
     const db = createDatabase({
@@ -606,7 +609,7 @@ describe('db.migrate() adapters and execution', () => {
           column({ physicalType: { postgresql: 'text' }, unique: true }),
         ),
       },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const connector = createMockConnector({ tables: [matchingUsers()] })
     const db = createDatabase({
@@ -673,7 +676,7 @@ describe('db.migrate() adapters and execution', () => {
         id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         schemaMarker: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
-      { primaryKey: 'id', schema: 'a.b' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
     )
     const DottedRelation = defineTable(
       'b.c',
@@ -681,7 +684,7 @@ describe('db.migrate() adapters and execution', () => {
         id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         relationMarker: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
-      { primaryKey: 'id', schema: 'a' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
     const connector = createMockConnector()
     const db = createDatabase({
@@ -714,7 +717,7 @@ describe('db.migrate() adapters and execution', () => {
         id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
         email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
       },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const connector = createMockConnector({
       tables: [
@@ -935,7 +938,7 @@ describe('db.migrate() policy and coordination', () => {
     const AuditEvents = defineTable(
       'audit_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      { primaryKey: 'id', schema: 'public' },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({
