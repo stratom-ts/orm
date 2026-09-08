@@ -1,81 +1,8 @@
-import type { Database } from 'db0'
-
 import type { CompiledQuery } from '@/dialects'
-import { QueryError } from '@/utils/error'
 
 export type Executor = {
   /** Run a query and return result rows (SELECT). */
   execute(query: CompiledQuery): Promise<unknown[]>
   /** Run a statement without requiring row results (DDL / DML). */
   run(query: CompiledQuery): Promise<void>
-}
-
-/**
- * Runs parameterized SQL through a db0 database instance.
- *
- * @example
- *   const executor = createDb0Executor(database)
- *   const rows = await executor.execute({ sql: 'SELECT 1', params: [] })
- *
- * @param database - Db0 database instance.
- *
- * @returns Executor with `execute` and `run` methods
- */
-export function createDb0Executor(database: Database): Executor {
-  /**
-   * Prepares and binds a compiled query.
-   *
-   * @param query - Compiled query to prepare.
-   */
-  const runPrepared = async (query: CompiledQuery) => {
-    const statement = database.prepare(query.sql)
-
-    if (query.params.length === 0) {
-      return statement
-    }
-
-    return statement.bind(...(query.params as never[]))
-  }
-
-  return {
-    /**
-     * Executes a prepared query and returns all rows.
-     *
-     * @example
-     *   const rows = await executor.execute({ sql: 'SELECT 1', params: [] })
-     *
-     * @param query - Compiled query to execute.
-     */
-    async execute(query: CompiledQuery): Promise<unknown[]> {
-      try {
-        const statement = await runPrepared(query)
-        return await statement.all()
-      } catch (cause) {
-        throw new QueryError({
-          message: cause instanceof Error ? cause.message : 'Query execution failed',
-          cause,
-        })
-      }
-    },
-
-    /**
-     * Runs a prepared statement without returning rows.
-     *
-     * @example
-     *   await executor.run({ sql: 'DELETE FROM sessions', params: [] })
-     *
-     * @param query - Compiled statement to run.
-     */
-    async run(query: CompiledQuery): Promise<void> {
-      try {
-        const statement = await runPrepared(query)
-        await statement.run()
-      } catch (cause) {
-        throw new QueryError({
-          message: cause instanceof Error ? cause.message : 'Statement execution failed',
-          cause,
-        })
-      }
-    },
-  }
 }
