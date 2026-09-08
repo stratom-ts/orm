@@ -687,6 +687,141 @@ function matchForeignKeys(
   )
 }
 
+type ManagedConstraintIssueCollection = Readonly<{
+  live: CatalogTable
+  desired: LoweredDesiredTable
+  shape: 'complete' | 'additive'
+  issues: PlanningIssue[]
+  identities: CanonicalRelationIdentityModule
+  liveColumns: ReadonlyMap<string, CatalogColumn>
+}>
+
+/** Collects unsupported unique-constraint drift for one managed relation. */
+function collectUniqueConstraintIssues({
+  live,
+  desired,
+  shape,
+  issues,
+  identities,
+  liveColumns,
+}: ManagedConstraintIssueCollection): void {
+  if (live.uniqueConstraints === undefined) return
+  const identity = live.identity
+  const expected = desired.columns.filter(
+    (column) => column.unique && liveColumns.has(column.identifier.comparisonKey),
+  )
+  const matched = new Set<CatalogKeyConstraint>()
+
+  for (const column of expected) {
+    const matches = matchUniqueConstraints(
+      live.uniqueConstraints,
+      column.identifier,
+      identities,
+    )
+
+    if (matches.length > 1) {
+      issues.push({
+        identity,
+        target: column.identifier.comparisonKey,
+        property: 'ambiguous_semantic_match',
+        message: `Ambiguous unique constraint semantic match for ${identities.format(
+          identity,
+          { role: 'column', spelling: column.identifier.spelling },
+        )}`,
+      })
+    }
+
+    for (const match of matches) matched.add(match)
+    const match = matches[0]
+    if (!match) continue
+
+    if (!hasSupportedCatalogSemantics(match)) {
+      issues.push({
+        identity,
+        target: column.identifier.comparisonKey,
+        property: 'unsupported_catalog_semantics',
+        message: `Unsupported unique constraint catalog semantics for ${identities.format(
+          identity,
+          { role: 'column', spelling: column.identifier.spelling },
+        )}`,
+      })
+    }
+  }
+
+  if (
+    shape === 'complete' &&
+    live.uniqueConstraints.some((constraint) => !matched.has(constraint))
+  ) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'unique_constraint',
+      message: `Unsupported removal of extra unique constraints for '${identities.format(identity)}'`,
+    })
+  }
+}
+
+/** Collects unsupported foreign-key drift for one managed relation. */
+function collectForeignKeyIssues({
+  live,
+  desired,
+  shape,
+  issues,
+  identities,
+  liveColumns,
+}: ManagedConstraintIssueCollection): void {
+  if (live.foreignKeys === undefined) return
+  const identity = live.identity
+  const tableName = identities.format(identity)
+  const expected = desired.columns
+    .filter(
+      (column) =>
+        column.reference !== undefined &&
+        liveColumns.has(column.identifier.comparisonKey),
+    )
+    .map((column) => canonicalDesiredForeignKey(column))
+    .sort((left, right) => compareForeignKeys(left, right, identities))
+  const matched = new Set<CatalogForeignKey>()
+
+  for (const expectedForeignKey of expected) {
+    const matches = matchForeignKeys(live.foreignKeys, expectedForeignKey, identities)
+
+    if (matches.length > 1) {
+      issues.push({
+        identity,
+        target: expectedForeignKey.columns.join('\0'),
+        property: 'ambiguous_semantic_match',
+        message: `Ambiguous foreign key semantic match for '${tableName}'`,
+      })
+    }
+
+    for (const match of matches) matched.add(match)
+    const match = matches[0]
+    if (!match) continue
+
+    if (!hasSupportedCatalogSemantics(match)) {
+      issues.push({
+        identity,
+        target: expectedForeignKey.columns.join('\0'),
+        property: 'unsupported_catalog_semantics',
+        message: `Unsupported foreign key catalog semantics for '${tableName}'`,
+      })
+    }
+  }
+
+  if (
+    shape === 'complete' &&
+    live.foreignKeys.some((foreignKey) => !matched.has(foreignKey))
+  ) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'foreign_key',
+      message: `Unsupported removal of extra foreign keys for '${tableName}'`,
+    })
+  }
+}
+
 /**
  * Adds deterministic issues for managed properties that cannot yet be migrated safely.
  * Undefined catalog properties are treated as unavailable rather than as drift.
@@ -789,110 +924,16 @@ function collectManagedPropertyIssues(
     }
   }
 
-  if (live.uniqueConstraints !== undefined) {
-    const expected = desired.columns.filter(
-      (column) => column.unique && liveColumns.has(column.identifier.comparisonKey),
-    )
-    const matched = new Set<CatalogKeyConstraint>()
-
-    for (const column of expected) {
-      const matches = matchUniqueConstraints(
-        live.uniqueConstraints,
-        column.identifier,
-        identities,
-      )
-
-      if (matches.length > 1) {
-        issues.push({
-          identity,
-          target: column.identifier.comparisonKey,
-          property: 'ambiguous_semantic_match',
-          message: `Ambiguous unique constraint semantic match for ${identities.format(
-            identity,
-            { role: 'column', spelling: column.identifier.spelling },
-          )}`,
-        })
-      }
-
-      for (const match of matches) matched.add(match)
-      const match = matches[0]
-      if (!match) continue
-
-      if (!hasSupportedCatalogSemantics(match)) {
-        issues.push({
-          identity,
-          target: column.identifier.comparisonKey,
-          property: 'unsupported_catalog_semantics',
-          message: `Unsupported unique constraint catalog semantics for ${identities.format(
-            identity,
-            { role: 'column', spelling: column.identifier.spelling },
-          )}`,
-        })
-      }
-    }
-
-    if (
-      shape === 'complete' &&
-      live.uniqueConstraints.some((constraint) => !matched.has(constraint))
-    ) {
-      issues.push({
-        identity,
-        target: '',
-        property: 'unique_constraint',
-        message: `Unsupported removal of extra unique constraints for '${tableName}'`,
-      })
-    }
+  const constraintInput = {
+    live,
+    desired,
+    shape,
+    issues,
+    identities,
+    liveColumns,
   }
-
-  if (live.foreignKeys !== undefined) {
-    const expected = desired.columns
-      .filter(
-        (column) =>
-          column.reference !== undefined &&
-          liveColumns.has(column.identifier.comparisonKey),
-      )
-      .map((column) => canonicalDesiredForeignKey(column))
-      .sort((left, right) => compareForeignKeys(left, right, identities))
-    const matched = new Set<CatalogForeignKey>()
-
-    for (const expectedForeignKey of expected) {
-      const matches = matchForeignKeys(live.foreignKeys, expectedForeignKey, identities)
-
-      if (matches.length > 1) {
-        issues.push({
-          identity,
-          target: expectedForeignKey.columns.join('\0'),
-          property: 'ambiguous_semantic_match',
-          message: `Ambiguous foreign key semantic match for '${tableName}'`,
-        })
-      }
-
-      for (const match of matches) matched.add(match)
-      const match = matches[0]
-      if (!match) continue
-
-      if (!hasSupportedCatalogSemantics(match)) {
-        issues.push({
-          identity,
-          target: expectedForeignKey.columns.join('\0'),
-          property: 'unsupported_catalog_semantics',
-          message: `Unsupported foreign key catalog semantics for '${tableName}'`,
-        })
-      }
-    }
-
-    if (
-      shape === 'complete' &&
-      live.foreignKeys.some((foreignKey) => !matched.has(foreignKey))
-    ) {
-      issues.push({
-        identity,
-        target: '',
-        property: 'foreign_key',
-        message: `Unsupported removal of extra foreign keys for '${tableName}'`,
-      })
-    }
-  }
+  collectUniqueConstraintIssues(constraintInput)
+  collectForeignKeyIssues(constraintInput)
 }
 
 /**
@@ -1127,6 +1168,65 @@ type IndexReconciliation = Readonly<{
   physicalNames: ReturnType<DialectNaming['createRegistry']>
 }>
 
+/** Indexes observed catalog indexes and reports duplicate or opaque semantics. */
+function collectLiveIndexes(
+  input: Pick<
+    IndexReconciliation,
+    'live' | 'identity' | 'shape' | 'issues' | 'identities'
+  >,
+): Readonly<{
+  indexes: ReadonlyMap<string, CatalogIndex>
+  unsupportedNames: Set<string>
+}> {
+  const { live, identity, shape, issues, identities } = input
+  const indexes = new Map<string, CatalogIndex>()
+  const unsupportedNames = new Set<string>()
+  const ordered = (live.indexes ?? [])
+    .map((liveIndex) => ({
+      liveIndex,
+      identifier: memberIdentifier(identity, 'index', liveIndex.name, identities),
+    }))
+    .sort(
+      (left, right) =>
+        compareCodeUnits(left.identifier.comparisonKey, right.identifier.comparisonKey) ||
+        compareCodeUnits(left.identifier.spelling, right.identifier.spelling),
+    )
+
+  for (const { liveIndex, identifier } of ordered) {
+    const key = identifier.comparisonKey
+
+    if (indexes.has(key)) {
+      issues.push({
+        identity,
+        target: key,
+        property: 'duplicate_catalog_index',
+        message: `Duplicate catalog index ${identities.format(identity, {
+          role: 'index',
+          spelling: liveIndex.name,
+        })}`,
+      })
+      continue
+    }
+
+    indexes.set(key, liveIndex)
+
+    if (shape === 'complete' && !hasSupportedCatalogSemantics(liveIndex)) {
+      unsupportedNames.add(key)
+      issues.push({
+        identity,
+        target: key,
+        property: 'unsupported_catalog_semantics',
+        message: `Unsupported index catalog semantics for ${identities.format(identity, {
+          role: 'index',
+          spelling: liveIndex.name,
+        })}`,
+      })
+    }
+  }
+
+  return { indexes, unsupportedNames }
+}
+
 /**
  * Reconciles desired and observed indexes for one existing relation.
  *
@@ -1146,51 +1246,8 @@ function reconcileIndexes({
   physicalNames,
 }: IndexReconciliation): void {
   const claimedLiveIndexNames = new Set<string>()
-  const unsupportedLiveIndexNames = new Set<string>()
-  const liveIndexes = new Map<string, CatalogIndex>()
-
-  const orderedLiveIndexes = (live.indexes ?? [])
-    .map((liveIndex) => ({
-      liveIndex,
-      identifier: memberIdentifier(identity, 'index', liveIndex.name, identities),
-    }))
-    .sort(
-      (left, right) =>
-        compareCodeUnits(left.identifier.comparisonKey, right.identifier.comparisonKey) ||
-        compareCodeUnits(left.identifier.spelling, right.identifier.spelling),
-    )
-
-  for (const { liveIndex, identifier } of orderedLiveIndexes) {
-    const key = identifier.comparisonKey
-
-    if (liveIndexes.has(key)) {
-      issues.push({
-        identity,
-        target: key,
-        property: 'duplicate_catalog_index',
-        message: `Duplicate catalog index ${identities.format(identity, {
-          role: 'index',
-          spelling: liveIndex.name,
-        })}`,
-      })
-      continue
-    }
-
-    liveIndexes.set(key, liveIndex)
-
-    if (shape === 'complete' && !hasSupportedCatalogSemantics(liveIndex)) {
-      unsupportedLiveIndexNames.add(key)
-      issues.push({
-        identity,
-        target: key,
-        property: 'unsupported_catalog_semantics',
-        message: `Unsupported index catalog semantics for ${identities.format(identity, {
-          role: 'index',
-          spelling: liveIndex.name,
-        })}`,
-      })
-    }
-  }
+  const { indexes: liveIndexes, unsupportedNames: unsupportedLiveIndexNames } =
+    collectLiveIndexes({ live, identity, shape, issues, identities })
 
   for (const index of desired) {
     let current: CatalogIndex | undefined
@@ -1447,6 +1504,32 @@ function appendMissingColumnConstraints({
   }
 }
 
+/** Adds drops for catalog columns outside a complete desired relation shape. */
+function appendDroppedColumns(
+  live: CatalogTable,
+  desired: LoweredDesiredTable,
+  shape: 'complete' | 'additive',
+  identity: CanonicalRelationIdentity,
+  steps: MigrationStep[],
+  identities: CanonicalRelationIdentityModule,
+): void {
+  if (shape !== 'complete') return
+  const desiredNames = new Set(
+    desired.columns.map((column) => column.identifier.comparisonKey),
+  )
+
+  for (const liveColumn of live.columns ?? []) {
+    if (desiredNames.has(identities.member('column', liveColumn.name).comparisonKey)) {
+      continue
+    }
+
+    steps.push({
+      kind: 'drop_column',
+      target: columnTarget(identity, liveColumn.name, identities),
+    })
+  }
+}
+
 /** Reconciles columns and their column-owned constraints for one existing relation. */
 function reconcileExistingColumns({
   live,
@@ -1465,9 +1548,6 @@ function reconcileExistingColumns({
       identities.member('column', column.name).comparisonKey,
       column,
     ]),
-  )
-  const desiredColumnNames = new Set(
-    desired.columns.map((column) => column.identifier.comparisonKey),
   )
 
   for (const desiredColumn of desired.columns) {
@@ -1571,18 +1651,7 @@ function reconcileExistingColumns({
     }
   }
 
-  if (shape === 'complete') {
-    for (const liveColumn of live.columns ?? []) {
-      if (
-        desiredColumnNames.has(identities.member('column', liveColumn.name).comparisonKey)
-      )
-        continue
-      steps.push({
-        kind: 'drop_column',
-        target: columnTarget(identity, liveColumn.name, identities),
-      })
-    }
-  }
+  appendDroppedColumns(live, desired, shape, identity, steps, identities)
 
   appendMissingColumnConstraints({
     live,
@@ -1740,6 +1809,122 @@ function appendCreatedTable({
       target: { kind: 'column', relation: identity, column: column.identifier },
       references: structuredReference(column.reference),
     })
+  }
+}
+
+type DesiredTablePreparation = Readonly<{
+  handle: TableHandle
+  registered: CanonicalRelationRegistry<TableHandle>
+  existing: CanonicalRelationRegistry<CatalogTable>
+  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>
+  ownership: ReturnType<typeof resolveMigrationOwnership>
+  issues: PlanningIssue[]
+  naming: DialectNaming
+  identities: CanonicalRelationIdentityModule
+}>
+
+type PreparedDesiredTable = Readonly<{
+  info: ReturnType<TableHandle['getTableMetadata']>
+  identity: CanonicalRelationIdentity
+  live: CatalogTable | undefined
+  desired: LoweredDesiredTable
+  indexes: readonly DesiredIndex[]
+  shape: 'complete' | 'additive'
+}>
+
+/** Resolves and validates one desired relation before plan steps are produced. */
+function prepareDesiredTable({
+  handle,
+  registered,
+  existing,
+  desiredTables,
+  ownership,
+  issues,
+  naming,
+  identities,
+}: DesiredTablePreparation): PreparedDesiredTable | undefined {
+  const info = handle.getTableMetadata()
+  const identity = identities.resolve(info.relation)
+
+  if (registered.has(identity)) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'duplicate_registered_table',
+      message: `Duplicate registered table ${identities.format(identity)}`,
+    })
+  }
+
+  registered.set(identity, handle)
+  const desired = desiredTables.get(identity)
+
+  if (!desired) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'invalid_desired_table',
+      message: `Invalid desired table ${identities.format(identity)}`,
+    })
+    return undefined
+  }
+
+  validateCanonicalRelationNames(identity, naming)
+
+  for (const column of desired.columns) {
+    naming.validate(column.identifier.spelling, 'column name')
+
+    if (column.reference) {
+      validateCanonicalRelationNames(column.reference.relation, naming)
+      naming.validate(column.reference.column.spelling, 'referenced column name')
+    }
+  }
+
+  const indexes = desiredIndexes(info, identity, naming, identities)
+
+  for (let index = 1; index < indexes.length; index++) {
+    const previous = indexes[index - 1]!
+    const current = indexes[index]!
+    if (previous.name.comparisonKey !== current.name.comparisonKey) continue
+    throw new MigrationError({
+      message: `Duplicate desired indexes ${identities.format(identity, {
+        role: 'index',
+        spelling: previous.name.spelling,
+      })} and ${identities.format(identity, {
+        role: 'index',
+        spelling: current.name.spelling,
+      })}`,
+    })
+  }
+
+  for (const index of indexes) {
+    if (index.origin === 'explicit') {
+      naming.validate(index.name.spelling, 'explicit index name')
+    }
+  }
+
+  return {
+    info,
+    identity,
+    live: existing.get(identity),
+    desired,
+    indexes,
+    shape: ownership.relationShape(identity) ?? 'complete',
+  }
+}
+
+/** Adds missing namespace steps for every completely owned namespace. */
+function appendOwnedNamespaces(
+  ownership: ReturnType<typeof resolveMigrationOwnership>,
+  ensuredNamespaces: Array<readonly CanonicalNamespaceSegment[]>,
+  steps: MigrationStep[],
+): void {
+  for (const namespace of ownership.completeNamespaces) {
+    if (ensuredNamespaces.some((existing) => sameNamespace(existing, namespace))) {
+      continue
+    }
+
+    steps.push({ kind: 'ensure_namespace', target: { kind: 'namespace', namespace } })
+    ensuredNamespaces.push(namespace)
   }
 }
 
@@ -1910,12 +2095,7 @@ function buildMigrationPlan(
     })
   }
 
-  for (const namespace of ownership.completeNamespaces) {
-    if (!ensuredSchemas.some((existing) => sameNamespace(existing, namespace))) {
-      steps.push({ kind: 'ensure_namespace', target: { kind: 'namespace', namespace } })
-      ensuredSchemas.push(namespace)
-    }
-  }
+  appendOwnedNamespaces(ownership, ensuredSchemas, steps)
 
   /**
    * Reserves the deterministic physical name for a desired foreign key.
@@ -1981,67 +2161,18 @@ function buildMigrationPlan(
   }
 
   for (const handle of sortedSchemas) {
-    const info = handle.getTableMetadata()
-    const identity = identities.resolve(info.relation)
-
-    if (registered.has(identity)) {
-      issues.push({
-        identity,
-        target: '',
-        property: 'duplicate_registered_table',
-        message: `Duplicate registered table ${identities.format(identity)}`,
-      })
-    }
-
-    registered.set(identity, handle)
-    const live = existing.get(identity)
-    const createAst = desiredTables.get(identity)
-
-    if (!createAst) {
-      issues.push({
-        identity,
-        target: '',
-        property: 'invalid_desired_table',
-        message: `Invalid desired table ${identities.format(identity)}`,
-      })
-      continue
-    }
-
-    validateCanonicalRelationNames(identity, naming)
-
-    for (const column of createAst.columns) {
-      naming.validate(column.identifier.spelling, 'column name')
-
-      if (column.reference) {
-        validateCanonicalRelationNames(column.reference.relation, naming)
-        naming.validate(column.reference.column.spelling, 'referenced column name')
-      }
-    }
-
-    const indexes = desiredIndexes(info, identity, naming, identities)
-
-    for (let index = 1; index < indexes.length; index++) {
-      const previous = indexes[index - 1]!
-      const current = indexes[index]!
-      if (previous.name.comparisonKey !== current.name.comparisonKey) continue
-      throw new MigrationError({
-        message: `Duplicate desired indexes ${identities.format(identity, {
-          role: 'index',
-          spelling: previous.name.spelling,
-        })} and ${identities.format(identity, {
-          role: 'index',
-          spelling: current.name.spelling,
-        })}`,
-      })
-    }
-
-    for (const index of indexes) {
-      if (index.origin === 'explicit') {
-        naming.validate(index.name.spelling, 'explicit index name')
-      }
-    }
-
-    const shape = ownership.relationShape(identity) ?? 'complete'
+    const prepared = prepareDesiredTable({
+      handle,
+      registered,
+      existing,
+      desiredTables,
+      ownership,
+      issues,
+      naming,
+      identities,
+    })
+    if (!prepared) continue
+    const { info, identity, live, desired: createAst, indexes, shape } = prepared
 
     if (!live) {
       appendCreatedTable({

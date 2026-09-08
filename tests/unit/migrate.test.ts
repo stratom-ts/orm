@@ -88,30 +88,7 @@ function createMockConnector(options?: {
   const runSql: string[] = []
   const liveTables = structuredClone(options?.tables ?? [])
 
-  const prepare = (sql: string) => {
-    prepared.push(sql)
-    const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase()
-
-    if (/^begin\b/.test(normalized) || ['commit', 'rollback'].includes(normalized)) {
-      runSql.push(normalized)
-      return createMockStatement()
-    }
-
-    if (/pg_advisory_unlock/.test(normalized)) {
-      runSql.push(normalized)
-      return createMockStatement([{ unlocked: true }])
-    }
-
-    if (/pg_try_advisory_lock/.test(normalized)) {
-      runSql.push(normalized)
-      return createMockStatement([{ locked: true }])
-    }
-
-    if (/pg_advisory_lock/.test(normalized)) {
-      runSql.push(normalized)
-      return createMockStatement()
-    }
-
+  function relationCatalogStatement(normalized: string): Statement | undefined {
     if (normalized.includes('current_database()')) {
       return createMockStatement([
         { database: 'test', schema: 'public', version: '160000' },
@@ -178,6 +155,36 @@ function createMockConnector(options?: {
         ),
       )
     }
+
+    return undefined
+  }
+
+  const prepare = (sql: string) => {
+    prepared.push(sql)
+    const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase()
+
+    if (/^begin\b/.test(normalized) || ['commit', 'rollback'].includes(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement()
+    }
+
+    if (/pg_advisory_unlock/.test(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement([{ unlocked: true }])
+    }
+
+    if (/pg_try_advisory_lock/.test(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement([{ locked: true }])
+    }
+
+    if (/pg_advisory_lock/.test(normalized)) {
+      runSql.push(normalized)
+      return createMockStatement()
+    }
+
+    const relationCatalog = relationCatalogStatement(normalized)
+    if (relationCatalog) return relationCatalog
 
     if (normalized.includes('con.contype as constraint_type')) {
       return createMockStatement(

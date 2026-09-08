@@ -72,6 +72,81 @@ function referenceFields(reference: MigrationColumnReference): PostgresReference
   }
 }
 
+/** Projects a desired create-table step into its PostgreSQL AST. */
+function createTableStepToAst(
+  step: Extract<MigrationStep, { kind: 'create_table' }>,
+  planned: PlannedMigration,
+): PostgresCreateTableAst | undefined {
+  const identity = step.target.relation
+  const ast = planned.desiredTables.get(identity)
+  if (!ast) return undefined
+
+  return {
+    kind: 'create_table',
+    ...relationFields(identity),
+    primaryKeyName: postgresNaming.generate({
+      kind: 'primaryKey',
+      owner: identity,
+      columns: ast.primaryKey.map((column) => column.spelling),
+    }),
+    columns: ast.columns.map((column) => ({
+      name: column.identifier.spelling,
+      dataType: column.dataType,
+      notNull: column.notNull,
+      unique: column.unique,
+      autoIncrement: column.autoIncrement,
+      ...(column.defaultValue === undefined ? {} : { defaultValue: column.defaultValue }),
+      ...(column.databaseDefault === undefined
+        ? {}
+        : { databaseDefault: column.databaseDefault }),
+      ...(column.generated === undefined ? {} : { generated: column.generated }),
+      ...(column.unique
+        ? {
+            uniqueConstraintName: postgresNaming.generate({
+              kind: 'unique',
+              owner: identity,
+              columns: [column.identifier.spelling],
+            }),
+          }
+        : {}),
+    })),
+    primaryKey: ast.primaryKey.map((column) => column.spelling),
+  }
+}
+
+/** Projects an add-column step into its PostgreSQL AST. */
+function addColumnStepToAst(
+  step: Extract<MigrationStep, { kind: 'add_column' }>,
+): PostgresAst {
+  const identity = step.target.relation
+  const column = step.target.column.spelling
+  return {
+    kind: 'add_column',
+    ...relationFields(identity),
+    column: {
+      name: column,
+      dataType: step.dataType,
+      notNull: step.notNull,
+      unique: step.unique ?? false,
+      ...(step.unique
+        ? {
+            uniqueConstraintName: postgresNaming.generate({
+              kind: 'unique',
+              owner: identity,
+              columns: [column],
+            }),
+          }
+        : {}),
+      autoIncrement: step.autoIncrement ?? false,
+      ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
+      ...(step.databaseDefault !== undefined
+        ? { databaseDefault: step.databaseDefault }
+        : {}),
+      ...(step.generated ? { generated: step.generated } : {}),
+    },
+  }
+}
+
 /**
  * Converts one semantic step into its PostgreSQL statement AST.
  *
@@ -93,74 +168,10 @@ export function stepToAst(
       }
       return ast
     }
-    case 'create_table': {
-      const identity = step.target.relation
-      const ast = planned.desiredTables.get(identity)
-      if (!ast) return undefined
-      const projected: PostgresCreateTableAst = {
-        kind: 'create_table',
-        ...relationFields(identity),
-        primaryKeyName: postgresNaming.generate({
-          kind: 'primaryKey',
-          owner: identity,
-          columns: ast.primaryKey.map((column) => column.spelling),
-        }),
-        columns: ast.columns.map((column) => ({
-          name: column.identifier.spelling,
-          dataType: column.dataType,
-          notNull: column.notNull,
-          unique: column.unique,
-          autoIncrement: column.autoIncrement,
-          ...(column.defaultValue === undefined
-            ? {}
-            : { defaultValue: column.defaultValue }),
-          ...(column.databaseDefault === undefined
-            ? {}
-            : { databaseDefault: column.databaseDefault }),
-          ...(column.generated === undefined ? {} : { generated: column.generated }),
-          ...(column.unique
-            ? {
-                uniqueConstraintName: postgresNaming.generate({
-                  kind: 'unique',
-                  owner: identity,
-                  columns: [column.identifier.spelling],
-                }),
-              }
-            : {}),
-        })),
-        primaryKey: ast.primaryKey.map((column) => column.spelling),
-      }
-      return projected
-    }
-    case 'add_column': {
-      const identity = step.target.relation
-      const column = step.target.column.spelling
-      return {
-        kind: 'add_column',
-        ...relationFields(identity),
-        column: {
-          name: column,
-          dataType: step.dataType,
-          notNull: step.notNull,
-          unique: step.unique ?? false,
-          ...(step.unique
-            ? {
-                uniqueConstraintName: postgresNaming.generate({
-                  kind: 'unique',
-                  owner: identity,
-                  columns: [column],
-                }),
-              }
-            : {}),
-          autoIncrement: step.autoIncrement ?? false,
-          ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
-          ...(step.databaseDefault !== undefined
-            ? { databaseDefault: step.databaseDefault }
-            : {}),
-          ...(step.generated ? { generated: step.generated } : {}),
-        },
-      }
-    }
+    case 'create_table':
+      return createTableStepToAst(step, planned)
+    case 'add_column':
+      return addColumnStepToAst(step)
     case 'alter_column_type':
       return {
         kind: 'alter_column_type',

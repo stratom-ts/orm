@@ -1,4 +1,4 @@
-import type { MigrationRuntimeOptions } from '@/ddl/migrationProgram'
+import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { MigrationError } from '@/utils/error'
 
@@ -33,6 +33,18 @@ function primaryCause(cause: unknown): unknown {
   return cause
 }
 
+/** Resolves retryability while treating an unknown database outcome as final. */
+function executionRetryable(
+  structured: MigrationError | undefined,
+  options: Readonly<{
+    outcome: 'unchanged' | 'rolledBack' | 'applied' | 'unknown'
+    retryable: boolean
+  }>,
+): boolean {
+  if (options.outcome === 'unknown') return false
+  return structured?.retryable ?? options.retryable
+}
+
 /**
  * Creates a structured execution failure while preserving the primary cause.
  *
@@ -65,8 +77,7 @@ function executionError(options: {
     ...(structured?.cleanupFailures ?? []),
     ...(options.cleanupFailures ?? []),
   ]
-  let retryable = structured?.retryable ?? options.retryable
-  if (options.outcome === 'unknown') retryable = false
+  const retryable = executionRetryable(structured, options)
 
   return new MigrationError({
     message: cause instanceof Error ? cause.message : 'Migration failed',
@@ -192,6 +203,69 @@ export async function executePostgresMigration(
     | undefined
   const cleanupFailures: MigrationCleanupFailure[] = []
 
+  /** Verifies every program precondition in the authoritative transaction. */
+  async function executePreconditions(program: MigrationProgram): Promise<void> {
+    if (primary) return
+
+    for (const precondition of program.preconditions) {
+      try {
+        await runCancellable({
+          runtime: options,
+          state: cancellation,
+          stage: 'precondition',
+          operation: () => assertPrecondition(options, precondition),
+        })
+      } catch (cause) {
+        primary = {
+          cause,
+          stage: cancellationStage(cause, 'precondition'),
+          sourceStepIndexes: precondition.sourceStepIndexes,
+        }
+
+        if (cause instanceof MigrationCancellationError) {
+          cleanupFailures.push(...cause.cleanupFailures)
+        }
+
+        break
+      }
+    }
+  }
+
+  /** Executes every physical program action in source order. */
+  async function executeActions(program: MigrationProgram): Promise<void> {
+    if (primary) return
+
+    for (let actionIndex = 0; actionIndex < program.actions.length; actionIndex++) {
+      const action = program.actions[actionIndex]!
+
+      try {
+        ddlStarted = true
+
+        for (const statement of action.statements) {
+          await runCancellable({
+            runtime: options,
+            state: cancellation,
+            stage: 'ddl',
+            operation: () => options.executor.run(statement),
+          })
+        }
+      } catch (cause) {
+        primary = {
+          cause,
+          stage: 'ddl',
+          actionIndex,
+          sourceStepIndexes: action.sourceStepIndexes,
+        }
+
+        if (cause instanceof MigrationCancellationError) {
+          cleanupFailures.push(...cause.cleanupFailures)
+        }
+
+        break
+      }
+    }
+  }
+
   /** Executes the authoritative migration transaction after coordination succeeds. */
   async function executeTransaction(): Promise<void> {
     try {
@@ -262,62 +336,8 @@ export async function executePostgresMigration(
       }
     }
 
-    if (!primary && program) {
-      for (const precondition of program.preconditions) {
-        try {
-          await runCancellable({
-            runtime: options,
-            state: cancellation,
-            stage: 'precondition',
-            operation: () => assertPrecondition(options, precondition),
-          })
-        } catch (cause) {
-          primary = {
-            cause,
-            stage: cancellationStage(cause, 'precondition'),
-            sourceStepIndexes: precondition.sourceStepIndexes,
-          }
-
-          if (cause instanceof MigrationCancellationError) {
-            cleanupFailures.push(...cause.cleanupFailures)
-          }
-
-          break
-        }
-      }
-    }
-
-    if (!primary && program) {
-      for (let actionIndex = 0; actionIndex < program.actions.length; actionIndex++) {
-        const action = program.actions[actionIndex]!
-
-        try {
-          ddlStarted = true
-
-          for (const statement of action.statements) {
-            await runCancellable({
-              runtime: options,
-              state: cancellation,
-              stage: 'ddl',
-              operation: () => options.executor.run(statement),
-            })
-          }
-        } catch (cause) {
-          primary = {
-            cause,
-            stage: 'ddl',
-            actionIndex,
-            sourceStepIndexes: action.sourceStepIndexes,
-          }
-
-          if (cause instanceof MigrationCancellationError) {
-            cleanupFailures.push(...cause.cleanupFailures)
-          }
-
-          break
-        }
-      }
-    }
+    if (program) await executePreconditions(program)
+    if (program) await executeActions(program)
 
     if (!primary) {
       try {

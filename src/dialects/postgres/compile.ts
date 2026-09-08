@@ -66,6 +66,71 @@ export function createPostgresQueryRelationResolver(
   return (relation) => resolvePostgresQueryRelation(relation, registrationDefault)
 }
 
+/** Validates the value shape shared by every authored query namespace segment. */
+function assertPostgresQueryNamespaceSegments(
+  namespace: readonly unknown[],
+): asserts namespace is readonly NamespaceIdentifierInput[] {
+  for (const segment of namespace) {
+    if (typeof segment !== 'object' || segment === null) {
+      throw new QueryError({
+        message: 'PostgreSQL query namespace segment must be an object',
+      })
+    }
+
+    if (
+      !('spelling' in segment) ||
+      typeof segment.spelling !== 'string' ||
+      segment.spelling.length === 0
+    ) {
+      throw new QueryError({
+        message: 'PostgreSQL query namespace names must be non-empty strings',
+      })
+    }
+  }
+}
+
+/** Validates and resolves the namespace accepted by PostgreSQL query addressing. */
+function resolvePostgresQueryNamespace(
+  value: unknown,
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+): readonly NamespaceIdentifierInput[] {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new QueryError({
+      message: 'PostgreSQL query relation namespace must be an array',
+    })
+  }
+
+  const authoredNamespace = (value ?? []) as unknown[]
+  const namespace =
+    authoredNamespace.length === 0 && registrationDefault !== undefined
+      ? registrationDefault
+      : authoredNamespace
+
+  if (namespace.length > 2) {
+    throw new QueryError({
+      message:
+        'PostgreSQL query relation namespace must be omitted, schema-only, or database plus schema',
+    })
+  }
+
+  assertPostgresQueryNamespaceSegments(namespace)
+
+  const schemaOnly = namespace.length === 1 && namespace[0]?.role === 'schema'
+  const databaseAndSchema =
+    namespace.length === 2 &&
+    namespace[0]?.role === 'database' &&
+    namespace[1]?.role === 'schema'
+
+  if (namespace.length > 0 && !schemaOnly && !databaseAndSchema) {
+    throw new QueryError({
+      message:
+        'PostgreSQL query relation namespace must be omitted, schema-only, or database plus schema',
+    })
+  }
+
+  return namespace
+}
+
 /** Resolves authored relation intent according to PostgreSQL query semantics. */
 export function resolvePostgresQueryRelation(
   relation: RelationIdentityInput,
@@ -88,63 +153,20 @@ export function resolvePostgresQueryRelation(
     })
   }
 
-  if (candidate.namespace !== undefined && !Array.isArray(candidate.namespace)) {
-    throw new QueryError({
-      message: 'PostgreSQL query relation namespace must be an array',
-    })
-  }
+  const namespace = resolvePostgresQueryNamespace(
+    candidate.namespace,
+    registrationDefault,
+  )
 
-  const authoredNamespace = candidate.namespace ?? []
-  const namespace =
-    authoredNamespace.length === 0 && registrationDefault !== undefined
-      ? registrationDefault
-      : authoredNamespace
+  if (namespace.length === 0) return { table: candidate.relation }
 
-  if (namespace.length > 2) {
-    throw new QueryError({
-      message:
-        'PostgreSQL query relation namespace must be omitted, schema-only, or database plus schema',
-    })
-  }
-
-  for (const segment of namespace as unknown[]) {
-    if (typeof segment !== 'object' || segment === null) {
-      throw new QueryError({
-        message: 'PostgreSQL query namespace segment must be an object',
-      })
-    }
-
-    if (
-      !('spelling' in segment) ||
-      typeof segment.spelling !== 'string' ||
-      segment.spelling.length === 0
-    ) {
-      throw new QueryError({
-        message: 'PostgreSQL query namespace names must be non-empty strings',
-      })
-    }
-  }
-
-  const schemaOnly = namespace.length === 1 && namespace[0]?.role === 'schema'
-  const databaseAndSchema =
-    namespace.length === 2 &&
-    namespace[0]?.role === 'database' &&
-    namespace[1]?.role === 'schema'
-
-  if (namespace.length > 0 && !schemaOnly && !databaseAndSchema) {
-    throw new QueryError({
-      message:
-        'PostgreSQL query relation namespace must be omitted, schema-only, or database plus schema',
-    })
+  if (namespace.length === 1) {
+    return { schema: namespace[0]!.spelling, table: candidate.relation }
   }
 
   return {
-    ...(databaseAndSchema ? { database: namespace[0]!.spelling } : {}),
-    ...(schemaOnly
-      ? { schema: namespace[0]!.spelling }
-      : databaseAndSchema
-        ? { schema: namespace[1]!.spelling }
-        : {}),
+    database: namespace[0]!.spelling,
+    schema: namespace[1]!.spelling,
     table: candidate.relation,
   }
 }
