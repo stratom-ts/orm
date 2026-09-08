@@ -1113,6 +1113,231 @@ function namespaceNameKey(
   ])
 }
 
+type DesiredIndex = ReturnType<typeof desiredIndexes>[number]
+
+type IndexReconciliation = Readonly<{
+  live: CatalogTable
+  desired: readonly DesiredIndex[]
+  identity: CanonicalRelationIdentity
+  shape: 'complete' | 'additive'
+  relationStepStart: number
+  steps: MigrationStep[]
+  issues: PlanningIssue[]
+  identities: CanonicalRelationIdentityModule
+  physicalNames: ReturnType<DialectNaming['createRegistry']>
+}>
+
+/**
+ * Reconciles desired and observed indexes for one existing relation.
+ *
+ * Index matching is its own planning phase because generated names match by semantics,
+ * while explicit names match by identity. Keeping the complete phase together also
+ * localizes the opaque-object guard for destructive index changes.
+ */
+function reconcileIndexes({
+  live,
+  desired,
+  identity,
+  shape,
+  relationStepStart,
+  steps,
+  issues,
+  identities,
+  physicalNames,
+}: IndexReconciliation): void {
+  const claimedLiveIndexNames = new Set<string>()
+  const unsupportedLiveIndexNames = new Set<string>()
+  const liveIndexes = new Map<string, CatalogIndex>()
+
+  const orderedLiveIndexes = (live.indexes ?? [])
+    .map((liveIndex) => ({
+      liveIndex,
+      identifier: memberIdentifier(identity, 'index', liveIndex.name, identities),
+    }))
+    .sort(
+      (left, right) =>
+        compareCodeUnits(left.identifier.comparisonKey, right.identifier.comparisonKey) ||
+        compareCodeUnits(left.identifier.spelling, right.identifier.spelling),
+    )
+
+  for (const { liveIndex, identifier } of orderedLiveIndexes) {
+    const key = identifier.comparisonKey
+
+    if (liveIndexes.has(key)) {
+      issues.push({
+        identity,
+        target: key,
+        property: 'duplicate_catalog_index',
+        message: `Duplicate catalog index ${identities.format(identity, {
+          role: 'index',
+          spelling: liveIndex.name,
+        })}`,
+      })
+      continue
+    }
+
+    liveIndexes.set(key, liveIndex)
+
+    if (shape === 'complete' && !hasSupportedCatalogSemantics(liveIndex)) {
+      unsupportedLiveIndexNames.add(key)
+      issues.push({
+        identity,
+        target: key,
+        property: 'unsupported_catalog_semantics',
+        message: `Unsupported index catalog semantics for ${identities.format(identity, {
+          role: 'index',
+          spelling: liveIndex.name,
+        })}`,
+      })
+    }
+  }
+
+  for (const index of desired) {
+    let current: CatalogIndex | undefined
+
+    if (index.origin === 'generated') {
+      const semanticMatches = [...liveIndexes.values()].filter(
+        (candidate) =>
+          candidate.unique === index.unique &&
+          arraysEqual(
+            memberKeys('column', candidate.columns, identities),
+            index.columns.map((column) => column.comparisonKey),
+          ),
+      )
+
+      if (semanticMatches.length > 1) {
+        issues.push({
+          identity,
+          target: index.name.comparisonKey,
+          property: 'ambiguous_semantic_match',
+          message: `Ambiguous index semantic match for ${identities.format(identity, {
+            role: 'index',
+            spelling: index.name.spelling,
+          })}`,
+        })
+        continue
+      }
+
+      current = semanticMatches[0]
+      if (!current) current = liveIndexes.get(index.name.comparisonKey)
+    } else {
+      current = liveIndexes.get(index.name.comparisonKey)
+    }
+
+    if (!current) {
+      physicalNames.reserve({
+        kind: 'index',
+        owner: identity,
+        name: index.name.spelling,
+        token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
+        description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
+      })
+      steps.push({
+        kind: 'create_index',
+        target: { kind: 'index', relation: identity, index: index.name },
+        columns: index.columns,
+        unique: index.unique,
+      })
+      continue
+    }
+
+    const currentKey = identities.member('index', current.name).comparisonKey
+    claimedLiveIndexNames.add(currentKey)
+
+    if (
+      !hasSupportedCatalogSemantics(current) &&
+      !unsupportedLiveIndexNames.has(currentKey)
+    ) {
+      unsupportedLiveIndexNames.add(currentKey)
+      issues.push({
+        identity,
+        target: currentKey,
+        property: 'unsupported_catalog_semantics',
+        message: `Unsupported index catalog semantics for ${identities.format(identity, {
+          role: 'index',
+          spelling: current.name,
+        })}`,
+      })
+    }
+
+    if (
+      hasSupportedCatalogSemantics(current) &&
+      (current.unique !== index.unique ||
+        !arraysEqual(
+          memberKeys('column', current.columns, identities),
+          index.columns.map((column) => column.comparisonKey),
+        ))
+    ) {
+      issues.push({
+        identity,
+        target: index.name.comparisonKey,
+        property: 'index_definition',
+        message: `Unsupported index definition change for ${identities.format(identity, {
+          role: 'index',
+          spelling: index.name.spelling,
+        })}`,
+      })
+    }
+  }
+
+  if (shape === 'complete') {
+    for (const liveIndex of live.indexes ?? []) {
+      if (
+        claimedLiveIndexNames.has(
+          identities.member('index', liveIndex.name).comparisonKey,
+        )
+      )
+        continue
+      steps.push({
+        kind: 'drop_index',
+        target: indexTarget(identity, liveIndex.name, identities),
+      })
+    }
+  }
+
+  if (
+    live.opaqueObjects.length > 0 &&
+    steps
+      .slice(relationStepStart)
+      .some(
+        (step) =>
+          step.kind === 'alter_column_type' ||
+          step.kind === 'drop_column' ||
+          step.kind === 'drop_index',
+      )
+  ) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'opaque_catalog_object',
+      message: `Cannot destructively change '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
+    })
+  }
+}
+
+/** Validates authored relation, column, and reference names before lowering. */
+function validateDesiredNames(
+  schemas: readonly TableHandle[],
+  identities: CanonicalRelationIdentityModule,
+  naming: DialectNaming,
+): void {
+  for (const handle of schemas) {
+    const metadata = handle.getTableMetadata()
+    validateCanonicalRelationNames(identities.resolve(metadata.relation), naming)
+
+    for (const value of Object.values(handle.getSchema().entries)) {
+      if (!value || value.kind !== 'schema') continue
+      const reference = getReferenceMetadata(value)
+      if (!reference) continue
+      validateCanonicalRelationNames(
+        identities.resolve(reference.target.relation),
+        naming,
+      )
+      naming.validate(reference.target.column, 'referenced column name')
+    }
+  }
+}
+
 /**
  * Reconciles desired tables with an introspected catalog into one canonical plan.
  *
@@ -1141,21 +1366,7 @@ function buildMigrationPlan(
   )
   const naming = planning.naming
 
-  for (const handle of sortedSchemas) {
-    const metadata = handle.getTableMetadata()
-    validateCanonicalRelationNames(identities.resolve(metadata.relation), naming)
-
-    for (const value of Object.values(handle.getSchema().entries)) {
-      if (!value || value.kind !== 'schema') continue
-      const reference = getReferenceMetadata(value)
-      if (!reference) continue
-      validateCanonicalRelationNames(
-        identities.resolve(reference.target.relation),
-        naming,
-      )
-      naming.validate(reference.target.column, 'referenced column name')
-    }
-  }
+  validateDesiredNames(sortedSchemas, identities, naming)
 
   const lowered = lowerDesiredSchema(sortedSchemas, identities, planning.schema)
   const desiredTables = identities.createRegistry<LoweredDesiredTable>()
@@ -1647,185 +1858,17 @@ function buildMigrationPlan(
       }
     }
 
-    const claimedLiveIndexNames = new Set<string>()
-    const unsupportedLiveIndexNames = new Set<string>()
-    const liveIndexes = new Map<string, CatalogIndex>()
-
-    const orderedLiveIndexes = (live.indexes ?? [])
-      .map((liveIndex) => ({
-        liveIndex,
-        identifier: memberIdentifier(identity, 'index', liveIndex.name, identities),
-      }))
-      .sort(
-        (left, right) =>
-          compareCodeUnits(
-            left.identifier.comparisonKey,
-            right.identifier.comparisonKey,
-          ) || compareCodeUnits(left.identifier.spelling, right.identifier.spelling),
-      )
-
-    for (const { liveIndex, identifier } of orderedLiveIndexes) {
-      const key = identifier.comparisonKey
-
-      if (liveIndexes.has(key)) {
-        issues.push({
-          identity,
-          target: key,
-          property: 'duplicate_catalog_index',
-          message: `Duplicate catalog index ${identities.format(identity, {
-            role: 'index',
-            spelling: liveIndex.name,
-          })}`,
-        })
-        continue
-      }
-
-      liveIndexes.set(key, liveIndex)
-
-      if (shape === 'complete' && !hasSupportedCatalogSemantics(liveIndex)) {
-        unsupportedLiveIndexNames.add(key)
-        issues.push({
-          identity,
-          target: key,
-          property: 'unsupported_catalog_semantics',
-          message: `Unsupported index catalog semantics for ${identities.format(
-            identity,
-            {
-              role: 'index',
-              spelling: liveIndex.name,
-            },
-          )}`,
-        })
-      }
-    }
-
-    for (const index of indexes) {
-      let current: CatalogIndex | undefined
-
-      if (index.origin === 'generated') {
-        const semanticMatches = [...liveIndexes.values()].filter(
-          (candidate) =>
-            candidate.unique === index.unique &&
-            arraysEqual(
-              memberKeys('column', candidate.columns, identities),
-              index.columns.map((column) => column.comparisonKey),
-            ),
-        )
-
-        if (semanticMatches.length > 1) {
-          issues.push({
-            identity,
-            target: index.name.comparisonKey,
-            property: 'ambiguous_semantic_match',
-            message: `Ambiguous index semantic match for ${identities.format(identity, {
-              role: 'index',
-              spelling: index.name.spelling,
-            })}`,
-          })
-          continue
-        }
-
-        current = semanticMatches[0]
-        if (!current) current = liveIndexes.get(index.name.comparisonKey)
-      } else {
-        current = liveIndexes.get(index.name.comparisonKey)
-      }
-
-      if (!current) {
-        physicalNames.reserve({
-          kind: 'index',
-          owner: identity,
-          name: index.name.spelling,
-          token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
-          description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
-        })
-        steps.push({
-          kind: 'create_index',
-          target: { kind: 'index', relation: identity, index: index.name },
-          columns: index.columns,
-          unique: index.unique,
-        })
-        continue
-      }
-
-      const currentKey = identities.member('index', current.name).comparisonKey
-      claimedLiveIndexNames.add(currentKey)
-
-      if (
-        !hasSupportedCatalogSemantics(current) &&
-        !unsupportedLiveIndexNames.has(currentKey)
-      ) {
-        unsupportedLiveIndexNames.add(currentKey)
-        issues.push({
-          identity,
-          target: currentKey,
-          property: 'unsupported_catalog_semantics',
-          message: `Unsupported index catalog semantics for ${identities.format(
-            identity,
-            {
-              role: 'index',
-              spelling: current.name,
-            },
-          )}`,
-        })
-      }
-
-      if (
-        hasSupportedCatalogSemantics(current) &&
-        (current.unique !== index.unique ||
-          !arraysEqual(
-            memberKeys('column', current.columns, identities),
-            index.columns.map((column) => column.comparisonKey),
-          ))
-      ) {
-        issues.push({
-          identity,
-          target: index.name.comparisonKey,
-          property: 'index_definition',
-          message: `Unsupported index definition change for ${identities.format(
-            identity,
-            {
-              role: 'index',
-              spelling: index.name.spelling,
-            },
-          )}`,
-        })
-      }
-    }
-
-    if (shape === 'complete') {
-      for (const liveIndex of live.indexes ?? []) {
-        if (
-          claimedLiveIndexNames.has(
-            identities.member('index', liveIndex.name).comparisonKey,
-          )
-        )
-          continue
-        steps.push({
-          kind: 'drop_index',
-          target: indexTarget(identity, liveIndex.name, identities),
-        })
-      }
-    }
-
-    if (
-      live.opaqueObjects.length > 0 &&
-      steps
-        .slice(relationStepStart)
-        .some(
-          (step) =>
-            step.kind === 'alter_column_type' ||
-            step.kind === 'drop_column' ||
-            step.kind === 'drop_index',
-        )
-    ) {
-      issues.push({
-        identity,
-        target: '',
-        property: 'opaque_catalog_object',
-        message: `Cannot destructively change '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
-      })
-    }
+    reconcileIndexes({
+      live,
+      desired: indexes,
+      identity,
+      shape,
+      relationStepStart,
+      steps,
+      issues,
+      identities,
+      physicalNames,
+    })
   }
 
   steps.push(...deferredForeignKeys)
