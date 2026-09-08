@@ -14,7 +14,7 @@
   "ignorePatterns": ["**/.output", "**/dist", "**/node_modules"],
   "rules": {
     "stratom-style/pad-multiline-blocks": "error",
-    "complexity": ["error", 50],
+    "complexity": ["error", 40],
     "constructor-super": "error",
     "for-direction": "error",
     "getter-return": "error",

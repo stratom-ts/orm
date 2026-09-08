@@ -1545,6 +1545,46 @@ function reconcileExistingColumns({
   }
 }
 
+type DroppedTablePlanning = Readonly<{
+  catalogTables: readonly CatalogTable[]
+  registered: CanonicalRelationRegistry<TableHandle>
+  ownership: ReturnType<typeof resolveMigrationOwnership>
+  steps: MigrationStep[]
+  issues: PlanningIssue[]
+  identities: CanonicalRelationIdentityModule
+}>
+
+/** Adds drops for owned catalog relations absent from the desired schema. */
+function appendDroppedTables({
+  catalogTables,
+  registered,
+  ownership,
+  steps,
+  issues,
+  identities,
+}: DroppedTablePlanning): void {
+  for (const live of catalogTables) {
+    const identity = live.identity
+    if (registered.has(identity)) continue
+
+    if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace)) {
+      continue
+    }
+
+    if (live.opaqueObjects.length > 0) {
+      issues.push({
+        identity,
+        target: '',
+        property: 'opaque_catalog_object',
+        message: `Cannot drop '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
+      })
+      continue
+    }
+
+    steps.push({ kind: 'drop_table', target: relationTarget(identity) })
+  }
+}
+
 /**
  * Reconciles desired tables with an introspected catalog into one canonical plan.
  *
@@ -1957,26 +1997,14 @@ function buildMigrationPlan(
 
   steps.push(...deferredForeignKeys)
 
-  for (const live of sortedCatalogTables) {
-    const identity = live.identity
-    if (registered.has(identity)) continue
-
-    if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace)) {
-      continue
-    }
-
-    if (live.opaqueObjects.length > 0) {
-      issues.push({
-        identity,
-        target: '',
-        property: 'opaque_catalog_object',
-        message: `Cannot drop '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
-      })
-      continue
-    }
-
-    steps.push({ kind: 'drop_table', target: relationTarget(identity) })
-  }
+  appendDroppedTables({
+    catalogTables: sortedCatalogTables,
+    registered,
+    ownership,
+    steps,
+    issues,
+    identities,
+  })
 
   const issue = issues.sort((left, right) =>
     comparePlanningIssues(left, right, identities),
