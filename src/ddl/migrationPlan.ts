@@ -1338,6 +1338,20 @@ function validateDesiredNames(
   }
 }
 
+/** Validates relation and namespace names introduced by ownership declarations. */
+function validateOwnershipNames(
+  ownership: ReturnType<typeof resolveMigrationOwnership>,
+  naming: DialectNaming,
+): void {
+  for (const identity of [...ownership.explicitRelations, ...ownership.absentRelations]) {
+    validateCanonicalRelationNames(identity, naming)
+  }
+
+  for (const namespace of ownership.completeNamespaces) {
+    validateCanonicalNamespaceNames(namespace, naming)
+  }
+}
+
 type ExistingColumnReconciliation = Readonly<{
   live: CatalogTable
   desired: LoweredDesiredTable
@@ -1354,6 +1368,84 @@ type ExistingColumnReconciliation = Readonly<{
   ) => void
   reserveUniqueConstraint: (owner: CanonicalRelationIdentity, column: string) => void
 }>
+
+type ColumnConstraintReconciliation = Pick<
+  ExistingColumnReconciliation,
+  | 'live'
+  | 'desired'
+  | 'identity'
+  | 'steps'
+  | 'deferredForeignKeys'
+  | 'identities'
+  | 'reserveForeignKey'
+  | 'reserveUniqueConstraint'
+> &
+  Readonly<{ liveColumns: ReadonlyMap<string, CatalogColumn> }>
+
+/** Adds desired unique and foreign-key constraints missing from an existing relation. */
+function appendMissingColumnConstraints({
+  live,
+  desired,
+  identity,
+  steps,
+  deferredForeignKeys,
+  identities,
+  reserveForeignKey,
+  reserveUniqueConstraint,
+  liveColumns,
+}: ColumnConstraintReconciliation): void {
+  if (live.uniqueConstraints !== undefined) {
+    for (const desiredColumn of desired.columns) {
+      if (
+        !desiredColumn.unique ||
+        !liveColumns.has(desiredColumn.identifier.comparisonKey)
+      )
+        continue
+      const matches = matchUniqueConstraints(
+        live.uniqueConstraints,
+        desiredColumn.identifier,
+        identities,
+      )
+      if (matches.length !== 0) continue
+      reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+      steps.push({
+        kind: 'add_unique_constraint',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+      })
+    }
+  }
+
+  if (live.foreignKeys !== undefined) {
+    for (const desiredColumn of desired.columns) {
+      if (
+        !desiredColumn.reference ||
+        !liveColumns.has(desiredColumn.identifier.comparisonKey)
+      )
+        continue
+      const expected = canonicalDesiredForeignKey(desiredColumn)
+      const matches = matchForeignKeys(live.foreignKeys, expected, identities)
+      if (matches.length !== 0) continue
+      reserveForeignKey(
+        identity,
+        desiredColumn.identifier.spelling,
+        desiredColumn.reference,
+      )
+      deferredForeignKeys.push({
+        kind: 'add_foreign_key',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: desiredColumn.identifier,
+        },
+        references: structuredReference(desiredColumn.reference),
+      })
+    }
+  }
+}
 
 /** Reconciles columns and their column-owned constraints for one existing relation. */
 function reconcileExistingColumns({
@@ -1492,57 +1584,17 @@ function reconcileExistingColumns({
     }
   }
 
-  if (live.uniqueConstraints !== undefined) {
-    for (const desiredColumn of desired.columns) {
-      if (
-        !desiredColumn.unique ||
-        !liveColumns.has(desiredColumn.identifier.comparisonKey)
-      )
-        continue
-      const matches = matchUniqueConstraints(
-        live.uniqueConstraints,
-        desiredColumn.identifier,
-        identities,
-      )
-      if (matches.length !== 0) continue
-      reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
-      steps.push({
-        kind: 'add_unique_constraint',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-      })
-    }
-  }
-
-  if (live.foreignKeys !== undefined) {
-    for (const desiredColumn of desired.columns) {
-      if (
-        !desiredColumn.reference ||
-        !liveColumns.has(desiredColumn.identifier.comparisonKey)
-      )
-        continue
-      const expected = canonicalDesiredForeignKey(desiredColumn)
-      const matches = matchForeignKeys(live.foreignKeys, expected, identities)
-      if (matches.length !== 0) continue
-      reserveForeignKey(
-        identity,
-        desiredColumn.identifier.spelling,
-        desiredColumn.reference,
-      )
-      deferredForeignKeys.push({
-        kind: 'add_foreign_key',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-        references: structuredReference(desiredColumn.reference),
-      })
-    }
-  }
+  appendMissingColumnConstraints({
+    live,
+    desired,
+    identity,
+    steps,
+    deferredForeignKeys,
+    identities,
+    reserveForeignKey,
+    reserveUniqueConstraint,
+    liveColumns,
+  })
 }
 
 type DroppedTablePlanning = Readonly<{
@@ -1582,6 +1634,112 @@ function appendDroppedTables({
     }
 
     steps.push({ kind: 'drop_table', target: relationTarget(identity) })
+  }
+}
+
+type CreatedTablePlanning = Readonly<{
+  name: string
+  desired: LoweredDesiredTable
+  indexes: readonly DesiredIndex[]
+  identity: CanonicalRelationIdentity
+  ensuredNamespaces: Array<readonly CanonicalNamespaceSegment[]>
+  steps: MigrationStep[]
+  deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[]
+  physicalNames: ReturnType<DialectNaming['createRegistry']>
+  naming: DialectNaming
+  identities: CanonicalRelationIdentityModule
+  reserveForeignKey: (
+    owner: CanonicalRelationIdentity,
+    column: string,
+    reference: NonNullable<LoweredDesiredColumn['reference']>,
+  ) => void
+  reserveUniqueConstraint: (owner: CanonicalRelationIdentity, column: string) => void
+}>
+
+/** Adds all steps and physical-name reservations for one absent desired relation. */
+function appendCreatedTable({
+  name,
+  desired,
+  indexes,
+  identity,
+  ensuredNamespaces,
+  steps,
+  deferredForeignKeys,
+  physicalNames,
+  naming,
+  identities,
+  reserveForeignKey,
+  reserveUniqueConstraint,
+}: CreatedTablePlanning): void {
+  if (
+    !ensuredNamespaces.some((existing) => sameNamespace(existing, identity.namespace))
+  ) {
+    steps.push({
+      kind: 'ensure_namespace',
+      target: { kind: 'namespace', namespace: identity.namespace },
+    })
+    ensuredNamespaces.push(identity.namespace)
+  }
+
+  steps.push({ kind: 'create_table', target: relationTarget(identity) })
+  physicalNames.reserve({
+    kind: 'relation',
+    owner: identity,
+    name,
+    token: `relation:${identities.format(identity)}`,
+    description: `desired relation ${identities.format(identity)}`,
+  })
+
+  const primaryKeyName = naming.generate({
+    kind: 'primaryKey',
+    owner: identity,
+    columns: desired.primaryKey.map((column) => column.spelling),
+  })
+  const primaryKeyToken = `generated-primary-key:${identities.format(identity)}:${JSON.stringify(desired.primaryKey.map((column) => column.comparisonKey))}`
+  const primaryKeyDescription = `generated primary key on ${identities.format(identity)}`
+  physicalNames.reserve({
+    kind: 'primaryKey',
+    owner: identity,
+    name: primaryKeyName,
+    token: primaryKeyToken,
+    description: primaryKeyDescription,
+  })
+  physicalNames.reserve({
+    kind: 'check',
+    owner: identity,
+    name: primaryKeyName,
+    token: primaryKeyToken,
+    description: primaryKeyDescription,
+  })
+
+  for (const column of desired.columns.filter((column) => column.unique)) {
+    reserveUniqueConstraint(identity, column.identifier.spelling)
+  }
+
+  for (const index of indexes) {
+    physicalNames.reserve({
+      kind: 'index',
+      owner: identity,
+      name: index.name.spelling,
+      token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
+      description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
+    })
+    steps.push({
+      kind: 'create_index',
+      target: { kind: 'index', relation: identity, index: index.name },
+      columns: index.columns,
+      unique: index.unique,
+    })
+  }
+
+  for (const column of desired.columns) {
+    if (!column.reference) continue
+    reserveForeignKey(identity, column.identifier.spelling, column.reference)
+    deferredForeignKeys.push({
+      kind: 'add_foreign_key',
+      target: { kind: 'column', relation: identity, column: column.identifier },
+      references: structuredReference(column.reference),
+    })
   }
 }
 
@@ -1635,13 +1793,7 @@ function buildMigrationPlan(
   const physicalNames = naming.createRegistry()
   const representedCatalogNames = new Set<string>()
 
-  for (const identity of [...ownership.explicitRelations, ...ownership.absentRelations]) {
-    validateCanonicalRelationNames(identity, naming)
-  }
-
-  for (const namespace of ownership.completeNamespaces) {
-    validateCanonicalNamespaceNames(namespace, naming)
-  }
+  validateOwnershipNames(ownership, naming)
 
   for (const table of sortedCatalogTables) {
     const identity = table.identity
@@ -1892,76 +2044,20 @@ function buildMigrationPlan(
     const shape = ownership.relationShape(identity) ?? 'complete'
 
     if (!live) {
-      if (
-        !ensuredSchemas.some((existing) => sameNamespace(existing, identity.namespace))
-      ) {
-        steps.push({
-          kind: 'ensure_namespace',
-          target: { kind: 'namespace', namespace: identity.namespace },
-        })
-        ensuredSchemas.push(identity.namespace)
-      }
-
-      steps.push({ kind: 'create_table', target: relationTarget(identity) })
-
-      physicalNames.reserve({
-        kind: 'relation',
-        owner: identity,
+      appendCreatedTable({
         name: info.name,
-        token: `relation:${identities.format(identity)}`,
-        description: `desired relation ${identities.format(identity)}`,
+        desired: createAst,
+        indexes,
+        identity,
+        ensuredNamespaces: ensuredSchemas,
+        steps,
+        deferredForeignKeys,
+        physicalNames,
+        naming,
+        identities,
+        reserveForeignKey,
+        reserveUniqueConstraint,
       })
-
-      const primaryKeyName = naming.generate({
-        kind: 'primaryKey',
-        owner: identity,
-        columns: createAst.primaryKey.map((column) => column.spelling),
-      })
-      physicalNames.reserve({
-        kind: 'primaryKey',
-        owner: identity,
-        name: primaryKeyName,
-        token: `generated-primary-key:${identities.format(identity)}:${JSON.stringify(createAst.primaryKey.map((column) => column.comparisonKey))}`,
-        description: `generated primary key on ${identities.format(identity)}`,
-      })
-      physicalNames.reserve({
-        kind: 'check',
-        owner: identity,
-        name: primaryKeyName,
-        token: `generated-primary-key:${identities.format(identity)}:${JSON.stringify(createAst.primaryKey.map((column) => column.comparisonKey))}`,
-        description: `generated primary key on ${identities.format(identity)}`,
-      })
-
-      for (const column of createAst.columns.filter((column) => column.unique)) {
-        reserveUniqueConstraint(identity, column.identifier.spelling)
-      }
-
-      for (const index of indexes) {
-        physicalNames.reserve({
-          kind: 'index',
-          owner: identity,
-          name: index.name.spelling,
-          token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
-          description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
-        })
-        steps.push({
-          kind: 'create_index',
-          target: { kind: 'index', relation: identity, index: index.name },
-          columns: index.columns,
-          unique: index.unique,
-        })
-      }
-
-      for (const column of createAst.columns) {
-        if (!column.reference) continue
-        reserveForeignKey(identity, column.identifier.spelling, column.reference)
-        deferredForeignKeys.push({
-          kind: 'add_foreign_key',
-          target: { kind: 'column', relation: identity, column: column.identifier },
-          references: structuredReference(column.reference),
-        })
-      }
-
       continue
     }
 
