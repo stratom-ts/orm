@@ -801,6 +801,132 @@ function appendOpaqueObjects(rows: unknown[], requireTable: RequireTable): void 
   }
 }
 
+/** Converts validated PostgreSQL generation metadata to portable catalog evidence. */
+function columnGeneration(
+  isIdentity: boolean,
+  identityGeneration: string | null,
+  generated: string,
+  generationExpression: string | null,
+): CatalogColumn['generation'] {
+  if (generated === 'ALWAYS') {
+    return present({
+      kind: 'computed',
+      storage: 'stored',
+      expression: generationExpression!,
+    })
+  }
+
+  if (isIdentity) {
+    return present({
+      kind: 'identity',
+      mode: identityGeneration === 'ALWAYS' ? 'always' : 'byDefault',
+    })
+  }
+
+  return absent
+}
+
+/** Attaches ordered column observations to requested tables. */
+function appendColumns(
+  rows: unknown[],
+  requireTable: RequireTable,
+  identities: CanonicalRelationIdentityModule,
+): void {
+  for (let index = 0; index < rows.length; index++) {
+    const row = rowAt(rows[index], 'column', index)
+    const target = requireTable(row, 'column', index)
+    if (!target) continue
+    const nativeType = formatPostgresCatalogDataType(row, 'column', index)
+    const columnDefault = nullableStringAt(row, 'column_default', 'column', index)
+    const isIdentity = booleanAt(row, 'is_identity', 'column', index)
+    const identityGeneration = nullableStringAt(
+      row,
+      'identity_generation',
+      'column',
+      index,
+    )
+    const generated = stringAt(row, 'is_generated', 'column', index)
+    const generationExpression = nullableStringAt(
+      row,
+      'generation_expression',
+      'column',
+      index,
+    )
+
+    if (
+      isIdentity &&
+      identityGeneration !== 'ALWAYS' &&
+      identityGeneration !== 'BY DEFAULT'
+    ) {
+      throw new InvariantError(
+        `Malformed PostgreSQL column row ${index}: identity_generation is invalid`,
+      )
+    }
+
+    if (generated !== 'NEVER' && generated !== 'ALWAYS') {
+      throw new InvariantError(
+        `Malformed PostgreSQL column row ${index}: is_generated is invalid`,
+      )
+    }
+
+    if (generated === 'ALWAYS' && generationExpression === null) {
+      throw new InvariantError(
+        `Malformed PostgreSQL column row ${index}: generated column is missing its expression`,
+      )
+    }
+
+    if (isIdentity && generated === 'ALWAYS') {
+      throw new InvariantError(
+        `Malformed PostgreSQL column row ${index}: column cannot be identity and computed`,
+      )
+    }
+
+    target.table.columns.push({
+      name: stringAt(row, 'column_name', 'column', index),
+      position: positiveIntegerAt(row, 'ordinal_position', 'column', index),
+      dataType: present({
+        native: nativeType,
+        comparisonKey: normalizePostgresDataType(nativeType),
+        family: normalizePostgresDataType(nativeType).replace(/\(.*/, ''),
+        parameters: [
+          row.character_maximum_length,
+          row.numeric_precision,
+          row.numeric_scale,
+        ].flatMap((value) => {
+          const number = toNumberOrNull(value)
+          return number === null ? [] : [number]
+        }),
+        userDefined: booleanAt(row, 'is_user_defined', 'column', index)
+          ? present(
+              identities.resolve(
+                relationInput(
+                  stringAt(row, 'udt_schema', 'column', index),
+                  stringAt(row, 'udt_name', 'column', index),
+                ),
+              ),
+            )
+          : absent,
+      }),
+      nullable: present(booleanAt(row, 'is_nullable', 'column', index)),
+      default:
+        columnDefault === null
+          ? absent
+          : present({
+              kind: 'nativeExpression',
+              native: columnDefault,
+              comparisonKey: present(normalizePostgresDefaultExpression(columnDefault)),
+            }),
+      generation: columnGeneration(
+        isIdentity,
+        identityGeneration,
+        generated,
+        generationExpression,
+      ),
+      nativeDefinition: present(nativeType),
+    })
+  }
+}
+
 /**
  * Strictly observes the exact migration ownership scope on one PostgreSQL session.
  *
@@ -1292,106 +1418,7 @@ export async function introspectPostgres(
     return { identity, table: entry.table }
   }
 
-  for (let index = 0; index < columnRows.length; index++) {
-    const row = rowAt(columnRows[index], 'column', index)
-    const target = requireTable(row, 'column', index)
-    if (!target) continue
-    const nativeType = formatPostgresCatalogDataType(row, 'column', index)
-    const columnDefault = nullableStringAt(row, 'column_default', 'column', index)
-    const isIdentity = booleanAt(row, 'is_identity', 'column', index)
-    const identityGeneration = nullableStringAt(
-      row,
-      'identity_generation',
-      'column',
-      index,
-    )
-    const generated = stringAt(row, 'is_generated', 'column', index)
-    const generationExpression = nullableStringAt(
-      row,
-      'generation_expression',
-      'column',
-      index,
-    )
-
-    if (
-      isIdentity &&
-      identityGeneration !== 'ALWAYS' &&
-      identityGeneration !== 'BY DEFAULT'
-    ) {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: identity_generation is invalid`,
-      )
-    }
-
-    if (generated !== 'NEVER' && generated !== 'ALWAYS') {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: is_generated is invalid`,
-      )
-    }
-
-    if (generated === 'ALWAYS' && generationExpression === null) {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: generated column is missing its expression`,
-      )
-    }
-
-    if (isIdentity && generated === 'ALWAYS') {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: column cannot be identity and computed`,
-      )
-    }
-
-    target.table.columns.push({
-      name: stringAt(row, 'column_name', 'column', index),
-      position: positiveIntegerAt(row, 'ordinal_position', 'column', index),
-      dataType: present({
-        native: nativeType,
-        comparisonKey: normalizePostgresDataType(nativeType),
-        family: normalizePostgresDataType(nativeType).replace(/\(.*/, ''),
-        parameters: [
-          row.character_maximum_length,
-          row.numeric_precision,
-          row.numeric_scale,
-        ].flatMap((value) => {
-          const number = toNumberOrNull(value)
-          return number === null ? [] : [number]
-        }),
-        userDefined: booleanAt(row, 'is_user_defined', 'column', index)
-          ? present(
-              identities.resolve(
-                relationInput(
-                  stringAt(row, 'udt_schema', 'column', index),
-                  stringAt(row, 'udt_name', 'column', index),
-                ),
-              ),
-            )
-          : absent,
-      }),
-      nullable: present(booleanAt(row, 'is_nullable', 'column', index)),
-      default:
-        columnDefault === null
-          ? absent
-          : present({
-              kind: 'nativeExpression',
-              native: columnDefault,
-              comparisonKey: present(normalizePostgresDefaultExpression(columnDefault)),
-            }),
-      generation:
-        generated === 'ALWAYS'
-          ? present({
-              kind: 'computed',
-              storage: 'stored',
-              expression: generationExpression!,
-            })
-          : isIdentity
-            ? present({
-                kind: 'identity',
-                mode: identityGeneration === 'ALWAYS' ? 'always' : 'byDefault',
-              })
-            : absent,
-      nativeDefinition: present(nativeType),
-    })
-  }
+  appendColumns(columnRows, requireTable, identities)
 
   const constraintReservations: CatalogConstraintNameReservation[] = []
   appendConstraints(constraintRows, requireTable, identities, constraintReservations)
