@@ -404,6 +404,7 @@ function compilePredicate(
       if (pred.value === null) {
         if (pred.op === 'eq') return `${left} is null`
         if (pred.op === 'neq') return `${left} is not null`
+
         throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
       }
 
@@ -412,12 +413,14 @@ function compilePredicate(
     }
     case 'and': {
       if (pred.preds.length === 0) return 'true'
+
       if (pred.preds.length === 1)
         return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
       return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' and ')})`
     }
     case 'or': {
       if (pred.preds.length === 0) return 'false'
+
       if (pred.preds.length === 1)
         return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
       return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' or ')})`
@@ -545,6 +548,7 @@ function compileOrderBy(
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
   if (!orderBy || orderBy.length === 0) return ''
+
   const parts = orderBy.map(
     (o) =>
       `${qualifyColumn(o.column, relations, o.relation, resolveRelation)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
@@ -665,6 +669,7 @@ function compileInsert(
   const rowSql = node.values.map((row) => {
     const placeholders = row.map((value) => {
       if (value === undefined) return 'default'
+
       params.push(value)
       return `$${params.length}`
     })

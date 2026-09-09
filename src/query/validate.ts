@@ -26,8 +26,10 @@ function isDirectlyOmitOptionalSchema(schema: AnySchema): boolean {
  */
 function isInsertOptional(schema: AnySchema): boolean {
   if (analyzeSchema(schema).omitOnInsert) return true
+
   const meta = getColumnMetadata(schema)
   if (!meta) return false
+
   const generation = meta.generation
 
   if (generation?.kind === 'identity' && generation.mode === 'byDefault') {

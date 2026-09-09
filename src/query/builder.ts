@@ -330,6 +330,7 @@ function mapPredicateParams(
     case 'cmp': {
       // Column-vs-column join/on predicates have no bound params.
       if (pred.right || pred.value === null) return pred
+
       const handle = findHandle(query, handles, pred.relation)
       const column = findColumn(query, handle, pred.column, pred.relation)
 
@@ -387,6 +388,7 @@ function findHandle(
   relation: RelationIdentityInput | undefined,
 ): TableHandle {
   if (!relation) return handles[0]!
+
   const matches = query.findRelationMatches(relation, handles)
 
   if (matches.length === 1) return matches[0]!
@@ -527,6 +529,7 @@ function mapSelectedRows(
 ): unknown[] {
   return rows.map((row) => {
     if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
+
     const output: Record<string, unknown> = {}
 
     for (const [key, value] of Object.entries(row)) {

@@ -78,6 +78,7 @@ function isConcreteDialectImport(specifier: string): boolean {
   const offset = normalized.indexOf(marker)
 
   if (offset === -1) return false
+
   const module = normalized.slice(offset + marker.length)
   return !['catalog', 'resolve', 'types'].includes(module)
 }
@@ -97,6 +98,7 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
     if (!clause) return '*'
     if (clause.isTypeOnly) return undefined
     if (clause.name) return clause.name.text
+
     const bindings = clause.namedBindings
     if (!bindings) return undefined
     if (ts.isNamespaceImport(bindings)) return bindings.name.text
@@ -111,6 +113,7 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   }
 
   if (!ts.isExportDeclaration(node) || node.isTypeOnly) return undefined
+
   const exports = node.exportClause
   if (!exports) return '*'
   if (ts.isNamespaceExport(exports)) return exports.name.text

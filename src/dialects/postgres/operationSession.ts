@@ -474,6 +474,7 @@ export function createDb0PostgresqlOperationSessionProvider(
      */
     close(): Promise<void> {
       if (closePromise) return closePromise
+
       closed = true
       const closing = (activeLease ?? Promise.resolve()).then(disposeConnector)
       closePromise = closing.catch((cause) => {

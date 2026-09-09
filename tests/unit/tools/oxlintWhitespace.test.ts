@@ -78,4 +78,101 @@ describe('Oxlint whitespace rule', () => {
 
     await expect(formatWhitespace(source)).resolves.toBe(source)
   })
+
+  it('puts exactly one blank line after a single-line early return', async () => {
+    const source = `export function example(value?: string) {
+  if (!value) return
+
+
+  use(value)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(value?: string) {
+  if (!value) return
+
+  use(value)
+}
+`)
+  })
+
+  it('pads an early return written as a single-line block', async () => {
+    const source = `export function example(value?: string) {
+  if (!value) { return }
+  use(value)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(value?: string) {
+  if (!value) { return }
+
+  use(value)
+}
+`)
+  })
+
+  it('keeps consecutive single-line early returns together', async () => {
+    const source = `export function example(first?: string, second?: string) {
+  if (!first) return
+  if (!second) return
+  use(first, second)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(first?: string, second?: string) {
+  if (!first) return
+  if (!second) return
+
+  use(first, second)
+}
+`)
+  })
+
+  it('keeps a final unconditional return with preceding early returns', async () => {
+    const source = `export function targetMember(target: Target) {
+  if (target.kind === 'column') return target.column
+  if (target.kind === 'index') return target.index
+  return undefined
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(source)
+  })
+
+  it('keeps a related variable declaration with the multiline block that consumes it', async () => {
+    const source = `export function example() {
+  const request = createRequest()
+  if (ready) {
+    run(request)
+  }
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(source)
+  })
+
+  it('still separates an unrelated variable declaration from a multiline block', async () => {
+    const source = `export function example() {
+  const requestId = createRequestId()
+  if (ready) {
+    run()
+  }
+  finish(requestId)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  const requestId = createRequestId()
+
+  if (ready) {
+    run()
+  }
+
+  finish(requestId)
+}
+`)
+  })
 })

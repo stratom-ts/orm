@@ -206,6 +206,7 @@ export function createValueMapper(
   const columnTypes = (handle: TableHandle): Record<string, string> => {
     const cached = typeCache.get(handle)
     if (cached) return cached
+
     const types: Record<string, string> = {}
 
     for (const name of Object.keys(handle.getSchema().entries)) {
@@ -226,6 +227,7 @@ export function createValueMapper(
    */
   const mapParam = (handle: TableHandle, column: string, value: unknown): unknown => {
     if (value === undefined) return value
+
     const meta = columnMeta(handle, column)
     if (meta?.mapParam) return meta.mapParam(value)
 

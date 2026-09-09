@@ -274,6 +274,7 @@ export class OperationCoordinator {
 
     while (frame) {
       if (this.isActiveToken(frame.token)) return frame.token
+
       frame = frame.parent
     }
 
@@ -439,6 +440,7 @@ export class OperationCoordinator {
    */
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise
+
     this.closing = true
     this.closePromise = this.tail.then(() => this.provider.close())
     return this.closePromise

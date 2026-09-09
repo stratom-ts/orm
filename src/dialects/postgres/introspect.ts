@@ -182,6 +182,7 @@ function booleanAt(row: Row, key: string, query: string, index: number): boolean
   if (typeof value === 'boolean') return value
   if (value === 1 || value === '1' || value === 'YES' || value === 't') return true
   if (value === 0 || value === '0' || value === 'NO' || value === 'f') return false
+
   throw new InvariantError(
     `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be boolean`,
   )
@@ -230,8 +231,10 @@ function jsonStringArray(value: string): string[] | undefined {
 /** Parses one-dimensional PostgreSQL text-array syntax containing only strings. */
 function postgresStringArray(value: string): string[] | undefined {
   if (!value.startsWith('{') || !value.endsWith('}')) return undefined
+
   const inner = value.slice(1, -1)
   if (inner.length === 0) return []
+
   const parts: string[] = []
   const quotedParts: boolean[] = []
   let part = ''
@@ -259,6 +262,7 @@ function postgresStringArray(value: string): string[] | undefined {
   }
 
   if (quoted || escaped) return undefined
+
   quotedParts.push(partWasQuoted)
   parts.push(partWasQuoted ? part : part.trim())
 
@@ -354,6 +358,7 @@ function compareNamespaces(
     const rightSegment = right[index]!
     const role = compareCodeUnits(leftSegment.role, rightSegment.role)
     if (role !== 0) return role
+
     const identifier = compareCodeUnits(
       leftSegment.identifier.comparisonKey,
       rightSegment.identifier.comparisonKey,
@@ -524,6 +529,7 @@ function relationKind(value: string) {
   if (value === 'v') return 'view' as const
   if (value === 'm') return 'materializedView' as const
   if (value === 'f') return 'foreignTable' as const
+
   throw new InvariantError(
     `Malformed PostgreSQL relation row: unsupported relkind ${value}`,
   )
@@ -538,6 +544,7 @@ function persistence(value: string) {
   if (value === 'p') return 'permanent' as const
   if (value === 't') return 'temporary' as const
   if (value === 'u') return 'unlogged' as const
+
   throw new InvariantError(
     `Malformed PostgreSQL relation row: unsupported persistence ${value}`,
   )
@@ -1432,6 +1439,7 @@ export async function introspectPostgres(
       ),
     )
     if (!relationRequested(identity)) return undefined
+
     const entry = relationRegistry.get(identity)
 
     if (!entry) {

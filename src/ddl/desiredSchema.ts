@@ -21,6 +21,7 @@ function isCandidateKey(table: AuthoredDesiredTable, column: string): boolean {
     (candidate) => candidate.identifier.spelling === column,
   )?.identifier.comparisonKey
   if (columnKey === undefined) return false
+
   const primaryKey = Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
     : [table.metadata.primaryKey]

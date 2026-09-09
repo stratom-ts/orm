@@ -293,6 +293,7 @@ function compareNamespaces(
   for (let index = 0; index < length; index++) {
     const role = compareCodeUnits(left[index]!.role, right[index]!.role)
     if (role !== 0) return role
+
     const identifier = compareCodeUnits(
       left[index]!.identifier.comparisonKey,
       right[index]!.identifier.comparisonKey,
@@ -392,6 +393,7 @@ function comparePlanningIssues(
 ): number {
   const relation = identities.compare(left.identity, right.identity)
   if (relation !== 0) return relation
+
   const target = compareCodeUnits(left.target, right.target)
   if (target !== 0) return target
   return (
@@ -515,6 +517,7 @@ function defaultMismatch(
   planning: MigrationPlanningContext,
 ): string | undefined {
   if (live.defaultExpression === undefined) return
+
   const expected =
     desired.databaseDefault?.normalized ??
     (desired.defaultValue === undefined
@@ -548,6 +551,7 @@ function identityMismatch(
   desired: LoweredDesiredColumn,
 ): string | undefined {
   if (live.identityGeneration === undefined) return
+
   const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
 
   if (live.identityGeneration !== expected) {
@@ -706,6 +710,7 @@ function collectUniqueConstraintIssues({
   liveColumns,
 }: ManagedConstraintIssueCollection): void {
   if (live.uniqueConstraints === undefined) return
+
   const identity = live.identity
   const expected = desired.columns.filter(
     (column) => column.unique && liveColumns.has(column.identifier.comparisonKey),
@@ -771,6 +776,7 @@ function collectForeignKeyIssues({
   liveColumns,
 }: ManagedConstraintIssueCollection): void {
   if (live.foreignKeys === undefined) return
+
   const identity = live.identity
   const tableName = identities.format(identity)
   const expected = desired.columns
@@ -1100,6 +1106,7 @@ function uniqueCatalogIndexes(
     )
     .flatMap(({ index, identifier }) => {
       if (comparisonKeys.has(identifier.comparisonKey)) return []
+
       comparisonKeys.add(identifier.comparisonKey)
       return [index]
     })
@@ -1514,6 +1521,7 @@ function appendDroppedColumns(
   identities: CanonicalRelationIdentityModule,
 ): void {
   if (shape !== 'complete') return
+
   const desiredNames = new Set(
     desired.columns.map((column) => column.identifier.comparisonKey),
   )

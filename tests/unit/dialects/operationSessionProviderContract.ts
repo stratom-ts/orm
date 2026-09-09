@@ -93,6 +93,7 @@ export function registerOperationSessionProviderContract(
       const controls = createProvider({
         beforeCall: async (session) => {
           if (session !== 1) return
+
           started.resolve()
           await finish.promise
         },
@@ -158,6 +159,7 @@ export function registerOperationSessionProviderContract(
       const controls = createProvider({
         beforeCall: async (_session, sql) => {
           if (sql !== 'active unsettled') return
+
           started.resolve()
           await cancelled.promise
         },

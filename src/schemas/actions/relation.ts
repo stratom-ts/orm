@@ -80,6 +80,7 @@ export function sameRelationInput(
   right: RelationIdentityInput,
 ): boolean {
   if (left.relation !== right.relation) return false
+
   const leftNamespace = left.namespace ?? []
   const rightNamespace = right.namespace ?? []
   return (

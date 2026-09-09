@@ -52,6 +52,7 @@ function executor(
         relationQueries++
         if (options.raced) return []
         if (options.deleted && relationQueries > 1) return []
+
         const rows = [
           {
             object_id: '1',
@@ -272,6 +273,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
     expect(relation.identity.relation.spelling).toBe('events')
     expect(relation.table.state).toBe('present')
     if (relation.table.state !== 'present') return
+
     const richIndex = relation.table.value.indexes.items.find(
       (index) => index.name.state === 'present' && index.name.value.includes('lower'),
     )!

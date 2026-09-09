@@ -225,6 +225,7 @@ function validateReferencePhysicalType(
 ): void {
   const selected = column.metadata?.physicalType?.postgresql
   if (selected === undefined) return
+
   const localType = assertSafePostgresDataType(String(selected))
 
   if (normalizePostgresDataType(localType) !== normalizePostgresDataType(inheritedType)) {

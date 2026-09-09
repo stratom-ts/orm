@@ -111,6 +111,7 @@ function evidenceDescription(fact: Exclude<CatalogFact<unknown>, { state: 'prese
  */
 function requireFact<T>(fact: CatalogFact<T>, target: string): T {
   if (fact.state === 'present') return fact.value
+
   throw new MigrationError({
     message: `Incomplete catalog evidence for ${target}: ${evidenceDescription(fact)}`,
   })
@@ -124,6 +125,7 @@ function requireFact<T>(fact: CatalogFact<T>, target: string): T {
  */
 function requireComplete<T>(set: CatalogSet<T>, target: string): readonly T[] {
   if (set.coverage.state === 'complete') return set.items
+
   const evidence =
     set.coverage.state === 'partial' ? set.coverage.remainder : set.coverage
   throw new MigrationError({
@@ -322,6 +324,7 @@ export function catalogForPlanning(
           relation.identity,
         )
         if (!expected) return { name: column.name }
+
         const dataType = requireFact(
           column.dataType,
           `${identities.format(relation.identity, { role: 'column', spelling: column.name })} type`,

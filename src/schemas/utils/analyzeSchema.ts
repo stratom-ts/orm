@@ -90,6 +90,7 @@ function homogeneousOutputKind(
   options: unknown[] | undefined,
 ): SchemaOutputKind | undefined {
   if (!options || options.length === 0) return undefined
+
   const kind = primitiveOutputKind(options[0])
   if (!kind || !options.every((value) => primitiveOutputKind(value) === kind))
     return undefined

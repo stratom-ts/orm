@@ -173,6 +173,7 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
  */
 export function formatPostgresLiteral(value: string | number | boolean | null): string {
   if (typeof value !== 'string') return formatPostgresDefault(value)
+
   const escapedQuotes = value.replaceAll("'", "''")
   return value.includes('\\')
     ? `E'${escapedQuotes.replaceAll('\\', '\\\\')}'`
@@ -190,6 +191,7 @@ export function formatPostgresLiteral(value: string | number | boolean | null): 
  */
 function stripEnclosingParens(s: string): string {
   if (s.length < 2 || s[0] !== '(' || s[s.length - 1] !== ')') return s
+
   let depth = 0
 
   for (let i = 0; i < s.length; i++) {

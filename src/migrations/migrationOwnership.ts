@@ -66,6 +66,7 @@ function compareNamespaceSpelling(
   for (let index = 0; index < length; index++) {
     const role = compareCodeUnits(left[index]!.role, right[index]!.role)
     if (role !== 0) return role
+
     const spelling = compareCodeUnits(
       left[index]!.identifier.spelling,
       right[index]!.identifier.spelling,

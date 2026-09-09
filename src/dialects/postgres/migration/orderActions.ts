@@ -264,6 +264,7 @@ function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
     }
 
     if (lowLinks[node] !== indexes[node]) return
+
     const component: number[] = []
     let member: number
 

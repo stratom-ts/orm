@@ -251,6 +251,7 @@ export function createCanonicalRelationIdentityModule(options: {
       const rightSegment = right.namespace[index]!
       const role = compareCodeUnits(leftSegment.role, rightSegment.role)
       if (role !== 0) return role
+
       const identifier = compareCodeUnits(
         leftSegment.identifier.comparisonKey,
         rightSegment.identifier.comparisonKey,
@@ -286,6 +287,7 @@ export function createCanonicalRelationIdentityModule(options: {
 
         if (!byIdentifier) {
           if (!create) return undefined
+
           byIdentifier = new Map()
           node.children.set(part.role, byIdentifier)
         }
@@ -294,6 +296,7 @@ export function createCanonicalRelationIdentityModule(options: {
 
         if (!child) {
           if (!create) return undefined
+
           child = createRegistryNode<T>()
           byIdentifier.set(part.comparisonKey, child)
         }
