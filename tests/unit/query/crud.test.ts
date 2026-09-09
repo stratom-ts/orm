@@ -1,4 +1,17 @@
-import { boolean, nullable, number, optional, pipe, string } from 'valibot'
+import {
+  boolean,
+  exactOptional,
+  nonNullable,
+  nonNullish,
+  nonOptional,
+  nullable,
+  nullish,
+  number,
+  optional,
+  pipe,
+  string,
+  undefinedable,
+} from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import {
@@ -72,7 +85,118 @@ const NestedWrappers = defineTable(
   { primaryKey: 'id' },
 )
 
+const WrapperBehavior = defineTable(
+  'wrapper_behavior',
+  {
+    id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    exact: exactOptional(
+      pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'varchar(20)' },
+          databaseDefault: { kind: 'literal', value: 'default' },
+        }),
+      ),
+    ),
+    undefinedValue: undefinedable(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
+    nullableValue: nullable(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
+    nullishValue: nullish(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
+    nonOptionalValue: nonOptional(
+      optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
+    nonNullableValue: nonNullable(
+      optional(
+        nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+      ),
+    ),
+    nonNullishValue: nonNullish(
+      nullish(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
+  },
+  { primaryKey: 'id' },
+)
+
 describe('CRUD compile', () => {
+  it('applies wrapper omission and nullability semantics during insert validation', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [WrapperBehavior] })
+
+    const complete = {
+      id: '1',
+      undefinedValue: 'u',
+      nullableValue: null,
+      nullishValue: 'z',
+      nonOptionalValue: 'o',
+      nonNullableValue: 'n',
+      nonNullishValue: 'q',
+    }
+
+    const { undefinedValue: _undefinedValue, ...withoutUndefinedValue } = complete
+    void _undefinedValue
+    expect(() =>
+      db
+        .insert(WrapperBehavior)
+        .values(withoutUndefinedValue as never)
+        .compile(),
+    ).toThrow(/undefinedValue/)
+
+    const { nonOptionalValue: _nonOptionalValue, ...withoutNonOptionalValue } = complete
+    void _nonOptionalValue
+    expect(() =>
+      db
+        .insert(WrapperBehavior)
+        .values(withoutNonOptionalValue as never)
+        .compile(),
+    ).toThrow(/nonOptionalValue/)
+
+    const { nonNullableValue: _nonNullableValue, ...withoutNonNullableValue } = complete
+    void _nonNullableValue
+    expect(() =>
+      db
+        .insert(WrapperBehavior)
+        .values(withoutNonNullableValue as never)
+        .compile(),
+    ).toThrow(/nonNullableValue/)
+
+    const { nonNullishValue: _nonNullishValue, ...withoutNonNullishValue } = complete
+    void _nonNullishValue
+    expect(() =>
+      db
+        .insert(WrapperBehavior)
+        .values(withoutNonNullishValue as never)
+        .compile(),
+    ).toThrow(/nonNullishValue/)
+
+    const { nullishValue: _nullishValue, ...exactAndNullishRow } = complete
+    void _nullishValue
+    const exactAndNullish = db
+      .insert(WrapperBehavior)
+      .values(exactAndNullishRow as never)
+      .compile()
+    expect(exactAndNullish.sql.toLowerCase()).not.toContain('"exact"')
+    expect(exactAndNullish.sql.toLowerCase()).not.toContain('"nullishvalue"')
+
+    const explicitNull = db
+      .insert(WrapperBehavior)
+      .values({ ...complete, nullishValue: null } as never)
+      .compile()
+    expect(explicitNull.params).toContain(null)
+
+    expect(() =>
+      db
+        .insert(WrapperBehavior)
+        .values({ id: '1', undefinedValue: undefined } as never)
+        .compile(),
+    ).toThrow(/cannot be undefined/)
+
+    await db.close()
+  })
   it('should compile insert with parameterized values and schema-qualified table', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })

@@ -1,6 +1,8 @@
 import type { StringConstraints } from '@/types/constraints'
 import type { AnySchema, AnySchemaAsync } from '@/types/schema'
 
+import { analyzeSchema } from './analyzeSchema'
+
 /**
  * Reads min/max length constraints from a string schema pipe.
  *
@@ -15,26 +17,5 @@ import type { AnySchema, AnySchemaAsync } from '@/types/schema'
 export function getStringConstraints(
   schema: AnySchema | AnySchemaAsync,
 ): StringConstraints {
-  const constraints: StringConstraints = {}
-
-  if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {
-    const pipeItems = (schema as { pipe: unknown[] }).pipe.slice(1)
-
-    for (const item of pipeItems) {
-      if (item && typeof item === 'object' && item !== null && 'type' in item) {
-        const action = item as { type: string; requirement?: number }
-
-        if (action.type === 'min_length') {
-          constraints.minLength = action.requirement
-        } else if (action.type === 'max_length') {
-          constraints.maxLength = action.requirement
-        } else if (action.type === 'length') {
-          constraints.minLength = action.requirement
-          constraints.maxLength = action.requirement
-        }
-      }
-    }
-  }
-
-  return constraints
+  return analyzeSchema(schema as AnySchema).stringConstraints
 }

@@ -1,23 +1,10 @@
 import type { BaseIssue, ObjectEntries, ObjectSchema } from 'valibot'
 import { object, optional, safeParse } from 'valibot'
 
-import { getColumnMetadata } from '@/schemas'
+import { analyzeSchema, getColumnMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { ValidationError } from '@/utils/error'
-
-/**
- * Checks whether a schema wrapper permits omission during insert.
- *
- * @param schema - Column schema to inspect.
- */
-function isOmitOptionalSchema(schema: AnySchema): boolean {
-  if (schema.type === 'optional' || schema.type === 'nullish') return true
-  if (schema.type === 'non_optional' || schema.type === 'non_nullish') return false
-  return 'wrapped' in schema && schema.wrapped
-    ? isOmitOptionalSchema(schema.wrapped as AnySchema)
-    : false
-}
 
 /**
  * Checks whether the outermost schema wrapper permits omission.
@@ -25,7 +12,11 @@ function isOmitOptionalSchema(schema: AnySchema): boolean {
  * @param schema - Column schema to inspect.
  */
 function isDirectlyOmitOptionalSchema(schema: AnySchema): boolean {
-  return schema.type === 'optional' || schema.type === 'nullish'
+  return (
+    schema.type === 'optional' ||
+    schema.type === 'exact_optional' ||
+    schema.type === 'nullish'
+  )
 }
 
 /**
@@ -34,7 +25,7 @@ function isDirectlyOmitOptionalSchema(schema: AnySchema): boolean {
  * @param schema - Column schema to inspect.
  */
 function isInsertOptional(schema: AnySchema): boolean {
-  if (isOmitOptionalSchema(schema)) return true
+  if (analyzeSchema(schema).omitOnInsert) return true
   const meta = getColumnMetadata(schema)
   if (!meta) return false
   const generation = meta.generation
@@ -45,6 +36,20 @@ function isInsertOptional(schema: AnySchema): boolean {
 
   if (meta.databaseDefault !== undefined) return true
   return false
+}
+
+function assertDefinedInsertValue(
+  tableName: string,
+  columnName: string,
+  value: unknown,
+  schema: AnySchema | undefined,
+): void {
+  if (value !== undefined || !schema || schema.kind !== 'schema') return
+  if (isInsertOptional(schema)) return
+
+  throw new ValidationError({
+    message: `Invalid insert into "${tableName}": column "${columnName}" cannot be undefined`,
+  })
 }
 
 /**
@@ -173,6 +178,7 @@ export function validateInsertRow(
     })
   }
 
+  const entries = handle.getSchema().entries as Record<string, AnySchema>
   const schema = buildInsertSchema(handle)
   const allowed = new Set(Object.keys(schema.entries))
 
@@ -182,6 +188,13 @@ export function validateInsertRow(
         message: `Invalid insert into "${handle.getTableMetadata().name}": unknown or non-insertable column "${key}"`,
       })
     }
+
+    assertDefinedInsertValue(
+      handle.getTableMetadata().name,
+      key,
+      (row as Record<string, unknown>)[key],
+      entries[key],
+    )
   }
 
   const result = safeParse(schema, row)

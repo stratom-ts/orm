@@ -1,4 +1,5 @@
 export * from './getBaseSchema'
+export * from './analyzeSchema'
 export * from './getNumberConstraints'
 export * from './getStringConstraints'
 export * from './isNullable'
