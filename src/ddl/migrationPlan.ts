@@ -231,7 +231,6 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
-
   return 0
 }
 
@@ -322,7 +321,6 @@ function targetNamespace(target: MigrationTarget): readonly CanonicalNamespaceSe
 function targetMember(target: MigrationTarget): CanonicalIdentifier | undefined {
   if (target.kind === 'column') return target.column
   if (target.kind === 'index') return target.index
-
   return undefined
 }
 
@@ -398,7 +396,6 @@ function comparePlanningIssues(
 
   const target = compareCodeUnits(left.target, right.target)
   if (target !== 0) return target
-
   return (
     ISSUE_PROPERTY_ORDER[left.property] - ISSUE_PROPERTY_ORDER[right.property] ||
     compareCodeUnits(left.message, right.message)

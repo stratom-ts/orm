@@ -51,7 +51,6 @@ export type MigrateBuilder = {
  */
 function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationError {
   if (cause instanceof MigrationError && cause.stage !== undefined) return cause
-
   return new MigrationError({
     message: cause instanceof Error ? cause.message : 'Migration failed',
     cause:
@@ -70,7 +69,6 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationEr
 function withReleaseCleanup(error: MigrationError): MigrationError {
   const failures = getOperationReleaseCleanupFailures(error)
   if (failures.length === 0) return error
-
   return new MigrationError({
     message: error.message,
     ...(error.cause === undefined ? {} : { cause: error.cause }),

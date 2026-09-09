@@ -131,6 +131,17 @@ describe('Oxlint whitespace rule', () => {
 `)
   })
 
+  it('keeps a final unconditional return with preceding early returns', async () => {
+    const source = `export function targetMember(target: Target) {
+  if (target.kind === 'column') return target.column
+  if (target.kind === 'index') return target.index
+  return undefined
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(source)
+  })
+
   it('keeps a related variable declaration with the multiline block that consumes it', async () => {
     const source = `export function example() {
   const request = createRequest()

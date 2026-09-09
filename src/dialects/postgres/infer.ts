@@ -39,7 +39,6 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
 function inferPostgresStringType(constraints: StringConstraints): SqlDataType {
   if (constraints.maxLength === undefined) return 'text'
   if (constraints.maxLength <= 255) return `varchar(${constraints.maxLength})`
-
   return 'text'
 }
 
@@ -79,7 +78,6 @@ function inferPostgresLiteralType(literal: Literal) {
   if (typeof literal === 'number')
     return Number.isInteger(literal) ? 'integer' : 'double precision'
   if (typeof literal === 'boolean') return 'boolean'
-
   return 'text'
 }
 

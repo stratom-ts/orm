@@ -81,7 +81,6 @@ function createRegistryNode<T>(): RegistryNode<T> {
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
-
   return 0
 }
 
@@ -262,7 +261,6 @@ export function createCanonicalRelationIdentityModule(options: {
 
     const namespaceLength = left.namespace.length - right.namespace.length
     if (namespaceLength !== 0) return namespaceLength
-
     return compareCodeUnits(left.relation.comparisonKey, right.relation.comparisonKey)
   }
 

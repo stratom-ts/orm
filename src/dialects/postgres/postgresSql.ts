@@ -91,7 +91,6 @@ function statementRequiresCleanup(statement: Statement): boolean {
   if (first === 'start') return true
   if (first === 'prepare' && second === 'transaction') return true
   if (first === 'set' && second === 'transaction') return true
-
   return !PLAIN_STARTS.has(first)
 }
 

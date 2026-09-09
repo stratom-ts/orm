@@ -157,7 +157,6 @@ function resolveColumnDataType(
 
   const selected = columnMetadata?.physicalType?.[dialect.id]
   if (selected !== undefined) return String(selected)
-
   return String(dialect.schema.inferColumnType(schema))
 }
 
@@ -174,7 +173,6 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
   >
   const columnSchema = entries[columnName]
   if (!columnSchema || columnSchema.kind !== 'schema') return undefined
-
   return getColumnMetadata(columnSchema as Parameters<typeof getColumnMetadata>[0])
 }
 

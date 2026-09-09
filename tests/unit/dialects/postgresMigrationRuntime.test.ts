@@ -144,7 +144,6 @@ function harness(
       }
 
       if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
-
       return []
     },
   }
@@ -171,7 +170,6 @@ function harness(
     if (/\b(?:begin|commit|rollback)\b/i.test(query.sql)) return 'transaction'
     if (/count\(\*\)/i.test(query.sql)) return 'introspection'
     if (/create table/i.test(query.sql)) return 'ddl'
-
     return 'transaction'
   }
 

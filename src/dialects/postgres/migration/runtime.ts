@@ -42,7 +42,6 @@ function executionRetryable(
   }>,
 ): boolean {
   if (options.outcome === 'unknown') return false
-
   return structured?.retryable ?? options.retryable
 }
 
@@ -104,7 +103,6 @@ function cancellationStage(
   fallback: MigrationExecutionStage,
 ): MigrationExecutionStage {
   if (cause instanceof MigrationCancellationError) return cause.stage
-
   return fallback
 }
 
@@ -120,7 +118,6 @@ function reportedStage(
 ): MigrationExecutionStage {
   if (cause instanceof MigrationCancellationError) return cause.stage
   if (cause instanceof MigrationError && cause.stage !== undefined) return cause.stage
-
   return fallback
 }
 
@@ -139,7 +136,6 @@ function failureOutcome(
   if (stage === 'commit') return 'unknown'
   if (!ddlStarted) return 'unchanged'
   if (rollbackAcknowledged) return 'rolledBack'
-
   return 'unknown'
 }
 

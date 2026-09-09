@@ -14,7 +14,6 @@ import { ValidationError } from '@/utils/error'
 function isOmitOptionalSchema(schema: AnySchema): boolean {
   if (schema.type === 'optional' || schema.type === 'nullish') return true
   if (schema.type === 'non_optional' || schema.type === 'non_nullish') return false
-
   return 'wrapped' in schema && schema.wrapped
     ? isOmitOptionalSchema(schema.wrapped as AnySchema)
     : false
@@ -47,7 +46,6 @@ function isInsertOptional(schema: AnySchema): boolean {
   }
 
   if (meta.databaseDefault !== undefined) return true
-
   return false
 }
 

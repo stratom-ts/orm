@@ -100,7 +100,6 @@ function evidenceDescription(fact: Exclude<CatalogFact<unknown>, { state: 'prese
   if (fact.state === 'absent') return 'absent'
   if (fact.state === 'unavailable') return `unavailable (${fact.cause})`
   if (fact.state === 'unsupported') return `unsupported by ${fact.by}`
-
   return fact.state
 }
 

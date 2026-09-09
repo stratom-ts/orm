@@ -450,7 +450,6 @@ function compileWhereClause(
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
   if (!where) return ''
-
   return ` where ${compilePredicate(where, params, relations, resolveRelation)}`
 }
 

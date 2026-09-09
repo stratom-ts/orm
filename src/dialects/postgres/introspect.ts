@@ -63,7 +63,6 @@ function unsupported(reason: string): CatalogNoEvidence {
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
-
   return 0
 }
 
@@ -85,7 +84,6 @@ function stableObservation(value: unknown): string {
   }
 
   if (typeof value === 'bigint') return JSON.stringify(value.toString())
-
   return JSON.stringify(value)
 }
 
@@ -485,7 +483,6 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   if (dataType === 'numeric' || dataType === 'decimal') {
     if (precision !== null && scale !== null) return `numeric(${precision},${scale})`
     if (precision !== null) return `numeric(${precision})`
-
     return 'numeric'
   }
 
@@ -493,7 +490,6 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   if (alias) return alias
   if (dataType === 'timestamp without time zone') return 'timestamp'
   if (dataType === 'timestamp with time zone') return 'timestamptz'
-
   return udt || dataType
 }
 
@@ -708,7 +704,6 @@ function hasSupportedConstraintSemantics(row: Row, type: string, index: number):
   }
 
   if (type !== 'f') return true
-
   return (
     stringAt(row, 'match_type', 'constraint', index) === 's' &&
     !booleanAt(row, 'has_column_specific_delete_action', 'constraint', index)
@@ -719,7 +714,6 @@ function hasSupportedConstraintSemantics(row: Row, type: string, index: number):
 function constraintIsValid(row: Row, type: string, index: number): boolean {
   if (!booleanAt(row, 'is_valid', 'constraint', index)) return false
   if (type !== 'p' && type !== 'u') return true
-
   return booleanAt(row, 'backing_index_is_valid', 'constraint', index)
 }
 
@@ -1455,7 +1449,6 @@ export async function introspectPostgres(
     }
 
     if (!entry.table) return undefined
-
     return { identity, table: entry.table }
   }
 

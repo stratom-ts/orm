@@ -231,7 +231,6 @@ export function and(...preds: PredicateAst[]): PredicateAst {
   }
 
   if (preds.length === 1) return preds[0]!
-
   return { kind: 'and', preds }
 }
 
@@ -251,7 +250,6 @@ export function or(...preds: PredicateAst[]): PredicateAst {
   }
 
   if (preds.length === 1) return preds[0]!
-
   return { kind: 'or', preds }
 }
 

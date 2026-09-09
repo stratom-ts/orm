@@ -23,7 +23,6 @@ const SHARED_EXECUTION_PATHS = [
 function sourceFiles(path: string): string[] {
   const absolute = join(ROOT, path)
   if (absolute.endsWith('.ts')) return [absolute]
-
   return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
     const child = join(absolute, entry.name)
     return entry.isDirectory()
@@ -118,7 +117,6 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   const exports = node.exportClause
   if (!exports) return '*'
   if (ts.isNamespaceExport(exports)) return exports.name.text
-
   return exports.elements.find(
     (element) =>
       !element.isTypeOnly &&
@@ -259,7 +257,6 @@ function containsDialectPolicySelector(node: ts.Node): boolean {
 
 function physicalSqlText(node: ts.StringLiteralLike | ts.TemplateExpression): string {
   if (!ts.isTemplateExpression(node)) return node.text
-
   return [
     node.head.text,
     ...node.templateSpans.flatMap((span) => ['${value}', span.literal.text]),
@@ -281,7 +278,6 @@ function containsProperty(node: ts.Node, property: string): boolean {
 
 function memberCollectionName(node: ts.Expression): string | undefined {
   if (!ts.isIdentifier(node)) return undefined
-
   return /(?:column|index)(?:names?)?$/i.test(node.text) ||
     /(?:columns|indexes|columnnames|indexnames)/i.test(node.text)
     ? node.text

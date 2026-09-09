@@ -81,7 +81,6 @@ function mapJoinsParams(
   joins: readonly JoinAst[] | undefined,
 ): readonly JoinAst[] | undefined {
   if (!joins || joins.length === 0) return joins
-
   return joins.map((join) => ({
     ...join,
     on: mapPredicateParams(query, handles, mapper, join.on)!,
@@ -275,7 +274,6 @@ function mapWriteParams(
   values: readonly (readonly unknown[])[],
 ): readonly (readonly unknown[])[] {
   if (!mapper) return values
-
   return values.map((row) =>
     row.map((value, i) => {
       const col = columns[i]!
@@ -302,7 +300,6 @@ function mapSetParams(
   set: readonly { readonly column: string; readonly value: unknown }[],
 ): readonly { readonly column: string; readonly value: unknown }[] {
   if (!mapper) return set
-
   return set.map((item) => ({
     column: item.column,
     value: mapper.mapParam(handle, item.column, item.value),
@@ -936,7 +933,6 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
-
     return result
   }
 
@@ -1140,7 +1136,6 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
-
     return result
   }
 

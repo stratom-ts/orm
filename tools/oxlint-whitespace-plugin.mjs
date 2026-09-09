@@ -163,6 +163,8 @@ function checkStatementList(context, statements) {
       isBlockLikeStatement(sourceCode, previousNode)
     const previousIsSingleLineEarlyReturn = isSingleLineEarlyReturn(previousNode)
     const nodeIsSingleLineEarlyReturn = isSingleLineEarlyReturn(node)
+    const nodeContinuesEarlyReturnGroup =
+      nodeIsSingleLineEarlyReturn || node.type === 'ReturnStatement'
     const nodeIsBlock = isBlockLikeStatement(sourceCode, node)
     const nodeIsMultilineBlock = node.loc.start.line !== node.loc.end.line && nodeIsBlock
     const nodeConsumesPreviousDeclaration =
@@ -172,7 +174,7 @@ function checkStatementList(context, statements) {
 
     if (
       !previousIsMultilineBlock &&
-      (!previousIsSingleLineEarlyReturn || nodeIsSingleLineEarlyReturn) &&
+      (!previousIsSingleLineEarlyReturn || nodeContinuesEarlyReturnGroup) &&
       (!nodeIsMultilineBlock || nodeConsumesPreviousDeclaration) &&
       !singleLineStatementHasComment
     ) {
