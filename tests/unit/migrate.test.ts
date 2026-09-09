@@ -1,5 +1,16 @@
 import type { Connector, Statement } from 'db0'
-import { pipe, string } from 'valibot'
+import {
+  exactOptional,
+  nonNullable,
+  nonNullish,
+  nonOptional,
+  nullable,
+  nullish,
+  optional,
+  pipe,
+  string,
+  undefinedable,
+} from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { compilePostgres } from '@/dialects/postgres/compile'
@@ -316,6 +327,43 @@ const Users = defineTable(
   { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
+const WrapperMigration = defineTable(
+  'wrapper_migration',
+  {
+    id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    exact: exactOptional(
+      pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'varchar(20)' },
+          databaseDefault: { kind: 'literal', value: 'default' },
+        }),
+      ),
+    ),
+    undefinedValue: undefinedable(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
+    nullableValue: nullable(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
+    nullishValue: nullish(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
+    nonOptionalValue: nonOptional(
+      optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
+    nonNullableValue: nonNullable(
+      optional(
+        nullable(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+      ),
+    ),
+    nonNullishValue: nonNullish(
+      nullish(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
+    ),
+  },
+  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
+)
+
 const AppUsers = defineTable(
   'users',
   { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -444,6 +492,32 @@ describe('PostgreSQL migration AST compilation', () => {
 })
 
 describe('db.migrate() adapters and execution', () => {
+  it('lowers wrapper nullability and inferred types consistently in dryRun and execute', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [WrapperMigration] })
+
+    const plan = await db.migrate().dryRun()
+    expect(plan.steps.some((step) => step.kind === 'create_table')).toBe(true)
+    expect(connector.runSql).toEqual([])
+
+    await db.migrate().execute()
+    const createSql = connector.runSql.find((sql) =>
+      /create table .*wrapper_migration/i.test(sql),
+    )
+    expect(createSql).toBeDefined()
+    expect(createSql).toContain('"exact" varchar(20) not null default')
+    expect(createSql).toContain('"undefinedValue" text not null')
+    expect(createSql).toContain('"nullableValue" text')
+    expect(createSql).not.toMatch(/"nullableValue" text not null/i)
+    expect(createSql).toContain('"nullishValue" text')
+    expect(createSql).not.toMatch(/"nullishValue" text not null/i)
+    expect(createSql).toContain('"nonNullableValue" text not null')
+    expect(createSql).toContain('"nonOptionalValue" text not null')
+    expect(createSql).toContain('"nonNullishValue" text not null')
+
+    await db.close()
+  })
+
   it('lowers the desired schema once per migration operation', async () => {
     const connector = createMockConnector()
     const lower = vi.spyOn(postgresDialect.schema, 'lowerDesiredSchema')

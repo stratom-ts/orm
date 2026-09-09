@@ -1,5 +1,7 @@
 import type { AnySchema } from '@/types/schema'
 
+import { analyzeSchema } from './analyzeSchema'
+
 /**
  * Returns whether a schema allows null or undefined values.
  *
@@ -12,31 +14,6 @@ import type { AnySchema } from '@/types/schema'
  * @returns `true` if optional, nullable, or nullish
  */
 export function isNullable(schema: AnySchema): boolean {
-  if (schema.type === 'optional' || schema.type === 'nullish') {
-    return true
-  }
-
-  if (schema.type === 'nullable') {
-    return true
-  }
-
-  if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {
-    const pipeItems = (schema as { pipe: unknown[] }).pipe
-
-    for (const item of pipeItems) {
-      if (item && typeof item === 'object' && item !== null && 'type' in item) {
-        const actionType = (item as { type: string }).type
-
-        if (
-          actionType === 'optional' ||
-          actionType === 'nullish' ||
-          actionType === 'nullable'
-        ) {
-          return true
-        }
-      }
-    }
-  }
-
-  return false
+  const analysis = analyzeSchema(schema)
+  return analysis.nullable || analysis.allowsUndefined
 }

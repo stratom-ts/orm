@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  exactOptional,
   integer,
   maxLength,
   maxValue,
@@ -15,6 +16,7 @@ import {
   pipe,
   string,
   title,
+  undefinedable,
 } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
 
@@ -70,6 +72,18 @@ const NestedWrappers = defineTable(
     nullableOptional: nullable(
       optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
     ),
+    exactOptional: exactOptional(
+      pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: '' },
+        }),
+      ),
+    ),
+    undefinedable: undefinedable(
+      pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    ),
     nonOptionalNullableOptional: nonOptional(
       nullable(
         optional(pipe(string(), column({ physicalType: { postgresql: 'text' } }))),
@@ -106,6 +120,8 @@ describe('InferSelect', () => {
     type Row = InferSelect<typeof NestedWrappers>
     expectTypeOf<Row['optionalNullable']>().toEqualTypeOf<string | null>()
     expectTypeOf<Row['nullableOptional']>().toEqualTypeOf<string | null>()
+    expectTypeOf<Row['exactOptional']>().toEqualTypeOf<string>()
+    expectTypeOf<Row['undefinedable']>().toEqualTypeOf<string>()
     expectTypeOf<Row['nonOptionalNullableOptional']>().toEqualTypeOf<string | null>()
     expectTypeOf<Row['nonNullableOptionalNullable']>().toEqualTypeOf<string>()
     expectTypeOf<Row['nonNullishNullableOptional']>().toEqualTypeOf<string>()
@@ -245,8 +261,10 @@ describe('InferInsert', () => {
       id: string
       optionalNullable?: string | null
       nullableOptional?: string | null
+      exactOptional?: string
+      undefinedable: string
       nonOptionalNullableOptional: string | null
-      nonNullableOptionalNullable?: string
+      nonNullableOptionalNullable: string
       nonNullishNullableOptional: string
     }>()
   })

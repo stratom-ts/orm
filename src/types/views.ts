@@ -20,15 +20,19 @@ type UnwrapSchema<S> = S extends {
   ? UnwrapSchema<W>
   : S extends { kind: 'schema'; type: 'nullable'; wrapped: infer W }
     ? UnwrapSchema<W>
-    : S extends { kind: 'schema'; type: 'nullish'; wrapped: infer W }
+    : S extends { kind: 'schema'; type: 'exact_optional'; wrapped: infer W }
       ? UnwrapSchema<W>
-      : S extends { kind: 'schema'; type: 'non_optional'; wrapped: infer W }
+      : S extends { kind: 'schema'; type: 'undefinedable'; wrapped: infer W }
         ? UnwrapSchema<W>
-        : S extends { kind: 'schema'; type: 'non_nullable'; wrapped: infer W }
+        : S extends { kind: 'schema'; type: 'nullish'; wrapped: infer W }
           ? UnwrapSchema<W>
-          : S extends { kind: 'schema'; type: 'non_nullish'; wrapped: infer W }
+          : S extends { kind: 'schema'; type: 'non_optional'; wrapped: infer W }
             ? UnwrapSchema<W>
-            : S
+            : S extends { kind: 'schema'; type: 'non_nullable'; wrapped: infer W }
+              ? UnwrapSchema<W>
+              : S extends { kind: 'schema'; type: 'non_nullish'; wrapped: infer W }
+                ? UnwrapSchema<W>
+                : S
 
 type ColumnMetaOf<S> =
   UnwrapSchema<S> extends {
@@ -82,17 +86,18 @@ type HasDefaultValue<S> = [ColumnMetaOf<S>] extends [never]
 /** Optional / nullish → omit-on-insert (not necessarily SQL NULL). */
 type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }
   ? true
-  : S extends { kind: 'schema'; type: 'nullish' }
+  : S extends { kind: 'schema'; type: 'exact_optional' }
     ? true
-    : S extends { kind: 'schema'; type: 'non_optional' | 'non_nullish' }
-      ? false
+    : S extends { kind: 'schema'; type: 'nullish' }
+      ? true
       : S extends {
             kind: 'schema'
-            type: 'nullable' | 'non_nullable'
-            wrapped: infer W
+            type: 'undefinedable' | 'non_optional' | 'non_nullable' | 'non_nullish'
           }
-        ? IsOptionalSchema<W>
-        : false
+        ? false
+        : S extends { kind: 'schema'; type: 'nullable'; wrapped: infer W }
+          ? IsOptionalSchema<W>
+          : false
 
 /** SQL NULL-capable: nullable / nullish only (not plain optional). */
 type IsSqlNullableSchema<S> = S extends { kind: 'schema'; type: 'nullable' }
@@ -103,7 +108,7 @@ type IsSqlNullableSchema<S> = S extends { kind: 'schema'; type: 'nullable' }
       ? false
       : S extends {
             kind: 'schema'
-            type: 'optional' | 'non_optional'
+            type: 'optional' | 'exact_optional' | 'undefinedable' | 'non_optional'
             wrapped: infer W
           }
         ? IsSqlNullableSchema<W>
