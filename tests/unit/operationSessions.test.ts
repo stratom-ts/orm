@@ -999,6 +999,7 @@ describe('client root-operation coordination', () => {
       failSession: 1,
       beforeRelease: (session) => {
         if (session !== 1) return Promise.resolve()
+
         releaseStarted.resolve()
         return releaseFirst.promise
       },

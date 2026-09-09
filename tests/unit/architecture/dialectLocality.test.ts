@@ -23,6 +23,7 @@ const SHARED_EXECUTION_PATHS = [
 function sourceFiles(path: string): string[] {
   const absolute = join(ROOT, path)
   if (absolute.endsWith('.ts')) return [absolute]
+
   return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
     const child = join(absolute, entry.name)
     return entry.isDirectory()
@@ -78,6 +79,7 @@ function isConcreteDialectImport(specifier: string): boolean {
   const offset = normalized.indexOf(marker)
 
   if (offset === -1) return false
+
   const module = normalized.slice(offset + marker.length)
   return !['catalog', 'resolve', 'types'].includes(module)
 }
@@ -95,10 +97,14 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   if (ts.isImportDeclaration(node)) {
     const clause = node.importClause
     if (!clause) return '*'
+
     if (clause.isTypeOnly) return undefined
+
     if (clause.name) return clause.name.text
+
     const bindings = clause.namedBindings
     if (!bindings) return undefined
+
     if (ts.isNamespaceImport(bindings)) return bindings.name.text
 
     return bindings.elements.find(
@@ -111,9 +117,12 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   }
 
   if (!ts.isExportDeclaration(node) || node.isTypeOnly) return undefined
+
   const exports = node.exportClause
   if (!exports) return '*'
+
   if (ts.isNamespaceExport(exports)) return exports.name.text
+
   return exports.elements.find(
     (element) =>
       !element.isTypeOnly &&
@@ -126,6 +135,7 @@ function concreteDialectReference(node: ts.Node): string | undefined {
 
   if (specifier) {
     if (isConcreteDialectImport(specifier.text)) return specifier.text
+
     if (isDialectBarrel(specifier.text)) return nonAllowlistedBarrelRuntimeMember(node)
   }
 
@@ -145,6 +155,7 @@ function concreteDialectReference(node: ts.Node): string | undefined {
 
 function rootIdentifier(node: ts.Expression): string | undefined {
   if (ts.isIdentifier(node)) return node.text
+
   if (ts.isParenthesizedExpression(node)) return rootIdentifier(node.expression)
 
   if (
@@ -254,6 +265,7 @@ function containsDialectPolicySelector(node: ts.Node): boolean {
 
 function physicalSqlText(node: ts.StringLiteralLike | ts.TemplateExpression): string {
   if (!ts.isTemplateExpression(node)) return node.text
+
   return [
     node.head.text,
     ...node.templateSpans.flatMap((span) => ['${value}', span.literal.text]),
@@ -275,6 +287,7 @@ function containsProperty(node: ts.Node, property: string): boolean {
 
 function memberCollectionName(node: ts.Expression): string | undefined {
   if (!ts.isIdentifier(node)) return undefined
+
   return /(?:column|index)(?:names?)?$/i.test(node.text) ||
     /(?:columns|indexes|columnnames|indexnames)/i.test(node.text)
     ? node.text

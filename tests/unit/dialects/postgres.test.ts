@@ -48,6 +48,7 @@ function catalogFixtureView(snapshot: CatalogSnapshot) {
   const tables = snapshot.namespaces.items.flatMap((namespace) =>
     namespace.relations.items.flatMap((relation) => {
       if (relation.table.state !== 'present') return []
+
       const table = relation.table.value
       const schema = relation.identity.namespace.find(({ role }) => role === 'schema')!
         .identifier.spelling
@@ -130,7 +131,9 @@ function catalogFixtureView(snapshot: CatalogSnapshot) {
 
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
+
   if (left > right) return 1
+
   return 0
 }
 

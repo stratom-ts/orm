@@ -157,6 +157,7 @@ function resolveColumnDataType(
 
   const selected = columnMetadata?.physicalType?.[dialect.id]
   if (selected !== undefined) return String(selected)
+
   return String(dialect.schema.inferColumnType(schema))
 }
 
@@ -173,6 +174,7 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
   >
   const columnSchema = entries[columnName]
   if (!columnSchema || columnSchema.kind !== 'schema') return undefined
+
   return getColumnMetadata(columnSchema as Parameters<typeof getColumnMetadata>[0])
 }
 
@@ -206,6 +208,7 @@ export function createValueMapper(
   const columnTypes = (handle: TableHandle): Record<string, string> => {
     const cached = typeCache.get(handle)
     if (cached) return cached
+
     const types: Record<string, string> = {}
 
     for (const name of Object.keys(handle.getSchema().entries)) {
@@ -226,6 +229,7 @@ export function createValueMapper(
    */
   const mapParam = (handle: TableHandle, column: string, value: unknown): unknown => {
     if (value === undefined) return value
+
     const meta = columnMeta(handle, column)
     if (meta?.mapParam) return meta.mapParam(value)
 

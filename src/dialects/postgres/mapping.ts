@@ -28,7 +28,9 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value
+
     if (typeof value !== 'string' && typeof value !== 'number') return value
+
     const date = new Date(value)
     return Number.isNaN(date.getTime()) ? value : date
   }
@@ -78,11 +80,13 @@ export function mapPostgresParamValue(dataType: string, value: unknown): unknown
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value.toISOString()
+
     return value
   }
 
   if (base === 'json' || base === 'jsonb') {
     if (typeof value !== 'string') return JSON.stringify(value)
+
     return value
   }
 

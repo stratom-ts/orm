@@ -38,7 +38,9 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
  */
 function inferPostgresStringType(constraints: StringConstraints): SqlDataType {
   if (constraints.maxLength === undefined) return 'text'
+
   if (constraints.maxLength <= 255) return `varchar(${constraints.maxLength})`
+
   return 'text'
 }
 
@@ -74,9 +76,11 @@ function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
  */
 function inferPostgresLiteralType(literal: Literal) {
   if (typeof literal === 'string') return 'text'
+
   if (typeof literal === 'number')
     return Number.isInteger(literal) ? 'integer' : 'double precision'
   if (typeof literal === 'boolean') return 'boolean'
+
   return 'text'
 }
 
@@ -127,6 +131,7 @@ export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
       return 'boolean'
     default:
       if (JSON_SHAPED_SCHEMA_TYPES.has(baseSchema.type)) return 'jsonb'
+
       throw new SchemaError({
         message: `cannot infer a SQL column type for a "${baseSchema.type}" schema; specify it explicitly with column({ physicalType: { postgresql: ... } })`,
       })

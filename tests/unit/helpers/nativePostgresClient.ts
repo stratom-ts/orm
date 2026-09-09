@@ -32,6 +32,7 @@ function normalizeQueryStart(sql: string): string {
     if (sql.startsWith('/*', offset)) {
       const closing = sql.indexOf('*/', offset + 2)
       if (closing === -1) return sql.slice(offset)
+
       offset = closing + 2
       continue
     }

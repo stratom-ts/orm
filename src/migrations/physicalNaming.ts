@@ -339,6 +339,7 @@ export function physicalNameScopeKey(
 ): string {
   const scope = profile.scope(kind)
   if (scope === 'namespaceRelations') return `${scope}:${namespaceKey(owner)}`
+
   return `${scope}:${JSON.stringify(identityTuple(owner))}`
 }
 

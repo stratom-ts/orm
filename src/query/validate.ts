@@ -13,7 +13,9 @@ import { ValidationError } from '@/utils/error'
  */
 function isOmitOptionalSchema(schema: AnySchema): boolean {
   if (schema.type === 'optional' || schema.type === 'nullish') return true
+
   if (schema.type === 'non_optional' || schema.type === 'non_nullish') return false
+
   return 'wrapped' in schema && schema.wrapped
     ? isOmitOptionalSchema(schema.wrapped as AnySchema)
     : false
@@ -35,8 +37,10 @@ function isDirectlyOmitOptionalSchema(schema: AnySchema): boolean {
  */
 function isInsertOptional(schema: AnySchema): boolean {
   if (isOmitOptionalSchema(schema)) return true
+
   const meta = getColumnMetadata(schema)
   if (!meta) return false
+
   const generation = meta.generation
 
   if (generation?.kind === 'identity' && generation.mode === 'byDefault') {
@@ -44,6 +48,7 @@ function isInsertOptional(schema: AnySchema): boolean {
   }
 
   if (meta.databaseDefault !== undefined) return true
+
   return false
 }
 

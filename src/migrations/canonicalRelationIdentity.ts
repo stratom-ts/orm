@@ -80,7 +80,9 @@ function createRegistryNode<T>(): RegistryNode<T> {
  */
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
+
   if (left > right) return 1
+
   return 0
 }
 
@@ -251,6 +253,7 @@ export function createCanonicalRelationIdentityModule(options: {
       const rightSegment = right.namespace[index]!
       const role = compareCodeUnits(leftSegment.role, rightSegment.role)
       if (role !== 0) return role
+
       const identifier = compareCodeUnits(
         leftSegment.identifier.comparisonKey,
         rightSegment.identifier.comparisonKey,
@@ -260,6 +263,7 @@ export function createCanonicalRelationIdentityModule(options: {
 
     const namespaceLength = left.namespace.length - right.namespace.length
     if (namespaceLength !== 0) return namespaceLength
+
     return compareCodeUnits(left.relation.comparisonKey, right.relation.comparisonKey)
   }
 
@@ -286,6 +290,7 @@ export function createCanonicalRelationIdentityModule(options: {
 
         if (!byIdentifier) {
           if (!create) return undefined
+
           byIdentifier = new Map()
           node.children.set(part.role, byIdentifier)
         }
@@ -294,6 +299,7 @@ export function createCanonicalRelationIdentityModule(options: {
 
         if (!child) {
           if (!create) return undefined
+
           child = createRegistryNode<T>()
           byIdentifier.set(part.comparisonKey, child)
         }

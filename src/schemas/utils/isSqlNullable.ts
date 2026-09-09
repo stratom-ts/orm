@@ -9,6 +9,7 @@ function pipeAllowsNull(schema: AnySchema): boolean {
   const pipeItems = (schema as { pipe: unknown[] }).pipe
   return pipeItems.some((item) => {
     if (!item || typeof item !== 'object' || !('type' in item)) return false
+
     const actionType = (item as { type: string }).type
     return actionType === 'nullish' || actionType === 'nullable'
   })

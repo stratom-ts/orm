@@ -74,6 +74,7 @@ function isDescendantScope(
 
   while (scope) {
     if (scope === ancestor) return true
+
     scope = scope.parent
   }
 
@@ -390,6 +391,7 @@ export function createDatabase<
     }
 
     if (closePromise) return closePromise
+
     closed = true
     return (closePromise = coordinator.close())
   }

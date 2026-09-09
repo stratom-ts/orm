@@ -81,6 +81,7 @@ function mapJoinsParams(
   joins: readonly JoinAst[] | undefined,
 ): readonly JoinAst[] | undefined {
   if (!joins || joins.length === 0) return joins
+
   return joins.map((join) => ({
     ...join,
     on: mapPredicateParams(query, handles, mapper, join.on)!,
@@ -274,6 +275,7 @@ function mapWriteParams(
   values: readonly (readonly unknown[])[],
 ): readonly (readonly unknown[])[] {
   if (!mapper) return values
+
   return values.map((row) =>
     row.map((value, i) => {
       const col = columns[i]!
@@ -300,6 +302,7 @@ function mapSetParams(
   set: readonly { readonly column: string; readonly value: unknown }[],
 ): readonly { readonly column: string; readonly value: unknown }[] {
   if (!mapper) return set
+
   return set.map((item) => ({
     column: item.column,
     value: mapper.mapParam(handle, item.column, item.value),
@@ -330,6 +333,7 @@ function mapPredicateParams(
     case 'cmp': {
       // Column-vs-column join/on predicates have no bound params.
       if (pred.right || pred.value === null) return pred
+
       const handle = findHandle(query, handles, pred.relation)
       const column = findColumn(query, handle, pred.column, pred.relation)
 
@@ -387,6 +391,7 @@ function findHandle(
   relation: RelationIdentityInput | undefined,
 ): TableHandle {
   if (!relation) return handles[0]!
+
   const matches = query.findRelationMatches(relation, handles)
 
   if (matches.length === 1) return matches[0]!
@@ -527,6 +532,7 @@ function mapSelectedRows(
 ): unknown[] {
   return rows.map((row) => {
     if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
+
     const output: Record<string, unknown> = {}
 
     for (const [key, value] of Object.entries(row)) {
@@ -930,6 +936,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
+
     return result
   }
 
@@ -1133,6 +1140,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   const executeTakeFirst = async () => {
     const result = await execute()
     if (returning) return (result as unknown[])[0]
+
     return result
   }
 

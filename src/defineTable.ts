@@ -168,6 +168,7 @@ function validateColumnOptions(
 ): void {
   const metadata = getColumnMetadata(colSchema)
   if (!metadata) return
+
   const hasDefault = metadata.databaseDefault !== undefined
   const hasGeneration = metadata.generation !== undefined
 

@@ -339,6 +339,7 @@ describe('migration ownership', () => {
         resolveMigrationOwnership([SqliteUsers], declarations, sqliteIdentities),
       )
       if (!resolution.ok) return (resolution.error as Error).message
+
       throw new InvariantError('Expected ownership resolution to fail')
     }
 

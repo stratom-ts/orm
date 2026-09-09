@@ -73,6 +73,7 @@ export function registerMigrationCoordinationContract(
         tryAcquire(owner, key) {
           const current = owners.get(key)
           if (current !== undefined) return current === owner
+
           owners.set(key, owner)
           return true
         },

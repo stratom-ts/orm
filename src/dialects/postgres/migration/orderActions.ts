@@ -264,6 +264,7 @@ function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
     }
 
     if (lowLinks[node] !== indexes[node]) return
+
     const component: number[] = []
     let member: number
 
@@ -321,5 +322,6 @@ export function orderActions(
   const dependencies = actionDependencies(drafts, planned)
   const ordered = topologicalOrder(drafts, dependencies)
   if (ordered.length === drafts.length) return { ordered, issues: [] }
+
   return { ordered: [], issues: cycleIssues(drafts, dependencies) }
 }

@@ -230,7 +230,9 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
  */
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
+
   if (left > right) return 1
+
   return 0
 }
 
@@ -293,6 +295,7 @@ function compareNamespaces(
   for (let index = 0; index < length; index++) {
     const role = compareCodeUnits(left[index]!.role, right[index]!.role)
     if (role !== 0) return role
+
     const identifier = compareCodeUnits(
       left[index]!.identifier.comparisonKey,
       right[index]!.identifier.comparisonKey,
@@ -319,7 +322,9 @@ function targetNamespace(target: MigrationTarget): readonly CanonicalNamespaceSe
  */
 function targetMember(target: MigrationTarget): CanonicalIdentifier | undefined {
   if (target.kind === 'column') return target.column
+
   if (target.kind === 'index') return target.index
+
   return undefined
 }
 
@@ -392,8 +397,10 @@ function comparePlanningIssues(
 ): number {
   const relation = identities.compare(left.identity, right.identity)
   if (relation !== 0) return relation
+
   const target = compareCodeUnits(left.target, right.target)
   if (target !== 0) return target
+
   return (
     ISSUE_PROPERTY_ORDER[left.property] - ISSUE_PROPERTY_ORDER[right.property] ||
     compareCodeUnits(left.message, right.message)
@@ -515,6 +522,7 @@ function defaultMismatch(
   planning: MigrationPlanningContext,
 ): string | undefined {
   if (live.defaultExpression === undefined) return
+
   const expected =
     desired.databaseDefault?.normalized ??
     (desired.defaultValue === undefined
@@ -548,6 +556,7 @@ function identityMismatch(
   desired: LoweredDesiredColumn,
 ): string | undefined {
   if (live.identityGeneration === undefined) return
+
   const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
 
   if (live.identityGeneration !== expected) {
@@ -706,6 +715,7 @@ function collectUniqueConstraintIssues({
   liveColumns,
 }: ManagedConstraintIssueCollection): void {
   if (live.uniqueConstraints === undefined) return
+
   const identity = live.identity
   const expected = desired.columns.filter(
     (column) => column.unique && liveColumns.has(column.identifier.comparisonKey),
@@ -771,6 +781,7 @@ function collectForeignKeyIssues({
   liveColumns,
 }: ManagedConstraintIssueCollection): void {
   if (live.foreignKeys === undefined) return
+
   const identity = live.identity
   const tableName = identities.format(identity)
   const expected = desired.columns
@@ -1100,6 +1111,7 @@ function uniqueCatalogIndexes(
     )
     .flatMap(({ index, identifier }) => {
       if (comparisonKeys.has(identifier.comparisonKey)) return []
+
       comparisonKeys.add(identifier.comparisonKey)
       return [index]
     })
@@ -1514,6 +1526,7 @@ function appendDroppedColumns(
   identities: CanonicalRelationIdentityModule,
 ): void {
   if (shape !== 'complete') return
+
   const desiredNames = new Set(
     desired.columns.map((column) => column.identifier.comparisonKey),
   )

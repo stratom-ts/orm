@@ -84,12 +84,18 @@ function dollarQuoteDelimiter(sql: string, offset: number): string | undefined {
 /** Reports whether a statement requires a connection cleanup after execution. */
 function statementRequiresCleanup(statement: Statement): boolean {
   if (statement.advisory) return true
+
   const [first, second] = statement.words
   if (!first) return true
+
   if (TRANSACTION_STARTS.has(first)) return true
+
   if (first === 'start') return true
+
   if (first === 'prepare' && second === 'transaction') return true
+
   if (first === 'set' && second === 'transaction') return true
+
   return !PLAIN_STARTS.has(first)
 }
 
@@ -246,6 +252,7 @@ class PostgresSqlScanner {
 
     const parameter = /^\$(\d+)/.exec(this.sql.slice(this.#index))
     if (!parameter) return false
+
     const parameterIndex = Number(parameter[1])
 
     if (!Number.isSafeInteger(parameterIndex) || parameterIndex < 1) {

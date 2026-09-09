@@ -178,6 +178,7 @@ function lowerGeneration(
   generation: ColumnGeneration | undefined,
 ): 'always' | 'byDefault' | undefined {
   if (!generation) return
+
   if (generation.kind === 'identity') return generation.mode
 
   if (generation.kind === 'computed') {
@@ -224,6 +225,7 @@ function validateReferencePhysicalType(
 ): void {
   const selected = column.metadata?.physicalType?.postgresql
   if (selected === undefined) return
+
   const localType = assertSafePostgresDataType(String(selected))
 
   if (normalizePostgresDataType(localType) !== normalizePostgresDataType(inheritedType)) {

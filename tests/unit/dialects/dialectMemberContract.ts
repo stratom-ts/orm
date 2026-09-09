@@ -337,6 +337,7 @@ export function registerDialectMemberContract(
     it('reconciles case-folded members and preserves structured database references', () => {
       const runtime = createRuntime()
       if (runtime.expected.memberComparison !== 'caseFolded') return
+
       const namespace = [{ role: 'database' as const, spelling: 'fixture_db' }]
       const Parents = defineTable(
         'contract_parents',
@@ -701,6 +702,7 @@ export function registerDialectMemberContract(
     it('routes case-folded query relation and member semantics through the selected member', async () => {
       const runtime = createRuntime()
       if (runtime.expected.memberComparison !== 'caseFolded') return
+
       const unregister = registerDialectForTest(runtime.dialect)
       const namespace = [{ role: 'database' as const, spelling: 'fixture_db' }]
       const CanonicalRecords = defineTable(
@@ -881,6 +883,7 @@ export function registerDialectMemberContract(
       }
 
       if (!(await executeScenario('applied'))) return
+
       expect(await executeScenario('unchanged')).toBe(true)
     })
   })
