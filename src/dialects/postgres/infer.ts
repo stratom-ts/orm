@@ -1,9 +1,7 @@
 import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 
-import { getBaseSchema } from '@/schemas/utils/getBaseSchema'
-import { getNumberConstraints } from '@/schemas/utils/getNumberConstraints'
-import { getStringConstraints } from '@/schemas/utils/getStringConstraints'
-import { unwrapDeep } from '@/schemas/utils/unwrapDeep'
+import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
+import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
@@ -97,18 +95,18 @@ function inferPostgresLiteralType(literal: Literal) {
  *
  * @throws SchemaError when the schema type cannot be inferred
  */
-export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
-  const baseSchema = getBaseSchema(schema)
-  const unwrapped = unwrapDeep(schema)
+export function inferPostgresColumnType(
+  schema: AnySchema,
+  analysis: SchemaAnalysis = analyzeSchema(schema),
+): SqlDataType {
+  const baseSchema = analysis.baseSchema
 
   switch (baseSchema.type) {
     case 'string': {
-      const constraints = getStringConstraints(unwrapped)
-      return inferPostgresStringType(constraints)
+      return inferPostgresStringType(analysis.stringConstraints)
     }
     case 'number': {
-      const constraints = getNumberConstraints(unwrapped)
-      return inferPostgresNumberType(constraints)
+      return inferPostgresNumberType(analysis.numberConstraints)
     }
     case 'literal': {
       const literalSchema = baseSchema as LiteralSchema<

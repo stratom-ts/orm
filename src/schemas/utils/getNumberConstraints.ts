@@ -1,6 +1,8 @@
 import type { NumberConstraints } from '@/types/constraints'
 import type { AnySchema, AnySchemaAsync } from '@/types/schema'
 
+import { analyzeSchema } from './analyzeSchema'
+
 /**
  * Reads min/max value and integer constraints from a number schema pipe.
  *
@@ -15,25 +17,5 @@ import type { AnySchema, AnySchemaAsync } from '@/types/schema'
 export function getNumberConstraints(
   schema: AnySchema | AnySchemaAsync,
 ): NumberConstraints {
-  const constraints: NumberConstraints = {}
-
-  if ('pipe' in schema && Array.isArray((schema as { pipe: unknown[] }).pipe)) {
-    const pipeItems = (schema as { pipe: unknown[] }).pipe.slice(1)
-
-    for (const item of pipeItems) {
-      if (item && typeof item === 'object' && item !== null && 'type' in item) {
-        const action = item as { type: string; requirement?: number }
-
-        if (action.type === 'min_value') {
-          constraints.minValue = action.requirement
-        } else if (action.type === 'max_value') {
-          constraints.maxValue = action.requirement
-        } else if (action.type === 'integer' || action.type === 'safe_integer') {
-          constraints.isInteger = true
-        }
-      }
-    }
-  }
-
-  return constraints
+  return analyzeSchema(schema as AnySchema).numberConstraints
 }

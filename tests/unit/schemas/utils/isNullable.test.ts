@@ -1,4 +1,17 @@
-import { nullable, nullish, object, optional, pipe, string, title } from 'valibot'
+import {
+  exactOptional,
+  nonNullable,
+  nonNullish,
+  nonOptional,
+  nullable,
+  nullish,
+  object,
+  optional,
+  pipe,
+  string,
+  title,
+  undefinedable,
+} from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { isNullable } from '@/index'
@@ -18,6 +31,17 @@ describe('isNullable', () => {
 
   it('should return true for nullish wrapper', () => {
     expect(isNullable(nullish(string()))).toBe(true)
+  })
+
+  it('should follow exactOptional and undefinedable wrappers', () => {
+    expect(isNullable(exactOptional(string()))).toBe(true)
+    expect(isNullable(undefinedable(string()))).toBe(true)
+  })
+
+  it('should preserve only values accepted by final non-* wrappers', () => {
+    expect(isNullable(nonOptional(nullable(optional(string()))))).toBe(true)
+    expect(isNullable(nonNullable(nullable(optional(string()))))).toBe(true)
+    expect(isNullable(nonNullish(nullable(optional(string()))))).toBe(false)
   })
 
   it('should return true when nullable is in a pipe', () => {

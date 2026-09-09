@@ -4,6 +4,7 @@ import {
   boolean,
   date,
   enum as enumSchema,
+  exactOptional,
   integer,
   length,
   literal,
@@ -11,12 +12,16 @@ import {
   maxValue,
   minLength,
   minValue,
+  nonNullable,
+  nonNullish,
+  nonOptional,
   number,
   object,
   picklist,
   pipe,
   record,
   string,
+  undefinedable,
   union,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
@@ -195,6 +200,18 @@ describe('@/dialects/postgres', () => {
       expect(inferColumnType(pipe(string(), minLength(5), maxLength(10)))).toBe(
         'varchar(10)',
       )
+    })
+
+    it('should preserve constraints through every wrapper family', () => {
+      const schemas = [
+        exactOptional(pipe(string(), maxLength(40))),
+        undefinedable(pipe(string(), maxLength(40))),
+        nonOptional(pipe(string(), maxLength(40))),
+        nonNullable(pipe(string(), maxLength(40))),
+        nonNullish(pipe(string(), maxLength(40))),
+      ]
+
+      for (const schema of schemas) expect(inferColumnType(schema)).toBe('varchar(40)')
     })
   })
 

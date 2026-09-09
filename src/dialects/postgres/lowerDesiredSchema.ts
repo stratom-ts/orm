@@ -8,7 +8,8 @@ import type {
 } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
-import { isSqlNullable } from '@/schemas'
+import { analyzeSchema } from '@/schemas'
+import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import { MigrationError } from '@/utils/error'
 
 import { inferPostgresColumnType } from './infer'
@@ -203,10 +204,10 @@ function lowerGeneration(
  *
  * @param column - Authored desired column.
  */
-function physicalType(column: AuthoredDesiredColumn): string {
+function physicalType(column: AuthoredDesiredColumn, analysis: SchemaAnalysis): string {
   const metadata = column.metadata
   const selected =
-    metadata?.physicalType?.postgresql ?? inferPostgresColumnType(column.schema)
+    metadata?.physicalType?.postgresql ?? inferPostgresColumnType(column.schema, analysis)
   return assertSafePostgresDataType(String(selected))
 }
 
@@ -289,6 +290,7 @@ function lowerColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
   dataType: string,
+  analysis: SchemaAnalysis,
 ): LoweredDesiredColumn {
   const generated = validatePostgresColumn(table, column, dataType)
   const primaryKey = Array.isArray(table.metadata.primaryKey)
@@ -298,7 +300,7 @@ function lowerColumn(
   return Object.freeze({
     identifier: column.identifier,
     dataType,
-    notNull: !isSqlNullable(column.schema),
+    notNull: !analysis.nullable,
     unique:
       (column.metadata?.unique ?? false) &&
       !(primaryKey.length === 1 && primaryKey[0] === column.name),
@@ -336,6 +338,7 @@ export function lowerPostgresDesiredSchema(
   graph: AuthoredDesiredSchema,
 ): LoweredDesiredSchema {
   const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
+  const analyses = new Map<AuthoredDesiredColumn, SchemaAnalysis>()
 
   for (const table of graph.tables) {
     if (table.columns.length === 0) {
@@ -345,7 +348,9 @@ export function lowerPostgresDesiredSchema(
     }
 
     for (const column of orderedColumns(table)) {
-      if (!column.reference) resolvedTypes.set(column, physicalType(column))
+      const analysis = analyzeSchema(column.schema)
+      analyses.set(column, analysis)
+      if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
     }
   }
 
@@ -408,7 +413,10 @@ export function lowerPostgresDesiredSchema(
 
   for (const table of graph.tables) {
     for (const column of orderedColumns(table)) {
-      loweredColumns.set(column, lowerColumn(table, column, resolvedTypes.get(column)!))
+      loweredColumns.set(
+        column,
+        lowerColumn(table, column, resolvedTypes.get(column)!, analyses.get(column)!),
+      )
     }
   }
 

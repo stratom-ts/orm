@@ -10,6 +10,7 @@ import type {
   TableSchema,
 } from '@/schemas'
 import {
+  analyzeSchema,
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
@@ -266,10 +267,11 @@ function validateOptionalColumn(
   columnName: string,
   colSchema: AnySchema,
 ): void {
-  if (colSchema.type !== 'optional' || isSqlNullable(colSchema)) return
+  const analysis = analyzeSchema(colSchema)
+  if (!analysis.omitOnInsert || analysis.nullable) return
 
   const metadata = getColumnMetadata(colSchema)
-  const schemaDefault = (colSchema as AnySchema & { default?: unknown }).default
+  const schemaDefault = analysis.schemaDefault
 
   if (
     (metadata?.databaseDefault?.kind === 'literal' &&

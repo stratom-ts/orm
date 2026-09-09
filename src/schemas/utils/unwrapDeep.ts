@@ -2,6 +2,8 @@ import { unwrap } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
 
+import { analyzeSchema } from './analyzeSchema'
+
 /**
  * Recursively unwraps optional/nullable/nullish wrappers.
  *
@@ -17,11 +19,5 @@ import type { AnySchema } from '@/types/schema'
 export function unwrapDeep<TSchema extends Parameters<typeof unwrap>[0]>(
   schema: AnySchema | TSchema,
 ): TSchema['wrapped'] {
-  const unwrapped = 'wrapped' in schema ? unwrap(schema) : (schema as TSchema)
-
-  if ('wrapped' in unwrapped) {
-    return unwrapDeep(unwrapped)
-  }
-
-  return unwrapped
+  return analyzeSchema(schema as AnySchema).unwrappedSchema as TSchema['wrapped']
 }
