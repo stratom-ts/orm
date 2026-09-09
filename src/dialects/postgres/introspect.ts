@@ -62,7 +62,6 @@ function unsupported(reason: string): CatalogNoEvidence {
  */
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
-
   if (left > right) return 1
 
   return 0
@@ -183,9 +182,7 @@ function nullableStringAt(
 function booleanAt(row: Row, key: string, query: string, index: number): boolean {
   const value = row[key]
   if (typeof value === 'boolean') return value
-
   if (value === 1 || value === '1' || value === 'YES' || value === 't') return true
-
   if (value === 0 || value === '0' || value === 'NO' || value === 'f') return false
 
   throw new InvariantError(
@@ -487,7 +484,6 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
 
   if (dataType === 'numeric' || dataType === 'decimal') {
     if (precision !== null && scale !== null) return `numeric(${precision},${scale})`
-
     if (precision !== null) return `numeric(${precision})`
 
     return 'numeric'
@@ -495,9 +491,7 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
 
   const alias = POSTGRES_CATALOG_TYPE_ALIASES.get(udt)
   if (alias) return alias
-
   if (dataType === 'timestamp without time zone') return 'timestamp'
-
   if (dataType === 'timestamp with time zone') return 'timestamptz'
 
   return udt || dataType
@@ -535,13 +529,9 @@ function referentialAction(
  */
 function relationKind(value: string) {
   if (value === 'r') return 'table' as const
-
   if (value === 'p') return 'partitionedTable' as const
-
   if (value === 'v') return 'view' as const
-
   if (value === 'm') return 'materializedView' as const
-
   if (value === 'f') return 'foreignTable' as const
 
   throw new InvariantError(
@@ -556,9 +546,7 @@ function relationKind(value: string) {
  */
 function persistence(value: string) {
   if (value === 'p') return 'permanent' as const
-
   if (value === 't') return 'temporary' as const
-
   if (value === 'u') return 'unlogged' as const
 
   throw new InvariantError(
@@ -710,7 +698,6 @@ function createRelationRegistry(
 /** Reports whether one PostgreSQL constraint has portable semantics. */
 function hasSupportedConstraintSemantics(row: Row, type: string, index: number): boolean {
   if (booleanAt(row, 'is_deferrable', 'constraint', index)) return false
-
   if (booleanAt(row, 'initially_deferred', 'constraint', index)) return false
 
   if (type === 'p' || type === 'u') {
@@ -731,7 +718,6 @@ function hasSupportedConstraintSemantics(row: Row, type: string, index: number):
 /** Reports whether one PostgreSQL constraint and its backing index are valid. */
 function constraintIsValid(row: Row, type: string, index: number): boolean {
   if (!booleanAt(row, 'is_valid', 'constraint', index)) return false
-
   if (type !== 'p' && type !== 'u') return true
 
   return booleanAt(row, 'backing_index_is_valid', 'constraint', index)

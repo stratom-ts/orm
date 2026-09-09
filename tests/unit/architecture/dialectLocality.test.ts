@@ -97,14 +97,11 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   if (ts.isImportDeclaration(node)) {
     const clause = node.importClause
     if (!clause) return '*'
-
     if (clause.isTypeOnly) return undefined
-
     if (clause.name) return clause.name.text
 
     const bindings = clause.namedBindings
     if (!bindings) return undefined
-
     if (ts.isNamespaceImport(bindings)) return bindings.name.text
 
     return bindings.elements.find(
@@ -120,7 +117,6 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
 
   const exports = node.exportClause
   if (!exports) return '*'
-
   if (ts.isNamespaceExport(exports)) return exports.name.text
 
   return exports.elements.find(
@@ -135,7 +131,6 @@ function concreteDialectReference(node: ts.Node): string | undefined {
 
   if (specifier) {
     if (isConcreteDialectImport(specifier.text)) return specifier.text
-
     if (isDialectBarrel(specifier.text)) return nonAllowlistedBarrelRuntimeMember(node)
   }
 
@@ -155,7 +150,6 @@ function concreteDialectReference(node: ts.Node): string | undefined {
 
 function rootIdentifier(node: ts.Expression): string | undefined {
   if (ts.isIdentifier(node)) return node.text
-
   if (ts.isParenthesizedExpression(node)) return rootIdentifier(node.expression)
 
   if (

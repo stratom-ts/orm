@@ -51,7 +51,6 @@ function executor(
       if (sql.includes('as relation_kind')) {
         relationQueries++
         if (options.raced) return []
-
         if (options.deleted && relationQueries > 1) return []
 
         const rows = [

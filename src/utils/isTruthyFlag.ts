@@ -15,7 +15,6 @@
  */
 export function isTruthyFlag(value: unknown): boolean {
   if (typeof value === 'boolean') return value
-
   if (typeof value === 'number') return Number.isFinite(value) && value !== 0
 
   if (typeof value === 'string') {

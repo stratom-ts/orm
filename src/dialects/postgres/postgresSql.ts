@@ -87,13 +87,9 @@ function statementRequiresCleanup(statement: Statement): boolean {
 
   const [first, second] = statement.words
   if (!first) return true
-
   if (TRANSACTION_STARTS.has(first)) return true
-
   if (first === 'start') return true
-
   if (first === 'prepare' && second === 'transaction') return true
-
   if (first === 'set' && second === 'transaction') return true
 
   return !PLAIN_STARTS.has(first)

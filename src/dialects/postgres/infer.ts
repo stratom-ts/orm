@@ -38,7 +38,6 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
  */
 function inferPostgresStringType(constraints: StringConstraints): SqlDataType {
   if (constraints.maxLength === undefined) return 'text'
-
   if (constraints.maxLength <= 255) return `varchar(${constraints.maxLength})`
 
   return 'text'

@@ -173,7 +173,6 @@ function compareCapabilityIssues(
   if (codeOrder !== 0) return codeOrder
 
   if (left.message < right.message) return -1
-
   if (left.message > right.message) return 1
 
   return 0

@@ -139,7 +139,6 @@ export function assertSafePostgresDataType(dataType: string): string {
  */
 export function formatPostgresDefault(value: string | number | boolean | null): string {
   if (value === null) return 'null'
-
   if (typeof value === 'boolean') return value ? 'true' : 'false'
 
   if (typeof value === 'number') {

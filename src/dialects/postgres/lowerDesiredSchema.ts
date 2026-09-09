@@ -178,7 +178,6 @@ function lowerGeneration(
   generation: ColumnGeneration | undefined,
 ): 'always' | 'byDefault' | undefined {
   if (!generation) return
-
   if (generation.kind === 'identity') return generation.mode
 
   if (generation.kind === 'computed') {

@@ -331,7 +331,6 @@ function comparisonSql(op: ComparisonOp): string {
  */
 function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
-
   if (returning.kind === 'all') return ' returning *'
 
   if (returning.columns.length === 0) {
@@ -404,7 +403,6 @@ function compilePredicate(
 
       if (pred.value === null) {
         if (pred.op === 'eq') return `${left} is null`
-
         if (pred.op === 'neq') return `${left} is not null`
 
         throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })

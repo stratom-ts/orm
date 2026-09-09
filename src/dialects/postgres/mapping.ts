@@ -28,7 +28,6 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value
-
     if (typeof value !== 'string' && typeof value !== 'number') return value
 
     const date = new Date(value)

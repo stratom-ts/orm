@@ -12,7 +12,6 @@
  */
 export function toNumberOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
-
   if (typeof value === 'symbol') return null
 
   const n = typeof value === 'number' ? value : Number(value)

@@ -113,6 +113,24 @@ describe('Oxlint whitespace rule', () => {
 `)
   })
 
+  it('keeps consecutive single-line early returns together', async () => {
+    const source = `export function example(first?: string, second?: string) {
+  if (!first) return
+  if (!second) return
+  use(first, second)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(first?: string, second?: string) {
+  if (!first) return
+  if (!second) return
+
+  use(first, second)
+}
+`)
+  })
+
   it('keeps a related variable declaration with the multiline block that consumes it', async () => {
     const source = `export function example() {
   const request = createRequest()

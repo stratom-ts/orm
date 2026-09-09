@@ -167,13 +167,9 @@ function harness(
 
   const semanticEvent = (query: { sql: string }): CoordinationContractEvent => {
     if (/pg_try_advisory_lock/i.test(query.sql)) return 'acquire'
-
     if (/pg_advisory_unlock/i.test(query.sql)) return 'release'
-
     if (/\b(?:begin|commit|rollback)\b/i.test(query.sql)) return 'transaction'
-
     if (/count\(\*\)/i.test(query.sql)) return 'introspection'
-
     if (/create table/i.test(query.sql)) return 'ddl'
 
     return 'transaction'
