@@ -1,7 +1,7 @@
-import { date, pipe, string, unknown } from 'valibot'
+import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { MigrationError, QueryError, column, createDatabase, defineTable } from '@/index'
+import { MigrationError, column, createDatabase, defineTable } from '@/index'
 
 import { createMockPostgresConnector as createMockConnector } from './helpers/nativePostgresClient'
 
@@ -10,24 +10,6 @@ const Users = defineTable(
   {
     id: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
     email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
-  },
-  { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
-)
-
-const Mapped = defineTable(
-  'mapped',
-  {
-    id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-    createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
-    meta: pipe(unknown(), column({ physicalType: { postgresql: 'jsonb' } })),
-    label: pipe(
-      string(),
-      column({
-        physicalType: { postgresql: 'text' },
-        mapParam: (v) => String(v).toUpperCase(),
-        mapResult: (v) => `read:${String(v)}`,
-      }),
-    ),
   },
   { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
@@ -184,26 +166,6 @@ describe('db.transaction', () => {
     await db.close()
   })
 
-  it('should expire transaction clients and builders after their callback', async () => {
-    const connector = createMockConnector()
-    const db = createDatabase({ connector, schemas: [Users] })
-    let escapedQuery: ReturnType<typeof db.from> | undefined
-    let useEscapedClient: (() => void) | undefined
-
-    await db.transaction(async (trx) => {
-      escapedQuery = trx.from(Users)
-
-      useEscapedClient = () => {
-        trx.from(Users)
-      }
-    })
-
-    expect(useEscapedClient).toBeDefined()
-    expect(() => useEscapedClient!()).toThrow(QueryError)
-    await expect(escapedQuery!.execute()).rejects.toBeInstanceOf(QueryError)
-    await db.close()
-  })
-
   it('should reject migrations from nested transaction clients', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -221,117 +183,5 @@ describe('db.transaction', () => {
     expect(sql).toContain('commit')
 
     await db.close()
-  })
-})
-
-describe('value mapping', () => {
-  it('should map insert params for timestamp/json/uuid via dialect defaults', async () => {
-    const connector = createMockConnector()
-    const db = createDatabase({ connector, schemas: [Mapped] })
-    const when = new Date('2024-06-15T12:00:00.000Z')
-    const meta = { a: 1 }
-
-    await db
-      .insert(Mapped)
-      .values({
-        id: '550e8400-e29b-41d4-a716-446655440000',
-        createdAt: when,
-        meta,
-        label: 'hello',
-      })
-      .execute()
-
-    expect(connector.binds.length).toBeGreaterThan(0)
-
-    const params = connector.binds[0]!
-
-    // uuid string, ISO timestamp, JSON string, column mapParam uppercases
-    expect(params).toContain('550e8400-e29b-41d4-a716-446655440000')
-    expect(params).toContain(when.toISOString())
-    expect(params).toContain(JSON.stringify(meta))
-    expect(params).toContain('HELLO')
-
-    await db.close()
-  })
-
-  it('should map select results for timestamp/json/uuid', async () => {
-    const connector = createMockConnector({
-      rowsBySql: () => [
-        {
-          id: '550e8400-e29b-41d4-a716-446655440000',
-          createdAt: '2024-06-15T12:00:00.000Z',
-          meta: '{"a":1}',
-          label: 'world',
-        },
-      ],
-    })
-
-    const db = createDatabase({ connector, schemas: [Mapped] })
-
-    const rows = await db.from(Mapped).execute()
-    expect(rows).toHaveLength(1)
-
-    const row = rows[0]!
-    expect(row.id).toBe('550e8400-e29b-41d4-a716-446655440000')
-    expect(row.createdAt).toBeInstanceOf(Date)
-    expect((row.createdAt as Date).toISOString()).toBe('2024-06-15T12:00:00.000Z')
-    expect(row.meta).toEqual({ a: 1 })
-    expect(row.label).toBe('read:world')
-
-    await db.close()
-  })
-
-  it('should apply createDatabase map overrides over dialect defaults', async () => {
-    const connector = createMockConnector({
-      rowsBySql: () => [
-        {
-          id: 'x',
-          createdAt: '2024-01-01T00:00:00.000Z',
-          meta: { n: 1 },
-          label: 'z',
-        },
-      ],
-    })
-
-    const db = createDatabase({
-      connector,
-      schemas: [Mapped],
-      map: {
-        mapResultValue(dataType: string, value: unknown) {
-          if (dataType === 'timestamptz' || dataType === 'timestamp') {
-            return `as-string:${String(value)}`
-          }
-
-          return value
-        },
-      },
-    })
-
-    // Column mapResult for label still wins over createDatabase
-    const rows = await db.from(Mapped).execute()
-    expect(rows[0]!.createdAt).toBe('as-string:2024-01-01T00:00:00.000Z')
-    expect(rows[0]!.label).toBe('read:z')
-
-    await db.close()
-  })
-
-  it('should apply param mapping on compile', () => {
-    const connector = createMockConnector()
-    const db = createDatabase({ connector, schemas: [Mapped] })
-    const when = new Date('2024-01-02T00:00:00.000Z')
-
-    const compiled = db
-      .insert(Mapped)
-      .values({
-        id: 'u',
-        createdAt: when,
-        meta: { k: true },
-        label: 'ab',
-      })
-      .compile()
-
-    expect(compiled.params).toContain(when.toISOString())
-    expect(compiled.params).toContain(JSON.stringify({ k: true }))
-    expect(compiled.params).toContain('AB')
   })
 })

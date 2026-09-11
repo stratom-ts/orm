@@ -1,7 +1,7 @@
-import { object, pipe, string, title } from 'valibot'
+import { metadata, nullable, object, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { SchemaError, getTableMetadata, table } from '@/index'
+import { SchemaError, getTableMetadata, isTableMetadata, table } from '@/index'
 
 export const relationOptionTypeCoverage = () => {
   table({
@@ -87,6 +87,45 @@ describe('table action', () => {
     })
   })
 
+  it('copies the authored namespace list so later list edits cannot retarget a table', () => {
+    const namespace = [{ role: 'schema' as const, spelling: 'audit' }]
+    const action = table({ name: 'events', primaryKey: 'id', namespace })
+
+    namespace.push({ role: 'schema', spelling: 'other' })
+
+    expect((action.metadata as Record<string, unknown>).relation).toEqual({
+      namespace: [{ role: 'schema', spelling: 'audit' }],
+      relation: 'events',
+    })
+  })
+
+  it('preserves namespace role, order, and spelling as distinct authored intent', () => {
+    const schemaThenDatabase = table({
+      name: 'events',
+      primaryKey: 'id',
+      namespace: [
+        { role: 'schema', spelling: 'Audit' },
+        { role: 'database', spelling: 'tenant' },
+      ],
+    })
+    const databaseThenSchema = table({
+      name: 'events',
+      primaryKey: 'id',
+      namespace: [
+        { role: 'database', spelling: 'tenant' },
+        { role: 'schema', spelling: 'audit' },
+      ],
+    })
+
+    expect(schemaThenDatabase.metadata.relation).not.toEqual(
+      databaseThenSchema.metadata.relation,
+    )
+    expect(schemaThenDatabase.metadata.relation.namespace).toEqual([
+      { role: 'schema', spelling: 'Audit' },
+      { role: 'database', spelling: 'tenant' },
+    ])
+  })
+
   it('rejects malformed namespace intent', () => {
     expect(() =>
       table({
@@ -112,6 +151,20 @@ describe('table action', () => {
         namespace: 'app' as never,
       } as never),
     ).toThrow(SchemaError)
+    expect(() =>
+      table({
+        name: 'events',
+        primaryKey: 'id',
+        namespace: [null],
+      } as never),
+    ).toThrow(/segments must be objects/i)
+    expect(() =>
+      table({
+        name: 'events',
+        primaryKey: 'id',
+        namespace: [{ role: 'tenant', spelling: 'app' }],
+      } as never),
+    ).toThrow(/unsupported namespace role tenant/i)
   })
 
   it('should accept composite primary keys and index configs', () => {
@@ -164,5 +217,35 @@ describe('getTableMetadata', () => {
 
   it('should return undefined for a plain string schema', () => {
     expect(getTableMetadata(string())).toBeUndefined()
+  })
+
+  it('does not confuse non-table or malformed metadata for table metadata', () => {
+    expect(
+      getTableMetadata(pipe(object({ id: string() }), metadata({ kind: 'column' }))),
+    ).toBeUndefined()
+    expect(
+      getTableMetadata(pipe(object({ id: string() }), metadata({ kind: 7 }))),
+    ).toBeUndefined()
+  })
+
+  it('has a stable unsupported result for a table schema hidden by a wrapper', () => {
+    const schema = nullable(
+      pipe(
+        object({ id: string() }),
+        title('accounts'),
+        table({ name: 'accounts', primaryKey: 'id' }),
+      ),
+    )
+
+    expect(getTableMetadata(schema)).toBeUndefined()
+  })
+})
+
+describe('isTableMetadata', () => {
+  it('matches only the table discriminant for public metadata inspection', () => {
+    expect(isTableMetadata({ kind: 'table', name: 'accounts' })).toBe(true)
+    expect(isTableMetadata({ kind: 'column', name: 'accounts' })).toBe(false)
+    expect(isTableMetadata({ name: 'accounts', primaryKey: 'id' })).toBe(false)
+    expect(isTableMetadata(undefined)).toBe(false)
   })
 })

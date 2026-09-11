@@ -1,7 +1,7 @@
-import { pipe, string } from 'valibot'
+import { metadata, nullable, optional, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { column, getColumnMetadata } from '@/index'
+import { column, getColumnMetadata, isColumnMetadata } from '@/index'
 
 describe('column action', () => {
   it('should create column metadata action with correct kind', () => {
@@ -51,5 +51,42 @@ describe('getColumnMetadata', () => {
     const metadata = getColumnMetadata(schema)
     expect(metadata).toBeDefined()
     expect(metadata!.physicalType).toEqual({ postgresql: 'varchar(255)' })
+  })
+
+  it('does not confuse another metadata kind for local column options', () => {
+    const schema = pipe(string(), metadata({ kind: 'reference', target: {} }))
+
+    expect(getColumnMetadata(schema)).toBeUndefined()
+  })
+
+  it('finds the nearest local column metadata through nested pipes and wrappers', () => {
+    const schema = nullable(
+      optional(
+        pipe(
+          pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+          column({ unique: true }),
+        ),
+      ),
+    )
+
+    expect(getColumnMetadata(schema)).toEqual({ kind: 'column', unique: true })
+  })
+
+  it('ignores malformed metadata actions instead of treating them as columns', () => {
+    const schema = pipe(
+      string(),
+      metadata({ kind: 42, physicalType: { postgresql: 'integer' } }),
+    )
+
+    expect(getColumnMetadata(schema)).toBeUndefined()
+  })
+})
+
+describe('isColumnMetadata', () => {
+  it('matches only the column discriminant for public metadata inspection', () => {
+    expect(isColumnMetadata({ kind: 'column', unique: true })).toBe(true)
+    expect(isColumnMetadata({ kind: 'reference' })).toBe(false)
+    expect(isColumnMetadata({ physicalType: { postgresql: 'text' } })).toBe(false)
+    expect(isColumnMetadata(undefined)).toBe(false)
   })
 })
