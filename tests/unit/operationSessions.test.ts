@@ -21,7 +21,7 @@ import {
   getOperationReleaseCleanupFailures,
 } from '@/operations/coordinator'
 
-import { registerOperationSessionProviderContract } from './dialects/operationSessionProviderContract'
+import { registerDialectContractKit } from './dialects/dialectContractKit'
 import type { ProviderContractFactoryOptions } from './dialects/operationSessionProviderContract'
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 
@@ -377,32 +377,71 @@ function customConnector(): Connector {
   }
 }
 
-registerOperationSessionProviderContract(
-  'custom connector adaptation',
-  createControllableProvider,
-  {
-    connector: customConnector,
-    appliedSchemas: () => [
-      defineTable(
-        'provider_contract_events',
-        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-        { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
-      ),
-    ],
-    planningFailureSchemas: () => [
-      defineTable(
-        'provider_planning_events',
-        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-        { primaryKey: 'id' },
-      ),
-      defineTable(
-        'provider_planning_events',
-        { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-        { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
-      ),
-    ],
+registerDialectContractKit({
+  name: 'PostgreSQL custom connector adaptation',
+  operationSession: {
+    common: {
+      state: 'supported',
+      input: {
+        createRuntime() {
+          const controls = createControllableProvider()
+          return {
+            provider: controls.provider,
+            events: () =>
+              controls.events.flatMap((event) => {
+                if (event === 'call:1:contract query') return ['query' as const]
+                if (event === 'call:1:contract run') return ['run' as const]
+                if (event === 'cancel:1') return ['cancel' as const]
+                if (event === 'release-end:1:reuse') return ['release:reuse' as const]
+                if (event === 'provider-close') return ['close' as const]
+                return []
+              }),
+          }
+        },
+      },
+    },
+    controlled: {
+      state: 'supported',
+      input: {
+        createProvider: createControllableProvider,
+        migration: {
+          connector: customConnector,
+          appliedSchemas: () => [
+            defineTable(
+              'provider_contract_events',
+              {
+                id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+              },
+              {
+                primaryKey: 'id',
+                namespace: [{ role: 'schema', spelling: 'public' }],
+              },
+            ),
+          ],
+          planningFailureSchemas: () => [
+            defineTable(
+              'provider_planning_events',
+              {
+                id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+              },
+              { primaryKey: 'id' },
+            ),
+            defineTable(
+              'provider_planning_events',
+              {
+                id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+              },
+              {
+                primaryKey: 'id',
+                namespace: [{ role: 'schema', spelling: 'public' }],
+              },
+            ),
+          ],
+        },
+      },
+    },
   },
-)
+})
 
 describe('db0 PostgreSQL operation sessions', () => {
   it('proves identity at every lease and after reuse cleanup', async () => {

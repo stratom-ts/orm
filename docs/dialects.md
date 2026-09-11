@@ -223,14 +223,87 @@ and adding that dispatcher registration. Do not add a runtime plugin registry or
 database-specific logic to Client, Schema, Query, Migration, or Operations.
 
 The private `registerDialectForTest()` seam exists only for isolated contract tests. It
-is deliberately not a package export. Maintainers can adapt their member to the reusable
-`tests/unit/dialects/dialectMemberContract.ts` suite, and connector/session adaptations to
-`tests/unit/dialects/operationSessionProviderContract.ts`. The member contract exercises the
-observable `createDatabase({ connector, ... })` lifecycle and accepts explicit catalog
-no-evidence and unsupported migration capabilities. The provider contract verifies
-identity, serialized lifecycle and shutdown, cancellation, discard, cleanup
-preservation, and—when its migration scenarios are supplied—`applied` and `unchanged`
-outcome preservation.
+is deliberately not a package export. A test adapter registers shared behavior through
+`tests/unit/dialects/dialectContractKit.ts`. Fixed runners own the identity, naming,
+desired-schema, query, catalog, operation-session, coordination, migration, and lifecycle
+scenarios and assertions. Adapters supply typed Dialect inputs, narrow physical-query
+observations where required, and independent semantic expected results. They cannot
+replace a shared scenario with an adapter-authored test.
+
+Each facet, or its named sub-contract, is `supported` with typed input or `unsupported`
+with a reason. Catalog inputs state the exact expected evidence for namespaces, relation
+owners, generated identity, and rich objects, so one catalog can mix supported and
+unsupported evidence. Operation-session inputs separately declare the common lifecycle
+and controlled failure-path suites. Coordination accepts only the shared semantic runtime
+factory or an unsupported reason. Migration accepts a lowering and Semantic Profile
+validation case plus an explicit supported or unsupported lowering-limit case.
+
+The minimum form for one facet is:
+
+```typescript
+registerDialectContractKit({
+  name: 'ExampleDB',
+  identity: {
+    state: 'supported',
+    input: {
+      dialect: exampleDialect,
+      context: exampleNamespaceContext,
+      relation: { relation: 'records' },
+      expected: {
+        namespace: [
+          {
+            role: 'database',
+            identifier: { spelling: 'example', comparisonKey: 'example' },
+          },
+        ],
+        relation: { spelling: 'records', comparisonKey: 'records' },
+      },
+    },
+  },
+  coordination: {
+    state: 'unsupported',
+    reason: 'ExampleDB has no cross-client lock primitive',
+  },
+})
+```
+
+An adapter can register facets in several test files when their fixtures differ. A
+complete Dialect supplies every applicable facet across those registrations. Supply
+`lifecycle: { state: 'supported', input: createRuntime }` once. That runner performs
+exactly one public connector-selected smoke for query routing, migration outcome, and
+cleanup. Detailed checks stay in the fixed facet runners.
+
+The complete registration shape is:
+
+```typescript
+registerDialectContractKit({
+  name: 'ExampleDB',
+  identity: { state: 'supported', input: identityInput },
+  naming: { state: 'supported', input: namingInput },
+  desiredSchema: { state: 'supported', input: desiredSchemaInput },
+  query: {
+    core: { state: 'supported', input: queryInput },
+    valueMapping: { state: 'supported', input: valueMappingInput },
+  },
+  catalog: { state: 'supported', input: catalogInput },
+  operationSession: {
+    common: { state: 'supported', input: commonSessionInput },
+    controlled: { state: 'supported', input: controlledSessionInput },
+  },
+  coordination: { state: 'supported', input: coordinationRuntimeFactory },
+  migration: {
+    state: 'supported',
+    input: {
+      lowering: migrationLoweringInput,
+      unsupportedLowering: {
+        state: 'unsupported',
+        reason: 'ExampleDB lowers every shared Migration Plan case',
+      },
+    },
+  },
+  lifecycle: { state: 'supported', input: createLifecycleRuntime },
+})
+```
 
 The minimal test member in `tests/unit/helpers/extensionContractDialect.ts` demonstrates the
 extension boundary. It supplies every Dialect facet, is selected only by its connector,

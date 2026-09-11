@@ -11,11 +11,11 @@ import {
 } from '@/migrations/coordinationScope'
 import type { Executor } from '@/query'
 
+import { registerDialectContractKit } from './dialectContractKit'
 import type {
   CoordinationContractEvent,
   CoordinationContractLockManager,
 } from './migrationCoordinationContract'
-import { registerMigrationCoordinationContract } from './migrationCoordinationContract'
 
 const relation = {
   namespace: [
@@ -191,22 +191,28 @@ function harness(
   }
 }
 
-registerMigrationCoordinationContract('PostgreSQL', (options) => {
-  const runtime = harness({
-    applicationId: options?.applicationId,
-    clientId: options?.clientId,
-    lockResults: options?.lockResults,
-    releaseResults: options?.releaseResults,
-    noWork: options?.noWork,
-    holdAfterTransaction: options?.holdAfterTransaction,
-    sharedLockManager: options?.sharedLockManager,
-  })
-  return {
-    execute: (options) => runtime.execute(undefined, options),
-    events: runtime.events,
-    releaseHold: runtime.releaseHold,
-    waitFor: runtime.waitFor,
-  }
+registerDialectContractKit({
+  name: 'PostgreSQL',
+  coordination: {
+    state: 'supported',
+    input(options) {
+      const runtime = harness({
+        applicationId: options?.applicationId,
+        clientId: options?.clientId,
+        lockResults: options?.lockResults,
+        releaseResults: options?.releaseResults,
+        noWork: options?.noWork,
+        holdAfterTransaction: options?.holdAfterTransaction,
+        sharedLockManager: options?.sharedLockManager,
+      })
+      return {
+        execute: (options) => runtime.execute(undefined, options),
+        events: runtime.events,
+        releaseHold: runtime.releaseHold,
+        waitFor: runtime.waitFor,
+      }
+    },
+  },
 })
 
 describe('PostgreSQL migration runtime failures', () => {
