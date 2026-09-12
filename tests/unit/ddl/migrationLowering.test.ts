@@ -70,21 +70,108 @@ function lower(planned: PlannedMigration, profile = expectedProfile): MigrationP
 }
 
 describe('PostgreSQL whole-plan lowering', () => {
+  it('lowers an empty plan to an exact zero-action program', () => {
+    const planned = plan()
+
+    expect(
+      postgresDialect.migration!.lower(
+        { ...planned, plan: { steps: [] } },
+        expectedProfile,
+      ),
+    ).toEqual({
+      program: {
+        atomicity: 'plan-atomic',
+        preconditions: [],
+        actions: [],
+      },
+    })
+  })
+
+  it('lowers one semantic step to one exact action with its source provenance', () => {
+    const planned = plan()
+    const audit = planned.identities.resolveNamespace([
+      { role: 'schema', spelling: 'audit' },
+    ])
+
+    expect(
+      postgresDialect.migration!.lower(
+        {
+          ...planned,
+          plan: {
+            steps: [
+              {
+                kind: 'ensure_namespace',
+                target: { kind: 'namespace', namespace: audit },
+              },
+            ],
+          },
+        },
+        expectedProfile,
+      ),
+    ).toEqual({
+      program: {
+        atomicity: 'plan-atomic',
+        preconditions: [],
+        actions: [
+          {
+            sourceStepIndexes: [0],
+            transaction: 'required',
+            statements: [{ sql: 'create schema if not exists "audit"', params: [] }],
+          },
+        ],
+      },
+    })
+  })
+
   it('compiles a plan-atomic program with canonical source provenance', () => {
     const program = lower(plan())
 
-    expect(program.atomicity).toBe('plan-atomic')
-    expect(program.preconditions).toEqual([])
-    expect(program.actions.map((action) => action.sourceStepIndexes)).toEqual([
-      [0],
-      [1],
-      [2],
-      [3],
-    ])
-    expect(program.actions.every((action) => action.transaction === 'required')).toBe(
-      true,
-    )
-    expect(program.actions.every((action) => action.statements.length > 0)).toBe(true)
+    expect(program).toEqual({
+      atomicity: 'plan-atomic',
+      preconditions: [],
+      actions: [
+        {
+          sourceStepIndexes: [0],
+          transaction: 'required',
+          statements: [
+            {
+              sql: 'create table "public"."posts" ("id" uuid not null, "authorId" uuid not null, constraint "posts_id__974c7fecddd5ce59_pkey" primary key ("id"))',
+              params: [],
+            },
+          ],
+        },
+        {
+          sourceStepIndexes: [1],
+          transaction: 'required',
+          statements: [
+            {
+              sql: 'create table "public"."users" ("id" uuid not null, "email" text not null constraint "users_email__fbe036e21ce3ec59_key" unique, constraint "users_id__c2b82cf39bf9f504_pkey" primary key ("id"))',
+              params: [],
+            },
+          ],
+        },
+        {
+          sourceStepIndexes: [2],
+          transaction: 'required',
+          statements: [
+            {
+              sql: 'create index "users_email__2532f63e0a33e664_idx" on "public"."users" ("email")',
+              params: [],
+            },
+          ],
+        },
+        {
+          sourceStepIndexes: [3],
+          transaction: 'required',
+          statements: [
+            {
+              sql: 'alter table "public"."posts" add constraint "posts_authorId__6c2aebd50afe2836_fkey" foreign key ("authorId") references "public"."users" ("id") on delete CASCADE',
+              params: [],
+            },
+          ],
+        },
+      ],
+    })
   })
 
   it('removes fresh foreign keys from table creation and defers them until both tables exist', () => {
@@ -115,22 +202,109 @@ describe('PostgreSQL whole-plan lowering', () => {
       registrationDefault: [{ role: 'database', spelling: 'other' }],
     })
 
-    expect(result.program).toBeUndefined()
-    expect(
-      result.issues?.filter((issue) => issue.code === 'profile_mismatch'),
-    ).toHaveLength(4)
-    expect(
-      result.issues?.filter((issue) => issue.code === 'invalid_target'),
-    ).toHaveLength(5)
-    expect(
-      postgresDialect.migration!.lower(plan(), {
-        identityAdapter: 'sqlite',
-        namespaceContext: {
-          writableDefault: [{ role: 'database', spelling: 'production' }],
+    expect(result).toEqual({
+      issues: [
+        {
+          code: 'profile_mismatch',
+          message: "Executing profile adapter 'sqlite' does not match PostgreSQL",
+          sourceStepIndexes: [],
         },
-        registrationDefault: [{ role: 'database', spelling: 'other' }],
-      }),
-    ).toEqual(result)
+        {
+          code: 'profile_mismatch',
+          message:
+            "Identity adapter 'postgresql' does not match executing adapter 'sqlite'",
+          sourceStepIndexes: [],
+        },
+        {
+          code: 'profile_mismatch',
+          message: 'Registration default does not match the executing configuration',
+          sourceStepIndexes: [],
+        },
+        {
+          code: 'profile_mismatch',
+          message: 'Writable namespace context does not match the executing session',
+          sourceStepIndexes: [],
+        },
+        {
+          code: 'invalid_target',
+          message: 'Executing PostgreSQL profile has no canonical database segment',
+          sourceStepIndexes: [0],
+        },
+        {
+          code: 'invalid_target',
+          message: 'Executing PostgreSQL profile has no canonical database segment',
+          sourceStepIndexes: [1],
+        },
+        {
+          code: 'invalid_target',
+          message: 'Executing PostgreSQL profile has no canonical database segment',
+          sourceStepIndexes: [2],
+        },
+        {
+          code: 'invalid_target',
+          message: 'Executing PostgreSQL profile has no canonical database segment',
+          sourceStepIndexes: [3],
+        },
+        {
+          code: 'invalid_target',
+          message: 'Executing PostgreSQL profile has no canonical database segment',
+          sourceStepIndexes: [3],
+        },
+      ],
+    })
+  })
+
+  it.each([
+    {
+      field: 'identity adapter',
+      plannedProfile: {
+        ...expectedProfile,
+        identityAdapter: 'sqlite-fixture',
+      },
+      executingProfile: expectedProfile,
+      message:
+        "Identity adapter 'sqlite-fixture' does not match executing adapter 'postgresql'",
+    },
+    {
+      field: 'writable namespace context',
+      plannedProfile: expectedProfile,
+      executingProfile: {
+        ...expectedProfile,
+        namespaceContext: {
+          writableDefault: [
+            { role: 'database' as const, spelling: 'test' },
+            { role: 'schema' as const, spelling: 'tenant' },
+          ],
+        },
+      },
+      message: 'Writable namespace context does not match the executing session',
+    },
+    {
+      field: 'registration default',
+      plannedProfile: expectedProfile,
+      executingProfile: {
+        ...expectedProfile,
+        registrationDefault: [{ role: 'schema' as const, spelling: 'tenant' }],
+      },
+      message: 'Registration default does not match the executing configuration',
+    },
+  ])('rejects a mismatched $field without returning a program', (testCase) => {
+    const planned = plan()
+
+    expect(
+      postgresDialect.migration!.lower(
+        { ...planned, profile: testCase.plannedProfile },
+        testCase.executingProfile,
+      ),
+    ).toEqual({
+      issues: [
+        {
+          code: 'profile_mismatch',
+          message: testCase.message,
+          sourceStepIndexes: [],
+        },
+      ],
+    })
   })
 
   it('treats an empty registration default as none', () => {
@@ -166,22 +340,70 @@ describe('PostgreSQL whole-plan lowering', () => {
     ).toBeUndefined()
   })
 
-  it('returns every deterministic issue and no program for a missing desired table', () => {
+  it('returns every deterministic issue and no partial program for malformed steps', () => {
     const planned = plan()
-    const withoutRegistrations: PlannedMigration = {
+    const users = planned.identities.resolve({ relation: 'users' })
+    const otherDatabase = {
+      ...users,
+      namespace: users.namespace.map((segment) =>
+        segment.role === 'database'
+          ? {
+              ...segment,
+              identifier: { spelling: 'other', comparisonKey: 'other' },
+            }
+          : segment,
+      ),
+    }
+    const malformed: PlannedMigration = {
       ...planned,
+      plan: {
+        steps: [
+          {
+            kind: 'drop_table',
+            target: { kind: 'relation', relation: otherDatabase },
+          },
+          {
+            kind: 'create_table',
+            target: { kind: 'relation', relation: users },
+          },
+          {
+            kind: 'alter_column_type',
+            target: {
+              kind: 'column',
+              relation: users,
+              column: planned.identities.member('column', 'email'),
+            },
+            dataType: 'text; select 1',
+          },
+        ],
+      },
       desiredTables: planned.identities.createRegistry(),
     }
-    const result = postgresDialect.migration!.lower(withoutRegistrations, {
-      ...expectedProfile,
-      identityAdapter: 'sqlite',
-    })
+    const result = postgresDialect.migration!.lower(malformed, expectedProfile)
 
-    expect(result.program).toBeUndefined()
-    expect(result.issues?.some((issue) => issue.code === 'profile_mismatch')).toBe(true)
-    expect(
-      result.issues?.filter((issue) => issue.code === 'missing_desired_table'),
-    ).toHaveLength(2)
+    expect(result).toEqual({
+      issues: [
+        {
+          code: 'invalid_target',
+          message:
+            'Migration target namespace database "other" does not match executing database "test"',
+          sourceStepIndexes: [0],
+        },
+        {
+          code: 'missing_desired_table',
+          message:
+            'Cannot create table [database:"test", schema:"public", relation:"users"]: lowered desired table not found',
+          sourceStepIndexes: [1],
+        },
+        {
+          code: 'compile_failure',
+          message:
+            'Cannot compile migration step 2: unsafe column data type: "text; select 1"',
+          sourceStepIndexes: [2],
+        },
+      ],
+    })
+    expect(postgresDialect.migration!.lower(malformed, expectedProfile)).toEqual(result)
   })
 
   it('orders child table drops before retained catalog parents', () => {

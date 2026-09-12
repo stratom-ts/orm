@@ -105,12 +105,18 @@ describe('catalog evidence', () => {
   })
 
   it('requires complete empty coverage before creating a relation', () => {
-    expect(
-      planMigration([Users], emptyCatalog(), postgresDialect).plan.steps,
-    ).toContainEqual({
-      kind: 'create_table',
-      target: relationTarget('public', 'users'),
+    const empty = emptyCatalog()
+    const original = structuredClone(empty)
+
+    expect(planMigration([Users], empty, postgresDialect).plan).toEqual({
+      steps: [
+        {
+          kind: 'create_table',
+          target: relationTarget('public', 'users'),
+        },
+      ],
     })
+    expect(empty).toEqual(original)
 
     const incomplete: CatalogSnapshot = {
       ...emptyCatalog(),
@@ -136,32 +142,119 @@ describe('catalog evidence', () => {
   })
 
   it('fails closed for every non-complete collection coverage state', () => {
-    const states = [
-      { state: 'unsupported' as const, by: 'adapter' as const, reason: 'gap' },
+    const cases = [
       {
-        state: 'unavailable' as const,
-        cause: 'permission' as const,
-        reason: 'hidden',
+        coverage: {
+          state: 'unsupported' as const,
+          by: 'adapter' as const,
+          reason: 'gap',
+        },
+        evidence: 'unsupported by adapter',
       },
       {
+        coverage: {
+          state: 'unavailable' as const,
+          cause: 'permission' as const,
+          reason: 'hidden',
+        },
+        evidence: 'unavailable (permission)',
+      },
+      {
+        coverage: {
+          state: 'unavailable' as const,
+          cause: 'version' as const,
+          actual: '1',
+          requires: '2',
+        },
+        evidence: 'unavailable (version)',
+      },
+      {
+        coverage: { state: 'unmanaged' as const, reason: 'outside ownership' },
+        evidence: 'unmanaged',
+      },
+      {
+        coverage: { state: 'unknown' as const, reason: 'raced' },
+        evidence: 'unknown',
+      },
+    ]
+
+    for (const { coverage, evidence } of cases) {
+      const catalog: CatalogSnapshot = {
+        ...emptyCatalog(),
+        namespaces: { items: [], coverage },
+      }
+      const original = structuredClone(catalog)
+
+      expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
+        `Incomplete catalog coverage for requested namespaces: ${evidence}`,
+      )
+      expect(catalog).toEqual(original)
+    }
+  })
+
+  it.each([
+    {
+      state: 'absent',
+      fact: { state: 'absent' as const },
+      evidence: 'absent',
+    },
+    {
+      state: 'engine unsupported',
+      fact: {
+        state: 'unsupported' as const,
+        by: 'engine' as const,
+        reason: 'engine has no type metadata',
+      },
+      evidence: 'unsupported by engine',
+    },
+    {
+      state: 'adapter unsupported',
+      fact: {
+        state: 'unsupported' as const,
+        by: 'adapter' as const,
+        reason: 'adapter cannot decode the type',
+      },
+      evidence: 'unsupported by adapter',
+    },
+    {
+      state: 'permission unavailable',
+      fact: {
+        state: 'unavailable' as const,
+        cause: 'permission' as const,
+        reason: 'metadata is hidden',
+      },
+      evidence: 'unavailable (permission)',
+    },
+    {
+      state: 'version unavailable',
+      fact: {
         state: 'unavailable' as const,
         cause: 'version' as const,
         actual: '1',
         requires: '2',
       },
-      { state: 'unmanaged' as const, reason: 'outside ownership' },
-      { state: 'unknown' as const, reason: 'raced' },
-    ]
+      evidence: 'unavailable (version)',
+    },
+    {
+      state: 'unknown',
+      fact: { state: 'unknown' as const, reason: 'catalog query raced' },
+      evidence: 'unknown',
+    },
+  ])('reports $state column evidence without mutating the snapshot', (testCase) => {
+    const catalog = usersCatalog()
+    const relation = catalog.namespaces.items[0]!.relations.items[0]!
+    if (relation.table.state !== 'present') throw new Error('expected table fixture')
+    const email = relation.table.value.columns.items.find(
+      (column) => column.name === 'email',
+    )!
+    ;(email as { dataType: typeof email.dataType }).dataType =
+      testCase.fact as typeof email.dataType
+    const original = structuredClone(catalog)
 
-    for (const coverage of states) {
-      const catalog: CatalogSnapshot = {
-        ...emptyCatalog(),
-        namespaces: { items: [], coverage },
-      }
-      expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
-        /incomplete catalog coverage/i,
-      )
-    }
+    expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
+      `Incomplete catalog evidence for [database:"test", schema:"public", relation:"users", column:"email"] type: ${testCase.evidence}`,
+    )
+    expect(catalog).toEqual(original)
   })
 
   it('blocks a managed comparison when one observed fact is unavailable', () => {
@@ -242,6 +335,55 @@ describe('catalog evidence', () => {
     )
   })
 
+  it('allows partial unmanaged remainder for an exact relation request', () => {
+    const catalog = usersCatalog()
+    const namespace = catalog.namespaces.items[0]!
+    ;(namespace as { relations: typeof namespace.relations }).relations = {
+      ...namespace.relations,
+      coverage: {
+        state: 'partial',
+        remainder: { state: 'unmanaged', reason: 'outside the exact relation request' },
+      },
+    }
+    const original = structuredClone(catalog)
+
+    expect(planMigration([Users], catalog, postgresDialect).plan).toEqual({ steps: [] })
+    expect(catalog).toEqual(original)
+  })
+
+  it('rejects partial unmanaged remainder for complete namespace ownership', () => {
+    const catalog = usersCatalog()
+    const namespace = catalog.namespaces.items[0]!
+    const ownership = [
+      {
+        kind: 'completeNamespace' as const,
+        namespace: [{ role: 'schema' as const, spelling: 'public' }],
+      },
+    ]
+    ;(catalog as { request: CatalogSnapshot['request'] }).request = {
+      relations: [],
+      absentRelations: [],
+      completeNamespaces: [namespace.identity],
+    }
+    ;(namespace as { relations: typeof namespace.relations }).relations = {
+      ...namespace.relations,
+      coverage: {
+        state: 'partial',
+        remainder: { state: 'unmanaged', reason: 'outside adapter ownership' },
+      },
+    }
+    const original = structuredClone(catalog)
+
+    expect(() =>
+      planMigration([Users], catalog, postgresDialect, {
+        migrationOwnership: ownership,
+      }),
+    ).toThrow(
+      'Incomplete catalog coverage for relations in namespace [{"role":"database","spelling":"test"},{"role":"schema","spelling":"public"}]: unmanaged',
+    )
+    expect(catalog).toEqual(original)
+  })
+
   it('preserves opaque objects and blocks destructive changes that could lose them', () => {
     const catalog = completePostgresCatalog(
       {
@@ -272,9 +414,12 @@ describe('catalog evidence', () => {
       usersRequest,
     )
 
+    const original = structuredClone(catalog)
+
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
       /opaque catalog objects.*audit trigger/i,
     )
+    expect(catalog).toEqual(original)
   })
 
   it('represents an observed empty namespace without recreating it', () => {
