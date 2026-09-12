@@ -1,4 +1,19 @@
-import { nullable, nullish, number, object, optional, pipe, string, title } from 'valibot'
+import {
+  exactOptional,
+  nonNullable,
+  nonNullish,
+  nonOptional,
+  nullable,
+  nullish,
+  number,
+  object,
+  optional,
+  pipe,
+  string,
+  title,
+  undefinedable,
+  union,
+} from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { getBaseSchema } from '@/index'
@@ -33,6 +48,16 @@ describe('getBaseSchema', () => {
     expect(getBaseSchema(wrapped)).toBe(schema)
   })
 
+  it('unwraps every supported presence and nullability wrapper family', () => {
+    const base = string()
+
+    expect(getBaseSchema(exactOptional(base))).toBe(base)
+    expect(getBaseSchema(undefinedable(base))).toBe(base)
+    expect(getBaseSchema(nonOptional(optional(base)))).toBe(base)
+    expect(getBaseSchema(nonNullable(nullable(base)))).toBe(base)
+    expect(getBaseSchema(nonNullish(nullish(base)))).toBe(base)
+  })
+
   it('should extract base schema from a pipe', () => {
     const base = string()
     const schema = pipe(base, title('test'))
@@ -47,5 +72,11 @@ describe('getBaseSchema', () => {
   it('should handle number schema', () => {
     const schema = number()
     expect(getBaseSchema(schema).type).toBe('number')
+  })
+
+  it('returns an unsupported schema family unchanged instead of guessing a base', () => {
+    const unsupported = union([string(), number()])
+
+    expect(getBaseSchema(unsupported)).toBe(unsupported)
   })
 })

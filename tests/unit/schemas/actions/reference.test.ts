@@ -1,4 +1,4 @@
-import { nullable, object, pipe, string, title } from 'valibot'
+import { metadata, nullable, object, optional, pipe, string, title } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -7,6 +7,7 @@ import {
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
+  isReferenceMetadata,
   reference,
   table,
 } from '@/index'
@@ -151,5 +152,47 @@ describe('reference action', () => {
 describe('getReferenceMetadata', () => {
   it('should return undefined for schema without reference metadata', () => {
     expect(getReferenceMetadata(string())).toBeUndefined()
+  })
+
+  it('does not confuse column metadata for a reference', () => {
+    expect(
+      getReferenceMetadata(
+        pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+      ),
+    ).toBeUndefined()
+  })
+
+  it('finds the nearest reference through nested pipes and wrappers', () => {
+    const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
+    const schema = nullable(
+      optional(pipe(reference(Accounts, 'id'), metadata({ note: true }))),
+    )
+
+    expect(getReferenceMetadata(schema)).toEqual({
+      kind: 'reference',
+      target: { relation: { relation: 'accounts' }, column: 'id' },
+    })
+  })
+
+  it('ignores malformed metadata actions instead of treating them as references', () => {
+    const schema = pipe(string(), metadata({ kind: null, target: 'accounts.id' }))
+
+    expect(getReferenceMetadata(schema)).toBeUndefined()
+  })
+})
+
+describe('isReferenceMetadata', () => {
+  it('matches only the reference discriminant for public metadata inspection', () => {
+    expect(
+      isReferenceMetadata({
+        kind: 'reference',
+        target: { relation: { relation: 'accounts' }, column: 'id' },
+      }),
+    ).toBe(true)
+    expect(isReferenceMetadata({ kind: 'column' })).toBe(false)
+    expect(isReferenceMetadata({ target: { relation: 'accounts', column: 'id' } })).toBe(
+      false,
+    )
+    expect(isReferenceMetadata(undefined)).toBe(false)
   })
 })

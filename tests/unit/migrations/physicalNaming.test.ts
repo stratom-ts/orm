@@ -7,7 +7,10 @@ import { column, defineTable, postgresDialect } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import {
   createPhysicalNameRegistry,
+  generatedForeignKeyName,
   generatedIndexName,
+  generatedPrimaryKeyName,
+  generatedUniqueName,
   physicalNameDigest,
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
@@ -63,6 +66,70 @@ describe('generated physical naming', () => {
     ).toBe('users_email__5a64532c865bca5a_idx')
   })
 
+  it('generates fixed names for every constraint seed and referential action', () => {
+    const users = owner('public', 'users')
+    const accounts = owner('public', 'accounts')
+    const omittedActions = generatedForeignKeyName(
+      users,
+      'accountId',
+      accounts,
+      'id',
+      undefined,
+      undefined,
+      POSTGRES_PHYSICAL_NAMING,
+    )
+
+    expect({
+      primaryKey: generatedPrimaryKeyName(users, ['id'], POSTGRES_PHYSICAL_NAMING),
+      unique: generatedUniqueName(users, 'email', POSTGRES_PHYSICAL_NAMING),
+      omittedActions,
+      explicitDefaultActions: generatedForeignKeyName(
+        users,
+        'accountId',
+        accounts,
+        'id',
+        'no action',
+        'no action',
+        POSTGRES_PHYSICAL_NAMING,
+      ),
+      deleteAction: generatedForeignKeyName(
+        users,
+        'accountId',
+        accounts,
+        'id',
+        'cascade',
+        undefined,
+        POSTGRES_PHYSICAL_NAMING,
+      ),
+      updateAction: generatedForeignKeyName(
+        users,
+        'accountId',
+        accounts,
+        'id',
+        undefined,
+        'restrict',
+        POSTGRES_PHYSICAL_NAMING,
+      ),
+      actionForeignKey: generatedForeignKeyName(
+        users,
+        'accountId',
+        accounts,
+        'id',
+        'cascade',
+        'restrict',
+        POSTGRES_PHYSICAL_NAMING,
+      ),
+    }).toEqual({
+      primaryKey: 'users_id__d7178c290e1964b2_pkey',
+      unique: 'users_email__f8b9f95ed39c7e37_key',
+      omittedActions: 'users_accountId__22863605b8dd132c_fkey',
+      explicitDefaultActions: 'users_accountId__22863605b8dd132c_fkey',
+      deleteAction: 'users_accountId__eeeb070e47c9b095_fkey',
+      updateAction: 'users_accountId__146bd2862472ffdf_fkey',
+      actionForeignKey: 'users_accountId__b111b074295440b0_fkey',
+    })
+  })
+
   it('uses structured seeds and does not flatten ambiguous column tuples', () => {
     const relation = owner('public', 'events')
     expect(
@@ -89,6 +156,17 @@ describe('generated physical naming', () => {
     expect(() =>
       validatePhysicalName('invalid\ud800', 'index name', POSTGRES_PHYSICAL_NAMING),
     ).toThrow(/unpaired Unicode surrogates/)
+  })
+
+  it('measures the same Unicode spelling in bytes or scalars as configured', () => {
+    const twoBytes = { ...POSTGRES_PHYSICAL_NAMING, maximumLength: 2 }
+    const twoScalars = { ...SQLITE_PHYSICAL_NAMING_FIXTURE, maximumLength: 2 }
+
+    expect(() => validatePhysicalName('éé', 'name', twoBytes)).toThrow(/2 UTF-8 bytes/)
+    expect(() => validatePhysicalName('éé', 'name', twoScalars)).not.toThrow()
+    expect(() => validatePhysicalName('😀😀😀', 'name', twoScalars)).toThrow(
+      /2 Unicode scalars/,
+    )
   })
 
   it('uses PostgreSQL and SQLite schema-wide scopes but preserves table-local profiles', () => {
@@ -130,6 +208,37 @@ describe('generated physical naming', () => {
         name: 'SAME_IDX',
         token: 'posts',
         description: 'posts index',
+      }),
+    ).not.toThrow()
+  })
+
+  it('makes relation-constraint reservations idempotent and owner-scoped', () => {
+    const users = owner('public', 'users')
+    const posts = owner('public', 'posts')
+    const registry = createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING)
+    const usersForeignKey = {
+      kind: 'foreignKey' as const,
+      owner: users,
+      name: 'shared_fkey',
+      token: 'users.accountId',
+      description: 'users account foreign key',
+    }
+
+    registry.reserve(usersForeignKey)
+    expect(() => registry.reserve(usersForeignKey)).not.toThrow()
+    expect(() =>
+      registry.reserve({
+        ...usersForeignKey,
+        token: 'users.ownerId',
+        description: 'users owner foreign key',
+      }),
+    ).toThrow(/physical name collision.*shared_fkey/i)
+    expect(() =>
+      registry.reserve({
+        ...usersForeignKey,
+        owner: posts,
+        token: 'posts.accountId',
+        description: 'posts account foreign key',
       }),
     ).not.toThrow()
   })

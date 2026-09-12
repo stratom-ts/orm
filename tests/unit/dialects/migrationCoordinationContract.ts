@@ -58,7 +58,7 @@ export function registerMigrationCoordinationContract(
   name: string,
   createRuntime: CoordinationContractFactory,
 ): void {
-  describe(`${name} migration coordination contract`, () => {
+  describe(`${name} Dialect contract [coordination]`, () => {
     it('acquires before protected work and releases in reverse phase order', async () => {
       const runtime = createRuntime({ applicationId: 'contract' })
       await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
