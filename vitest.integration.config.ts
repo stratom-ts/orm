@@ -7,8 +7,8 @@ export default mergeConfig(
   defineConfig({
     test: {
       include: ['tests/integration/**/*.test.ts'],
-      setupFiles: ['tests/integration/postgres.setup.ts'],
-      fileParallelism: true,
+      testTimeout: 45_000,
+      hookTimeout: 40_000,
     },
   }),
 )
