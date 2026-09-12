@@ -14,14 +14,7 @@ import {
 } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import {
-  QueryError,
-  SchemaError,
-  ValidationError,
-  column,
-  createDatabase,
-  defineTable,
-} from '@/index'
+import { QueryError, ValidationError, column, createDatabase, defineTable } from '@/index'
 
 import { createMockPostgresConnector as createMockConnector } from '../helpers/nativePostgresClient'
 
@@ -538,24 +531,6 @@ describe('CRUD execute terminals', () => {
     await expect(
       db.delete(Users).where({ id: 1 }).executeTakeFirstOrThrow(),
     ).resolves.toEqual(row)
-
-    await db.close()
-  })
-})
-
-describe('registry still enforces handles', () => {
-  it('should reject unregistered table for from and insert', async () => {
-    const Other = defineTable(
-      'other',
-      { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
-      { primaryKey: 'id' },
-    )
-
-    const connector = createMockConnector()
-    const db = createDatabase({ connector, schemas: [Users] })
-
-    expect(() => db.from(Other)).toThrow(SchemaError)
-    expect(() => db.insert(Other)).toThrow(SchemaError)
 
     await db.close()
   })

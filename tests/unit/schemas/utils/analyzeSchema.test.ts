@@ -1,4 +1,8 @@
 import {
+  array,
+  bigint,
+  boolean,
+  date,
   enum as enumSchema,
   exactOptional,
   maxLength,
@@ -9,11 +13,13 @@ import {
   nullable,
   nullish,
   number,
+  object,
   optional,
   picklist,
   pipe,
   string,
   undefinedable,
+  union,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -58,5 +64,19 @@ describe('analyzeSchema', () => {
     expect(analyzeSchema(enumSchema({ A: 'a', B: 'b' })).outputKind).toBe('string')
     expect(analyzeSchema(picklist(['a', 1])).outputKind).toBeUndefined()
     expect(analyzeSchema(enumSchema({ A: 'a', B: 1 })).outputKind).toBeUndefined()
+  })
+
+  it('reports every supported scalar and JSON-shaped output family', () => {
+    expect(analyzeSchema(string()).outputKind).toBe('string')
+    expect(analyzeSchema(number()).outputKind).toBe('number')
+    expect(analyzeSchema(bigint()).outputKind).toBe('bigint')
+    expect(analyzeSchema(boolean()).outputKind).toBe('boolean')
+    expect(analyzeSchema(date()).outputKind).toBe('date')
+    expect(analyzeSchema(object({ id: string() })).outputKind).toBe('json')
+    expect(analyzeSchema(array(string())).outputKind).toBe('json')
+  })
+
+  it('leaves unsupported mixed-output schemas unclassified', () => {
+    expect(analyzeSchema(union([string(), number()])).outputKind).toBeUndefined()
   })
 })
