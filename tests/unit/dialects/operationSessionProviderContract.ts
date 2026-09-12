@@ -65,7 +65,7 @@ export function registerOperationSessionProviderContract(
   createProvider: ProviderContractFactory,
   migration?: ProviderMigrationContract,
 ): void {
-  describe(`${name} operation-session provider contract`, () => {
+  describe(`${name} Dialect contract [operation-session/controlled]`, () => {
     it('provides non-empty stable physical identity and a complete lifecycle', async () => {
       const controls = createProvider()
       const session = await controls.provider.open()
