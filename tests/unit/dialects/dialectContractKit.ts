@@ -86,6 +86,58 @@ type DesiredSchemaContractInput = Readonly<{
   }>[]
 }>
 
+const queryCompilerScenarioIds = [
+  'select.projection',
+  'select.namespace',
+  'select.join.inner',
+  'select.join.left',
+  'select.join.right',
+  'predicate.comparisons',
+  'predicate.boolean',
+  'predicate.null',
+  'expression.scalar',
+  'expression.aggregate',
+  'clause.group-having-order',
+  'clause.pagination',
+  'insert.rows-defaults-returning',
+  'update.set-where-returning',
+  'delete.where-returning',
+] as const
+
+type QueryCompilerScenarioId = (typeof queryCompilerScenarioIds)[number]
+
+type QueryCompilerScenarioInput = Readonly<{
+  dialect: Dialect
+  handles: readonly TableHandle[]
+  registrationDefault?: readonly NamespaceIdentifierInput[]
+  node: SqlAst
+  expected: Readonly<{ sql: string; params: readonly unknown[] }>
+}>
+
+type QueryCompilerScenario = Readonly<{
+  support:
+    | SupportedContract<QueryCompilerScenarioInput>
+    | Readonly<{
+        state: 'unsupported'
+        reason: string
+        input: Omit<QueryCompilerScenarioInput, 'expected'>
+      }>
+}>
+
+export type QueryCompilerScenarios = Readonly<
+  Record<QueryCompilerScenarioId, QueryCompilerScenario>
+>
+
+function resolveCompiler(
+  input: Pick<QueryCompilerScenarioInput, 'dialect' | 'handles' | 'registrationDefault'>,
+) {
+  return input.dialect.query.resolve(input.handles, {
+    ...(input.registrationDefault === undefined
+      ? {}
+      : { registrationDefault: input.registrationDefault }),
+  })
+}
+
 type QueryCoreContractInput = Readonly<{
   dialect: Dialect
   handles: readonly TableHandle[]
@@ -115,6 +167,7 @@ type QueryValueMappingContractInput = Readonly<{
 
 type QueryContract = Readonly<{
   core: ContractSupport<QueryCoreContractInput>
+  scenarios: QueryCompilerScenarios
   valueMapping: ContractSupport<QueryValueMappingContractInput>
 }>
 
@@ -345,6 +398,31 @@ function registerQuery(name: string, contract?: QueryContract) {
         columnMatches: resolved.findColumnMatches(input.target, input.column),
         compiled: input.inspectCompiled(resolved.compile(input.node)),
       }).toEqual(input.expected)
+    })
+  }
+
+  for (const scenarioId of queryCompilerScenarioIds) {
+    const scenario = contract.scenarios[scenarioId]
+    const support = scenario.support
+    if (support.state === 'unsupported') {
+      it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
+        expect(support.reason.length).toBeGreaterThan(0)
+        // Resolve the compiler directly. No connector or executor is involved
+        // in this contract, so unsupported AST forms fail before database work.
+
+        const input = support.input
+        expect(() => resolveCompiler(input).compile(input.node)).toThrow()
+      })
+      continue
+    }
+
+    const input = support.input
+    it(`${name} [query/compiler] scenario [${scenarioId}]`, () => {
+      const compiled = resolveCompiler(input).compile(input.node)
+      expect({ sql: compiled.sql, params: compiled.params }).toEqual({
+        sql: input.expected.sql,
+        params: input.expected.params,
+      })
     })
   }
 

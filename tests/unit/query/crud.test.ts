@@ -279,6 +279,45 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+
+  it('should reject empty insert rows synchronously at the public boundary before database work', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    expect(() => db.insert(Users).values([] as never)).toThrow(
+      /requires at least one row/,
+    )
+
+    expect(connector.prepared).toEqual([])
+    await db.close()
+  })
+
+  it('should reject empty update patches synchronously at the public boundary before database work', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    expect(() => db.update(Users).set({} as never)).toThrow(
+      /patch must include at least one column/,
+    )
+
+    expect(connector.prepared).toEqual([])
+    await db.close()
+  })
+
+  it('should reject empty where inputs synchronously at the public boundary before database work', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    expect(() =>
+      db
+        .update(Users)
+        .set({ active: false })
+        .where({} as never),
+    ).toThrow(/requires at least one key/)
+
+    expect(connector.prepared).toEqual([])
+    await db.close()
+  })
 })
 
 describe('CRUD returning types', () => {
