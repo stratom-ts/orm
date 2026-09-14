@@ -266,6 +266,44 @@ describe('Migration reconciliation', () => {
     expect(planMigration([Settings], catalog, postgresDialect)).toEqual({ steps: [] })
   })
 
+  it('matches a tagged literal that looks like a PostgreSQL expression', () => {
+    const LiteralDefault = defineTable(
+      'literal_defaults',
+      {
+        id: pipe(string(), column({ physicalType: { postgresql: 'integer' } })),
+        value: pipe(
+          string(),
+          column({ databaseDefault: { kind: 'literal', value: 'now()' } }),
+        ),
+      },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
+    )
+
+    const catalog = {
+      ...emptyCatalog(),
+      tables: [
+        {
+          schema: 'public',
+          name: 'literal_defaults',
+          columns: [
+            { name: 'id', dataType: 'integer', isNullable: false },
+            {
+              name: 'value',
+              dataType: 'text',
+              isNullable: false,
+              defaultExpression: "'now()'",
+            },
+          ],
+          primaryKey: catalogPrimaryKey('literal_defaults'),
+        },
+      ],
+    }
+
+    expect(planMigration([LiteralDefault], catalog, postgresDialect)).toEqual({
+      steps: [],
+    })
+  })
+
   it('returns a constructive step for a missing column', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
 

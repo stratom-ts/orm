@@ -243,6 +243,8 @@ for another adapter is never selected accidentally.
 
 See the [Dialect maintainer guide](docs/dialects.md) for the complete member,
 connector/session, capability-evidence, registration, and reusable test contracts.
+See the [testing guide](docs/testing.md) for test seam ownership, Dialect contract
+registration, fixture rules, and coverage safeguards.
 
 `createDatabase({ connector, ... })` selects exactly one complete `Dialect` member from
 `connector.dialect`. Callers do not select identity, migration, query, or operation

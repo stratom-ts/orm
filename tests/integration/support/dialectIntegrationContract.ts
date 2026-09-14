@@ -54,23 +54,23 @@ function scenario(
   title: string,
   test: () => Promise<void>,
 ): void {
-  const unsupported = capabilities.flatMap((capability) => {
+  const hasUnsupportedCapability = capabilities.some((capability) => {
     const support = adapter.capabilities[capability]
 
     switch (support.state) {
       case 'supported':
-        return []
+        return false
       case 'unsupported':
-        return [`${capability}: ${support.reason}`]
+        return true
     }
 
     return assertNever(support)
   })
 
-  if (unsupported.length > 0) {
-    it.skip(`${title} (${unsupported.join('; ')})`, test)
-    return
-  }
+  // Unsupported capabilities do not register a scenario. This keeps the suite
+  // free of skipped tests while the adapter capability declaration remains the
+  // source of truth for the omitted behavior.
+  if (hasUnsupportedCapability) return
 
   it(title, test)
 }
