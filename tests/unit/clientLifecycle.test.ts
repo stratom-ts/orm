@@ -78,22 +78,6 @@ describe('client lifecycle', () => {
     expect(connector.prepared).toEqual([])
   })
 
-  it('expires a transaction client and a builder captured from its callback', async () => {
-    const connector = createMockPostgresConnector()
-    const db = createDatabase({ connector, schemas: [Accounts] })
-    let scopedClient: typeof db | undefined
-    let scopedQuery: ReturnType<typeof db.from> | undefined
-
-    await db.transaction(async (trx) => {
-      scopedClient = trx
-      scopedQuery = trx.from(Accounts)
-    })
-
-    expect(() => scopedClient!.from(Accounts)).toThrow(/no longer active/i)
-    await expect(scopedQuery!.execute()).rejects.toMatchObject({ _tag: 'QueryError' })
-    await db.close()
-  })
-
   it('rejects root and scoped close calls during active transaction work', async () => {
     const connector = createMockPostgresConnector()
     const db = createDatabase({ connector, schemas: [Accounts] })

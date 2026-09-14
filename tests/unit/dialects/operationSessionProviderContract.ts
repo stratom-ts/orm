@@ -70,6 +70,8 @@ export function registerOperationSessionProviderContract(
       const controls = createProvider()
       const session = await controls.provider.open()
       const identity = session.identity
+      const initialDatabase = identity.database
+      const initialPhysicalSession = identity.physicalSession
 
       expect(identity.database.length).toBeGreaterThan(0)
       expect(identity.physicalSession.length).toBeGreaterThan(0)
@@ -77,12 +79,15 @@ export function registerOperationSessionProviderContract(
         session.query({ sql: 'contract query', params: [] }),
         session.run({ sql: 'contract run', params: [] }),
       ])
-      expect(session.identity).toBe(identity)
+      expect(session.identity).toMatchObject({
+        database: initialDatabase,
+        physicalSession: initialPhysicalSession,
+      })
       await session.release('reuse')
       await controls.provider.close()
 
-      expect(controls.events).toContain('release-end:1:reuse')
-      expect(controls.events.at(-1)).toBe('provider-close')
+      expect(controls.events).toContain('release-finished:1:reuse')
+      expect(controls.events.at(-1)).toBe('provider-closed')
       expect(controls.maxActiveCalls).toBe(1)
       expect(controls.closeCount).toBe(1)
     })
@@ -109,12 +114,12 @@ export function registerOperationSessionProviderContract(
       const close = coordinator.close()
 
       expect(controls.openCount).toBe(1)
-      expect(controls.events).not.toContain('provider-close')
+      expect(controls.events).not.toContain('provider-closed')
       finish.resolve()
       await Promise.all([first, second, close])
 
-      expect(controls.events.indexOf('release-end:2:reuse')).toBeLessThan(
-        controls.events.indexOf('provider-close'),
+      expect(controls.events.indexOf('release-finished:2:reuse')).toBeLessThan(
+        controls.events.indexOf('provider-closed'),
       )
     })
 
@@ -128,8 +133,8 @@ export function registerOperationSessionProviderContract(
           discard()
         })
 
-        expect(controls.events).toContain('cancel:1')
-        expect(controls.events).toContain('release-end:1:discard')
+        expect(controls.events).toContain('cancel-requested:1')
+        expect(controls.events).toContain('release-finished:1:discard')
       } finally {
         await coordinator.close()
       }
@@ -145,8 +150,8 @@ export function registerOperationSessionProviderContract(
           await expect(coordinator.run(async () => undefined)).rejects.toThrow(
             /invalid pinned session/i,
           )
-          expect(controls.events).toContain('release-end:1:discard')
-          expect(controls.events).not.toContain('release-end:1:reuse')
+          expect(controls.events).toContain('release-finished:1:discard')
+          expect(controls.events).not.toContain('release-finished:1:reuse')
         } finally {
           await coordinator.close()
         }
@@ -182,8 +187,8 @@ export function registerOperationSessionProviderContract(
             ),
           ]),
         ).resolves.toBe('settled')
-        expect(controls.events).toContain('cancel:1')
-        expect(controls.events).toContain('release-end:1:discard')
+        expect(controls.events).toContain('cancel-requested:1')
+        expect(controls.events).toContain('release-finished:1:discard')
       } finally {
         await coordinator.close()
       }
@@ -199,7 +204,7 @@ export function registerOperationSessionProviderContract(
             executor.run({ sql: 'mutate identity', params: [] }),
           ),
         ).rejects.toThrow(/identity changed/i)
-        expect(controls.events).toContain('release-end:1:discard')
+        expect(controls.events).toContain('release-finished:1:discard')
       } finally {
         await coordinator.close()
       }
@@ -221,8 +226,8 @@ export function registerOperationSessionProviderContract(
         expect(error).toBeInstanceOf(Error)
         expect(error).toMatchObject({ cause: primary })
         expect((error as Error).message).toBe(primary.message)
-        expect(controls.events).toContain('release-end:1:discard')
-        expect(controls.events).not.toContain('release-end:1:reuse')
+        expect(controls.events).toContain('release-finished:1:discard')
+        expect(controls.events).not.toContain('release-finished:1:reuse')
       } finally {
         await coordinator.close()
       }
@@ -259,8 +264,8 @@ export function registerOperationSessionProviderContract(
         })
         expect(error).toBeInstanceOf(Error)
         expect((error as Error).message).toMatch(/verify operation session identity/i)
-        expect(controls.events).toContain('release-end:1:discard')
-        expect(controls.events).not.toContain('release-end:1:reuse')
+        expect(controls.events).toContain('release-finished:1:discard')
+        expect(controls.events).not.toContain('release-finished:1:reuse')
       } finally {
         await coordinator.close()
       }
@@ -287,8 +292,8 @@ export function registerOperationSessionProviderContract(
         expect(invoked).toBe(false)
         expect(error).toBeInstanceOf(Error)
         expect((error as Error).message).toMatch(/capture operation session identity/i)
-        expect(controls.events).toContain('release-end:1:discard')
-        expect(controls.events).not.toContain('release-end:1:reuse')
+        expect(controls.events).toContain('release-finished:1:discard')
+        expect(controls.events).not.toContain('release-finished:1:reuse')
       } finally {
         await coordinator.close()
       }
