@@ -8,6 +8,7 @@ import type {
   Dialect,
   DialectQueryResolveOptions,
   OperationCommand,
+  SelectAst,
   SqlAst,
 } from '@/dialects/types'
 import type {
@@ -168,6 +169,21 @@ type ContractCompiledShape = Readonly<{
 
 const CONTRACT_QUERY_PREFIX = 'fixture query:'
 
+function assertSimpleContractSelect(node: SelectAst): void {
+  if (
+    node.joins?.length ||
+    node.orderBy?.length ||
+    node.groupBy?.length ||
+    node.having !== undefined ||
+    node.limit !== undefined ||
+    node.offset !== undefined
+  ) {
+    throw new InvariantError(
+      'Extension contract compiler only supports simple SELECT clauses',
+    )
+  }
+}
+
 /** Compiles the fixture subset from the same case-folded/defaulted resolution. */
 function compileContractQuery(
   node: SqlAst,
@@ -177,6 +193,8 @@ function compileContractQuery(
   if (node.kind !== 'select') {
     throw new InvariantError('Extension contract compiler only supports select queries')
   }
+
+  assertSimpleContractSelect(node)
 
   const relation = resolveContractQueryRelation(node.relation, registrationDefault)
   const relationMatches = findContractQueryRelationMatches(

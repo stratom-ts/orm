@@ -209,6 +209,48 @@ describe('select compile', () => {
     await db.close()
   })
 
+  it('should accumulate repeated predicates in one complete compiled query', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const compiled = db
+      .from(Users)
+      .where(Users.active, 'eq', true)
+      .where(Users.active, 'eq', false)
+      .compile()
+
+    expect({ sql: compiled.sql, params: compiled.params }).toEqual({
+      sql: 'select * from "public"."users" as "public.users" where ("public.users"."active" = $1 and "public.users"."active" = $2)',
+      params: [true, false],
+    })
+
+    await db.close()
+  })
+
+  it('should reject empty where inputs at the public boundary', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    expect(() => db.from(Users).where({} as never)).toThrow(/requires at least one key/)
+    expect(connector.prepared).toEqual([])
+
+    await db.close()
+  })
+
+  it('should let repeated pagination clauses override in one complete compiled query', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const compiled = db.from(Users).limit(1).limit(2).offset(3).offset(4).compile()
+
+    expect({ sql: compiled.sql, params: compiled.params }).toEqual({
+      sql: 'select * from "public"."users" as "public.users" limit $1 offset $2',
+      params: [2, 4],
+    })
+
+    await db.close()
+  })
+
   it('should compile aggregates and groupBy/having', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })

@@ -17,6 +17,7 @@ import {
 } from '../helpers/extensionContractDialect'
 
 import { registerDialectContractKit } from './dialectContractKit'
+import type { QueryCompilerScenarios } from './dialectContractKit'
 
 let unregister: (() => void) | undefined
 
@@ -64,6 +65,33 @@ function createContractRecords(dialectId: string) {
   )
 }
 
+function createContractQueryRecords(dialectId: string) {
+  return defineTable(
+    'records',
+    {
+      id: pipe(string(), column({ physicalType: { [dialectId]: 'fixture_id' } })),
+      label: string(),
+      created_at: pipe(
+        string(),
+        column({ physicalType: { [dialectId]: 'fixture_timestamp' } }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+}
+
+function createContractEvents(dialectId: string) {
+  return defineTable(
+    'events',
+    {
+      id: pipe(string(), column({ physicalType: { [dialectId]: 'fixture_id' } })),
+      record_id: string(),
+      label: string(),
+    },
+    { primaryKey: 'id' },
+  )
+}
+
 function createContractRuntime() {
   const calls = createExtensionContractCalls()
   const dialect = createExtensionContractDialect(calls, { migration: 'supported' })
@@ -101,6 +129,8 @@ function createContractRuntime() {
 
 const semanticDialect = createExtensionContractDialect(createExtensionContractCalls())
 const SemanticRecords = createContractRecords(semanticDialect.id)
+const SemanticQueryRecords = createContractQueryRecords(semanticDialect.id)
+const SemanticEvents = createContractEvents(semanticDialect.id)
 const semanticContext = {
   writableDefault: [{ role: 'database' as const, spelling: 'fixture_tenant' }],
 }
@@ -110,6 +140,257 @@ const semanticQuery: SqlAst = {
   selection: [{ kind: 'column', column: 'label' }],
   where: { kind: 'cmp', column: 'label', op: 'eq', value: 'authored-value' },
 }
+
+const contractRelation = { relation: 'records' } as const
+const contractJoinedRelation = { relation: 'events' } as const
+const contractInput = (node: SqlAst) => ({
+  dialect: semanticDialect,
+  handles: [SemanticQueryRecords, SemanticEvents],
+  registrationDefault: semanticContext.writableDefault,
+  node,
+})
+const unsupported = (node: SqlAst) => ({
+  support: {
+    state: 'unsupported' as const,
+    reason: 'The synthetic adapter only supports its narrow SELECT projection case',
+    input: contractInput(node),
+  },
+})
+
+const extensionCompilerScenarios = {
+  'select.projection': {
+    support: {
+      state: 'supported',
+      input: {
+        ...contractInput(semanticQuery),
+        expected: {
+          sql: 'fixture query:{"database":"fixture_tenant","relation":"records","columns":[{"output":"label","physical":"label"}],"parameterColumns":["label"]}',
+          params: ['authored-value'],
+        },
+      },
+    },
+  },
+  'select.namespace': {
+    support: {
+      state: 'supported',
+      input: {
+        ...contractInput({
+          kind: 'select',
+          relation: {
+            namespace: [{ role: 'database', spelling: 'fixture_tenant' }],
+            relation: 'records',
+          },
+          selection: [{ kind: 'all' }],
+        }),
+        expected: {
+          sql: 'fixture query:{"database":"fixture_tenant","relation":"records","columns":[{"output":"id","physical":"id"},{"output":"label","physical":"label"},{"output":"created_at","physical":"created_at"}],"parameterColumns":[]}',
+          params: [],
+        },
+      },
+    },
+  },
+  'select.join.inner': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'all' }],
+    joins: [
+      {
+        type: 'inner',
+        relation: contractJoinedRelation,
+        on: {
+          kind: 'cmp',
+          relation: contractRelation,
+          column: 'id',
+          op: 'eq',
+          right: { relation: contractJoinedRelation, column: 'record_id' },
+        },
+      },
+    ],
+  }),
+  'select.join.left': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'all' }],
+    joins: [
+      {
+        type: 'left',
+        relation: contractJoinedRelation,
+        on: {
+          kind: 'cmp',
+          relation: contractRelation,
+          column: 'id',
+          op: 'eq',
+          right: { relation: contractJoinedRelation, column: 'record_id' },
+        },
+      },
+    ],
+  }),
+  'select.join.right': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'all' }],
+    joins: [
+      {
+        type: 'right',
+        relation: contractJoinedRelation,
+        on: {
+          kind: 'cmp',
+          relation: contractRelation,
+          column: 'id',
+          op: 'eq',
+          right: { relation: contractJoinedRelation, column: 'record_id' },
+        },
+      },
+    ],
+  }),
+  'predicate.comparisons': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'all' }],
+    where: {
+      kind: 'and',
+      preds: [
+        { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+        { kind: 'cmp', column: 'id', op: 'neq', value: 2 },
+        { kind: 'cmp', column: 'id', op: 'gt', value: 3 },
+        { kind: 'cmp', column: 'id', op: 'gte', value: 4 },
+        { kind: 'cmp', column: 'id', op: 'lt', value: 5 },
+        { kind: 'cmp', column: 'id', op: 'lte', value: 6 },
+      ],
+    },
+  }),
+  'predicate.boolean': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'all' }],
+    where: {
+      kind: 'not',
+      pred: {
+        kind: 'or',
+        preds: [
+          { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+          {
+            kind: 'and',
+            preds: [
+              { kind: 'cmp', column: 'id', op: 'gt', value: 2 },
+              { kind: 'cmp', column: 'id', op: 'lt', value: 9 },
+            ],
+          },
+        ],
+      },
+    },
+  }),
+  'predicate.null': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'all' }],
+    where: {
+      kind: 'or',
+      preds: [
+        { kind: 'cmp', column: 'label', op: 'eq', value: null },
+        { kind: 'cmp', column: 'label', op: 'neq', value: null },
+      ],
+    },
+  }),
+  'expression.scalar': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [
+      {
+        kind: 'expr',
+        expr: { kind: 'lower', arg: { kind: 'column', column: 'label' } },
+        alias: 'lowered',
+      },
+      {
+        kind: 'expr',
+        expr: { kind: 'upper', arg: { kind: 'column', column: 'label' } },
+        alias: 'uppered',
+      },
+      {
+        kind: 'expr',
+        expr: { kind: 'length', arg: { kind: 'column', column: 'label' } },
+        alias: 'size',
+      },
+      { kind: 'expr', expr: { kind: 'now' }, alias: 'queriedAt' },
+      {
+        kind: 'expr',
+        expr: {
+          kind: 'date_trunc',
+          unit: 'day',
+          arg: { kind: 'column', column: 'created_at' },
+        },
+        alias: 'day',
+      },
+    ],
+  }),
+  'expression.aggregate': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [
+      { kind: 'expr', expr: { kind: 'count_all' }, alias: 'total' },
+      {
+        kind: 'expr',
+        expr: { kind: 'count', arg: { kind: 'column', column: 'id' } },
+        alias: 'ids',
+      },
+      {
+        kind: 'expr',
+        expr: { kind: 'min', arg: { kind: 'column', column: 'id' } },
+        alias: 'smallest',
+      },
+      {
+        kind: 'expr',
+        expr: { kind: 'max', arg: { kind: 'column', column: 'id' } },
+        alias: 'largest',
+      },
+      {
+        kind: 'expr',
+        expr: { kind: 'sum', arg: { kind: 'column', column: 'id' } },
+        alias: 'sum',
+      },
+    ],
+  }),
+  'clause.group-having-order': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'column', column: 'label' }],
+    groupBy: [{ column: 'label' }],
+    having: { kind: 'cmp', column: 'label', op: 'eq', value: 'yes' },
+    orderBy: [{ column: 'label', direction: 'asc' }],
+  }),
+  'clause.pagination': unsupported({
+    kind: 'select',
+    relation: contractRelation,
+    selection: [{ kind: 'all' }],
+    limit: 10,
+    offset: 20,
+  }),
+  'insert.rows-defaults-returning': unsupported({
+    kind: 'insert',
+    relation: contractRelation,
+    columns: ['id', 'label'],
+    values: [
+      [1, undefined],
+      [2, 'second'],
+    ],
+    returning: { kind: 'columns', columns: ['id', 'label'] },
+  }),
+  'update.set-where-returning': unsupported({
+    kind: 'update',
+    relation: contractRelation,
+    set: [{ column: 'label', value: 'updated' }],
+    where: { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+    allowAll: false,
+    returning: { kind: 'all' },
+  }),
+  'delete.where-returning': unsupported({
+    kind: 'delete',
+    relation: contractRelation,
+    where: { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+    allowAll: false,
+    returning: { kind: 'columns', columns: ['id'] },
+  }),
+} satisfies QueryCompilerScenarios
 
 async function createSemanticPlannedMigration() {
   const request = createCatalogRequest([SemanticRecords], [])
@@ -196,6 +477,7 @@ registerDialectContractKit({
         },
       },
     },
+    scenarios: extensionCompilerScenarios,
     valueMapping: {
       state: 'supported',
       input: {
