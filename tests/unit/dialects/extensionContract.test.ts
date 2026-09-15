@@ -123,7 +123,11 @@ function createContractRuntime() {
       ],
       queryParam: 'fixture-param:authored-value',
     },
-    migration: { state: 'supported' as const, outcomes: calls.migrationOutcomes },
+    migration: {
+      state: 'supported' as const,
+      expected: 'applied' as const,
+      observed: calls.migrationOutcomes,
+    },
   }
 }
 

@@ -27,7 +27,11 @@ export type DialectLifecycleContractRuntime = Readonly<{
     queryParam: unknown
   }>
   migration:
-    | Readonly<{ state: 'supported'; outcomes: Array<'applied' | 'unchanged'> }>
+    | Readonly<{
+        state: 'supported'
+        expected: 'applied' | 'unchanged'
+        observed: readonly ('applied' | 'unchanged')[]
+      }>
     | Readonly<{ state: 'unsupported'; reason: string }>
 }>
 
@@ -73,13 +77,11 @@ export function registerDialectLifecycleContract(
         expect(runtime.queryParams()).toEqual([runtime.expected.queryParam])
 
         await database.transaction(async (transaction) => transaction.ping())
-        const dryRun = await database.migrate().dryRun()
+        await database.migrate().dryRun()
 
         if (runtime.migration.state === 'supported') {
           await database.migrate().execute()
-          expect(runtime.migration.outcomes).toEqual([
-            dryRun.steps.length === 0 ? 'unchanged' : 'applied',
-          ])
+          expect(runtime.migration.observed).toEqual([runtime.migration.expected])
         } else {
           const error = await database
             .migrate()

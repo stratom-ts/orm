@@ -73,6 +73,10 @@ for each behavior group. Use the report to check public and schema, query, Migra
 Dialect selection, operation-session, and PostgreSQL adapter code. The coverage report
 must not contain an unexplained uncalled exported runtime helper.
 
+The global thresholds are 91% statements, 84% branches, 96% functions, and 92% lines.
+They match the rounded stable baseline for the current suite. Keep these thresholds global;
+do not add separate thresholds for individual behavior groups.
+
 ## Commands
 
 Run the unit suite for public, contract, pure-rule, and adapter tests:
