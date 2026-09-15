@@ -16,7 +16,7 @@ import type {
   NamespaceIdentifierInput,
   NamespaceRole,
 } from '@/migrations/canonicalRelationIdentity'
-import type { OperationSessionProvider } from '@/operations'
+import type { OperationSession, OperationSessionProvider } from '@/operations'
 import type { RelationIdentityInput } from '@/schemas'
 import type { TableHandle } from '@/types'
 
@@ -198,6 +198,49 @@ type OperationSessionCommonRuntime = Readonly<{
   provider: OperationSessionProvider
   events(): readonly OperationSessionContractEvent[]
 }>
+
+/** Runs the shared operation-session lifecycle with failure-safe cleanup. */
+export async function runOperationSessionCommonContract(
+  runtime: OperationSessionCommonRuntime,
+): Promise<void> {
+  const provider = runtime.provider
+  let session: OperationSession | undefined
+  let completed = false
+  let cleanupError: unknown
+  let hasCleanupError = false
+
+  try {
+    session = await provider.open()
+    expect(session.identity.database.length).toBeGreaterThan(0)
+    expect(session.identity.physicalSession.length).toBeGreaterThan(0)
+    await session.query({ sql: 'contract query', params: [] })
+    await session.run({ sql: 'contract run', params: [] })
+    await session.cancel()
+    completed = true
+  } finally {
+    if (session) {
+      try {
+        await session.release(completed ? 'reuse' : 'discard')
+      } catch (cause) {
+        cleanupError = cause
+        hasCleanupError = true
+      }
+    }
+
+    try {
+      await provider.close()
+    } catch (cause) {
+      if (!hasCleanupError) {
+        cleanupError = cause
+        hasCleanupError = true
+      }
+    }
+  }
+
+  if (completed && hasCleanupError) throw cleanupError
+
+  expect(runtime.events()).toEqual(['query', 'run', 'cancel', 'release:reuse', 'close'])
+}
 
 type OperationSessionContract = Readonly<{
   common: ContractSupport<Readonly<{ createRuntime(): OperationSessionCommonRuntime }>>
@@ -486,23 +529,7 @@ function registerOperationSession(name: string, contract?: OperationSessionContr
   } else {
     const common = contract.common.input
     it(`${name} Dialect contract [operation-session] scenario [provides a semantic session lifecycle]`, async () => {
-      const runtime = common.createRuntime()
-      const provider = runtime.provider
-      const session = await provider.open()
-      expect(session.identity.database.length).toBeGreaterThan(0)
-      expect(session.identity.physicalSession.length).toBeGreaterThan(0)
-      await session.query({ sql: 'contract query', params: [] })
-      await session.run({ sql: 'contract run', params: [] })
-      await session.cancel()
-      await session.release('reuse')
-      await provider.close()
-      expect(runtime.events()).toEqual([
-        'query',
-        'run',
-        'cancel',
-        'release:reuse',
-        'close',
-      ])
+      await runOperationSessionCommonContract(common.createRuntime())
     })
   }
 

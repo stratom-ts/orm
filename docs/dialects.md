@@ -286,6 +286,7 @@ registerDialectContractKit({
   desiredSchema: { state: 'supported', input: desiredSchemaInput },
   query: {
     core: { state: 'supported', input: queryInput },
+    scenarios: queryCompilerScenarios,
     valueMapping: { state: 'supported', input: valueMappingInput },
   },
   catalog: { state: 'supported', input: catalogInput },
