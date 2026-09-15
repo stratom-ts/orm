@@ -70,6 +70,7 @@ function harness(
     sharedLockManager?: CoordinationContractLockManager
     nullCount?: number
     lockResults?: Array<boolean | Error>
+    lockGate?: Promise<void>
     lockDelayMs?: number
     hangQuery?: RegExp
     hangRun?: RegExp
@@ -95,6 +96,8 @@ function harness(
   })
 
   async function acquire(query: { sql: string; params: unknown[] }) {
+    if (options.lockGate !== undefined) await options.lockGate
+
     if (options.lockDelayMs !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, options.lockDelayMs))
     }
@@ -403,11 +406,17 @@ describe('PostgreSQL migration runtime failures', () => {
   })
 
   it('allows an asynchronous successful first try when lockTimeoutMs is zero', async () => {
-    const runtime = harness({ lockDelayMs: 10, lockResults: [true] })
-
-    await expect(runtime.execute(program(), { lockTimeoutMs: 0 })).resolves.toEqual({
-      outcome: 'applied',
+    let release!: () => void
+    const lockGate = new Promise<void>((resolve) => {
+      release = resolve
     })
+    const runtime = harness({ lockGate, lockResults: [true] })
+    const pending = runtime.execute(program(), { lockTimeoutMs: 0 })
+
+    await runtime.waitFor('acquire')
+    release()
+
+    await expect(pending).resolves.toEqual({ outcome: 'applied' })
     expect(runtime.calls.filter((sql) => /pg_try_advisory_lock/i.test(sql))).toHaveLength(
       1,
     )
