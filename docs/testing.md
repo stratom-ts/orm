@@ -68,11 +68,10 @@ runtime behavior. The guide records these reasons so a runtime assembly file can
 uncalled behavior. Mixed runtime files, including `src/dialects/postgres/index.ts`, stay
 in the report.
 
-The global thresholds use the stable unit-suite baseline. Scoped thresholds protect these
-ownership groups: public and schema, query, Migration Plan, Dialect selection,
-operation-session, and PostgreSQL adapter code. The groups overlap the global report.
-Keep each threshold at the measured baseline or higher when coverage improves. The
-coverage report must not contain an unexplained uncalled exported runtime helper.
+The global thresholds protect against large coverage losses without setting a threshold
+for each behavior group. Use the report to check public and schema, query, Migration Plan,
+Dialect selection, operation-session, and PostgreSQL adapter code. The coverage report
+must not contain an unexplained uncalled exported runtime helper.
 
 ## Commands
 
