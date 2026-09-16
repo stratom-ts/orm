@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Db } from '@/client'
 import { planMigration } from '@/ddl/migrationPlan'
+import type { MigrationPlan } from '@/ddl/migrationPlan'
 import { registerDialectForTest, resolveDialect } from '@/dialects/resolve'
-import type { SqlAst } from '@/dialects/types'
+import type { Dialect, SqlAst } from '@/dialects/types'
 import { column, createDatabase, defineTable } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
@@ -16,8 +17,12 @@ import {
   createExtensionContractDialect,
 } from '../helpers/extensionContractDialect'
 
-import { registerDialectContractKit } from './dialectContractKit'
-import type { QueryCompilerScenarios } from './dialectContractKit'
+import { registerDialectContractMember } from './dialectContractKit'
+import type {
+  DialectContractMemberCapabilities,
+  QueryCompilerScenarios,
+} from './dialectContractKit'
+import { runDialectLifecycleContract } from './dialectMemberContract'
 
 let unregister: (() => void) | undefined
 
@@ -92,9 +97,42 @@ function createContractEvents(dialectId: string) {
   )
 }
 
-function createContractRuntime() {
+function createContractRuntime(
+  options?: Readonly<{
+    emptyPlanReportsApplied?: Readonly<{
+      executionReported: { value: boolean }
+      postMigrationStateObserved: { value: boolean }
+    }>
+  }>,
+): import('./dialectMemberContract').DialectLifecycleContractRuntime {
   const calls = createExtensionContractCalls()
-  const dialect = createExtensionContractDialect(calls, { migration: 'supported' })
+  const baseDialect = createExtensionContractDialect(calls, { migration: 'supported' })
+  const faultyLifecycle = options?.emptyPlanReportsApplied
+  const dialect: Dialect = faultyLifecycle
+    ? {
+        ...baseDialect,
+        migration: {
+          ...baseDialect.migration,
+          lower() {
+            return {
+              program: {
+                atomicity: 'statement-atomic' as const,
+                preconditions: [],
+                actions: [],
+              },
+            }
+          },
+          async execute(
+            migrationOptions: Parameters<typeof baseDialect.migration.execute>[0],
+          ) {
+            await migrationOptions.prepare()
+            calls.migrationOutcomes.push('applied')
+            faultyLifecycle.executionReported.value = true
+            return { outcome: 'applied' as const }
+          },
+        },
+      }
+    : baseDialect
   const { connector, directMethods, disposed } = createContractConnector()
   const Records = createContractRecords(dialect.id)
   return {
@@ -122,11 +160,60 @@ function createContractRuntime() {
         },
       ],
       queryParam: 'fixture-param:authored-value',
+      postMigrationState: [
+        'fixture migration ensure_namespace 0',
+        'fixture migration create_table 1',
+      ],
+    },
+    postMigrationState: () => {
+      if (faultyLifecycle) faultyLifecycle.postMigrationStateObserved.value = true
+      return calls.statements
+        .filter(({ sql }) => sql.startsWith('fixture migration '))
+        .map(({ sql }) => sql)
     },
     migration: {
       state: 'supported' as const,
-      expected: 'applied' as const,
-      observed: calls.migrationOutcomes,
+      expectedPlan: {
+        steps: [
+          {
+            kind: 'ensure_namespace',
+            target: {
+              kind: 'namespace',
+              namespace: [
+                {
+                  role: 'database',
+                  identifier: {
+                    spelling: 'fixture_tenant',
+                    comparisonKey: 'fixture_tenant',
+                  },
+                },
+              ],
+            },
+          },
+          {
+            kind: 'create_table',
+            target: {
+              kind: 'relation',
+              relation: {
+                namespace: [
+                  {
+                    role: 'database',
+                    identifier: {
+                      spelling: 'fixture_tenant',
+                      comparisonKey: 'fixture_tenant',
+                    },
+                  },
+                ],
+                relation: { spelling: 'records', comparisonKey: 'records' },
+              },
+            },
+          },
+        ],
+      } satisfies MigrationPlan,
+      reportedOutcome: {
+        expected: 'applied' as const,
+        observed: calls.migrationOutcomes,
+      },
     },
   }
 }
@@ -410,225 +497,259 @@ async function createSemanticPlannedMigration() {
   return { planned, profile: planned.profile }
 }
 
-registerDialectContractKit({
-  name: 'minimal non-PostgreSQL',
-  identity: {
-    state: 'supported',
-    input: {
-      dialect: semanticDialect,
-      context: semanticContext,
-      relation: { relation: 'Records' },
-      expected: {
-        namespace: [
-          {
-            role: 'database',
-            identifier: { spelling: 'fixture_tenant', comparisonKey: 'fixture_tenant' },
-          },
-        ],
-        relation: { spelling: 'Records', comparisonKey: 'records' },
-      },
-    },
-  },
-  naming: {
-    state: 'supported',
-    input: {
-      dialect: semanticDialect,
-      context: semanticContext,
-      owner: { relation: 'records' },
-      columns: ['label'],
-      expectedName: 'records_label__75ac86d626c6ad68_idx',
-      collisionName: 'contract_collision_idx',
-    },
-  },
-  desiredSchema: {
-    state: 'supported',
-    input: {
-      dialect: semanticDialect,
-      context: semanticContext,
-      handles: [SemanticRecords],
-      expected: [
-        {
-          namespace: [{ role: 'database', spelling: 'fixture_tenant' }],
-          relation: 'records',
-          columns: [
-            { name: 'id', dataType: 'fixture_id' },
-            { name: 'label', dataType: 'fixture_text' },
-          ],
-          primaryKey: ['id'],
-        },
-      ],
-    },
-  },
-  query: {
-    core: {
-      state: 'supported',
-      input: {
-        dialect: semanticDialect,
-        handles: [SemanticRecords],
-        target: SemanticRecords,
-        registrationDefault: semanticContext.writableDefault,
-        relation: { relation: 'records' },
-        column: 'label',
-        node: semanticQuery,
-        inspectCompiled: (query) => ({
-          parameterCount: query.params.length,
-          foreignPolicyLeak: /postgres|pg_|public/i.test(query.sql),
-        }),
-        expected: {
-          relationMatches: ['records'],
-          columnMatches: ['label'],
-          compiled: { parameterCount: 1, foreignPolicyLeak: false },
-        },
-      },
-    },
-    scenarios: extensionCompilerScenarios,
-    valueMapping: {
-      state: 'supported',
-      input: {
-        dialect: semanticDialect,
-        dataType: 'fixture_text',
-        paramValue: 'authored-value',
-        resultValue: 'stored-value',
-        expected: {
-          mappedParam: 'fixture-param:authored-value',
-          mappedResult: 'fixture-result:stored-value',
-        },
-      },
-    },
-  },
-  catalog: {
-    state: 'supported',
-    input: {
-      dialect: semanticDialect,
-      executor: { execute: async () => [] },
-      request: { relations: [], absentRelations: [], completeNamespaces: [] },
-      expected: {
-        sourceDialect: EXTENSION_CONTRACT_DIALECT_ID,
-        writableDefault: [{ role: 'database', spelling: 'fixture_db' }],
-        namespaceCoverage: { state: 'complete' },
-        capabilities: {
-          namespaces: { state: 'supported', fidelity: 'portable' },
-          relationOwner: {
-            state: 'unsupported',
-            by: 'engine',
-            reason: 'The contract fixture deliberately has no identity generation',
-          },
-          identity: {
-            state: 'unsupported',
-            by: 'engine',
-            reason: 'The contract fixture deliberately has no identity generation',
-          },
-          richObjects: {
-            state: 'unsupported',
-            by: 'engine',
-            reason: 'The contract fixture deliberately has no identity generation',
-          },
-        },
-      },
-    },
-  },
-  operationSession: {
-    common: {
-      state: 'supported',
-      input: {
-        createRuntime() {
-          const calls = createExtensionContractCalls()
-          const dialect = createExtensionContractDialect(calls)
-          return {
-            provider: dialect.operations.createSessionProvider(
-              createContractConnector().connector,
-            ),
-            events: () =>
-              calls.events.flatMap((event) => {
-                if (event === 'session.query') return ['query' as const]
-                if (event === 'session.run') return ['run' as const]
-                if (event === 'session.cancel') return ['cancel' as const]
-
-                if (event === 'session.release:reuse') {
-                  return ['release:reuse' as const]
-                }
-
-                if (event === 'sessionProvider.close') return ['close' as const]
-                return []
-              }),
-          }
-        },
-      },
-    },
-    controlled: {
-      state: 'unsupported',
-      reason: 'The synthetic adapter does not emulate provider failure controls',
-    },
-  },
+const extensionContractCapabilities = {
+  identity: { state: 'supported', shard: 'complete' },
+  naming: { state: 'supported', shard: 'complete' },
+  desiredSchema: { state: 'supported', shard: 'complete' },
+  query: { state: 'supported', shard: 'complete' },
+  catalog: { state: 'supported', shard: 'complete' },
+  operationSession: { state: 'supported', shard: 'complete' },
   coordination: {
     state: 'unsupported',
     reason: 'The synthetic adapter has no cross-client migration lock primitive',
+    shard: 'complete',
   },
-  migration: {
-    state: 'supported',
-    input: {
-      lowering: {
-        async createCase() {
-          const { planned, profile } = await createSemanticPlannedMigration()
-          return {
-            dialect: semanticDialect,
-            planned,
-            profile,
-            mismatchedProfiles: {
-              identityAdapter: {
-                ...profile,
-                identityAdapter: 'contract-other-identity',
-              },
-              namespaceContext: {
-                ...profile,
-                namespaceContext: {
-                  writableDefault: [{ role: 'database', spelling: 'other_database' }],
-                },
-              },
-              registrationDefault: {
-                ...profile,
-                registrationDefault: [
-                  { role: 'database', spelling: 'other_registration' },
-                ],
-              },
+  migration: { state: 'supported', shard: 'complete' },
+  lifecycle: { state: 'supported', shard: 'complete' },
+} as const satisfies DialectContractMemberCapabilities
+
+registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabilities, {
+  complete: {
+    identity: {
+      state: 'supported',
+      input: {
+        dialect: semanticDialect,
+        context: semanticContext,
+        relation: { relation: 'Records' },
+        expected: {
+          namespace: [
+            {
+              role: 'database',
+              identifier: { spelling: 'fixture_tenant', comparisonKey: 'fixture_tenant' },
             },
-            expectedProgram: {
-              atomicity: 'statement-atomic',
-              actionCount: 2,
-              sourceStepIndexes: [[0], [1]],
-            },
-          }
+          ],
+          relation: { spelling: 'Records', comparisonKey: 'records' },
         },
       },
-      unsupportedLowering: {
+    },
+    naming: {
+      state: 'supported',
+      input: {
+        dialect: semanticDialect,
+        context: semanticContext,
+        owner: { relation: 'records' },
+        columns: ['label'],
+        expectedName: 'records_label__75ac86d626c6ad68_idx',
+        collisionName: 'contract_collision_idx',
+      },
+    },
+    desiredSchema: {
+      state: 'supported',
+      input: {
+        dialect: semanticDialect,
+        context: semanticContext,
+        handles: [SemanticRecords],
+        expected: [
+          {
+            namespace: [{ role: 'database', spelling: 'fixture_tenant' }],
+            relation: 'records',
+            columns: [
+              { name: 'id', dataType: 'fixture_id' },
+              { name: 'label', dataType: 'fixture_text' },
+            ],
+            primaryKey: ['id'],
+          },
+        ],
+      },
+    },
+    query: {
+      state: 'supported',
+      core: {
         state: 'supported',
         input: {
-          async createCase() {
-            const { planned, profile } = await createSemanticPlannedMigration()
+          dialect: semanticDialect,
+          handles: [SemanticRecords],
+          target: SemanticRecords,
+          registrationDefault: semanticContext.writableDefault,
+          relation: { relation: 'records' },
+          column: 'label',
+          node: semanticQuery,
+          inspectCompiled: (query) => ({
+            parameterCount: query.params.length,
+            foreignPolicyLeak: /postgres|pg_|public/i.test(query.sql),
+          }),
+          expected: {
+            relationMatches: ['records'],
+            columnMatches: ['label'],
+            compiled: { parameterCount: 1, foreignPolicyLeak: false },
+          },
+        },
+      },
+      scenarios: extensionCompilerScenarios,
+      valueMapping: {
+        state: 'supported',
+        input: {
+          dialect: semanticDialect,
+          dataType: 'fixture_text',
+          paramValue: 'authored-value',
+          resultValue: 'stored-value',
+          expected: {
+            mappedParam: 'fixture-param:authored-value',
+            mappedResult: 'fixture-result:stored-value',
+          },
+        },
+      },
+    },
+    catalog: {
+      state: 'supported',
+      input: {
+        dialect: semanticDialect,
+        executor: { execute: async () => [] },
+        request: { relations: [], absentRelations: [], completeNamespaces: [] },
+        expected: {
+          sourceDialect: EXTENSION_CONTRACT_DIALECT_ID,
+          writableDefault: [{ role: 'database', spelling: 'fixture_db' }],
+          namespaceCoverage: { state: 'complete' },
+          capabilities: {
+            namespaces: { state: 'supported', fidelity: 'portable' },
+            relationOwner: {
+              state: 'unsupported',
+              by: 'engine',
+              reason: 'The contract fixture deliberately has no identity generation',
+            },
+            identity: {
+              state: 'unsupported',
+              by: 'engine',
+              reason: 'The contract fixture deliberately has no identity generation',
+            },
+            richObjects: {
+              state: 'unsupported',
+              by: 'engine',
+              reason: 'The contract fixture deliberately has no identity generation',
+            },
+          },
+        },
+      },
+    },
+    operationSession: {
+      state: 'supported',
+      common: {
+        state: 'supported',
+        input: {
+          createRuntime() {
+            const calls = createExtensionContractCalls()
+            const dialect = createExtensionContractDialect(calls)
             return {
-              dialect: createExtensionContractDialect(createExtensionContractCalls(), {
-                migration: 'unsupported',
-              }),
-              planned,
-              profile,
-              issue: {
-                code: 'compile_failure',
-                message: EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
-                sourceStepIndexes: [0, 1],
-              },
+              provider: dialect.operations.createSessionProvider(
+                createContractConnector().connector,
+              ),
+              events: () =>
+                calls.events.flatMap((event) => {
+                  if (event === 'session.query') return ['query' as const]
+                  if (event === 'session.run') return ['run' as const]
+                  if (event === 'session.cancel') return ['cancel' as const]
+
+                  if (event === 'session.release:reuse') {
+                    return ['release:reuse' as const]
+                  }
+
+                  if (event === 'sessionProvider.close') return ['close' as const]
+                  return []
+                }),
             }
           },
         },
       },
+      controlled: {
+        state: 'unsupported',
+        reason: 'The synthetic adapter does not emulate provider failure controls',
+      },
     },
-  },
-  lifecycle: {
-    state: 'supported',
-    input: createContractRuntime,
+    coordination: {
+      state: 'unsupported',
+      reason: 'The synthetic adapter has no cross-client migration lock primitive',
+    },
+    migration: {
+      state: 'supported',
+      input: {
+        lowering: {
+          async createCase() {
+            const { planned, profile } = await createSemanticPlannedMigration()
+            return {
+              dialect: semanticDialect,
+              planned,
+              profile,
+              mismatchedProfiles: {
+                identityAdapter: {
+                  ...profile,
+                  identityAdapter: 'contract-other-identity',
+                },
+                namespaceContext: {
+                  ...profile,
+                  namespaceContext: {
+                    writableDefault: [{ role: 'database', spelling: 'other_database' }],
+                  },
+                },
+                registrationDefault: {
+                  ...profile,
+                  registrationDefault: [
+                    { role: 'database', spelling: 'other_registration' },
+                  ],
+                },
+              },
+              expectedProgram: {
+                atomicity: 'statement-atomic',
+                actionCount: 2,
+                sourceStepIndexes: [[0], [1]],
+              },
+            }
+          },
+        },
+        unsupportedLowering: {
+          state: 'supported',
+          input: {
+            async createCase() {
+              const { planned, profile } = await createSemanticPlannedMigration()
+              return {
+                dialect: createExtensionContractDialect(createExtensionContractCalls(), {
+                  migration: 'unsupported',
+                }),
+                planned,
+                profile,
+                issue: {
+                  code: 'compile_failure',
+                  message: EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
+                  sourceStepIndexes: [0, 1],
+                },
+              }
+            },
+          },
+        },
+      },
+    },
+    lifecycle: {
+      state: 'supported',
+      input: createContractRuntime,
+    },
   },
 })
 
 describe('dialect extension contract', () => {
+  it('rejects an empty program that falsely reports an applied migration', async () => {
+    const faultyLifecycle = {
+      executionReported: { value: false },
+      postMigrationStateObserved: { value: false },
+    }
+
+    await expect(
+      runDialectLifecycleContract(
+        createContractRuntime({ emptyPlanReportsApplied: faultyLifecycle }),
+      ),
+    ).rejects.toThrow(/deeply equal/i)
+    expect(faultyLifecycle.executionReported.value).toBe(true)
+    expect(faultyLifecycle.postMigrationStateObserved.value).toBe(true)
+  })
+
   it('rejects a compiler that disagrees with the reusable Query agreement case', async () => {
     const runtime = createContractRuntime()
     const matching = runtime.dialect.query

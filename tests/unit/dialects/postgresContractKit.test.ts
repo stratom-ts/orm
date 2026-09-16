@@ -1,11 +1,25 @@
 import { date, number, pipe, string } from 'valibot'
 
 import { planMigration } from '@/ddl/migrationPlan'
-import type { CatalogExecutor, CatalogRequest } from '@/dialects'
+import type { MigrationPlan } from '@/ddl/migrationPlan'
+import type { CatalogExecutor, CatalogRequest, OperationCommand } from '@/dialects'
 import { column, defineTable, postgresDialect } from '@/index'
 
-import { registerDialectContractKit } from './dialectContractKit'
-import type { QueryCompilerScenarios } from './dialectContractKit'
+import {
+  createMockPostgresConnector,
+  createMockStatement,
+} from '../helpers/nativePostgresClient'
+
+import { registerDialectContractMember } from './dialectContractKit'
+import type {
+  DialectContractMemberCapabilities,
+  QueryCompilerScenarios,
+} from './dialectContractKit'
+import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
+import {
+  postgresCoordinationContractShard,
+  postgresOperationSessionContractShard,
+} from './postgresSharedShards'
 
 const namespaceContext = {
   writableDefault: [
@@ -13,6 +27,19 @@ const namespaceContext = {
     { role: 'schema' as const, spelling: 'contract_schema' },
   ],
 }
+
+const postgresContractCapabilities = {
+  identity: { state: 'supported', shard: 'semantic' },
+  naming: { state: 'supported', shard: 'semantic' },
+  desiredSchema: { state: 'supported', shard: 'semantic' },
+  query: { state: 'supported', shard: 'semantic' },
+  catalog: { state: 'supported', shard: 'semantic' },
+  operationSession: { state: 'supported', shard: 'operation-session' },
+  coordination: { state: 'supported', shard: 'coordination' },
+  migration: { state: 'supported', shard: 'semantic' },
+  lifecycle: { state: 'supported', shard: 'semantic' },
+} as const satisfies DialectContractMemberCapabilities
+
 const Records = defineTable(
   'records',
   {
@@ -28,6 +55,11 @@ const Records = defineTable(
 const Events = defineTable(
   'events',
   { id: string(), record_id: string(), label: string() },
+  { primaryKey: 'id' },
+)
+const LifecycleRecords = defineTable(
+  'lifecycle_records',
+  { id: string(), label: string() },
   { primaryKey: 'id' },
 )
 
@@ -426,179 +458,319 @@ const emptyCatalogExecutor: CatalogExecutor = {
   },
 }
 
-registerDialectContractKit({
-  name: 'PostgreSQL',
-  identity: {
-    state: 'supported',
-    input: {
-      dialect: postgresDialect,
-      context: namespaceContext,
-      relation: { relation: 'records' },
-      expected: {
-        namespace: [
+function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
+  let createdRelation: Readonly<{ schema: string; relation: string }> | undefined
+  let selectedConnector: ReturnType<typeof createMockPostgresConnector> | undefined
+  const operationCommands: OperationCommand[] = []
+  const connector = createMockPostgresConnector({
+    database: 'contract_database',
+    currentSchema: 'contract_schema',
+    onPrepare(sql) {
+      selectedConnector = connector
+      if (sql === 'select 1') operationCommands.push({ kind: 'ping' })
+      if (sql === 'begin') operationCommands.push({ kind: 'begin' })
+      if (sql === 'commit') operationCommands.push({ kind: 'commit' })
+
+      const statement = createMockStatement(
+        sql.includes('pg_try_advisory_lock')
+          ? [{ locked: true }]
+          : sql.includes('pg_advisory_unlock')
+            ? [{ unlocked: true }]
+            : sql.includes('current_database()')
+              ? [
+                  {
+                    database: 'contract_database',
+                    schema: 'contract_schema',
+                    version: '160000',
+                  },
+                ]
+              : sql.includes('"lifecycle_records"')
+                ? [{ id: 'lifecycle-1', label: 'connector-selected' }]
+                : [],
+      )
+
+      if (!/^create table "contract_schema"\."lifecycle_records"/i.test(sql)) {
+        return statement
+      }
+
+      return {
+        ...statement,
+        async run() {
+          createdRelation = {
+            schema: 'contract_schema',
+            relation: 'lifecycle_records',
+          }
+          return { success: true }
+        },
+      }
+    },
+  })
+  return {
+    dialect: postgresDialect,
+    registerDialect: false,
+    connector,
+    schemas: [LifecycleRecords],
+    executeQuery: (database: import('@/client').Db) =>
+      database
+        .from(LifecycleRecords)
+        .where(LifecycleRecords.label, 'eq', 'connector-selected')
+        .execute(),
+    operationCommands,
+    selectedConnector: () => selectedConnector,
+    disposed: () => connector.disposed,
+    queryParams: () =>
+      connector.binds.find((params) => params.includes('connector-selected')),
+    foreignPolicyLeak: () => false,
+    directConnectorMethods: [],
+    expected: {
+      queryRows: [{ id: 'lifecycle-1', label: 'connector-selected' }],
+      queryParam: 'connector-selected',
+      postMigrationState: {
+        relation: { schema: 'contract_schema', relation: 'lifecycle_records' },
+      },
+    },
+    postMigrationState: () => ({ relation: createdRelation }),
+    migration: {
+      state: 'supported' as const,
+      expectedPlan: {
+        steps: [
           {
-            role: 'database',
-            identifier: {
-              spelling: 'contract_database',
-              comparisonKey: 'contract_database',
+            kind: 'ensure_namespace',
+            target: {
+              kind: 'namespace',
+              namespace: [
+                {
+                  role: 'database',
+                  identifier: {
+                    spelling: 'contract_database',
+                    comparisonKey: 'contract_database',
+                  },
+                },
+                {
+                  role: 'schema',
+                  identifier: {
+                    spelling: 'contract_schema',
+                    comparisonKey: 'contract_schema',
+                  },
+                },
+              ],
             },
           },
           {
-            role: 'schema',
-            identifier: {
-              spelling: 'contract_schema',
-              comparisonKey: 'contract_schema',
+            kind: 'create_table',
+            target: {
+              kind: 'relation',
+              relation: {
+                namespace: [
+                  {
+                    role: 'database',
+                    identifier: {
+                      spelling: 'contract_database',
+                      comparisonKey: 'contract_database',
+                    },
+                  },
+                  {
+                    role: 'schema',
+                    identifier: {
+                      spelling: 'contract_schema',
+                      comparisonKey: 'contract_schema',
+                    },
+                  },
+                ],
+                relation: {
+                  spelling: 'lifecycle_records',
+                  comparisonKey: 'lifecycle_records',
+                },
+              },
             },
           },
         ],
-        relation: { spelling: 'records', comparisonKey: 'records' },
-      },
+      } satisfies MigrationPlan,
     },
-  },
-  naming: {
-    state: 'supported',
-    input: {
-      dialect: postgresDialect,
-      context: namespaceContext,
-      owner: { relation: 'records' },
-      columns: ['label'],
-      expectedName: 'records_label__8049ce336585d5ab_idx',
-      collisionName: 'contract_collision_idx',
-    },
-  },
-  desiredSchema: {
-    state: 'supported',
-    input: {
-      dialect: postgresDialect,
-      context: namespaceContext,
-      handles: [Records],
-      expected: [
-        {
-          namespace: [
-            { role: 'database', spelling: 'contract_database' },
-            { role: 'schema', spelling: 'contract_schema' },
-          ],
-          relation: 'records',
-          columns: [
-            { name: 'id', dataType: 'text' },
-            { name: 'label', dataType: 'text' },
-            { name: 'active', dataType: 'text' },
-            { name: 'amount', dataType: 'integer' },
-            { name: 'deleted_at', dataType: 'text' },
-            { name: 'created_at', dataType: 'timestamptz' },
-          ],
-          primaryKey: ['id'],
-        },
-      ],
-    },
-  },
-  query: {
-    core: {
+  }
+}
+
+registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
+  semantic: {
+    identity: {
       state: 'supported',
       input: {
         dialect: postgresDialect,
-        handles: [Records, Events],
-        target: Records,
-        registrationDefault: namespaceContext.writableDefault,
-        relation: records,
-        column: 'label',
-        node: queryCompilerScenarios['select.projection'].support.input.node,
-        inspectCompiled: (query) => ({
-          parameterCount: query.params.length,
-          addressesRelation: query.sql.includes('"contract_schema"."records"'),
-          addressesColumn: query.sql.includes('"label"'),
-        }),
+        context: namespaceContext,
+        relation: { relation: 'records' },
         expected: {
-          relationMatches: ['records'],
-          columnMatches: ['label'],
-          compiled: {
-            parameterCount: 0,
-            addressesRelation: true,
-            addressesColumn: true,
+          namespace: [
+            {
+              role: 'database',
+              identifier: {
+                spelling: 'contract_database',
+                comparisonKey: 'contract_database',
+              },
+            },
+            {
+              role: 'schema',
+              identifier: {
+                spelling: 'contract_schema',
+                comparisonKey: 'contract_schema',
+              },
+            },
+          ],
+          relation: { spelling: 'records', comparisonKey: 'records' },
+        },
+      },
+    },
+    naming: {
+      state: 'supported',
+      input: {
+        dialect: postgresDialect,
+        context: namespaceContext,
+        owner: { relation: 'records' },
+        columns: ['label'],
+        expectedName: 'records_label__8049ce336585d5ab_idx',
+        collisionName: 'contract_collision_idx',
+      },
+    },
+    desiredSchema: {
+      state: 'supported',
+      input: {
+        dialect: postgresDialect,
+        context: namespaceContext,
+        handles: [Records],
+        expected: [
+          {
+            namespace: [
+              { role: 'database', spelling: 'contract_database' },
+              { role: 'schema', spelling: 'contract_schema' },
+            ],
+            relation: 'records',
+            columns: [
+              { name: 'id', dataType: 'text' },
+              { name: 'label', dataType: 'text' },
+              { name: 'active', dataType: 'text' },
+              { name: 'amount', dataType: 'integer' },
+              { name: 'deleted_at', dataType: 'text' },
+              { name: 'created_at', dataType: 'timestamptz' },
+            ],
+            primaryKey: ['id'],
+          },
+        ],
+      },
+    },
+    query: {
+      state: 'supported',
+      core: {
+        state: 'supported',
+        input: {
+          dialect: postgresDialect,
+          handles: [Records, Events],
+          target: Records,
+          registrationDefault: namespaceContext.writableDefault,
+          relation: records,
+          column: 'label',
+          node: queryCompilerScenarios['select.projection'].support.input.node,
+          inspectCompiled: (query) => ({
+            parameterCount: query.params.length,
+            addressesRelation: query.sql.includes('"contract_schema"."records"'),
+            addressesColumn: query.sql.includes('"label"'),
+          }),
+          expected: {
+            relationMatches: ['records'],
+            columnMatches: ['label'],
+            compiled: {
+              parameterCount: 0,
+              addressesRelation: true,
+              addressesColumn: true,
+            },
+          },
+        },
+      },
+      scenarios: queryCompilerScenarios,
+      valueMapping: {
+        state: 'supported',
+        input: {
+          dialect: postgresDialect,
+          dataType: 'jsonb',
+          paramValue: { key: 'value' },
+          resultValue: '{"key":"value"}',
+          expected: {
+            mappedParam: '{"key":"value"}',
+            mappedResult: { key: 'value' },
           },
         },
       },
     },
-    scenarios: queryCompilerScenarios,
-    valueMapping: {
+    catalog: {
       state: 'supported',
       input: {
         dialect: postgresDialect,
-        dataType: 'jsonb',
-        paramValue: { key: 'value' },
-        resultValue: '{"key":"value"}',
+        executor: emptyCatalogExecutor,
+        request: emptyCatalogRequest,
         expected: {
-          mappedParam: '{"key":"value"}',
-          mappedResult: { key: 'value' },
+          sourceDialect: 'postgresql',
+          writableDefault: namespaceContext.writableDefault,
+          namespaceCoverage: { state: 'complete' },
+          capabilities: {
+            namespaces: { state: 'supported', fidelity: 'native' },
+            relationOwner: { state: 'supported', fidelity: 'native' },
+            identity: { state: 'supported', fidelity: 'native' },
+            richObjects: { state: 'supported', fidelity: 'opaque' },
+          },
         },
       },
     },
-  },
-  catalog: {
-    state: 'supported',
-    input: {
-      dialect: postgresDialect,
-      executor: emptyCatalogExecutor,
-      request: emptyCatalogRequest,
-      expected: {
-        sourceDialect: 'postgresql',
-        writableDefault: namespaceContext.writableDefault,
-        namespaceCoverage: { state: 'complete' },
-        capabilities: {
-          namespaces: { state: 'supported', fidelity: 'native' },
-          relationOwner: { state: 'supported', fidelity: 'native' },
-          identity: { state: 'supported', fidelity: 'native' },
-          richObjects: { state: 'supported', fidelity: 'opaque' },
-        },
-      },
-    },
-  },
-  migration: {
-    state: 'supported',
-    input: {
-      lowering: {
-        async createCase() {
-          const catalog = await postgresDialect.catalog.introspectCatalog(
-            emptyCatalogExecutor,
-            emptyCatalogRequest,
-          )
-          const planned = planMigration([], catalog, postgresDialect.migration.planning)
-          const profile = planned.profile
-          return {
-            dialect: postgresDialect,
-            planned,
-            profile,
-            mismatchedProfiles: {
-              identityAdapter: {
-                ...profile,
-                identityAdapter: 'contract-other-identity',
-              },
-              namespaceContext: {
-                ...profile,
+    migration: {
+      state: 'supported',
+      input: {
+        lowering: {
+          async createCase() {
+            const catalog = await postgresDialect.catalog.introspectCatalog(
+              emptyCatalogExecutor,
+              emptyCatalogRequest,
+            )
+            const planned = planMigration([], catalog, postgresDialect.migration.planning)
+            const profile = planned.profile
+            return {
+              dialect: postgresDialect,
+              planned,
+              profile,
+              mismatchedProfiles: {
+                identityAdapter: {
+                  ...profile,
+                  identityAdapter: 'contract-other-identity',
+                },
                 namespaceContext: {
-                  writableDefault: [
-                    { role: 'database', spelling: 'other_database' },
-                    { role: 'schema', spelling: 'other_schema' },
-                  ],
+                  ...profile,
+                  namespaceContext: {
+                    writableDefault: [
+                      { role: 'database', spelling: 'other_database' },
+                      { role: 'schema', spelling: 'other_schema' },
+                    ],
+                  },
+                },
+                registrationDefault: {
+                  ...profile,
+                  registrationDefault: [{ role: 'schema', spelling: 'other_schema' }],
                 },
               },
-              registrationDefault: {
-                ...profile,
-                registrationDefault: [{ role: 'schema', spelling: 'other_schema' }],
+              expectedProgram: {
+                atomicity: 'plan-atomic',
+                actionCount: 0,
+                sourceStepIndexes: [],
               },
-            },
-            expectedProgram: {
-              atomicity: 'plan-atomic',
-              actionCount: 0,
-              sourceStepIndexes: [],
-            },
-          }
+            }
+          },
+        },
+        unsupportedLowering: {
+          state: 'unsupported',
+          reason: 'The shared empty PostgreSQL plan has no unsupported lowering case',
         },
       },
-      unsupportedLowering: {
-        state: 'unsupported',
-        reason: 'The shared empty PostgreSQL plan has no unsupported lowering case',
-      },
+    },
+    lifecycle: {
+      state: 'supported',
+      input: createPostgresLifecycleRuntime,
     },
   },
+  coordination: postgresCoordinationContractShard,
+  'operation-session': postgresOperationSessionContractShard,
 })

@@ -233,81 +233,83 @@ scenarios and assertions. Adapters supply typed Dialect inputs, narrow physical-
 observations where required, and independent semantic expected results. They cannot
 replace a shared scenario with an adapter-authored test.
 
-Each facet, or its named sub-contract, is `supported` with typed input or `unsupported`
-with a reason. Catalog inputs state the exact expected evidence for namespaces, relation
-owners, generated identity, and rich objects, so one catalog can mix supported and
-unsupported evidence. Operation-session inputs separately declare the common lifecycle
-and controlled failure-path suites. Coordination accepts only the shared semantic runtime
-factory or an unsupported reason. Migration accepts a lowering and Semantic Profile
-validation case plus an explicit supported or unsupported lowering-limit case.
+Create one exhaustive capability declaration for the complete member. It assigns each
+facet to one named isolated shard. Register the complete member once; the aggregate
+accepts one descriptor for every declared shard, and each descriptor accepts all and only
+its owned facet inputs. A supported facet needs a supported input, while an unsupported
+facet needs a non-blank reason. Composite Query and operation-session inputs also carry
+their top-level `state: 'supported'` declaration. This makes a missing applicable input,
+malformed declaration, or omitted whole shard a type or registration error.
+Catalog inputs state the exact expected evidence for namespaces, relation owners,
+generated identity, and rich objects, so one catalog can mix supported and unsupported
+evidence. Operation-session inputs separately declare the common lifecycle and controlled
+failure-path suites. Coordination accepts only the shared semantic runtime factory or an
+unsupported reason. Migration accepts a lowering and Semantic Profile validation case plus
+an explicit supported or unsupported lowering-limit case.
 
-The minimum form for one facet is:
-
-```typescript
-registerDialectContractKit({
-  name: 'ExampleDB',
-  identity: {
-    state: 'supported',
-    input: {
-      dialect: exampleDialect,
-      context: exampleNamespaceContext,
-      relation: { relation: 'records' },
-      expected: {
-        namespace: [
-          {
-            role: 'database',
-            identifier: { spelling: 'example', comparisonKey: 'example' },
-          },
-        ],
-        relation: { spelling: 'records', comparisonKey: 'records' },
-      },
-    },
-  },
-  coordination: {
-    state: 'unsupported',
-    reason: 'ExampleDB has no cross-client lock primitive',
-  },
-})
-```
-
-An adapter can register facets in several test files when their fixtures differ. A
-complete Dialect supplies every applicable facet across those registrations. Supply
+An adapter can register facets in several test files when their fixtures differ. Reuse its
+complete capability declaration and export descriptors from each focused fixture file;
+only the aggregate calls `registerDialectContractMember()`. Supply
 `lifecycle: { state: 'supported', input: createRuntime }` once. That runner performs
-exactly one public connector-selected smoke for query routing, migration outcome, and
-cleanup. Detailed checks stay in the fixed facet runners.
+exactly one public connector-selected smoke for query routing, transaction routing,
+Migration Plan equality, execution, post-migration state, and cleanup. Its expected plan
+and post-state are supplied independently of the Dialect under test. Detailed checks stay
+in the fixed facet runners.
 
 The complete registration shape is:
 
 ```typescript
-registerDialectContractKit({
-  name: 'ExampleDB',
-  identity: { state: 'supported', input: identityInput },
-  naming: { state: 'supported', input: namingInput },
-  desiredSchema: { state: 'supported', input: desiredSchemaInput },
-  query: {
-    core: { state: 'supported', input: queryInput },
-    scenarios: queryCompilerScenarios,
-    valueMapping: { state: 'supported', input: valueMappingInput },
-  },
-  catalog: { state: 'supported', input: catalogInput },
-  operationSession: {
-    common: { state: 'supported', input: commonSessionInput },
-    controlled: { state: 'supported', input: controlledSessionInput },
-  },
-  coordination: { state: 'supported', input: coordinationRuntimeFactory },
-  migration: {
-    state: 'supported',
-    input: {
-      lowering: migrationLoweringInput,
-      unsupportedLowering: {
-        state: 'unsupported',
-        reason: 'ExampleDB lowers every shared Migration Plan case',
+import { registerDialectContractMember } from './dialectContractKit'
+import type { DialectContractMemberCapabilities } from './dialectContractKit'
+import {
+  exampleCoordinationContractShard,
+  exampleOperationSessionContractShard,
+} from './exampleSharedShards'
+
+const exampleCapabilities = {
+  identity: { state: 'supported', shard: 'semantic' },
+  naming: { state: 'supported', shard: 'semantic' },
+  desiredSchema: { state: 'supported', shard: 'semantic' },
+  query: { state: 'supported', shard: 'semantic' },
+  catalog: { state: 'supported', shard: 'semantic' },
+  operationSession: { state: 'supported', shard: 'operation-session' },
+  coordination: { state: 'supported', shard: 'coordination' },
+  migration: { state: 'supported', shard: 'semantic' },
+  lifecycle: { state: 'supported', shard: 'semantic' },
+} as const satisfies DialectContractMemberCapabilities
+
+registerDialectContractMember('ExampleDB', exampleCapabilities, {
+  semantic: {
+    identity: { state: 'supported', input: identityInput },
+    naming: { state: 'supported', input: namingInput },
+    desiredSchema: { state: 'supported', input: desiredSchemaInput },
+    query: {
+      state: 'supported',
+      core: { state: 'supported', input: queryInput },
+      scenarios: queryCompilerScenarios,
+      valueMapping: { state: 'supported', input: valueMappingInput },
+    },
+    catalog: { state: 'supported', input: catalogInput },
+    migration: {
+      state: 'supported',
+      input: {
+        lowering: migrationLoweringInput,
+        unsupportedLowering: {
+          state: 'unsupported',
+          reason: 'ExampleDB lowers every shared Migration Plan case',
+        },
       },
     },
+    lifecycle: { state: 'supported', input: createLifecycleRuntime },
   },
-  lifecycle: { state: 'supported', input: createLifecycleRuntime },
+  coordination: exampleCoordinationContractShard,
+  'operation-session': exampleOperationSessionContractShard,
 })
 ```
+
+Leaving out either imported descriptor rejects the member because its declared shard has
+no registration. A one-shard member uses the same aggregate API with one `complete`
+descriptor; it cannot call a shard-only registration function.
 
 The minimal test member in `tests/unit/helpers/extensionContractDialect.ts` demonstrates the
 extension boundary. It supplies every Dialect facet, is selected only by its connector,

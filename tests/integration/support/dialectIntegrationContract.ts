@@ -4,12 +4,15 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Db, TableHandle } from '@/index'
 import { column, defineTable } from '@/index'
 
-type IntegrationCapabilityName =
-  | 'lifecycle'
-  | 'query'
-  | 'transaction'
-  | 'migration'
-  | 'convergence'
+const integrationCapabilityNames = [
+  'lifecycle',
+  'query',
+  'transaction',
+  'migration',
+  'convergence',
+] as const
+
+type IntegrationCapabilityName = (typeof integrationCapabilityNames)[number]
 
 type IntegrationCapability =
   | Readonly<{ state: 'supported' }>
@@ -25,6 +28,22 @@ export interface DialectIntegrationAdapter {
     schemas: TSchemas,
     callback: (context: Readonly<{ db: Db<TSchemas> }>) => Promise<TResult>,
   ): Promise<TResult>
+}
+
+/** Rejects incomplete or unexplained integration capability declarations. */
+export function validateDialectIntegrationCapabilities(
+  capabilities: Readonly<Record<IntegrationCapabilityName, IntegrationCapability>>,
+): void {
+  for (const name of integrationCapabilityNames) {
+    const capability = capabilities[name]
+    if (!capability) {
+      throw new Error(`Integration capability declaration omits ${name}`)
+    }
+
+    if (capability.state === 'unsupported' && capability.reason.trim().length === 0) {
+      throw new Error(`Integration capability ${name} needs a non-empty reason`)
+    }
+  }
 }
 
 const ContractRecords = defineTable(
@@ -48,14 +67,13 @@ function assertNever(value: never): never {
   throw new Error(`Unexpected integration capability: ${JSON.stringify(value)}`)
 }
 
-function scenario(
-  adapter: DialectIntegrationAdapter,
-  capabilities: readonly IntegrationCapabilityName[],
-  title: string,
-  test: () => Promise<void>,
-): void {
-  const hasUnsupportedCapability = capabilities.some((capability) => {
-    const support = adapter.capabilities[capability]
+/** Returns whether every capability required for an integration scenario is supported. */
+export function shouldRegisterDialectIntegrationScenario(
+  capabilities: DialectIntegrationAdapter['capabilities'],
+  required: readonly IntegrationCapabilityName[],
+): boolean {
+  return !required.some((capability) => {
+    const support = capabilities[capability]
 
     switch (support.state) {
       case 'supported':
@@ -66,11 +84,19 @@ function scenario(
 
     return assertNever(support)
   })
+}
 
+function scenario(
+  adapter: DialectIntegrationAdapter,
+  capabilities: readonly IntegrationCapabilityName[],
+  title: string,
+  test: () => Promise<void>,
+): void {
   // Unsupported capabilities do not register a scenario. This keeps the suite
   // free of skipped tests while the adapter capability declaration remains the
   // source of truth for the omitted behavior.
-  if (hasUnsupportedCapability) return
+  if (!shouldRegisterDialectIntegrationScenario(adapter.capabilities, capabilities))
+    return
 
   it(title, test)
 }
@@ -79,6 +105,7 @@ function scenario(
 export function registerDialectIntegrationScenarios(
   adapter: DialectIntegrationAdapter,
 ): void {
+  validateDialectIntegrationCapabilities(adapter.capabilities)
   describe(`${adapter.name} shared integration scenarios`, () => {
     beforeAll(() => adapter.readiness())
 
