@@ -217,6 +217,9 @@ describe('PostgreSQL transaction and coordination integration', () => {
           )
           expect(rejected(await timedOut)).toMatchObject({
             _tag: 'MigrationError',
+            message: expect.stringContaining(
+              'Timed out acquiring the migration advisory lock',
+            ),
             stage: 'lock',
             outcome: 'unchanged',
             retryable: true,
@@ -237,8 +240,13 @@ describe('PostgreSQL transaction and coordination integration', () => {
             'the contending advisory-lock query',
           )
           controller.abort()
+          await within(
+            cancelledOutcome.then(() => undefined),
+            'the cancelled advisory-lock query',
+          )
           expect(rejected(await cancelledOutcome)).toMatchObject({
             _tag: 'MigrationError',
+            message: expect.stringMatching(/aborted/i),
             stage: 'lock',
             outcome: 'unchanged',
             retryable: true,
