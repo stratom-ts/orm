@@ -1,21 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { MigrationProgram } from '@/ddl/migrationProgram'
-import {
-  executePostgresMigration,
-  postgresAdvisoryLockIdentity,
-} from '@/dialects/postgres/migration'
+import { postgresAdvisoryLockIdentity } from '@/dialects/postgres/migration'
 import {
   createMigrationCoordinationScope,
   migrationLockAcquisitionOrder,
 } from '@/migrations/coordinationScope'
-import type { Executor } from '@/query'
 
-import { registerDialectContractKit } from './dialectContractKit'
-import type {
-  CoordinationContractEvent,
-  CoordinationContractLockManager,
-} from './migrationCoordinationContract'
+import {
+  createPostgresMigrationRuntime as harness,
+  postgresMigrationProgram as program,
+} from '../helpers/postgresMigrationRuntimeFixtures'
 
 const relation = {
   namespace: [
@@ -30,193 +24,6 @@ const relation = {
   ],
   relation: { spelling: 'events', comparisonKey: 'events' },
 }
-
-/**
- * Creates a minimal plan-atomic migration program for runtime tests.
- *
- * @param overrides - Program fields to replace for a specific scenario.
- */
-function program(overrides: Partial<MigrationProgram> = {}): MigrationProgram {
-  return {
-    atomicity: 'plan-atomic',
-    preconditions: [],
-    actions: [
-      {
-        sourceStepIndexes: [4],
-        transaction: 'required',
-        statements: [{ sql: 'create table events (id integer)', params: [] }],
-      },
-    ],
-    ...overrides,
-  }
-}
-
-/**
- * Creates a controllable PostgreSQL migration runtime and records physical calls.
- *
- * @param options - Lock, release, failure, cancellation, and transaction controls.
- */
-function harness(
-  options: {
-    failRun?: RegExp
-    failUnlock?: boolean
-    unlockResult?: boolean
-    unlockResults?: Array<boolean | Error>
-    releaseResults?: Array<boolean | Error>
-    applicationId?: string
-    clientId?: string
-    noWork?: boolean
-    holdAfterTransaction?: boolean
-    sharedLockManager?: CoordinationContractLockManager
-    nullCount?: number
-    lockResults?: Array<boolean | Error>
-    lockGate?: Promise<void>
-    lockDelayMs?: number
-    hangQuery?: RegExp
-    hangRun?: RegExp
-  } = {},
-) {
-  const calls: string[] = []
-  const queries: Array<{ sql: string; params: unknown[] }> = []
-  const discard = vi.fn()
-  const prepare = vi.fn(async (migrationProgram: MigrationProgram) => migrationProgram)
-  let releaseHold: (() => void) | undefined
-  const held = options.holdAfterTransaction
-    ? new Promise<void>((resolve) => {
-        releaseHold = resolve
-      })
-    : undefined
-  let rejectInFlight: ((cause: Error) => void) | undefined
-  const hang = () =>
-    new Promise<never>((_, reject) => {
-      rejectInFlight = reject
-    })
-  const cancel = vi.fn(async () => {
-    rejectInFlight?.(new Error('physical session cancelled'))
-  })
-
-  async function acquire(query: { sql: string; params: unknown[] }) {
-    if (options.lockGate !== undefined) await options.lockGate
-
-    if (options.lockDelayMs !== undefined) {
-      await new Promise((resolve) => setTimeout(resolve, options.lockDelayMs))
-    }
-
-    const configured = options.lockResults?.shift()
-    const result =
-      configured ??
-      options.sharedLockManager?.tryAcquire(
-        options.clientId ?? 'client',
-        `${query.params[0]}:${query.params[1]}`,
-      ) ??
-      true
-    if (result instanceof Error) throw result
-    return [{ locked: result }]
-  }
-
-  function release(query: { sql: string; params: unknown[] }) {
-    if (options.failUnlock) throw new Error('unlock failed')
-    const result = options.releaseResults?.shift() ?? options.unlockResults?.shift()
-    if (result instanceof Error) throw result
-    options.sharedLockManager?.release(
-      options.clientId ?? 'client',
-      `${query.params[0]}:${query.params[1]}`,
-    )
-    return [{ unlocked: result ?? options.unlockResult ?? true }]
-  }
-
-  const executor: Executor = {
-    async run(query) {
-      calls.push(query.sql)
-      queries.push(query)
-      if (/^begin\b/i.test(query.sql) && held !== undefined) await held
-      if (options.hangRun?.test(query.sql)) await hang()
-      if (options.failRun?.test(query.sql)) throw new Error(`failed: ${query.sql}`)
-    },
-    async execute(query) {
-      calls.push(query.sql)
-      queries.push(query)
-      if (options.hangQuery?.test(query.sql)) await hang()
-
-      if (/pg_try_advisory_lock/i.test(query.sql)) {
-        return acquire(query)
-      }
-
-      if (/pg_advisory_unlock/i.test(query.sql)) {
-        return release(query)
-      }
-
-      if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
-      return []
-    },
-  }
-  const execute = (
-    migrationProgram = options.noWork ? program({ actions: [] }) : program(),
-    runtimeOptions: { signal?: AbortSignal; lockTimeoutMs?: number } = {},
-  ) =>
-    executePostgresMigration({
-      executor,
-      databaseIdentity: 'test',
-      ...(options.applicationId === undefined
-        ? {}
-        : { applicationId: options.applicationId }),
-      lockTimeoutMs: runtimeOptions.lockTimeoutMs ?? 1_000,
-      ...(runtimeOptions.signal === undefined ? {} : { signal: runtimeOptions.signal }),
-      discard,
-      cancel,
-      prepare: () => prepare(migrationProgram),
-    })
-
-  const semanticEvent = (query: { sql: string }): CoordinationContractEvent => {
-    if (/pg_try_advisory_lock/i.test(query.sql)) return 'acquire'
-    if (/pg_advisory_unlock/i.test(query.sql)) return 'release'
-    if (/\b(?:begin|commit|rollback)\b/i.test(query.sql)) return 'transaction'
-    if (/count\(\*\)/i.test(query.sql)) return 'introspection'
-    if (/create table/i.test(query.sql)) return 'ddl'
-    return 'transaction'
-  }
-
-  const events = () => queries.map(semanticEvent)
-  return {
-    calls,
-    queries,
-    cancel,
-    discard,
-    execute,
-    prepare,
-    events,
-    releaseHold: () => releaseHold?.(),
-    waitFor: async (event: CoordinationContractEvent) => {
-      while (!events().includes(event)) {
-        await new Promise<void>((resolve) => setImmediate(resolve))
-      }
-    },
-  }
-}
-
-registerDialectContractKit({
-  name: 'PostgreSQL',
-  coordination: {
-    state: 'supported',
-    input(options) {
-      const runtime = harness({
-        applicationId: options?.applicationId,
-        clientId: options?.clientId,
-        lockResults: options?.lockResults,
-        releaseResults: options?.releaseResults,
-        noWork: options?.noWork,
-        holdAfterTransaction: options?.holdAfterTransaction,
-        sharedLockManager: options?.sharedLockManager,
-      })
-      return {
-        execute: (options) => runtime.execute(undefined, options),
-        events: runtime.events,
-        releaseHold: runtime.releaseHold,
-        waitFor: runtime.waitFor,
-      }
-    },
-  },
-})
 
 describe('PostgreSQL migration runtime failures', () => {
   it.each(['statement-atomic', 'non-atomic'] as const)(

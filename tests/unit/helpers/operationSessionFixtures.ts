@@ -349,6 +349,27 @@ export function createControllableProvider(
   }
 }
 
+export function createOperationSessionCommonRuntime(
+  options?: Parameters<typeof createControllableProvider>[0],
+) {
+  const controls = createControllableProvider(options)
+  return {
+    controls,
+    runtime: {
+      provider: controls.provider,
+      events: () =>
+        controls.events.flatMap((event) => {
+          if (event === 'statement:1:contract query') return ['query' as const]
+          if (event === 'statement:1:contract run') return ['run' as const]
+          if (event === 'cancel-requested:1') return ['cancel' as const]
+          if (event === 'release-finished:1:reuse') return ['release:reuse' as const]
+          if (event === 'provider-closed') return ['close' as const]
+          return []
+        }),
+    },
+  }
+}
+
 export function customConnector(): Connector {
   return {
     name: 'custom',

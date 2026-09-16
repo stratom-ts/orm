@@ -51,10 +51,33 @@ type DialectContractFacet =
   | 'migration'
   | 'migration/unsupported-lowering'
   | 'naming'
+  | 'operation-session'
   | 'operation-session/common'
   | 'operation-session/controlled'
   | 'query'
   | 'query/value-mapping'
+
+const dialectMemberFacets = [
+  'identity',
+  'naming',
+  'desiredSchema',
+  'query',
+  'catalog',
+  'operationSession',
+  'coordination',
+  'migration',
+  'lifecycle',
+] as const
+
+type DialectMemberFacet = (typeof dialectMemberFacets)[number]
+type DialectMemberCapability<TShard extends string> =
+  | Readonly<{ state: 'supported'; shard: TShard }>
+  | Readonly<{ state: 'unsupported'; reason: string; shard: TShard }>
+
+/** Exhaustive test-only capability declaration for one complete Dialect member. */
+export type DialectContractMemberCapabilities<TShard extends string = string> = Readonly<
+  Record<DialectMemberFacet, DialectMemberCapability<TShard>>
+>
 
 type IdentityContractInput = Readonly<{
   dialect: Dialect
@@ -166,6 +189,7 @@ type QueryValueMappingContractInput = Readonly<{
 }>
 
 type QueryContract = Readonly<{
+  state: 'supported'
   core: ContractSupport<QueryCoreContractInput>
   scenarios: QueryCompilerScenarios
   valueMapping: ContractSupport<QueryValueMappingContractInput>
@@ -243,6 +267,7 @@ export async function runOperationSessionCommonContract(
 }
 
 type OperationSessionContract = Readonly<{
+  state: 'supported'
   common: ContractSupport<Readonly<{ createRuntime(): OperationSessionCommonRuntime }>>
   controlled: ContractSupport<
     Readonly<{
@@ -295,19 +320,158 @@ type MigrationContract = Readonly<{
   unsupportedLowering: ContractSupport<UnsupportedMigrationContractInput>
 }>
 
-/** Test-only inputs for the fixed shared contracts of one complete Dialect member. */
-export type DialectContractKit = Readonly<{
-  name: string
-  identity?: ContractSupport<IdentityContractInput>
-  naming?: ContractSupport<NamingContractInput>
-  desiredSchema?: ContractSupport<DesiredSchemaContractInput>
-  query?: QueryContract
-  catalog?: ContractSupport<CatalogContractInput>
-  operationSession?: OperationSessionContract
-  coordination?: ContractSupport<CoordinationContractFactory>
-  migration?: ContractSupport<MigrationContract>
-  lifecycle?: ContractSupport<DialectLifecycleContractFactory>
+type FacetContractInput = Readonly<{
+  identity: ContractSupport<IdentityContractInput>
+  naming: ContractSupport<NamingContractInput>
+  desiredSchema: ContractSupport<DesiredSchemaContractInput>
+  query: QueryContract | UnsupportedContract
+  catalog: ContractSupport<CatalogContractInput>
+  operationSession: OperationSessionContract | UnsupportedContract
+  coordination: ContractSupport<CoordinationContractFactory>
+  migration: ContractSupport<MigrationContract>
+  lifecycle: ContractSupport<DialectLifecycleContractFactory>
 }>
+
+type MemberShard<TCapabilities extends DialectContractMemberCapabilities> =
+  TCapabilities[DialectMemberFacet]['shard']
+
+type OwnedFacet<
+  TCapabilities extends DialectContractMemberCapabilities,
+  TShard extends MemberShard<TCapabilities>,
+> = {
+  [TFacet in DialectMemberFacet]: TCapabilities[TFacet]['shard'] extends TShard
+    ? TFacet
+    : never
+}[DialectMemberFacet]
+
+type CompatibleFacetInput<
+  TCapabilities extends DialectContractMemberCapabilities,
+  TFacet extends DialectMemberFacet,
+> = TCapabilities[TFacet]['state'] extends 'supported'
+  ? TFacet extends 'query'
+    ? QueryContract
+    : TFacet extends 'operationSession'
+      ? OperationSessionContract
+      : Extract<FacetContractInput[TFacet], { state: 'supported' }>
+  : UnsupportedContract
+
+type ShardFacetInputs<
+  TCapabilities extends DialectContractMemberCapabilities,
+  TShard extends MemberShard<TCapabilities>,
+> = {
+  [TFacet in OwnedFacet<TCapabilities, TShard>]-?: CompatibleFacetInput<
+    TCapabilities,
+    TFacet
+  >
+} & {
+  [TFacet in Exclude<DialectMemberFacet, OwnedFacet<TCapabilities, TShard>>]?: never
+}
+
+type DialectContractShard<
+  TCapabilities extends DialectContractMemberCapabilities,
+  TShard extends MemberShard<TCapabilities>,
+> = ShardFacetInputs<TCapabilities, TShard>
+
+type DialectContractMemberRegistrations<
+  TCapabilities extends DialectContractMemberCapabilities,
+> = Readonly<{
+  [TShard in MemberShard<TCapabilities>]: DialectContractShard<TCapabilities, TShard>
+}>
+
+/** Registers each declared member shard exactly once at one test entry point. */
+export function registerDialectContractMember<
+  const TCapabilities extends DialectContractMemberCapabilities,
+>(
+  name: string,
+  capabilities: TCapabilities,
+  registrations: DialectContractMemberRegistrations<TCapabilities>,
+): void {
+  validateDialectContractMember(capabilities)
+  const declared = new Set(dialectMemberFacets.map((facet) => capabilities[facet].shard))
+  for (const shard of declared) {
+    if (!Object.hasOwn(registrations, shard))
+      throw new Error(`Dialect contract member omits declared shard ${shard}`)
+  }
+
+  for (const shard of Object.keys(registrations)) {
+    if (!declared.has(shard))
+      throw new Error(`Dialect contract member registers unknown shard ${shard}`)
+  }
+
+  for (const shard of declared) {
+    validateDialectContractShard(
+      capabilities,
+      shard,
+      registrations[shard as MemberShard<TCapabilities>],
+    )
+  }
+
+  for (const shard of declared) {
+    registerDialectContractShard(
+      name,
+      capabilities,
+      shard,
+      registrations[shard as MemberShard<TCapabilities>],
+    )
+  }
+}
+
+/** Validates an exhaustive test-only declaration before any scenarios register. */
+function validateDialectContractMember<
+  TCapabilities extends DialectContractMemberCapabilities,
+>(capabilities: TCapabilities): void {
+  for (const facet of dialectMemberFacets) {
+    const capability = capabilities[facet]
+    if (typeof capability !== 'object' || capability === null) {
+      throw new Error(`Dialect contract capability declaration omits ${facet}`)
+    }
+
+    if (capability.state !== 'supported' && capability.state !== 'unsupported') {
+      throw new Error(`Dialect contract capability ${facet} has an invalid state`)
+    }
+
+    if (typeof capability.shard !== 'string' || capability.shard.trim().length === 0) {
+      throw new Error(`Dialect contract capability ${facet} needs a non-empty shard`)
+    }
+
+    if (
+      capability.state === 'unsupported' &&
+      (typeof capability.reason !== 'string' || capability.reason.trim().length === 0)
+    ) {
+      throw new Error(`Dialect contract capability ${facet} needs a non-empty reason`)
+    }
+  }
+}
+
+/** Validates that one isolated registration supplies all and only its owned facets. */
+function validateDialectContractShard(
+  capabilities: DialectContractMemberCapabilities,
+  shard: string,
+  inputs: object,
+): void {
+  for (const facet of dialectMemberFacets) {
+    const owned = capabilities[facet].shard === shard
+    const input = (inputs as Partial<Record<DialectMemberFacet, unknown>>)[facet]
+
+    if (owned && input === undefined) {
+      throw new Error(`Dialect contract shard ${shard} omits its ${facet} input`)
+    }
+
+    if (!owned && input !== undefined) {
+      throw new Error(`Dialect contract shard ${shard} does not own ${facet}`)
+    }
+
+    if (
+      owned &&
+      typeof input === 'object' &&
+      input !== null &&
+      'state' in input &&
+      input.state !== capabilities[facet].state
+    ) {
+      throw new Error(`Dialect contract shard ${shard} disagrees about ${facet}`)
+    }
+  }
+}
 
 function registerUnsupported(
   name: string,
@@ -316,17 +480,12 @@ function registerUnsupported(
 ): void {
   describe(`${name} Dialect contract [${facet}]`, () => {
     it('scenario [declares unsupported behavior with a reason]', () => {
-      expect(support.reason.length).toBeGreaterThan(0)
+      expect(support.reason.trim().length).toBeGreaterThan(0)
     })
   })
 }
 
-function registerIdentity(
-  name: string,
-  support?: ContractSupport<IdentityContractInput>,
-) {
-  if (!support) return
-
+function registerIdentity(name: string, support: ContractSupport<IdentityContractInput>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'identity', support)
     return
@@ -346,9 +505,7 @@ function registerIdentity(
   })
 }
 
-function registerNaming(name: string, support?: ContractSupport<NamingContractInput>) {
-  if (!support) return
-
+function registerNaming(name: string, support: ContractSupport<NamingContractInput>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'naming', support)
     return
@@ -386,10 +543,8 @@ function registerNaming(name: string, support?: ContractSupport<NamingContractIn
 
 function registerDesiredSchema(
   name: string,
-  support?: ContractSupport<DesiredSchemaContractInput>,
+  support: ContractSupport<DesiredSchemaContractInput>,
 ) {
-  if (!support) return
-
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'desired-schema', support)
     return
@@ -421,8 +576,11 @@ function registerDesiredSchema(
   })
 }
 
-function registerQuery(name: string, contract?: QueryContract) {
-  if (!contract) return
+function registerQuery(name: string, contract: QueryContract | UnsupportedContract) {
+  if (contract.state === 'unsupported') {
+    registerUnsupported(name, 'query', contract)
+    return
+  }
 
   if (contract.core.state === 'unsupported') {
     registerUnsupported(name, 'query', contract.core)
@@ -449,7 +607,7 @@ function registerQuery(name: string, contract?: QueryContract) {
     const support = scenario.support
     if (support.state === 'unsupported') {
       it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
-        expect(support.reason.length).toBeGreaterThan(0)
+        expect(support.reason.trim().length).toBeGreaterThan(0)
         // Resolve the compiler directly. No connector or executor is involved
         // in this contract, so unsupported AST forms fail before database work.
 
@@ -493,9 +651,7 @@ function registerQuery(name: string, contract?: QueryContract) {
   }
 }
 
-function registerCatalog(name: string, support?: ContractSupport<CatalogContractInput>) {
-  if (!support) return
-
+function registerCatalog(name: string, support: ContractSupport<CatalogContractInput>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'catalog', support)
     return
@@ -521,8 +677,14 @@ function registerCatalog(name: string, support?: ContractSupport<CatalogContract
   })
 }
 
-function registerOperationSession(name: string, contract?: OperationSessionContract) {
-  if (!contract) return
+function registerOperationSession(
+  name: string,
+  contract: OperationSessionContract | UnsupportedContract,
+) {
+  if (contract.state === 'unsupported') {
+    registerUnsupported(name, 'operation-session', contract)
+    return
+  }
 
   if (contract.common.state === 'unsupported') {
     registerUnsupported(name, 'operation-session/common', contract.common)
@@ -546,10 +708,8 @@ function registerOperationSession(name: string, contract?: OperationSessionContr
 
 function registerCoordination(
   name: string,
-  support?: ContractSupport<CoordinationContractFactory>,
+  support: ContractSupport<CoordinationContractFactory>,
 ) {
-  if (!support) return
-
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'coordination', support)
     return
@@ -558,9 +718,7 @@ function registerCoordination(
   registerMigrationCoordinationContract(name, support.input)
 }
 
-function registerMigration(name: string, support?: ContractSupport<MigrationContract>) {
-  if (!support) return
-
+function registerMigration(name: string, support: ContractSupport<MigrationContract>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'migration', support)
     return
@@ -609,10 +767,8 @@ function registerMigration(name: string, support?: ContractSupport<MigrationCont
 
 function registerLifecycle(
   name: string,
-  support?: ContractSupport<DialectLifecycleContractFactory>,
+  support: ContractSupport<DialectLifecycleContractFactory>,
 ) {
-  if (!support) return
-
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'lifecycle', support)
     return
@@ -621,15 +777,23 @@ function registerLifecycle(
   registerDialectLifecycleContract(name, support.input)
 }
 
-/** Registers the fixed shared scenarios for the supplied Dialect facets. */
-export function registerDialectContractKit(contract: DialectContractKit): void {
-  registerIdentity(contract.name, contract.identity)
-  registerNaming(contract.name, contract.naming)
-  registerDesiredSchema(contract.name, contract.desiredSchema)
-  registerQuery(contract.name, contract.query)
-  registerCatalog(contract.name, contract.catalog)
-  registerOperationSession(contract.name, contract.operationSession)
-  registerCoordination(contract.name, contract.coordination)
-  registerMigration(contract.name, contract.migration)
-  registerLifecycle(contract.name, contract.lifecycle)
+function registerDialectContractShard(
+  name: string,
+  capabilities: DialectContractMemberCapabilities,
+  shard: string,
+  registration: Partial<FacetContractInput>,
+): void {
+  const inputs = registration as FacetContractInput
+  if (capabilities.identity.shard === shard) registerIdentity(name, inputs.identity)
+  if (capabilities.naming.shard === shard) registerNaming(name, inputs.naming)
+  if (capabilities.desiredSchema.shard === shard)
+    registerDesiredSchema(name, inputs.desiredSchema)
+  if (capabilities.query.shard === shard) registerQuery(name, inputs.query)
+  if (capabilities.catalog.shard === shard) registerCatalog(name, inputs.catalog)
+  if (capabilities.operationSession.shard === shard)
+    registerOperationSession(name, inputs.operationSession)
+  if (capabilities.coordination.shard === shard)
+    registerCoordination(name, inputs.coordination)
+  if (capabilities.migration.shard === shard) registerMigration(name, inputs.migration)
+  if (capabilities.lifecycle.shard === shard) registerLifecycle(name, inputs.lifecycle)
 }

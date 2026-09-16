@@ -29,10 +29,13 @@ risk at an equal or better seam.
 ## Dialect contracts
 
 Add a new Dialect to the shared unit contracts before adding adapter-specific cases.
-Register its typed inputs in `tests/unit/dialects/dialectContractKit.ts`. Set each facet
-to `supported` with its input, or `unsupported` with a reason. Declare capabilities in
-the adapter input. This declaration controls which shared scenarios register. Unsupported
-scenarios are omitted. They must not become skipped tests.
+Register it once with `registerDialectContractMember()`. Pass the member name, one complete
+capability declaration, and one descriptor for every named shard. A descriptor requires every facet
+its shard owns and rejects foreign facets. The aggregate rejects an omitted capability,
+an omitted whole shard, or an incomplete shard before it registers scenarios. Set each
+facet to `supported`, or `unsupported` with a non-blank reason. Unsupported scenarios are
+omitted; they must not become skipped tests. Shard descriptors can be imported from
+focused fixture modules, but those modules do not register contracts themselves.
 
 Register integration capabilities in
 `tests/integration/support/dialectIntegrationContract.ts`. Provide readiness and a
@@ -43,12 +46,16 @@ from the fixture calculation.
 
 The PostgreSQL adapter declares all five integration capabilities. Its shared integration
 suite therefore registers five scenarios. A future Dialect must declare each capability
-explicitly and omit unsupported scenarios.
+explicitly; unsupported capability reasons must be non-blank, and their database scenarios
+remain unregistered.
 
 ## Fixtures and timing
 
 Fixtures must make behavior-critical inputs visible at the test site. Shared helpers may
 build valid catalog or query records, but they must not calculate the expected result.
+Lifecycle fixtures supply an independent expected Migration Plan and an independent
+post-migration query, catalog, or equivalent physical-state observation. They do not
+discard dry-run output or treat an adapter-reported `applied` outcome as proof of change.
 Keep expected SQL, plans, errors, and catalog facts in the test that owns the behavior.
 
 Do not use a fixed sleep to control correctness. Use a deferred promise, a gate, or a
