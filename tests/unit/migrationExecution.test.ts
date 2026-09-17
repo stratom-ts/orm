@@ -3,10 +3,11 @@ import { describe, expect, it } from 'vitest'
 
 import { column, createDatabase, defineTable } from '@/index'
 
+import { deferred } from '../helpers/deferredPromise'
+
 import {
   createControllableProvider,
   customConnector,
-  deferred,
 } from './helpers/operationSessionFixtures'
 
 describe('public migration execution and session cleanup', () => {

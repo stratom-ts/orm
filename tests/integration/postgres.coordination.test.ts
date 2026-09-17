@@ -4,6 +4,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { column, defineTable } from '@/index'
 
+import { deferred } from '../helpers/deferredPromise'
+
 import { waitForPostgres } from './postgres.setup'
 import type { SessionEvent } from './postgresIntegration'
 import { withPostgresDatabase } from './postgresIntegration'
@@ -43,17 +45,6 @@ const CoordinatedRowsAfter = defineTable(
 type Settlement<T> =
   | Readonly<{ status: 'fulfilled'; value: T }>
   | Readonly<{ status: 'rejected'; reason: unknown }>
-
-function deferred(): {
-  promise: Promise<void>
-  resolve(): void
-} {
-  let resolve!: () => void
-  const promise = new Promise<void>((done) => {
-    resolve = done
-  })
-  return { promise, resolve }
-}
 
 async function within(promise: Promise<void>, label: string): Promise<void> {
   let timeout: ReturnType<typeof setTimeout> | undefined

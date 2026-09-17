@@ -11,10 +11,11 @@ import {
   getOperationReleaseCleanupFailures,
 } from '@/operations/coordinator'
 
+import { deferred } from '../helpers/deferredPromise'
+
 import {
   createNativeConnector,
   customConnector,
-  deferred,
   withDeadline,
 } from './helpers/operationSessionFixtures'
 

@@ -9,24 +9,9 @@ import type { OperationSession, OperationSessionProvider } from '@/index'
 
 import type { ProviderContractFactoryOptions } from '../dialects/operationSessionProviderContract'
 
-type Deferred = {
-  promise: Promise<void>
-  resolve(): void
-}
-
-export function deferred(): Deferred {
-  let resolve!: () => void
-  return {
-    promise: new Promise<void>((done) => {
-      resolve = done
-    }),
-    resolve,
-  }
-}
-
-export function withDeadline<T>(promise: Promise<T>, milliseconds = 500): Promise<T> {
+export function withDeadline<T>(promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('operation timed out')), milliseconds)
+    const timer = setTimeout(() => reject(new Error('operation timed out')), 500)
     promise.then(
       (value) => {
         clearTimeout(timer)
