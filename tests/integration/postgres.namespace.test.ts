@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { array, boolean, date, integer, number, object, pipe, string } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { column, defineTable, eq, reference } from '@/index'
+import { QueryError, column, defineTable, eq, reference } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
@@ -190,22 +190,27 @@ describe('PostgreSQL namespace and value integration', () => {
         db.from(Events).where(Events.createdAt, 'eq', explicitDate).execute(),
       ).resolves.toMatchObject([{ id: 2, createdAt: explicitDate }])
 
-      await expect(
-        db
-          .insert(Events)
-          .values({
-            accountId: randomUUID(),
-            payload: { label: 'invalid reference' },
-            tags: [],
-          })
-          .execute(),
-      ).rejects.toThrow()
-      await expect(
-        db
-          .insert(Accounts)
-          .values({ id: randomUUID(), email: 'owner@example.com' })
-          .execute(),
-      ).rejects.toThrow()
+      const foreignKeyInsert = db
+        .insert(Events)
+        .values({
+          accountId: randomUUID(),
+          payload: { label: 'invalid reference' },
+          tags: [],
+        })
+        .execute()
+      await expect(foreignKeyInsert).rejects.toBeInstanceOf(QueryError)
+      await expect(foreignKeyInsert).rejects.toMatchObject({
+        cause: { code: '23503' },
+      })
+
+      const uniqueConstraintInsert = db
+        .insert(Accounts)
+        .values({ id: randomUUID(), email: 'owner@example.com' })
+        .execute()
+      await expect(uniqueConstraintInsert).rejects.toBeInstanceOf(QueryError)
+      await expect(uniqueConstraintInsert).rejects.toMatchObject({
+        cause: { code: '23505' },
+      })
 
       const indexes = await admin.query<{ indexname: string }>(
         'select indexname from pg_indexes where schemaname = $1 order by indexname',
