@@ -4,10 +4,11 @@ import { QueryError, createDatabase } from '@/index'
 import type { OperationSessionProvider } from '@/index'
 import { OperationCoordinator } from '@/operations/coordinator'
 
+import { deferred } from '../helpers/deferredPromise'
+
 import {
   createControllableProvider,
   customConnector,
-  deferred,
   withDeadline,
 } from './helpers/operationSessionFixtures'
 

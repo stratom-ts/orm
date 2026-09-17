@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { createDatabase } from '@/index'
 
+import { deferred } from '../helpers/deferredPromise'
+
 import {
   createControllableProvider,
   customConnector,
-  deferred,
   withDeadline,
 } from './helpers/operationSessionFixtures'
 

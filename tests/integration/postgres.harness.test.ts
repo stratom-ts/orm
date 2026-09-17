@@ -17,15 +17,32 @@ async function expectSchemasAbsent(schemas: readonly string[]): Promise<void> {
   }
 }
 
-async function expectBackendsAbsent(physicalSessions: readonly string[]): Promise<void> {
+type ObservedSession = Readonly<{
+  role: string
+  physicalSession: string
+}>
+
+async function expectBackendsAbsent(sessions: readonly ObservedSession[]): Promise<void> {
   const admin = await createAdminClient()
 
   try {
     const remaining = await admin.query<{ pid: string }>(
       'select pid::text as pid from pg_stat_activity where pid = any($1::int[]) order by pid',
-      [physicalSessions.map(Number)],
+      [sessions.map(({ physicalSession }) => Number(physicalSession))],
     )
-    expect(remaining.rows).toEqual([])
+    const rolesBySession = new Map(
+      sessions.map(({ role, physicalSession }) => [physicalSession, role] as const),
+    )
+    expect(
+      remaining.rows,
+      `Open PostgreSQL backends: ${
+        remaining.rows
+          .map(({ pid }) => `${rolesBySession.get(pid) ?? 'unknown'}=${pid}`)
+          .join(', ') || 'none'
+      }; observed sessions: ${sessions
+        .map(({ role, physicalSession }) => `${role}=${physicalSession}`)
+        .join(', ')}`,
+    ).toEqual([])
   } finally {
     await admin.end()
   }
@@ -35,9 +52,12 @@ describe('PostgreSQL integration harness', () => {
   beforeAll(waitForPostgres)
 
   it('closes every client and removes both isolated schemas', async () => {
-    const physicalSessions = new Set<string>()
-    const observeSession = (event: { physicalSession: string }) => {
-      physicalSessions.add(event.physicalSession)
+    const sessions = new Map<string, ObservedSession>()
+    const observeSession = (role: string) => (event: { physicalSession: string }) => {
+      sessions.set(event.physicalSession, {
+        role,
+        physicalSession: event.physicalSession,
+      })
     }
 
     const schemas = await withPostgresDatabase(
@@ -46,20 +66,23 @@ describe('PostgreSQL integration harness', () => {
         const adminIdentity = await admin.query<{ physicalSession: string }>(
           'select pg_backend_pid()::text as "physicalSession"',
         )
-        physicalSessions.add(adminIdentity.rows[0]!.physicalSession)
+        const physicalSession = adminIdentity.rows[0]!.physicalSession
+        sessions.set(physicalSession, { role: 'admin', physicalSession })
         const additional = createDatabase([] as const, {
-          hooks: { before: observeSession },
+          hooks: { before: observeSession('additional') },
         })
         await db.ping()
         await additional.ping()
         return [schema, alternateSchema] as const
       },
-      { hooks: { before: observeSession } },
+      { hooks: { before: observeSession('primary') } },
     )
 
-    expect([...physicalSessions]).toHaveLength(3)
+    expect(new Set([...sessions.values()].map(({ role }) => role))).toEqual(
+      new Set(['admin', 'primary', 'additional']),
+    )
     await expectSchemasAbsent(schemas)
-    await expectBackendsAbsent([...physicalSessions])
+    await expectBackendsAbsent([...sessions.values()])
   })
 
   it('retains callback and cleanup failures while still removing both schemas', async () => {

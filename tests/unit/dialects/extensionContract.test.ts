@@ -59,37 +59,48 @@ function createContractConnector() {
   }
 }
 
-function createContractRecords(dialectId: string) {
+function createContractRecords() {
   return defineTable(
     'records',
     {
-      id: pipe(string(), column({ physicalType: { [dialectId]: 'fixture_id' } })),
+      id: pipe(
+        string(),
+        column({ physicalType: { [EXTENSION_CONTRACT_DIALECT_ID]: 'fixture_id' } }),
+      ),
       label: string(),
     },
     { primaryKey: 'id' },
   )
 }
 
-function createContractQueryRecords(dialectId: string) {
+function createContractQueryRecords() {
   return defineTable(
     'records',
     {
-      id: pipe(string(), column({ physicalType: { [dialectId]: 'fixture_id' } })),
+      id: pipe(
+        string(),
+        column({ physicalType: { [EXTENSION_CONTRACT_DIALECT_ID]: 'fixture_id' } }),
+      ),
       label: string(),
       created_at: pipe(
         string(),
-        column({ physicalType: { [dialectId]: 'fixture_timestamp' } }),
+        column({
+          physicalType: { [EXTENSION_CONTRACT_DIALECT_ID]: 'fixture_timestamp' },
+        }),
       ),
     },
     { primaryKey: 'id' },
   )
 }
 
-function createContractEvents(dialectId: string) {
+function createContractEvents() {
   return defineTable(
     'events',
     {
-      id: pipe(string(), column({ physicalType: { [dialectId]: 'fixture_id' } })),
+      id: pipe(
+        string(),
+        column({ physicalType: { [EXTENSION_CONTRACT_DIALECT_ID]: 'fixture_id' } }),
+      ),
       record_id: string(),
       label: string(),
     },
@@ -106,7 +117,7 @@ function createContractRuntime(
   }>,
 ): import('./dialectMemberContract').DialectLifecycleContractRuntime {
   const calls = createExtensionContractCalls()
-  const baseDialect = createExtensionContractDialect(calls, { migration: 'supported' })
+  const baseDialect = createExtensionContractDialect(calls)
   const faultyLifecycle = options?.emptyPlanReportsApplied
   const dialect: Dialect = faultyLifecycle
     ? {
@@ -134,7 +145,7 @@ function createContractRuntime(
       }
     : baseDialect
   const { connector, directMethods, disposed } = createContractConnector()
-  const Records = createContractRecords(dialect.id)
+  const Records = createContractRecords()
   return {
     dialect,
     connector,
@@ -219,9 +230,9 @@ function createContractRuntime(
 }
 
 const semanticDialect = createExtensionContractDialect(createExtensionContractCalls())
-const SemanticRecords = createContractRecords(semanticDialect.id)
-const SemanticQueryRecords = createContractQueryRecords(semanticDialect.id)
-const SemanticEvents = createContractEvents(semanticDialect.id)
+const SemanticRecords = createContractRecords()
+const SemanticQueryRecords = createContractQueryRecords()
+const SemanticEvents = createContractEvents()
 const semanticContext = {
   writableDefault: [{ role: 'database' as const, spelling: 'fixture_tenant' }],
 }

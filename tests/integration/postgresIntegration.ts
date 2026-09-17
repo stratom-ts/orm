@@ -114,14 +114,6 @@ function observeSessionProvider(
   }
 }
 
-async function setConnectorSchema(
-  connector: PostgresConnector,
-  schema: string,
-): Promise<void> {
-  const instance = await connector.getInstance()
-  await instance.query(`set search_path to ${quoteIdentifier(schema)}`)
-}
-
 function namespace(schema: string): readonly NamespaceIdentifierInput[] {
   return [{ role: 'schema', spelling: schema }]
 }
@@ -151,56 +143,6 @@ function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
       ? {}
       : { migrationOwnership: options.migrationOwnership }),
   })
-}
-
-/** Creates one independent Stratom client against an existing test namespace. */
-function createPostgresDatabaseForSchema<const TSchemas extends readonly TableHandle[]>(
-  schema: string,
-  schemas: TSchemas,
-  options: PostgresClientOptions = {},
-): Db<TSchemas> {
-  if (!postgresUrl) {
-    throw new Error('POSTGRESQL_URL is required for PostgreSQL integration tests')
-  }
-
-  return createPostgresDatabase(
-    postgresql({ url: postgresUrl }),
-    schema,
-    schemas,
-    options,
-  )
-}
-
-async function cleanupPostgresDatabase(
-  db: Db<readonly TableHandle[]> | undefined,
-  connector: PostgresConnector,
-  cleanup: readonly (() => Promise<void>)[],
-  admin: Client,
-): Promise<unknown[]> {
-  const errors: unknown[] = []
-
-  try {
-    if (db) await db.close()
-    else await connector.dispose?.()
-  } catch (cause) {
-    errors.push(cause)
-  }
-
-  for (const clean of [...cleanup].reverse()) {
-    try {
-      await clean()
-    } catch (cause) {
-      errors.push(cause)
-    }
-  }
-
-  try {
-    await admin.end()
-  } catch (cause) {
-    errors.push(cause)
-  }
-
-  return errors
 }
 
 /** Runs a callback with a unique namespace and retains callback and cleanup errors. */
@@ -237,9 +179,11 @@ export async function withPostgresDatabase<
       if (options.additionalCleanup) cleanup.push(options.additionalCleanup)
 
       if (options.sessionSchema) {
-        await setConnectorSchema(
-          connector,
-          options.sessionSchema === 'isolated' ? schema : alternateSchema,
+        const instance = await connector.getInstance()
+        await instance.query(
+          `set search_path to ${quoteIdentifier(
+            options.sessionSchema === 'isolated' ? schema : alternateSchema,
+          )}`,
         )
       }
 
@@ -252,7 +196,8 @@ export async function withPostgresDatabase<
         admin,
         connector,
         createDatabase(additionalSchemas, additionalOptions = {}) {
-          const additional = createPostgresDatabaseForSchema(
+          const additional = createPostgresDatabase(
+            postgresql({ url: postgresUrl }),
             schema,
             additionalSchemas,
             additionalOptions,
@@ -267,7 +212,28 @@ export async function withPostgresDatabase<
     }
   })()
 
-  const cleanupErrors = await cleanupPostgresDatabase(db, connector, cleanup, admin)
+  const cleanupErrors: unknown[] = []
+
+  try {
+    if (db) await db.close()
+    else await connector.dispose?.()
+  } catch (cause) {
+    cleanupErrors.push(cause)
+  }
+
+  for (const clean of [...cleanup].reverse()) {
+    try {
+      await clean()
+    } catch (cause) {
+      cleanupErrors.push(cause)
+    }
+  }
+
+  try {
+    await admin.end()
+  } catch (cause) {
+    cleanupErrors.push(cause)
+  }
 
   if (callbackSettlement.status === 'rejected') {
     if (cleanupErrors.length > 0) {

@@ -30,7 +30,6 @@ export function createPostgresMigrationRuntime(
   options: {
     failRun?: RegExp
     failUnlock?: boolean
-    unlockResult?: boolean
     unlockResults?: Array<boolean | Error>
     releaseResults?: Array<boolean | Error>
     applicationId?: string
@@ -92,7 +91,7 @@ export function createPostgresMigrationRuntime(
       options.clientId ?? 'client',
       `${query.params[0]}:${query.params[1]}`,
     )
-    return [{ unlocked: result ?? options.unlockResult ?? true }]
+    return [{ unlocked: result ?? true }]
   }
 
   const executor: Executor = {

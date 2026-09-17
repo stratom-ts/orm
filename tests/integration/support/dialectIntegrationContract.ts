@@ -63,27 +63,12 @@ const ContractRecords = defineTable(
   { primaryKey: 'id', indexes: [{ columns: ['label'], unique: true }] },
 )
 
-function assertNever(value: never): never {
-  throw new Error(`Unexpected integration capability: ${JSON.stringify(value)}`)
-}
-
 /** Returns whether every capability required for an integration scenario is supported. */
 export function shouldRegisterDialectIntegrationScenario(
   capabilities: DialectIntegrationAdapter['capabilities'],
   required: readonly IntegrationCapabilityName[],
 ): boolean {
-  return !required.some((capability) => {
-    const support = capabilities[capability]
-
-    switch (support.state) {
-      case 'supported':
-        return false
-      case 'unsupported':
-        return true
-    }
-
-    return assertNever(support)
-  })
+  return !required.some((capability) => capabilities[capability].state === 'unsupported')
 }
 
 function scenario(
