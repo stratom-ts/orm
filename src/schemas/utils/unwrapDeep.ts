@@ -1,8 +1,15 @@
-import { unwrap } from 'valibot'
+import type { unwrap } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
 
 import { analyzeSchema } from './analyzeSchema'
+
+/** The innermost schema after supported presence and nullability wrappers are removed. */
+type UnwrapDeepSchema<TSchema extends AnySchema> = TSchema extends Parameters<
+  typeof unwrap
+>[0]
+  ? UnwrapDeepSchema<TSchema['wrapped']>
+  : TSchema
 
 /**
  * Recursively unwraps optional/nullable/nullish wrappers.
@@ -16,8 +23,8 @@ import { analyzeSchema } from './analyzeSchema'
  *
  * @returns Innermost schema with pipes intact
  */
-export function unwrapDeep<TSchema extends Parameters<typeof unwrap>[0]>(
-  schema: AnySchema | TSchema,
-): TSchema['wrapped'] {
-  return analyzeSchema(schema as AnySchema).unwrappedSchema as TSchema['wrapped']
+export function unwrapDeep<TSchema extends AnySchema>(
+  schema: TSchema,
+): UnwrapDeepSchema<TSchema> {
+  return analyzeSchema(schema).unwrappedSchema as UnwrapDeepSchema<TSchema>
 }
