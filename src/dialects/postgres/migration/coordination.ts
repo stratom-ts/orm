@@ -90,6 +90,18 @@ export function postgresAdvisoryLockIdentity(
 const MIGRATION_LOCK_POLL_INTERVAL_MS = 100
 export const MIGRATION_SESSION_CALL_TIMEOUT_MS = 5_000
 
+/** Describes whether a lock attempt reached its configured deadline or watchdog. */
+function lockAttemptTimeoutMessage(
+  lockTimeoutMs: number,
+  deadlineRemaining: number,
+): string {
+  if (lockTimeoutMs !== 0 && deadlineRemaining <= MIGRATION_SESSION_CALL_TIMEOUT_MS) {
+    return `Timed out acquiring the migration advisory lock after ${lockTimeoutMs}ms`
+  }
+
+  return `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for a migration lock attempt response`
+}
+
 /**
  * Quotes a PostgreSQL identifier.
  *
@@ -307,13 +319,11 @@ export async function acquireCoordination(
     let firstAttempt = true
 
     while (true) {
+      const deadlineRemaining = Math.max(0, deadline - performance.now())
       const timeout =
         options.lockTimeoutMs === 0
           ? MIGRATION_SESSION_CALL_TIMEOUT_MS
-          : Math.min(
-              MIGRATION_SESSION_CALL_TIMEOUT_MS,
-              Math.max(0, deadline - performance.now()),
-            )
+          : Math.min(MIGRATION_SESSION_CALL_TIMEOUT_MS, deadlineRemaining)
 
       if (!firstAttempt && performance.now() >= deadline) {
         await stopCancelled(options, state, 'lock', true, acquired)
@@ -331,7 +341,10 @@ export async function acquireCoordination(
           state,
           stage: 'lock',
           timeoutMs: timeout,
-          timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for a migration lock attempt response`,
+          timeoutMessage: lockAttemptTimeoutMessage(
+            options.lockTimeoutMs,
+            deadlineRemaining,
+          ),
           operation: () =>
             options.executor.execute({
               sql: 'select pg_try_advisory_lock($1, $2) as "locked"',

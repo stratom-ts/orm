@@ -466,6 +466,28 @@ describe('PostgreSQL migration runtime failures', () => {
     }
   })
 
+  it('reports the configured lock deadline when an in-flight attempt reaches it', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const runtime = harness({ hangQuery: /pg_try_advisory_lock/i })
+      const pending = runtime
+        .execute(program(), { lockTimeoutMs: 100 })
+        .catch((cause) => cause)
+      await vi.advanceTimersByTimeAsync(100)
+      const error = await pending
+
+      expect(error).toMatchObject({
+        message: 'Timed out acquiring the migration advisory lock after 100ms',
+        stage: 'lock',
+        outcome: 'unchanged',
+        retryable: true,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('preserves the applied outcome when scoped release verification fails', async () => {
     const runtime = harness({
       applicationId: 'billing',
