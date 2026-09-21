@@ -26,6 +26,29 @@ const relation = {
 }
 
 describe('PostgreSQL migration runtime failures', () => {
+  it('classifies arbitrary SQL as a non-transaction event', async () => {
+    const runtime = harness()
+
+    await expect(
+      runtime.execute(
+        program({
+          actions: [
+            {
+              sourceStepIndexes: [4],
+              transaction: 'required',
+              statements: [{ sql: 'select begin', params: [] }],
+            },
+          ],
+        }),
+      ),
+    ).resolves.toEqual({ outcome: 'applied' })
+    const statementIndex = runtime.queries.findIndex(
+      (query) => query.sql === 'select begin',
+    )
+    expect(statementIndex).toBeGreaterThan(-1)
+    expect(runtime.events()[statementIndex]).toBe('unclassified')
+  })
+
   it.each(['statement-atomic', 'non-atomic'] as const)(
     'rejects %s programs before preconditions or DDL',
     async (atomicity) => {

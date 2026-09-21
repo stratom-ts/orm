@@ -251,13 +251,26 @@ const contractInput = (node: SqlAst) => ({
   registrationDefault: semanticContext.writableDefault,
   node,
 })
-const unsupported = (node: SqlAst) => ({
+const unsupported = (expectedMessage: string) => (node: SqlAst) => ({
   support: {
     state: 'unsupported' as const,
     reason: 'The synthetic adapter only supports its narrow SELECT projection case',
     input: contractInput(node),
+    expectedMessage,
   },
 })
+const unsupportedSimpleSelect = unsupported(
+  'Extension contract compiler only supports simple SELECT clauses',
+)
+const unsupportedPredicate = unsupported(
+  'Extension contract compiler only supports one value predicate',
+)
+const unsupportedSelection = unsupported(
+  'Extension contract compiler only supports column selections',
+)
+const unsupportedNonSelect = unsupported(
+  'Extension contract compiler only supports select queries',
+)
 
 const extensionCompilerScenarios = {
   'select.projection': {
@@ -291,7 +304,7 @@ const extensionCompilerScenarios = {
       },
     },
   },
-  'select.join.inner': unsupported({
+  'select.join.inner': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'all' }],
@@ -309,7 +322,7 @@ const extensionCompilerScenarios = {
       },
     ],
   }),
-  'select.join.left': unsupported({
+  'select.join.left': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'all' }],
@@ -327,7 +340,7 @@ const extensionCompilerScenarios = {
       },
     ],
   }),
-  'select.join.right': unsupported({
+  'select.join.right': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'all' }],
@@ -345,7 +358,7 @@ const extensionCompilerScenarios = {
       },
     ],
   }),
-  'predicate.comparisons': unsupported({
+  'predicate.comparisons': unsupportedPredicate({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'all' }],
@@ -361,7 +374,7 @@ const extensionCompilerScenarios = {
       ],
     },
   }),
-  'predicate.boolean': unsupported({
+  'predicate.boolean': unsupportedPredicate({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'all' }],
@@ -382,7 +395,7 @@ const extensionCompilerScenarios = {
       },
     },
   }),
-  'predicate.null': unsupported({
+  'predicate.null': unsupportedPredicate({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'all' }],
@@ -394,7 +407,7 @@ const extensionCompilerScenarios = {
       ],
     },
   }),
-  'expression.scalar': unsupported({
+  'expression.scalar': unsupportedSelection({
     kind: 'select',
     relation: contractRelation,
     selection: [
@@ -425,7 +438,7 @@ const extensionCompilerScenarios = {
       },
     ],
   }),
-  'expression.aggregate': unsupported({
+  'expression.aggregate': unsupportedSelection({
     kind: 'select',
     relation: contractRelation,
     selection: [
@@ -452,7 +465,7 @@ const extensionCompilerScenarios = {
       },
     ],
   }),
-  'clause.group-having-order': unsupported({
+  'clause.group-having-order': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'column', column: 'label' }],
@@ -460,14 +473,14 @@ const extensionCompilerScenarios = {
     having: { kind: 'cmp', column: 'label', op: 'eq', value: 'yes' },
     orderBy: [{ column: 'label', direction: 'asc' }],
   }),
-  'clause.pagination': unsupported({
+  'clause.pagination': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
     selection: [{ kind: 'all' }],
     limit: 10,
     offset: 20,
   }),
-  'insert.rows-defaults-returning': unsupported({
+  'insert.rows-defaults-returning': unsupportedNonSelect({
     kind: 'insert',
     relation: contractRelation,
     columns: ['id', 'label'],
@@ -477,7 +490,7 @@ const extensionCompilerScenarios = {
     ],
     returning: { kind: 'columns', columns: ['id', 'label'] },
   }),
-  'update.set-where-returning': unsupported({
+  'update.set-where-returning': unsupportedNonSelect({
     kind: 'update',
     relation: contractRelation,
     set: [{ column: 'label', value: 'updated' }],
@@ -485,7 +498,7 @@ const extensionCompilerScenarios = {
     allowAll: false,
     returning: { kind: 'all' },
   }),
-  'delete.where-returning': unsupported({
+  'delete.where-returning': unsupportedNonSelect({
     kind: 'delete',
     relation: contractRelation,
     where: { kind: 'cmp', column: 'id', op: 'eq', value: 1 },

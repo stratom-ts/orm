@@ -6,6 +6,7 @@ export type CoordinationContractEvent =
   | 'transaction'
   | 'introspection'
   | 'ddl'
+  | 'unclassified'
 
 /** Physical-dialect adapter for exercising exclusion without SQL assumptions. */
 export type CoordinationContractLockManager = Readonly<{
@@ -44,6 +45,16 @@ function protectedWork(events: readonly CoordinationContractEvent[]): boolean {
   return events.some((event) => ['transaction', 'introspection', 'ddl'].includes(event))
 }
 
+/** Reports whether coordination encloses a genuine transaction event. */
+function hasCoordinatedTransaction(
+  events: readonly CoordinationContractEvent[],
+): boolean {
+  const acquire = events.indexOf('acquire')
+  const transaction = events.indexOf('transaction')
+  const release = events.indexOf('release')
+  return acquire >= 0 && acquire < transaction && transaction < release
+}
+
 /**
  * Dialect-runtime coordination contract. Adapters expose semantic events and
  * controls; physical SQL and transaction primitives remain outside this suite.
@@ -62,9 +73,7 @@ export function registerMigrationCoordinationContract(
     it('acquires before protected work and releases in reverse phase order', async () => {
       const runtime = createRuntime({ applicationId: 'contract' })
       await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
-      const events = runtime.events()
-      expect(events.indexOf('acquire')).toBeLessThan(events.indexOf('transaction'))
-      expect(events.indexOf('transaction')).toBeLessThan(events.indexOf('release'))
+      expect(hasCoordinatedTransaction(runtime.events())).toBe(true)
     })
 
     it('excludes a same-scope client until the first client releases', async () => {
@@ -109,6 +118,12 @@ export function registerMigrationCoordinationContract(
         sharedLockManager,
       })
       await expect(afterRelease.execute()).resolves.toEqual({ outcome: 'applied' })
+    })
+
+    it('requires a genuine transaction event between acquire and release', () => {
+      expect(hasCoordinatedTransaction(['acquire', 'unclassified', 'release'])).toBe(
+        false,
+      )
     })
 
     it('classifies timeout as unchanged and retryable before protected work', async () => {
