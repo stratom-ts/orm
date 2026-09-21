@@ -144,6 +144,7 @@ type QueryCompilerScenario = Readonly<{
         state: 'unsupported'
         reason: string
         input: Omit<QueryCompilerScenarioInput, 'expected'>
+        expectedMessage: string
       }>
 }>
 
@@ -608,11 +609,14 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
     if (support.state === 'unsupported') {
       it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
         expect(support.reason.trim().length).toBeGreaterThan(0)
+        expect(support.expectedMessage.trim().length).toBeGreaterThan(0)
         // Resolve the compiler directly. No connector or executor is involved
         // in this contract, so unsupported AST forms fail before database work.
 
         const input = support.input
-        expect(() => resolveCompiler(input).compile(input.node)).toThrow()
+        expect(() => resolveCompiler(input).compile(input.node)).toThrow(
+          support.expectedMessage,
+        )
       })
       continue
     }

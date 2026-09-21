@@ -5,7 +5,6 @@ import { Client } from 'pg'
 import type { Db } from '@/client'
 import type {
   MigrationOwnershipDeclaration,
-  NamespaceIdentifierInput,
   OperationSession,
   OperationSessionProvider,
   TableHandle,
@@ -114,10 +113,6 @@ function observeSessionProvider(
   }
 }
 
-function namespace(schema: string): readonly NamespaceIdentifierInput[] {
-  return [{ role: 'schema', spelling: schema }]
-}
-
 function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
   connector: PostgresConnector,
   schema: string,
@@ -135,7 +130,7 @@ function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
     operationSessionProvider,
     ...(options.useRegistrationDefault === false
       ? {}
-      : { defaultNamespace: namespace(schema) }),
+      : { defaultNamespace: [{ role: 'schema' as const, spelling: schema }] }),
     ...(options.applicationId === undefined
       ? {}
       : { applicationId: options.applicationId }),
