@@ -1,37 +1,36 @@
 import {
   exactOptional,
   maxLength,
+  nonNullable,
   nonNullish,
+  nonOptional,
   nullable,
+  nullish,
   optional,
+  parse,
   pipe,
   string,
+  undefinedable,
 } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { column, unwrapDeep } from '@/index'
+import { column, getColumnMetadata, unwrapDeep } from '@/index'
 
 describe('unwrapDeep public contract', () => {
   it('removes presence and nullability wrappers while preserving the inner pipe', () => {
+    const inner = pipe(string(), maxLength(40), column({ unique: true }))
     const schema = nonNullish(
-      nullable(
-        exactOptional(optional(pipe(string(), maxLength(40), column({ unique: true })))),
+      nonNullable(
+        nonOptional(nullish(nullable(undefinedable(exactOptional(optional(inner)))))),
       ),
     )
 
-    const unwrapped = unwrapDeep(schema) as {
-      type: string
-      pipe?: readonly unknown[]
-    }
-    expect(unwrapped.type).toBe('string')
-    expect(unwrapped.pipe?.[0]).toMatchObject({ type: 'string' })
-    expect(
-      unwrapped.pipe?.some(
-        (action) => (action as { type?: string }).type === 'max_length',
-      ),
-    ).toBe(true)
-    expect(
-      unwrapped.pipe?.some((action) => (action as { type?: string }).type === 'metadata'),
-    ).toBe(true)
+    const unwrapped = unwrapDeep(schema)
+
+    expectTypeOf(unwrapped).toEqualTypeOf<typeof inner>()
+    expect(unwrapped.pipe).toBe(inner.pipe)
+    expect(parse(unwrapped, 'valid')).toBe('valid')
+    expect(() => parse(unwrapped, 'x'.repeat(41))).toThrow()
+    expect(getColumnMetadata(unwrapped)).toMatchObject({ kind: 'column', unique: true })
   })
 })
