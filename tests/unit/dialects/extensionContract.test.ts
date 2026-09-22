@@ -17,8 +17,9 @@ import {
   createExtensionContractDialect,
 } from '../helpers/extensionContractDialect'
 
-import { registerDialectContractMember } from './dialectContractKit'
+import { registerDialectContractMember, runCatalogContract } from './dialectContractKit'
 import type {
+  CatalogContractInput,
   DialectContractMemberCapabilities,
   QueryCompilerScenarios,
 } from './dialectContractKit'
@@ -554,6 +555,203 @@ const extensionContractCapabilities = {
   lifecycle: { state: 'supported', shard: 'complete' },
 } as const satisfies DialectContractMemberCapabilities
 
+const extensionCatalogContractInput = {
+  dialect: semanticDialect,
+  executor: {
+    execute: async () => [
+      {
+        kind: 'namespace' as const,
+        namespace: [{ role: 'database' as const, spelling: 'empty_database' }],
+      },
+      {
+        kind: 'namespace' as const,
+        namespace: [{ role: 'database' as const, spelling: 'fixture_db' }],
+      },
+      {
+        kind: 'relation' as const,
+        namespace: [{ role: 'database' as const, spelling: 'fixture_db' }],
+        relation: 'present_records',
+      },
+      {
+        kind: 'relation' as const,
+        namespace: [{ role: 'database' as const, spelling: 'fixture_db' }],
+        relation: 'absent_records',
+      },
+    ],
+  },
+  request: {
+    relations: [
+      {
+        relation: { relation: 'present_records' },
+        shape: 'complete' as const,
+      },
+    ],
+    absentRelations: [{ relation: 'absent_records' }],
+    completeNamespaces: [[{ role: 'database' as const, spelling: 'empty_database' }]],
+  },
+  expected: {
+    sourceDialect: EXTENSION_CONTRACT_DIALECT_ID,
+    writableDefault: [{ role: 'database' as const, spelling: 'fixture_db' }],
+    namespaceCoverage: { state: 'complete' as const },
+    capabilities: {
+      namespaces: { state: 'supported' as const, fidelity: 'portable' as const },
+      relationOwner: {
+        state: 'unsupported' as const,
+        by: 'engine' as const,
+        reason: 'The contract fixture deliberately has no identity generation',
+      },
+      identity: {
+        state: 'unsupported' as const,
+        by: 'engine' as const,
+        reason: 'The contract fixture deliberately has no identity generation',
+      },
+      richObjects: {
+        state: 'unsupported' as const,
+        by: 'engine' as const,
+        reason: 'The contract fixture deliberately has no identity generation',
+      },
+    },
+    request: {
+      relations: [
+        {
+          identity: {
+            namespace: [{ role: 'database' as const, spelling: 'fixture_db' }],
+            relation: 'present_records',
+          },
+          shape: 'complete' as const,
+        },
+      ],
+      absentRelations: [
+        {
+          namespace: [{ role: 'database' as const, spelling: 'fixture_db' }],
+          relation: 'absent_records',
+        },
+      ],
+      completeNamespaces: [[{ role: 'database' as const, spelling: 'empty_database' }]],
+    },
+    namespaces: [
+      {
+        identity: [{ role: 'database' as const, spelling: 'empty_database' }],
+        relationCoverage: { state: 'complete' as const },
+        relations: [],
+      },
+      {
+        identity: [{ role: 'database' as const, spelling: 'fixture_db' }],
+        relationCoverage: {
+          state: 'partial' as const,
+          remainder: {
+            state: 'unmanaged' as const,
+            reason: 'Relations outside the requested catalog scope are unmanaged',
+          },
+        },
+        relations: [
+          {
+            namespace: [{ role: 'database' as const, spelling: 'fixture_db' }],
+            relation: 'present_records',
+          },
+          {
+            namespace: [{ role: 'database' as const, spelling: 'fixture_db' }],
+            relation: 'absent_records',
+          },
+        ],
+      },
+    ],
+  },
+} satisfies CatalogContractInput
+
+it('rejects relation evidence whose requested namespace was not observed', async () => {
+  await expect(
+    semanticDialect.catalog.introspectCatalog(
+      {
+        execute: async () => [
+          {
+            kind: 'relation',
+            namespace: [{ role: 'database', spelling: 'missing_database' }],
+            relation: 'orphan_records',
+          },
+        ],
+      },
+      {
+        relations: [
+          {
+            relation: {
+              namespace: [{ role: 'database', spelling: 'missing_database' }],
+              relation: 'orphan_records',
+            },
+            shape: 'complete',
+          },
+        ],
+        absentRelations: [],
+        completeNamespaces: [
+          [{ role: 'database' as const, spelling: 'missing_database' }],
+        ],
+      },
+    ),
+  ).rejects.toThrow(/relation row requires an observed namespace row/i)
+})
+
+it.each([
+  {
+    description: 'an unknown row kind',
+    row: { kind: 'unknown' },
+    message: /fixture row 0.*kind 'namespace' or 'relation'/i,
+  },
+  {
+    description: 'a malformed namespace segment',
+    row: { kind: 'namespace', namespace: [{ role: 'database' }] },
+    message: /fixture row 0.*valid namespace role\/spelling segments/i,
+  },
+  {
+    description: 'an empty relation spelling',
+    row: {
+      kind: 'relation',
+      namespace: [{ role: 'database', spelling: 'fixture_db' }],
+      relation: '',
+    },
+    message: /fixture row 0.*non-empty relation spelling/i,
+  },
+])('rejects $description in catalog fixture rows', async ({ row, message }) => {
+  await expect(
+    semanticDialect.catalog.introspectCatalog(
+      { execute: async () => [row] },
+      { relations: [], absentRelations: [], completeNamespaces: [] },
+    ),
+  ).rejects.toThrow(message)
+})
+
+it.each(['relations', 'absentRelations', 'completeNamespaces'] as const)(
+  'shared catalog contract rejects an adapter that ignores the requested %s scope',
+  async (field) => {
+    const faultyDialect: Dialect = {
+      ...semanticDialect,
+      catalog: {
+        async introspectCatalog(executor, request) {
+          const ignoredRequest = { ...request, [field]: [] }
+          const snapshot = await semanticDialect.catalog.introspectCatalog(
+            executor,
+            ignoredRequest,
+          )
+          const reportedRequest = await semanticDialect.catalog.introspectCatalog(
+            { execute: async () => [] },
+            request,
+          )
+          return {
+            ...snapshot,
+            request: reportedRequest.request,
+          }
+        },
+      },
+    }
+
+    await expect(
+      runCatalogContract({
+        ...extensionCatalogContractInput,
+        dialect: faultyDialect,
+      }),
+    ).rejects.toThrow()
+  },
+)
+
 registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabilities, {
   complete: {
     identity: {
@@ -643,34 +841,7 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
     },
     catalog: {
       state: 'supported',
-      input: {
-        dialect: semanticDialect,
-        executor: { execute: async () => [] },
-        request: { relations: [], absentRelations: [], completeNamespaces: [] },
-        expected: {
-          sourceDialect: EXTENSION_CONTRACT_DIALECT_ID,
-          writableDefault: [{ role: 'database', spelling: 'fixture_db' }],
-          namespaceCoverage: { state: 'complete' },
-          capabilities: {
-            namespaces: { state: 'supported', fidelity: 'portable' },
-            relationOwner: {
-              state: 'unsupported',
-              by: 'engine',
-              reason: 'The contract fixture deliberately has no identity generation',
-            },
-            identity: {
-              state: 'unsupported',
-              by: 'engine',
-              reason: 'The contract fixture deliberately has no identity generation',
-            },
-            richObjects: {
-              state: 'unsupported',
-              by: 'engine',
-              reason: 'The contract fixture deliberately has no identity generation',
-            },
-          },
-        },
-      },
+      input: extensionCatalogContractInput,
     },
     operationSession: {
       state: 'supported',
@@ -722,26 +893,74 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
               profile,
               mismatchedProfiles: {
                 identityAdapter: {
-                  ...profile,
-                  identityAdapter: 'contract-other-identity',
+                  profile: {
+                    ...profile,
+                    identityAdapter: 'contract-other-identity',
+                  },
+                  issues: [
+                    {
+                      code: 'profile_mismatch',
+                      message:
+                        'Contract fixture identity adapter does not match the executing profile',
+                      sourceStepIndexes: [],
+                    },
+                    {
+                      code: 'profile_mismatch',
+                      message:
+                        'Executing identity adapter does not select the contract fixture',
+                      sourceStepIndexes: [],
+                    },
+                  ],
                 },
                 namespaceContext: {
-                  ...profile,
-                  namespaceContext: {
-                    writableDefault: [{ role: 'database', spelling: 'other_database' }],
+                  profile: {
+                    ...profile,
+                    namespaceContext: {
+                      writableDefault: [{ role: 'database', spelling: 'other_database' }],
+                    },
                   },
+                  issues: [
+                    {
+                      code: 'profile_mismatch',
+                      message:
+                        'Contract fixture writable namespace context does not match',
+                      sourceStepIndexes: [],
+                    },
+                  ],
                 },
                 registrationDefault: {
-                  ...profile,
-                  registrationDefault: [
-                    { role: 'database', spelling: 'other_registration' },
+                  profile: {
+                    ...profile,
+                    registrationDefault: [
+                      { role: 'database', spelling: 'other_registration' },
+                    ],
+                  },
+                  issues: [
+                    {
+                      code: 'profile_mismatch',
+                      message: 'Contract fixture registration default does not match',
+                      sourceStepIndexes: [],
+                    },
                   ],
                 },
               },
               expectedProgram: {
                 atomicity: 'statement-atomic',
-                actionCount: 2,
-                sourceStepIndexes: [[0], [1]],
+                preconditions: [],
+                actions: [
+                  {
+                    sourceStepIndexes: [0],
+                    transaction: 'allowed',
+                    statements: [
+                      { sql: 'fixture migration ensure_namespace 0', params: [] },
+                    ],
+                  },
+                  {
+                    sourceStepIndexes: [1],
+                    transaction: 'allowed',
+                    statements: [{ sql: 'fixture migration create_table 1', params: [] }],
+                  },
+                ],
               },
             }
           },

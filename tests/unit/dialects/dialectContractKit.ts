@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { lowerDesiredSchema } from '@/ddl/desiredSchema'
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
-import type { MigrationAtomicity, MigrationCapabilityIssue } from '@/ddl/migrationProgram'
+import type { MigrationCapabilityIssue, MigrationProgram } from '@/ddl/migrationProgram'
 import type {
   CatalogCapability,
   CatalogCoverage,
@@ -200,7 +200,26 @@ type CatalogCapabilityExpectations = Readonly<
   Record<'namespaces' | 'relationOwner' | 'identity' | 'richObjects', CatalogCapability>
 >
 
-type CatalogContractInput = Readonly<{
+type CatalogNamespaceEvidence = readonly Readonly<{
+  role: NamespaceRole
+  spelling: string
+}>[]
+
+type CatalogRelationEvidence = Readonly<{
+  namespace: CatalogNamespaceEvidence
+  relation: string
+}>
+
+type CatalogRequestEvidence = Readonly<{
+  relations: readonly Readonly<{
+    identity: CatalogRelationEvidence
+    shape: 'complete' | 'additive'
+  }>[]
+  absentRelations: readonly CatalogRelationEvidence[]
+  completeNamespaces: readonly CatalogNamespaceEvidence[]
+}>
+
+export type CatalogContractInput = Readonly<{
   dialect: Dialect
   executor: CatalogExecutor
   request: CatalogRequest
@@ -209,6 +228,12 @@ type CatalogContractInput = Readonly<{
     writableDefault: readonly NamespaceIdentifierInput[]
     namespaceCoverage: CatalogCoverage
     capabilities: CatalogCapabilityExpectations
+    request: CatalogRequestEvidence
+    namespaces: readonly Readonly<{
+      identity: CatalogNamespaceEvidence
+      relationCoverage: CatalogCoverage
+      relations: readonly CatalogRelationEvidence[]
+    }>[]
   }>
 }>
 
@@ -285,14 +310,13 @@ type MigrationContractCase = Readonly<{
   mismatchedProfiles: Readonly<
     Record<
       'identityAdapter' | 'namespaceContext' | 'registrationDefault',
-      MigrationSemanticProfile
+      Readonly<{
+        profile: MigrationSemanticProfile
+        issues: readonly MigrationCapabilityIssue[]
+      }>
     >
   >
-  expectedProgram: Readonly<{
-    atomicity: MigrationAtomicity
-    actionCount: number
-    sourceStepIndexes: readonly (readonly number[])[]
-  }>
+  expectedProgram: MigrationProgram
 }>
 
 type MigrationContractInput = Readonly<{
@@ -655,6 +679,59 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
   }
 }
 
+function namespaceEvidence(
+  namespace: readonly Readonly<{
+    role: NamespaceRole
+    identifier: Readonly<{ spelling: string }>
+  }>[],
+): CatalogNamespaceEvidence {
+  return namespace.map((segment) => ({
+    role: segment.role,
+    spelling: segment.identifier.spelling,
+  }))
+}
+
+function relationEvidence(identity: CanonicalRelationIdentity): CatalogRelationEvidence {
+  return {
+    namespace: namespaceEvidence(identity.namespace),
+    relation: identity.relation.spelling,
+  }
+}
+
+/** Runs the shared catalog assertions through the same seam used by registrations. */
+export async function runCatalogContract(input: CatalogContractInput): Promise<void> {
+  const snapshot = await input.dialect.catalog.introspectCatalog(
+    input.executor,
+    input.request,
+  )
+  expect({
+    sourceDialect: snapshot.source.dialect,
+    writableDefault: snapshot.namespaceContext.writableDefault,
+    namespaceCoverage: snapshot.namespaces.coverage,
+    capabilities: {
+      namespaces: snapshot.capabilities.namespaces,
+      relationOwner: snapshot.capabilities.relationOwner,
+      identity: snapshot.capabilities.identity,
+      richObjects: snapshot.capabilities.richObjects,
+    },
+    request: {
+      relations: snapshot.request.relations.map(({ identity, shape }) => ({
+        identity: relationEvidence(identity),
+        shape,
+      })),
+      absentRelations: snapshot.request.absentRelations.map(relationEvidence),
+      completeNamespaces: snapshot.request.completeNamespaces.map(namespaceEvidence),
+    },
+    namespaces: snapshot.namespaces.items.map((namespace) => ({
+      identity: namespaceEvidence(namespace.identity),
+      relationCoverage: namespace.relations.coverage,
+      relations: namespace.relations.items.map((relation) =>
+        relationEvidence(relation.identity),
+      ),
+    })),
+  }).toEqual(input.expected)
+}
+
 function registerCatalog(name: string, support: ContractSupport<CatalogContractInput>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'catalog', support)
@@ -662,22 +739,7 @@ function registerCatalog(name: string, support: ContractSupport<CatalogContractI
   }
 
   it(`${name} Dialect contract [catalog] scenario [returns explicit evidence and capabilities]`, async () => {
-    const input = support.input
-    const snapshot = await input.dialect.catalog.introspectCatalog(
-      input.executor,
-      input.request,
-    )
-    expect(snapshot.source.dialect).toBe(input.expected.sourceDialect)
-    expect(snapshot.namespaceContext.writableDefault).toEqual(
-      input.expected.writableDefault,
-    )
-    expect(snapshot.namespaces.coverage).toEqual(input.expected.namespaceCoverage)
-    expect({
-      namespaces: snapshot.capabilities.namespaces,
-      relationOwner: snapshot.capabilities.relationOwner,
-      identity: snapshot.capabilities.identity,
-      richObjects: snapshot.capabilities.richObjects,
-    }).toEqual(input.expected.capabilities)
+    await runCatalogContract(support.input)
   })
 }
 
@@ -732,22 +794,15 @@ function registerMigration(name: string, support: ContractSupport<MigrationContr
     it('scenario [lowers one complete program and validates every Semantic Profile field]', async () => {
       const input = await support.input.lowering.createCase()
       const lowered = input.dialect.migration.lower(input.planned, input.profile)
-      expect({
-        atomicity: lowered.program?.atomicity,
-        actionCount: lowered.program?.actions.length,
-        sourceStepIndexes: lowered.program?.actions.map(
-          (action) => action.sourceStepIndexes,
-        ),
-      }).toEqual(input.expectedProgram)
+      expect(lowered.program).toEqual(input.expectedProgram)
 
-      for (const [field, profile] of Object.entries(input.mismatchedProfiles)) {
-        const mismatch = input.dialect.migration.lower(input.planned, profile)
-        expect(mismatch.program, field).toBeUndefined()
-        expect(mismatch.issues, field).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ code: 'profile_mismatch', sourceStepIndexes: [] }),
-          ]),
+      for (const [field, mismatchCase] of Object.entries(input.mismatchedProfiles)) {
+        const mismatch = input.dialect.migration.lower(
+          input.planned,
+          mismatchCase.profile,
         )
+        expect(mismatch.program, field).toBeUndefined()
+        expect(mismatch.issues, field).toEqual(mismatchCase.issues)
       }
     })
 

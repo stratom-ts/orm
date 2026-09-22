@@ -318,6 +318,69 @@ describe('CRUD compile', () => {
     expect(connector.prepared).toEqual([])
     await db.close()
   })
+
+  it.fails('should reject update where(...).all() before connector preparation', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const query = db.update(Users).set({ active: false }).where(Users.id, 'eq', 1).all()
+
+    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    expect(connector.prepared).toEqual([])
+
+    await db.close()
+  })
+
+  it.fails('should reject update all().where(...) before connector preparation', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const query = db.update(Users).set({ active: false }).all().where(Users.id, 'eq', 1)
+
+    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    expect(connector.prepared).toEqual([])
+
+    await db.close()
+  })
+
+  it('should reject an empty delete predicate with a tagged error before connector preparation', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    expect(() => db.delete(Users).where({} as never)).toThrow(
+      expect.objectContaining({
+        _tag: 'QueryError',
+        message: expect.stringMatching(/requires at least one key/i),
+      }),
+    )
+    expect(connector.prepared).toEqual([])
+
+    await db.close()
+  })
+
+  it.fails('should reject delete where(...).all() before connector preparation', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const query = db.delete(Users).where(Users.id, 'eq', 1).all()
+
+    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    expect(connector.prepared).toEqual([])
+
+    await db.close()
+  })
+
+  it.fails('should reject delete all().where(...) before connector preparation', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const query = db.delete(Users).all().where(Users.id, 'eq', 1)
+
+    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    expect(connector.prepared).toEqual([])
+
+    await db.close()
+  })
 })
 
 describe('CRUD returning types', () => {

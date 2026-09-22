@@ -18,6 +18,11 @@ type IntegrationCapability =
   | Readonly<{ state: 'supported' }>
   | Readonly<{ state: 'unsupported'; reason: string }>
 
+export type IntegrationScenarioRegistrar = (
+  title: string,
+  test: () => Promise<void>,
+) => void
+
 export interface DialectIntegrationAdapter {
   readonly name: string
   readonly capabilities: Readonly<
@@ -71,11 +76,13 @@ export function shouldRegisterDialectIntegrationScenario(
   return !required.some((capability) => capabilities[capability].state === 'unsupported')
 }
 
-function scenario(
-  adapter: DialectIntegrationAdapter,
+export function registerDialectIntegrationScenario(
+  adapter: Pick<DialectIntegrationAdapter, 'capabilities'>,
   capabilities: readonly IntegrationCapabilityName[],
   title: string,
   test: () => Promise<void>,
+  register: IntegrationScenarioRegistrar = (scenarioTitle, scenarioTest) =>
+    it(scenarioTitle, scenarioTest),
 ): void {
   // Unsupported capabilities do not register a scenario. This keeps the suite
   // free of skipped tests while the adapter capability declaration remains the
@@ -83,7 +90,7 @@ function scenario(
   if (!shouldRegisterDialectIntegrationScenario(adapter.capabilities, capabilities))
     return
 
-  it(title, test)
+  register(title, test)
 }
 
 /** Registers public, reusable integration behavior for one complete Dialect member. */
@@ -94,15 +101,20 @@ export function registerDialectIntegrationScenarios(
   describe(`${adapter.name} shared integration scenarios`, () => {
     beforeAll(() => adapter.readiness())
 
-    scenario(adapter, ['lifecycle'], 'connects and closes idempotently', async () => {
-      await adapter.withDatabase([ContractRecords], async ({ db }) => {
-        await expect(db.ping()).resolves.toBeUndefined()
-        await db.close()
-        await expect(db.close()).resolves.toBeUndefined()
-      })
-    })
+    registerDialectIntegrationScenario(
+      adapter,
+      ['lifecycle'],
+      'connects and closes idempotently',
+      async () => {
+        await adapter.withDatabase([ContractRecords], async ({ db }) => {
+          await expect(db.ping()).resolves.toBeUndefined()
+          await db.close()
+          await expect(db.close()).resolves.toBeUndefined()
+        })
+      },
+    )
 
-    scenario(
+    registerDialectIntegrationScenario(
       adapter,
       ['query', 'migration'],
       'round-trips representative CRUD',
@@ -149,7 +161,7 @@ export function registerDialectIntegrationScenarios(
       },
     )
 
-    scenario(
+    registerDialectIntegrationScenario(
       adapter,
       ['transaction', 'migration', 'query'],
       'commits and rolls back root transactions',
@@ -172,7 +184,7 @@ export function registerDialectIntegrationScenarios(
       },
     )
 
-    scenario(
+    registerDialectIntegrationScenario(
       adapter,
       ['migration', 'query'],
       'executes a portable Migration Plan',
@@ -193,7 +205,7 @@ export function registerDialectIntegrationScenarios(
       },
     )
 
-    scenario(
+    registerDialectIntegrationScenario(
       adapter,
       ['convergence', 'migration'],
       'converges to an empty second plan',

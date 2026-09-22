@@ -2,7 +2,11 @@ import type { Connector } from 'db0'
 
 import type { MigrationSemanticProfile } from '@/ddl/migrationPlan'
 import type { MigrationProgram } from '@/ddl/migrationProgram'
-import type { CatalogRequest, CatalogSnapshot } from '@/dialects/catalog'
+import type {
+  CatalogNamespace,
+  CatalogRequest,
+  CatalogSnapshot,
+} from '@/dialects/catalog'
 import type {
   AuthoredDesiredSchema,
   Dialect,
@@ -11,6 +15,7 @@ import type {
   SqlAst,
 } from '@/dialects/types'
 import type {
+  CanonicalNamespaceSegment,
   CanonicalRelationIdentityPolicy,
   NamespaceContext,
   NamespaceIdentifierInput,
@@ -365,6 +370,92 @@ function resolvedRequest(
   }
 }
 
+/** Reports whether two resolved namespace targets name the same namespace. */
+function sameNamespace(
+  left: readonly CanonicalNamespaceSegment[],
+  right: readonly CanonicalNamespaceSegment[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (segment, index) =>
+        segment.role === right[index]?.role &&
+        segment.identifier.comparisonKey === right[index]?.identifier.comparisonKey,
+    )
+  )
+}
+
+type ExtensionCatalogRow =
+  | Readonly<{
+      kind: 'namespace'
+      namespace: readonly NamespaceIdentifierInput[]
+    }>
+  | Readonly<{
+      kind: 'relation'
+      namespace?: readonly NamespaceIdentifierInput[]
+      relation: string
+    }>
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isNamespaceInput(value: unknown): value is readonly NamespaceIdentifierInput[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (segment) =>
+        isRecord(segment) &&
+        (segment.role === 'catalog' ||
+          segment.role === 'database' ||
+          segment.role === 'schema') &&
+        typeof segment.spelling === 'string' &&
+        segment.spelling.length > 0,
+    )
+  )
+}
+
+function parseExtensionCatalogRows(
+  rows: readonly unknown[],
+): readonly ExtensionCatalogRow[] {
+  return rows.map((row, index) => {
+    if (!isRecord(row) || (row.kind !== 'namespace' && row.kind !== 'relation')) {
+      throw new InvariantError(
+        `Extension contract catalog fixture row ${index} must use kind 'namespace' or 'relation'`,
+      )
+    }
+
+    if (row.kind === 'namespace') {
+      if (!isNamespaceInput(row.namespace)) {
+        throw new InvariantError(
+          `Extension contract catalog fixture row ${index} must provide valid namespace role/spelling segments`,
+        )
+      }
+
+      return { kind: row.kind, namespace: row.namespace }
+    }
+
+    if (row.namespace !== undefined && !isNamespaceInput(row.namespace)) {
+      throw new InvariantError(
+        `Extension contract catalog fixture row ${index} must provide valid namespace role/spelling segments when namespace is present`,
+      )
+    }
+
+    if (typeof row.relation !== 'string' || row.relation.length === 0) {
+      throw new InvariantError(
+        `Extension contract catalog fixture row ${index} must provide a non-empty relation spelling`,
+      )
+    }
+
+    return {
+      kind: row.kind,
+      ...(row.namespace === undefined ? {} : { namespace: row.namespace }),
+      relation: row.relation,
+    }
+  })
+}
+
 function createCatalog(
   calls: ExtensionContractCalls,
   identity: ReturnType<typeof createIdentity>,
@@ -381,15 +472,120 @@ function createCatalog(
       request: CatalogRequest,
     ): Promise<CatalogSnapshot> {
       calls.events.push('catalog.introspect')
-      await executor.execute({ sql: 'fixture catalog snapshot', params: [] })
+      const rows = parseExtensionCatalogRows(
+        await executor.execute({
+          sql: 'fixture catalog snapshot',
+          params: [],
+        }),
+      )
       const unsupported = {
         state: 'unsupported' as const,
         by: 'engine' as const,
         reason: 'The contract fixture deliberately has no identity generation',
       }
+      const requestEvidence = resolvedRequest(request, namespaceContext, identity)
+      const identities = identity.create({
+        context: namespaceContext,
+        ...(request.registrationDefault === undefined
+          ? {}
+          : { registrationDefault: request.registrationDefault }),
+      })
+      const requestedNamespaces = [
+        ...requestEvidence.relations.map(({ identity }) => identity.namespace),
+        ...requestEvidence.absentRelations.map((identity) => identity.namespace),
+        ...requestEvidence.completeNamespaces,
+      ]
+      const namespaces: CatalogNamespace[] = []
+
+      for (const row of rows) {
+        if (row.kind !== 'namespace') continue
+
+        const namespace = identities.resolveNamespace(row.namespace)
+        if (
+          !requestedNamespaces.some((requested) => sameNamespace(requested, namespace))
+        ) {
+          continue
+        }
+
+        if (
+          namespaces.some((candidate) => sameNamespace(candidate.identity, namespace))
+        ) {
+          throw new InvariantError('Duplicate extension contract namespace row')
+        }
+
+        namespaces.push({
+          identity: namespace,
+          owner: unsupported,
+          relations: {
+            items: [],
+            coverage: requestEvidence.completeNamespaces.some((requested) =>
+              sameNamespace(requested, namespace),
+            )
+              ? { state: 'complete' }
+              : {
+                  state: 'partial',
+                  remainder: {
+                    state: 'unmanaged',
+                    reason: 'Relations outside the requested catalog scope are unmanaged',
+                  },
+                },
+          },
+        })
+      }
+
+      for (const row of rows) {
+        if (row.kind !== 'relation') continue
+
+        const relation = identities.resolve({
+          ...(row.namespace === undefined ? {} : { namespace: row.namespace }),
+          relation: row.relation,
+        })
+        const requested =
+          requestEvidence.relations.some(({ identity }) =>
+            identities.equals(identity, relation),
+          ) ||
+          requestEvidence.absentRelations.some((identity) =>
+            identities.equals(identity, relation),
+          ) ||
+          requestEvidence.completeNamespaces.some((namespace) =>
+            sameNamespace(namespace, relation.namespace),
+          )
+
+        if (!requested) continue
+
+        const namespaceIndex = namespaces.findIndex((candidate) =>
+          sameNamespace(candidate.identity, relation.namespace),
+        )
+
+        if (namespaceIndex < 0) {
+          throw new InvariantError(
+            'Extension contract relation row requires an observed namespace row',
+          )
+        }
+
+        const catalogRelation = {
+          identity: relation,
+          kind: 'table' as const,
+          persistence: 'permanent' as const,
+          owner: unsupported,
+          management: 'managed' as const,
+          nativeDefinition: unsupported,
+          table: unsupported,
+        }
+
+        const namespace = namespaces[namespaceIndex]!
+        namespaces[namespaceIndex] = {
+          ...namespace,
+          relations: {
+            ...namespace.relations,
+            items: [...namespace.relations.items, catalogRelation],
+          },
+        }
+      }
+
       const catalog: CatalogSnapshot = {
         source: { dialect: EXTENSION_CONTRACT_DIALECT_ID, version: 'contract' },
-        request: resolvedRequest(request, namespaceContext, identity),
+        request: requestEvidence,
         capabilities: {
           namespaces: { state: 'supported', fidelity: 'portable' },
           relationOwner: unsupported,
@@ -397,7 +593,7 @@ function createCatalog(
           richObjects: unsupported,
         },
         namespaceContext,
-        namespaces: { items: [], coverage: { state: 'complete' } },
+        namespaces: { items: namespaces, coverage: { state: 'complete' } },
         nameReservations: { items: [], coverage: { state: 'complete' } },
         constraintNameReservations: { items: [], coverage: { state: 'complete' } },
         diagnostics: [],
@@ -487,18 +683,7 @@ function sameNamespaceInput(
     return selected === undefined && expected === undefined
   }
 
-  try {
-    return (
-      selected.length === expected.length &&
-      selected.every(
-        (segment, index) =>
-          segment.role === expected[index]?.role &&
-          segment.identifier.comparisonKey === expected[index]?.identifier.comparisonKey,
-      )
-    )
-  } catch {
-    return false
-  }
+  return sameNamespace(selected, expected)
 }
 
 function profileIssues(

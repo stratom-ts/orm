@@ -55,6 +55,18 @@ function hasCoordinatedTransaction(
   return acquire >= 0 && acquire < transaction && transaction < release
 }
 
+/** Reports whether every protected event is enclosed by one coordination lease. */
+function hasOrderedProtectedWork(events: readonly CoordinationContractEvent[]): boolean {
+  const acquire = events.indexOf('acquire')
+  const release = events.indexOf('release')
+  if (acquire < 0 || release <= acquire) return false
+
+  return events.every((event, index) => {
+    if (!['transaction', 'introspection', 'ddl'].includes(event)) return true
+    return acquire < index && index < release
+  })
+}
+
 /**
  * Dialect-runtime coordination contract. Adapters expose semantic events and
  * controls; physical SQL and transaction primitives remain outside this suite.
@@ -74,6 +86,7 @@ export function registerMigrationCoordinationContract(
       const runtime = createRuntime({ applicationId: 'contract' })
       await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
       expect(hasCoordinatedTransaction(runtime.events())).toBe(true)
+      expect(hasOrderedProtectedWork(runtime.events())).toBe(true)
     })
 
     it('excludes a same-scope client until the first client releases', async () => {
@@ -124,6 +137,14 @@ export function registerMigrationCoordinationContract(
       expect(hasCoordinatedTransaction(['acquire', 'unclassified', 'release'])).toBe(
         false,
       )
+    })
+
+    it('rejects protected work before acquisition or after release', () => {
+      expect(hasOrderedProtectedWork(['transaction', 'acquire', 'release'])).toBe(false)
+      expect(hasOrderedProtectedWork(['acquire', 'release', 'ddl'])).toBe(false)
+      expect(
+        hasOrderedProtectedWork(['acquire', 'introspection', 'ddl', 'release']),
+      ).toBe(true)
     })
 
     it('classifies timeout as unchanged and retryable before protected work', async () => {

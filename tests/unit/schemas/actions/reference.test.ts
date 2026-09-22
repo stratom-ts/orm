@@ -38,6 +38,39 @@ describe('reference action', () => {
     )
   })
 
+  it.fails('copies namespace segment spelling from a raw schema', () => {
+    const rawSegment = { role: 'schema' as const, spelling: 'raw_audit' }
+    const RawTarget = pipe(
+      object({ id: string() }),
+      title('raw_events'),
+      table({ name: 'raw_events', primaryKey: 'id', namespace: [rawSegment] }),
+    )
+    const rawReference = reference(RawTarget, 'id')
+    rawSegment.spelling = 'raw_other'
+
+    expect(getReferenceMetadata(rawReference)?.target.relation).toEqual({
+      namespace: [{ role: 'schema', spelling: 'raw_audit' }],
+      relation: 'raw_events',
+    })
+  })
+
+  it.fails('copies namespace segment spelling from a table handle', () => {
+    const handleSegment = { role: 'schema' as const, spelling: 'handle_audit' }
+    const HandleTarget = defineTable(
+      'handle_events',
+      { id: string() },
+      { primaryKey: 'id', namespace: [handleSegment] },
+    )
+
+    const handleReference = reference(HandleTarget, 'id')
+    handleSegment.spelling = 'handle_other'
+
+    expect(getReferenceMetadata(handleReference)?.target.relation).toEqual({
+      namespace: [{ role: 'schema', spelling: 'handle_audit' }],
+      relation: 'handle_events',
+    })
+  })
+
   it('should create only structured target metadata from referenced schema', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),

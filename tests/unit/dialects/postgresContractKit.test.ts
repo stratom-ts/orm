@@ -436,13 +436,26 @@ const queryCompilerScenarios = {
   }),
 } satisfies QueryCompilerScenarios
 
-const emptyCatalogRequest: CatalogRequest = {
-  relations: [],
-  absentRelations: [],
-  completeNamespaces: [],
+const contractCatalogRequest: CatalogRequest = {
+  relations: [
+    {
+      relation: {
+        namespace: [{ role: 'schema', spelling: 'contract_schema' }],
+        relation: 'present_records',
+      },
+      shape: 'complete',
+    },
+  ],
+  absentRelations: [
+    {
+      namespace: [{ role: 'schema', spelling: 'contract_schema' }],
+      relation: 'absent_records',
+    },
+  ],
+  completeNamespaces: [[{ role: 'schema', spelling: 'contract_empty' }]],
 }
 
-const emptyCatalogExecutor: CatalogExecutor = {
+const contractCatalogExecutor: CatalogExecutor = {
   async execute({ sql }) {
     if (sql.includes('current_database()')) {
       return [
@@ -450,6 +463,36 @@ const emptyCatalogExecutor: CatalogExecutor = {
           database: 'contract_database',
           schema: 'contract_schema',
           version: '160000',
+        },
+      ]
+    }
+
+    if (sql.includes('-- catalog:namespace')) {
+      return [
+        { schema: 'contract_schema', owner: 'contract_owner' },
+        { schema: 'contract_empty', owner: 'contract_owner' },
+      ]
+    }
+
+    if (sql.includes('as relation_kind')) {
+      return [
+        {
+          object_id: '1',
+          schema: 'contract_schema',
+          name: 'present_records',
+          relation_kind: 'r',
+          persistence: 'p',
+          owner: 'contract_owner',
+          native_definition: null,
+          options: [],
+          partition_key: null,
+          row_level_security: false,
+          force_row_level_security: false,
+          replica_identity: 'd',
+          access_method: 'heap',
+          tablespace: null,
+          is_partition: false,
+          partition_bound: null,
         },
       ]
     }
@@ -703,8 +746,8 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
       state: 'supported',
       input: {
         dialect: postgresDialect,
-        executor: emptyCatalogExecutor,
-        request: emptyCatalogRequest,
+        executor: contractCatalogExecutor,
+        request: contractCatalogRequest,
         expected: {
           sourceDialect: 'postgresql',
           writableDefault: namespaceContext.writableDefault,
@@ -715,6 +758,67 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
             identity: { state: 'supported', fidelity: 'native' },
             richObjects: { state: 'supported', fidelity: 'opaque' },
           },
+          request: {
+            relations: [
+              {
+                identity: {
+                  namespace: [
+                    { role: 'database', spelling: 'contract_database' },
+                    { role: 'schema', spelling: 'contract_schema' },
+                  ],
+                  relation: 'present_records',
+                },
+                shape: 'complete',
+              },
+            ],
+            absentRelations: [
+              {
+                namespace: [
+                  { role: 'database', spelling: 'contract_database' },
+                  { role: 'schema', spelling: 'contract_schema' },
+                ],
+                relation: 'absent_records',
+              },
+            ],
+            completeNamespaces: [
+              [
+                { role: 'database', spelling: 'contract_database' },
+                { role: 'schema', spelling: 'contract_empty' },
+              ],
+            ],
+          },
+          namespaces: [
+            {
+              identity: [
+                { role: 'database', spelling: 'contract_database' },
+                { role: 'schema', spelling: 'contract_empty' },
+              ],
+              relationCoverage: { state: 'complete' },
+              relations: [],
+            },
+            {
+              identity: [
+                { role: 'database', spelling: 'contract_database' },
+                { role: 'schema', spelling: 'contract_schema' },
+              ],
+              relationCoverage: {
+                state: 'partial',
+                remainder: {
+                  state: 'unmanaged',
+                  reason: 'Relations outside the requested catalog scope are unmanaged',
+                },
+              },
+              relations: [
+                {
+                  namespace: [
+                    { role: 'database', spelling: 'contract_database' },
+                    { role: 'schema', spelling: 'contract_schema' },
+                  ],
+                  relation: 'present_records',
+                },
+              ],
+            },
+          ],
         },
       },
     },
@@ -723,46 +827,146 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
       input: {
         lowering: {
           async createCase() {
+            const migrationCatalogRequest: CatalogRequest = {
+              relations: [{ relation: { relation: 'records' }, shape: 'complete' }],
+              absentRelations: [],
+              completeNamespaces: [],
+            }
             const catalog = await postgresDialect.catalog.introspectCatalog(
-              emptyCatalogExecutor,
-              emptyCatalogRequest,
+              contractCatalogExecutor,
+              migrationCatalogRequest,
             )
-            const planned = planMigration([], catalog, postgresDialect.migration.planning)
-            const profile = planned.profile
+            const base = planMigration(
+              [Records],
+              catalog,
+              postgresDialect.migration.planning,
+            )
+            const relation = base.identities.resolve({ relation: 'records' })
+            const planned = {
+              ...base,
+              plan: {
+                steps: [
+                  {
+                    kind: 'set_not_null' as const,
+                    target: {
+                      kind: 'column' as const,
+                      relation,
+                      column: base.identities.member('column', 'label'),
+                    },
+                  },
+                ],
+              },
+            }
+            const profile = base.profile
             return {
               dialect: postgresDialect,
               planned,
               profile,
               mismatchedProfiles: {
                 identityAdapter: {
-                  ...profile,
-                  identityAdapter: 'contract-other-identity',
+                  profile: {
+                    ...profile,
+                    identityAdapter: 'contract-other-identity',
+                  },
+                  issues: [
+                    {
+                      code: 'profile_mismatch',
+                      message:
+                        "Executing profile adapter 'contract-other-identity' does not match PostgreSQL",
+                      sourceStepIndexes: [],
+                    },
+                    {
+                      code: 'profile_mismatch',
+                      message:
+                        "Identity adapter 'postgresql' does not match executing adapter 'contract-other-identity'",
+                      sourceStepIndexes: [],
+                    },
+                  ],
                 },
                 namespaceContext: {
-                  ...profile,
-                  namespaceContext: {
-                    writableDefault: [
-                      { role: 'database', spelling: 'other_database' },
-                      { role: 'schema', spelling: 'other_schema' },
-                    ],
+                  profile: {
+                    ...profile,
+                    namespaceContext: {
+                      writableDefault: [
+                        { role: 'database', spelling: 'contract_database' },
+                        { role: 'schema', spelling: 'other_schema' },
+                      ],
+                    },
                   },
+                  issues: [
+                    {
+                      code: 'profile_mismatch',
+                      message:
+                        'Writable namespace context does not match the executing session',
+                      sourceStepIndexes: [],
+                    },
+                  ],
                 },
                 registrationDefault: {
-                  ...profile,
-                  registrationDefault: [{ role: 'schema', spelling: 'other_schema' }],
+                  profile: {
+                    ...profile,
+                    registrationDefault: [{ role: 'schema', spelling: 'other_schema' }],
+                  },
+                  issues: [
+                    {
+                      code: 'profile_mismatch',
+                      message:
+                        'Registration default does not match the executing configuration',
+                      sourceStepIndexes: [],
+                    },
+                  ],
                 },
               },
               expectedProgram: {
                 atomicity: 'plan-atomic',
-                actionCount: 0,
-                sourceStepIndexes: [],
+                preconditions: [
+                  {
+                    kind: 'column_has_no_nulls',
+                    relation: {
+                      namespace: [
+                        {
+                          role: 'database',
+                          identifier: {
+                            spelling: 'contract_database',
+                            comparisonKey: 'contract_database',
+                          },
+                        },
+                        {
+                          role: 'schema',
+                          identifier: {
+                            spelling: 'contract_schema',
+                            comparisonKey: 'contract_schema',
+                          },
+                        },
+                      ],
+                      relation: {
+                        spelling: 'records',
+                        comparisonKey: 'records',
+                      },
+                    },
+                    column: 'label',
+                    sourceStepIndexes: [0],
+                  },
+                ],
+                actions: [
+                  {
+                    sourceStepIndexes: [0],
+                    transaction: 'required',
+                    statements: [
+                      {
+                        sql: 'alter table "contract_schema"."records" alter column "label" set not null',
+                        params: [],
+                      },
+                    ],
+                  },
+                ],
               },
             }
           },
         },
         unsupportedLowering: {
           state: 'unsupported',
-          reason: 'The shared empty PostgreSQL plan has no unsupported lowering case',
+          reason: 'The shared PostgreSQL case exercises supported lowering only',
         },
       },
     },

@@ -21,6 +21,7 @@ import {
   planMigration,
 } from '../helpers/catalog'
 import {
+  SQLITE_IDENTITY_POLICY,
   SQLITE_PHYSICAL_NAMING_FIXTURE,
   TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE,
 } from '../helpers/dialectPolicies'
@@ -35,6 +36,12 @@ const identities = createCanonicalRelationIdentityModule({
   policy: POSTGRES_POLICY,
   context,
 })
+const sqliteIdentities = createCanonicalRelationIdentityModule({
+  policy: SQLITE_IDENTITY_POLICY,
+  context: {
+    writableDefault: [{ role: 'database', spelling: 'main' }],
+  },
+})
 const emptyReservations = {
   nameReservations: [],
   constraintNameReservations: [],
@@ -48,6 +55,13 @@ const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 function owner(schema: string, relation: string) {
   return identities.resolve({
     namespace: [{ role: 'schema', spelling: schema }],
+    relation,
+  })
+}
+
+function sqliteOwner(database: string, relation: string) {
+  return sqliteIdentities.resolve({
+    namespace: [{ role: 'database', spelling: database }],
     relation,
   })
 }
@@ -169,29 +183,73 @@ describe('generated physical naming', () => {
     )
   })
 
-  it('uses PostgreSQL and SQLite schema-wide scopes but preserves table-local profiles', () => {
+  it('collides equal PostgreSQL names within one schema but not across schemas', () => {
     const publicUsers = owner('public', 'users')
     const publicPosts = owner('public', 'posts')
-
-    for (const profile of [POSTGRES_PHYSICAL_NAMING, SQLITE_PHYSICAL_NAMING_FIXTURE]) {
-      const registry = createPhysicalNameRegistry(profile)
+    const auditPosts = owner('audit', 'posts')
+    const registry = createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING)
+    registry.reserve({
+      kind: 'index',
+      owner: publicUsers,
+      name: 'shared_idx',
+      token: 'public.users',
+      description: 'public users index',
+    })
+    expect(() =>
       registry.reserve({
         kind: 'index',
-        owner: publicUsers,
+        owner: publicPosts,
         name: 'shared_idx',
-        token: 'users',
-        description: 'users index',
-      })
-      expect(() =>
-        registry.reserve({
-          kind: 'index',
-          owner: publicPosts,
-          name: profile.id === 'sqlite-fixture' ? 'SHARED_IDX' : 'shared_idx',
-          token: 'posts',
-          description: 'posts index',
-        }),
-      ).toThrow(/physical name collision/i)
-    }
+        token: 'public.posts',
+        description: 'public posts index',
+      }),
+    ).toThrow(/physical name collision/i)
+    expect(() =>
+      registry.reserve({
+        kind: 'index',
+        owner: auditPosts,
+        name: 'shared_idx',
+        token: 'audit.posts',
+        description: 'audit posts index',
+      }),
+    ).not.toThrow()
+  })
+
+  it('collides equal SQLite names within one database alias but not across aliases', () => {
+    const mainUsers = sqliteOwner('main', 'users')
+    const mainPosts = sqliteOwner('main', 'posts')
+    const archivePosts = sqliteOwner('archive', 'posts')
+    const registry = createPhysicalNameRegistry(SQLITE_PHYSICAL_NAMING_FIXTURE)
+    registry.reserve({
+      kind: 'index',
+      owner: mainUsers,
+      name: 'shared_idx',
+      token: 'main.users',
+      description: 'main users index',
+    })
+    expect(() =>
+      registry.reserve({
+        kind: 'index',
+        owner: mainPosts,
+        name: 'SHARED_IDX',
+        token: 'main.posts',
+        description: 'main posts index',
+      }),
+    ).toThrow(/physical name collision/i)
+    expect(() =>
+      registry.reserve({
+        kind: 'index',
+        owner: archivePosts,
+        name: 'SHARED_IDX',
+        token: 'archive.posts',
+        description: 'archive posts index',
+      }),
+    ).not.toThrow()
+  })
+
+  it('preserves table-local naming profiles', () => {
+    const publicUsers = owner('public', 'users')
+    const publicPosts = owner('public', 'posts')
 
     const local = createPhysicalNameRegistry(TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE)
     local.reserve({
