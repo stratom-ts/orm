@@ -27,19 +27,24 @@ export type DialectLifecycleContractRuntime = Readonly<{
   expected: Readonly<{
     queryRows: readonly unknown[]
     queryParam: unknown
-    postMigrationState: unknown
   }>
   postMigrationState(): unknown | Promise<unknown>
   migration:
     | Readonly<{
         state: 'supported'
         expectedPlan: MigrationPlan
+        expectedPostMigrationState: unknown
         reportedOutcome?: Readonly<{
           expected: 'applied' | 'unchanged'
           observed: readonly ('applied' | 'unchanged')[]
         }>
       }>
-    | Readonly<{ state: 'unsupported'; reason: string }>
+    | Readonly<{
+        state: 'unsupported'
+        reason: string
+        expectedPlan: MigrationPlan
+        expectedPostMigrationState: unknown
+      }>
 }>
 
 export type DialectLifecycleContractFactory = () => DialectLifecycleContractRuntime
@@ -84,9 +89,9 @@ export async function runDialectLifecycleContract(
 
     await database.transaction(async (transaction) => transaction.ping())
     const plan = await database.migrate().dryRun()
+    expect(plan).toEqual(runtime.migration.expectedPlan)
 
     if (runtime.migration.state === 'supported') {
-      expect(plan).toEqual(runtime.migration.expectedPlan)
       await database.migrate().execute()
 
       if (runtime.migration.reportedOutcome) {
@@ -94,10 +99,6 @@ export async function runDialectLifecycleContract(
           runtime.migration.reportedOutcome.expected,
         ])
       }
-
-      expect(await runtime.postMigrationState()).toEqual(
-        runtime.expected.postMigrationState,
-      )
     } else {
       const error = await database
         .migrate()
@@ -112,6 +113,10 @@ export async function runDialectLifecycleContract(
         ],
       })
     }
+
+    expect(await runtime.postMigrationState()).toEqual(
+      runtime.migration.expectedPostMigrationState,
+    )
 
     await database.close()
 

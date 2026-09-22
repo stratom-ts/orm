@@ -217,9 +217,6 @@ errors rather than running a partial approximation.
 
 ## Registering and testing a member
 
-See the [testing guide](testing.md) for test locations, fixture rules, commands, and
-coverage safeguards.
-
 Package-supported members are statically registered in `src/dialects/resolve.ts` by
 their db0 `SQLDialect` id. Adding support consists of implementing one complete member
 and adding that dispatcher registration. Do not add a runtime plugin registry or

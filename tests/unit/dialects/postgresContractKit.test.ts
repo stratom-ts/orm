@@ -525,13 +525,13 @@ function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
     expected: {
       queryRows: [{ id: 'lifecycle-1', label: 'connector-selected' }],
       queryParam: 'connector-selected',
-      postMigrationState: {
-        relation: { schema: 'contract_schema', relation: 'lifecycle_records' },
-      },
     },
     postMigrationState: () => ({ relation: createdRelation }),
     migration: {
       state: 'supported' as const,
+      expectedPostMigrationState: {
+        relation: { schema: 'contract_schema', relation: 'lifecycle_records' },
+      },
       expectedPlan: {
         steps: [
           {
