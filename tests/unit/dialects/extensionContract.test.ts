@@ -22,7 +22,10 @@ import type {
   DialectContractMemberCapabilities,
   QueryCompilerScenarios,
 } from './dialectContractKit'
-import { runDialectLifecycleContract } from './dialectMemberContract'
+import {
+  registerDialectLifecycleContract,
+  runDialectLifecycleContract,
+} from './dialectMemberContract'
 
 let unregister: (() => void) | undefined
 
@@ -108,8 +111,47 @@ function createContractEvents() {
   )
 }
 
+const expectedExtensionMigrationPlan = {
+  steps: [
+    {
+      kind: 'ensure_namespace',
+      target: {
+        kind: 'namespace',
+        namespace: [
+          {
+            role: 'database',
+            identifier: {
+              spelling: 'fixture_tenant',
+              comparisonKey: 'fixture_tenant',
+            },
+          },
+        ],
+      },
+    },
+    {
+      kind: 'create_table',
+      target: {
+        kind: 'relation',
+        relation: {
+          namespace: [
+            {
+              role: 'database',
+              identifier: {
+                spelling: 'fixture_tenant',
+                comparisonKey: 'fixture_tenant',
+              },
+            },
+          ],
+          relation: { spelling: 'records', comparisonKey: 'records' },
+        },
+      },
+    },
+  ],
+} satisfies MigrationPlan
+
 function createContractRuntime(
   options?: Readonly<{
+    migration?: 'supported' | 'unsupported'
     emptyPlanReportsApplied?: Readonly<{
       executionReported: { value: boolean }
       postMigrationStateObserved: { value: boolean }
@@ -117,7 +159,11 @@ function createContractRuntime(
   }>,
 ): import('./dialectMemberContract').DialectLifecycleContractRuntime {
   const calls = createExtensionContractCalls()
-  const baseDialect = createExtensionContractDialect(calls)
+  const unsupportedMigration = options?.migration === 'unsupported'
+  const baseDialect = createExtensionContractDialect(
+    calls,
+    unsupportedMigration ? { migration: 'unsupported' } : undefined,
+  )
   const faultyLifecycle = options?.emptyPlanReportsApplied
   const dialect: Dialect = faultyLifecycle
     ? {
@@ -171,10 +217,6 @@ function createContractRuntime(
         },
       ],
       queryParam: 'fixture-param:authored-value',
-      postMigrationState: [
-        'fixture migration ensure_namespace 0',
-        'fixture migration create_table 1',
-      ],
     },
     postMigrationState: () => {
       if (faultyLifecycle) faultyLifecycle.postMigrationStateObserved.value = true
@@ -182,50 +224,25 @@ function createContractRuntime(
         .filter(({ sql }) => sql.startsWith('fixture migration '))
         .map(({ sql }) => sql)
     },
-    migration: {
-      state: 'supported' as const,
-      expectedPlan: {
-        steps: [
-          {
-            kind: 'ensure_namespace',
-            target: {
-              kind: 'namespace',
-              namespace: [
-                {
-                  role: 'database',
-                  identifier: {
-                    spelling: 'fixture_tenant',
-                    comparisonKey: 'fixture_tenant',
-                  },
-                },
-              ],
-            },
+    migration: unsupportedMigration
+      ? {
+          state: 'unsupported' as const,
+          reason: EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
+          expectedPlan: expectedExtensionMigrationPlan,
+          expectedPostMigrationState: [],
+        }
+      : {
+          state: 'supported' as const,
+          expectedPlan: expectedExtensionMigrationPlan,
+          expectedPostMigrationState: [
+            'fixture migration ensure_namespace 0',
+            'fixture migration create_table 1',
+          ],
+          reportedOutcome: {
+            expected: 'applied' as const,
+            observed: calls.migrationOutcomes,
           },
-          {
-            kind: 'create_table',
-            target: {
-              kind: 'relation',
-              relation: {
-                namespace: [
-                  {
-                    role: 'database',
-                    identifier: {
-                      spelling: 'fixture_tenant',
-                      comparisonKey: 'fixture_tenant',
-                    },
-                  },
-                ],
-                relation: { spelling: 'records', comparisonKey: 'records' },
-              },
-            },
-          },
-        ],
-      } satisfies MigrationPlan,
-      reportedOutcome: {
-        expected: 'applied' as const,
-        observed: calls.migrationOutcomes,
-      },
-    },
+        },
   }
 }
 
@@ -758,6 +775,10 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
   },
 })
 
+registerDialectLifecycleContract('Extension unsupported migration', () =>
+  createContractRuntime({ migration: 'unsupported' }),
+)
+
 describe('dialect extension contract', () => {
   it('rejects an empty program that falsely reports an applied migration', async () => {
     const faultyLifecycle = {
@@ -772,6 +793,35 @@ describe('dialect extension contract', () => {
     ).rejects.toThrow(/deeply equal/i)
     expect(faultyLifecycle.executionReported.value).toBe(true)
     expect(faultyLifecycle.postMigrationStateObserved.value).toBe(true)
+  })
+
+  it('rejects an unsupported lifecycle that returns the wrong Migration Plan', async () => {
+    const runtime = createContractRuntime({ migration: 'unsupported' })
+    const faultyRuntime = {
+      ...runtime,
+      schemas: [...runtime.schemas, createContractEvents()],
+    }
+
+    await expect(runDialectLifecycleContract(faultyRuntime)).rejects.toThrow(
+      /deeply equal/i,
+    )
+  })
+
+  it('rejects an unsupported lifecycle that mutates observable state', async () => {
+    const runtime = createContractRuntime({ migration: 'unsupported' })
+    const postMigrationStateObserved = { value: false }
+    const faultyRuntime = {
+      ...runtime,
+      postMigrationState: () => {
+        postMigrationStateObserved.value = true
+        return ['unexpected migration statement']
+      },
+    }
+
+    await expect(runDialectLifecycleContract(faultyRuntime)).rejects.toThrow(
+      /deeply equal/i,
+    )
+    expect(postMigrationStateObserved.value).toBe(true)
   })
 
   it('rejects a compiler that disagrees with the reusable Query agreement case', async () => {

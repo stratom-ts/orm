@@ -75,14 +75,25 @@ runtime behavior. The guide records these reasons so a runtime assembly file can
 uncalled behavior. Mixed runtime files, including `src/dialects/postgres/index.ts`, stay
 in the report.
 
-The global thresholds protect against large coverage losses without setting a threshold
-for each behavior group. Use the report to check public and schema, query, Migration Plan,
-Dialect selection, operation-session, and PostgreSQL adapter code. The coverage report
-must not contain an unexplained uncalled exported runtime helper.
+Global thresholds protect against large coverage losses. The configuration also aggregates
+coverage for these behavior areas so a material loss in one area fails even when global
+totals still pass:
 
-The global thresholds are 91% statements, 84% branches, 96% functions, and 92% lines.
-They match the rounded stable baseline for the current suite. Keep these thresholds global;
-do not add separate thresholds for individual behavior groups.
+| Area                       | Source pattern                                   | Statements | Branches | Functions | Lines |
+| -------------------------- | ------------------------------------------------ | ---------: | -------: | --------: | ----: |
+| Schema/client              | `src/{client.ts,defineTable.ts,schemas/**/*.ts}` |         92 |       90 |        93 |    93 |
+| Query                      | `src/query/**/*.ts`                              |         87 |       79 |        93 |    89 |
+| Migration Plan/migrations  | `src/{ddl,migrations}/**/*.ts`                   |         94 |       82 |        99 |    95 |
+| Dialect selection          | `src/dialects/{catalog,resolve}.ts`              |        100 |       91 |       100 |   100 |
+| Operation-session          | `src/operations/**/*.ts`                         |         93 |       86 |       100 |    95 |
+| PostgreSQL adapter runtime | `src/dialects/postgres/**/*.ts`                  |         90 |       84 |        97 |    91 |
+
+These are area aggregates, not per-file thresholds, because behavior is distributed across
+several modules and some defensive branches are intentionally uneven. The global floors
+remain 91% statements, 84% branches, 96% functions, and 92% lines. Area and global floors
+record the stable achieved baseline; they are deliberately lower where branch density or
+defensive paths make a higher floor unstable. The report must not contain an unexplained
+uncalled exported runtime helper.
 
 ## Commands
 
