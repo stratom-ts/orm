@@ -483,6 +483,15 @@ describe('PostgreSQL migration runtime failures', () => {
         outcome: 'unchanged',
         retryable: true,
       })
+      expect(runtime.queries).toEqual([
+        {
+          sql: 'select pg_try_advisory_lock($1, $2) as "locked"',
+          params: expect.any(Array),
+        },
+      ])
+      expect(runtime.cancel).toHaveBeenCalledOnce()
+      expect(runtime.discard).toHaveBeenCalledOnce()
+      expect(runtime.prepare).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }

@@ -99,6 +99,18 @@ describe('table action', () => {
     })
   })
 
+  it.fails('copies namespace segments so later spelling edits cannot retarget a table', () => {
+    const segment = { role: 'schema' as const, spelling: 'audit' }
+    const action = table({ name: 'events', primaryKey: 'id', namespace: [segment] })
+
+    segment.spelling = 'other'
+
+    expect((action.metadata as Record<string, unknown>).relation).toEqual({
+      namespace: [{ role: 'schema', spelling: 'audit' }],
+      relation: 'events',
+    })
+  })
+
   it('preserves namespace role, order, and spelling as distinct authored intent', () => {
     const schemaThenDatabase = table({
       name: 'events',

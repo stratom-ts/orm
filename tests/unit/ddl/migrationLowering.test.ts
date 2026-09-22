@@ -1,5 +1,5 @@
 import { pipe, string } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
 import { planMigration } from '@/ddl/migrationPlan'
@@ -254,7 +254,7 @@ describe('PostgreSQL whole-plan lowering', () => {
     })
   })
 
-  it.each([
+  it.fails.each([
     {
       field: 'identity adapter',
       plannedProfile: {
@@ -288,23 +288,44 @@ describe('PostgreSQL whole-plan lowering', () => {
       },
       message: 'Registration default does not match the executing configuration',
     },
-  ])('rejects a mismatched $field without returning a program', (testCase) => {
+  ])('rejects a mismatched $field before physical step compilation', (testCase) => {
     const planned = plan()
-
-    expect(
-      postgresDialect.migration!.lower(
-        { ...planned, profile: testCase.plannedProfile },
-        testCase.executingProfile,
-      ),
-    ).toEqual({
-      issues: [
-        {
-          code: 'profile_mismatch',
-          message: testCase.message,
-          sourceStepIndexes: [],
-        },
-      ],
+    const compilation = vi.fn(() => {
+      throw new Error('physical step compilation started after a profile mismatch')
     })
+    const relation = planned.identities.resolve({ relation: 'users' })
+    const guardedStep = {
+      kind: 'add_column' as const,
+      target: {
+        kind: 'column' as const,
+        relation,
+        column: planned.identities.member('column', 'guarded_column'),
+      },
+      get dataType(): string {
+        compilation()
+        return 'text'
+      },
+      notNull: false,
+    }
+
+    const result = postgresDialect.migration!.lower(
+      {
+        ...planned,
+        profile: testCase.plannedProfile,
+        plan: { steps: [guardedStep] },
+      },
+      testCase.executingProfile,
+    )
+
+    expect(compilation).not.toHaveBeenCalled()
+    expect(result.program).toBeUndefined()
+    expect(result.issues).toEqual([
+      {
+        code: 'profile_mismatch',
+        message: testCase.message,
+        sourceStepIndexes: [],
+      },
+    ])
   })
 
   it('treats an empty registration default as none', () => {

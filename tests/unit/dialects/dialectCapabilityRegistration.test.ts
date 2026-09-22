@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  registerDialectIntegrationScenario,
   shouldRegisterDialectIntegrationScenario,
   validateDialectIntegrationCapabilities,
 } from '../../integration/support/dialectIntegrationContract'
+import type { DialectIntegrationAdapter } from '../../integration/support/dialectIntegrationContract'
 
 import { registerDialectContractMember } from './dialectContractKit'
 
@@ -157,5 +159,51 @@ describe('Dialect contract capability registration', () => {
         ['query', 'migration'],
       ),
     ).toBe(false)
+  })
+
+  it('registers supported scenarios through the actual integration registration seam', () => {
+    const registered: string[] = []
+    const adapter = {
+      capabilities: {
+        lifecycle: { state: 'supported' },
+        query: { state: 'supported' },
+        transaction: { state: 'supported' },
+        migration: { state: 'supported' },
+        convergence: { state: 'supported' },
+      },
+    } satisfies Pick<DialectIntegrationAdapter, 'capabilities'>
+
+    registerDialectIntegrationScenario(
+      adapter,
+      ['query', 'migration'],
+      'supported scenario',
+      async () => undefined,
+      (title) => registered.push(title),
+    )
+
+    expect(registered).toEqual(['supported scenario'])
+  })
+
+  it('does not register unsupported scenarios through the actual integration seam', () => {
+    const registered: string[] = []
+    const adapter = {
+      capabilities: {
+        lifecycle: { state: 'supported' },
+        query: { state: 'unsupported', reason: 'No query transport' },
+        transaction: { state: 'supported' },
+        migration: { state: 'supported' },
+        convergence: { state: 'supported' },
+      },
+    } satisfies Pick<DialectIntegrationAdapter, 'capabilities'>
+
+    registerDialectIntegrationScenario(
+      adapter,
+      ['query', 'migration'],
+      'unsupported scenario',
+      async () => undefined,
+      (title) => registered.push(title),
+    )
+
+    expect(registered).toEqual([])
   })
 })

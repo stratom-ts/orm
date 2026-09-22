@@ -144,6 +144,42 @@ describe('client registration', () => {
     await db.close()
   })
 
+  it('keeps dotted namespace and relation boundaries independent through the public handle seam', async () => {
+    const DottedNamespace = defineTable(
+      'c',
+      { id: string() },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
+    )
+    const DottedRelation = defineTable(
+      'b.c',
+      { id: string() },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
+    )
+    const SameSchema = defineTable(
+      'same_relation',
+      { id: string() },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'shared' }] },
+    )
+    const SameDatabase = defineTable(
+      'same_relation',
+      { id: string() },
+      { primaryKey: 'id', namespace: [{ role: 'database', spelling: 'shared' }] },
+    )
+    const connector = createMockConnector()
+    const db = createDatabase({
+      connector,
+      schemas: [DottedNamespace, DottedRelation, SameSchema, SameDatabase],
+    })
+
+    expect(() => db.from(DottedNamespace)).not.toThrow()
+    expect(() => db.from(DottedRelation)).not.toThrow()
+    expect(() => db.from(SameSchema)).not.toThrow()
+    expect(() => db.from(SameDatabase)).not.toThrow()
+    expect(connector.prepared).toEqual([])
+
+    await db.close()
+  })
+
   it('should retain registered schemas on the client', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
