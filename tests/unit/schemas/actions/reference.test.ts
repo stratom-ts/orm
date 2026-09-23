@@ -38,7 +38,7 @@ describe('reference action', () => {
     )
   })
 
-  it.fails('copies namespace segment spelling from a raw schema', () => {
+  it('copies namespace segment spelling from a raw schema', () => {
     const rawSegment = { role: 'schema' as const, spelling: 'raw_audit' }
     const RawTarget = pipe(
       object({ id: string() }),
@@ -54,7 +54,7 @@ describe('reference action', () => {
     })
   })
 
-  it.fails('copies namespace segment spelling from a table handle', () => {
+  it('copies namespace segment spelling from a table handle', () => {
     const handleSegment = { role: 'schema' as const, spelling: 'handle_audit' }
     const HandleTarget = defineTable(
       'handle_events',

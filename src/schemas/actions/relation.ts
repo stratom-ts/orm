@@ -71,7 +71,10 @@ export function createRelationInput(
   validateRelationInput(input)
   return input.namespace === undefined || input.namespace.length === 0
     ? { relation }
-    : { namespace: [...input.namespace], relation }
+    : {
+        namespace: input.namespace.map(({ role, spelling }) => ({ role, spelling })),
+        relation,
+      }
 }
 
 /** Compares authored relation intent without flattening namespace identifiers. */
