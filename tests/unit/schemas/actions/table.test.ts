@@ -99,7 +99,7 @@ describe('table action', () => {
     })
   })
 
-  it.fails('copies namespace segments so later spelling edits cannot retarget a table', () => {
+  it('copies namespace segments so later spelling edits cannot retarget a table', () => {
     const segment = { role: 'schema' as const, spelling: 'audit' }
     const action = table({ name: 'events', primaryKey: 'id', namespace: [segment] })
 
