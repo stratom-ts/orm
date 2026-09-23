@@ -191,6 +191,11 @@ export function lowerPostgresMigrationPlan(
   expectedProfile: MigrationSemanticProfile,
 ): MigrationLoweringResult {
   const issues = profileIssues(planned, expectedProfile)
+  if (issues.length > 0) {
+    issues.sort(compareCapabilityIssues)
+    return { issues }
+  }
+
   const drafts: ActionDraft[] = []
   const preconditions: MigrationPrecondition[] = []
   const expectedDatabase = expectedDatabaseIdentifier(planned, expectedProfile)

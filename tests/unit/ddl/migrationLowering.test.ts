@@ -225,36 +225,17 @@ describe('PostgreSQL whole-plan lowering', () => {
           message: 'Writable namespace context does not match the executing session',
           sourceStepIndexes: [],
         },
-        {
-          code: 'invalid_target',
-          message: 'Executing PostgreSQL profile has no canonical database segment',
-          sourceStepIndexes: [0],
-        },
-        {
-          code: 'invalid_target',
-          message: 'Executing PostgreSQL profile has no canonical database segment',
-          sourceStepIndexes: [1],
-        },
-        {
-          code: 'invalid_target',
-          message: 'Executing PostgreSQL profile has no canonical database segment',
-          sourceStepIndexes: [2],
-        },
-        {
-          code: 'invalid_target',
-          message: 'Executing PostgreSQL profile has no canonical database segment',
-          sourceStepIndexes: [3],
-        },
-        {
-          code: 'invalid_target',
-          message: 'Executing PostgreSQL profile has no canonical database segment',
-          sourceStepIndexes: [3],
-        },
       ],
     })
   })
 
-  it.fails.each([
+  it.each([
+    {
+      field: 'PostgreSQL dialect adapter',
+      plannedProfile: { ...expectedProfile, identityAdapter: 'sqlite-fixture' },
+      executingProfile: { ...expectedProfile, identityAdapter: 'sqlite-fixture' },
+      message: "Executing profile adapter 'sqlite-fixture' does not match PostgreSQL",
+    },
     {
       field: 'identity adapter',
       plannedProfile: {
@@ -290,6 +271,9 @@ describe('PostgreSQL whole-plan lowering', () => {
     },
   ])('rejects a mismatched $field before physical step compilation', (testCase) => {
     const planned = plan()
+    const traversal = vi.fn(() => {
+      throw new Error('step traversal started after a profile mismatch')
+    })
     const compilation = vi.fn(() => {
       throw new Error('physical step compilation started after a profile mismatch')
     })
@@ -307,16 +291,23 @@ describe('PostgreSQL whole-plan lowering', () => {
       },
       notNull: false,
     }
+    const guardedPlan = {
+      ...planned,
+      profile: testCase.plannedProfile,
+      plan: {
+        get steps() {
+          traversal()
+          return [guardedStep]
+        },
+      },
+    }
 
     const result = postgresDialect.migration!.lower(
-      {
-        ...planned,
-        profile: testCase.plannedProfile,
-        plan: { steps: [guardedStep] },
-      },
+      guardedPlan,
       testCase.executingProfile,
     )
 
+    expect(traversal).not.toHaveBeenCalled()
     expect(compilation).not.toHaveBeenCalled()
     expect(result.program).toBeUndefined()
     expect(result.issues).toEqual([
