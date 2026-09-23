@@ -319,25 +319,31 @@ describe('CRUD compile', () => {
     await db.close()
   })
 
-  it.fails('should reject update where(...).all() before connector preparation', async () => {
+  it('should reject update where(...).all() before connector preparation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.update(Users).set({ active: false }).where(Users.id, 'eq', 1).all()
 
-    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    await expect(query.execute()).rejects.toMatchObject({
+      _tag: 'QueryError',
+      message: expect.stringContaining('cannot combine where(...) and .all()'),
+    })
     expect(connector.prepared).toEqual([])
 
     await db.close()
   })
 
-  it.fails('should reject update all().where(...) before connector preparation', async () => {
+  it('should reject update all().where(...) before connector preparation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.update(Users).set({ active: false }).all().where(Users.id, 'eq', 1)
 
-    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    await expect(query.execute()).rejects.toMatchObject({
+      _tag: 'QueryError',
+      message: expect.stringContaining('cannot combine where(...) and .all()'),
+    })
     expect(connector.prepared).toEqual([])
 
     await db.close()
@@ -358,25 +364,31 @@ describe('CRUD compile', () => {
     await db.close()
   })
 
-  it.fails('should reject delete where(...).all() before connector preparation', async () => {
+  it('should reject delete where(...).all() before connector preparation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.delete(Users).where(Users.id, 'eq', 1).all()
 
-    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    await expect(query.execute()).rejects.toMatchObject({
+      _tag: 'QueryError',
+      message: expect.stringContaining('cannot combine where(...) and .all()'),
+    })
     expect(connector.prepared).toEqual([])
 
     await db.close()
   })
 
-  it.fails('should reject delete all().where(...) before connector preparation', async () => {
+  it('should reject delete all().where(...) before connector preparation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.delete(Users).all().where(Users.id, 'eq', 1)
 
-    await expect(query.execute()).rejects.toBeInstanceOf(QueryError)
+    await expect(query.execute()).rejects.toMatchObject({
+      _tag: 'QueryError',
+      message: expect.stringContaining('cannot combine where(...) and .all()'),
+    })
     expect(connector.prepared).toEqual([])
 
     await db.close()

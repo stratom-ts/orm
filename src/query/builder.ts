@@ -899,6 +899,12 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
   const buildAst = (): UpdateAst => {
     const info = handle.getTableMetadata()
 
+    if (where && allowAll) {
+      throw new QueryError({
+        message: `update on "${info.name}" cannot combine where(...) and .all()`,
+      })
+    }
+
     if (!where && !allowAll) {
       throw new QueryError({
         message: `update on "${info.name}" requires where(...) or .all()`,
@@ -1107,6 +1113,12 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
   /** Builds the delete AST. */
   const buildAst = (): DeleteAst => {
     const info = handle.getTableMetadata()
+
+    if (where && allowAll) {
+      throw new QueryError({
+        message: `delete from "${info.name}" cannot combine where(...) and .all()`,
+      })
+    }
 
     if (!where && !allowAll) {
       throw new QueryError({
