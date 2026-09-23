@@ -28,7 +28,7 @@ import { SchemaError } from '@/utils/error'
 const RESERVED_HANDLE_KEYS = new Set(['getSchema', 'getTableMetadata'])
 
 /** Shared across compatible package copies; bump the key for an incompatible handle ABI. */
-const TABLE_HANDLE_REGISTRY_KEY = Symbol.for('stratom.TableHandle.registry.v2')
+const TABLE_HANDLE_REGISTRY_KEY = Symbol.for('stratom.TableHandle.registry.v1')
 
 type RegisteredTableHandleMethods = {
   getSchema: () => unknown
