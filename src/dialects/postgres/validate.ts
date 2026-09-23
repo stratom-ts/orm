@@ -204,10 +204,27 @@ function stripEnclosingParens(s: string): string {
 }
 
 /**
+ * Strips all balanced outer parentheses from an expression.
+ *
+ * @param expression - Expression that may have nested outer parentheses.
+ */
+function stripAllEnclosingParens(expression: string): string {
+  let normalized = expression
+  let previous: string
+
+  do {
+    previous = normalized
+    normalized = stripEnclosingParens(normalized)
+  } while (normalized !== previous)
+
+  return normalized
+}
+
+/**
  * Canonicalizes a PostgreSQL catalog default expression for migration
  * comparison by normalizing whitespace, stripping balanced enclosing
- * parentheses, and removing trailing `::type` casts (including chained
- * casts such as `::text::varchar`).
+ * parentheses, removing trailing `::type` casts (including chained casts
+ * such as `::text::varchar`), and canonicalizing `CURRENT_TIMESTAMP`.
  *
  * @example
  *   normalizePostgresDefaultExpression('(now())') // 'now()'
@@ -219,16 +236,14 @@ function stripEnclosingParens(s: string): string {
  * @returns Normalized expression suitable for drift comparison.
  */
 export function normalizePostgresDefaultExpression(expression: string): string {
-  let normalized = expression.trim()
-  let prev: string
-
-  do {
-    prev = normalized
-    normalized = stripEnclosingParens(normalized)
-  } while (normalized !== prev)
-
-  return normalized.replace(
+  const normalized = stripAllEnclosingParens(expression.trim())
+  const withoutCasts = normalized.replace(
     /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
     '',
   )
+  const currentTimestampCandidate = stripAllEnclosingParens(withoutCasts.trim())
+
+  return /^current_timestamp$/i.test(currentTimestampCandidate)
+    ? 'current_timestamp'
+    : withoutCasts
 }
