@@ -9,7 +9,7 @@ only.
 
 - **Schema-defined tables** — `defineTable(name, columns, options)` with Valibot `column` / `reference`
 - **db0 connector** — `createDatabase({ connector, schemas })` owns the connection lifecycle
-- **Desired-state migrations** — `db.migrate().dryRun()` / `.execute()` with safe defaults, allowlist, and advisory lock
+- **Desired-state migrations** — `db.migrate().plan()` / `.dryRun()` / `.execute()` with safe defaults, allowlist, and advisory lock
 - **Typed CRUD** — `db.from(Table).select|insert|update|delete` with column refs
 - **Transactions** — callback API; nested calls use savepoints
 - **Tagged errors** — `MigrationError`, `QueryError`, `ValidationError`, `SchemaError`
@@ -414,8 +414,8 @@ Migrations diff your registered handles against the live database. Destructive
 steps are refused unless explicitly allowed.
 
 ```typescript
-const plan = await db.migrate().dryRun()
-const preview = await db.migrate().preview()
+const plan = await db.migrate().plan()
+const preview = await db.migrate().dryRun()
 await db.migrate().execute()
 await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
 ```
@@ -447,12 +447,12 @@ Steps are ordered by semantic phase (`ensure_namespace`, relations, columns, typ
 nullability, indexes, constraints, then destructive cleanup) and then by structured
 target order. Execution order and SQL are separate concerns the dialect owns.
 
-`preview()` returns the selected dialect's ordered lowered actions without executing
+`dryRun()` returns the selected dialect's ordered lowered actions without executing
 them. Actions retain their source step indexes and can contain zero, one, or many SQL
 statements, including actions coalesced from multiple steps. Every bound parameter is
 shown as `[REDACTED]`, with one marker per value; parameter values are never included.
 SQL text is emitted verbatim, so literal values authored directly into SQL are not
-redacted. Preview performs the same profile validation and whole-plan lowering as
+redacted. `dryRun()` performs the same profile validation and whole-plan lowering as
 execution, but it does not apply destructive execution permissions or run DDL.
 
 ### Errors

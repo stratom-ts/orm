@@ -90,7 +90,7 @@ function createMigrationMember(identityAdapter = 'postgresql') {
 }
 
 describe('dialect-neutral migration adapter contract', () => {
-  it('uses one supplied migration member for dry-run and execute planning', async () => {
+  it('uses one supplied migration member for plan and execute planning', async () => {
     const member = createMigrationMember()
     const operationRunner = createOperationRunner()
     const builder = createMigrateBuilder({
@@ -99,7 +99,7 @@ describe('dialect-neutral migration adapter contract', () => {
       runOperation: operationRunner.runOperation,
     })
 
-    await expect(builder.dryRun()).resolves.toEqual({ steps: [] })
+    await expect(builder.plan()).resolves.toEqual({ steps: [] })
     await expect(builder.execute()).resolves.toBeUndefined()
 
     expect(operationRunner.state.calls).toBe(2)
@@ -141,7 +141,7 @@ describe('dialect-neutral migration adapter contract', () => {
     )
   })
 
-  it('validates the Semantic Profile during preview', async () => {
+  it('validates the Semantic Profile during dry run', async () => {
     const member = createMigrationMember('not-postgresql')
     const builder = createMigrateBuilder({
       schemas: [],
@@ -149,7 +149,7 @@ describe('dialect-neutral migration adapter contract', () => {
       runOperation: createOperationRunner().runOperation,
     })
 
-    const error = await builder.preview().catch((cause: unknown) => cause)
+    const error = await builder.dryRun().catch((cause: unknown) => cause)
 
     expect(error).toMatchObject({
       stage: 'lowering',
@@ -166,7 +166,7 @@ describe('dialect-neutral migration adapter contract', () => {
     expect(member.execute).not.toHaveBeenCalled()
   })
 
-  it('previews grouped physical actions with stable redaction and no execution', async () => {
+  it('returns grouped physical actions with stable redaction and no execution', async () => {
     const member = createMigrationMember()
     const sourceStepIndexes = [1, 3]
     member.lower.mockReturnValue({
@@ -221,7 +221,7 @@ describe('dialect-neutral migration adapter contract', () => {
       runOperation: createOperationRunner().runOperation,
     })
 
-    const preview = await builder.preview()
+    const preview = await builder.dryRun()
 
     expect(preview).toEqual({
       atomicity: 'statement-atomic',
@@ -280,7 +280,7 @@ describe('dialect-neutral migration adapter contract', () => {
     expect(preview.actions[0]!.sourceStepIndexes).toEqual([1, 3])
   })
 
-  it('previews zero lowered actions', async () => {
+  it('returns zero lowered actions during dry run', async () => {
     const member = createMigrationMember()
     const builder = createMigrateBuilder({
       schemas: [],
@@ -288,7 +288,7 @@ describe('dialect-neutral migration adapter contract', () => {
       runOperation: createOperationRunner().runOperation,
     })
 
-    await expect(builder.preview()).resolves.toEqual({
+    await expect(builder.dryRun()).resolves.toEqual({
       atomicity: 'plan-atomic',
       preconditions: [],
       actions: [],
@@ -310,7 +310,7 @@ describe('dialect-neutral migration adapter contract', () => {
       runOperation: createOperationRunner().runOperation,
     })
 
-    const error = await builder.preview().catch((cause: unknown) => cause)
+    const error = await builder.dryRun().catch((cause: unknown) => cause)
 
     expect(error).toMatchObject({
       stage: 'lowering',

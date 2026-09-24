@@ -82,7 +82,7 @@ describe('PostgreSQL namespace and value integration', () => {
           `select value from ${quoteIdentifier(schema)}.${quoteIdentifier('omitted_items')}`,
         )
         expect(rows.rows).toEqual([{ value: 'isolated' }])
-        await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
       },
       { useRegistrationDefault: false, sessionSchema: 'isolated' },
     )
@@ -155,7 +155,7 @@ describe('PostgreSQL namespace and value integration', () => {
       expect(defaulted.createdAt.getTime()).toBeLessThanOrEqual(
         afterDefault.rows[0]!.now.getTime(),
       )
-      await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
+      await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
 
       const explicitDate = new Date('2026-09-10T03:04:05.000Z')
       const event = await db

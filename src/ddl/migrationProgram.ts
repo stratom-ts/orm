@@ -86,7 +86,7 @@ export type DialectMigrationAdapter = Readonly<{
   /** Pure planning policies bound by this selected dialect member. */
   planning: MigrationPlanningContext
 
-  /** Catalog observation used by both dry-run and authoritative execution planning. */
+  /** Catalog observation used by both planning and authoritative execution. */
   catalog: CatalogIntrospector
 
   /**

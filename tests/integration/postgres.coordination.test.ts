@@ -273,7 +273,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
             added: 'after lock',
           },
         ])
-        await expect(second.migrate().dryRun()).resolves.toEqual({ steps: [] })
+        await expect(second.migrate().plan()).resolves.toEqual({ steps: [] })
       },
       {
         applicationId,

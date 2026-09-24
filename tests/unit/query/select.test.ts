@@ -567,7 +567,7 @@ describe('select compile', () => {
     const db = createDatabase({ connector, schemas: [Items] })
 
     try {
-      const plan = await db.migrate().dryRun()
+      const plan = await db.migrate().plan()
       const createTable = plan.steps.find((step) => step.kind === 'create_table')
       expect(createTable?.target).toMatchObject({
         kind: 'relation',

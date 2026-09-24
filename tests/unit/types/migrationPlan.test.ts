@@ -5,6 +5,7 @@ import type {
   CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
   LoweredDatabaseDefault,
+  MigrateBuilder,
   MigrationColumnReference,
   MigrationColumnTarget,
   MigrationIndexTarget,
@@ -85,6 +86,14 @@ type ExpectedMigrationStep =
   | Readonly<{ kind: 'drop_index'; target: ExpectedIndexTarget }>
 
 describe('public Migration Plan types', () => {
+  it('names semantic planning separately from physical dry runs', () => {
+    expectTypeOf<MigrateBuilder['plan']>().toEqualTypeOf<() => Promise<MigrationPlan>>()
+    expectTypeOf<MigrateBuilder['dryRun']>().toEqualTypeOf<
+      () => Promise<MigrationPreview>
+    >()
+    expectTypeOf<MigrateBuilder>().not.toHaveProperty('preview')
+  })
+
   it('keeps the descriptive plan and step shapes exact', () => {
     expectTypeOf<MigrationPlan>().toEqualTypeOf<
       Readonly<{ steps: readonly MigrationStep[] }>

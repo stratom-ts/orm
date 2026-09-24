@@ -53,11 +53,11 @@ export type MigrateBuilder = {
    */
   allow(...ops: MigrationAllow[]): MigrateBuilder
 
-  /** Builds a Migration Plan without executing it. */
-  dryRun(): Promise<MigrationPlan>
+  /** Builds a semantic Migration Plan without lowering or executing it. */
+  plan(): Promise<MigrationPlan>
 
   /** Lowers the complete plan and returns ordered SQL with all bound values redacted. */
-  preview(): Promise<MigrationPreview>
+  dryRun(): Promise<MigrationPreview>
 
   /**
    * Plans and executes the migration through the selected dialect.
@@ -335,8 +335,8 @@ export function createMigrateBuilder(options: {
       return builder
     },
 
-    /** Builds a Migration Plan without executing it. */
-    async dryRun() {
+    /** Builds a semantic Migration Plan without lowering or executing it. */
+    async plan() {
       try {
         return await runOperation(
           async (executor) => (await buildPlan(executor)).planned.plan,
@@ -345,7 +345,7 @@ export function createMigrateBuilder(options: {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
         const cleanupFailures = sessionCleanupFailures(cause)
         throw new MigrationError({
-          message: cause instanceof Error ? cause.message : 'Migration dry-run failed',
+          message: cause instanceof Error ? cause.message : 'Migration planning failed',
           ...(cause !== undefined ? { cause } : {}),
           ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
         })
@@ -353,7 +353,7 @@ export function createMigrateBuilder(options: {
     },
 
     /** Builds and lowers the plan without executing physical actions. */
-    async preview() {
+    async dryRun() {
       try {
         return await runOperation(async (executor) => {
           const { planned, expected } = await buildPlan(executor)
@@ -363,7 +363,7 @@ export function createMigrateBuilder(options: {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
         const cleanupFailures = sessionCleanupFailures(cause)
         throw new MigrationError({
-          message: cause instanceof Error ? cause.message : 'Migration preview failed',
+          message: cause instanceof Error ? cause.message : 'Migration dry-run failed',
           ...(cause !== undefined ? { cause } : {}),
           ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
         })

@@ -445,7 +445,7 @@ export function registerOperationSessionProviderContract(
         }
       })
 
-      it('preserves final identity cleanup evidence across dry-run and execute wrapping', async () => {
+      it('preserves final identity cleanup evidence across plan and execute wrapping', async () => {
         const release = new Error('release cleanup failure')
         const createCleanupFailureDb = () =>
           createDatabase({
@@ -461,15 +461,15 @@ export function registerOperationSessionProviderContract(
             schemas: migration.appliedSchemas(),
           })
 
-        const dryRunDb = createCleanupFailureDb()
+        const planningDb = createCleanupFailureDb()
 
         try {
-          await expect(dryRunDb.migrate().dryRun()).rejects.toMatchObject({
+          await expect(planningDb.migrate().plan()).rejects.toMatchObject({
             _tag: 'MigrationError',
             cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
           })
         } finally {
-          await dryRunDb.close()
+          await planningDb.close()
         }
 
         const executeDb = createCleanupFailureDb()
@@ -498,7 +498,7 @@ export function registerOperationSessionProviderContract(
       const planningFailureSchemas = migration.planningFailureSchemas
 
       if (planningFailureSchemas) {
-        it('retains exact release cleanup when dry-run planning already failed structurally', async () => {
+        it('retains exact release cleanup when planning already failed structurally', async () => {
           const release = new Error('release cleanup failure')
           const db = createDatabase({
             connector: migration.connector(),
@@ -509,7 +509,7 @@ export function registerOperationSessionProviderContract(
           })
 
           try {
-            await expect(db.migrate().dryRun()).rejects.toMatchObject({
+            await expect(db.migrate().plan()).rejects.toMatchObject({
               _tag: 'MigrationError',
               stage: 'planning',
               cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],

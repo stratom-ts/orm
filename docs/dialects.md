@@ -199,7 +199,7 @@ failure never replaces an existing primary failure: migration errors retain it i
 ### Migration planning, lowering, and execution
 
 `migration.planning` binds the member's identity, naming, and schema policies.
-`migration.catalog` supplies both dry-run and authoritative execution observations.
+`migration.catalog` supplies both planning and authoritative execution observations.
 Generic planning produces a stable, canonically ordered Migration Plan whose Migration
 Targets are structured canonical namespace, relation, column, or index identities.
 
@@ -215,12 +215,12 @@ must report successful completion as `applied` or `unchanged`. Failures use
 cannot implement a migration capability return deterministic lowering issues or tagged
 errors rather than running a partial approximation.
 
-The public `db.migrate().preview()` API is a non-executable projection of that same
+The public `db.migrate().dryRun()` method is a non-executable projection of that same
 whole-plan lowering result. It preserves action grouping and source-step provenance,
 copies SQL and parameter counts, and replaces every bound parameter with
 `[REDACTED]`. It never exposes executable session assertions or parameter values.
 SQL literals embedded by an adapter are verbatim and are outside parameter redaction.
-Preview resolves and validates the same Semantic Profile as execution and performs no
+`dryRun()` resolves and validates the same Semantic Profile as execution and performs no
 DDL.
 
 ## Registering and testing a member
