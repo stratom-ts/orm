@@ -155,6 +155,7 @@ describe('PostgreSQL namespace and value integration', () => {
       expect(defaulted.createdAt.getTime()).toBeLessThanOrEqual(
         afterDefault.rows[0]!.now.getTime(),
       )
+      await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
 
       const explicitDate = new Date('2026-09-10T03:04:05.000Z')
       const event = await db
