@@ -41,6 +41,7 @@ export function validateDialectIntegrationCapabilities(
 ): void {
   for (const name of integrationCapabilityNames) {
     const capability = capabilities[name]
+
     if (!capability) {
       throw new Error(`Integration capability declaration omits ${name}`)
     }

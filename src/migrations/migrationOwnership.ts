@@ -48,6 +48,7 @@ export type ResolvedMigrationOwnership = {
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
+
   return 0
 }
 
@@ -65,12 +66,14 @@ function compareNamespaceSpelling(
 
   for (let index = 0; index < length; index++) {
     const role = compareCodeUnits(left[index]!.role, right[index]!.role)
+
     if (role !== 0) return role
 
     const spelling = compareCodeUnits(
       left[index]!.identifier.spelling,
       right[index]!.identifier.spelling,
     )
+
     if (spelling !== 0) return spelling
   }
 

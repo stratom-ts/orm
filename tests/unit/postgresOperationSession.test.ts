@@ -112,6 +112,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       currentSchema: () => schema,
       onQuery: async (text) => {
         if (/^create schema/i.test(text)) schema = 'tenant'
+
         return []
       },
     })
@@ -149,6 +150,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       identityFailureAt: 2,
       onQuery: async (text) => {
         if (text === 'select primary failure') throw primary
+
         return []
       },
     })
@@ -184,7 +186,9 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const connector = createNativeConnector({
       onQuery: async () => {
         const index = call++
+
         if (index === 0) firstStarted.resolve()
+
         const gate = gates[index]!
         await gate.promise
         return []

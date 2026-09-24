@@ -91,6 +91,7 @@ function fakeSqliteDialect(): Dialect {
     for (const table of graph.tables) {
       for (const authored of table.columns) {
         if (authored.reference) continue
+
         const selected = authored.metadata?.physicalType?.sqlite
 
         if (!selected) {

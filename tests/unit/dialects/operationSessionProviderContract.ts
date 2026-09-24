@@ -539,6 +539,7 @@ export function registerOperationSessionProviderContract(
     registerLifecycleScenarios()
     registerIdentityScenarios()
     registerReleaseScenarios()
+
     if (migration) registerMigrationScenarios(migration)
   })
 }

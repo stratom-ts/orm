@@ -245,7 +245,9 @@ describe('catalog evidence', () => {
   ])('reports $state column evidence without mutating the snapshot', (testCase) => {
     const catalog = usersCatalog()
     const relation = catalog.namespaces.items[0]!.relations.items[0]!
+
     if (relation.table.state !== 'present') throw new Error('expected table fixture')
+
     const email = relation.table.value.columns.items.find(
       (column) => column.name === 'email',
     )!
@@ -264,7 +266,9 @@ describe('catalog evidence', () => {
     const catalog = usersCatalog()
     const namespace = catalog.namespaces.items[0]!
     const relation = namespace.relations.items[0]!
+
     if (relation.table.state !== 'present') throw new Error('expected table fixture')
+
     const table = relation.table.value
     const email = table.columns.items.find((column) => column.name === 'email')!
     const unavailable: CatalogSnapshot = {

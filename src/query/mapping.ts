@@ -111,6 +111,7 @@ function resolveColumnDataType(
     { kind?: string } | undefined
   >
   const columnSchema = entries[columnName]
+
   if (!columnSchema || columnSchema.kind !== 'schema') return undefined
 
   const schema = columnSchema as Parameters<Dialect['schema']['inferColumnType']>[0]
@@ -156,7 +157,9 @@ function resolveColumnDataType(
   }
 
   const selected = columnMetadata?.physicalType?.[dialect.id]
+
   if (selected !== undefined) return String(selected)
+
   return String(dialect.schema.inferColumnType(schema))
 }
 
@@ -172,7 +175,9 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
     { kind?: string } | undefined
   >
   const columnSchema = entries[columnName]
+
   if (!columnSchema || columnSchema.kind !== 'schema') return undefined
+
   return getColumnMetadata(columnSchema as Parameters<typeof getColumnMetadata>[0])
 }
 
@@ -205,12 +210,14 @@ export function createValueMapper(
    */
   const columnTypes = (handle: TableHandle): Record<string, string> => {
     const cached = typeCache.get(handle)
+
     if (cached) return cached
 
     const types: Record<string, string> = {}
 
     for (const name of Object.keys(handle.getSchema().entries)) {
       const dt = resolveColumnDataType(handle, name, dialect, query, registered, [])
+
       if (dt !== undefined) types[name] = dt
     }
 
@@ -229,9 +236,11 @@ export function createValueMapper(
     if (value === undefined) return value
 
     const meta = columnMeta(handle, column)
+
     if (meta?.mapParam) return meta.mapParam(value)
 
     const dataType = columnTypes(handle)[column]
+
     if (dataType === undefined) return value
 
     if (map?.mapParamValue) return map.mapParamValue(dataType, value)
@@ -256,9 +265,11 @@ export function createValueMapper(
     value: unknown,
   ): unknown => {
     const meta = columnMeta(handle, column)
+
     if (meta?.mapResult) return meta.mapResult(value)
 
     const dataType = columnTypes(handle)[column]
+
     if (dataType === undefined) return value
 
     if (map?.mapResultValue) return map.mapResultValue(dataType, value)

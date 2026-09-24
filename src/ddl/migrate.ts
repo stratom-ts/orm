@@ -75,6 +75,7 @@ export type MigrateBuilder = {
  */
 function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationError {
   if (cause instanceof MigrationError && cause.stage !== undefined) return cause
+
   return new MigrationError({
     message: cause instanceof Error ? cause.message : 'Migration failed',
     cause:
@@ -92,7 +93,9 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationEr
  */
 function withReleaseCleanup(error: MigrationError): MigrationError {
   const failures = getOperationReleaseCleanupFailures(error)
+
   if (failures.length === 0) return error
+
   return new MigrationError({
     message: error.message,
     ...(error.cause === undefined ? {} : { cause: error.cause }),
@@ -174,7 +177,9 @@ function lowerPlan(
   expected: Parameters<DialectMigrationAdapter['lower']>[1],
 ): MigrationProgram {
   const lowering = attemptSync(() => migration.lower(planned, expected))
+
   if (!lowering.ok) throw phaseError(lowering.error, 'lowering')
+
   const lowered = lowering.value
 
   if (lowered.issues) {
@@ -343,6 +348,7 @@ export function createMigrateBuilder(options: {
         )
       } catch (cause) {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+
         const cleanupFailures = sessionCleanupFailures(cause)
         throw new MigrationError({
           message: cause instanceof Error ? cause.message : 'Migration planning failed',
@@ -361,6 +367,7 @@ export function createMigrateBuilder(options: {
         })
       } catch (cause) {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+
         const cleanupFailures = sessionCleanupFailures(cause)
         throw new MigrationError({
           message: cause instanceof Error ? cause.message : 'Migration dry-run failed',
@@ -424,6 +431,7 @@ export function createMigrateBuilder(options: {
 
           if (!execution.ok) {
             if (execution.error instanceof MigrationError) throw execution.error
+
             discard()
             throw new MigrationError({
               message:
@@ -443,6 +451,7 @@ export function createMigrateBuilder(options: {
         })
       } catch (cause) {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+
         const cleanupFailures = sessionCleanupFailures(cause)
 
         if (operationCallbackReturned && runtimeSuccess) {

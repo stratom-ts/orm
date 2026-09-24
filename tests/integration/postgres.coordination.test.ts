@@ -151,6 +151,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
     )
     expect(begin).toBeGreaterThanOrEqual(0)
     expect(commit).toBeGreaterThan(begin)
+
     if (begin < 0 || commit <= begin) throw new Error('Expected committed transaction')
 
     const transactionEvents = events.slice(begin, commit + 1)
@@ -279,6 +280,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
         )
 
         const reacquired = await reacquisitionOutcome
+
         if (reacquired.status === 'rejected') throw reacquired.reason
 
         await expect(second.from(CoordinatedRowsAfter).execute()).resolves.toEqual([

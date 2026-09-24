@@ -157,6 +157,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
     }
 
     definitions.add(definition)
+
     if (index.name === undefined) continue
 
     if (names.has(index.name)) {
@@ -187,6 +188,7 @@ function validateColumnOptions(
   colSchema: AnySchema,
 ): void {
   const metadata = getColumnMetadata(colSchema)
+
   if (!metadata) return
 
   const hasDefault = metadata.databaseDefault !== undefined
@@ -287,6 +289,7 @@ function validateOptionalColumn(
   colSchema: AnySchema,
 ): void {
   const analysis = analyzeSchema(colSchema)
+
   if (!analysis.omitOnInsert || analysis.nullable) return
 
   const metadata = getColumnMetadata(colSchema)
@@ -528,6 +531,7 @@ export function isTableHandle(value: unknown): value is TableHandle {
   }
 
   const registeredMethods = definedTableHandles.get(value)
+
   if (!registeredMethods) return false
 
   const candidate = value as {

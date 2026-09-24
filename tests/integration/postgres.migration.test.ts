@@ -147,6 +147,7 @@ describe('PostgreSQL migration runtime integration', () => {
 
               statements.push(event)
               ddlCount++
+
               if (ddlCount === 2) throw new Error('injected second DDL failure')
             },
           },

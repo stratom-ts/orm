@@ -221,6 +221,7 @@ function createContractRuntime(
     },
     postMigrationState: () => {
       if (faultyLifecycle) faultyLifecycle.postMigrationStateObserved.value = true
+
       return calls.statements
         .filter(({ sql }) => sql.startsWith('fixture migration '))
         .map(({ sql }) => sql)
@@ -866,6 +867,7 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
                   }
 
                   if (event === 'sessionProvider.close') return ['close' as const]
+
                   return []
                 }),
             }

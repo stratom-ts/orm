@@ -447,6 +447,7 @@ function validateDialectContractMember<
 >(capabilities: TCapabilities): void {
   for (const facet of dialectMemberFacets) {
     const capability = capabilities[facet]
+
     if (typeof capability !== 'object' || capability === null) {
       throw new Error(`Dialect contract capability declaration omits ${facet}`)
     }
@@ -633,6 +634,7 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
   for (const scenarioId of queryCompilerScenarioIds) {
     const scenario = contract.scenarios[scenarioId]
     const support = scenario.support
+
     if (support.state === 'unsupported') {
       it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
         expect(support.reason.trim().length).toBeGreaterThan(0)
@@ -847,16 +849,22 @@ function registerDialectContractShard(
   registration: Partial<FacetContractInput>,
 ): void {
   const inputs = registration as FacetContractInput
+
   if (capabilities.identity.shard === shard) registerIdentity(name, inputs.identity)
   if (capabilities.naming.shard === shard) registerNaming(name, inputs.naming)
+
   if (capabilities.desiredSchema.shard === shard)
     registerDesiredSchema(name, inputs.desiredSchema)
+
   if (capabilities.query.shard === shard) registerQuery(name, inputs.query)
   if (capabilities.catalog.shard === shard) registerCatalog(name, inputs.catalog)
+
   if (capabilities.operationSession.shard === shard)
     registerOperationSession(name, inputs.operationSession)
+
   if (capabilities.coordination.shard === shard)
     registerCoordination(name, inputs.coordination)
+
   if (capabilities.migration.shard === shard) registerMigration(name, inputs.migration)
   if (capabilities.lifecycle.shard === shard) registerLifecycle(name, inputs.lifecycle)
 }

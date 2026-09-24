@@ -64,8 +64,10 @@ const expectedProfile: MigrationSemanticProfile = {
 
 function lower(planned: PlannedMigration, profile = expectedProfile): MigrationProgram {
   const result = postgresDialect.migration!.lower(planned, profile)
+
   if (result.issues)
     throw new Error(result.issues.map((issue) => issue.message).join('\n'))
+
   return result.program
 }
 

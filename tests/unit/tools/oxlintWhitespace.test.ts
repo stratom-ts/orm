@@ -69,7 +69,7 @@ describe('Oxlint whitespace rule', () => {
 `)
   })
 
-  it('does not separate adjacent single-line blocks without a comment', async () => {
+  it('keeps consecutive single-line if statements together', async () => {
     const source = `export function example() {
   if (first) { one() }
   if (second) { two() }
@@ -79,36 +79,59 @@ describe('Oxlint whitespace rule', () => {
     await expect(formatWhitespace(source)).resolves.toBe(source)
   })
 
-  it('puts exactly one blank line after a single-line early return', async () => {
-    const source = `export function example(value?: string) {
-  if (!value) return
-
-
-  use(value)
+  it('separates a comment attached to the next single-line if statement', async () => {
+    const source = `export function example() {
+  if (first) one()
+  // Handle the second case.
+  if (second) two()
+  finish()
 }
 `
 
-    await expect(formatWhitespace(source)).resolves
-      .toBe(`export function example(value?: string) {
-  if (!value) return
+    await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  if (first) one()
 
-  use(value)
+  // Handle the second case.
+  if (second) two()
+
+  finish()
 }
 `)
   })
 
-  it('pads an early return written as a single-line block', async () => {
+  it('puts exactly one blank line after a single-line if statement', async () => {
     const source = `export function example(value?: string) {
-  if (!value) { return }
-  use(value)
+  prepare()
+  if (value) use(value)
+
+
+  finish()
 }
 `
 
     await expect(formatWhitespace(source)).resolves
       .toBe(`export function example(value?: string) {
-  if (!value) { return }
+  prepare()
 
-  use(value)
+  if (value) use(value)
+
+  finish()
+}
+`)
+  })
+
+  it('pads a single-line if statement written with a block', async () => {
+    const source = `export function example(value?: string) {
+  if (value) { use(value) }
+  finish()
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(value?: string) {
+  if (value) { use(value) }
+
+  finish()
 }
 `)
   })
@@ -131,7 +154,7 @@ describe('Oxlint whitespace rule', () => {
 `)
   })
 
-  it('keeps a final unconditional return with preceding early returns', async () => {
+  it('separates a final return from preceding single-line if statements', async () => {
     const source = `export function targetMember(target: Target) {
   if (target.kind === 'column') return target.column
   if (target.kind === 'index') return target.index
@@ -139,10 +162,41 @@ describe('Oxlint whitespace rule', () => {
 }
 `
 
-    await expect(formatWhitespace(source)).resolves.toBe(source)
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function targetMember(target: Target) {
+  if (target.kind === 'column') return target.column
+  if (target.kind === 'index') return target.index
+
+  return undefined
+}
+`)
   })
 
-  it('keeps a related variable declaration with the multiline block that consumes it', async () => {
+  it.each([
+    ['const', 'const ready = getReady()', 'finish()'],
+    ['let', 'let ready = getReady()', 'ready = false\n  finish(ready)'],
+  ])(
+    'separates a related %s declaration from a single-line if statement',
+    async (_, declaration, followingStatements) => {
+      const source = `export function example() {
+  ${declaration}
+  if (ready) run()
+  ${followingStatements}
+}
+`
+
+      await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  ${declaration}
+
+  if (ready) run()
+
+  ${followingStatements}
+}
+`)
+    },
+  )
+
+  it('separates a related declaration from a multiline if statement', async () => {
     const source = `export function example() {
   const request = createRequest()
   if (ready) {
@@ -151,7 +205,14 @@ describe('Oxlint whitespace rule', () => {
 }
 `
 
-    await expect(formatWhitespace(source)).resolves.toBe(source)
+    await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  const request = createRequest()
+
+  if (ready) {
+    run(request)
+  }
+}
+`)
   })
 
   it('still separates an unrelated variable declaration from a multiline block', async () => {

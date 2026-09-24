@@ -59,10 +59,12 @@ function hasCoordinatedTransaction(
 function hasOrderedProtectedWork(events: readonly CoordinationContractEvent[]): boolean {
   const acquire = events.indexOf('acquire')
   const release = events.indexOf('release')
+
   if (acquire < 0 || release <= acquire) return false
 
   return events.every((event, index) => {
     if (!['transaction', 'introspection', 'ddl'].includes(event)) return true
+
     return acquire < index && index < release
   })
 }
@@ -94,6 +96,7 @@ export function registerMigrationCoordinationContract(
       const sharedLockManager: CoordinationContractLockManager = {
         tryAcquire(owner, key) {
           const current = owners.get(key)
+
           if (current !== undefined) return current === owner
 
           owners.set(key, owner)

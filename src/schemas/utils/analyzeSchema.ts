@@ -83,6 +83,7 @@ function primitiveOutputKind(value: unknown): SchemaOutputKind | undefined {
   if (typeof value === 'number') return 'number'
   if (typeof value === 'bigint') return 'bigint'
   if (typeof value === 'boolean') return 'boolean'
+
   return undefined
 }
 
@@ -92,13 +93,16 @@ function homogeneousOutputKind(
   if (!options || options.length === 0) return undefined
 
   const kind = primitiveOutputKind(options[0])
+
   if (!kind || !options.every((value) => primitiveOutputKind(value) === kind))
     return undefined
+
   return kind
 }
 
 function outputKind(schema: AnySchema): SchemaOutputKind | undefined {
   const direct = OUTPUT_KINDS[schema.type]
+
   if (direct) return direct
 
   if (schema.type === 'literal') {
@@ -158,6 +162,7 @@ function applyWrapperSemantics(result: RecursiveAnalysis, type: string): void {
 function applyPipeActions(result: RecursiveAnalysis, actions: readonly unknown[]): void {
   for (const item of actions) {
     if (!item || typeof item !== 'object' || !('type' in item)) continue
+
     const action = item as { type: string; requirement?: number }
 
     switch (action.type) {
@@ -207,6 +212,7 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
     applyWrapperSemantics(result, schema.type)
 
     if (traversable.default !== undefined) result.schemaDefault = traversable.default
+
     return result
   }
 

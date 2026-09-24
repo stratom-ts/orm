@@ -75,6 +75,7 @@ function createMockStatement(rows: unknown[] = [], runError?: Error): Statement 
     },
     async run() {
       if (runError) throw runError
+
       return { success: true }
     },
     async get() {
@@ -194,6 +195,7 @@ function createMockConnector(options?: {
     }
 
     const relationCatalog = relationCatalogStatement(normalized)
+
     if (relationCatalog) return relationCatalog
 
     if (normalized.includes('con.contype as constraint_type')) {
@@ -583,6 +585,7 @@ describe('db.migrate() adapters and execution', () => {
     const plan = await db.migrate().plan()
     const index = plan.steps.find((step) => step.kind === 'create_index')
     expect(index?.kind).toBe('create_index')
+
     if (index?.kind !== 'create_index') throw new Error('Expected generated index step')
 
     await db.migrate().execute()

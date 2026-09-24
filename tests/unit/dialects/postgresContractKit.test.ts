@@ -510,6 +510,7 @@ function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
     currentSchema: 'contract_schema',
     onPrepare(sql) {
       selectedConnector = connector
+
       if (sql === 'select 1') operationCommands.push({ kind: 'ping' })
       if (sql === 'begin') operationCommands.push({ kind: 'begin' })
       if (sql === 'commit') operationCommands.push({ kind: 'commit' })

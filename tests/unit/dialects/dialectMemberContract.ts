@@ -54,6 +54,7 @@ function expectExplicitCapabilityEvidence(catalog: CatalogSnapshot): void {
     if (capability.state === 'supported') continue
 
     expect(capability.state).toMatch(/unsupported|unavailable/)
+
     if ('reason' in capability) expect(capability.reason.trim().length).toBeGreaterThan(0)
 
     if (capability.state === 'unavailable' && capability.cause === 'version') {
@@ -122,6 +123,7 @@ export async function runDialectLifecycleContract(
 
     expect(runtime.selectedConnector()).toBe(runtime.connector)
     const catalog = runtime.catalog?.()
+
     if (catalog) expectExplicitCapabilityEvidence(catalog)
 
     expect(runtime.operationCommands).toEqual(

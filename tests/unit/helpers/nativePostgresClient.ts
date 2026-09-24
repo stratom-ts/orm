@@ -31,6 +31,7 @@ function normalizeQueryStart(sql: string): string {
 
     if (sql.startsWith('/*', offset)) {
       const closing = sql.indexOf('*/', offset + 2)
+
       if (closing === -1) return sql.slice(offset)
 
       offset = closing + 2
@@ -65,6 +66,7 @@ export function createNativePostgresClient(
       const text = typeof query === 'string' ? query : query.text
       const params = typeof query === 'string' ? values : query.values
       const signal = typeof query === 'string' ? undefined : query.signal
+
       if (signal?.aborted) throw new Error('Query cancelled')
 
       if (text === POSTGRES_OPERATION_IDENTITY_SQL) {

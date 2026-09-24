@@ -148,6 +148,7 @@ describe('PostgreSQL catalog integration', () => {
         })
 
         if (parents?.table.state !== 'present') throw new Error('Expected parent table')
+
         expect(parents.table.value.primaryKey).toMatchObject({ state: 'present' })
 
         expect(
@@ -185,6 +186,7 @@ describe('PostgreSQL catalog integration', () => {
         const children = namespace?.relations.items.find(
           ({ identity }) => identity.relation.spelling === 'catalog_children',
         )
+
         if (children?.table.state !== 'present') throw new Error('Expected child table')
 
         expect(children.table.value.foreignKeys.items[0]).toMatchObject({

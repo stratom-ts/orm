@@ -99,6 +99,7 @@ describe('public migration execution and session cleanup', () => {
         .map(({ sql }) => {
           if (/^rollback$/i.test(sql)) return 'rollback'
           if (/pg_advisory_unlock/i.test(sql)) return 'unlock'
+
           return undefined
         })
         .filter((phase) => phase !== undefined),

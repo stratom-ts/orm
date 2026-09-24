@@ -52,6 +52,7 @@ function executor(
 
       if (sql.includes('as relation_kind')) {
         relationQueries++
+
         if (options.raced) return []
         if (options.deleted && relationQueries > 1) return []
 
@@ -165,7 +166,9 @@ function executor(
             generation_expression: null,
           },
         ]
+
         if (options.changedMembers && columnQueries > 1) rows.pop()
+
         return order(rows)
       }
 
@@ -297,6 +300,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
       request,
     )
     const relation = catalog.namespaces.items[0]!.relations.items[0]!
+
     if (relation.table.state !== 'present') throw new Error('Expected table evidence')
 
     expect(
@@ -344,6 +348,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
     const relation = first.namespaces.items[0]!.relations.items[0]!
     expect(relation.identity.relation.spelling).toBe('events')
     expect(relation.table.state).toBe('present')
+
     if (relation.table.state !== 'present') return
 
     const richIndex = relation.table.value.indexes.items.find(
@@ -585,6 +590,7 @@ function catalogFixtureView(snapshot: CatalogSnapshot) {
   tables.sort((left, right) => {
     if (right.schema < left.schema) return -1
     if (right.schema > left.schema) return 1
+
     return 0
   })
 

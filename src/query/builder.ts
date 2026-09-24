@@ -81,6 +81,7 @@ function mapJoinsParams(
   joins: readonly JoinAst[] | undefined,
 ): readonly JoinAst[] | undefined {
   if (!joins || joins.length === 0) return joins
+
   return joins.map((join) => ({
     ...join,
     on: mapPredicateParams(query, handles, mapper, join.on)!,
@@ -274,6 +275,7 @@ function mapWriteParams(
   values: readonly (readonly unknown[])[],
 ): readonly (readonly unknown[])[] {
   if (!mapper) return values
+
   return values.map((row) =>
     row.map((value, i) => {
       const col = columns[i]!
@@ -300,6 +302,7 @@ function mapSetParams(
   set: readonly { readonly column: string; readonly value: unknown }[],
 ): readonly { readonly column: string; readonly value: unknown }[] {
   if (!mapper) return set
+
   return set.map((item) => ({
     column: item.column,
     value: mapper.mapParam(handle, item.column, item.value),
@@ -466,6 +469,7 @@ function resultColumnsForSelection(
     }
 
     outputNames.add(outputName)
+
     if (mapping) columns.set(outputName, mapping)
   }
 
@@ -582,6 +586,7 @@ async function runQuery<T>(
     return rows as T
   } catch (cause) {
     if (cause instanceof QueryError) throw cause
+
     throw new QueryError({
       message: cause instanceof Error ? cause.message : 'Query execution failed',
       cause,
@@ -625,6 +630,7 @@ async function runWrite(
     return { rowCount: 0 }
   } catch (cause) {
     if (cause instanceof QueryError) throw cause
+
     throw new QueryError({
       message: cause instanceof Error ? cause.message : 'Query execution failed',
       cause,
@@ -938,7 +944,9 @@ export function createUpdateBuilder<THandle extends TableHandle>(options: {
    */
   const executeTakeFirst = async () => {
     const result = await execute()
+
     if (returning) return (result as unknown[])[0]
+
     return result
   }
 
@@ -1147,7 +1155,9 @@ export function createDeleteBuilder<THandle extends TableHandle>(options: {
    */
   const executeTakeFirst = async () => {
     const result = await execute()
+
     if (returning) return (result as unknown[])[0]
+
     return result
   }
 

@@ -346,6 +346,7 @@ export class OperationCoordinator {
               return await session!.query(query)
             } catch (cause) {
               if (cause instanceof QueryError) throw cause
+
               throw new QueryError({
                 message:
                   cause instanceof Error ? cause.message : 'Query execution failed',
@@ -363,6 +364,7 @@ export class OperationCoordinator {
               await session!.run(query)
             } catch (cause) {
               if (cause instanceof QueryError) throw cause
+
               throw new QueryError({
                 message:
                   cause instanceof Error ? cause.message : 'Statement execution failed',
@@ -435,6 +437,7 @@ export class OperationCoordinator {
       }
 
       if (operationFailed) throw operationError
+
       return result as T
     })().finally(finish)
   }

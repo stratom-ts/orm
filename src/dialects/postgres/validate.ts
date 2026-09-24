@@ -197,6 +197,7 @@ function stripEnclosingParens(s: string): string {
   for (let i = 0; i < s.length; i++) {
     if (s[i] === '(') depth++
     else if (s[i] === ')') depth--
+
     if (depth === 0 && i < s.length - 1) return s
   }
 
