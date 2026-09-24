@@ -201,7 +201,7 @@ export function registerOperationSessionProviderContract(
       })
 
       it('keeps a call failure primary when identity verification also fails', async () => {
-        const primary = new Error('primary operation failure after identity mutation')
+        const primary = new Error('named statement failure')
         const controls = createProvider({
           mutateIdentityAfterCall: true,
           mutationFailure: { session: 1, value: primary },
@@ -213,9 +213,71 @@ export function registerOperationSessionProviderContract(
             .run(({ executor }) => executor.run({ sql: 'mutate then fail', params: [] }))
             .catch((cause: unknown) => cause)
 
-          expect(error).toBeInstanceOf(Error)
-          expect(error).toMatchObject({ cause: primary })
-          expect((error as Error).message).toBe(primary.message)
+          expect(error).toMatchObject({
+            _tag: 'QueryError',
+            cause: primary,
+            message: primary.message,
+          })
+          const cleanupFailures = getOperationReleaseCleanupFailures(error)
+          expect(cleanupFailures).toHaveLength(1)
+          expect(cleanupFailures[0]).toMatchObject({
+            _tag: 'QueryError',
+            message: expect.stringMatching(/identity changed/i),
+          })
+          expect(controls.events).toContain('release-finished:1:discard')
+          expect(controls.events).not.toContain('release-finished:1:reuse')
+        } finally {
+          await coordinator.close()
+        }
+      })
+
+      it('retains identity verification evidence before a later release failure', async () => {
+        const primary = new Error('named statement failure')
+        const release = new Error('release cleanup failure')
+        const controls = createProvider({
+          mutateIdentityAfterCall: true,
+          mutationFailure: { session: 1, value: primary },
+          releaseFailure: { session: 1, value: release },
+        })
+        const coordinator = new OperationCoordinator(controls.provider)
+
+        try {
+          const error = await coordinator
+            .run(({ executor }) => executor.run({ sql: 'mutate then fail', params: [] }))
+            .catch((cause: unknown) => cause)
+
+          expect(error).toMatchObject({
+            _tag: 'QueryError',
+            cause: primary,
+            message: primary.message,
+          })
+          const cleanupFailures = getOperationReleaseCleanupFailures(error)
+          expect(cleanupFailures).toHaveLength(2)
+          expect(cleanupFailures[0]).toMatchObject({
+            _tag: 'QueryError',
+            message: expect.stringMatching(/identity changed/i),
+          })
+          expect(cleanupFailures[1]).toBe(release)
+          expect(controls.events).toContain('release-started:1:discard')
+          expect(controls.events).not.toContain('release-started:1:reuse')
+        } finally {
+          await coordinator.close()
+        }
+      })
+
+      it('preserves a primitive primary when identity verification fails', async () => {
+        const controls = createProvider({ mutateIdentityAfterCall: true })
+        const coordinator = new OperationCoordinator(controls.provider)
+
+        try {
+          await expect(
+            coordinator.run(async ({ executor }) => {
+              await executor.run({ sql: 'mutate identity', params: [] })
+              throw undefined
+            }),
+          ).rejects.toBeUndefined()
+
+          expect(getOperationReleaseCleanupFailures(undefined)).toEqual([])
           expect(controls.events).toContain('release-finished:1:discard')
           expect(controls.events).not.toContain('release-finished:1:reuse')
         } finally {

@@ -28,6 +28,16 @@ type OperationFrame = {
 const activeOperation = new AsyncLocalStorage<OperationFrame>()
 const operationReleaseCleanupFailures = new WeakMap<object, unknown[]>()
 
+function retainOperationReleaseCleanupFailure(cause: unknown, failure: unknown): void {
+  if (!((typeof cause === 'object' && cause !== null) || typeof cause === 'function')) {
+    return
+  }
+
+  const failures = operationReleaseCleanupFailures.get(cause) ?? []
+  failures.push(failure)
+  operationReleaseCleanupFailures.set(cause, failures)
+}
+
 /**
  * Reads provider-release cleanup failures retained beside an object primary rejection.
  *
@@ -406,6 +416,8 @@ export class OperationCoordinator {
             if (!operationFailed) {
               operationFailed = true
               operationError = verification.error
+            } else {
+              retainOperationReleaseCleanupFailure(operationError, verification.error)
             }
           }
         }
@@ -416,13 +428,8 @@ export class OperationCoordinator {
           if (!operationFailed) {
             operationFailed = true
             operationError = release.error
-          } else if (
-            (typeof operationError === 'object' && operationError !== null) ||
-            typeof operationError === 'function'
-          ) {
-            const failures = operationReleaseCleanupFailures.get(operationError) ?? []
-            failures.push(release.error)
-            operationReleaseCleanupFailures.set(operationError, failures)
+          } else {
+            retainOperationReleaseCleanupFailure(operationError, release.error)
           }
         }
       }
