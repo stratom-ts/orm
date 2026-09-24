@@ -116,6 +116,7 @@ describe('catalog evidence', () => {
         },
       ],
     })
+
     expect(empty).toEqual(original)
 
     const incomplete: CatalogSnapshot = {
@@ -188,6 +189,7 @@ describe('catalog evidence', () => {
       expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
         `Incomplete catalog coverage for requested namespaces: ${evidence}`,
       )
+
       expect(catalog).toEqual(original)
     }
   })
@@ -254,6 +256,7 @@ describe('catalog evidence', () => {
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
       `Incomplete catalog evidence for [database:"test", schema:"public", relation:"users", column:"email"] type: ${testCase.evidence}`,
     )
+
     expect(catalog).toEqual(original)
   })
 
@@ -381,6 +384,7 @@ describe('catalog evidence', () => {
     ).toThrow(
       'Incomplete catalog coverage for relations in namespace [{"role":"database","spelling":"test"},{"role":"schema","spelling":"public"}]: unmanaged',
     )
+
     expect(catalog).toEqual(original)
   })
 
@@ -419,6 +423,7 @@ describe('catalog evidence', () => {
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
       /opaque catalog objects.*audit trigger/i,
     )
+
     expect(catalog).toEqual(original)
   })
 

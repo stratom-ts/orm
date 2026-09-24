@@ -327,9 +327,11 @@ describe('select compile', () => {
       expect(compiled.sql).toContain('>=')
       expect(compiled.sql).toMatch(/"public\.users"\."score"\s*<\s*\$\d+/)
       expect(compiled.sql).toContain('<=')
+
       expect(compiled.sql).toContain(
         'group by "public.users"."email", "public.users"."score", "public.users"."createdAt"',
       )
+
       expect(compiled.sql).toContain('order by "public.users"."email" asc')
       expect(compiled.params).toEqual(['day', 'deleted@example.com', 10, 100, 99, 1])
 
@@ -420,6 +422,7 @@ describe('select compile', () => {
       const query = db.from(TenantUsers).select([TenantUsers.id, TenantUsers.createdAt])
       expect(query.compile().sql).toContain('from "tenant"."tenant_users"')
       expect(await query.execute()).toEqual([{ id: 1, createdAt: when }])
+
       expect(
         connector.prepared.some((sql) => sql.includes('"tenant"."tenant_users"')),
       ).toBe(true)
@@ -528,6 +531,7 @@ describe('select compile', () => {
     expect(tenantIdentity.resolve(omitted).namespace[1]?.identifier.spelling).toBe(
       'tenant',
     )
+
     expect(
       publicIdentity.equals(
         publicIdentity.resolve(omitted),
@@ -537,6 +541,7 @@ describe('select compile', () => {
         }),
       ),
     ).toBe(true)
+
     expect(compile().sql).toContain('from "users" as "users"')
     expect(compile().sql).not.toContain('"public"')
   })
@@ -579,6 +584,7 @@ describe('select compile', () => {
           relation: { spelling: 'items' },
         },
       })
+
       await expect(db.from(Items).executeTakeFirstOrThrow()).resolves.toEqual({ id: 7 })
       expect(crudPhysicalRelations).toEqual(['tenant.items'])
     } finally {
@@ -651,6 +657,7 @@ describe('select compile', () => {
       await expect(db.from(Posts).execute()).rejects.toThrow(
         /schema "public" does not match executing current schema "tenant"/i,
       )
+
       expect(connector.prepared).toEqual([])
     } finally {
       await db.close()
@@ -728,9 +735,11 @@ describe('select compile', () => {
 
     try {
       await expect(db.from(TenantEvents).execute()).rejects.toThrow(QueryError)
+
       await expect(db.from(TenantEvents).execute()).rejects.toThrow(
         /database "appdb" does not match executing database "otherdb"/i,
       )
+
       expect(connector.prepared).toEqual([])
     } finally {
       await db.close()

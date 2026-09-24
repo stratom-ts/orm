@@ -87,10 +87,12 @@ export function createPostgresMigrationRuntime(
     if (options.failUnlock) throw new Error('unlock failed')
     const result = options.releaseResults?.shift() ?? options.unlockResults?.shift()
     if (result instanceof Error) throw result
+
     options.sharedLockManager?.release(
       options.clientId ?? 'client',
       `${query.params[0]}:${query.params[1]}`,
     )
+
     return [{ unlocked: result ?? true }]
   }
 

@@ -33,6 +33,7 @@ describe('reference action', () => {
     expect(getReferenceMetadata(reference(TargetSchema, 'id'))?.target.relation).toBe(
       getTableMetadata(TargetSchema)!.relation,
     )
+
     expect(getReferenceMetadata(reference(TargetHandle, 'id'))?.target.relation).toBe(
       TargetHandle.getTableMetadata().relation,
     )
@@ -83,10 +84,12 @@ describe('reference action', () => {
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
     expect(metadata!.kind).toBe('reference')
+
     expect(metadata!.target).toEqual({
       relation: { relation: 'users' },
       column: 'id',
     })
+
     expect(metadata).not.toHaveProperty('table')
     expect(metadata).not.toHaveProperty('key')
   })
@@ -102,9 +105,11 @@ describe('reference action', () => {
 
     const metadata = getReferenceMetadata(ref)
     expect(metadata).toBeDefined()
+
     expect(metadata).toMatchObject({
       target: { relation: { relation: 'users' }, column: 'id' },
     })
+
     expect(metadata).not.toHaveProperty('dataType')
   })
 
@@ -152,6 +157,7 @@ describe('reference action', () => {
     const composed = pipe(reference(UserSchema, 'id'), column({ unique: true }))
 
     expect(getColumnMetadata(composed)).toMatchObject({ kind: 'column', unique: true })
+
     expect(getReferenceMetadata(composed)).toMatchObject({
       kind: 'reference',
       target: { relation: { relation: 'users' }, column: 'id' },
@@ -175,6 +181,7 @@ describe('reference action', () => {
       kind: 'column',
       databaseDefault: { kind: 'literal', value: null },
     })
+
     expect(getReferenceMetadata(composed)).toMatchObject({
       kind: 'reference',
       target: { relation: { relation: 'users' }, column: 'id' },
@@ -222,10 +229,13 @@ describe('isReferenceMetadata', () => {
         target: { relation: { relation: 'accounts' }, column: 'id' },
       }),
     ).toBe(true)
+
     expect(isReferenceMetadata({ kind: 'column' })).toBe(false)
+
     expect(isReferenceMetadata({ target: { relation: 'accounts', column: 'id' } })).toBe(
       false,
     )
+
     expect(isReferenceMetadata(undefined)).toBe(false)
   })
 })

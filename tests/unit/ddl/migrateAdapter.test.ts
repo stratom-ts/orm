@@ -108,6 +108,7 @@ describe('dialect-neutral migration adapter contract', () => {
     expect(member.execute).toHaveBeenCalledTimes(1)
     expect(member.execute.mock.calls[0]![0].lockTimeoutMs).toBeUndefined()
     expect(member.lower).toHaveBeenCalledTimes(1)
+
     expect(member.lower).toHaveBeenCalledWith(
       expect.objectContaining({
         profile: expect.objectContaining({ identityAdapter: 'postgresql' }),
@@ -131,8 +132,10 @@ describe('dialect-neutral migration adapter contract', () => {
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toMatch(/does not match PostgreSQL/)
+
     expect(member.lower).toHaveBeenCalledWith(
       expect.objectContaining({
         profile: expect.objectContaining({ identityAdapter: 'not-postgresql' }),
@@ -157,12 +160,14 @@ describe('dialect-neutral migration adapter contract', () => {
       retryable: false,
       message: "Executing profile adapter 'not-postgresql' does not match PostgreSQL",
     })
+
     expect(member.lower).toHaveBeenCalledWith(
       expect.objectContaining({
         profile: expect.objectContaining({ identityAdapter: 'not-postgresql' }),
       }),
       expect.objectContaining({ identityAdapter: 'not-postgresql' }),
     )
+
     expect(member.execute).not.toHaveBeenCalled()
   })
 
@@ -215,6 +220,7 @@ describe('dialect-neutral migration adapter contract', () => {
         ],
       },
     })
+
     const builder = createMigrateBuilder({
       schemas: [],
       migration: member.migration,
@@ -266,9 +272,11 @@ describe('dialect-neutral migration adapter contract', () => {
         },
       ],
     })
+
     expect('assertSession' in preview.actions[0]!.statements[0]!).toBe(false)
     expect('assertSession' in preview.actions[1]!.statements[0]!).toBe(false)
     expect(member.execute).not.toHaveBeenCalled()
+
     expect(member.lower).toHaveBeenCalledWith(
       expect.objectContaining({
         profile: expect.objectContaining({ identityAdapter: 'postgresql' }),
@@ -293,6 +301,7 @@ describe('dialect-neutral migration adapter contract', () => {
       preconditions: [],
       actions: [],
     })
+
     expect(member.execute).not.toHaveBeenCalled()
   })
 
@@ -304,6 +313,7 @@ describe('dialect-neutral migration adapter contract', () => {
         { code: 'invalid_target', message: 'failed first', sourceStepIndexes: [1, 3] },
       ],
     })
+
     const builder = createMigrateBuilder({
       schemas: [],
       migration: member.migration,
@@ -320,6 +330,7 @@ describe('dialect-neutral migration adapter contract', () => {
       capabilityIssues: member.lower.mock.results[0]!.value.issues,
       message: 'failed second\nfailed first',
     })
+
     expect(member.execute).not.toHaveBeenCalled()
   })
 })

@@ -62,16 +62,19 @@ describe('client value mapping', () => {
 
     const compiled = db.insert(LedgerEntries).values(entry).compile()
     expect(compiled.params).toContain('column-write:settled')
+
     expect(compiled.params).toContainEqual({
       mappedBy: 'client-param',
       dataType: 'timestamptz',
       value: recordedAt,
     })
+
     expect(compiled.params).toContainEqual({
       mappedBy: 'client-param',
       dataType: 'jsonb',
       value: { invoice: 42 },
     })
+
     expect(compiled.params).toContainEqual({
       mappedBy: 'client-param',
       dataType: 'text',
@@ -80,21 +83,25 @@ describe('client value mapping', () => {
 
     const [row] = await db.from(LedgerEntries).execute()
     expect(row!.note).toBe('column-read:settled')
+
     expect(row!.recordedAt).toEqual({
       mappedBy: 'client-result',
       dataType: 'timestamptz',
       value: recordedAt.toISOString(),
     })
+
     expect(row!.payload).toEqual({
       mappedBy: 'client-result',
       dataType: 'jsonb',
       value: '{"invoice":42}',
     })
+
     expect(row!.source).toEqual({
       mappedBy: 'client-result',
       dataType: 'text',
       value: 'api',
     })
+
     await db.close()
   })
 
@@ -152,6 +159,7 @@ describe('client value mapping', () => {
       source: 'worker',
       driverExtra: 17,
     })
+
     await db.close()
   })
 

@@ -36,6 +36,7 @@ describe('@/dialects/postgres', () => {
       expect(postgresDialect.schema.normalizeDataType('float4')).toBe('real')
       expect(postgresDialect.schema.normalizeDataType('real')).toBe('real')
       expect(postgresDialect.schema.normalizeDataType('float8')).toBe('double precision')
+
       expect(postgresDialect.schema.normalizeDataType('double precision')).toBe(
         'double precision',
       )

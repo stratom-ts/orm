@@ -386,6 +386,7 @@ describe('Migration Plan construction', () => {
     )
     expect(planned.profile.identityAdapter).toBe('custom-identity')
     expect(identity.create).toHaveBeenCalled()
+
     expect(
       identityModules[0]!.resolve({ relation: 'portable_settings' }).namespace,
     ).toEqual(
@@ -394,6 +395,7 @@ describe('Migration Plan construction', () => {
         relation: 'portable_settings',
       }).namespace,
     )
+
     expect(naming.generate).toHaveBeenCalled()
     expect(naming.validate).toHaveBeenCalled()
     expect(naming.createRegistry).toHaveBeenCalled()
@@ -543,15 +545,19 @@ describe('Migration Plan construction', () => {
     expect(planMigration([Omitted], emptyCatalog(), postgresDialect)).toEqual(
       planMigration([Public], emptyCatalog(), postgresDialect),
     )
+
     expect(planMigration([Omitted], tenantCatalog, postgresDialect)).toEqual(
       planMigration([Tenant], tenantCatalog, postgresDialect),
     )
+
     expect(planMigration([FullyQualifiedTenant], tenantCatalog, postgresDialect)).toEqual(
       planMigration([Tenant], tenantCatalog, postgresDialect),
     )
+
     expect(planMigration([Public], tenantCatalog, postgresDialect)).not.toEqual(
       planMigration([Omitted], tenantCatalog, postgresDialect),
     )
+
     const omittedQuery = postgresDialect.query.resolve([Omitted]).compile({
       kind: 'select',
       relation: Omitted.getTableMetadata().relation,
@@ -720,10 +726,13 @@ describe('Migration Plan construction', () => {
     expect(publicPlan.steps.map((step) => step.kind)).toEqual(
       tenantPlan.steps.map((step) => step.kind),
     )
+
     expect(publicPlan).not.toEqual(tenantPlan)
+
     expect(publicPlan.steps).toEqual([
       { kind: 'create_table', target: relationTarget('public', 'items') },
     ])
+
     expect(tenantPlan.steps).toEqual([
       { kind: 'create_table', target: relationTarget('tenant', 'items') },
     ])

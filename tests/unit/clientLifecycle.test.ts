@@ -30,6 +30,7 @@ describe('client lifecycle', () => {
           applicationId: applicationId as string,
         }),
       ).toThrow(SchemaError)
+
       expect(getInstance).not.toHaveBeenCalled()
       expect(connector.prepared).toEqual([])
     },
@@ -72,9 +73,11 @@ describe('client lifecycle', () => {
     expect(() => db.delete(Accounts)).toThrow(QueryError)
     expect(() => db.migrate()).toThrow(QueryError)
     await expect(db.ping()).rejects.toMatchObject({ _tag: 'QueryError' })
+
     await expect(db.transaction(async () => undefined)).rejects.toMatchObject({
       _tag: 'QueryError',
     })
+
     expect(connector.prepared).toEqual([])
   })
 
@@ -87,6 +90,7 @@ describe('client lifecycle', () => {
         _tag: 'QueryError',
         message: expect.stringMatching(/transaction clients cannot close/i),
       })
+
       await expect(db.close()).rejects.toMatchObject({
         _tag: 'QueryError',
         message: expect.stringMatching(/inside an active operation callback/i),

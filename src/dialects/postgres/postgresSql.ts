@@ -256,11 +256,13 @@ class PostgresSqlScanner {
     }
 
     this.#markExecutable()
+
     this.#parameters.push({
       start: this.#index,
       end: this.#index + parameter[0].length,
       index: parameterIndex - 1,
     })
+
     this.#index += parameter[0].length
     return true
   }

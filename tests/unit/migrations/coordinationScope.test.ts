@@ -19,6 +19,7 @@ describe('portable migration coordination scope', () => {
         canonicalIdentity: JSON.stringify(['postgresql', 'database', 'app_db']),
       },
     })
+
     expect(migrationLockAcquisitionOrder(scope)).toHaveLength(1)
     expect(migrationLockReleaseOrder(scope)).toEqual(migrationLockAcquisitionOrder(scope))
   })
@@ -64,9 +65,11 @@ describe('portable migration coordination scope', () => {
     expect(() =>
       createMigrationCoordinationScope({ dialect: '', database: 'db' }),
     ).toThrow(/dialect identity/i)
+
     expect(() =>
       createMigrationCoordinationScope({ dialect: 'postgresql', database: '' }),
     ).toThrow(/database identity/i)
+
     expect(() =>
       createMigrationCoordinationScope({
         dialect: 'postgresql',
@@ -74,6 +77,7 @@ describe('portable migration coordination scope', () => {
         applicationId: 'bad\0id',
       }),
     ).toThrow(/NUL/i)
+
     expect(() =>
       createMigrationCoordinationScope({
         dialect: 'postgresql',

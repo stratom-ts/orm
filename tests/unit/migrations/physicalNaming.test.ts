@@ -75,6 +75,7 @@ describe('generated physical naming', () => {
       unique: false,
     }
     expect(physicalNameDigest(seed)).toBe('5a64532c865bca5a')
+
     expect(
       generatedIndexName(seed.owner, seed.columns, false, POSTGRES_PHYSICAL_NAMING),
     ).toBe('users_email__5a64532c865bca5a_idx')
@@ -178,6 +179,7 @@ describe('generated physical naming', () => {
 
     expect(() => validatePhysicalName('éé', 'name', twoBytes)).toThrow(/2 UTF-8 bytes/)
     expect(() => validatePhysicalName('éé', 'name', twoScalars)).not.toThrow()
+
     expect(() => validatePhysicalName('😀😀😀', 'name', twoScalars)).toThrow(
       /2 Unicode scalars/,
     )
@@ -195,6 +197,7 @@ describe('generated physical naming', () => {
       token: 'public.users',
       description: 'public users index',
     })
+
     expect(() =>
       registry.reserve({
         kind: 'index',
@@ -204,6 +207,7 @@ describe('generated physical naming', () => {
         description: 'public posts index',
       }),
     ).toThrow(/physical name collision/i)
+
     expect(() =>
       registry.reserve({
         kind: 'index',
@@ -227,6 +231,7 @@ describe('generated physical naming', () => {
       token: 'main.users',
       description: 'main users index',
     })
+
     expect(() =>
       registry.reserve({
         kind: 'index',
@@ -236,6 +241,7 @@ describe('generated physical naming', () => {
         description: 'main posts index',
       }),
     ).toThrow(/physical name collision/i)
+
     expect(() =>
       registry.reserve({
         kind: 'index',
@@ -259,6 +265,7 @@ describe('generated physical naming', () => {
       token: 'users',
       description: 'users index',
     })
+
     expect(() =>
       local.reserve({
         kind: 'index',
@@ -284,6 +291,7 @@ describe('generated physical naming', () => {
 
     registry.reserve(usersForeignKey)
     expect(() => registry.reserve(usersForeignKey)).not.toThrow()
+
     expect(() =>
       registry.reserve({
         ...usersForeignKey,
@@ -291,6 +299,7 @@ describe('generated physical naming', () => {
         description: 'users owner foreign key',
       }),
     ).toThrow(/physical name collision.*shared_fkey/i)
+
     expect(() =>
       registry.reserve({
         ...usersForeignKey,
@@ -386,6 +395,7 @@ describe('generated physical naming', () => {
       unique: false,
       ...supportedSimple,
     })
+
     expect(() => planMigration([Events], catalog, postgresDialect)).toThrow(
       /ambiguous index semantic match/i,
     )
@@ -461,6 +471,7 @@ describe('generated physical naming', () => {
       columns: ['email'],
       ...supportedSimple,
     })
+
     expect(() => planMigration([Accounts], catalog, postgresDialect)).toThrow(
       /ambiguous unique constraint semantic match/i,
     )

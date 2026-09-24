@@ -132,6 +132,7 @@ describe('defineTable', () => {
       ],
       relation: 'events',
     })
+
     expect(TenantEvents.id.relation).toEqual(TenantEvents.getTableMetadata().relation)
   })
 
@@ -144,9 +145,11 @@ describe('defineTable', () => {
 
     expect(Events.getTableMetadata().relation).toEqual({ relation: 'events' })
     expect(Events.id.relation).toEqual({ relation: 'events' })
+
     expectTypeOf<typeof Events.id.relation>().toEqualTypeOf<
       Readonly<{ relation: 'events' }>
     >()
+
     expectTypeOf<TableIdentityOf<typeof Events>>().toEqualTypeOf<
       Readonly<{ relation: 'events' }>
     >()
@@ -169,6 +172,7 @@ describe('defineTable', () => {
       },
     )
     expect(Membership.getTableMetadata().primaryKey).toEqual(['orgId', 'userId'])
+
     expect(Membership.getTableMetadata().indexes).toEqual([
       { name: 'memberships_role_idx', columns: ['role'] },
       { columns: ['orgId', 'role'], unique: true },
@@ -273,6 +277,7 @@ describe('defineTable', () => {
         { primaryKey: 'id' },
       ),
     ).not.toThrow()
+
     expect(() =>
       defineTable(
         'bad',
@@ -431,6 +436,7 @@ describe('defineTable', () => {
         { primaryKey: 'id' },
       ),
     ).toThrow(/cannot combine a default with identity/)
+
     expect(() =>
       defineTable(
         'bad_tagged_identity',
@@ -473,6 +479,7 @@ describe('defineTable', () => {
         { primaryKey: ['id', 'id'] },
       ),
     ).toThrow(/duplicate columns/i)
+
     expect(() =>
       defineTable(
         'nullable_pk',
@@ -482,6 +489,7 @@ describe('defineTable', () => {
         { primaryKey: 'id' },
       ),
     ).toThrow(/cannot be nullable/i)
+
     expect(() =>
       defineTable(
         'duplicate_index',
@@ -614,6 +622,7 @@ describe('reference with FK actions', () => {
       onDelete: 'cascade',
       onUpdate: 'restrict',
     })
+
     expect(meta).not.toHaveProperty('table')
     expect(meta).not.toHaveProperty('key')
   })
@@ -636,6 +645,7 @@ describe('reference with FK actions', () => {
       },
       column: 'id',
     })
+
     expect(meta?.onDelete).toBe('set null')
   })
 })
@@ -650,10 +660,12 @@ describe('table handle typing', () => {
 
   it('should type column refs on the handle', () => {
     type EmailRef = (typeof User)['email']
+
     expectTypeOf<EmailRef['relation']>().toEqualTypeOf<{
       readonly namespace: readonly [Readonly<{ role: 'schema'; spelling: 'public' }>]
       readonly relation: 'users'
     }>()
+
     expectTypeOf<EmailRef['column']>().toEqualTypeOf<'email'>()
     expectTypeOf<EmailRef>().toExtend<ColumnRef>()
     expectTypeOf<typeof User>().toExtend<TableHandle>()

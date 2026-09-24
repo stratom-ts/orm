@@ -63,14 +63,17 @@ export function registerOperationSessionProviderContract(
 
         expect(identity.database.length).toBeGreaterThan(0)
         expect(identity.physicalSession.length).toBeGreaterThan(0)
+
         await Promise.all([
           session.query({ sql: 'contract query', params: [] }),
           session.run({ sql: 'contract run', params: [] }),
         ])
+
         expect(session.identity).toMatchObject({
           database: initialDatabase,
           physicalSession: initialPhysicalSession,
         })
+
         await session.release('reuse')
         await controls.provider.close()
 
@@ -140,6 +143,7 @@ export function registerOperationSessionProviderContract(
             await expect(coordinator.run(async () => undefined)).rejects.toThrow(
               /invalid pinned session/i,
             )
+
             expect(controls.events).toContain('release-finished:1:discard')
             expect(controls.events).not.toContain('release-finished:1:reuse')
           } finally {
@@ -177,6 +181,7 @@ export function registerOperationSessionProviderContract(
               ),
             ]),
           ).resolves.toBe('settled')
+
           expect(controls.events).toContain('cancel-requested:1')
           expect(controls.events).toContain('release-finished:1:discard')
         } finally {
@@ -194,6 +199,7 @@ export function registerOperationSessionProviderContract(
               executor.run({ sql: 'mutate identity', params: [] }),
             ),
           ).rejects.toThrow(/identity changed/i)
+
           expect(controls.events).toContain('release-finished:1:discard')
         } finally {
           await coordinator.close()
@@ -218,12 +224,15 @@ export function registerOperationSessionProviderContract(
             cause: primary,
             message: primary.message,
           })
+
           const cleanupFailures = getOperationReleaseCleanupFailures(error)
           expect(cleanupFailures).toHaveLength(1)
+
           expect(cleanupFailures[0]).toMatchObject({
             _tag: 'QueryError',
             message: expect.stringMatching(/identity changed/i),
           })
+
           expect(controls.events).toContain('release-finished:1:discard')
           expect(controls.events).not.toContain('release-finished:1:reuse')
         } finally {
@@ -251,12 +260,15 @@ export function registerOperationSessionProviderContract(
             cause: primary,
             message: primary.message,
           })
+
           const cleanupFailures = getOperationReleaseCleanupFailures(error)
           expect(cleanupFailures).toHaveLength(2)
+
           expect(cleanupFailures[0]).toMatchObject({
             _tag: 'QueryError',
             message: expect.stringMatching(/identity changed/i),
           })
+
           expect(cleanupFailures[1]).toBe(release)
           expect(controls.events).toContain('release-started:1:discard')
           expect(controls.events).not.toContain('release-started:1:reuse')
@@ -302,10 +314,12 @@ export function registerOperationSessionProviderContract(
           const error = await coordinator
             .run(async ({ identity }) => {
               captured = identity
+
               expect(identity).toEqual({
                 database: 'coordinator_test',
                 physicalSession: 'physical-1',
               })
+
               expect(Object.isFrozen(identity)).toBe(true)
             })
             .catch((cause: unknown) => cause)
@@ -314,6 +328,7 @@ export function registerOperationSessionProviderContract(
             database: 'coordinator_test',
             physicalSession: 'physical-1',
           })
+
           expect(error).toBeInstanceOf(Error)
           expect((error as Error).message).toMatch(/verify operation session identity/i)
           expect(controls.events).toContain('release-finished:1:discard')

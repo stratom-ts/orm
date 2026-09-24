@@ -175,4 +175,103 @@ describe('Oxlint whitespace rule', () => {
 }
 `)
   })
+
+  it('puts exactly one blank line around a multiline function call', async () => {
+    const source = `export async function example() {
+  prepare()
+  await run(
+    first,
+    second,
+  )
+
+
+  finish()
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export async function example() {
+  prepare()
+
+  await run(
+    first,
+    second,
+  )
+
+  finish()
+}
+`)
+  })
+
+  it.each(['const', 'let'])(
+    'keeps a related %s declaration with a multiline function call',
+    async (declarationKind) => {
+      const source = `export function example() {
+  ${declarationKind} request = createRequest()
+  run(
+    request,
+    options,
+  )
+  ${declarationKind === 'let' ? 'request = updateRequest(request)\n  ' : ''}finish(request)
+}
+`
+
+      await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  ${declarationKind} request = createRequest()
+  run(
+    request,
+    options,
+  )
+
+  ${declarationKind === 'let' ? 'request = updateRequest(request)\n  ' : ''}finish(request)
+}
+`)
+    },
+  )
+
+  it('separates an unrelated declaration from a multiline function call', async () => {
+    const source = `export function example() {
+  const requestId = createRequestId()
+  run(
+    request,
+    options,
+  )
+  finish(requestId)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  const requestId = createRequestId()
+
+  run(
+    request,
+    options,
+  )
+
+  finish(requestId)
+}
+`)
+  })
+
+  it('does not treat an object property as a declaration use', async () => {
+    const source = `export function example() {
+  const request = createRequest()
+  run(
+    { request: otherRequest },
+  )
+  finish(request)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  const request = createRequest()
+
+  run(
+    { request: otherRequest },
+  )
+
+  finish(request)
+}
+`)
+  })
 })

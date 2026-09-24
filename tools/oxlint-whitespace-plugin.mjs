@@ -32,6 +32,30 @@ function isBlockLikeStatement(sourceCode, node) {
   return owner?.type === 'BlockStatement' || owner?.type === 'SwitchStatement'
 }
 
+function isCallExpression(expression) {
+  if (expression.type === 'CallExpression') return true
+  if (expression.type === 'AwaitExpression') return isCallExpression(expression.argument)
+
+  if (expression.type === 'ChainExpression')
+    return isCallExpression(expression.expression)
+
+  return false
+}
+
+function isMultilineCallStatement(node) {
+  return (
+    node.type === 'ExpressionStatement' &&
+    node.loc.start.line !== node.loc.end.line &&
+    isCallExpression(node.expression)
+  )
+}
+
+function isMultilineBlockStatement(sourceCode, node) {
+  return (
+    node.loc.start.line !== node.loc.end.line && isBlockLikeStatement(sourceCode, node)
+  )
+}
+
 function isReturnOnlyStatement(node) {
   if (node.type === 'ReturnStatement') return true
 
@@ -114,6 +138,26 @@ function declarationFeedsBlock(previousNode, node) {
   return containsBindingReference(node, names)
 }
 
+function declarationFeedsCall(sourceCode, previousNode, node) {
+  if (
+    previousNode.type !== 'VariableDeclaration' ||
+    (previousNode.kind !== 'const' && previousNode.kind !== 'let')
+  ) {
+    return false
+  }
+
+  return sourceCode
+    .getDeclaredVariables(previousNode)
+    .some((variable) =>
+      variable.references.some(
+        (reference) =>
+          reference.isRead() &&
+          reference.identifier.range[0] >= node.range[0] &&
+          reference.identifier.range[1] <= node.range[1],
+      ),
+    )
+}
+
 function getTrailingAnchor(sourceCode, node) {
   let anchor = getActualLastToken(sourceCode, node)
 
@@ -158,24 +202,26 @@ function checkStatementList(context, statements) {
     const previousNode = statements[index - 1]
     const node = statements[index]
     const leadingComment = getAttachedLeadingComment(sourceCode, previousNode, node)
-    const previousIsMultilineBlock =
-      previousNode.loc.start.line !== previousNode.loc.end.line &&
-      isBlockLikeStatement(sourceCode, previousNode)
+    const previousIsMultilineBlock = isMultilineBlockStatement(sourceCode, previousNode)
+    const previousIsMultilineCall = isMultilineCallStatement(previousNode)
     const previousIsSingleLineEarlyReturn = isSingleLineEarlyReturn(previousNode)
     const nodeIsSingleLineEarlyReturn = isSingleLineEarlyReturn(node)
     const nodeContinuesEarlyReturnGroup =
       nodeIsSingleLineEarlyReturn || node.type === 'ReturnStatement'
-    const nodeIsBlock = isBlockLikeStatement(sourceCode, node)
-    const nodeIsMultilineBlock = node.loc.start.line !== node.loc.end.line && nodeIsBlock
+    const nodeIsMultilineBlock = isMultilineBlockStatement(sourceCode, node)
+    const nodeIsMultilineCall = isMultilineCallStatement(node)
     const nodeConsumesPreviousDeclaration =
-      nodeIsMultilineBlock && declarationFeedsBlock(previousNode, node)
+      (nodeIsMultilineBlock && declarationFeedsBlock(previousNode, node)) ||
+      (nodeIsMultilineCall && declarationFeedsCall(sourceCode, previousNode, node))
     const singleLineStatementHasComment =
       node.loc.start.line === node.loc.end.line && leadingComment !== null
 
     if (
       !previousIsMultilineBlock &&
+      !previousIsMultilineCall &&
       (!previousIsSingleLineEarlyReturn || nodeContinuesEarlyReturnGroup) &&
-      (!nodeIsMultilineBlock || nodeConsumesPreviousDeclaration) &&
+      (!(nodeIsMultilineBlock || nodeIsMultilineCall) ||
+        nodeConsumesPreviousDeclaration) &&
       !singleLineStatementHasComment
     ) {
       continue
@@ -208,7 +254,7 @@ const padMultilineBlocks = {
     type: 'layout',
     docs: {
       description:
-        'Require one blank line around multiline blocks and after early returns',
+        'Require one blank line around multiline blocks and calls and after early returns',
     },
     fixable: 'whitespace',
     schema: [],

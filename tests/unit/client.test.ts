@@ -56,6 +56,7 @@ describe('createDatabase', () => {
       ping: expect.any(Function),
       close: expect.any(Function),
     })
+
     expect(typeof db[Symbol.asyncDispose]).toBe('function')
   })
 
@@ -104,6 +105,7 @@ describe('client registration', () => {
         message: expect.stringContaining('[schema:"public", relation:"users"]'),
       }),
     )
+
     expect(getInstance).not.toHaveBeenCalled()
     expect(connector.prepared).toEqual([])
   })
@@ -141,6 +143,7 @@ describe('client registration', () => {
     expect(() => db.from(Missing)).toThrow(
       '[catalog:"app", database:"tenant", schema:"missing", relation:"users"]',
     )
+
     await db.close()
   })
 
@@ -189,12 +192,14 @@ describe('client registration', () => {
   it('should reject non-handles in schemas', () => {
     const connector = createMockConnector()
     const getInstance = vi.spyOn(connector, 'getInstance')
+
     expect(() =>
       createDatabase({
         connector,
         schemas: [{ name: 'fake' } as never],
       }),
     ).toThrow(expect.objectContaining({ _tag: 'SchemaError' }))
+
     expect(getInstance).not.toHaveBeenCalled()
     expect(connector.prepared).toEqual([])
   })
@@ -248,9 +253,11 @@ describe('client registration', () => {
     ;(connector as { name: string }).name = 'custom'
 
     expect(() => createDatabase({ connector, schemas: [] })).toThrow(QueryError)
+
     expect(() => createDatabase({ connector, schemas: [] })).toThrow(
       /automatic operation sessions require/i,
     )
+
     expect(getInstance).not.toHaveBeenCalled()
     expect(connector.prepared).toHaveLength(0)
   })
@@ -259,12 +266,14 @@ describe('client registration', () => {
     const connector = createMockConnector()
     const getInstance = vi.spyOn(connector, 'getInstance')
     ;(connector as { dialect: string }).dialect = 'sqlite'
+
     expect(() => createDatabase({ connector, schemas: [] })).toThrow(
       expect.objectContaining({
         _tag: 'SchemaError',
         message: expect.stringMatching(/unsupported connector dialect/i),
       }),
     )
+
     expect(getInstance).not.toHaveBeenCalled()
     expect(connector.prepared).toEqual([])
   })

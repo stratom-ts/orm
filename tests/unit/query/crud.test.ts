@@ -132,6 +132,7 @@ describe('CRUD compile', () => {
 
     const { undefinedValue: _undefinedValue, ...withoutUndefinedValue } = complete
     void _undefinedValue
+
     expect(() =>
       db
         .insert(WrapperBehavior)
@@ -141,6 +142,7 @@ describe('CRUD compile', () => {
 
     const { nonOptionalValue: _nonOptionalValue, ...withoutNonOptionalValue } = complete
     void _nonOptionalValue
+
     expect(() =>
       db
         .insert(WrapperBehavior)
@@ -150,6 +152,7 @@ describe('CRUD compile', () => {
 
     const { nonNullableValue: _nonNullableValue, ...withoutNonNullableValue } = complete
     void _nonNullableValue
+
     expect(() =>
       db
         .insert(WrapperBehavior)
@@ -159,6 +162,7 @@ describe('CRUD compile', () => {
 
     const { nonNullishValue: _nonNullishValue, ...withoutNonNullishValue } = complete
     void _nonNullishValue
+
     expect(() =>
       db
         .insert(WrapperBehavior)
@@ -190,6 +194,7 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+
   it('should compile insert with parameterized values and schema-qualified table', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -220,6 +225,7 @@ describe('CRUD compile', () => {
 
     expect(compiled.sql.toLowerCase()).toContain('values')
     expect(compiled.sql.toLowerCase()).toMatch(/default/)
+
     expect(compiled.params.filter((p) => typeof p === 'string')).toEqual(
       expect.arrayContaining(['a@b.com', 'b@c.com', 'Bob']),
     )
@@ -270,9 +276,11 @@ describe('CRUD compile', () => {
     expect(() => db.insert(Users).values({ email: 'a@b.com' }).returning([])).toThrow(
       /requires at least one column/,
     )
+
     expect(() => db.update(Users).set({ active: false }).all().returning([])).toThrow(
       /requires at least one column/,
     )
+
     expect(() => db.delete(Users).all().returning([])).toThrow(
       /requires at least one column/,
     )
@@ -329,6 +337,7 @@ describe('CRUD compile', () => {
       _tag: 'QueryError',
       message: expect.stringContaining('cannot combine where(...) and .all()'),
     })
+
     expect(connector.prepared).toEqual([])
 
     await db.close()
@@ -344,6 +353,7 @@ describe('CRUD compile', () => {
       _tag: 'QueryError',
       message: expect.stringContaining('cannot combine where(...) and .all()'),
     })
+
     expect(connector.prepared).toEqual([])
 
     await db.close()
@@ -359,6 +369,7 @@ describe('CRUD compile', () => {
         message: expect.stringMatching(/requires at least one key/i),
       }),
     )
+
     expect(connector.prepared).toEqual([])
 
     await db.close()
@@ -374,6 +385,7 @@ describe('CRUD compile', () => {
       _tag: 'QueryError',
       message: expect.stringContaining('cannot combine where(...) and .all()'),
     })
+
     expect(connector.prepared).toEqual([])
 
     await db.close()
@@ -389,6 +401,7 @@ describe('CRUD compile', () => {
       _tag: 'QueryError',
       message: expect.stringContaining('cannot combine where(...) and .all()'),
     })
+
     expect(connector.prepared).toEqual([])
 
     await db.close()

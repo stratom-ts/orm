@@ -124,6 +124,7 @@ describe('PostgreSQL namespace and value integration', () => {
         .insert(Accounts)
         .values({ id: accountId, email: 'owner@example.com' })
         .execute()
+
       const beforeDefault = await admin.query<{ now: Date }>(
         'select clock_timestamp() as now',
       )
@@ -148,13 +149,17 @@ describe('PostgreSQL namespace and value integration', () => {
         payload: { label: 'default timestamp' },
         tags: ['default'],
       })
+
       expect(defaulted.createdAt).toBeInstanceOf(Date)
+
       expect(defaulted.createdAt.getTime()).toBeGreaterThanOrEqual(
         beforeDefault.rows[0]!.now.getTime(),
       )
+
       expect(defaulted.createdAt.getTime()).toBeLessThanOrEqual(
         afterDefault.rows[0]!.now.getTime(),
       )
+
       await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
 
       const explicitDate = new Date('2026-09-10T03:04:05.000Z')
@@ -187,6 +192,7 @@ describe('PostgreSQL namespace and value integration', () => {
           .where(Events.id, 'eq', event.id)
           .execute(),
       ).resolves.toEqual([{ id: 2, email: 'owner@example.com' }])
+
       await expect(
         db.from(Events).where(Events.createdAt, 'eq', explicitDate).execute(),
       ).resolves.toMatchObject([{ id: 2, createdAt: explicitDate }])
@@ -200,6 +206,7 @@ describe('PostgreSQL namespace and value integration', () => {
         })
         .execute()
       await expect(foreignKeyInsert).rejects.toBeInstanceOf(QueryError)
+
       await expect(foreignKeyInsert).rejects.toMatchObject({
         cause: { code: '23503' },
       })
@@ -209,6 +216,7 @@ describe('PostgreSQL namespace and value integration', () => {
         .values({ id: randomUUID(), email: 'owner@example.com' })
         .execute()
       await expect(uniqueConstraintInsert).rejects.toBeInstanceOf(QueryError)
+
       await expect(uniqueConstraintInsert).rejects.toMatchObject({
         cause: { code: '23505' },
       })
@@ -220,6 +228,7 @@ describe('PostgreSQL namespace and value integration', () => {
       expect(indexes.rows.map(({ indexname }) => indexname)).toEqual(
         expect.arrayContaining(['accounts_email_uidx', 'events_created_at_idx']),
       )
+
       const ordinaryIndex = await admin.query<{
         indexName: string
         isUnique: boolean

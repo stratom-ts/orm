@@ -286,6 +286,7 @@ describe('migration ownership', () => {
         ],
       }),
     ).toThrow(/identifier limit of 63 UTF-8 bytes/i)
+
     expect(() =>
       planMigration([], emptyCatalog, postgresDialect, {
         migrationOwnership: [

@@ -22,6 +22,7 @@ describe('dialect query contract', () => {
         namespace: [{ role: 'database', spelling: 'analytics' }],
         relation: 'events',
       })
+
       expect(node.selection).toEqual([
         {
           kind: 'column',
@@ -32,6 +33,7 @@ describe('dialect query contract', () => {
           },
         },
       ])
+
       return { sql: 'test member compiled query', params: [] }
     })
     const dialect: Dialect = {
@@ -171,6 +173,7 @@ describe('dialect query contract', () => {
         ])
         .compile(),
     ).toThrow(QueryError)
+
     expect(() =>
       createTableBuilder({
         handle: Events,
@@ -238,6 +241,7 @@ describe('dialect query contract', () => {
         ])
         .compile(),
     ).toThrow(QueryError)
+
     expect(() =>
       createTableBuilder({
         handle: Events,

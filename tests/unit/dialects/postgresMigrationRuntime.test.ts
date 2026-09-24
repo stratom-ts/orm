@@ -42,6 +42,7 @@ describe('PostgreSQL migration runtime failures', () => {
         }),
       ),
     ).resolves.toEqual({ outcome: 'applied' })
+
     const statementIndex = runtime.queries.findIndex(
       (query) => query.sql === 'select begin',
     )
@@ -74,9 +75,11 @@ describe('PostgreSQL migration runtime failures', () => {
         outcome: 'unchanged',
         retryable: false,
       })
+
       expect(runtime.calls.some((sql) => /count\(\*\)|create table/i.test(sql))).toBe(
         false,
       )
+
       expect(runtime.calls).toContain('rollback')
     },
   )
@@ -92,6 +95,7 @@ describe('PostgreSQL migration runtime failures', () => {
       actionIndex: 0,
       sourceStepIndexes: [4],
     })
+
     expect(runtime.calls).toContain('rollback')
     expect(runtime.discard).not.toHaveBeenCalled()
     expect(runtime.cancel).not.toHaveBeenCalled()
@@ -106,6 +110,7 @@ describe('PostgreSQL migration runtime failures', () => {
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect(runtime.calls.some((sql) => /create table|rollback/i.test(sql))).toBe(false)
     expect(runtime.calls.at(-1)).toMatch(/pg_advisory_unlock/i)
     expect(runtime.discard).toHaveBeenCalled()
@@ -121,6 +126,7 @@ describe('PostgreSQL migration runtime failures', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'rollback' }],
     })
+
     expect(runtime.discard).toHaveBeenCalled()
   })
 
@@ -133,6 +139,7 @@ describe('PostgreSQL migration runtime failures', () => {
       outcome: 'unknown',
       retryable: false,
     })
+
     expect(runtime.calls).not.toContain('rollback')
     expect(runtime.discard).toHaveBeenCalled()
   })
@@ -160,6 +167,7 @@ describe('PostgreSQL migration runtime failures', () => {
       retryable: false,
       sourceStepIndexes: [2],
     })
+
     expect(runtime.calls).toContain('rollback')
     expect(runtime.calls.some((sql) => /^create table/i.test(sql))).toBe(false)
   })
@@ -187,6 +195,7 @@ describe('PostgreSQL migration runtime failures', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'rollback' }],
     })
+
     expect(runtime.discard).toHaveBeenCalled()
     expect(runtime.calls.some((sql) => /^create table/i.test(sql))).toBe(false)
   })
@@ -201,6 +210,7 @@ describe('PostgreSQL migration runtime failures', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'unlock' }],
     })
+
     expect(runtime.discard).toHaveBeenCalled()
   })
 
@@ -224,12 +234,15 @@ describe('PostgreSQL migration runtime failures', () => {
       outcome: 'unchanged',
       retryable: true,
     })
+
     expect((error as Error).message).toMatch(/one no-wait try/i)
     expect(runtime.calls).toHaveLength(1)
     expect(runtime.calls[0]).toMatch(/pg_try_advisory_lock/i)
+
     expect(runtime.calls.some((sql) => /unlock|begin|create table/i.test(sql))).toBe(
       false,
     )
+
     expect(runtime.discard).toHaveBeenCalled()
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.prepare).not.toHaveBeenCalled()
@@ -247,9 +260,11 @@ describe('PostgreSQL migration runtime failures', () => {
     release()
 
     await expect(pending).resolves.toEqual({ outcome: 'applied' })
+
     expect(runtime.calls.filter((sql) => /pg_try_advisory_lock/i.test(sql))).toHaveLength(
       1,
     )
+
     expect(runtime.cancel).not.toHaveBeenCalled()
   })
 
@@ -269,6 +284,7 @@ describe('PostgreSQL migration runtime failures', () => {
         outcome: 'unchanged',
         retryable: true,
       })
+
       expect((error as Error).message).toMatch(/lock attempt response/i)
       expect(runtime.cancel).toHaveBeenCalledOnce()
       expect(runtime.discard).toHaveBeenCalled()
@@ -297,6 +313,7 @@ describe('PostgreSQL migration runtime failures', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'unlock' }],
     })
+
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.discard).toHaveBeenCalled()
   })
@@ -316,6 +333,7 @@ describe('PostgreSQL migration runtime failures', () => {
         retryable: false,
         cleanupFailures: [{ stage: 'unlock' }],
       })
+
       expect((error as Error).message).toMatch(/release verification/i)
       expect(runtime.cancel).toHaveBeenCalledOnce()
       expect(runtime.discard).toHaveBeenCalled()
@@ -338,6 +356,7 @@ describe('PostgreSQL migration runtime failures', () => {
       outcome: 'unknown',
       retryable: false,
     })
+
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.discard).toHaveBeenCalled()
     expect(runtime.calls.some((sql) => /rollback|advisory_unlock/i.test(sql))).toBe(false)
@@ -356,11 +375,14 @@ describe('PostgreSQL migration runtime failures', () => {
       outcome: 'unchanged',
       retryable: true,
     })
+
     expect(runtime.calls).toHaveLength(1)
     expect(runtime.calls[0]).toMatch(/pg_try_advisory_lock/i)
+
     expect(runtime.calls.some((sql) => /unlock|begin|create table/i.test(sql))).toBe(
       false,
     )
+
     expect(runtime.discard).toHaveBeenCalled()
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.prepare).not.toHaveBeenCalled()
@@ -375,6 +397,7 @@ describe('PostgreSQL migration runtime failures', () => {
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect(runtime.calls).toHaveLength(1)
     expect(runtime.discard).toHaveBeenCalled()
     expect(runtime.prepare).not.toHaveBeenCalled()
@@ -422,12 +445,15 @@ describe('PostgreSQL migration runtime failures', () => {
       .catch((cause) => cause)
 
     expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
+
     expect(
       runtime.queries.filter((query) => /pg_try_advisory_lock/i.test(query.sql)),
     ).toHaveLength(1)
+
     expect(
       runtime.queries.filter((query) => /pg_advisory_unlock/i.test(query.sql)),
     ).toHaveLength(0)
+
     expect(
       runtime.queries.some((query) =>
         /\bbegin\b|create table|count\(\*\)/i.test(query.sql),
@@ -455,9 +481,11 @@ describe('PostgreSQL migration runtime failures', () => {
         outcome: 'unchanged',
         retryable: true,
       })
+
       expect(
         runtime.queries.filter((query) => /pg_try_advisory_lock/i.test(query.sql)),
       ).toHaveLength(1)
+
       expect(
         runtime.queries.some((query) => /\bbegin\b|create table/i.test(query.sql)),
       ).toBe(false)
@@ -483,12 +511,14 @@ describe('PostgreSQL migration runtime failures', () => {
         outcome: 'unchanged',
         retryable: true,
       })
+
       expect(runtime.queries).toEqual([
         {
           sql: 'select pg_try_advisory_lock($1, $2) as "locked"',
           params: expect.any(Array),
         },
       ])
+
       expect(runtime.cancel).toHaveBeenCalledOnce()
       expect(runtime.discard).toHaveBeenCalledOnce()
       expect(runtime.prepare).not.toHaveBeenCalled()
@@ -511,9 +541,11 @@ describe('PostgreSQL migration runtime failures', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'unlock' }],
     })
+
     expect(
       runtime.queries.filter((query) => /pg_advisory_unlock/i.test(query.sql)),
     ).toHaveLength(1)
+
     expect(runtime.discard).toHaveBeenCalled()
   })
 
@@ -525,11 +557,13 @@ describe('PostgreSQL migration runtime failures', () => {
     const error = await pending.catch((cause) => cause)
 
     expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
+
     expect(
       runtime.queries.some((query) =>
         /\bbegin\b|create table|count\(\*\)/i.test(query.sql),
       ),
     ).toBe(false)
+
     expect(runtime.prepare).not.toHaveBeenCalled()
   })
 })

@@ -23,6 +23,7 @@ it('discards and closes after an operation failure', async () => {
   await expect(runOperationSessionCommonContract(runtime)).rejects.toThrow(
     /session 1 failed/i,
   )
+
   expectCleanupOrder(controls, 'release-finished:1:discard')
   expect(controls.closeCount).toBe(1)
 })
@@ -35,6 +36,7 @@ it('cleans up the common session after an assertion failure', async () => {
   await expect(runOperationSessionCommonContract(runtime)).rejects.toThrow(
     /greater than 0/i,
   )
+
   expectCleanupOrder(controls, 'release-finished:1:discard')
   expect(controls.closeCount).toBe(1)
 })

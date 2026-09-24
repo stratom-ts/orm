@@ -46,11 +46,13 @@ describe('public migration execution and session cleanup', () => {
     const secondOpen = controls.events.indexOf('lease-opened:2')
     expect(firstRelease).toBeGreaterThan(-1)
     expect(secondOpen).toBeGreaterThan(firstRelease)
+
     expect(
       controls.calls
         .filter((entry) => entry.session === 1)
         .some((entry) => /pg_advisory_unlock/i.test(entry.sql)),
     ).toBe(true)
+
     await db.close()
   })
 
@@ -91,6 +93,7 @@ describe('public migration execution and session cleanup', () => {
         { stage: 'unlock', cause: { cause: unlockFailure } },
       ],
     })
+
     expect(
       controls.calls
         .map(({ sql }) => {
@@ -100,6 +103,7 @@ describe('public migration execution and session cleanup', () => {
         })
         .filter((phase) => phase !== undefined),
     ).toEqual(['rollback', 'unlock'])
+
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
   })
@@ -154,6 +158,7 @@ describe('public migration execution and session cleanup', () => {
         { stage: 'sessionCleanup', cause: cancellationFailure },
       ],
     })
+
     expect(controls.events).toContain('cancel-requested:1')
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
@@ -192,6 +197,7 @@ describe('public migration execution and session cleanup', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
     })
+
     expect((error as Error).message).toMatch(/primary runtime DDL failure/i)
     expect((error as Error).message).not.toMatch(/secondary provider release failure/i)
     await db.close()
@@ -219,6 +225,7 @@ describe('public migration execution and session cleanup', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'sessionCleanup', cause: openCause }],
     })
+
     await db.close()
   })
 
@@ -245,6 +252,7 @@ describe('public migration execution and session cleanup', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'unlock' }],
     })
+
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
   })
@@ -267,6 +275,7 @@ describe('public migration execution and session cleanup', () => {
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
   })
@@ -295,11 +304,14 @@ describe('public migration execution and session cleanup', () => {
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect((error as Error).message).toMatch(/lock acquisition failure/i)
     expect(controls.events).toContain('release-started:1:discard')
+
     expect(controls.calls.some((entry) => /pg_advisory_unlock/i.test(entry.sql))).toBe(
       false,
     )
+
     await db.close()
   })
 
@@ -336,11 +348,14 @@ describe('public migration execution and session cleanup', () => {
       outcome: 'unchanged',
       retryable: true,
     })
+
     expect(controls.events).toContain('cancel-requested:1')
     expect(controls.events).toContain('release-started:1:discard')
+
     expect(
       controls.calls.some((entry) => /^begin|pg_advisory_unlock/i.test(entry.sql)),
     ).toBe(false)
+
     await db.close()
   })
 
@@ -371,6 +386,7 @@ describe('public migration execution and session cleanup', () => {
       outcome: 'unknown',
       retryable: false,
     })
+
     expect((error as Error).message).toMatch(/commit outcome unknown/i)
     expect(controls.calls.some((entry) => /^rollback$/i.test(entry.sql))).toBe(false)
     expect(controls.events).toContain('release-started:1:discard')

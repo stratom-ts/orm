@@ -279,6 +279,7 @@ export async function executePostgresMigration(
             params: [],
           }),
       })
+
       transactionOpen = true
     } catch (cause) {
       options.discard()
@@ -347,6 +348,7 @@ export async function executePostgresMigration(
           stage: 'commit',
           operation: () => options.executor.run({ sql: 'commit', params: [] }),
         })
+
         transactionOpen = false
         committed = true
       } catch (cause) {
@@ -369,6 +371,7 @@ export async function executePostgresMigration(
           stage: 'rollback',
           operation: () => options.executor.run({ sql: 'rollback', params: [] }),
         })
+
         transactionOpen = false
         rollbackAcknowledged = true
       } catch (cause) {

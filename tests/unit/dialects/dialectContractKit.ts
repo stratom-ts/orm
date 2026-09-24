@@ -543,9 +543,11 @@ function registerNaming(name: string, support: ContractSupport<NamingContractInp
       .resolve(input.owner)
     const seed = { kind: 'index' as const, owner, columns: input.columns, unique: false }
     expect(input.dialect.naming.generate(seed)).toBe(input.expectedName)
+
     expect(() =>
       input.dialect.naming.validate(input.expectedName, 'contract index'),
     ).not.toThrow()
+
     const registry = input.dialect.naming.createRegistry()
     registry.reserve({
       kind: 'index',
@@ -554,6 +556,7 @@ function registerNaming(name: string, support: ContractSupport<NamingContractInp
       token: 'first',
       description: 'first contract index',
     })
+
     expect(() =>
       registry.reserve({
         kind: 'index',
@@ -642,6 +645,7 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
           support.expectedMessage,
         )
       })
+
       continue
     }
 

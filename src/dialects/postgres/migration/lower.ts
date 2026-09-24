@@ -235,6 +235,7 @@ export function lowerPostgresMigrationPlan(
           message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered desired table not found`,
           sourceStepIndexes: [sourceStepIndex],
         })
+
         continue
       }
 

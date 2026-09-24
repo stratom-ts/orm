@@ -452,6 +452,7 @@ function buildTableHandle<
     getSchema: handle.getSchema,
     getTableMetadata: handle.getTableMetadata,
   })
+
   return handle as TableHandle<S, TRelation>
 }
 

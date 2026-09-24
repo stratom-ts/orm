@@ -162,15 +162,19 @@ export async function withPostgresDatabase<
   const callbackSettlement = await (async (): Promise<CallbackSettlement<TResult>> => {
     try {
       await admin.query(`create schema ${quoteIdentifier(schema)}`)
+
       cleanup.push(async () => {
         await admin.query(`drop schema if exists ${quoteIdentifier(schema)} cascade`)
       })
+
       await admin.query(`create schema ${quoteIdentifier(alternateSchema)}`)
+
       cleanup.push(async () => {
         await admin.query(
           `drop schema if exists ${quoteIdentifier(alternateSchema)} cascade`,
         )
       })
+
       if (options.additionalCleanup) cleanup.push(options.additionalCleanup)
 
       if (options.sessionSchema) {

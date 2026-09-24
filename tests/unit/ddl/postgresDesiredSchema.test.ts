@@ -428,6 +428,7 @@ describe('PostgreSQL desired-schema lowering', () => {
           'Reference column [database:"test", schema:"public", relation:"legacy_mismatch", column:"targetId"] selects PostgreSQL type "text" but target type is "integer"',
       }),
     )
+
     expect(() =>
       lowerDesiredSchema(
         [SelectedMismatch, Target],
@@ -641,6 +642,7 @@ describe('PostgreSQL desired-schema lowering', () => {
           'PostgreSQL cannot lower database expression tagged for dialect "sqlite"',
       }),
     )
+
     expect(() =>
       lowerDesiredSchema([Computed], postgresIdentities(), postgresDialect.schema),
     ).toThrow(
@@ -696,6 +698,7 @@ describe('PostgreSQL desired-schema lowering', () => {
       expect(() =>
         lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema),
       ).toThrow(MigrationError)
+
       expect(() =>
         lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema),
       ).toThrow(message)
@@ -758,6 +761,7 @@ describe('PostgreSQL desired-schema lowering', () => {
           postgresDialect.schema,
         ),
       ).toThrow(MigrationError)
+
       expect(() =>
         lowerDesiredSchema(
           [source, Target],
@@ -807,6 +811,7 @@ describe('PostgreSQL desired-schema lowering', () => {
     expect(validateInsertRow(Generated, {})).toEqual({})
     expect(validateInsertRow(Generated, { id: 1 })).toEqual({ id: 1 })
     expect(() => validateInsertRow(Generated, { always: 1 })).toThrow(/non-insertable/i)
+
     expect(() => validateInsertRow(Generated, { computed: 'x' })).toThrow(
       /non-insertable/i,
     )
@@ -842,6 +847,7 @@ describe('PostgreSQL desired-schema lowering', () => {
     expect(columns.find((value) => value.identifier.spelling === 'id')?.generated).toBe(
       'byDefault',
     )
+
     expect(
       columns.find((value) => value.identifier.spelling === 'always')?.generated,
     ).toBe('always')

@@ -1010,6 +1010,7 @@ describe('dialect extension contract', () => {
         createContractRuntime({ emptyPlanReportsApplied: faultyLifecycle }),
       ),
     ).rejects.toThrow(/deeply equal/i)
+
     expect(faultyLifecycle.executionReported.value).toBe(true)
     expect(faultyLifecycle.postMigrationStateObserved.value).toBe(true)
   })
@@ -1040,6 +1041,7 @@ describe('dialect extension contract', () => {
     await expect(runDialectLifecycleContract(faultyRuntime)).rejects.toThrow(
       /deeply equal/i,
     )
+
     expect(postMigrationStateObserved.value).toBe(true)
   })
 
@@ -1098,6 +1100,7 @@ describe('dialect extension contract', () => {
 
     unregister()
     unregister = undefined
+
     expect(() => resolveDialect(EXTENSION_CONTRACT_DIALECT_ID)).toThrow(
       /unsupported connector dialect/,
     )
@@ -1109,6 +1112,7 @@ describe('dialect extension contract', () => {
     expect(() => registerDialectForTest({ ...member, id: ' ' })).toThrow(
       /non-empty identifier/,
     )
+
     expect(() => resolveDialect(EXTENSION_CONTRACT_DIALECT_ID)).toThrow(
       /unsupported connector dialect/,
     )

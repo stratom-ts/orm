@@ -122,10 +122,12 @@ describe('PostgreSQL migration runtime integration', () => {
       async ({ db, schema, admin, createDatabase }) => {
         const rowId = randomUUID()
         await db.migrate().execute()
+
         await db
           .insert(RollbackBefore)
           .values({ id: rowId, payload: 'retained' })
           .execute()
+
         const indexesBefore = await admin.query<{
           indexdef: string
           indexname: string
@@ -152,6 +154,7 @@ describe('PostgreSQL migration runtime integration', () => {
 
         const plan = await failing.migrate().plan()
         expect(plan.steps.filter((step) => step.kind === 'add_column')).toHaveLength(2)
+
         await expect(failing.migrate().execute()).rejects.toMatchObject({
           _tag: 'MigrationError',
           stage: 'ddl',
@@ -169,6 +172,7 @@ describe('PostgreSQL migration runtime integration', () => {
           'id',
           'payload',
         ])
+
         const indexesAfterFailure = await admin.query<{
           indexdef: string
           indexname: string
@@ -179,9 +183,11 @@ describe('PostgreSQL migration runtime integration', () => {
           [schema],
         )
         expect(indexesAfterFailure.rows).toEqual(indexesBefore.rows)
+
         expect(indexesAfterFailure.rows.map(({ indexname }) => indexname)).toContain(
           'rollback_payload_idx',
         )
+
         const original = await admin.query<{ id: string; payload: string }>(
           `select id, payload from ${quoteIdentifier(schema)}.${quoteIdentifier('rollback_records')}`,
         )
@@ -212,9 +218,11 @@ describe('PostgreSQL migration runtime integration', () => {
       [ManagedBaseline],
       async ({ db, schema, admin, createDatabase }) => {
         await db.migrate().execute()
+
         await admin.query(
           `create table ${quoteIdentifier(schema)}.${quoteIdentifier('managed_orphan')} (value text)`,
         )
+
         await db
           .insert(ManagedBaseline)
           .values({ id: 'kept', payload: 'payload', legacy: 'legacy' })
@@ -231,6 +239,7 @@ describe('PostgreSQL migration runtime integration', () => {
           'add_column',
           'create_index',
         ])
+
         await constructive.migrate().execute()
         await expect(constructive.migrate().plan()).resolves.toEqual({ steps: [] })
 

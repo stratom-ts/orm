@@ -1060,10 +1060,12 @@ export async function introspectPostgres(
       actual: version,
       requires: '120000',
     }
+
     diagnostics.push({
       code: 'catalog.capability.version',
       message: `PostgreSQL catalog introspection requires version 120000; observed ${version}`,
     })
+
     return {
       source: { dialect: 'postgresql', version },
       request: resolvedRequest,
@@ -1365,31 +1367,37 @@ export async function introspectPostgres(
     namespaceObservations(namespaceRows, 'namespace'),
     namespaceObservations(await executor.execute(namespaceQuery), 'namespace'),
   )
+
   assertObservationUnchanged(
     'column',
     relationObservations(columnRows, 'column'),
     relationObservations(await executor.execute(columnQuery), 'column'),
   )
+
   assertObservationUnchanged(
     'constraint',
     relationObservations(constraintRows, 'constraint'),
     relationObservations(await executor.execute(constraintQuery), 'constraint'),
   )
+
   assertObservationUnchanged(
     'index',
     relationObservations(indexRows, 'index'),
     relationObservations(await executor.execute(indexQuery), 'index'),
   )
+
   assertObservationUnchanged(
     'opaque object',
     relationObservations(opaqueRows, 'opaque object'),
     relationObservations(await executor.execute(opaqueQuery), 'opaque object'),
   )
+
   assertObservationUnchanged(
     'name reservation',
     namespaceObservations(reservationRows, 'name reservation'),
     namespaceObservations(await executor.execute(reservationQuery), 'name reservation'),
   )
+
   const finalRelationRows = await executor.execute(relationQuery)
 
   /**
@@ -1591,6 +1599,7 @@ export async function introspectPostgres(
     ])
     if (!scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace)))
       continue
+
     nameReservations.push({
       namespace,
       name: stringAt(row, 'object_name', 'name reservation', index),
@@ -1602,6 +1611,7 @@ export async function introspectPostgres(
       compareNamespaces(left.namespace, right.namespace) ||
       compareCodeUnits(left.name, right.name),
   )
+
   constraintReservations.sort(
     (left, right) =>
       identities.compare(left.relation, right.relation) ||

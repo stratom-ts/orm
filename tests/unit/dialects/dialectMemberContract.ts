@@ -123,9 +123,11 @@ export async function runDialectLifecycleContract(
     expect(runtime.selectedConnector()).toBe(runtime.connector)
     const catalog = runtime.catalog?.()
     if (catalog) expectExplicitCapabilityEvidence(catalog)
+
     expect(runtime.operationCommands).toEqual(
       expect.arrayContaining([{ kind: 'ping' }, { kind: 'begin' }, { kind: 'commit' }]),
     )
+
     expect(runtime.foreignPolicyLeak()).toBe(false)
     expect(runtime.disposed()).toBe(true)
 

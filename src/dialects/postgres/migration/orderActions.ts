@@ -227,6 +227,7 @@ function topologicalOrder(
     available.sort(
       (left, right) => drafts[left]!.sourceStepIndex - drafts[right]!.sourceStepIndex,
     )
+
     const next = available.shift()!
     ordered.push(drafts[next]!)
 

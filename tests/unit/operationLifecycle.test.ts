@@ -42,19 +42,23 @@ describe('operation coordinator lifecycle', () => {
       'lease-opened:3',
       'lease-opened:4',
     ])
+
     expect(
       controls.calls.some((entry) => entry.session === 2 && entry.sql === 'begin'),
     ).toBe(true)
+
     expect(
       controls.calls.some(
         (entry) => entry.session === 3 && /current_database\(\)/i.test(entry.sql),
       ),
     ).toBe(true)
+
     expect(
       controls.calls.some(
         (entry) => entry.session === 4 && /pg_try_advisory_lock/i.test(entry.sql),
       ),
     ).toBe(true)
+
     await db.close()
   })
 
@@ -122,10 +126,12 @@ describe('operation coordinator lifecycle', () => {
       throw undefined
     })
     await expect(transaction).rejects.toBeUndefined()
+
     expect(callbackControls.calls.map((entry) => entry.sql)).toEqual([
       'begin',
       'rollback',
     ])
+
     await callbackDb.close()
 
     const releaseControls = createControllableProvider({
@@ -140,6 +146,7 @@ describe('operation coordinator lifecycle', () => {
       _tag: 'QueryError',
       cause: undefined,
     })
+
     await expect(releaseDb.ping()).resolves.toBeUndefined()
     expect(releaseControls.openCount).toBe(2)
     await releaseDb.close()

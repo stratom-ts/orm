@@ -45,6 +45,7 @@ describe('canonical relation identity', () => {
       ],
       relation: { spelling: 'User"Profile', comparisonKey: 'User"Profile' },
     })
+
     expect(identities.equals(identity, differentRole)).toBe(false)
   })
 
@@ -91,6 +92,7 @@ describe('canonical relation identity', () => {
         }),
       ),
     ).toBe(true)
+
     expect(
       registeredIdentities.equals(
         registeredIdentities.resolve({ relation: 'users' }),
@@ -100,6 +102,7 @@ describe('canonical relation identity', () => {
         }),
       ),
     ).toBe(true)
+
     expect(
       registeredIdentities.equals(
         registeredIdentities.resolve({ relation: 'users' }),
@@ -163,6 +166,7 @@ describe('canonical relation identity', () => {
       ],
       relation: { spelling: 'events', comparisonKey: 'events' },
     })
+
     expect(identities.resolveNamespace()).toEqual(
       identities.resolve({ relation: 'events' }).namespace,
     )
@@ -192,6 +196,7 @@ describe('canonical relation identity', () => {
       ],
       relation: { spelling: 'Users', comparisonKey: 'users' },
     })
+
     expect(identities.equals(omitted, explicit)).toBe(true)
     expect(identities.equals(omitted, attached)).toBe(false)
   })
@@ -212,6 +217,7 @@ describe('canonical relation identity', () => {
         }),
       ),
     ).toBe(true)
+
     expect(
       identities.equals(
         identities.resolve({ relation: 'events' }),
@@ -263,14 +269,17 @@ describe('canonical relation identity', () => {
     expect(inputs.map((input) => registry.get(identities.resolve(input)))).toEqual(
       inputs.map((_, index) => index),
     )
+
     expect(
       identities.equals(
         identities.resolve({ relation: 'Users' }),
         identities.resolve({ relation: 'users' }),
       ),
     ).toBe(true)
+
     registry.set(identities.resolve({ relation: 'Users' }), 42)
     expect(registry.get(identities.resolve({ relation: 'users' }))).toBe(42)
+
     expect(
       identities.equals(
         identities.resolve({ relation: 'caf\u00e9' }),
@@ -311,6 +320,7 @@ describe('canonical relation identity', () => {
     expect(() => postgres.resolve({ relation: '' })).toThrow(/must not be empty/)
     expect(() => postgres.resolve({ relation: 'a\0b' })).toThrow(/NUL/)
     expect(() => postgres.resolve({ relation: '\ud800' })).toThrow(/surrogate/)
+
     expect(() =>
       postgres.resolve({
         namespace: [
@@ -320,6 +330,7 @@ describe('canonical relation identity', () => {
         relation: 'users',
       }),
     ).toThrow(/writable database/)
+
     expect(() =>
       sqlite.resolve({
         namespace: [{ role: 'schema', spelling: 'main' }],

@@ -78,6 +78,7 @@ describe('OperationCoordinator', () => {
     await expect(withDeadline(first)).rejects.toThrow(/open failed/i)
     await expect(withDeadline(successor)).resolves.toBeUndefined()
     await expect(withDeadline(close)).resolves.toBeUndefined()
+
     expect(controls.events).toEqual([
       'lease-opened:1',
       'lease-opened:2',
@@ -138,6 +139,7 @@ describe('OperationCoordinator', () => {
         })
       }),
     )
+
     expect(firstControls.openCount).toBe(2)
     expect(secondControls.openCount).toBe(2)
     await Promise.all([first.close(), second.close()])
@@ -168,6 +170,7 @@ describe('OperationCoordinator', () => {
     releaseFirst.resolve()
     await expect(first).rejects.toThrow(/session 1 failed/i)
     await expect(second).resolves.toBeUndefined()
+
     expect(controls.events.slice(0, 6)).toEqual([
       'lease-opened:1',
       'statement:1:select 1',
@@ -176,6 +179,7 @@ describe('OperationCoordinator', () => {
       'lease-opened:2',
       'statement:2:select 1',
     ])
+
     await db.close()
   })
 
@@ -228,11 +232,13 @@ describe('OperationCoordinator', () => {
 
     await transaction
     await close
+
     expect(controls.calls.map((entry) => entry.sql)).toEqual([
       'begin',
       'select 1',
       'commit',
     ])
+
     expect(controls.events.at(-1)).toBe('provider-closed')
   })
 
