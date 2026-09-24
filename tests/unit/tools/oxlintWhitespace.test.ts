@@ -203,31 +203,60 @@ describe('Oxlint whitespace rule', () => {
 `)
   })
 
-  it.each(['const', 'let'])(
+  it.each([
+    ['const', 'const request = createRequest()', 'finish(request)'],
+    [
+      'let',
+      'let request = createRequest()',
+      'request = updateRequest(request)\n  finish(request)',
+    ],
+  ])(
     'keeps a related %s declaration with a multiline function call',
-    async (declarationKind) => {
+    async (_, declaration, followingStatements) => {
       const source = `export function example() {
-  ${declarationKind} request = createRequest()
+  ${declaration}
   run(
     request,
     options,
   )
-  ${declarationKind === 'let' ? 'request = updateRequest(request)\n  ' : ''}finish(request)
+  ${followingStatements}
 }
 `
 
       await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
-  ${declarationKind} request = createRequest()
+  ${declaration}
   run(
     request,
     options,
   )
 
-  ${declarationKind === 'let' ? 'request = updateRequest(request)\n  ' : ''}finish(request)
+  ${followingStatements}
 }
 `)
     },
   )
+
+  it('puts one blank line around a multiline optional call', async () => {
+    const source = `export function example() {
+  prepare()
+  run?.(
+    request,
+  )
+  finish()
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(`export function example() {
+  prepare()
+
+  run?.(
+    request,
+  )
+
+  finish()
+}
+`)
+  })
 
   it('separates an unrelated declaration from a multiline function call', async () => {
     const source = `export function example() {
