@@ -27,6 +27,25 @@ import { SchemaError } from '@/utils/error'
 /** Handle methods that must not collide with column names. */
 const RESERVED_HANDLE_KEYS = new Set(['getSchema', 'getTableMetadata'])
 
+/** Shared across compatible package copies; bump the key for an incompatible handle ABI. */
+const TABLE_HANDLE_REGISTRY_KEY = Symbol.for('stratom.TableHandle.registry.v1')
+
+type RegisteredTableHandleMethods = {
+  getSchema: () => unknown
+  getTableMetadata: () => unknown
+}
+
+type GlobalWithTableHandleRegistry = typeof globalThis & {
+  [TABLE_HANDLE_REGISTRY_KEY]?: WeakMap<object, RegisteredTableHandleMethods>
+}
+const globalWithTableHandleRegistry = globalThis as GlobalWithTableHandleRegistry
+const existingTableHandles = globalWithTableHandleRegistry[TABLE_HANDLE_REGISTRY_KEY]
+const definedTableHandles =
+  existingTableHandles instanceof WeakMap
+    ? existingTableHandles
+    : new WeakMap<object, RegisteredTableHandleMethods>()
+globalWithTableHandleRegistry[TABLE_HANDLE_REGISTRY_KEY] = definedTableHandles
+
 type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
 
 /**
@@ -429,6 +448,10 @@ function buildTableHandle<
     getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
   }
 
+  definedTableHandles.set(handle, {
+    getSchema: handle.getSchema,
+    getTableMetadata: handle.getTableMetadata,
+  })
   return handle as TableHandle<S, TRelation>
 }
 
@@ -499,5 +522,26 @@ export function defineTable<
  * @returns `true` if `value` is a table handle from `defineTable`
  */
 export function isTableHandle(value: unknown): value is TableHandle {
-  return typeof value === 'object' && value !== null && TABLE_HANDLE in (value as object)
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const registeredMethods = definedTableHandles.get(value)
+  if (!registeredMethods) return false
+
+  const candidate = value as {
+    [TABLE_HANDLE]?: unknown
+    getSchema?: unknown
+    getTableMetadata?: unknown
+  }
+
+  try {
+    return (
+      candidate[TABLE_HANDLE] === true &&
+      candidate.getSchema === registeredMethods.getSchema &&
+      candidate.getTableMetadata === registeredMethods.getTableMetadata
+    )
+  } catch {
+    return false
+  }
 }
