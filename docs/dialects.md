@@ -215,6 +215,14 @@ must report successful completion as `applied` or `unchanged`. Failures use
 cannot implement a migration capability return deterministic lowering issues or tagged
 errors rather than running a partial approximation.
 
+The public `db.migrate().preview()` API is a non-executable projection of that same
+whole-plan lowering result. It preserves action grouping and source-step provenance,
+copies SQL and parameter counts, and replaces every bound parameter with
+`[REDACTED]`. It never exposes executable session assertions or parameter values.
+SQL literals embedded by an adapter are verbatim and are outside parameter redaction.
+Preview resolves and validates the same Semantic Profile as execution and performs no
+DDL.
+
 ## Registering and testing a member
 
 Package-supported members are statically registered in `src/dialects/resolve.ts` by

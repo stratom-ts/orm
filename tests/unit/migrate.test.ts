@@ -407,6 +407,34 @@ function matchingUsers(extra?: Partial<LiveTable>): LiveTable {
 }
 
 describe('db.migrate() adapters and execution', () => {
+  it('returns a stable PostgreSQL SQL preview without running DDL', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const preview = await db.migrate().preview()
+
+    expect(preview).toMatchObject({
+      atomicity: 'plan-atomic',
+      actions: [
+        {
+          sourceStepIndexes: [0],
+          transaction: 'required',
+          statements: [
+            {
+              sql: 'create table "public"."users" ("id" uuid not null, "email" text not null, constraint "users_id__c2b82cf39bf9f504_pkey" primary key ("id"))',
+              params: [],
+            },
+          ],
+        },
+      ],
+    })
+    expect(connector.runSql).toEqual([])
+    expect(connector.prepared.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+    await db.close()
+  })
+
   it('lowers wrapper nullability and inferred types consistently in dryRun and execute', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [WrapperMigration] })

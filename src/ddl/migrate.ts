@@ -1,4 +1,4 @@
-import type { DialectMigrationAdapter } from '@/ddl/migrationProgram'
+import type { DialectMigrationAdapter, MigrationProgram } from '@/ddl/migrationProgram'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
@@ -24,6 +24,27 @@ export type MigrationExecuteOptions = Readonly<{
   lockTimeoutMs?: number
 }>
 
+/** Non-executable statement preview; every bound parameter is redacted. */
+export type MigrationPreviewStatement = Readonly<{
+  sql: string
+  /** One `[REDACTED]` marker per bound parameter, preserving count and order. */
+  params: readonly '[REDACTED]'[]
+}>
+
+/** Non-executable physical action projected from dialect whole-plan lowering. */
+export type MigrationPreviewAction = Readonly<{
+  sourceStepIndexes: readonly number[]
+  transaction: 'required' | 'allowed' | 'forbidden'
+  statements: readonly MigrationPreviewStatement[]
+}>
+
+/** Ordered, non-executable physical preview of a complete Migration Plan. */
+export type MigrationPreview = Readonly<{
+  atomicity: 'plan-atomic' | 'statement-atomic' | 'non-atomic'
+  preconditions: MigrationProgram['preconditions']
+  actions: readonly MigrationPreviewAction[]
+}>
+
 export type MigrateBuilder = {
   /**
    * Grants execution permission for destructive migration operations.
@@ -34,6 +55,9 @@ export type MigrateBuilder = {
 
   /** Builds a Migration Plan without executing it. */
   dryRun(): Promise<MigrationPlan>
+
+  /** Lowers the complete plan and returns ordered SQL with all bound values redacted. */
+  preview(): Promise<MigrationPreview>
 
   /**
    * Plans and executes the migration through the selected dialect.
@@ -140,6 +164,59 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
       return 'dropIndex'
     default:
       return undefined
+  }
+}
+
+/** Runs the shared, all-or-nothing whole-plan lowering boundary. */
+function lowerPlan(
+  migration: DialectMigrationAdapter,
+  planned: Parameters<DialectMigrationAdapter['lower']>[0],
+  expected: Parameters<DialectMigrationAdapter['lower']>[1],
+): MigrationProgram {
+  const lowering = attemptSync(() => migration.lower(planned, expected))
+  if (!lowering.ok) throw phaseError(lowering.error, 'lowering')
+  const lowered = lowering.value
+
+  if (lowered.issues) {
+    const sourceStepIndexes = [
+      ...new Set(lowered.issues.flatMap((issue) => issue.sourceStepIndexes)),
+    ].sort((left, right) => left - right)
+    throw new MigrationError({
+      message: lowered.issues.map((issue) => issue.message).join('\n'),
+      stage: 'lowering',
+      outcome: 'unchanged',
+      retryable: false,
+      sourceStepIndexes,
+      capabilityIssues: lowered.issues,
+    })
+  }
+
+  return lowered.program
+}
+
+/** Copies the physical program into a review-only shape without executable callbacks. */
+function previewProgram(program: MigrationProgram): MigrationPreview {
+  return {
+    atomicity: program.atomicity,
+    preconditions: program.preconditions.map((precondition) => ({
+      ...precondition,
+      sourceStepIndexes: [...precondition.sourceStepIndexes],
+      relation: {
+        namespace: precondition.relation.namespace.map((segment) => ({
+          ...segment,
+          identifier: { ...segment.identifier },
+        })),
+        relation: { ...precondition.relation.relation },
+      },
+    })),
+    actions: program.actions.map((action) => ({
+      sourceStepIndexes: [...action.sourceStepIndexes],
+      transaction: action.transaction,
+      statements: action.statements.map((statement) => ({
+        sql: statement.sql,
+        params: statement.params.map(() => '[REDACTED]' as const),
+      })),
+    })),
   }
 }
 
@@ -275,6 +352,24 @@ export function createMigrateBuilder(options: {
       }
     },
 
+    /** Builds and lowers the plan without executing physical actions. */
+    async preview() {
+      try {
+        return await runOperation(async (executor) => {
+          const { planned, expected } = await buildPlan(executor)
+          return previewProgram(lowerPlan(migration, planned, expected))
+        })
+      } catch (cause) {
+        if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+        const cleanupFailures = sessionCleanupFailures(cause)
+        throw new MigrationError({
+          message: cause instanceof Error ? cause.message : 'Migration preview failed',
+          ...(cause !== undefined ? { cause } : {}),
+          ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
+        })
+      }
+    },
+
     /**
      * Plans and executes the migration through the selected dialect.
      *
@@ -322,27 +417,7 @@ export function createMigrateBuilder(options: {
                   }
                 }
 
-                const lowering = attemptSync(() => migration.lower(planned, expected))
-                if (!lowering.ok) throw phaseError(lowering.error, 'lowering')
-                const lowered = lowering.value
-
-                if (lowered.issues) {
-                  const sourceStepIndexes = [
-                    ...new Set(
-                      lowered.issues.flatMap((issue) => issue.sourceStepIndexes),
-                    ),
-                  ].sort((left, right) => left - right)
-                  throw new MigrationError({
-                    message: lowered.issues.map((issue) => issue.message).join('\n'),
-                    stage: 'lowering',
-                    outcome: 'unchanged',
-                    retryable: false,
-                    sourceStepIndexes,
-                    capabilityIssues: lowered.issues,
-                  })
-                }
-
-                return lowered.program
+                return lowerPlan(migration, planned, expected)
               },
             }),
           )

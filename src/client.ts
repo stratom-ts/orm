@@ -651,6 +651,7 @@ export function createDatabase<
      *
      * @example
      *   const plan = await db.migrate().dryRun()
+     *   const preview = await db.migrate().preview()
      */
     const migrate = (): MigrateBuilder => {
       ensureClientOpen()

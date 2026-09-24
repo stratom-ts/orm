@@ -415,6 +415,7 @@ steps are refused unless explicitly allowed.
 
 ```typescript
 const plan = await db.migrate().dryRun()
+const preview = await db.migrate().preview()
 await db.migrate().execute()
 await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
 ```
@@ -445,6 +446,14 @@ indexes stay unambiguous across dialects:
 Steps are ordered by semantic phase (`ensure_namespace`, relations, columns, types and
 nullability, indexes, constraints, then destructive cleanup) and then by structured
 target order. Execution order and SQL are separate concerns the dialect owns.
+
+`preview()` returns the selected dialect's ordered lowered actions without executing
+them. Actions retain their source step indexes and can contain zero, one, or many SQL
+statements, including actions coalesced from multiple steps. Every bound parameter is
+shown as `[REDACTED]`, with one marker per value; parameter values are never included.
+SQL text is emitted verbatim, so literal values authored directly into SQL are not
+redacted. Preview performs the same profile validation and whole-plan lowering as
+execution, but it does not apply destructive execution permissions or run DDL.
 
 ### Errors
 

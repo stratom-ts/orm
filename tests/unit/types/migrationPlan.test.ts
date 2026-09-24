@@ -10,6 +10,9 @@ import type {
   MigrationIndexTarget,
   MigrationNamespaceTarget,
   MigrationPlan,
+  MigrationPreview,
+  MigrationPreviewAction,
+  MigrationPreviewStatement,
   MigrationRelationTarget,
   MigrationStep,
   MigrationTarget,
@@ -90,6 +93,31 @@ describe('public Migration Plan types', () => {
     expectTypeOf<Extract<MigrationStep, { kind: 'create_table' }>>().toEqualTypeOf<
       Readonly<{ kind: 'create_table'; target: ExpectedRelationTarget }>
     >()
+  })
+
+  it('keeps the preview grouped and non-executable', () => {
+    expectTypeOf<MigrationPreviewStatement>().toEqualTypeOf<
+      Readonly<{ sql: string; params: readonly '[REDACTED]'[] }>
+    >()
+    expectTypeOf<MigrationPreviewAction>().toEqualTypeOf<
+      Readonly<{
+        sourceStepIndexes: readonly number[]
+        transaction: 'required' | 'allowed' | 'forbidden'
+        statements: readonly MigrationPreviewStatement[]
+      }>
+    >()
+    expectTypeOf<MigrationPreview['atomicity']>().toEqualTypeOf<
+      'plan-atomic' | 'statement-atomic' | 'non-atomic'
+    >()
+    expectTypeOf<MigrationPreview['actions']>().toEqualTypeOf<
+      readonly MigrationPreviewAction[]
+    >()
+    expectTypeOf<
+      MigrationPreview['preconditions'][number]['relation']
+    >().toEqualTypeOf<CanonicalRelationIdentity>()
+    expectTypeOf<MigrationPreviewStatement>().not.toHaveProperty('assertSession')
+    expectTypeOf<MigrationPlan>().not.toHaveProperty('sql')
+    expectTypeOf<MigrationStep>().not.toHaveProperty('sql')
   })
 
   it('addresses every step through one exact structured target union', () => {
