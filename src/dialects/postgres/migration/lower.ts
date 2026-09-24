@@ -167,13 +167,16 @@ function compareCapabilityIssues(
 ): number {
   const sourceOrder =
     (left.sourceStepIndexes[0] ?? -1) - (right.sourceStepIndexes[0] ?? -1)
+
   if (sourceOrder !== 0) return sourceOrder
 
   const codeOrder = ISSUE_ORDER[left.code] - ISSUE_ORDER[right.code]
+
   if (codeOrder !== 0) return codeOrder
 
   if (left.message < right.message) return -1
   if (left.message > right.message) return 1
+
   return 0
 }
 
@@ -191,6 +194,7 @@ export function lowerPostgresMigrationPlan(
   expectedProfile: MigrationSemanticProfile,
 ): MigrationLoweringResult {
   const issues = profileIssues(planned, expectedProfile)
+
   if (issues.length > 0) {
     issues.sort(compareCapabilityIssues)
     return { issues }
@@ -235,6 +239,7 @@ export function lowerPostgresMigrationPlan(
           message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered desired table not found`,
           sourceStepIndexes: [sourceStepIndex],
         })
+
         continue
       }
 
@@ -264,6 +269,7 @@ export function lowerPostgresMigrationPlan(
   const ordered = orderActions(drafts, planned)
   issues.push(...ordered.issues)
   issues.sort(compareCapabilityIssues)
+
   if (issues.length > 0) return { issues }
 
   const actions: MigrationAction[] = ordered.ordered.map((draft) => ({

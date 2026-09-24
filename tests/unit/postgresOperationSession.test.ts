@@ -28,6 +28,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const first = await provider.open()
     await first.query({ sql: plainSql, params: ['bound'] })
     await first.release('reuse')
+
     expect(connector.queryCalls).toEqual([
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: plainSql, values: ['bound'] },
@@ -38,6 +39,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const second = await provider.open()
     await second.query({ sql: 'select 2', params: [] })
     await second.release('reuse')
+
     expect(connector.queryCalls.slice(beforeSecond)).toEqual([
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: 'select 2', values: [] },
@@ -49,6 +51,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     await transaction.run({ sql: 'begin', params: [] })
     await transaction.run({ sql: 'commit', params: [] })
     await transaction.release('reuse')
+
     expect(connector.queryCalls.slice(beforeTransaction)).toEqual([
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: 'begin', values: [] },
@@ -62,6 +65,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const advisory = await provider.open()
     await advisory.run({ sql: 'select pg_advisory_lock(1, 2)', params: [] })
     await advisory.release('reuse')
+
     expect(connector.queryCalls.slice(beforeAdvisory)).toEqual([
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
       { text: 'select pg_advisory_lock(1, 2)', values: [] },
@@ -69,6 +73,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
     ])
+
     await provider.close()
   })
 
@@ -82,6 +87,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       { role: 'database', spelling: 'operations_test' },
       { role: 'schema', spelling: 'public' },
     ])
+
     await first.release('reuse')
 
     schema = 'tenant'
@@ -90,11 +96,13 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       { role: 'database', spelling: 'operations_test' },
       { role: 'schema', spelling: 'tenant' },
     ])
+
     await second.release('reuse')
 
     expect(
       connector.queryCalls.filter(({ text }) => text === POSTGRES_OPERATION_IDENTITY_SQL),
     ).toHaveLength(4)
+
     await provider.close()
   })
 
@@ -104,6 +112,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       currentSchema: () => schema,
       onQuery: async (text) => {
         if (/^create schema/i.test(text)) schema = 'tenant'
+
         return []
       },
     })
@@ -111,9 +120,11 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const session = await provider.open()
 
     await session.run({ sql: 'create schema tenant', params: [] })
+
     await expect(session.release('reuse')).rejects.toThrow(
       /session identity changed before release/i,
     )
+
     expect(connector.disposeCount).toBe(1)
     await provider.close()
   })
@@ -124,9 +135,11 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const session = await provider.open()
 
     await session.run({ sql: 'select 1', params: [] })
+
     await expect(session.release('reuse')).rejects.toThrow(
       /identity evidence unavailable/i,
     )
+
     expect(connector.disposeCount).toBe(1)
     await provider.close()
   })
@@ -137,6 +150,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       identityFailureAt: 2,
       onQuery: async (text) => {
         if (text === 'select primary failure') throw primary
+
         return []
       },
     })
@@ -149,14 +163,18 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       .catch((cause: unknown) => cause)
 
     expect(error).toBeInstanceOf(QueryError)
+
     expect(error).toMatchObject({
       message: 'primary native operation failure',
       cause: primary,
     })
+
     expect(getOperationReleaseCleanupFailures(error)).toHaveLength(1)
+
     expect(getOperationReleaseCleanupFailures(error)[0]).toMatchObject({
       message: 'identity evidence unavailable',
     })
+
     expect(connector.disposeCount).toBe(1)
     await coordinator.close()
   })
@@ -168,7 +186,9 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const connector = createNativeConnector({
       onQuery: async () => {
         const index = call++
+
         if (index === 0) firstStarted.resolve()
+
         const gate = gates[index]!
         await gate.promise
         return []
@@ -193,6 +213,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       database: initialDatabase,
       physicalSession: initialPhysicalSession,
     })
+
     await session.release('reuse')
     expect(connector.disposeCount).toBe(0)
     await expect(session.release('reuse')).rejects.toThrow(/more than once/i)
@@ -221,9 +242,11 @@ describe('db0 PostgreSQL operation-session adapter', () => {
 
     const cancel = session.cancel()
     await endStarted.promise
+
     expect(
       await Promise.race([cancel.then(() => 'settled'), Promise.resolve('pending')]),
     ).toBe('pending')
+
     finishEnd.resolve()
     await expect(withDeadline(cancel)).resolves.toBeUndefined()
     await expect(withDeadline(query)).rejects.toThrow(/terminated/i)
@@ -235,6 +258,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     expect(replacement.identity.physicalSession).not.toBe(
       originalIdentity.physicalSession,
     )
+
     await replacement.release('reuse')
     await provider.close()
   })
@@ -314,9 +338,11 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const firstClose = provider.close()
     const secondClose = provider.close()
     expect(secondClose).toBe(firstClose)
+
     expect(
       await Promise.race([firstClose.then(() => 'settled'), Promise.resolve('waiting')]),
     ).toBe('waiting')
+
     await expect(provider.open()).rejects.toThrow(/closed/i)
     await session.query({ sql: 'select 1', params: [] })
     await session.release('reuse')

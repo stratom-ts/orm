@@ -55,6 +55,7 @@ export const POSTGRES_OPERATION_UNLOCK_SQL =
 function getActiveQuery(client: NativePostgresClient): unknown {
   if (typeof client._getActiveQuery === 'function') return client._getActiveQuery()
   if ('_activeQuery' in client) return client._activeQuery
+
   return client.activeQuery
 }
 
@@ -65,6 +66,7 @@ function getActiveQuery(client: NativePostgresClient): unknown {
  */
 function getQueryQueue(client: NativePostgresClient): unknown[] | undefined {
   if (Array.isArray(client._queryQueue)) return client._queryQueue
+
   return client.queryQueue
 }
 
@@ -274,7 +276,9 @@ export function createDb0PostgresqlOperationSessionProvider(
         leased = false
         activeLease = undefined
         finishLease()
+
         if (cause instanceof QueryError) throw cause
+
         throw new QueryError({
           message:
             cause instanceof Error

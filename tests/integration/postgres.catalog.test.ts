@@ -43,10 +43,12 @@ describe('PostgreSQL catalog integration', () => {
       [CatalogParents, CatalogChildren],
       async ({ db, schema, alternateSchema, admin }) => {
         await db.migrate().execute()
+
         await admin.query(
           `create index ${quoteIdentifier('catalog_parents_expression_idx')}
            on ${quoteIdentifier(schema)}.${quoteIdentifier('catalog_parents')} ((lower(code)))`,
         )
+
         const database = await admin.query<{ name: string }>(
           'select current_database() as name',
         )
@@ -82,6 +84,7 @@ describe('PostgreSQL catalog integration', () => {
           dialect: 'postgresql',
           version: expect.stringMatching(/^\d+$/),
         })
+
         expect(catalog.capabilities).toMatchObject({
           namespaces: { state: 'supported', fidelity: 'native' },
           identity: { state: 'supported', fidelity: 'native' },
@@ -98,6 +101,7 @@ describe('PostgreSQL catalog integration', () => {
             reason: 'Relations outside the requested catalog scope are unmanaged',
           },
         })
+
         const absent = catalog.request.absentRelations.find(
           ({ relation }) => relation.spelling === 'catalog_missing',
         )
@@ -117,12 +121,15 @@ describe('PostgreSQL catalog integration', () => {
           ],
           relation: { spelling: 'catalog_missing', comparisonKey: 'catalog_missing' },
         })
+
         expect(
           namespace?.relations.items.some(
             ({ identity }) => identity.relation.spelling === 'catalog_missing',
           ),
         ).toBe(false)
+
         expect(catalog.nameReservations.coverage).toEqual({ state: 'complete' })
+
         expect(
           catalog.nameReservations.items.some(
             ({ namespace: reservedNamespace, name }) =>
@@ -139,8 +146,11 @@ describe('PostgreSQL catalog integration', () => {
           nativeDefinition: { state: 'unsupported', by: 'adapter' },
           table: { state: 'present' },
         })
+
         if (parents?.table.state !== 'present') throw new Error('Expected parent table')
+
         expect(parents.table.value.primaryKey).toMatchObject({ state: 'present' })
+
         expect(
           parents.table.value.columns.items.find(({ name }) => name === 'id'),
         ).toMatchObject({
@@ -151,15 +161,18 @@ describe('PostgreSQL catalog integration', () => {
             value: { kind: 'identity', mode: 'byDefault' },
           },
         })
+
         expect(
           parents.table.value.columns.items.find(({ name }) => name === 'code')?.default,
         ).toMatchObject({ state: 'present' })
+
         expect(
           parents.table.value.indexes.items.find(
             ({ name }) =>
               name.state === 'present' && name.value === 'catalog_parents_code_uidx',
           ),
         ).toMatchObject({ unique: true, semantics: { state: 'present' } })
+
         expect(
           parents.table.value.indexes.items.find(
             ({ name }) =>
@@ -173,7 +186,9 @@ describe('PostgreSQL catalog integration', () => {
         const children = namespace?.relations.items.find(
           ({ identity }) => identity.relation.spelling === 'catalog_children',
         )
+
         if (children?.table.state !== 'present') throw new Error('Expected child table')
+
         expect(children.table.value.foreignKeys.items[0]).toMatchObject({
           referencedRelation: { relation: { spelling: 'catalog_parents' } },
           referencedColumns: ['id'],

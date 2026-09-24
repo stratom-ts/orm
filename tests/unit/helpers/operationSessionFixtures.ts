@@ -98,6 +98,7 @@ export function createNativeConnector(options?: {
           text === POSTGRES_OPERATION_UNLOCK_SQL
         ) {
           if (options?.releaseFailure) throw options.releaseFailure.value
+
           return { rows: [] }
         }
 
@@ -196,7 +197,9 @@ export function createControllableProvider(
     async open() {
       const id = ++openCount
       events.push(`lease-opened:${id}`)
+
       if (options?.openFailure?.session === id) throw options.openFailure.value
+
       let released = false
       let queue = Promise.resolve()
       const identity = {
@@ -221,6 +224,7 @@ export function createControllableProvider(
 
       const call = <T>(sql: string, operation: () => Promise<T>): Promise<T> => {
         if (released) throw new Error('released session used')
+
         const result = queue.then(async () => {
           calls.push({ session: id, sql })
           events.push(`statement:${id}:${sql}`)
@@ -235,6 +239,7 @@ export function createControllableProvider(
             }
 
             if (options?.failSession === id) throw new Error(`session ${id} failed`)
+
             return await operation()
           } finally {
             activeCalls--
@@ -292,6 +297,7 @@ export function createControllableProvider(
         },
         async release(disposition) {
           if (released) throw new Error('released twice')
+
           released = true
           await queue
           events.push(`release-started:${id}:${disposition}`)
@@ -314,6 +320,7 @@ export function createControllableProvider(
     async close() {
       closeCount++
       events.push('provider-closed')
+
       if (options?.closeFailure) throw options.closeFailure.value
     },
   }
@@ -349,6 +356,7 @@ export function createOperationSessionCommonRuntime(
           if (event === 'cancel-requested:1') return ['cancel' as const]
           if (event === 'release-finished:1:reuse') return ['release:reuse' as const]
           if (event === 'provider-closed') return ['close' as const]
+
           return []
         }),
     },

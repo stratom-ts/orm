@@ -27,6 +27,7 @@ describe('scoped transaction coordinator behavior', () => {
     expect(controls.openCount).toBe(1)
     expect(controls.maxActiveCalls).toBe(1)
     expect(controls.calls.every((entry) => entry.session === 1)).toBe(true)
+
     expect(controls.calls.map((entry) => entry.sql)).toEqual([
       'begin',
       'select 1',
@@ -36,6 +37,7 @@ describe('scoped transaction coordinator behavior', () => {
       'release savepoint sp_1',
       'commit',
     ])
+
     await db.close()
   })
 
@@ -68,6 +70,7 @@ describe('scoped transaction coordinator behavior', () => {
       'release savepoint sp_3',
       'commit',
     ])
+
     await db.close()
   })
 
@@ -85,9 +88,11 @@ describe('scoped transaction coordinator behavior', () => {
           await expect(
             withDeadline(trx.transaction(async () => undefined)),
           ).rejects.toThrow(/use the nested callback client/i)
+
           await expect(withDeadline(trx.ping())).rejects.toThrow(
             /use the nested callback client/i,
           )
+
           await nested.transaction(async (deep) => deep.ping())
         })
       }),
@@ -102,6 +107,7 @@ describe('scoped transaction coordinator behavior', () => {
       'release savepoint sp_1',
       'commit',
     ])
+
     await db.close()
   })
 
@@ -118,6 +124,7 @@ describe('scoped transaction coordinator behavior', () => {
 
     const transaction = db.transaction(async (trx) => {
       ancestor = trx
+
       await trx.transaction(async () => {
         nestedStarted.resolve()
         await finishNested.promise
@@ -130,6 +137,7 @@ describe('scoped transaction coordinator behavior', () => {
 
     finishNested.resolve()
     await withDeadline(Promise.all([transaction, ancestorStatement]))
+
     expect(controls.calls.map((entry) => entry.sql)).toEqual([
       'begin',
       'savepoint sp_1',
@@ -137,6 +145,7 @@ describe('scoped transaction coordinator behavior', () => {
       'select 1',
       'commit',
     ])
+
     await db.close()
   })
 
@@ -153,6 +162,7 @@ describe('scoped transaction coordinator behavior', () => {
 
     const transaction = db.transaction(async (trx) => {
       ancestor = trx
+
       await trx
         .transaction(async () => {
           nestedStarted.resolve()
@@ -168,6 +178,7 @@ describe('scoped transaction coordinator behavior', () => {
 
     failNested.resolve()
     await withDeadline(Promise.all([transaction, ancestorStatement]))
+
     expect(controls.calls.map((entry) => entry.sql)).toEqual([
       'begin',
       'savepoint sp_1',
@@ -176,6 +187,7 @@ describe('scoped transaction coordinator behavior', () => {
       'select 1',
       'commit',
     ])
+
     await db.close()
   })
 
@@ -210,6 +222,7 @@ describe('scoped transaction coordinator behavior', () => {
       'rollback to savepoint sp_1',
       'rollback',
     ])
+
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
   })
@@ -245,6 +258,7 @@ describe('scoped transaction coordinator behavior', () => {
       'release savepoint sp_1',
       'rollback',
     ])
+
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
   })
@@ -278,6 +292,7 @@ describe('scoped transaction coordinator behavior', () => {
       'release savepoint sp_2',
       'rollback',
     ])
+
     await db.close()
   })
 })

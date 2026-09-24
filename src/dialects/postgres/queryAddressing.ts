@@ -102,6 +102,7 @@ export function resolvePostgresQuery(
   return Object.freeze({
     compile(node: Parameters<typeof compilePostgres>[0]) {
       const compiled = compilePostgres(node, resolveRelation)
+
       if (requirements.size === 0) return compiled
 
       return {

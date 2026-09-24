@@ -271,6 +271,7 @@ function compileContractQuery(
     }
 
     parameterColumns.push(identityPolicy.comparisonKey(columnMatches[0]!))
+
     if (node.where.value !== undefined) params.push(node.where.value)
   }
 
@@ -501,6 +502,7 @@ function createCatalog(
         if (row.kind !== 'namespace') continue
 
         const namespace = identities.resolveNamespace(row.namespace)
+
         if (
           !requestedNamespaces.some((requested) => sameNamespace(requested, namespace))
         ) {
@@ -622,6 +624,7 @@ function createSessionProvider(
         async query(query) {
           calls.statements.push(query)
           calls.events.push('session.query')
+
           if (!query.sql.startsWith(CONTRACT_QUERY_PREFIX)) return []
 
           const shape = JSON.parse(
@@ -815,6 +818,7 @@ export function createExtensionContractDialect(
       lower(planned, expectedProfile) {
         calls.events.push('migration.lower')
         const mismatches = profileIssues(identity, planned.profile, expectedProfile)
+
         if (mismatches.length > 0) return { issues: mismatches }
 
         if (options?.migration === 'unsupported') {

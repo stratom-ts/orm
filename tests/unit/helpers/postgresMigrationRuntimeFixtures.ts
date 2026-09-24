@@ -79,18 +79,24 @@ export function createPostgresMigrationRuntime(
         `${query.params[0]}:${query.params[1]}`,
       ) ??
       true
+
     if (result instanceof Error) throw result
+
     return [{ locked: result }]
   }
 
   function release(query: { sql: string; params: unknown[] }) {
     if (options.failUnlock) throw new Error('unlock failed')
+
     const result = options.releaseResults?.shift() ?? options.unlockResults?.shift()
+
     if (result instanceof Error) throw result
+
     options.sharedLockManager?.release(
       options.clientId ?? 'client',
       `${query.params[0]}:${query.params[1]}`,
     )
+
     return [{ unlocked: result ?? true }]
   }
 
@@ -98,6 +104,7 @@ export function createPostgresMigrationRuntime(
     async run(query) {
       calls.push(query.sql)
       queries.push(query)
+
       if (/^begin\b/i.test(query.sql) && held !== undefined) await held
       if (options.hangRun?.test(query.sql)) await hang()
       if (options.failRun?.test(query.sql)) throw new Error(`failed: ${query.sql}`)
@@ -105,11 +112,13 @@ export function createPostgresMigrationRuntime(
     async execute(query) {
       calls.push(query.sql)
       queries.push(query)
+
       if (options.hangQuery?.test(query.sql)) await hang()
 
       if (/pg_try_advisory_lock/i.test(query.sql)) return acquire(query)
       if (/pg_advisory_unlock/i.test(query.sql)) return release(query)
       if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
+
       return []
     },
   }
@@ -138,6 +147,7 @@ export function createPostgresMigrationRuntime(
     if (/^\s*(?:begin|commit|rollback)\b/i.test(query.sql)) return 'transaction'
     if (/count\(\*\)/i.test(query.sql)) return 'introspection'
     if (/create table/i.test(query.sql)) return 'ddl'
+
     return 'unclassified'
   }
 

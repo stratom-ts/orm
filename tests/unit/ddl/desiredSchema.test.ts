@@ -91,6 +91,7 @@ function fakeSqliteDialect(): Dialect {
     for (const table of graph.tables) {
       for (const authored of table.columns) {
         if (authored.reference) continue
+
         const selected = authored.metadata?.physicalType?.sqlite
 
         if (!selected) {
@@ -300,8 +301,10 @@ describe('whole-graph desired-schema lowering', () => {
         ],
       },
     ])
+
     expect(inferSpy).not.toHaveBeenCalled()
     expect(normalizeSpy).not.toHaveBeenCalled()
+
     expect(
       createValueMapper(fake, undefined, [Child, Parent]).columnTypes(Child),
     ).toEqual({ id: 'blob_id', parentId: 'blob_id' })
@@ -328,6 +331,7 @@ describe('whole-graph desired-schema lowering', () => {
     expect(() =>
       lowerDesiredSchema([Ref], postgresIdentities(), postgresDialect.schema),
     ).toThrow(/unregistered relation/i)
+
     expect(() =>
       lowerDesiredSchema([Composite, Ref], postgresIdentities(), postgresDialect.schema),
     ).toThrow(/not a candidate key/i)

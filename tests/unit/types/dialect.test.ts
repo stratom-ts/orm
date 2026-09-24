@@ -26,9 +26,11 @@ describe('public dialect member contract', () => {
     expectTypeOf<Dialect['query']>().toEqualTypeOf<DialectQuery>()
     expectTypeOf<Dialect['operations']>().toEqualTypeOf<DialectOperations>()
     expectTypeOf<Dialect['migration']>().toEqualTypeOf<DialectMigrationAdapter>()
+
     expectTypeOf<
       Parameters<DialectOperations['compile']>[0]
     >().toEqualTypeOf<OperationCommand>()
+
     expectTypeOf<DialectNaming>().not.toHaveProperty('comparisonKey')
     expectTypeOf<DialectNaming>().not.toHaveProperty('maximumLength')
     expectTypeOf<DialectNaming>().not.toHaveProperty('scope')
@@ -44,9 +46,11 @@ describe('public dialect member contract', () => {
     expectTypeOf<Dialect>().not.toHaveProperty('compile')
     expectTypeOf<Dialect>().not.toHaveProperty('mapResultValue')
     expectTypeOf<Dialect>().not.toHaveProperty('mapParamValue')
+
     expect(postgresDialect.operations.createSessionProvider).toBe(
       createDb0PostgresqlOperationSessionProvider,
     )
+
     expect(postgresDialect.catalog).toBeDefined()
     expect(postgresDialect.migration.planning.identity).toBe(postgresDialect.identity)
     expect(postgresDialect.migration.planning.naming).toBe(postgresDialect.naming)
@@ -78,6 +82,7 @@ describe('public dialect member contract', () => {
     expect(postgresDialect.naming.generate(seed)).toBe(
       'users_email__75d8a7c1b67c60f1_idx',
     )
+
     expect(() => postgresDialect.naming.validate('invalid\ud800', 'index name')).toThrow(
       /unpaired Unicode surrogates/,
     )
@@ -90,6 +95,7 @@ describe('public dialect member contract', () => {
       token: 'users-email',
       description: 'users email index',
     })
+
     expect(() =>
       registry.reserve({
         kind: 'index',

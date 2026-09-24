@@ -75,6 +75,7 @@ function createMockStatement(rows: unknown[] = [], runError?: Error): Statement 
     },
     async run() {
       if (runError) throw runError
+
       return { success: true }
     },
     async get() {
@@ -194,6 +195,7 @@ function createMockConnector(options?: {
     }
 
     const relationCatalog = relationCatalogStatement(normalized)
+
     if (relationCatalog) return relationCatalog
 
     if (normalized.includes('con.contype as constraint_type')) {
@@ -428,10 +430,13 @@ describe('db.migrate() adapters and execution', () => {
         },
       ],
     })
+
     expect(connector.runSql).toEqual([])
+
     expect(connector.prepared.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
       false,
     )
+
     await db.close()
   })
 
@@ -501,11 +506,13 @@ describe('db.migrate() adapters and execution', () => {
       .plan()
       .catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(MigrationError)
+
     expect(error).toMatchObject({
       stage: 'planning',
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect((error as Error).message).toMatch(/duplicate registered table/i)
     await db.close()
   })
@@ -522,20 +529,25 @@ describe('db.migrate() adapters and execution', () => {
     expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('commit')
     expect(connector.runSql).not.toContain('rollback')
+
     expect(
       connector.runSql.some((sql) => /create schema if not exists "app"/i.test(sql)),
     ).toBe(true)
+
     expect(
       connector.runSql.find((sql) => /create table "app"\."memberships"/i.test(sql)),
     ).toContain('primary key ("orgId", "userId")')
+
     expect(
       connector.runSql.find((sql) => /foreign key \("authorId"\)/i.test(sql)),
     ).toContain('references "app"."users" ("id")')
+
     expect(
       connector.runSql.some((sql) =>
         /constraint ".*__[0-9a-f]{16}_pkey" primary key/i.test(sql),
       ),
     ).toBe(true)
+
     expect(
       connector.runSql.some((sql) =>
         /add constraint ".*__[0-9a-f]{16}_fkey" foreign key/i.test(sql),
@@ -552,6 +564,7 @@ describe('db.migrate() adapters and execution', () => {
     await expect(db.migrate().plan()).resolves.toMatchObject({
       steps: [{ kind: 'create_table', target: relationTarget('public', 'users') }],
     })
+
     expect(connector.runSql).toEqual([])
 
     await db.close()
@@ -572,9 +585,11 @@ describe('db.migrate() adapters and execution', () => {
     const plan = await db.migrate().plan()
     const index = plan.steps.find((step) => step.kind === 'create_index')
     expect(index?.kind).toBe('create_index')
+
     if (index?.kind !== 'create_index') throw new Error('Expected generated index step')
 
     await db.migrate().execute()
+
     expect(
       connector.runSql.some((sql) =>
         sql.includes(
@@ -616,6 +631,7 @@ describe('db.migrate() adapters and execution', () => {
     const db = createDatabase({ connector, schemas: [ReservedEvents] })
 
     await expect(db.migrate().plan()).rejects.toThrow(/physical name collision/i)
+
     expect(connector.prepared.some((sql) => /c\.relname as object_name/i.test(sql))).toBe(
       true,
     )
@@ -652,7 +668,9 @@ describe('db.migrate() adapters and execution', () => {
         },
       ],
     })
+
     await db.migrate().execute()
+
     expect(
       connector.runSql.some((sql) =>
         /add constraint ".*__[0-9a-f]{16}_key" unique \("email"\)/i.test(sql),
@@ -681,13 +699,17 @@ describe('db.migrate() adapters and execution', () => {
         { kind: 'create_table', target: relationTarget('tenant', 'items') },
       ],
     })
+
     await expect(db.migrate().execute()).resolves.toBeUndefined()
+
     expect(
       connector.runSql.some((sql) => /create schema if not exists "tenant"/i.test(sql)),
     ).toBe(true)
+
     expect(
       connector.runSql.some((sql) => /create table "tenant"\."items"/i.test(sql)),
     ).toBe(true)
+
     expect(connector.runSql).toContain('commit')
 
     await db.close()
@@ -761,11 +783,13 @@ describe('db.migrate() adapters and execution', () => {
       .execute()
       .catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(MigrationError)
+
     expect(error).toMatchObject({
       stage: 'precondition',
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect((error as Error).message).toMatch(/NULL values/i)
     expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('rollback')
@@ -784,11 +808,13 @@ describe('db.migrate() adapters and execution', () => {
       .execute()
       .catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(MigrationError)
+
     expect(error).toMatchObject({
       stage: 'ddl',
       outcome: 'rolledBack',
       retryable: false,
     })
+
     expect((error as Error).message).toMatch(/executor rejected/i)
     expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('rollback')
@@ -831,6 +857,7 @@ describe('db.migrate() policy and coordination', () => {
         outcome: 'unchanged',
         retryable: false,
       })
+
       expect(connector.prepared).toEqual([])
       await db.close()
     },
@@ -839,6 +866,7 @@ describe('db.migrate() policy and coordination', () => {
   it('classifies authoritative catalog observation failures as introspection', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [] })
+
     vi.spyOn(postgresDialect.catalog, 'introspectCatalog').mockRejectedValueOnce(
       new Error('catalog observation failed'),
     )
@@ -852,10 +880,13 @@ describe('db.migrate() policy and coordination', () => {
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect(connector.runSql).toContain('rollback')
+
     expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
       false,
     )
+
     await db.close()
   })
 
@@ -888,13 +919,17 @@ describe('db.migrate() policy and coordination', () => {
       retryable: false,
       sourceStepIndexes: [0, 2],
     })
+
     expect((error as { capabilityIssues?: unknown }).capabilityIssues).toEqual(
       capabilityIssues,
     )
+
     expect(connector.runSql).toContain('rollback')
+
     expect(
       connector.runSql.filter((sql) => /^(?:create|alter|drop)\s/i.test(sql)),
     ).toHaveLength(0)
+
     await db.close()
   })
 
@@ -928,6 +963,7 @@ describe('db.migrate() policy and coordination', () => {
       outcome: 'unchanged',
       retryable: false,
     })
+
     expect((error as Error).message).toMatch(/allow\('dropIndex'\)/i)
     expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('rollback')
@@ -940,6 +976,7 @@ describe('db.migrate() policy and coordination', () => {
   it('normalizes a plain nonconforming adapter failure as unknown and discards', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [] })
+
     vi.spyOn(postgresDialect.migration!, 'execute').mockRejectedValueOnce(
       new Error('plain adapter failure'),
     )
@@ -954,6 +991,7 @@ describe('db.migrate() policy and coordination', () => {
       outcome: 'unknown',
       retryable: false,
     })
+
     expect((error as Error).message).toMatch(/plain adapter failure/i)
     await db.close()
   })
@@ -984,9 +1022,11 @@ describe('db.migrate() policy and coordination', () => {
     expect(
       connector.runSql.some((sql) => /create table .*"audit_events"/i.test(sql)),
     ).toBe(true)
+
     expect(
       connector.runSql.some((sql) => /drop index .*"users_legacy_idx"/i.test(sql)),
     ).toBe(true)
+
     expect(connector.runSql.some((sql) => /drop column "legacy"/i.test(sql))).toBe(true)
     expect(connector.runSql.some((sql) => /drop table .*"orphan"/i.test(sql))).toBe(true)
 
@@ -1000,6 +1040,7 @@ describe('db.migrate() policy and coordination', () => {
     await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
     connector.prepared.length = 0
     connector.runSql.length = 0
+
     connector.liveTables[0]!.columns.push({
       name: 'legacy',
       dataType: 'text',

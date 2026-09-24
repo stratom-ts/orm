@@ -87,6 +87,7 @@ export function createMigrationCoordinationScope(
 ): MigrationCoordinationScope {
   assertStableIdentifier(input.dialect, 'dialect identity')
   assertStableIdentifier(input.database, 'database identity')
+
   if (input.applicationId !== undefined) validateApplicationId(input.applicationId)
 
   return Object.freeze({
@@ -119,6 +120,7 @@ export function migrationLockAcquisitionOrder(
       scope.database.canonicalIdentity,
     ]),
   })
+
   if (scope.applicationId === undefined) return Object.freeze([database])
 
   return Object.freeze([

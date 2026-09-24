@@ -337,6 +337,7 @@ describe('joins compile', () => {
     })
 
     expect(() => compiled.assertSession?.(session('tenant'))).not.toThrow()
+
     expect(() => compiled.assertSession?.(session('public'))).toThrow(
       /schema "tenant" does not match executing current schema "public"/i,
     )
@@ -356,12 +357,14 @@ describe('joins compile', () => {
     expect(() => compile([{ role: 'database', spelling: 'analytics' }] as never)).toThrow(
       /namespace must be omitted, schema-only, or database plus schema/,
     )
+
     expect(() =>
       compile([
         { role: 'schema', spelling: 'tenant' },
         { role: 'database', spelling: 'analytics' },
       ] as never),
     ).toThrow(/namespace must be omitted, schema-only, or database plus schema/)
+
     expect(() =>
       compile([
         { role: 'database', spelling: 'analytics' },
@@ -383,6 +386,7 @@ describe('joins compile', () => {
     expect(() => compile({} as never)).toThrow(/namespace must be an array/)
     expect(() => compile([null] as never)).toThrow(QueryError)
     expect(() => compile([null] as never)).toThrow(/segment must be an object/)
+
     expect(() => compile([{ role: 'schema', spelling: 42 }] as never)).toThrow(
       /namespace names must be non-empty strings/,
     )
@@ -422,6 +426,7 @@ describe('joins compile', () => {
       .select([Posts.title, Users.email])
 
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
+
     expectTypeOf<Row>().toEqualTypeOf<{
       title: string
       email: string | null
@@ -457,6 +462,7 @@ describe('joins compile', () => {
       .select([Posts.title, Users.email])
 
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
+
     expectTypeOf<Row>().toEqualTypeOf<{
       title: string | null
       email: string
@@ -474,6 +480,7 @@ describe('joins compile', () => {
       .select([Users.email])
 
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
+
     expectTypeOf<Row>().toEqualTypeOf<
       Prettify<InferSelect<typeof Posts> & { email: string }>
     >()
@@ -490,6 +497,7 @@ describe('joins compile', () => {
       .selectAll(Users)
 
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
+
     expectTypeOf<Row>().toEqualTypeOf<
       Prettify<
         { title: string } & {
@@ -507,12 +515,14 @@ describe('joins compile', () => {
     const inner = db.from(Posts).innerJoin(Users, eq(Posts.userId, Users.id))
 
     type InnerRow = Awaited<ReturnType<typeof inner.execute>>[number]
+
     expectTypeOf<InnerRow>().toEqualTypeOf<
       Prettify<InferSelect<typeof Posts> & InferSelect<typeof Users>>
     >()
 
     const left = db.from(Posts).leftJoin(Users, eq(Posts.userId, Users.id))
     type LeftRow = Awaited<ReturnType<typeof left.execute>>[number]
+
     expectTypeOf<LeftRow>().toEqualTypeOf<
       Prettify<
         InferSelect<typeof Posts> & {
@@ -525,6 +535,7 @@ describe('joins compile', () => {
 
     const right = db.from(Posts).rightJoin(Users, eq(Posts.userId, Users.id))
     type RightRow = Awaited<ReturnType<typeof right.execute>>[number]
+
     expectTypeOf<RightRow>().toEqualTypeOf<
       Prettify<
         {

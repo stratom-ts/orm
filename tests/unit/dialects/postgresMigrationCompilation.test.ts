@@ -68,6 +68,7 @@ describe('PostgreSQL migration AST compilation', () => {
         column: 'legacy',
       }).sql,
     ).toContain('alter table "public"."users" drop column "legacy"')
+
     expect(
       compilePostgres({
         kind: 'drop_index',
@@ -76,6 +77,7 @@ describe('PostgreSQL migration AST compilation', () => {
         index: 'users_legacy_idx',
       }).sql,
     ).toContain('drop index "public"."users_legacy_idx"')
+
     expect(
       compilePostgres({
         kind: 'drop_table',

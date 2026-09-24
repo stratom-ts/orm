@@ -63,6 +63,7 @@ function unsupported(reason: string): CatalogNoEvidence {
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
+
   return 0
 }
 
@@ -84,6 +85,7 @@ function stableObservation(value: unknown): string {
   }
 
   if (typeof value === 'bigint') return JSON.stringify(value.toString())
+
   return JSON.stringify(value)
 }
 
@@ -158,6 +160,7 @@ function nullableStringAt(
   index: number,
 ): string | null {
   const value = row[key]
+
   if (value === null) return null
 
   if (typeof value !== 'string') {
@@ -179,6 +182,7 @@ function nullableStringAt(
  */
 function booleanAt(row: Row, key: string, query: string, index: number): boolean {
   const value = row[key]
+
   if (typeof value === 'boolean') return value
   if (value === 1 || value === '1' || value === 'YES' || value === 't') return true
   if (value === 0 || value === '0' || value === 'NO' || value === 'f') return false
@@ -233,6 +237,7 @@ function postgresStringArray(value: string): string[] | undefined {
   if (!value.startsWith('{') || !value.endsWith('}')) return undefined
 
   const inner = value.slice(1, -1)
+
   if (inner.length === 0) return []
 
   const parts: string[] = []
@@ -298,6 +303,7 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
   if (typeof value === 'string') {
     const trimmed = value.trim()
     const parsed = jsonStringArray(trimmed) ?? postgresStringArray(trimmed)
+
     if (parsed) return parsed
   }
 
@@ -357,12 +363,14 @@ function compareNamespaces(
     const leftSegment = left[index]!
     const rightSegment = right[index]!
     const role = compareCodeUnits(leftSegment.role, rightSegment.role)
+
     if (role !== 0) return role
 
     const identifier = compareCodeUnits(
       leftSegment.identifier.comparisonKey,
       rightSegment.identifier.comparisonKey,
     )
+
     if (identifier !== 0) return identifier
   }
 
@@ -483,13 +491,16 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   if (dataType === 'numeric' || dataType === 'decimal') {
     if (precision !== null && scale !== null) return `numeric(${precision},${scale})`
     if (precision !== null) return `numeric(${precision})`
+
     return 'numeric'
   }
 
   const alias = POSTGRES_CATALOG_TYPE_ALIASES.get(udt)
+
   if (alias) return alias
   if (dataType === 'timestamp without time zone') return 'timestamp'
   if (dataType === 'timestamp with time zone') return 'timestamptz'
+
   return udt || dataType
 }
 
@@ -662,6 +673,7 @@ function createRelationRegistry(
         stringAt(row, 'name', 'relation', index),
       ),
     )
+
     if (!relationRequested(identity)) continue
 
     if (registry.has(identity)) {
@@ -704,6 +716,7 @@ function hasSupportedConstraintSemantics(row: Row, type: string, index: number):
   }
 
   if (type !== 'f') return true
+
   return (
     stringAt(row, 'match_type', 'constraint', index) === 's' &&
     !booleanAt(row, 'has_column_specific_delete_action', 'constraint', index)
@@ -714,6 +727,7 @@ function hasSupportedConstraintSemantics(row: Row, type: string, index: number):
 function constraintIsValid(row: Row, type: string, index: number): boolean {
   if (!booleanAt(row, 'is_valid', 'constraint', index)) return false
   if (type !== 'p' && type !== 'u') return true
+
   return booleanAt(row, 'backing_index_is_valid', 'constraint', index)
 }
 
@@ -727,7 +741,9 @@ function appendConstraints(
   for (let index = 0; index < rows.length; index++) {
     const row = rowAt(rows[index], 'constraint', index)
     const target = requireTable(row, 'constraint', index)
+
     if (!target) continue
+
     const type = stringAt(row, 'constraint_type', 'constraint', index)
     const name = stringAt(row, 'constraint_name', 'constraint', index)
     reservations.push({ relation: target.identity, name })
@@ -805,7 +821,9 @@ function appendIndexes(rows: unknown[], requireTable: RequireTable): void {
   for (let index = 0; index < rows.length; index++) {
     const row = rowAt(rows[index], 'index', index)
     const target = requireTable(row, 'index', index)
+
     if (!target) continue
+
     const supported =
       booleanAt(row, 'has_supported_semantics', 'index', index) &&
       !booleanAt(row, 'nulls_not_distinct', 'index', index)
@@ -828,7 +846,9 @@ function appendOpaqueObjects(rows: unknown[], requireTable: RequireTable): void 
   for (let index = 0; index < rows.length; index++) {
     const row = rowAt(rows[index], 'opaque object', index)
     const target = requireTable(row, 'opaque object', index)
+
     if (!target) continue
+
     const kind = stringAt(row, 'object_kind', 'opaque object', index)
 
     if (kind !== 'trigger' && kind !== 'policy' && kind !== 'other') {
@@ -882,7 +902,9 @@ function appendColumns(
   for (let index = 0; index < rows.length; index++) {
     const row = rowAt(rows[index], 'column', index)
     const target = requireTable(row, 'column', index)
+
     if (!target) continue
+
     const nativeType = formatPostgresCatalogDataType(row, 'column', index)
     const columnDefault = nullableStringAt(row, 'column_default', 'column', index)
     const isIdentity = booleanAt(row, 'is_identity', 'column', index)
@@ -1060,10 +1082,12 @@ export async function introspectPostgres(
       actual: version,
       requires: '120000',
     }
+
     diagnostics.push({
       code: 'catalog.capability.version',
       message: `PostgreSQL catalog introspection requires version 120000; observed ${version}`,
     })
+
     return {
       source: { dialect: 'postgresql', version },
       request: resolvedRequest,
@@ -1365,31 +1389,37 @@ export async function introspectPostgres(
     namespaceObservations(namespaceRows, 'namespace'),
     namespaceObservations(await executor.execute(namespaceQuery), 'namespace'),
   )
+
   assertObservationUnchanged(
     'column',
     relationObservations(columnRows, 'column'),
     relationObservations(await executor.execute(columnQuery), 'column'),
   )
+
   assertObservationUnchanged(
     'constraint',
     relationObservations(constraintRows, 'constraint'),
     relationObservations(await executor.execute(constraintQuery), 'constraint'),
   )
+
   assertObservationUnchanged(
     'index',
     relationObservations(indexRows, 'index'),
     relationObservations(await executor.execute(indexQuery), 'index'),
   )
+
   assertObservationUnchanged(
     'opaque object',
     relationObservations(opaqueRows, 'opaque object'),
     relationObservations(await executor.execute(opaqueQuery), 'opaque object'),
   )
+
   assertObservationUnchanged(
     'name reservation',
     namespaceObservations(reservationRows, 'name reservation'),
     namespaceObservations(await executor.execute(reservationQuery), 'name reservation'),
   )
+
   const finalRelationRows = await executor.execute(relationQuery)
 
   /**
@@ -1444,6 +1474,7 @@ export async function introspectPostgres(
         stringAt(row, 'table_name', query, index),
       ),
     )
+
     if (!relationRequested(identity)) return undefined
 
     const entry = relationRegistry.get(identity)
@@ -1455,6 +1486,7 @@ export async function introspectPostgres(
     }
 
     if (!entry.table) return undefined
+
     return { identity, table: entry.table }
   }
 
@@ -1473,6 +1505,7 @@ export async function introspectPostgres(
     const identity = identities.resolveNamespace([
       { role: 'schema', spelling: stringAt(row, 'schema', 'namespace', index) },
     ])
+
     if (!scopeNamespaces.some((namespace) => sameNamespace(namespace, identity))) continue
 
     if (namespaces.some((namespace) => sameNamespace(namespace.identity, identity))) {
@@ -1510,7 +1543,9 @@ export async function introspectPostgres(
       ),
     )
     const entry = relationRegistry.get(identity)
+
     if (!entry) continue
+
     let table: CatalogTable | undefined
 
     if (entry.table) {
@@ -1589,8 +1624,10 @@ export async function introspectPostgres(
         spelling: stringAt(row, 'schema', 'name reservation', index),
       },
     ])
+
     if (!scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace)))
       continue
+
     nameReservations.push({
       namespace,
       name: stringAt(row, 'object_name', 'name reservation', index),
@@ -1602,6 +1639,7 @@ export async function introspectPostgres(
       compareNamespaces(left.namespace, right.namespace) ||
       compareCodeUnits(left.name, right.name),
   )
+
   constraintReservations.sort(
     (left, right) =>
       identities.compare(left.relation, right.relation) ||

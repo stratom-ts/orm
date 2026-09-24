@@ -62,7 +62,9 @@ function formatIdentity(identity: CanonicalRelationIdentity, column?: string): s
     (segment) => `${segment.role}:${JSON.stringify(segment.identifier.spelling)}`,
   )
   parts.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
+
   if (column !== undefined) parts.push(`column:${JSON.stringify(column)}`)
+
   return `[${parts.join(', ')}]`
 }
 
@@ -224,6 +226,7 @@ function validateReferencePhysicalType(
   inheritedType: string,
 ): void {
   const selected = column.metadata?.physicalType?.postgresql
+
   if (selected === undefined) return
 
   const localType = assertSafePostgresDataType(String(selected))
@@ -350,6 +353,7 @@ export function lowerPostgresDesiredSchema(
     for (const column of orderedColumns(table)) {
       const analysis = analyzeSchema(column.schema)
       analyses.set(column, analysis)
+
       if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
     }
   }

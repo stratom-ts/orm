@@ -604,12 +604,14 @@ describe('Migration reconciliation', () => {
     expect(planMigration([Memberships, Teams], catalog, postgresDialect)).toEqual({
       steps: [],
     })
+
     expect(planMigration([Teams, Memberships], permuted, postgresDialect)).toEqual({
       steps: [],
     })
 
     const reversedKey = structuredClone(catalog)
     reversedKey.tables[0]!.primaryKey!.columns.reverse()
+
     expect(() =>
       planMigration([Memberships, Teams], reversedKey, postgresDialect),
     ).toThrow(/primary key change/i)
@@ -627,6 +629,7 @@ describe('Migration reconciliation', () => {
     }
 
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(MigrationError)
+
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
       /unsupported primary key change/i,
     )
@@ -888,6 +891,7 @@ describe('Migration reconciliation', () => {
         ...SUPPORTED_CATALOG_SEMANTICS,
       },
     ]
+
     catalog.tables.push({
       schema: 'public',
       name: 'partition',

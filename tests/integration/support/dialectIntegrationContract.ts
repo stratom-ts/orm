@@ -41,6 +41,7 @@ export function validateDialectIntegrationCapabilities(
 ): void {
   for (const name of integrationCapabilityNames) {
     const capability = capabilities[name]
+
     if (!capability) {
       throw new Error(`Integration capability declaration omits ${name}`)
     }
@@ -98,6 +99,7 @@ export function registerDialectIntegrationScenarios(
   adapter: DialectIntegrationAdapter,
 ): void {
   validateDialectIntegrationCapabilities(adapter.capabilities)
+
   describe(`${adapter.name} shared integration scenarios`, () => {
     beforeAll(() => adapter.readiness())
 
@@ -126,12 +128,14 @@ export function registerDialectIntegrationScenarios(
             .values({ label: 'shared query' })
             .executeTakeFirstOrThrow()
           expect(inserted).toMatchObject({ label: 'shared query', active: true })
+
           await expect(
             db
               .from(ContractRecords)
               .where(ContractRecords.id, 'eq', inserted.id)
               .execute(),
           ).resolves.toEqual([inserted])
+
           await expect(
             db
               .update(ContractRecords)
@@ -139,18 +143,21 @@ export function registerDialectIntegrationScenarios(
               .where(ContractRecords.id, 'eq', inserted.id)
               .execute(),
           ).resolves.toMatchObject([{ active: false }])
+
           await expect(
             db
               .from(ContractRecords)
               .where(ContractRecords.id, 'eq', inserted.id)
               .execute(),
           ).resolves.toMatchObject([{ active: false }])
+
           await expect(
             db
               .delete(ContractRecords)
               .where(ContractRecords.id, 'eq', inserted.id)
               .execute(),
           ).resolves.toHaveLength(1)
+
           await expect(
             db
               .from(ContractRecords)
@@ -168,15 +175,18 @@ export function registerDialectIntegrationScenarios(
       async () => {
         await adapter.withDatabase([ContractRecords], async ({ db }) => {
           await db.migrate().execute()
+
           await db.transaction(async (trx) => {
             await trx.insert(ContractRecords).values({ label: 'committed' }).execute()
           })
+
           await expect(
             db.transaction(async (trx) => {
               await trx.insert(ContractRecords).values({ label: 'rolled back' }).execute()
               throw new Error('rollback requested')
             }),
           ).rejects.toThrow('rollback requested')
+
           await expect(db.from(ContractRecords).execute()).resolves.toMatchObject([
             { label: 'committed' },
           ])
@@ -195,9 +205,11 @@ export function registerDialectIntegrationScenarios(
             'create_table',
             'create_index',
           ])
+
           expect(plan.steps.every((step) => !('sql' in step))).toBe(true)
           await expect(db.migrate().execute()).resolves.toBeUndefined()
           await db.insert(ContractRecords).values({ label: 'migrated' }).execute()
+
           await expect(db.from(ContractRecords).execute()).resolves.toMatchObject([
             { label: 'migrated' },
           ])

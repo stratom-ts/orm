@@ -124,7 +124,9 @@ async function cancelSession(
   inFlight?: Promise<unknown>,
 ): Promise<MigrationCleanupFailure[]> {
   state.cancelled = true
+
   if (inFlight !== undefined) state.sessionUncertain = true
+
   options.discard()
   const cleanupFailures: MigrationCleanupFailure[] = []
   let cancelSucceeded = true
@@ -140,7 +142,9 @@ async function cancelSession(
     () => undefined,
     () => undefined,
   )
+
   if (cancelSucceeded) await settled
+
   return cleanupFailures
 }
 
@@ -201,6 +205,7 @@ export async function runCancellable<T>(options: {
     (cause) => ({ kind: 'error' as const, cause }),
   )
   const result = await Promise.race([settled, interrupted])
+
   if (timer) clearTimeout(timer)
   if (abort) runtime.signal?.removeEventListener('abort', abort)
 
@@ -224,6 +229,7 @@ export async function runCancellable<T>(options: {
   }
 
   if (result.kind === 'error') throw result.cause
+
   return result.value
 }
 
@@ -440,6 +446,7 @@ export async function releaseCoordination(
   ],
 ): Promise<void> {
   const failures = await releaseCoordinationFailures(options, identities)
+
   if (failures.length > 0) throw failures[0]!.cause
 }
 

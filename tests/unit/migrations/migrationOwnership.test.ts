@@ -286,6 +286,7 @@ describe('migration ownership', () => {
         ],
       }),
     ).toThrow(/identifier limit of 63 UTF-8 bytes/i)
+
     expect(() =>
       planMigration([], emptyCatalog, postgresDialect, {
         migrationOwnership: [
@@ -338,6 +339,7 @@ describe('migration ownership', () => {
       const resolution = attemptSync(() =>
         resolveMigrationOwnership([SqliteUsers], declarations, sqliteIdentities),
       )
+
       if (!resolution.ok) return (resolution.error as Error).message
 
       throw new InvariantError('Expected ownership resolution to fail')

@@ -81,6 +81,7 @@ describe('PostgreSQL integration harness', () => {
     expect(new Set([...sessions.values()].map(({ role }) => role))).toEqual(
       new Set(['admin', 'primary', 'additional']),
     )
+
     await expectSchemasAbsent(schemas)
     await expectBackendsAbsent([...sessions.values()])
   })

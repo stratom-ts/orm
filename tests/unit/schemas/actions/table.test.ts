@@ -42,6 +42,7 @@ describe('table action', () => {
         relation: 'posts',
       },
     })
+
     expect(metadata).not.toHaveProperty('schema')
   })
 
@@ -132,6 +133,7 @@ describe('table action', () => {
     expect(schemaThenDatabase.metadata.relation).not.toEqual(
       databaseThenSchema.metadata.relation,
     )
+
     expect(schemaThenDatabase.metadata.relation.namespace).toEqual([
       { role: 'schema', spelling: 'Audit' },
       { role: 'database', spelling: 'tenant' },
@@ -149,6 +151,7 @@ describe('table action', () => {
         ],
       } as never),
     ).toThrow(/duplicate namespace role/)
+
     expect(() =>
       table({
         name: 'events',
@@ -156,6 +159,7 @@ describe('table action', () => {
         namespace: [{ role: 'schema', spelling: '' }],
       } as never),
     ).toThrow(/non-empty/)
+
     expect(() =>
       table({
         name: 'events',
@@ -163,6 +167,7 @@ describe('table action', () => {
         namespace: 'app' as never,
       } as never),
     ).toThrow(SchemaError)
+
     expect(() =>
       table({
         name: 'events',
@@ -170,6 +175,7 @@ describe('table action', () => {
         namespace: [null],
       } as never),
     ).toThrow(/segments must be objects/i)
+
     expect(() =>
       table({
         name: 'events',
@@ -204,6 +210,7 @@ describe('table action', () => {
         { columns: ['orgId', 'role'], unique: true },
       ],
     })
+
     expect(metadata).not.toHaveProperty('schema')
   })
 })
@@ -235,6 +242,7 @@ describe('getTableMetadata', () => {
     expect(
       getTableMetadata(pipe(object({ id: string() }), metadata({ kind: 'column' }))),
     ).toBeUndefined()
+
     expect(
       getTableMetadata(pipe(object({ id: string() }), metadata({ kind: 7 }))),
     ).toBeUndefined()

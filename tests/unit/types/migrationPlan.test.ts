@@ -88,9 +88,11 @@ type ExpectedMigrationStep =
 describe('public Migration Plan types', () => {
   it('names semantic planning separately from physical dry runs', () => {
     expectTypeOf<MigrateBuilder['plan']>().toEqualTypeOf<() => Promise<MigrationPlan>>()
+
     expectTypeOf<MigrateBuilder['dryRun']>().toEqualTypeOf<
       () => Promise<MigrationDryRun>
     >()
+
     expectTypeOf<MigrateBuilder>().not.toHaveProperty('preview')
 
     // @ts-expect-error MigrationPreview was replaced by MigrationDryRun.
@@ -107,7 +109,9 @@ describe('public Migration Plan types', () => {
     expectTypeOf<MigrationPlan>().toEqualTypeOf<
       Readonly<{ steps: readonly MigrationStep[] }>
     >()
+
     expectTypeOf<MigrationStep>().toEqualTypeOf<ExpectedMigrationStep>()
+
     expectTypeOf<Extract<MigrationStep, { kind: 'create_table' }>>().toEqualTypeOf<
       Readonly<{ kind: 'create_table'; target: ExpectedRelationTarget }>
     >()
@@ -117,6 +121,7 @@ describe('public Migration Plan types', () => {
     expectTypeOf<MigrationDryRunStatement>().toEqualTypeOf<
       Readonly<{ sql: string; params: readonly '[REDACTED]'[] }>
     >()
+
     expectTypeOf<MigrationDryRunAction>().toEqualTypeOf<
       Readonly<{
         sourceStepIndexes: readonly number[]
@@ -124,15 +129,19 @@ describe('public Migration Plan types', () => {
         statements: readonly MigrationDryRunStatement[]
       }>
     >()
+
     expectTypeOf<MigrationDryRun['atomicity']>().toEqualTypeOf<
       'plan-atomic' | 'statement-atomic' | 'non-atomic'
     >()
+
     expectTypeOf<MigrationDryRun['actions']>().toEqualTypeOf<
       readonly MigrationDryRunAction[]
     >()
+
     expectTypeOf<
       MigrationDryRun['preconditions'][number]['relation']
     >().toEqualTypeOf<CanonicalRelationIdentity>()
+
     expectTypeOf<MigrationDryRunStatement>().not.toHaveProperty('assertSession')
     expectTypeOf<MigrationPlan>().not.toHaveProperty('sql')
     expectTypeOf<MigrationStep>().not.toHaveProperty('sql')
@@ -144,12 +153,14 @@ describe('public Migration Plan types', () => {
     expectTypeOf<MigrationColumnTarget>().toEqualTypeOf<ExpectedColumnTarget>()
     expectTypeOf<MigrationIndexTarget>().toEqualTypeOf<ExpectedIndexTarget>()
     expectTypeOf<MigrationColumnReference>().toEqualTypeOf<ExpectedReference>()
+
     expectTypeOf<MigrationTarget>().toEqualTypeOf<
       | ExpectedNamespaceTarget
       | ExpectedRelationTarget
       | ExpectedColumnTarget
       | ExpectedIndexTarget
     >()
+
     expectTypeOf<MigrationStep['target']>().toEqualTypeOf<MigrationTarget>()
   })
 })

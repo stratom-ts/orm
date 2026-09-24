@@ -52,6 +52,7 @@ function executor(
 
       if (sql.includes('as relation_kind')) {
         relationQueries++
+
         if (options.raced) return []
         if (options.deleted && relationQueries > 1) return []
 
@@ -165,7 +166,9 @@ function executor(
             generation_expression: null,
           },
         ]
+
         if (options.changedMembers && columnQueries > 1) rows.pop()
+
         return order(rows)
       }
 
@@ -237,6 +240,7 @@ function executor(
             // NOT NULL rows do not need key-constraint metadata decoded.
             columns: '[invalid json]',
           })
+
           constraints.push({
             schema: 'public',
             table_name: 'events',
@@ -248,6 +252,7 @@ function executor(
             initially_deferred: false,
             native_definition: 'not null not valid',
           })
+
           constraints.push({
             schema: 'public',
             table_name: 'events',
@@ -295,19 +300,23 @@ describe('PostgreSQL evidence-bearing catalog', () => {
       request,
     )
     const relation = catalog.namespaces.items[0]!.relations.items[0]!
+
     if (relation.table.state !== 'present') throw new Error('Expected table evidence')
 
     expect(
       relation.table.value.columns.items.find(({ name }) => name === 'payload')?.nullable,
     ).toEqual({ state: 'present', value: false })
+
     expect(
       relation.table.value.columns.items.find(({ name }) => name === 'status')?.nullable,
     ).toEqual({ state: 'present', value: false })
+
     expect(
       relation.table.value.opaqueObjects.items.map(({ name }) =>
         name.state === 'present' ? name.value : undefined,
       ),
     ).toEqual(['events_audit', 'events_payload_check', 'events_status_not_null'])
+
     expect(catalog.constraintNameReservations.items).toContainEqual(
       expect.objectContaining({
         relation: expect.objectContaining({
@@ -339,20 +348,24 @@ describe('PostgreSQL evidence-bearing catalog', () => {
     const relation = first.namespaces.items[0]!.relations.items[0]!
     expect(relation.identity.relation.spelling).toBe('events')
     expect(relation.table.state).toBe('present')
+
     if (relation.table.state !== 'present') return
 
     const richIndex = relation.table.value.indexes.items.find(
       (index) => index.name.state === 'present' && index.name.value.includes('lower'),
     )!
     expect(richIndex.semantics.state).toBe('unsupported')
+
     expect(richIndex.nativeDefinition).toEqual({
       state: 'present',
       value: 'create index events_lower_payload_idx on events (lower(payload))',
     })
+
     expect(relation.table.value.options.items).toContainEqual({
       name: 'fillfactor',
       value: '90',
     })
+
     expect(
       relation.table.value.columns.items.find(
         (column) => column.name === 'normalized_payload',
@@ -365,6 +378,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
         expression: 'lower(payload)',
       },
     })
+
     expect(
       relation.table.value.columns.items.find((column) => column.name === 'status')
         ?.dataType,
@@ -377,15 +391,18 @@ describe('PostgreSQL evidence-bearing catalog', () => {
         },
       },
     })
+
     expect(
       relation.table.value.indexes.items.find(
         (index) => index.name.state === 'present' && index.name.value.includes('quoted'),
       )?.columns,
     ).toEqual([' payload,part ', 'NULL'])
+
     expect(relation.table.value.opaqueObjects.items[0]).toMatchObject({
       kind: 'trigger',
       reason: expect.stringMatching(/not managed/i),
     })
+
     expect(first.namespaces.items[0]!.relations.coverage).toMatchObject({
       state: 'partial',
       remainder: { state: 'unmanaged' },
@@ -455,10 +472,12 @@ describe('PostgreSQL evidence-bearing catalog', () => {
       actual: '90600',
       requires: '120000',
     })
+
     expect(versionLimited.namespaces.coverage).toMatchObject({
       state: 'unavailable',
       cause: 'version',
     })
+
     expect(versionLimited.diagnostics.map(({ code }) => code)).toEqual([
       'catalog.capability.version',
     ])
@@ -571,8 +590,10 @@ function catalogFixtureView(snapshot: CatalogSnapshot) {
   tables.sort((left, right) => {
     if (right.schema < left.schema) return -1
     if (right.schema > left.schema) return 1
+
     return 0
   })
+
   return {
     tables,
     namespaceContext: snapshot.namespaceContext,
@@ -1063,12 +1084,14 @@ describe('introspect', () => {
         ],
       },
     ])
+
     expect(snapshot.namespaceContext).toEqual({
       writableDefault: [
         { role: 'database', spelling: 'test' },
         { role: 'schema', spelling: 'public' },
       ],
     })
+
     expect(snapshot.nameReservations).toEqual(
       expect.arrayContaining([
         { schema: 'public', name: 'accounts' },
@@ -1080,7 +1103,9 @@ describe('introspect', () => {
         { schema: 'public', name: 'accounts_email_include_key' },
       ]),
     )
+
     expect(snapshot.nameReservations).toHaveLength(7)
+
     expect(snapshot.constraintNameReservations).toEqual(
       expect.arrayContaining([
         { schema: 'public', table: 'accounts', name: 'accounts_pkey' },
@@ -1091,6 +1116,7 @@ describe('introspect', () => {
         { schema: 'public', table: 'accounts', name: 'accounts_email_check' },
       ]),
     )
+
     expect(snapshot.constraintNameReservations).toHaveLength(6)
     const reservationSql = executedSql.find((sql) =>
       sql.includes('c.relname as object_name'),
@@ -1111,9 +1137,11 @@ describe('introspect', () => {
     )
     expect(constraintSql).toContain('con.conindid')
     expect(constraintSql).toContain("to_jsonb(backing_index) ->> 'indnullsnotdistinct'")
+
     expect(constraintSql).toContain(
       "jsonb_typeof(to_jsonb(con) -> 'confdelsetcols') = 'array'",
     )
+
     expect(constraintSql).not.toContain('backing_index.indnullsnotdistinct')
     expect(constraintSql).toContain('backing_index.indnkeyatts = backing_index.indnatts')
     const columnSql = executedSql.find((sql) => sql.includes('-- catalog:column'))

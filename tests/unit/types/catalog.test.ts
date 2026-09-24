@@ -16,11 +16,13 @@ describe('public catalog evidence types', () => {
       | { readonly state: 'absent' }
       | CatalogNoEvidence
     >()
+
     expectTypeOf<CatalogCoverage>().toEqualTypeOf<
       | { readonly state: 'complete' }
       | { readonly state: 'partial'; readonly remainder: CatalogNoEvidence }
       | CatalogNoEvidence
     >()
+
     expectTypeOf<CatalogSet<string>>().toEqualTypeOf<{
       readonly items: readonly string[]
       readonly coverage: CatalogCoverage

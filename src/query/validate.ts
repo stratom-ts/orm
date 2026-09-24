@@ -28,6 +28,7 @@ function isInsertOptional(schema: AnySchema): boolean {
   if (analyzeSchema(schema).omitOnInsert) return true
 
   const meta = getColumnMetadata(schema)
+
   if (!meta) return false
 
   const generation = meta.generation
@@ -37,6 +38,7 @@ function isInsertOptional(schema: AnySchema): boolean {
   }
 
   if (meta.databaseDefault !== undefined) return true
+
   return false
 }
 
@@ -125,8 +127,11 @@ export function buildUpdateSchema(
   for (const [name, columnSchema] of Object.entries(entries)) {
     if (!columnSchema || columnSchema.kind !== 'schema') continue
     if (isAlwaysGenerated(columnSchema)) continue
+
     const meta = getColumnMetadata(columnSchema)
+
     if (meta?.readonly) continue
+
     // All updatable fields are optional patches (including bare nullable)
     updateEntries[name] = isDirectlyOmitOptionalSchema(columnSchema)
       ? columnSchema

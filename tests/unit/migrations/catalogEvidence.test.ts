@@ -116,6 +116,7 @@ describe('catalog evidence', () => {
         },
       ],
     })
+
     expect(empty).toEqual(original)
 
     const incomplete: CatalogSnapshot = {
@@ -188,6 +189,7 @@ describe('catalog evidence', () => {
       expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
         `Incomplete catalog coverage for requested namespaces: ${evidence}`,
       )
+
       expect(catalog).toEqual(original)
     }
   })
@@ -243,7 +245,9 @@ describe('catalog evidence', () => {
   ])('reports $state column evidence without mutating the snapshot', (testCase) => {
     const catalog = usersCatalog()
     const relation = catalog.namespaces.items[0]!.relations.items[0]!
+
     if (relation.table.state !== 'present') throw new Error('expected table fixture')
+
     const email = relation.table.value.columns.items.find(
       (column) => column.name === 'email',
     )!
@@ -254,6 +258,7 @@ describe('catalog evidence', () => {
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
       `Incomplete catalog evidence for [database:"test", schema:"public", relation:"users", column:"email"] type: ${testCase.evidence}`,
     )
+
     expect(catalog).toEqual(original)
   })
 
@@ -261,7 +266,9 @@ describe('catalog evidence', () => {
     const catalog = usersCatalog()
     const namespace = catalog.namespaces.items[0]!
     const relation = namespace.relations.items[0]!
+
     if (relation.table.state !== 'present') throw new Error('expected table fixture')
+
     const table = relation.table.value
     const email = table.columns.items.find((column) => column.name === 'email')!
     const unavailable: CatalogSnapshot = {
@@ -381,6 +388,7 @@ describe('catalog evidence', () => {
     ).toThrow(
       'Incomplete catalog coverage for relations in namespace [{"role":"database","spelling":"test"},{"role":"schema","spelling":"public"}]: unmanaged',
     )
+
     expect(catalog).toEqual(original)
   })
 
@@ -419,6 +427,7 @@ describe('catalog evidence', () => {
     expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
       /opaque catalog objects.*audit trigger/i,
     )
+
     expect(catalog).toEqual(original)
   })
 

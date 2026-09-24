@@ -59,10 +59,12 @@ function hasCoordinatedTransaction(
 function hasOrderedProtectedWork(events: readonly CoordinationContractEvent[]): boolean {
   const acquire = events.indexOf('acquire')
   const release = events.indexOf('release')
+
   if (acquire < 0 || release <= acquire) return false
 
   return events.every((event, index) => {
     if (!['transaction', 'introspection', 'ddl'].includes(event)) return true
+
     return acquire < index && index < release
   })
 }
@@ -94,6 +96,7 @@ export function registerMigrationCoordinationContract(
       const sharedLockManager: CoordinationContractLockManager = {
         tryAcquire(owner, key) {
           const current = owners.get(key)
+
           if (current !== undefined) return current === owner
 
           owners.set(key, owner)
@@ -117,10 +120,12 @@ export function registerMigrationCoordinationContract(
 
       const firstPending = first.execute()
       await first.waitFor('transaction')
+
       await expect(second.execute({ lockTimeoutMs: 0 })).rejects.toMatchObject({
         stage: 'lock',
         outcome: 'unchanged',
       })
+
       expect(protectedWork(second.events())).toBe(false)
 
       first.releaseHold()
@@ -142,6 +147,7 @@ export function registerMigrationCoordinationContract(
     it('rejects protected work before acquisition or after release', () => {
       expect(hasOrderedProtectedWork(['transaction', 'acquire', 'release'])).toBe(false)
       expect(hasOrderedProtectedWork(['acquire', 'release', 'ddl'])).toBe(false)
+
       expect(
         hasOrderedProtectedWork(['acquire', 'introspection', 'ddl', 'release']),
       ).toBe(true)
@@ -154,6 +160,7 @@ export function registerMigrationCoordinationContract(
         outcome: 'unchanged',
         retryable: true,
       })
+
       expect(protectedWork(runtime.events())).toBe(false)
     })
 
@@ -163,11 +170,13 @@ export function registerMigrationCoordinationContract(
       const pending = runtime.execute({ signal: controller.signal })
       await runtime.waitFor('acquire')
       controller.abort()
+
       await expect(pending).rejects.toMatchObject({
         stage: 'lock',
         outcome: 'unchanged',
         retryable: true,
       })
+
       expect(protectedWork(runtime.events())).toBe(false)
     })
 

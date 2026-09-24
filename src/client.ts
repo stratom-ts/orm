@@ -138,6 +138,7 @@ function scheduleTransactionScope<T>(
       }
 
       if (scope.context.poisoned) throw transactionPoisonedError()
+
       return await operation()
     } finally {
       finish()
@@ -154,6 +155,7 @@ async function drainTransactionScope(scope: TransactionScope): Promise<void> {
   while (true) {
     const tail = scope.queue
     await tail
+
     if (scope.queue === tail) return
   }
 }
@@ -310,6 +312,7 @@ export function createDatabase<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 >(config: CreateDatabaseConfig<TSchemas>): Db<TSchemas> {
   assertHandles(config.schemas)
+
   if (config.applicationId !== undefined) validateApplicationId(config.applicationId)
 
   const dialect = resolveDialect(config.connector.dialect)
@@ -459,6 +462,7 @@ export function createDatabase<
         await clientExecutor.execute(dialect.operations.compile({ kind: 'ping' }))
       } catch (cause) {
         if (cause instanceof QueryError) throw cause
+
         throw new QueryError({
           message: cause instanceof Error ? cause.message : 'Connectivity check failed',
           cause,
@@ -732,8 +736,10 @@ export function createDatabase<
               ),
             )
             await drainTransactionScope(scope)
+
             if (!callback.ok) throw callback.error
             if (scope.context.poisoned) throw transactionPoisonedError()
+
             scope.active = false
             await operation.executor.run(dialect.operations.compile({ kind: 'commit' }))
             return callback.value
@@ -742,7 +748,9 @@ export function createDatabase<
             const rollback = await attempt(() =>
               operation.executor.run(dialect.operations.compile({ kind: 'rollback' })),
             )
+
             if (!rollback.ok) operation.discard()
+
             throw error
           }
         })

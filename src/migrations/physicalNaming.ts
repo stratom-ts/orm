@@ -114,6 +114,7 @@ function truncatePrefix(
 
   for (const scalar of prefix) {
     if (measuredLength(result + scalar, profile) > available) break
+
     result += scalar
   }
 
@@ -285,6 +286,7 @@ export function validatePhysicalName(
 
   for (let index = 0; index < name.length; index++) {
     const codeUnit = name.charCodeAt(index)
+
     if (codeUnit < 0xd800 || codeUnit > 0xdfff) continue
 
     if (codeUnit > 0xdbff || index + 1 >= name.length) {
@@ -338,7 +340,9 @@ export function physicalNameScopeKey(
   owner: CanonicalRelationIdentity,
 ): string {
   const scope = profile.scope(kind)
+
   if (scope === 'namespaceRelations') return `${scope}:${namespaceKey(owner)}`
+
   return `${scope}:${JSON.stringify(identityTuple(owner))}`
 }
 

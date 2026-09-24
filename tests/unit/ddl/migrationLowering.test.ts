@@ -64,8 +64,10 @@ const expectedProfile: MigrationSemanticProfile = {
 
 function lower(planned: PlannedMigration, profile = expectedProfile): MigrationProgram {
   const result = postgresDialect.migration!.lower(planned, profile)
+
   if (result.issues)
     throw new Error(result.issues.map((issue) => issue.message).join('\n'))
+
   return result.program
 }
 
@@ -188,6 +190,7 @@ describe('PostgreSQL whole-plan lowering', () => {
 
     expect(postsCreate?.sql).not.toContain('references')
     expect(foreignKeyIndex).toBeGreaterThan(usersCreateIndex)
+
     expect(statements[foreignKeyIndex]?.sql).toContain(
       'references "public"."users" ("id")',
     )
@@ -310,6 +313,7 @@ describe('PostgreSQL whole-plan lowering', () => {
     expect(traversal).not.toHaveBeenCalled()
     expect(compilation).not.toHaveBeenCalled()
     expect(result.program).toBeUndefined()
+
     expect(result.issues).toEqual([
       {
         code: 'profile_mismatch',
@@ -415,6 +419,7 @@ describe('PostgreSQL whole-plan lowering', () => {
         },
       ],
     })
+
     expect(postgresDialect.migration!.lower(malformed, expectedProfile)).toEqual(result)
   })
 
@@ -527,6 +532,7 @@ describe('PostgreSQL whole-plan lowering', () => {
     const result = postgresDialect.migration!.lower(cyclePlan, expectedProfile)
 
     expect(result.program).toBeUndefined()
+
     expect(result.issues).toEqual([
       expect.objectContaining({
         code: 'unsupported_dependency_cycle',
@@ -602,11 +608,13 @@ describe('PostgreSQL whole-plan lowering', () => {
     const result = postgresDialect.migration!.lower(crossDatabase, expectedProfile)
 
     expect(result.program).toBeUndefined()
+
     expect(
       result.issues
         ?.filter((issue) => issue.code === 'invalid_target')
         .map((issue) => issue.sourceStepIndexes),
     ).toEqual([[0], [1]])
+
     expect(result.issues?.map((issue) => issue.message).join('\n')).toMatch(
       /does not match executing database/i,
     )
@@ -660,6 +668,7 @@ describe('PostgreSQL whole-plan lowering', () => {
     const result = postgresDialect.migration!.lower(malformed, expectedProfile)
 
     expect(result.program).toBeUndefined()
+
     expect(result.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

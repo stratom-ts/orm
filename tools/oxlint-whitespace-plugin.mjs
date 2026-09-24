@@ -8,6 +8,7 @@ function isIifeStatement(node) {
   if (node.type !== 'ExpressionStatement') return false
 
   let expression = node.expression
+
   if (expression.type === 'ChainExpression') expression = expression.expression
   if (expression.type === 'UnaryExpression') expression = expression.argument
   if (expression.type === 'ChainExpression') expression = expression.expression
@@ -25,6 +26,7 @@ function isBlockLikeStatement(sourceCode, node) {
   if (isIifeStatement(node)) return true
 
   let lastToken = getActualLastToken(sourceCode, node)
+
   if (lastToken.value === ';') lastToken = sourceCode.getTokenBefore(lastToken)
   if (lastToken.value !== '}') return false
 
@@ -32,23 +34,32 @@ function isBlockLikeStatement(sourceCode, node) {
   return owner?.type === 'BlockStatement' || owner?.type === 'SwitchStatement'
 }
 
-function isReturnOnlyStatement(node) {
-  if (node.type === 'ReturnStatement') return true
+function isCallExpression(expression) {
+  if (expression.type === 'CallExpression') return true
+  if (expression.type === 'AwaitExpression') return isCallExpression(expression.argument)
 
+  if (expression.type === 'ChainExpression')
+    return isCallExpression(expression.expression)
+
+  return false
+}
+
+function isMultilineCallStatement(node) {
   return (
-    node.type === 'BlockStatement' &&
-    node.body.length === 1 &&
-    node.body[0].type === 'ReturnStatement'
+    node.type === 'ExpressionStatement' &&
+    node.loc.start.line !== node.loc.end.line &&
+    isCallExpression(node.expression)
   )
 }
 
-function isSingleLineEarlyReturn(node) {
+function isMultilineBlockStatement(sourceCode, node) {
   return (
-    node.type === 'IfStatement' &&
-    node.alternate === null &&
-    node.loc.start.line === node.loc.end.line &&
-    isReturnOnlyStatement(node.consequent)
+    node.loc.start.line !== node.loc.end.line && isBlockLikeStatement(sourceCode, node)
   )
+}
+
+function isSingleLineIfStatement(node) {
+  return node.type === 'IfStatement' && node.loc.start.line === node.loc.end.line
 }
 
 function addBindingNames(pattern, names) {
@@ -114,11 +125,63 @@ function declarationFeedsBlock(previousNode, node) {
   return containsBindingReference(node, names)
 }
 
+function declarationFeedsNode(sourceCode, previousNode, node) {
+  if (
+    previousNode.type !== 'VariableDeclaration' ||
+    (previousNode.kind !== 'const' && previousNode.kind !== 'let')
+  ) {
+    return false
+  }
+
+  return sourceCode
+    .getDeclaredVariables(previousNode)
+    .some((variable) =>
+      variable.references.some(
+        (reference) =>
+          reference.isRead() &&
+          reference.identifier.range[0] >= node.range[0] &&
+          reference.identifier.range[1] <= node.range[1],
+      ),
+    )
+}
+
+function requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment) {
+  const consecutiveSingleLineIfs =
+    leadingComment === null &&
+    isSingleLineIfStatement(previousNode) &&
+    isSingleLineIfStatement(node)
+
+  if (consecutiveSingleLineIfs) return false
+
+  if (
+    isMultilineBlockStatement(sourceCode, previousNode) ||
+    isMultilineCallStatement(previousNode) ||
+    previousNode.type === 'IfStatement'
+  ) {
+    return true
+  }
+
+  if (node.type === 'IfStatement') return true
+
+  const nodeIsMultilineBlock = isMultilineBlockStatement(sourceCode, node)
+  const nodeIsMultilineCall = isMultilineCallStatement(node)
+  const nodeRequiresLeadingBlankLine = nodeIsMultilineBlock || nodeIsMultilineCall
+  const nodeConsumesPreviousDeclaration =
+    (nodeIsMultilineBlock && declarationFeedsBlock(previousNode, node)) ||
+    (nodeIsMultilineCall && declarationFeedsNode(sourceCode, previousNode, node))
+
+  return (
+    (nodeRequiresLeadingBlankLine && !nodeConsumesPreviousDeclaration) ||
+    (node.loc.start.line === node.loc.end.line && leadingComment !== null)
+  )
+}
+
 function getTrailingAnchor(sourceCode, node) {
   let anchor = getActualLastToken(sourceCode, node)
 
   for (const comment of sourceCode.getCommentsAfter(node)) {
     if (comment.loc.start.line !== anchor.loc.end.line) break
+
     anchor = comment
   }
 
@@ -135,6 +198,7 @@ function getAttachedLeadingComment(sourceCode, previousNode, node) {
 
   for (let index = comments.length - 1; index >= 0; index -= 1) {
     const comment = comments[index]
+
     if (nextLine - comment.loc.end.line > 1) break
 
     firstAttached = comment
@@ -158,28 +222,9 @@ function checkStatementList(context, statements) {
     const previousNode = statements[index - 1]
     const node = statements[index]
     const leadingComment = getAttachedLeadingComment(sourceCode, previousNode, node)
-    const previousIsMultilineBlock =
-      previousNode.loc.start.line !== previousNode.loc.end.line &&
-      isBlockLikeStatement(sourceCode, previousNode)
-    const previousIsSingleLineEarlyReturn = isSingleLineEarlyReturn(previousNode)
-    const nodeIsSingleLineEarlyReturn = isSingleLineEarlyReturn(node)
-    const nodeContinuesEarlyReturnGroup =
-      nodeIsSingleLineEarlyReturn || node.type === 'ReturnStatement'
-    const nodeIsBlock = isBlockLikeStatement(sourceCode, node)
-    const nodeIsMultilineBlock = node.loc.start.line !== node.loc.end.line && nodeIsBlock
-    const nodeConsumesPreviousDeclaration =
-      nodeIsMultilineBlock && declarationFeedsBlock(previousNode, node)
-    const singleLineStatementHasComment =
-      node.loc.start.line === node.loc.end.line && leadingComment !== null
 
-    if (
-      !previousIsMultilineBlock &&
-      (!previousIsSingleLineEarlyReturn || nodeContinuesEarlyReturnGroup) &&
-      (!nodeIsMultilineBlock || nodeConsumesPreviousDeclaration) &&
-      !singleLineStatementHasComment
-    ) {
+    if (!requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment))
       continue
-    }
 
     const anchor = getTrailingAnchor(sourceCode, previousNode)
     const target = leadingComment ?? sourceCode.getFirstToken(node)
@@ -208,7 +253,7 @@ const padMultilineBlocks = {
     type: 'layout',
     docs: {
       description:
-        'Require one blank line around multiline blocks and after early returns',
+        'Require one blank line around if statements, multiline blocks, and multiline calls',
     },
     fixable: 'whitespace',
     schema: [],

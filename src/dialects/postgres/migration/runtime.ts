@@ -42,6 +42,7 @@ function executionRetryable(
   }>,
 ): boolean {
   if (options.outcome === 'unknown') return false
+
   return structured?.retryable ?? options.retryable
 }
 
@@ -103,6 +104,7 @@ function cancellationStage(
   fallback: MigrationExecutionStage,
 ): MigrationExecutionStage {
   if (cause instanceof MigrationCancellationError) return cause.stage
+
   return fallback
 }
 
@@ -118,6 +120,7 @@ function reportedStage(
 ): MigrationExecutionStage {
   if (cause instanceof MigrationCancellationError) return cause.stage
   if (cause instanceof MigrationError && cause.stage !== undefined) return cause.stage
+
   return fallback
 }
 
@@ -136,6 +139,7 @@ function failureOutcome(
   if (stage === 'commit') return 'unknown'
   if (!ddlStarted) return 'unchanged'
   if (rollbackAcknowledged) return 'rolledBack'
+
   return 'unknown'
 }
 
@@ -178,7 +182,9 @@ export async function executePostgresMigration(
     const knownSafeFailure =
       cause instanceof MigrationLockTimeoutError ||
       cause instanceof MigrationSignalAbortedError
+
     if (!knownSafeFailure) options.discard()
+
     throw executionError({
       cause,
       stage: 'lock',
@@ -279,6 +285,7 @@ export async function executePostgresMigration(
             params: [],
           }),
       })
+
       transactionOpen = true
     } catch (cause) {
       options.discard()
@@ -347,6 +354,7 @@ export async function executePostgresMigration(
           stage: 'commit',
           operation: () => options.executor.run({ sql: 'commit', params: [] }),
         })
+
         transactionOpen = false
         committed = true
       } catch (cause) {
@@ -369,6 +377,7 @@ export async function executePostgresMigration(
           stage: 'rollback',
           operation: () => options.executor.run({ sql: 'rollback', params: [] }),
         })
+
         transactionOpen = false
         rollbackAcknowledged = true
       } catch (cause) {

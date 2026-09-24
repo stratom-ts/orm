@@ -61,6 +61,7 @@ describe('db.transaction', () => {
 
     await db.transaction(async (trx) => {
       await trx.insert(Users).values({ id: '1', email: 'a@b.com' }).execute()
+
       await expect(
         trx.transaction(async (inner) => {
           await inner.insert(Users).values({ id: '2', email: 'b@b.com' }).execute()
@@ -130,6 +131,7 @@ describe('db.transaction', () => {
     })
 
     await Promise.resolve()
+
     expect(
       connector.prepared.filter((sql) => sql.toLowerCase() === 'begin'),
     ).toHaveLength(1)
@@ -172,6 +174,7 @@ describe('db.transaction', () => {
 
     await db.transaction(async (trx) => {
       await expect(trx.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
+
       await trx.transaction(async (nested) => {
         await expect(nested.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
       })

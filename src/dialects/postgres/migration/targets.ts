@@ -79,6 +79,7 @@ function createTableStepToAst(
 ): PostgresCreateTableAst | undefined {
   const identity = step.target.relation
   const ast = planned.desiredTables.get(identity)
+
   if (!ast) return undefined
 
   return {

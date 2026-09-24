@@ -20,21 +20,26 @@ function isCandidateKey(table: AuthoredDesiredTable, column: string): boolean {
   const columnKey = table.columns.find(
     (candidate) => candidate.identifier.spelling === column,
   )?.identifier.comparisonKey
+
   if (columnKey === undefined) return false
 
   const primaryKey = Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
     : [table.metadata.primaryKey]
+
   if (
     primaryKey.length === 1 &&
     table.columns.find((candidate) => candidate.name === primaryKey[0])?.identifier
       .comparisonKey === columnKey
   )
     return true
+
   const authoredColumn = table.columns.find(
     (candidate) => candidate.identifier.comparisonKey === columnKey,
   )
+
   if (authoredColumn?.metadata?.unique) return true
+
   return (table.metadata.indexes ?? []).some((index) => {
     return (
       index.unique === true &&
@@ -67,7 +72,9 @@ export function registerDesiredSchema(
 
     for (const [name, value] of Object.entries(handle.getSchema().entries)) {
       const schema = value as AnySchema
+
       if (!schema || schema.kind !== 'schema') continue
+
       const reference = getReferenceMetadata(schema)
       const columnMetadata = getColumnMetadata(schema)
       const identifier = identities.member('column', name)
@@ -112,7 +119,9 @@ export function registerDesiredSchema(
     for (let index = 1; index < ordered.length; index++) {
       const previous = ordered[index - 1]!
       const current = ordered[index]!
+
       if (previous.identifier.comparisonKey !== current.identifier.comparisonKey) continue
+
       throw new MigrationError({
         message: `Duplicate desired columns ${identities.format(table.identity, {
           role: 'column',
@@ -140,7 +149,9 @@ export function registerDesiredSchema(
       left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
     )) {
       const reference = column.reference
+
       if (!reference) continue
+
       const referenceIdentity = reference.targetRelation
       const target = registry.get(referenceIdentity)
       const sourceName = identities.format(table.identity, {
@@ -219,6 +230,7 @@ export function lowerDesiredSchema(
     return lowerer.lowerDesiredSchema(graph)
   } catch (cause) {
     if (cause instanceof MigrationError) throw cause
+
     throw new MigrationError({
       message: cause instanceof Error ? cause.message : 'Desired schema lowering failed',
       ...(cause === undefined ? {} : { cause }),

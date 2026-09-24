@@ -100,6 +100,7 @@ function evidenceDescription(fact: Exclude<CatalogFact<unknown>, { state: 'prese
   if (fact.state === 'absent') return 'absent'
   if (fact.state === 'unavailable') return `unavailable (${fact.cause})`
   if (fact.state === 'unsupported') return `unsupported by ${fact.by}`
+
   return fact.state
 }
 
@@ -323,6 +324,7 @@ export function catalogForPlanning(
           identities,
           relation.identity,
         )
+
         if (!expected) return { name: column.name }
 
         const dataType = requireFact(

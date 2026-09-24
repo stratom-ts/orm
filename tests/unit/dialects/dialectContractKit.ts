@@ -447,6 +447,7 @@ function validateDialectContractMember<
 >(capabilities: TCapabilities): void {
   for (const facet of dialectMemberFacets) {
     const capability = capabilities[facet]
+
     if (typeof capability !== 'object' || capability === null) {
       throw new Error(`Dialect contract capability declaration omits ${facet}`)
     }
@@ -543,9 +544,11 @@ function registerNaming(name: string, support: ContractSupport<NamingContractInp
       .resolve(input.owner)
     const seed = { kind: 'index' as const, owner, columns: input.columns, unique: false }
     expect(input.dialect.naming.generate(seed)).toBe(input.expectedName)
+
     expect(() =>
       input.dialect.naming.validate(input.expectedName, 'contract index'),
     ).not.toThrow()
+
     const registry = input.dialect.naming.createRegistry()
     registry.reserve({
       kind: 'index',
@@ -554,6 +557,7 @@ function registerNaming(name: string, support: ContractSupport<NamingContractInp
       token: 'first',
       description: 'first contract index',
     })
+
     expect(() =>
       registry.reserve({
         kind: 'index',
@@ -630,6 +634,7 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
   for (const scenarioId of queryCompilerScenarioIds) {
     const scenario = contract.scenarios[scenarioId]
     const support = scenario.support
+
     if (support.state === 'unsupported') {
       it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
         expect(support.reason.trim().length).toBeGreaterThan(0)
@@ -642,6 +647,7 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
           support.expectedMessage,
         )
       })
+
       continue
     }
 
@@ -843,16 +849,22 @@ function registerDialectContractShard(
   registration: Partial<FacetContractInput>,
 ): void {
   const inputs = registration as FacetContractInput
+
   if (capabilities.identity.shard === shard) registerIdentity(name, inputs.identity)
   if (capabilities.naming.shard === shard) registerNaming(name, inputs.naming)
+
   if (capabilities.desiredSchema.shard === shard)
     registerDesiredSchema(name, inputs.desiredSchema)
+
   if (capabilities.query.shard === shard) registerQuery(name, inputs.query)
   if (capabilities.catalog.shard === shard) registerCatalog(name, inputs.catalog)
+
   if (capabilities.operationSession.shard === shard)
     registerOperationSession(name, inputs.operationSession)
+
   if (capabilities.coordination.shard === shard)
     registerCoordination(name, inputs.coordination)
+
   if (capabilities.migration.shard === shard) registerMigration(name, inputs.migration)
   if (capabilities.lifecycle.shard === shard) registerLifecycle(name, inputs.lifecycle)
 }

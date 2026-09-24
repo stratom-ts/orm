@@ -76,6 +76,7 @@ function createMalformedDefinedHandle(mutation: MalformedHandleMutation) {
           throw new Error('unexpected metadata access')
         },
       })
+
       break
   }
 
@@ -107,6 +108,7 @@ describe('client query table handles', () => {
     expect(() => createDatabase({ connector, schemas: [forgedHandle as never] })).toThrow(
       expect.objectContaining({ _tag: 'SchemaError' }),
     )
+
     expect(getInstance).not.toHaveBeenCalled()
     expect(connector.prepared).toEqual([])
   })
@@ -121,6 +123,7 @@ describe('client query table handles', () => {
       expect(() => createDatabase({ connector, schemas: [handle as never] })).toThrow(
         expect.objectContaining({ _tag: 'SchemaError' }),
       )
+
       expect(getInstance).not.toHaveBeenCalled()
       expect(connector.prepared).toEqual([])
     },
@@ -188,6 +191,7 @@ describe('client query table handles', () => {
           message: expect.stringContaining(`db.${method}()`),
         }),
       )
+
       expect(connector.prepared).toEqual([])
       await db.close()
     },
@@ -205,6 +209,7 @@ describe('client query table handles', () => {
           message: expect.stringMatching(/not registered/i),
         }),
       )
+
       expect(connector.prepared).toEqual([])
       await db.close()
     },

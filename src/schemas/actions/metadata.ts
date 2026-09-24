@@ -50,6 +50,7 @@ export function findSchemaMetadata<T extends MetadataRecord>(
 
     for (let index = actions.length - 1; index >= 0; index--) {
       const metadata = actionMetadata(actions[index])
+
       if (metadata?.kind === kind) return metadata as T
     }
 
@@ -66,6 +67,7 @@ export function findSchemaMetadata<T extends MetadataRecord>(
 
     if (typeof first === 'object' && first !== null && 'kind' in first) {
       const nested = findSchemaMetadata<T>(first as AnySchema, kind)
+
       if (nested) return nested
     }
   }

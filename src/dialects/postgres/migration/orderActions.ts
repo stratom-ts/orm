@@ -227,6 +227,7 @@ function topologicalOrder(
     available.sort(
       (left, right) => drafts[left]!.sourceStepIndex - drafts[right]!.sourceStepIndex,
     )
+
     const next = available.shift()!
     ordered.push(drafts[next]!)
 
@@ -321,6 +322,8 @@ export function orderActions(
 ): OrderedActions {
   const dependencies = actionDependencies(drafts, planned)
   const ordered = topologicalOrder(drafts, dependencies)
+
   if (ordered.length === drafts.length) return { ordered, issues: [] }
+
   return { ordered: [], issues: cycleIssues(drafts, dependencies) }
 }

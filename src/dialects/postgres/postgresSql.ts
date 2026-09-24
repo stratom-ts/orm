@@ -86,11 +86,13 @@ function statementRequiresCleanup(statement: Statement): boolean {
   if (statement.advisory) return true
 
   const [first, second] = statement.words
+
   if (!first) return true
   if (TRANSACTION_STARTS.has(first)) return true
   if (first === 'start') return true
   if (first === 'prepare' && second === 'transaction') return true
   if (first === 'set' && second === 'transaction') return true
+
   return !PLAIN_STARTS.has(first)
 }
 
@@ -147,6 +149,7 @@ class PostgresSqlScanner {
 
   #finishStatement(): void {
     if (this.#statement.executable) this.#statements.push(this.#statement)
+
     this.#statement = { words: [], executable: false, advisory: false }
     this.#pendingAdvisoryCall = false
   }
@@ -226,6 +229,7 @@ class PostgresSqlScanner {
     }
 
     if (!closed) this.#malformed = true
+
     this.#pendingAdvisoryCall = closed && ADVISORY_FUNCTION_RE.test(identifier)
   }
 
@@ -246,6 +250,7 @@ class PostgresSqlScanner {
     }
 
     const parameter = /^\$(\d+)/.exec(this.sql.slice(this.#index))
+
     if (!parameter) return false
 
     const parameterIndex = Number(parameter[1])
@@ -256,11 +261,13 @@ class PostgresSqlScanner {
     }
 
     this.#markExecutable()
+
     this.#parameters.push({
       start: this.#index,
       end: this.#index + parameter[0].length,
       index: parameterIndex - 1,
     })
+
     this.#index += parameter[0].length
     return true
   }

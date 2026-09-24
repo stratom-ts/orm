@@ -231,6 +231,7 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
 function compareCodeUnits(left: string, right: string): number {
   if (left < right) return -1
   if (left > right) return 1
+
   return 0
 }
 
@@ -292,12 +293,14 @@ function compareNamespaces(
 
   for (let index = 0; index < length; index++) {
     const role = compareCodeUnits(left[index]!.role, right[index]!.role)
+
     if (role !== 0) return role
 
     const identifier = compareCodeUnits(
       left[index]!.identifier.comparisonKey,
       right[index]!.identifier.comparisonKey,
     )
+
     if (identifier !== 0) return identifier
   }
 
@@ -321,6 +324,7 @@ function targetNamespace(target: MigrationTarget): readonly CanonicalNamespaceSe
 function targetMember(target: MigrationTarget): CanonicalIdentifier | undefined {
   if (target.kind === 'column') return target.column
   if (target.kind === 'index') return target.index
+
   return undefined
 }
 
@@ -392,10 +396,13 @@ function comparePlanningIssues(
   identities: CanonicalRelationIdentityModule,
 ): number {
   const relation = identities.compare(left.identity, right.identity)
+
   if (relation !== 0) return relation
 
   const target = compareCodeUnits(left.target, right.target)
+
   if (target !== 0) return target
+
   return (
     ISSUE_PROPERTY_ORDER[left.property] - ISSUE_PROPERTY_ORDER[right.property] ||
     compareCodeUnits(left.message, right.message)
@@ -462,6 +469,7 @@ function catalogTableMap(
         property: 'duplicate_catalog_table',
         message: `Duplicate catalog table ${identities.format(identity)}`,
       })
+
       continue
     }
 
@@ -578,6 +586,7 @@ function compareStringArrays(left: readonly string[], right: readonly string[]):
 
   for (let index = 0; index < length; index++) {
     const result = compareCodeUnits(left[index]!, right[index]!)
+
     if (result !== 0) return result
   }
 
@@ -738,6 +747,7 @@ function collectUniqueConstraintIssues({
 
     for (const match of matches) matched.add(match)
     const match = matches[0]
+
     if (!match) continue
 
     if (!hasSupportedCatalogSemantics(match)) {
@@ -803,6 +813,7 @@ function collectForeignKeyIssues({
 
     for (const match of matches) matched.add(match)
     const match = matches[0]
+
     if (!match) continue
 
     if (!hasSupportedCatalogSemantics(match)) {
@@ -875,6 +886,7 @@ function collectManagedPropertyIssues(
           spelling: column.name,
         })}`,
       })
+
       continue
     }
 
@@ -883,7 +895,9 @@ function collectManagedPropertyIssues(
 
   for (const column of desired.columns) {
     const current = liveColumns.get(column.identifier.comparisonKey)
+
     if (!current) continue
+
     const columnLabel = identities.format(identity, {
       role: 'column',
       spelling: column.identifier.spelling,
@@ -1212,6 +1226,7 @@ function collectLiveIndexes(
           spelling: liveIndex.name,
         })}`,
       })
+
       continue
     }
 
@@ -1219,6 +1234,7 @@ function collectLiveIndexes(
 
     if (shape === 'complete' && !hasSupportedCatalogSemantics(liveIndex)) {
       unsupportedNames.add(key)
+
       issues.push({
         identity,
         target: key,
@@ -1279,10 +1295,12 @@ function reconcileIndexes({
             spelling: index.name.spelling,
           })}`,
         })
+
         continue
       }
 
       current = semanticMatches[0]
+
       if (!current) current = liveIndexes.get(index.name.comparisonKey)
     } else {
       current = liveIndexes.get(index.name.comparisonKey)
@@ -1296,12 +1314,14 @@ function reconcileIndexes({
         token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
         description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
       })
+
       steps.push({
         kind: 'create_index',
         target: { kind: 'index', relation: identity, index: index.name },
         columns: index.columns,
         unique: index.unique,
       })
+
       continue
     }
 
@@ -1313,6 +1333,7 @@ function reconcileIndexes({
       !unsupportedLiveIndexNames.has(currentKey)
     ) {
       unsupportedLiveIndexNames.add(currentKey)
+
       issues.push({
         identity,
         target: currentKey,
@@ -1352,6 +1373,7 @@ function reconcileIndexes({
         )
       )
         continue
+
       steps.push({
         kind: 'drop_index',
         target: indexTarget(identity, liveIndex.name, identities),
@@ -1391,12 +1413,16 @@ function validateDesiredNames(
 
     for (const value of Object.values(handle.getSchema().entries)) {
       if (!value || value.kind !== 'schema') continue
+
       const reference = getReferenceMetadata(value)
+
       if (!reference) continue
+
       validateCanonicalRelationNames(
         identities.resolve(reference.target.relation),
         naming,
       )
+
       naming.validate(reference.target.column, 'referenced column name')
     }
   }
@@ -1465,13 +1491,17 @@ function appendMissingColumnConstraints({
         !liveColumns.has(desiredColumn.identifier.comparisonKey)
       )
         continue
+
       const matches = matchUniqueConstraints(
         live.uniqueConstraints,
         desiredColumn.identifier,
         identities,
       )
+
       if (matches.length !== 0) continue
+
       reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+
       steps.push({
         kind: 'add_unique_constraint',
         target: {
@@ -1490,14 +1520,18 @@ function appendMissingColumnConstraints({
         !liveColumns.has(desiredColumn.identifier.comparisonKey)
       )
         continue
+
       const expected = canonicalDesiredForeignKey(desiredColumn)
       const matches = matchForeignKeys(live.foreignKeys, expected, identities)
+
       if (matches.length !== 0) continue
+
       reserveForeignKey(
         identity,
         desiredColumn.identifier.spelling,
         desiredColumn.reference,
       )
+
       deferredForeignKeys.push({
         kind: 'add_foreign_key',
         target: {
@@ -1568,6 +1602,7 @@ function reconcileExistingColumns({
           desiredColumn.identifier.spelling,
           desiredColumn.reference,
         )
+
         deferredForeignKeys.push({
           kind: 'add_foreign_key',
           target: {
@@ -1694,6 +1729,7 @@ function appendDroppedTables({
 }: DroppedTablePlanning): void {
   for (const live of catalogTables) {
     const identity = live.identity
+
     if (registered.has(identity)) continue
 
     if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace)) {
@@ -1707,6 +1743,7 @@ function appendDroppedTables({
         property: 'opaque_catalog_object',
         message: `Cannot drop '${identities.format(identity)}' while it contains opaque catalog objects: ${live.opaqueObjects.join(', ')}`,
       })
+
       continue
     }
 
@@ -1755,10 +1792,12 @@ function appendCreatedTable({
       kind: 'ensure_namespace',
       target: { kind: 'namespace', namespace: identity.namespace },
     })
+
     ensuredNamespaces.push(identity.namespace)
   }
 
   steps.push({ kind: 'create_table', target: relationTarget(identity) })
+
   physicalNames.reserve({
     kind: 'relation',
     owner: identity,
@@ -1781,6 +1820,7 @@ function appendCreatedTable({
     token: primaryKeyToken,
     description: primaryKeyDescription,
   })
+
   physicalNames.reserve({
     kind: 'check',
     owner: identity,
@@ -1801,6 +1841,7 @@ function appendCreatedTable({
       token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
       description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
     })
+
     steps.push({
       kind: 'create_index',
       target: { kind: 'index', relation: identity, index: index.name },
@@ -1811,7 +1852,9 @@ function appendCreatedTable({
 
   for (const column of desired.columns) {
     if (!column.reference) continue
+
     reserveForeignKey(identity, column.identifier.spelling, column.reference)
+
     deferredForeignKeys.push({
       kind: 'add_foreign_key',
       target: { kind: 'column', relation: identity, column: column.identifier },
@@ -1873,6 +1916,7 @@ function prepareDesiredTable({
       property: 'invalid_desired_table',
       message: `Invalid desired table ${identities.format(identity)}`,
     })
+
     return undefined
   }
 
@@ -1892,7 +1936,9 @@ function prepareDesiredTable({
   for (let index = 1; index < indexes.length; index++) {
     const previous = indexes[index - 1]!
     const current = indexes[index]!
+
     if (previous.name.comparisonKey !== current.name.comparisonKey) continue
+
     throw new MigrationError({
       message: `Duplicate desired indexes ${identities.format(identity, {
         role: 'index',
@@ -1999,6 +2045,7 @@ function buildMigrationPlan(
       token: relationToken,
       description: `catalog relation ${identities.format(identity)}`,
     })
+
     representedCatalogNames.add(namespaceNameKey(namespace, identity.relation.spelling))
 
     reserveCatalogIndexes(
@@ -2012,6 +2059,7 @@ function buildMigrationPlan(
     if (table.primaryKey) {
       const backingToken = `catalog:${namespaceNameKey(namespace, table.primaryKey.name)}`
       const constraintToken = `catalog-constraint:${identities.format(identity)}:${table.primaryKey.name}`
+
       physicalNames.reserve({
         kind: 'primaryKey',
         owner: identity,
@@ -2019,6 +2067,7 @@ function buildMigrationPlan(
         token: backingToken,
         description: `catalog primary key ${JSON.stringify(table.primaryKey.name)}`,
       })
+
       physicalNames.reserve({
         kind: 'check',
         owner: identity,
@@ -2026,12 +2075,14 @@ function buildMigrationPlan(
         token: constraintToken,
         description: `catalog primary key ${JSON.stringify(table.primaryKey.name)}`,
       })
+
       representedCatalogNames.add(namespaceNameKey(namespace, table.primaryKey.name))
     }
 
     for (const constraint of table.uniqueConstraints ?? []) {
       const backingToken = `catalog:${namespaceNameKey(namespace, constraint.name)}`
       const constraintToken = `catalog-constraint:${identities.format(identity)}:${constraint.name}`
+
       physicalNames.reserve({
         kind: 'unique',
         owner: identity,
@@ -2039,6 +2090,7 @@ function buildMigrationPlan(
         token: backingToken,
         description: `catalog unique constraint ${JSON.stringify(constraint.name)}`,
       })
+
       physicalNames.reserve({
         kind: 'check',
         owner: identity,
@@ -2046,6 +2098,7 @@ function buildMigrationPlan(
         token: constraintToken,
         description: `catalog unique constraint ${JSON.stringify(constraint.name)}`,
       })
+
       representedCatalogNames.add(namespaceNameKey(namespace, constraint.name))
     }
 
@@ -2159,6 +2212,7 @@ function buildMigrationPlan(
       token,
       description,
     })
+
     physicalNames.reserve({
       kind: 'check',
       owner,
@@ -2179,7 +2233,9 @@ function buildMigrationPlan(
       naming,
       identities,
     })
+
     if (!prepared) continue
+
     const { info, identity, live, desired: createAst, indexes, shape } = prepared
 
     if (!live) {
@@ -2197,6 +2253,7 @@ function buildMigrationPlan(
         reserveForeignKey,
         reserveUniqueConstraint,
       })
+
       continue
     }
 
@@ -2244,6 +2301,7 @@ function buildMigrationPlan(
   const issue = issues.sort((left, right) =>
     comparePlanningIssues(left, right, identities),
   )[0]
+
   if (issue) throw new MigrationError({ message: issue.message })
 
   return {
@@ -2298,6 +2356,7 @@ export function planMigration(
     )
   } catch (cause) {
     if (cause instanceof MigrationError) throw cause
+
     throw new MigrationError({
       message: cause instanceof Error ? cause.message : 'Migration planning failed',
       ...(cause !== undefined ? { cause } : {}),

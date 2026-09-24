@@ -22,7 +22,9 @@ const SHARED_EXECUTION_PATHS = [
 
 function sourceFiles(path: string): string[] {
   const absolute = join(ROOT, path)
+
   if (absolute.endsWith('.ts')) return [absolute]
+
   return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
     const child = join(absolute, entry.name)
     return entry.isDirectory()
@@ -95,11 +97,13 @@ function isDb0ModuleSpecifier(specifier: string): boolean {
 function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   if (ts.isImportDeclaration(node)) {
     const clause = node.importClause
+
     if (!clause) return '*'
     if (clause.isTypeOnly) return undefined
     if (clause.name) return clause.name.text
 
     const bindings = clause.namedBindings
+
     if (!bindings) return undefined
     if (ts.isNamespaceImport(bindings)) return bindings.name.text
 
@@ -115,8 +119,10 @@ function nonAllowlistedBarrelRuntimeMember(node: ts.Node): string | undefined {
   if (!ts.isExportDeclaration(node) || node.isTypeOnly) return undefined
 
   const exports = node.exportClause
+
   if (!exports) return '*'
   if (ts.isNamespaceExport(exports)) return exports.name.text
+
   return exports.elements.find(
     (element) =>
       !element.isTypeOnly &&
@@ -185,6 +191,7 @@ function db0ExecutionReference(node: ts.Node): string | undefined {
   if (!access) return undefined
 
   const method = access.name.text
+
   if (!['prepare', 'bind', 'all'].includes(method)) return undefined
 
   const root = rootIdentifier(access.expression)
@@ -257,6 +264,7 @@ function containsDialectPolicySelector(node: ts.Node): boolean {
 
 function physicalSqlText(node: ts.StringLiteralLike | ts.TemplateExpression): string {
   if (!ts.isTemplateExpression(node)) return node.text
+
   return [
     node.head.text,
     ...node.templateSpans.flatMap((span) => ['${value}', span.literal.text]),
@@ -278,6 +286,7 @@ function containsProperty(node: ts.Node, property: string): boolean {
 
 function memberCollectionName(node: ts.Expression): string | undefined {
   if (!ts.isIdentifier(node)) return undefined
+
   return /(?:column|index)(?:names?)?$/i.test(node.text) ||
     /(?:columns|indexes|columnnames|indexnames)/i.test(node.text)
     ? node.text
@@ -527,15 +536,18 @@ describe('dialect extension locality architecture', () => {
 
     expect(declaredPropertyNames(sharedTypes, 'TableMetadata')).not.toContain('schema')
     expect(declaredPropertyNames(sharedTypes, 'TableOptions')).not.toContain('schema')
+
     expect(declaredPropertyNames(tableAction, 'TableActionConfig')).not.toContain(
       'schema',
     )
+
     expect(declaredPropertyNames(sharedTypes, 'ReferenceMetadata')).not.toContain('table')
     expect(declaredPropertyNames(sharedTypes, 'ReferenceMetadata')).not.toContain('key')
 
     expect(readFileSync(tableAction.fileName, 'utf8')).not.toMatch(
       /\b(?:config|metadata)\.schema\b/,
     )
+
     expect(readFileSync(referenceAction.fileName, 'utf8')).not.toMatch(
       /\b(?:metadata|reference)\.(?:table|key)\b/,
     )

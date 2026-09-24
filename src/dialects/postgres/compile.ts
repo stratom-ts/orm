@@ -265,6 +265,7 @@ function resolveRelationAlias(
       relation.schema === resolved.schema &&
       relation.table === resolved.table,
   )
+
   if (exactMatches.length === 1) return exactMatches[0]!.alias
 
   const matches = relations.filter(
@@ -281,6 +282,7 @@ function resolveRelationAlias(
         relation.schema !== resolved.schema
       ),
   )
+
   if (matches.length === 1) return matches[0]!.alias
 
   if (matches.length === 0) {
@@ -416,6 +418,7 @@ function compilePredicate(
 
       if (pred.preds.length === 1)
         return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
+
       return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' and ')})`
     }
     case 'or': {
@@ -423,6 +426,7 @@ function compilePredicate(
 
       if (pred.preds.length === 1)
         return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
+
       return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' or ')})`
     }
     case 'not':
@@ -450,6 +454,7 @@ function compileWhereClause(
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
   if (!where) return ''
+
   return ` where ${compilePredicate(where, params, relations, resolveRelation)}`
 }
 

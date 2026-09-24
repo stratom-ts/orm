@@ -295,6 +295,7 @@ describe('catalog semantic adoption', () => {
         migrationOwnership: additiveOwnership,
       }),
     ).toEqual({ steps: [] })
+
     expect(() => planMigration([Parents, Children], catalog, postgresDialect)).toThrow(
       /unsupported removal of extra (unique constraints|foreign keys)/i,
     )

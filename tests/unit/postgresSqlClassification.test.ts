@@ -103,10 +103,12 @@ describe('PostgreSQL SQL lexical classification', () => {
       text: sql,
       values: ['first', 'second'],
     })
+
     expect(prepared).toEqual([
       `alter table test alter column value set default '$1';\n` +
         `select "$2", $body$ $3 $body$, /* $4 */ ?, -- $5\n?, ?`,
     ])
+
     expect(binds).toEqual([['second', 'first', 'second']])
   })
 

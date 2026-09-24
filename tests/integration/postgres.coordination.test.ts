@@ -103,21 +103,25 @@ describe('PostgreSQL transaction and coordination integration', () => {
 
         await db.transaction(async (outer) => {
           await outer.insert(TransactionRows).values({ label: 'outer before' }).execute()
+
           await outer.transaction(async (nested) => {
             await nested
               .insert(TransactionRows)
               .values({ label: 'nested success' })
               .execute()
           })
+
           await expect(
             outer.transaction(async (nested) => {
               await nested
                 .insert(TransactionRows)
                 .values({ label: 'nested rollback' })
                 .execute()
+
               throw new Error('nested failure')
             }),
           ).rejects.toThrow('nested failure')
+
           await outer.insert(TransactionRows).values({ label: 'outer after' }).execute()
         })
 
@@ -147,22 +151,28 @@ describe('PostgreSQL transaction and coordination integration', () => {
     )
     expect(begin).toBeGreaterThanOrEqual(0)
     expect(commit).toBeGreaterThan(begin)
+
     if (begin < 0 || commit <= begin) throw new Error('Expected committed transaction')
 
     const transactionEvents = events.slice(begin, commit + 1)
     const sql = transactionEvents.map(({ sql: statement }) => statement.toLowerCase())
     expect(sql).toEqual(expect.arrayContaining(['begin', 'commit']))
     expect(sql.some((statement) => statement.startsWith('savepoint '))).toBe(true)
+
     expect(sql.some((statement) => statement.startsWith('rollback to savepoint '))).toBe(
       true,
     )
+
     expect(sql.some((statement) => statement.startsWith('release savepoint '))).toBe(true)
+
     expect(sql.filter((statement) => statement.startsWith('insert into '))).toHaveLength(
       4,
     )
+
     expect(
       new Set(transactionEvents.map(({ physicalSession }) => physicalSession)).size,
     ).toBe(1)
+
     expect(transactionEvents[0]?.physicalSession).toMatch(/^\d+$/)
   })
 
@@ -206,6 +216,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
             timedOut.then(() => undefined),
             'the positive advisory-lock timeout',
           )
+
           expect(rejected(await timedOut)).toMatchObject({
             _tag: 'MigrationError',
             message: expect.stringContaining(
@@ -215,6 +226,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
             outcome: 'unchanged',
             retryable: true,
           })
+
           expect(timeoutAttempts).toBeGreaterThan(0)
 
           const contenderTriedLock = deferred()
@@ -230,11 +242,14 @@ describe('PostgreSQL transaction and coordination integration', () => {
             cancelledOutcome,
             'the contending advisory-lock query',
           )
+
           controller.abort()
+
           await within(
             cancelledOutcome.then(() => undefined),
             'the cancelled advisory-lock query',
           )
+
           expect(rejected(await cancelledOutcome)).toMatchObject({
             _tag: 'MigrationError',
             message: expect.stringMatching(/aborted/i),
@@ -263,7 +278,9 @@ describe('PostgreSQL transaction and coordination integration', () => {
           reacquisitionOutcome,
           'the reacquired advisory-lock query',
         )
+
         const reacquired = await reacquisitionOutcome
+
         if (reacquired.status === 'rejected') throw reacquired.reason
 
         await expect(second.from(CoordinatedRowsAfter).execute()).resolves.toEqual([
@@ -273,6 +290,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
             added: 'after lock',
           },
         ])
+
         await expect(second.migrate().plan()).resolves.toEqual({ steps: [] })
       },
       {
