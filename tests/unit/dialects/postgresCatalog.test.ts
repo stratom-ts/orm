@@ -137,7 +137,7 @@ function executor(
             character_maximum_length: null,
             numeric_precision: null,
             numeric_scale: null,
-            is_nullable: 'YES',
+            is_nullable: options.version === '180001' ? 'NO' : 'YES',
             column_default: null,
             is_identity: 'NO',
             identity_generation: null,
@@ -210,7 +210,7 @@ function executor(
       }
 
       if (sql.includes('from pg_constraint con')) {
-        return [
+        const constraints: unknown[] = [
           {
             schema: 'public',
             table_name: 'events',
@@ -226,6 +226,42 @@ function executor(
             native_definition: 'primary key (id)',
           },
         ]
+
+        if (options.version === '180001') {
+          constraints.push({
+            schema: 'public',
+            table_name: 'events',
+            constraint_name: 'events_payload_not_null',
+            constraint_type: 'n',
+            is_valid: true,
+            // NOT NULL rows do not need key-constraint metadata decoded.
+            columns: '[invalid json]',
+          })
+          constraints.push({
+            schema: 'public',
+            table_name: 'events',
+            constraint_name: 'events_status_not_null',
+            constraint_type: 'n',
+            columns: ['status'],
+            is_valid: false,
+            is_deferrable: false,
+            initially_deferred: false,
+            native_definition: 'not null not valid',
+          })
+          constraints.push({
+            schema: 'public',
+            table_name: 'events',
+            constraint_name: 'events_payload_check',
+            constraint_type: 'c',
+            columns: ['payload'],
+            is_valid: true,
+            is_deferrable: false,
+            initially_deferred: false,
+            native_definition: 'check (length(payload) > 0)',
+          })
+        }
+
+        return constraints
       }
 
       if (sql.includes('as object_kind')) {
@@ -253,6 +289,35 @@ function executor(
 }
 
 describe('PostgreSQL evidence-bearing catalog', () => {
+  it('keeps PostgreSQL 18 NOT NULL constraints as nullable column evidence', async () => {
+    const catalog = await postgresDialect.catalog.introspectCatalog(
+      executor({ version: '180001' }),
+      request,
+    )
+    const relation = catalog.namespaces.items[0]!.relations.items[0]!
+    if (relation.table.state !== 'present') throw new Error('Expected table evidence')
+
+    expect(
+      relation.table.value.columns.items.find(({ name }) => name === 'payload')?.nullable,
+    ).toEqual({ state: 'present', value: false })
+    expect(
+      relation.table.value.columns.items.find(({ name }) => name === 'status')?.nullable,
+    ).toEqual({ state: 'present', value: false })
+    expect(
+      relation.table.value.opaqueObjects.items.map(({ name }) =>
+        name.state === 'present' ? name.value : undefined,
+      ),
+    ).toEqual(['events_audit', 'events_payload_check', 'events_status_not_null'])
+    expect(catalog.constraintNameReservations.items).toContainEqual(
+      expect.objectContaining({
+        relation: expect.objectContaining({
+          relation: expect.objectContaining({ spelling: 'events' }),
+        }),
+        name: 'events_payload_not_null',
+      }),
+    )
+  })
+
   it('normalizes row-order permutations and preserves native objects', async () => {
     const queries: Parameters<CatalogExecutor['execute']>[0][] = []
     const delegate = executor()

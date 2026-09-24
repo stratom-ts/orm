@@ -60,8 +60,61 @@ const ManagedConstructive = defineTable(
   },
 )
 
+const NotNullIndexed = defineTable(
+  'not_null_records',
+  { id: string(), indexedValue: string() },
+  {
+    primaryKey: 'id',
+    indexes: [{ name: 'not_null_records_indexed_idx', columns: ['indexedValue'] }],
+  },
+)
+
+const NotNullWithoutIndex = defineTable(
+  'not_null_records',
+  { id: string(), indexedValue: string() },
+  { primaryKey: 'id' },
+)
+
 describe('PostgreSQL migration runtime integration', () => {
   beforeAll(waitForPostgres)
+
+  it('drops an ordinary index from a PostgreSQL 18 table with NOT NULL constraints', async ({
+    skip,
+  }) => {
+    await withPostgresDatabase(
+      [NotNullIndexed],
+      async ({ db, schema, admin, createDatabase }) => {
+        const version = await admin.query<{ server_version_num: string }>(
+          "select current_setting('server_version_num') as server_version_num",
+        )
+
+        if (Number(version.rows[0]!.server_version_num) < 180000) {
+          skip()
+          return
+        }
+
+        await db.migrate().execute()
+        const nullConstraints = await admin.query<{ count: string }>(
+          `select count(*)::text as count from pg_constraint con
+           join pg_class tbl on tbl.oid = con.conrelid
+           join pg_namespace n on n.oid = tbl.relnamespace
+           where n.nspname = $1 and tbl.relname = 'not_null_records' and con.contype = 'n'`,
+          [schema],
+        )
+        expect(Number(nullConstraints.rows[0]!.count)).toBeGreaterThan(0)
+
+        const destructive = createDatabase([NotNullWithoutIndex], {
+          migrationOwnership: [
+            { kind: 'relation', relation: NotNullWithoutIndex, shape: 'complete' },
+          ],
+        })
+        const plan = await destructive.migrate().dryRun()
+        expect(plan.steps.map((step) => step.kind)).toEqual(['drop_index'])
+        await destructive.migrate().allow('dropIndex').execute()
+        await expect(destructive.migrate().dryRun()).resolves.toEqual({ steps: [] })
+      },
+    )
+  })
 
   it('rolls back a partial DDL attempt and converges on retry without data loss', async () => {
     await withPostgresDatabase(

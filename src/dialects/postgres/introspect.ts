@@ -730,8 +730,14 @@ function appendConstraints(
     if (!target) continue
     const type = stringAt(row, 'constraint_type', 'constraint', index)
     const name = stringAt(row, 'constraint_name', 'constraint', index)
-    const nativeDefinition = stringAt(row, 'native_definition', 'constraint', index)
     reservations.push({ relation: target.identity, name })
+    // PostgreSQL 18 records column NOT NULL declarations in pg_constraint too.
+    // Validated column nullability already carries this portable evidence, so
+    // retain the name reservation without duplicating the constraint as opaque.
+
+    if (type === 'n' && booleanAt(row, 'is_valid', 'constraint', index)) continue
+
+    const nativeDefinition = stringAt(row, 'native_definition', 'constraint', index)
     const supported = hasSupportedConstraintSemantics(row, type, index)
     const valid = constraintIsValid(row, type, index)
     const key: CatalogKeyConstraint = {
