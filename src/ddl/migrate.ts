@@ -195,7 +195,7 @@ function lowerPlan(
 }
 
 /** Copies the physical program into a review-only shape without executable callbacks. */
-function previewProgram(program: MigrationProgram): MigrationDryRun {
+function dryRunProgram(program: MigrationProgram): MigrationDryRun {
   return {
     atomicity: program.atomicity,
     preconditions: program.preconditions.map((precondition) => ({
@@ -357,7 +357,7 @@ export function createMigrateBuilder(options: {
       try {
         return await runOperation(async (executor) => {
           const { planned, expected } = await buildPlan(executor)
-          return previewProgram(lowerPlan(migration, planned, expected))
+          return dryRunProgram(lowerPlan(migration, planned, expected))
         })
       } catch (cause) {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
