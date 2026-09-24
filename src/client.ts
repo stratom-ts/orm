@@ -650,7 +650,8 @@ export function createDatabase<
      * Creates a desired-state migration builder for the registered tables.
      *
      * @example
-     *   const plan = await db.migrate().dryRun()
+     *   const plan = await db.migrate().plan()
+     *   const preview = await db.migrate().dryRun()
      */
     const migrate = (): MigrateBuilder => {
       ensureClientOpen()

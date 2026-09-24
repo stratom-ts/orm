@@ -4,6 +4,9 @@ export {
   type MigrateBuilder,
   type MigrationAllow,
   type MigrationExecuteOptions,
+  type MigrationDryRun,
+  type MigrationDryRunAction,
+  type MigrationDryRunStatement,
 } from './migrate'
 export type {
   MigrationColumnReference,

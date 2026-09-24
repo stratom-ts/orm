@@ -10,7 +10,7 @@ import {
 } from './helpers/operationSessionFixtures'
 
 describe('operation coordinator lifecycle', () => {
-  it('gives query, transaction, dry-run, and migration distinct FIFO root slots', async () => {
+  it('gives query, transaction, planning, and migration distinct FIFO root slots', async () => {
     const firstCall = deferred()
     const finishFirst = deferred()
     const controls = createControllableProvider({
@@ -30,11 +30,11 @@ describe('operation coordinator lifecycle', () => {
     const query = db.ping()
     await firstCall.promise
     const transaction = db.transaction(async (trx) => trx.ping())
-    const dryRun = db.migrate().dryRun()
+    const planning = db.migrate().plan()
     const migration = db.migrate().execute()
     expect(controls.openCount).toBe(1)
     finishFirst.resolve()
-    await Promise.all([query, transaction, dryRun, migration])
+    await Promise.all([query, transaction, planning, migration])
 
     expect(controls.events.filter((event) => event.startsWith('lease-opened:'))).toEqual([
       'lease-opened:1',

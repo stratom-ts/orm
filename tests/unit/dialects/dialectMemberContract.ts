@@ -88,7 +88,7 @@ export async function runDialectLifecycleContract(
     expect(runtime.queryParams()).toEqual([runtime.expected.queryParam])
 
     await database.transaction(async (transaction) => transaction.ping())
-    const plan = await database.migrate().dryRun()
+    const plan = await database.migrate().plan()
     expect(plan).toEqual(runtime.migration.expectedPlan)
 
     if (runtime.migration.state === 'supported') {

@@ -190,7 +190,7 @@ export function registerDialectIntegrationScenarios(
       'executes a portable Migration Plan',
       async () => {
         await adapter.withDatabase([ContractRecords], async ({ db }) => {
-          const plan = await db.migrate().dryRun()
+          const plan = await db.migrate().plan()
           expect(plan.steps.map((step) => step.kind)).toEqual([
             'create_table',
             'create_index',
@@ -211,10 +211,10 @@ export function registerDialectIntegrationScenarios(
       'converges to an empty second plan',
       async () => {
         await adapter.withDatabase([ContractRecords], async ({ db }) => {
-          const initial = await db.migrate().dryRun()
+          const initial = await db.migrate().plan()
           expect(initial.steps.length).toBeGreaterThan(0)
           await db.migrate().execute()
-          await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
+          await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
         })
       },
     )

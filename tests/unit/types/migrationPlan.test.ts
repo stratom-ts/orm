@@ -5,8 +5,12 @@ import type {
   CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
   LoweredDatabaseDefault,
+  MigrateBuilder,
   MigrationColumnReference,
   MigrationColumnTarget,
+  MigrationDryRun,
+  MigrationDryRunAction,
+  MigrationDryRunStatement,
   MigrationIndexTarget,
   MigrationNamespaceTarget,
   MigrationPlan,
@@ -82,6 +86,23 @@ type ExpectedMigrationStep =
   | Readonly<{ kind: 'drop_index'; target: ExpectedIndexTarget }>
 
 describe('public Migration Plan types', () => {
+  it('names semantic planning separately from physical dry runs', () => {
+    expectTypeOf<MigrateBuilder['plan']>().toEqualTypeOf<() => Promise<MigrationPlan>>()
+    expectTypeOf<MigrateBuilder['dryRun']>().toEqualTypeOf<
+      () => Promise<MigrationDryRun>
+    >()
+    expectTypeOf<MigrateBuilder>().not.toHaveProperty('preview')
+
+    // @ts-expect-error MigrationPreview was replaced by MigrationDryRun.
+    expectTypeOf<import('@/index').MigrationPreview>()
+
+    // @ts-expect-error MigrationPreviewAction was replaced by MigrationDryRunAction.
+    expectTypeOf<import('@/index').MigrationPreviewAction>()
+
+    // @ts-expect-error MigrationPreviewStatement was replaced by MigrationDryRunStatement.
+    expectTypeOf<import('@/index').MigrationPreviewStatement>()
+  })
+
   it('keeps the descriptive plan and step shapes exact', () => {
     expectTypeOf<MigrationPlan>().toEqualTypeOf<
       Readonly<{ steps: readonly MigrationStep[] }>
@@ -90,6 +111,31 @@ describe('public Migration Plan types', () => {
     expectTypeOf<Extract<MigrationStep, { kind: 'create_table' }>>().toEqualTypeOf<
       Readonly<{ kind: 'create_table'; target: ExpectedRelationTarget }>
     >()
+  })
+
+  it('keeps the preview grouped and non-executable', () => {
+    expectTypeOf<MigrationDryRunStatement>().toEqualTypeOf<
+      Readonly<{ sql: string; params: readonly '[REDACTED]'[] }>
+    >()
+    expectTypeOf<MigrationDryRunAction>().toEqualTypeOf<
+      Readonly<{
+        sourceStepIndexes: readonly number[]
+        transaction: 'required' | 'allowed' | 'forbidden'
+        statements: readonly MigrationDryRunStatement[]
+      }>
+    >()
+    expectTypeOf<MigrationDryRun['atomicity']>().toEqualTypeOf<
+      'plan-atomic' | 'statement-atomic' | 'non-atomic'
+    >()
+    expectTypeOf<MigrationDryRun['actions']>().toEqualTypeOf<
+      readonly MigrationDryRunAction[]
+    >()
+    expectTypeOf<
+      MigrationDryRun['preconditions'][number]['relation']
+    >().toEqualTypeOf<CanonicalRelationIdentity>()
+    expectTypeOf<MigrationDryRunStatement>().not.toHaveProperty('assertSession')
+    expectTypeOf<MigrationPlan>().not.toHaveProperty('sql')
+    expectTypeOf<MigrationStep>().not.toHaveProperty('sql')
   })
 
   it('addresses every step through one exact structured target union', () => {

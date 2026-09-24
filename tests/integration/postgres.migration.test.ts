@@ -108,10 +108,10 @@ describe('PostgreSQL migration runtime integration', () => {
             { kind: 'relation', relation: NotNullWithoutIndex, shape: 'complete' },
           ],
         })
-        const plan = await destructive.migrate().dryRun()
+        const plan = await destructive.migrate().plan()
         expect(plan.steps.map((step) => step.kind)).toEqual(['drop_index'])
         await destructive.migrate().allow('dropIndex').execute()
-        await expect(destructive.migrate().dryRun()).resolves.toEqual({ steps: [] })
+        await expect(destructive.migrate().plan()).resolves.toEqual({ steps: [] })
       },
     )
   })
@@ -150,7 +150,7 @@ describe('PostgreSQL migration runtime integration', () => {
           },
         })
 
-        const plan = await failing.migrate().dryRun()
+        const plan = await failing.migrate().plan()
         expect(plan.steps.filter((step) => step.kind === 'add_column')).toHaveLength(2)
         await expect(failing.migrate().execute()).rejects.toMatchObject({
           _tag: 'MigrationError',
@@ -189,7 +189,7 @@ describe('PostgreSQL migration runtime integration', () => {
 
         const retry = createDatabase([RollbackAfter])
         await retry.migrate().execute()
-        await expect(retry.migrate().dryRun()).resolves.toEqual({ steps: [] })
+        await expect(retry.migrate().plan()).resolves.toEqual({ steps: [] })
 
         const afterRetry = await admin.query<{
           id: string
@@ -226,13 +226,13 @@ describe('PostgreSQL migration runtime integration', () => {
           ],
         })
 
-        const plan = await constructive.migrate().dryRun()
+        const plan = await constructive.migrate().plan()
         expect(plan.steps.map((step) => step.kind)).toEqual([
           'add_column',
           'create_index',
         ])
         await constructive.migrate().execute()
-        await expect(constructive.migrate().dryRun()).resolves.toEqual({ steps: [] })
+        await expect(constructive.migrate().plan()).resolves.toEqual({ steps: [] })
 
         const destructive = createDatabase([] as const, {
           migrationOwnership: [
@@ -246,10 +246,10 @@ describe('PostgreSQL migration runtime integration', () => {
           ],
         })
 
-        const destructivePlan = await destructive.migrate().dryRun()
+        const destructivePlan = await destructive.migrate().plan()
         expect(destructivePlan.steps.map((step) => step.kind)).toEqual(['drop_table'])
         await destructive.migrate().allow('dropTable').execute()
-        await expect(destructive.migrate().dryRun()).resolves.toEqual({ steps: [] })
+        await expect(destructive.migrate().plan()).resolves.toEqual({ steps: [] })
 
         const preserved = await admin.query<{
           id: string

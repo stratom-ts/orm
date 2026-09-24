@@ -407,11 +407,39 @@ function matchingUsers(extra?: Partial<LiveTable>): LiveTable {
 }
 
 describe('db.migrate() adapters and execution', () => {
-  it('lowers wrapper nullability and inferred types consistently in dryRun and execute', async () => {
+  it('returns a stable PostgreSQL SQL preview without running DDL', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const preview = await db.migrate().dryRun()
+
+    expect(preview).toMatchObject({
+      atomicity: 'plan-atomic',
+      actions: [
+        {
+          sourceStepIndexes: [0],
+          transaction: 'required',
+          statements: [
+            {
+              sql: 'create table "public"."users" ("id" uuid not null, "email" text not null, constraint "users_id__c2b82cf39bf9f504_pkey" primary key ("id"))',
+              params: [],
+            },
+          ],
+        },
+      ],
+    })
+    expect(connector.runSql).toEqual([])
+    expect(connector.prepared.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+    await db.close()
+  })
+
+  it('lowers wrapper nullability and inferred types consistently in plan and execute', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [WrapperMigration] })
 
-    const plan = await db.migrate().dryRun()
+    const plan = await db.migrate().plan()
     expect(plan.steps.some((step) => step.kind === 'create_table')).toBe(true)
     expect(connector.runSql).toEqual([])
 
@@ -439,7 +467,7 @@ describe('db.migrate() adapters and execution', () => {
     const db = createDatabase({ connector, schemas: [Users] })
 
     try {
-      await db.migrate().dryRun()
+      await db.migrate().plan()
       expect(lower).toHaveBeenCalledTimes(1)
 
       lower.mockClear()
@@ -470,7 +498,7 @@ describe('db.migrate() adapters and execution', () => {
 
     const error = await db
       .migrate()
-      .dryRun()
+      .plan()
       .catch((cause: unknown) => cause)
     expect(error).toBeInstanceOf(MigrationError)
     expect(error).toMatchObject({
@@ -517,11 +545,11 @@ describe('db.migrate() adapters and execution', () => {
     await db.close()
   })
 
-  it('keeps dry-run free of locking, transactions, and DDL', async () => {
+  it('keeps planning free of locking, transactions, and DDL', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
-    await expect(db.migrate().dryRun()).resolves.toMatchObject({
+    await expect(db.migrate().plan()).resolves.toMatchObject({
       steps: [{ kind: 'create_table', target: relationTarget('public', 'users') }],
     })
     expect(connector.runSql).toEqual([])
@@ -541,7 +569,7 @@ describe('db.migrate() adapters and execution', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [IndexedEvents] })
 
-    const plan = await db.migrate().dryRun()
+    const plan = await db.migrate().plan()
     const index = plan.steps.find((step) => step.kind === 'create_index')
     expect(index?.kind).toBe('create_index')
     if (index?.kind !== 'create_index') throw new Error('Expected generated index step')
@@ -587,7 +615,7 @@ describe('db.migrate() adapters and execution', () => {
     })
     const db = createDatabase({ connector, schemas: [ReservedEvents] })
 
-    await expect(db.migrate().dryRun()).rejects.toThrow(/physical name collision/i)
+    await expect(db.migrate().plan()).rejects.toThrow(/physical name collision/i)
     expect(connector.prepared.some((sql) => /c\.relname as object_name/i.test(sql))).toBe(
       true,
     )
@@ -616,7 +644,7 @@ describe('db.migrate() adapters and execution', () => {
       ],
     })
 
-    await expect(db.migrate().dryRun()).resolves.toMatchObject({
+    await expect(db.migrate().plan()).resolves.toMatchObject({
       steps: [
         {
           kind: 'add_unique_constraint',
@@ -647,7 +675,7 @@ describe('db.migrate() adapters and execution', () => {
       defaultNamespace: [{ role: 'schema', spelling: 'tenant' }],
     })
 
-    await expect(db.migrate().dryRun()).resolves.toEqual({
+    await expect(db.migrate().plan()).resolves.toEqual({
       steps: [
         { kind: 'ensure_namespace', target: namespaceTarget('tenant') },
         { kind: 'create_table', target: relationTarget('tenant', 'items') },
@@ -874,11 +902,11 @@ describe('db.migrate() policy and coordination', () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({ connector, schemas: [Users] })
 
-    const plan = await db.migrate().dryRun()
+    const plan = await db.migrate().plan()
     const allowed = await db
       .migrate()
       .allow('dropColumn', 'dropIndex', 'dropTable')
-      .dryRun()
+      .plan()
 
     expect(allowed).toEqual(plan)
     expect(plan.steps.map((step) => step.kind)).toEqual(['drop_index', 'drop_column'])
@@ -969,7 +997,7 @@ describe('db.migrate() policy and coordination', () => {
     const connector = createMockConnector({ tables: [matchingUsers()] })
     const db = createDatabase({ connector, schemas: [Users] })
 
-    await expect(db.migrate().dryRun()).resolves.toEqual({ steps: [] })
+    await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
     connector.prepared.length = 0
     connector.runSql.length = 0
     connector.liveTables[0]!.columns.push({
