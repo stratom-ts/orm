@@ -25,24 +25,24 @@ export type MigrationExecuteOptions = Readonly<{
 }>
 
 /** Non-executable statement preview; every bound parameter is redacted. */
-export type MigrationPreviewStatement = Readonly<{
+export type MigrationDryRunStatement = Readonly<{
   sql: string
   /** One `[REDACTED]` marker per bound parameter, preserving count and order. */
   params: readonly '[REDACTED]'[]
 }>
 
 /** Non-executable physical action projected from dialect whole-plan lowering. */
-export type MigrationPreviewAction = Readonly<{
+export type MigrationDryRunAction = Readonly<{
   sourceStepIndexes: readonly number[]
   transaction: 'required' | 'allowed' | 'forbidden'
-  statements: readonly MigrationPreviewStatement[]
+  statements: readonly MigrationDryRunStatement[]
 }>
 
 /** Ordered, non-executable physical preview of a complete Migration Plan. */
-export type MigrationPreview = Readonly<{
+export type MigrationDryRun = Readonly<{
   atomicity: 'plan-atomic' | 'statement-atomic' | 'non-atomic'
   preconditions: MigrationProgram['preconditions']
-  actions: readonly MigrationPreviewAction[]
+  actions: readonly MigrationDryRunAction[]
 }>
 
 export type MigrateBuilder = {
@@ -57,7 +57,7 @@ export type MigrateBuilder = {
   plan(): Promise<MigrationPlan>
 
   /** Lowers the complete plan and returns ordered SQL with all bound values redacted. */
-  dryRun(): Promise<MigrationPreview>
+  dryRun(): Promise<MigrationDryRun>
 
   /**
    * Plans and executes the migration through the selected dialect.
@@ -195,7 +195,7 @@ function lowerPlan(
 }
 
 /** Copies the physical program into a review-only shape without executable callbacks. */
-function previewProgram(program: MigrationProgram): MigrationPreview {
+function previewProgram(program: MigrationProgram): MigrationDryRun {
   return {
     atomicity: program.atomicity,
     preconditions: program.preconditions.map((precondition) => ({

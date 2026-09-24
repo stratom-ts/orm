@@ -8,12 +8,12 @@ import type {
   MigrateBuilder,
   MigrationColumnReference,
   MigrationColumnTarget,
+  MigrationDryRun,
+  MigrationDryRunAction,
+  MigrationDryRunStatement,
   MigrationIndexTarget,
   MigrationNamespaceTarget,
   MigrationPlan,
-  MigrationPreview,
-  MigrationPreviewAction,
-  MigrationPreviewStatement,
   MigrationRelationTarget,
   MigrationStep,
   MigrationTarget,
@@ -89,9 +89,18 @@ describe('public Migration Plan types', () => {
   it('names semantic planning separately from physical dry runs', () => {
     expectTypeOf<MigrateBuilder['plan']>().toEqualTypeOf<() => Promise<MigrationPlan>>()
     expectTypeOf<MigrateBuilder['dryRun']>().toEqualTypeOf<
-      () => Promise<MigrationPreview>
+      () => Promise<MigrationDryRun>
     >()
     expectTypeOf<MigrateBuilder>().not.toHaveProperty('preview')
+
+    // @ts-expect-error MigrationPreview was replaced by MigrationDryRun.
+    expectTypeOf<import('@/index').MigrationPreview>()
+
+    // @ts-expect-error MigrationPreviewAction was replaced by MigrationDryRunAction.
+    expectTypeOf<import('@/index').MigrationPreviewAction>()
+
+    // @ts-expect-error MigrationPreviewStatement was replaced by MigrationDryRunStatement.
+    expectTypeOf<import('@/index').MigrationPreviewStatement>()
   })
 
   it('keeps the descriptive plan and step shapes exact', () => {
@@ -105,26 +114,26 @@ describe('public Migration Plan types', () => {
   })
 
   it('keeps the preview grouped and non-executable', () => {
-    expectTypeOf<MigrationPreviewStatement>().toEqualTypeOf<
+    expectTypeOf<MigrationDryRunStatement>().toEqualTypeOf<
       Readonly<{ sql: string; params: readonly '[REDACTED]'[] }>
     >()
-    expectTypeOf<MigrationPreviewAction>().toEqualTypeOf<
+    expectTypeOf<MigrationDryRunAction>().toEqualTypeOf<
       Readonly<{
         sourceStepIndexes: readonly number[]
         transaction: 'required' | 'allowed' | 'forbidden'
-        statements: readonly MigrationPreviewStatement[]
+        statements: readonly MigrationDryRunStatement[]
       }>
     >()
-    expectTypeOf<MigrationPreview['atomicity']>().toEqualTypeOf<
+    expectTypeOf<MigrationDryRun['atomicity']>().toEqualTypeOf<
       'plan-atomic' | 'statement-atomic' | 'non-atomic'
     >()
-    expectTypeOf<MigrationPreview['actions']>().toEqualTypeOf<
-      readonly MigrationPreviewAction[]
+    expectTypeOf<MigrationDryRun['actions']>().toEqualTypeOf<
+      readonly MigrationDryRunAction[]
     >()
     expectTypeOf<
-      MigrationPreview['preconditions'][number]['relation']
+      MigrationDryRun['preconditions'][number]['relation']
     >().toEqualTypeOf<CanonicalRelationIdentity>()
-    expectTypeOf<MigrationPreviewStatement>().not.toHaveProperty('assertSession')
+    expectTypeOf<MigrationDryRunStatement>().not.toHaveProperty('assertSession')
     expectTypeOf<MigrationPlan>().not.toHaveProperty('sql')
     expectTypeOf<MigrationStep>().not.toHaveProperty('sql')
   })
