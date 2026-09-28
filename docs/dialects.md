@@ -3,8 +3,9 @@
 Stratom treats a dialect as one complete module of database semantics. PostgreSQL,
 future SQLite and MySQL implementations, and custom implementations are all members of
 the same `Dialect` interface. PostgreSQL is currently the only production-supported
-member. The SQLite-shaped member in the test suite is a contract fixture, not production
-SQLite support.
+member. The SQLite-shaped member in the test suite is a contract fixture. SQLite schema,
+naming, query, and value-mapping facets also exist for the ordinary `main` database
+profile, but they are not assembled into or registered as a complete dialect member.
 
 Applications always select a member with the db0 connector:
 
