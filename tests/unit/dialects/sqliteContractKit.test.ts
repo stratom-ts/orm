@@ -2,6 +2,7 @@ import { date, integer, number, pipe, string } from 'valibot'
 
 import type { Dialect, SqlAst } from '@/dialects'
 import {
+  sqliteCatalog,
   sqliteIdentity,
   sqliteNaming,
   sqliteQuery,
@@ -52,7 +53,7 @@ const sqliteContractDialect: Dialect = {
   naming: sqliteNaming,
   schema: sqliteSchema,
   query: sqliteQuery,
-  catalog: { introspectCatalog: async () => unsupportedFacet('catalog') },
+  catalog: sqliteCatalog,
   operations: {
     createSessionProvider: () => unsupportedFacet('operation sessions'),
     compile: () => unsupportedFacet('operation commands'),
@@ -70,11 +71,7 @@ const sqliteContractCapabilities = {
   naming: { state: 'supported', shard: 'semantic' },
   desiredSchema: { state: 'supported', shard: 'semantic' },
   query: { state: 'supported', shard: 'semantic' },
-  catalog: {
-    state: 'unsupported',
-    reason: 'SQLite catalog observation is not part of the ready facet set',
-    shard: 'semantic',
-  },
+  catalog: { state: 'supported', shard: 'semantic' },
   operationSession: {
     state: 'unsupported',
     reason: 'SQLite operation-session adaptation is not part of the ready facet set',
@@ -531,8 +528,60 @@ registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities,
       },
     },
     catalog: {
-      state: 'unsupported',
-      reason: 'SQLite catalog observation is not part of the ready facet set',
+      state: 'supported',
+      input: {
+        dialect: sqliteContractDialect,
+        executor: {
+          execute: async ({ sql }) => {
+            if (sql.includes('sqlite_version')) return [{ version: '3.45.0' }]
+
+            if (sql.includes('pragma_database_list'))
+              return [{ seq: 0, name: 'main', file: '' }]
+
+            return []
+          },
+        },
+        request: {
+          relations: [],
+          absentRelations: [],
+          completeNamespaces: [namespaceContext.writableDefault],
+        },
+        expected: {
+          sourceDialect: 'sqlite',
+          writableDefault: namespaceContext.writableDefault,
+          namespaceCoverage: { state: 'complete' },
+          capabilities: {
+            namespaces: { state: 'supported', fidelity: 'native' },
+            relationOwner: {
+              state: 'unsupported',
+              by: 'engine',
+              reason: 'SQLite has no relation owner',
+            },
+            identity: { state: 'supported', fidelity: 'native' },
+            richObjects: { state: 'supported', fidelity: 'opaque' },
+          },
+          request: {
+            relations: [],
+            absentRelations: [],
+            completeNamespaces: [
+              namespaceContext.writableDefault.map((segment) => ({
+                role: segment.role,
+                spelling: segment.spelling,
+              })),
+            ],
+          },
+          namespaces: [
+            {
+              identity: namespaceContext.writableDefault.map((segment) => ({
+                role: segment.role,
+                spelling: segment.spelling,
+              })),
+              relationCoverage: { state: 'complete' },
+              relations: [],
+            },
+          ],
+        },
+      },
     },
     operationSession: {
       state: 'unsupported',

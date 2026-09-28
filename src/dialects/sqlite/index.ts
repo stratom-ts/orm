@@ -11,6 +11,7 @@ export {
   sqliteIdentity,
 } from './identity'
 export { inferSqliteColumnType } from './infer'
+export { sqliteCatalog } from './catalog'
 export { lowerSqliteDesiredSchema } from './lowerDesiredSchema'
 export { mapSqliteParamValue, mapSqliteResultValue } from './mapping'
 export { SQLITE_PHYSICAL_NAMING, sqliteNaming } from './naming'
