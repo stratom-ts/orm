@@ -1,0 +1,554 @@
+import { date, integer, number, pipe, string } from 'valibot'
+
+import type { Dialect, SqlAst } from '@/dialects'
+import {
+  sqliteIdentity,
+  sqliteNaming,
+  sqliteQuery,
+  sqliteSchema,
+} from '@/dialects/sqlite'
+import { defineTable } from '@/index'
+
+import { registerDialectContractMember } from './dialectContractKit'
+import type {
+  DialectContractMemberCapabilities,
+  QueryCompilerScenarios,
+} from './dialectContractKit'
+
+const namespaceContext = {
+  writableDefault: [{ role: 'database' as const, spelling: 'main' }],
+}
+const registrationDefault = namespaceContext.writableDefault
+
+const Records = defineTable(
+  'records',
+  {
+    id: pipe(number(), integer()),
+    label: string(),
+    active: string(),
+    amount: pipe(number(), integer()),
+    deleted_at: string(),
+    created_at: date(),
+  },
+  { primaryKey: 'id' },
+)
+const Events = defineTable(
+  'events',
+  { id: string(), record_id: string(), label: string() },
+  { primaryKey: 'id' },
+)
+
+const records = { relation: 'records' } as const
+const events = { relation: 'events' } as const
+
+function unsupportedFacet(facet: string): never {
+  throw new Error(`SQLite contract fixture does not exercise ${facet}`)
+}
+
+/** Test-only complete shape used solely to drive the reusable facet contracts. */
+const sqliteContractDialect: Dialect = {
+  id: 'sqlite',
+  identity: sqliteIdentity,
+  naming: sqliteNaming,
+  schema: sqliteSchema,
+  query: sqliteQuery,
+  catalog: { introspectCatalog: async () => unsupportedFacet('catalog') },
+  operations: {
+    createSessionProvider: () => unsupportedFacet('operation sessions'),
+    compile: () => unsupportedFacet('operation commands'),
+  },
+  migration: {
+    planning: { identity: sqliteIdentity, naming: sqliteNaming, schema: sqliteSchema },
+    catalog: { introspectCatalog: async () => unsupportedFacet('catalog') },
+    lower: () => unsupportedFacet('migration lowering'),
+    execute: async () => unsupportedFacet('migration execution'),
+  },
+}
+
+const sqliteContractCapabilities = {
+  identity: { state: 'supported', shard: 'semantic' },
+  naming: { state: 'supported', shard: 'semantic' },
+  desiredSchema: { state: 'supported', shard: 'semantic' },
+  query: { state: 'supported', shard: 'semantic' },
+  catalog: {
+    state: 'unsupported',
+    reason: 'SQLite catalog observation is not part of the ready facet set',
+    shard: 'semantic',
+  },
+  operationSession: {
+    state: 'unsupported',
+    reason: 'SQLite operation-session adaptation is not part of the ready facet set',
+    shard: 'semantic',
+  },
+  coordination: {
+    state: 'unsupported',
+    reason: 'SQLite migration coordination is not part of the ready facet set',
+    shard: 'semantic',
+  },
+  migration: {
+    state: 'unsupported',
+    reason: 'SQLite migration lowering is not part of the ready facet set',
+    shard: 'semantic',
+  },
+  lifecycle: {
+    state: 'unsupported',
+    reason: 'SQLite lifecycle support requires complete member assembly',
+    shard: 'semantic',
+  },
+} as const satisfies DialectContractMemberCapabilities
+
+type SupportedQueryInput = Extract<
+  QueryCompilerScenarios[keyof QueryCompilerScenarios]['support'],
+  { state: 'supported' }
+>['input']
+
+function supported(
+  node: SqlAst,
+  expected: Readonly<{ sql: string; params: readonly unknown[] }>,
+) {
+  return {
+    support: {
+      state: 'supported' as const,
+      input: {
+        dialect: sqliteContractDialect,
+        handles: [Records, Events],
+        registrationDefault,
+        node,
+        expected,
+      } satisfies SupportedQueryInput,
+    },
+  }
+}
+
+function unsupported(node: SqlAst, expectedMessage: string) {
+  return {
+    support: {
+      state: 'unsupported' as const,
+      reason: `SQLite 3.37 does not support ${expectedMessage}`,
+      input: {
+        dialect: sqliteContractDialect,
+        handles: [Records, Events],
+        registrationDefault,
+        node,
+      },
+      expectedMessage,
+    },
+  }
+}
+
+const queryCompilerScenarios = {
+  'select.projection': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [
+        { kind: 'column', column: 'label', alias: 'labelText' },
+        { kind: 'column', column: 'id' },
+      ],
+    },
+    {
+      sql: 'select "label" as "labelText", "id" from "main"."records" as "main.records"',
+      params: [],
+    },
+  ),
+  'select.namespace': supported(
+    {
+      kind: 'select',
+      relation: {
+        namespace: [{ role: 'database', spelling: 'MAIN' }],
+        relation: 'events"archive',
+      },
+      selection: [{ kind: 'all' }],
+    },
+    {
+      sql: 'select * from "main"."events""archive" as "main.events""archive"',
+      params: [],
+    },
+  ),
+  'select.join.inner': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [
+        { kind: 'column', relation: records, column: 'id' },
+        { kind: 'column', relation: events, column: 'label' },
+      ],
+      joins: [
+        {
+          type: 'inner',
+          relation: events,
+          on: {
+            kind: 'cmp',
+            relation: records,
+            column: 'id',
+            op: 'eq',
+            right: { relation: events, column: 'record_id' },
+          },
+        },
+      ],
+    },
+    {
+      sql: 'select "main.records"."id", "main.events"."label" from "main"."records" as "main.records" inner join "main"."events" as "main.events" on "main.records"."id" = "main.events"."record_id"',
+      params: [],
+    },
+  ),
+  'select.join.left': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'all' }],
+      joins: [
+        {
+          type: 'left',
+          relation: events,
+          on: {
+            kind: 'cmp',
+            relation: records,
+            column: 'id',
+            op: 'eq',
+            right: { relation: events, column: 'record_id' },
+          },
+        },
+      ],
+    },
+    {
+      sql: 'select * from "main"."records" as "main.records" left join "main"."events" as "main.events" on "main.records"."id" = "main.events"."record_id"',
+      params: [],
+    },
+  ),
+  'select.join.right': unsupported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'all' }],
+      joins: [
+        {
+          type: 'right',
+          relation: events,
+          on: {
+            kind: 'cmp',
+            relation: records,
+            column: 'id',
+            op: 'eq',
+            right: { relation: events, column: 'record_id' },
+          },
+        },
+      ],
+    },
+    'right joins',
+  ),
+  'predicate.comparisons': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'all' }],
+      where: {
+        kind: 'and',
+        preds: [
+          { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+          { kind: 'cmp', column: 'id', op: 'neq', value: 2 },
+          { kind: 'cmp', column: 'id', op: 'gt', value: 3 },
+          { kind: 'cmp', column: 'id', op: 'gte', value: 4 },
+          { kind: 'cmp', column: 'id', op: 'lt', value: 5 },
+          { kind: 'cmp', column: 'id', op: 'lte', value: 6 },
+        ],
+      },
+    },
+    {
+      sql: 'select * from "main"."records" as "main.records" where ("id" = ? and "id" <> ? and "id" > ? and "id" >= ? and "id" < ? and "id" <= ?)',
+      params: [1, 2, 3, 4, 5, 6],
+    },
+  ),
+  'predicate.boolean': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'all' }],
+      where: {
+        kind: 'not',
+        pred: {
+          kind: 'or',
+          preds: [
+            { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+            {
+              kind: 'and',
+              preds: [
+                { kind: 'cmp', column: 'id', op: 'gt', value: 2 },
+                { kind: 'cmp', column: 'id', op: 'lt', value: 9 },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      sql: 'select * from "main"."records" as "main.records" where (not ("id" = ? or ("id" > ? and "id" < ?)))',
+      params: [1, 2, 9],
+    },
+  ),
+  'predicate.null': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'all' }],
+      where: {
+        kind: 'or',
+        preds: [
+          { kind: 'cmp', column: 'deleted_at', op: 'eq', value: null },
+          { kind: 'cmp', column: 'deleted_at', op: 'neq', value: null },
+        ],
+      },
+    },
+    {
+      sql: 'select * from "main"."records" as "main.records" where ("deleted_at" is null or "deleted_at" is not null)',
+      params: [],
+    },
+  ),
+  'expression.scalar': unsupported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [
+        {
+          kind: 'expr',
+          alias: 'day',
+          expr: {
+            kind: 'date_trunc',
+            unit: 'day',
+            arg: { kind: 'column', column: 'created_at' },
+          },
+        },
+      ],
+    },
+    'date_trunc',
+  ),
+  'expression.aggregate': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [
+        { kind: 'expr', expr: { kind: 'count_all' }, alias: 'total' },
+        {
+          kind: 'expr',
+          expr: { kind: 'count', arg: { kind: 'column', column: 'id' } },
+          alias: 'ids',
+        },
+        {
+          kind: 'expr',
+          expr: { kind: 'min', arg: { kind: 'column', column: 'amount' } },
+          alias: 'smallest',
+        },
+        {
+          kind: 'expr',
+          expr: { kind: 'max', arg: { kind: 'column', column: 'amount' } },
+          alias: 'largest',
+        },
+        {
+          kind: 'expr',
+          expr: { kind: 'sum', arg: { kind: 'column', column: 'amount' } },
+          alias: 'sum',
+        },
+      ],
+    },
+    {
+      sql: 'select count(*) as "total", count("id") as "ids", min("amount") as "smallest", max("amount") as "largest", sum("amount") as "sum" from "main"."records" as "main.records"',
+      params: [],
+    },
+  ),
+  'clause.group-having-order': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'column', column: 'active' }],
+      groupBy: [{ column: 'active' }, { column: 'amount' }, { column: 'label' }],
+      having: { kind: 'cmp', column: 'active', op: 'eq', value: 'yes' },
+      orderBy: [
+        { column: 'amount', direction: 'desc' },
+        { column: 'label', direction: 'asc' },
+      ],
+    },
+    {
+      sql: 'select "active" from "main"."records" as "main.records" group by "active", "amount", "label" having "active" = ? order by "amount" desc, "label" asc',
+      params: ['yes'],
+    },
+  ),
+  'clause.pagination': supported(
+    {
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'all' }],
+      limit: 10,
+      offset: 20,
+    },
+    {
+      sql: 'select * from "main"."records" as "main.records" limit ? offset ?',
+      params: [10, 20],
+    },
+  ),
+  'insert.rows-defaults-returning': unsupported(
+    {
+      kind: 'insert',
+      relation: records,
+      columns: ['id', 'label', 'deleted_at'],
+      values: [
+        [1, 'first', undefined],
+        [2, 'second', null],
+      ],
+      returning: { kind: 'columns', columns: ['id', 'label'] },
+    },
+    'DEFAULT as an individual VALUES expression',
+  ),
+  'update.set-where-returning': supported(
+    {
+      kind: 'update',
+      relation: records,
+      set: [
+        { column: 'label', value: 'updated' },
+        { column: 'amount', value: 7 },
+      ],
+      where: { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+      allowAll: false,
+      returning: { kind: 'all' },
+    },
+    {
+      sql: 'update "main"."records" as "main.records" set "label" = ?, "amount" = ? where "id" = ? returning *',
+      params: ['updated', 7, 1],
+    },
+  ),
+  'delete.where-returning': supported(
+    {
+      kind: 'delete',
+      relation: records,
+      where: { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
+      allowAll: false,
+      returning: { kind: 'columns', columns: ['id'] },
+    },
+    {
+      sql: 'delete from "main"."records" as "main.records" where "id" = ? returning "id"',
+      params: [1],
+    },
+  ),
+} satisfies QueryCompilerScenarios
+
+registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities, {
+  semantic: {
+    identity: {
+      state: 'supported',
+      input: {
+        dialect: sqliteContractDialect,
+        context: namespaceContext,
+        relation: { relation: 'RECORDS' },
+        expected: {
+          namespace: [
+            {
+              role: 'database',
+              identifier: { spelling: 'main', comparisonKey: 'main' },
+            },
+          ],
+          relation: { spelling: 'RECORDS', comparisonKey: 'records' },
+        },
+      },
+    },
+    naming: {
+      state: 'supported',
+      input: {
+        dialect: sqliteContractDialect,
+        context: namespaceContext,
+        owner: records,
+        columns: ['label'],
+        expectedName: 'records_label__325c0e5784db0e39_idx',
+        collisionName: 'Contract_Collision_Idx',
+      },
+    },
+    desiredSchema: {
+      state: 'supported',
+      input: {
+        dialect: sqliteContractDialect,
+        context: namespaceContext,
+        handles: [Records],
+        expected: [
+          {
+            namespace: [{ role: 'database', spelling: 'main' }],
+            relation: 'records',
+            columns: [
+              { name: 'id', dataType: 'INTEGER' },
+              { name: 'label', dataType: 'TEXT' },
+              { name: 'active', dataType: 'TEXT' },
+              { name: 'amount', dataType: 'INTEGER' },
+              { name: 'deleted_at', dataType: 'TEXT' },
+              { name: 'created_at', dataType: 'DATETIME' },
+            ],
+            primaryKey: ['id'],
+          },
+        ],
+      },
+    },
+    query: {
+      state: 'supported',
+      core: {
+        state: 'supported',
+        input: {
+          dialect: sqliteContractDialect,
+          handles: [Records, Events],
+          target: Records,
+          registrationDefault,
+          relation: { relation: 'RECORDS' },
+          column: 'LABEL',
+          node: {
+            kind: 'select',
+            relation: records,
+            selection: [{ kind: 'column', column: 'label' }],
+          },
+          inspectCompiled: (query) => ({
+            parameterCount: query.params.length,
+            addressesMain: query.sql.includes('"main"."records"'),
+            addressesColumn: query.sql.includes('"label"'),
+          }),
+          expected: {
+            relationMatches: ['records'],
+            columnMatches: ['label'],
+            compiled: {
+              parameterCount: 0,
+              addressesMain: true,
+              addressesColumn: true,
+            },
+          },
+        },
+      },
+      scenarios: queryCompilerScenarios,
+      valueMapping: {
+        state: 'supported',
+        input: {
+          dialect: sqliteContractDialect,
+          dataType: 'JSON',
+          paramValue: { key: 'value' },
+          resultValue: '{"key":"value"}',
+          expected: {
+            mappedParam: '{"key":"value"}',
+            mappedResult: { key: 'value' },
+          },
+        },
+      },
+    },
+    catalog: {
+      state: 'unsupported',
+      reason: 'SQLite catalog observation is not part of the ready facet set',
+    },
+    operationSession: {
+      state: 'unsupported',
+      reason: 'SQLite operation-session adaptation is not part of the ready facet set',
+    },
+    coordination: {
+      state: 'unsupported',
+      reason: 'SQLite migration coordination is not part of the ready facet set',
+    },
+    migration: {
+      state: 'unsupported',
+      reason: 'SQLite migration lowering is not part of the ready facet set',
+    },
+    lifecycle: {
+      state: 'unsupported',
+      reason: 'SQLite lifecycle support requires complete member assembly',
+    },
+  },
+})
