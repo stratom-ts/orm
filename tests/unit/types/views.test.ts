@@ -148,6 +148,7 @@ describe('InferSelectedColumns', () => {
       typeof User,
       readonly [typeof User.age, typeof User.bio]
     >
+
     expectTypeOf<Row>().toEqualTypeOf<{ age: number | null; bio: string }>()
   })
 

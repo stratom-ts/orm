@@ -65,9 +65,11 @@ describe('public dialect member contract', () => {
         { role: 'schema', spelling: 'public' },
       ],
     }
+
     const identity = postgresDialect.identity.create({ context }).resolve({
       relation: 'users',
     })
+
     expect(identity.namespace.map((segment) => segment.identifier.spelling)).toEqual([
       'app',
       'public',

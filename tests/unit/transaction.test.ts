@@ -143,6 +143,7 @@ describe('db.transaction', () => {
     const transactionSql = connector.prepared
       .map((sql) => sql.toLowerCase())
       .filter((sql) => ['begin', 'commit', 'rollback'].includes(sql))
+
     expect(transactionSql).toEqual(['begin', 'rollback', 'begin', 'commit'])
     await db.close()
   })

@@ -315,9 +315,11 @@ export async function acquireCoordination(
       ? {}
       : { applicationId: options.applicationId }),
   })
+
   const identities = migrationLockAcquisitionOrder(scope).map(
     postgresAdvisoryLockIdentity,
   )
+
   const acquired: PostgresAdvisoryLockIdentity[] = []
   const deadline = performance.now() + options.lockTimeoutMs
 

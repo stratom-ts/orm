@@ -38,6 +38,7 @@ type RegisteredTableHandleMethods = {
 type GlobalWithTableHandleRegistry = typeof globalThis & {
   [TABLE_HANDLE_REGISTRY_KEY]?: WeakMap<object, RegisteredTableHandleMethods>
 }
+
 const globalWithTableHandleRegistry = globalThis as GlobalWithTableHandleRegistry
 const existingTableHandles = globalWithTableHandleRegistry[TABLE_HANDLE_REGISTRY_KEY]
 const definedTableHandles =
@@ -410,6 +411,7 @@ function buildTableHandle<
   }
 
   const entries = schema.entries as ObjectEntries
+
   const columnNames = Object.keys(entries).filter((key) => {
     const entry = entries[key] as AnySchema
     return entry && entry.kind === 'schema'

@@ -216,6 +216,7 @@ describe('whole-graph desired-schema lowering', () => {
     const identity = fakeSqliteDialect().identity.create({
       context: { writableDefault: [{ role: 'database', spelling: 'main' }] },
     })
+
     const resolved = identity.resolve({ relation: 'Users' })
 
     expect(resolved.namespace[0]?.identifier.spelling).toBe('main')

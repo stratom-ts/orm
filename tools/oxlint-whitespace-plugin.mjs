@@ -52,9 +52,51 @@ function isMultilineCallStatement(node) {
   )
 }
 
+function callChainDepth(expression) {
+  if (expression.type === 'ChainExpression') return callChainDepth(expression.expression)
+
+  if (expression.type === 'CallExpression') return 1 + callChainDepth(expression.callee)
+
+  if (expression.type === 'MemberExpression') return callChainDepth(expression.object)
+
+  return 0
+}
+
+function isMultilineCallChainDeclaration(node) {
+  return (
+    node.type === 'VariableDeclaration' &&
+    node.loc.start.line !== node.loc.end.line &&
+    node.declarations.some(
+      (declaration) => declaration.init !== null && callChainDepth(declaration.init) > 1,
+    )
+  )
+}
+
+function isMultilineTypeDeclaration(node) {
+  const declaration =
+    node.type === 'ExportNamedDeclaration' && node.declaration !== null
+      ? node.declaration
+      : node
+
+  return (
+    (declaration.type === 'TSTypeAliasDeclaration' ||
+      declaration.type === 'TSInterfaceDeclaration') &&
+    declaration.loc.start.line !== declaration.loc.end.line
+  )
+}
+
 function isMultilineBlockStatement(sourceCode, node) {
   return (
     node.loc.start.line !== node.loc.end.line && isBlockLikeStatement(sourceCode, node)
+  )
+}
+
+function isPaddedMultilineStatement(sourceCode, node) {
+  return (
+    isMultilineBlockStatement(sourceCode, node) ||
+    isMultilineCallStatement(node) ||
+    isMultilineCallChainDeclaration(node) ||
+    isMultilineTypeDeclaration(node)
   )
 }
 
@@ -154,8 +196,7 @@ function requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment
   if (consecutiveSingleLineIfs) return false
 
   if (
-    isMultilineBlockStatement(sourceCode, previousNode) ||
-    isMultilineCallStatement(previousNode) ||
+    isPaddedMultilineStatement(sourceCode, previousNode) ||
     previousNode.type === 'IfStatement'
   ) {
     return true
@@ -165,7 +206,7 @@ function requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment
 
   const nodeIsMultilineBlock = isMultilineBlockStatement(sourceCode, node)
   const nodeIsMultilineCall = isMultilineCallStatement(node)
-  const nodeRequiresLeadingBlankLine = nodeIsMultilineBlock || nodeIsMultilineCall
+  const nodeRequiresLeadingBlankLine = isPaddedMultilineStatement(sourceCode, node)
   const nodeConsumesPreviousDeclaration =
     (nodeIsMultilineBlock && declarationFeedsBlock(previousNode, node)) ||
     (nodeIsMultilineCall && declarationFeedsNode(sourceCode, previousNode, node))
@@ -253,7 +294,7 @@ const padMultilineBlocks = {
     type: 'layout',
     docs: {
       description:
-        'Require one blank line around if statements, multiline blocks, and multiline calls',
+        'Require one blank line around if statements, multiline blocks, multiline calls, call chains, and types',
     },
     fixable: 'whitespace',
     schema: [],
