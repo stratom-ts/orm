@@ -116,11 +116,11 @@ export function registerDesiredSchema(
             : 0) || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
     )
 
-    for (let index = 1; index < ordered.length; index++) {
+    ordered.slice(1).forEach((current, offset) => {
+      const index = offset + 1
       const previous = ordered[index - 1]!
-      const current = ordered[index]!
 
-      if (previous.identifier.comparisonKey !== current.identifier.comparisonKey) continue
+      if (previous.identifier.comparisonKey !== current.identifier.comparisonKey) return
 
       throw new MigrationError({
         message: `Duplicate desired columns ${identities.format(table.identity, {
@@ -131,7 +131,7 @@ export function registerDesiredSchema(
           spelling: current.name,
         })}`,
       })
-    }
+    })
   }
 
   for (const table of tables) {
@@ -145,12 +145,14 @@ export function registerDesiredSchema(
   }
 
   for (const table of tables) {
-    for (const column of [...table.columns].sort((left, right) =>
+    const columns = [...table.columns].sort((left, right) =>
       left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-    )) {
+    )
+
+    columns.forEach((column) => {
       const reference = column.reference
 
-      if (!reference) continue
+      if (!reference) return
 
       const referenceIdentity = reference.targetRelation
       const target = registry.get(referenceIdentity)
@@ -198,7 +200,7 @@ export function registerDesiredSchema(
           )} is not a candidate key`,
         })
       }
-    }
+    })
   }
 
   return Object.freeze({

@@ -94,12 +94,6 @@ export async function runDialectLifecycleContract(
 
     if (runtime.migration.state === 'supported') {
       await database.migrate().execute()
-
-      if (runtime.migration.reportedOutcome) {
-        expect(runtime.migration.reportedOutcome.observed).toEqual([
-          runtime.migration.reportedOutcome.expected,
-        ])
-      }
     } else {
       const error = await database
         .migrate()
@@ -113,6 +107,15 @@ export async function runDialectLifecycleContract(
           expect.objectContaining({ message: runtime.migration.reason }),
         ],
       })
+    }
+
+    const reportedOutcome =
+      runtime.migration.state === 'supported'
+        ? runtime.migration.reportedOutcome
+        : undefined
+
+    if (reportedOutcome) {
+      expect(reportedOutcome.observed).toEqual([reportedOutcome.expected])
     }
 
     expect(await runtime.postMigrationState()).toEqual(

@@ -19,6 +19,7 @@ import type {
 import type { OperationSession, OperationSessionProvider } from '@/operations'
 import type { RelationIdentityInput } from '@/schemas'
 import type { TableHandle } from '@/types'
+import { attempt } from '@/utils/error'
 
 import type { DialectLifecycleContractFactory } from './dialectMemberContract'
 import { registerDialectLifecycleContract } from './dialectMemberContract'
@@ -270,22 +271,17 @@ export async function runOperationSessionCommonContract(
     await session.cancel()
     completed = true
   } finally {
-    if (session) {
-      try {
-        await session.release(completed ? 'reuse' : 'discard')
-      } catch (cause) {
-        cleanupError = cause
-        hasCleanupError = true
-      }
-    }
+    const release = session
+      ? await attempt(() => session!.release(completed ? 'reuse' : 'discard'))
+      : undefined
+    const close = await attempt(() => provider.close())
 
-    try {
-      await provider.close()
-    } catch (cause) {
-      if (!hasCleanupError) {
-        cleanupError = cause
-        hasCleanupError = true
-      }
+    if (release && !release.ok) {
+      cleanupError = release.error
+      hasCleanupError = true
+    } else if (!close.ok) {
+      cleanupError = close.error
+      hasCleanupError = true
     }
   }
 

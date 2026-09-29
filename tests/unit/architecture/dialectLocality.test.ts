@@ -637,7 +637,7 @@ describe('dialect extension locality architecture', () => {
     for (const file of coreFiles) {
       const source = parse(file)
 
-      for (const node of descendants(source)) {
+      descendants(source).forEach((node) => {
         if (
           ts.isPropertyAccessExpression(node) &&
           node.name.text === 'dialect' &&
@@ -665,7 +665,7 @@ describe('dialect extension locality architecture', () => {
         ) {
           branches.push(location(source, node))
         }
-      }
+      })
     }
 
     expect(selections).toHaveLength(1)

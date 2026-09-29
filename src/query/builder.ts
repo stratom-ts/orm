@@ -486,12 +486,10 @@ function resultColumnsForSelection(
 
   for (const item of selection) {
     if (item.kind === 'all') {
-      if (!item.relation) {
-        for (const handle of handles) addAll(handle)
-      } else {
-        const handle = findHandle(query, handles, item.relation)
-        addAll(handle)
-      }
+      const selectedHandles = item.relation
+        ? [findHandle(query, handles, item.relation)]
+        : handles
+      selectedHandles.forEach(addAll)
     } else if (item.kind === 'column') {
       const handle = findHandle(query, handles, item.relation)
       add(item.alias ?? item.column, {
@@ -717,12 +715,10 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
     const columnSet: string[] = []
     const seen = new Set<string>()
 
-    for (const row of rows) {
-      for (const key of Object.keys(row)) {
-        if (!seen.has(key)) {
-          seen.add(key)
-          columnSet.push(key)
-        }
+    for (const key of rows.flatMap((row) => Object.keys(row))) {
+      if (!seen.has(key)) {
+        seen.add(key)
+        columnSet.push(key)
       }
     }
 

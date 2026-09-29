@@ -52,13 +52,14 @@ export function assertSafeSqliteDefaultExpression(expression: string): string {
     const character = value[index]!
 
     if (character === "'") {
-      if (quoted && value[index + 1] === "'") index++
-      else quoted = !quoted
+      const escaped: boolean = quoted && value[index + 1] === "'"
+      index += escaped ? 1 : 0
+      quoted = escaped ? quoted : !quoted
     } else if (!quoted && character === '(') {
       depth++
     } else if (!quoted && character === ')') {
-      if (depth === 0) unsafe = true
-      else depth--
+      unsafe = depth === 0
+      depth = Math.max(0, depth - 1)
     }
 
     unquoted += quoted ? ' ' : character

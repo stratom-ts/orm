@@ -1275,7 +1275,7 @@ function reconcileIndexes({
   const { indexes: liveIndexes, unsupportedNames: unsupportedLiveIndexNames } =
     collectLiveIndexes({ live, identity, shape, issues, identities })
 
-  for (const index of desired) {
+  desired.forEach((index) => {
     let current: CatalogIndex | undefined
 
     if (index.origin === 'generated') {
@@ -1299,7 +1299,7 @@ function reconcileIndexes({
           })}`,
         })
 
-        continue
+        return
       }
 
       current = semanticMatches[0]
@@ -1325,7 +1325,7 @@ function reconcileIndexes({
         unique: index.unique,
       })
 
-      continue
+      return
     }
 
     const currentKey = identities.member('index', current.name).comparisonKey
@@ -1366,22 +1366,22 @@ function reconcileIndexes({
         })}`,
       })
     }
-  }
+  })
 
   if (shape === 'complete') {
-    for (const liveIndex of live.indexes ?? []) {
-      if (
-        claimedLiveIndexNames.has(
+    const unclaimedIndexes = (live.indexes ?? []).filter(
+      (liveIndex) =>
+        !claimedLiveIndexNames.has(
           identities.member('index', liveIndex.name).comparisonKey,
-        )
-      )
-        continue
+        ),
+    )
 
+    unclaimedIndexes.forEach((liveIndex) => {
       steps.push({
         kind: 'drop_index',
         target: indexTarget(identity, liveIndex.name, identities),
       })
-    }
+    })
   }
 
   if (
@@ -1414,12 +1414,12 @@ function validateDesiredNames(
     const metadata = handle.getTableMetadata()
     validateCanonicalRelationNames(identities.resolve(metadata.relation), naming)
 
-    for (const value of Object.values(handle.getSchema().entries)) {
-      if (!value || value.kind !== 'schema') continue
+    Object.values(handle.getSchema().entries).forEach((value) => {
+      if (!value || value.kind !== 'schema') return
 
       const reference = getReferenceMetadata(value)
 
-      if (!reference) continue
+      if (!reference) return
 
       validateCanonicalRelationNames(
         identities.resolve(reference.target.relation),
@@ -1427,7 +1427,7 @@ function validateDesiredNames(
       )
 
       naming.validate(reference.target.column, 'referenced column name')
-    }
+    })
   }
 }
 
@@ -1488,12 +1488,12 @@ function appendMissingColumnConstraints({
   liveColumns,
 }: ColumnConstraintReconciliation): void {
   if (live.uniqueConstraints !== undefined) {
-    for (const desiredColumn of desired.columns) {
+    desired.columns.forEach((desiredColumn) => {
       if (
         !desiredColumn.unique ||
         !liveColumns.has(desiredColumn.identifier.comparisonKey)
       )
-        continue
+        return
 
       const matches = matchUniqueConstraints(
         live.uniqueConstraints,
@@ -1501,7 +1501,7 @@ function appendMissingColumnConstraints({
         identities,
       )
 
-      if (matches.length !== 0) continue
+      if (matches.length !== 0) return
 
       reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
 
@@ -1513,21 +1513,21 @@ function appendMissingColumnConstraints({
           column: desiredColumn.identifier,
         },
       })
-    }
+    })
   }
 
   if (live.foreignKeys !== undefined) {
-    for (const desiredColumn of desired.columns) {
+    desired.columns.forEach((desiredColumn) => {
       if (
         !desiredColumn.reference ||
         !liveColumns.has(desiredColumn.identifier.comparisonKey)
       )
-        continue
+        return
 
       const expected = canonicalDesiredForeignKey(desiredColumn)
       const matches = matchForeignKeys(live.foreignKeys, expected, identities)
 
-      if (matches.length !== 0) continue
+      if (matches.length !== 0) return
 
       reserveForeignKey(
         identity,
@@ -1544,7 +1544,7 @@ function appendMissingColumnConstraints({
         },
         references: structuredReference(desiredColumn.reference),
       })
-    }
+    })
   }
 }
 
@@ -1595,7 +1595,7 @@ function reconcileExistingColumns({
     ]),
   )
 
-  for (const desiredColumn of desired.columns) {
+  desired.columns.forEach((desiredColumn) => {
     const current = liveColumns.get(desiredColumn.identifier.comparisonKey)
 
     if (!current) {
@@ -1641,7 +1641,7 @@ function reconcileExistingColumns({
         reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
       }
 
-      continue
+      return
     }
 
     const columnLabel = identities.format(identity, {
@@ -1695,7 +1695,7 @@ function reconcileExistingColumns({
         },
       })
     }
-  }
+  })
 
   appendDroppedColumns(live, desired, shape, identity, steps, identities)
 

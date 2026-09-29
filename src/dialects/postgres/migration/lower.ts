@@ -11,6 +11,7 @@ import type {
   CanonicalRelationIdentityModule,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
+import { attemptSync } from '@/utils/error'
 
 import { compilePostgres } from '../compile'
 import { postgresIdentity } from '../identity'
@@ -228,39 +229,46 @@ export function lowerPostgresMigrationPlan(
 
     if (invalidTargets.length > 0 || missingDesiredTable) continue
 
-    try {
+    const compiled = attemptSync(() => {
       const ast = stepToAst(step, planned)
 
-      if (!ast) {
-        const relation =
-          step.target.kind === 'namespace' ? undefined : step.target.relation
-        issues.push({
-          code: 'missing_desired_table',
-          message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered desired table not found`,
-          sourceStepIndexes: [sourceStepIndex],
-        })
+      if (!ast) return undefined
 
-        continue
-      }
+      return compilePostgres(ast)
+    })
 
-      const statement = compilePostgres(ast)
-      drafts.push({ step, sourceStepIndex, statement })
-
-      if (step.kind === 'set_not_null') {
-        preconditions.push({
-          kind: 'column_has_no_nulls',
-          relation: step.target.relation,
-          column: step.target.column.spelling,
-          sourceStepIndexes: [sourceStepIndex],
-        })
-      }
-    } catch (cause) {
+    if (!compiled.ok) {
+      const cause = compiled.error
       issues.push({
         code: 'compile_failure',
         message:
           cause instanceof Error
             ? `Cannot compile migration step ${sourceStepIndex}: ${cause.message}`
             : `Cannot compile migration step ${sourceStepIndex}`,
+        sourceStepIndexes: [sourceStepIndex],
+      })
+
+      continue
+    }
+
+    if (!compiled.value) {
+      const relation = step.target.kind === 'namespace' ? undefined : step.target.relation
+      issues.push({
+        code: 'missing_desired_table',
+        message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered desired table not found`,
+        sourceStepIndexes: [sourceStepIndex],
+      })
+
+      continue
+    }
+
+    drafts.push({ step, sourceStepIndex, statement: compiled.value })
+
+    if (step.kind === 'set_not_null') {
+      preconditions.push({
+        kind: 'column_has_no_nulls',
+        relation: step.target.relation,
+        column: step.target.column.spelling,
         sourceStepIndexes: [sourceStepIndex],
       })
     }

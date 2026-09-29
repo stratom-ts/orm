@@ -199,14 +199,11 @@ function actionDependencies(
   const dependencies = drafts.map(() => new Set<number>())
 
   for (let action = 0; action < drafts.length; action++) {
-    for (let candidate = 0; candidate < drafts.length; candidate++) {
-      if (
-        action !== candidate &&
-        actionDependsOn(drafts[action]!, drafts[candidate]!, planned)
-      ) {
+    drafts.forEach((draft, candidate) => {
+      if (action !== candidate && actionDependsOn(drafts[action]!, draft, planned)) {
         dependencies[action]!.add(candidate)
       }
-    }
+    })
   }
 
   return dependencies
@@ -233,10 +230,10 @@ function topologicalOrder(
     const next = available.shift()!
     ordered.push(drafts[next]!)
 
-    for (let index = 0; index < remaining.length; index++) {
-      if (!remaining[index]!.delete(next) || remaining[index]!.size !== 0) continue
+    remaining.forEach((edges, index) => {
+      if (!edges.delete(next) || edges.size !== 0) return
       if (!ordered.includes(drafts[index]!)) available.push(index)
-    }
+    })
   }
 
   return ordered

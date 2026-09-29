@@ -283,7 +283,7 @@ export function catalogForPlanning(
         ? namespace.relations.items
         : requireComplete(namespace.relations, namespaceTarget)
 
-    for (const relation of relations) {
+    relations.forEach((relation) => {
       const target = identities.format(relation.identity)
 
       if (relation.management === 'unmanaged') {
@@ -293,7 +293,7 @@ export function catalogForPlanning(
           })
         }
 
-        continue
+        return
       }
 
       if (relation.kind !== 'table' && relation.kind !== 'partitionedTable') {
@@ -390,7 +390,7 @@ export function catalogForPlanning(
         })),
         opaqueObjects: opaqueObjects.map((object) => object.reason),
       })
-    }
+    })
   }
 
   const reservations = requireComplete(snapshot.nameReservations, 'physical names')

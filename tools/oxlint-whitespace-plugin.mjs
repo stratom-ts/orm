@@ -121,9 +121,8 @@ function addBindingNames(pattern, names) {
   }
 
   if (pattern.type === 'ArrayPattern') {
-    for (const element of pattern.elements) {
-      if (element !== null) addBindingNames(element, names)
-    }
+    for (const element of pattern.elements.filter((element) => element !== null))
+      addBindingNames(element, names)
 
     return
   }

@@ -766,26 +766,27 @@ function appendConstraints(
       nativeDefinition: present(nativeDefinition),
     }
 
-    if (type === 'p') {
-      if (target.table.primaryKey.state !== 'absent') {
-        throw new InvariantError(
-          `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
-        )
-      }
+    if (type === 'p' && target.table.primaryKey.state !== 'absent') {
+      throw new InvariantError(
+        `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
+      )
+    }
 
+    if (
+      type === 'f' &&
+      (typeof row.referenced_schema !== 'string' ||
+        typeof row.referenced_table !== 'string')
+    ) {
+      throw new InvariantError(
+        `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
+      )
+    }
+
+    if (type === 'p') {
       target.table.primaryKey = present(key)
     } else if (type === 'u') {
       target.table.uniqueConstraints.push(key)
     } else if (type === 'f') {
-      if (
-        typeof row.referenced_schema !== 'string' ||
-        typeof row.referenced_table !== 'string'
-      ) {
-        throw new InvariantError(
-          `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
-        )
-      }
-
       const referencedSchema = stringAt(row, 'referenced_schema', 'constraint', index)
       const referencedTable = stringAt(row, 'referenced_table', 'constraint', index)
       target.table.foreignKeys.push({

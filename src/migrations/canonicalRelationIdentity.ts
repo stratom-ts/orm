@@ -290,18 +290,18 @@ export function createCanonicalRelationIdentityModule(options: {
       for (const part of identityParts(identity)) {
         let byIdentifier = node.children.get(part.role)
 
-        if (!byIdentifier) {
-          if (!create) return undefined
+        if (!byIdentifier && !create) return undefined
 
+        if (!byIdentifier) {
           byIdentifier = new Map()
           node.children.set(part.role, byIdentifier)
         }
 
         let child = byIdentifier.get(part.comparisonKey)
 
-        if (!child) {
-          if (!create) return undefined
+        if (!child && !create) return undefined
 
+        if (!child) {
           child = createRegistryNode<T>()
           byIdentifier.set(part.comparisonKey, child)
         }

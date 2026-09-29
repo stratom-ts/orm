@@ -119,16 +119,14 @@ function assertSafeExpression(expression: string): string {
     const character = value[index]
 
     if (character === "'") {
-      if (quoted && value[index + 1] === "'") {
-        index++
-      } else {
-        quoted = !quoted
-      }
+      const escaped: boolean = quoted && value[index + 1] === "'"
+      index += escaped ? 1 : 0
+      quoted = escaped ? quoted : !quoted
     } else if (!quoted && character === '(') {
       parentheses++
     } else if (!quoted && character === ')') {
-      if (parentheses === 0) unsafe = true
-      else parentheses--
+      unsafe = parentheses === 0
+      parentheses = Math.max(0, parentheses - 1)
     }
   }
 
@@ -350,12 +348,12 @@ export function lowerPostgresDesiredSchema(
       })
     }
 
-    for (const column of orderedColumns(table)) {
+    orderedColumns(table).forEach((column) => {
       const analysis = analyzeSchema(column.schema)
       analyses.set(column, analysis)
 
       if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
-    }
+    })
   }
 
   let pending = graph.tables.flatMap((table) =>
@@ -368,7 +366,7 @@ export function lowerPostgresDesiredSchema(
     const unresolved: typeof pending = []
     let progress = false
 
-    for (const item of pending) {
+    pending.forEach((item) => {
       const reference = item.column.reference!
       const targetTable = graph.tables.find((table) =>
         sameIdentity(table.identity, reference.targetRelation),
@@ -395,13 +393,13 @@ export function lowerPostgresDesiredSchema(
 
       if (targetType === undefined) {
         unresolved.push(item)
-        continue
+        return
       }
 
       validateReferencePhysicalType(item.table, item.column, targetType)
       resolvedTypes.set(item.column, targetType)
       progress = true
-    }
+    })
 
     if (!progress) {
       const first = unresolved[0]!

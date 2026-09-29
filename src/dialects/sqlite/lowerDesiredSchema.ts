@@ -249,12 +249,12 @@ export function lowerSqliteDesiredSchema(
       })
     }
 
-    for (const column of orderedColumns(table)) {
+    orderedColumns(table).forEach((column) => {
       const analysis = analyzeSchema(column.schema)
       analyses.set(column, analysis)
 
       if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
-    }
+    })
   }
 
   let pending = graph.tables.flatMap((table) =>
@@ -267,7 +267,7 @@ export function lowerSqliteDesiredSchema(
     const unresolved: typeof pending = []
     let progress = false
 
-    for (const item of pending) {
+    pending.forEach((item) => {
       const reference = item.column.reference!
       assertMainIdentity(reference.targetRelation)
       const targetTable = graph.tables.find((table) =>
@@ -295,7 +295,7 @@ export function lowerSqliteDesiredSchema(
 
       if (inheritedType === undefined) {
         unresolved.push(item)
-        continue
+        return
       }
 
       resolvedTypes.set(
@@ -305,7 +305,7 @@ export function lowerSqliteDesiredSchema(
       )
 
       progress = true
-    }
+    })
 
     if (!progress) {
       const first = unresolved[0]!
