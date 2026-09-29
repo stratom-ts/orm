@@ -172,10 +172,12 @@ describe('CRUD compile', () => {
 
     const { nullishValue: _nullishValue, ...exactAndNullishRow } = complete
     void _nullishValue
+
     const exactAndNullish = db
       .insert(WrapperBehavior)
       .values(exactAndNullishRow as never)
       .compile()
+
     expect(exactAndNullish.sql.toLowerCase()).not.toContain('"exact"')
     expect(exactAndNullish.sql.toLowerCase()).not.toContain('"nullishvalue"')
 
@@ -183,6 +185,7 @@ describe('CRUD compile', () => {
       .insert(WrapperBehavior)
       .values({ ...complete, nullishValue: null } as never)
       .compile()
+
     expect(explicitNull.params).toContain(null)
 
     expect(() =>
@@ -569,12 +572,14 @@ describe('CRUD safety and validation', () => {
       .insert(NestedWrappers)
       .values({ id: '1', optionalNullable: null, nullableOptional: null })
       .compile()
+
     expect(withNull.params).toEqual(['1', null, null])
 
     const withValues = db
       .insert(NestedWrappers)
       .values({ id: '1', optionalNullable: 'a', nullableOptional: 'b' })
       .compile()
+
     expect(withValues.params).toEqual(['1', 'a', 'b'])
 
     const updateWithNull = db
@@ -582,6 +587,7 @@ describe('CRUD safety and validation', () => {
       .set({ optionalNullable: null, nullableOptional: null })
       .where({ id: '1' })
       .compile()
+
     expect(updateWithNull.params).toEqual([null, null, '1'])
 
     const updateWithValues = db
@@ -589,6 +595,7 @@ describe('CRUD safety and validation', () => {
       .set({ optionalNullable: 'a', nullableOptional: 'b' })
       .where({ id: '1' })
       .compile()
+
     expect(updateWithValues.params).toEqual(['a', 'b', '1'])
 
     await db.close()

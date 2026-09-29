@@ -205,6 +205,7 @@ describe('PostgreSQL namespace and value integration', () => {
           tags: [],
         })
         .execute()
+
       await expect(foreignKeyInsert).rejects.toBeInstanceOf(QueryError)
 
       await expect(foreignKeyInsert).rejects.toMatchObject({
@@ -215,6 +216,7 @@ describe('PostgreSQL namespace and value integration', () => {
         .insert(Accounts)
         .values({ id: randomUUID(), email: 'owner@example.com' })
         .execute()
+
       await expect(uniqueConstraintInsert).rejects.toBeInstanceOf(QueryError)
 
       await expect(uniqueConstraintInsert).rejects.toMatchObject({

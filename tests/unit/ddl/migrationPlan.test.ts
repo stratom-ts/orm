@@ -563,6 +563,7 @@ describe('Migration Plan construction', () => {
       relation: Omitted.getTableMetadata().relation,
       selection: [{ kind: 'all' }],
     })
+
     expect(omittedQuery.sql).toContain('from "items" as "items"')
     expect(omittedQuery.sql).not.toContain('"public"."items"')
     expect(omittedQuery.sql).not.toContain('"tenant"."items"')
@@ -639,6 +640,7 @@ describe('Migration Plan construction', () => {
     )
 
     const plan = planMigration(handles, emptyCatalog(), postgresDialect)
+
     const targets = plan.steps
       .filter((step) => step.kind === 'create_table')
       .map((step) => [

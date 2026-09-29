@@ -789,6 +789,7 @@ function collectForeignKeyIssues({
 
   const identity = live.identity
   const tableName = identities.format(identity)
+
   const expected = desired.columns
     .filter(
       (column) =>
@@ -797,6 +798,7 @@ function collectForeignKeyIssues({
     )
     .map((column) => canonicalDesiredForeignKey(column))
     .sort((left, right) => compareForeignKeys(left, right, identities))
+
   const matched = new Set<CatalogForeignKey>()
 
   for (const expectedForeignKey of expected) {
@@ -1202,6 +1204,7 @@ function collectLiveIndexes(
   const { live, identity, shape, issues, identities } = input
   const indexes = new Map<string, CatalogIndex>()
   const unsupportedNames = new Set<string>()
+
   const ordered = (live.indexes ?? [])
     .map((liveIndex) => ({
       liveIndex,

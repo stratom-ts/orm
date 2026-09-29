@@ -33,6 +33,7 @@ import {
 } from './validate'
 
 type Row = Record<string, unknown>
+
 type TableRow = {
   schema: string
   name: string
@@ -41,7 +42,9 @@ type TableRow = {
   wr: number
   strict: number
 }
+
 type SchemaRow = { type: string; name: string; tbl_name: string; sql: string | null }
+
 type XInfoRow = {
   cid: number
   name: string
@@ -51,6 +54,7 @@ type XInfoRow = {
   pk: number
   hidden: number
 }
+
 type IndexListRow = {
   seq: number
   name: string
@@ -58,6 +62,7 @@ type IndexListRow = {
   origin: string
   partial: number
 }
+
 type IndexInfoRow = {
   seqno: number
   cid: number
@@ -66,6 +71,7 @@ type IndexInfoRow = {
   coll: string | null
   key: number
 }
+
 type ForeignKeyRow = {
   id: number
   seq: number
@@ -249,6 +255,7 @@ function resolveRequest(
         ) === index,
     )
     .sort((a, b) => identities.compare(a.identity, b.identity))
+
   const absentMap = identities.createRegistry<CanonicalRelationIdentity>()
   for (const input of request.absentRelations) {
     const identity = identities.resolve(input)
@@ -262,6 +269,7 @@ function resolveRequest(
         values.findIndex((candidate) => identities.equals(candidate, entry)) === index,
     )
     .sort(identities.compare)
+
   const completeNamespaces = request.completeNamespaces
     .map((namespace) => identities.resolveNamespace(namespace))
     .filter(
@@ -269,6 +277,7 @@ function resolveRequest(
         values.findIndex((candidate) => sameNamespace(candidate, namespace)) === index,
     )
     .sort(compareNamespaces)
+
   return { relations, absentRelations, completeNamespaces }
 }
 
@@ -746,6 +755,7 @@ async function introspectSqlite(
   const temporaryDatabase = databases.some(
     (entry) => asciiFoldSqliteIdentifier(entry.name) === 'temp',
   )
+
   const attached = databases
     .filter(
       (entry) =>
@@ -753,6 +763,7 @@ async function introspectSqlite(
         asciiFoldSqliteIdentifier(entry.name) !== 'temp',
     )
     .sort((a, b) => compare(a.name, b.name))
+
   const diagnostics: CatalogDiagnostic[] = attached.map((entry) => ({
     code: 'catalog.sqlite.attached',
     message: `SQLite attached database ${JSON.stringify(entry.name)} is observed but its schema dependencies are not managed`,
@@ -1143,6 +1154,7 @@ async function introspectSqlite(
         compare(asciiFoldSqliteIdentifier(a.name), asciiFoldSqliteIdentifier(b.name)) ||
         compare(a.name, b.name),
     )
+
   const hasUnobservableConstraintNames =
     hasExternalNamespace ||
     schemaRows.some(
@@ -1455,9 +1467,11 @@ async function introspectSqlite(
       }
 
       const pkInfo = pkIndex ? (indexInfos.get(`${row.name}\0${pkIndex.name}`) ?? []) : []
+
       const pkTerms = pkInfo
         .filter((entry) => entry.key === 1)
         .sort((a, b) => a.seqno - b.seqno)
+
       const pkSimple =
         pks.length === 0 ||
         (pkIndex === undefined
@@ -1677,10 +1691,12 @@ async function introspectSqlite(
         const explicitTargetColumns = requestedTargetColumns.every(
           (entry): entry is string => entry !== null,
         )
+
         const parentPrimaryKey = (targetInfo ?? [])
           .filter((column) => column.pk > 0)
           .sort((left, right) => left.pk - right.pk)
           .map((column) => column.name)
+
         const targetColumns = explicitTargetColumns
           ? requestedTargetColumns.map((targetColumn) => {
               const parentColumn = targetInfo?.find(
@@ -1713,9 +1729,11 @@ async function introspectSqlite(
             if (index.partial !== 0) continue
 
             const indexInfo = indexInfos.get(`${targetTable.name}\0${index.name}`) ?? []
+
             const keyInfo = indexInfo
               .filter((entry) => entry.key === 1)
               .sort((left, right) => left.seqno - right.seqno)
+
             const keyColumns = keyInfo.flatMap((entry) =>
               entry.cid >= 0 && entry.name !== null ? [entry.name] : [],
             )

@@ -161,6 +161,7 @@ describe('select compile', () => {
         and(eq(Users.active, true), or(gt(Users.score, 10), not(eq(Users.email, 'x')))),
       )
       .compile()
+
     expect(composed.sql.toLowerCase()).toMatch(/and/)
     expect(composed.sql.toLowerCase()).toMatch(/or/)
     expect(composed.sql.toLowerCase()).toMatch(/not/)
@@ -199,6 +200,7 @@ describe('select compile', () => {
       .limit(10)
       .offset(20)
       .compile()
+
     expect(compiled.sql.toLowerCase()).toContain('order by')
     expect(compiled.sql.toLowerCase()).toContain('asc')
     expect(compiled.sql.toLowerCase()).toContain('desc')
@@ -268,6 +270,7 @@ describe('select compile', () => {
       .groupBy(Users.active)
       .having(() => gt(Users.score, 0))
       .compile()
+
     expect(compiled.sql.toLowerCase()).toContain('count(*)')
     expect(compiled.sql.toLowerCase()).toContain('sum(')
     expect(compiled.sql.toLowerCase()).toContain('min(')
@@ -287,6 +290,7 @@ describe('select compile', () => {
       .from(Users)
       .select((b) => [b.as(upper(Users.email), 'emailUpper')])
       .compile()
+
     expect(compiled.sql.toLowerCase()).toContain('upper(')
     expect(compiled.sql).toContain('"emailUpper"')
 
@@ -708,6 +712,7 @@ describe('select compile', () => {
         .from(TenantEvents)
         .select([TenantEvents.createdAt])
         .where(TenantEvents.createdAt, 'eq', when)
+
       const compiled = query.compile()
       expect(compiled.sql).toContain('from "tenant"."events"')
       expect(compiled.params).toEqual([when.toISOString()])

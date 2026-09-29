@@ -430,6 +430,7 @@ describe('dialect extension locality architecture', () => {
     ["const members = import('@/dialects')", true],
   ])('classifies concrete dialect reference %s', (code, rejected) => {
     const source = parseSource(code)
+
     const references = descendants(source).flatMap((node) =>
       concreteDialectReference(node) ? [node] : [],
     )
@@ -469,6 +470,7 @@ describe('dialect extension locality architecture', () => {
     ['executor.execute(query)', false],
   ])('classifies shared execution reference %s', (code, rejected) => {
     const source = parseSource(code)
+
     const references = descendants(source).flatMap((node) =>
       db0ExecutionReference(node) ? [node] : [],
     )
@@ -571,6 +573,7 @@ describe('dialect extension locality architecture', () => {
       })
     })
     const sharedTypes = parse(join(ROOT, 'src/dialects/types.ts'))
+
     const physicalDdlTypes = descendants(sharedTypes).flatMap((node) => {
       if (
         (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) &&
@@ -583,6 +586,7 @@ describe('dialect extension locality architecture', () => {
 
       return []
     })
+
     const migrationText = migrationFiles
       .map((file) => readFileSync(file, 'utf8'))
       .join('\n')

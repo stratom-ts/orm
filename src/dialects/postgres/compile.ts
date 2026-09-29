@@ -624,6 +624,7 @@ function compileSelect(
   const selection = node.selection
     .map((item) => compileSelectItem(item, params, relations, resolveRelation))
     .join(', ')
+
   let sql = `select ${selection} from ${tableSql} as ${tableAlias}`
 
   if (node.joins) {
@@ -712,6 +713,7 @@ function compileUpdate(
       return `${quoteIdent(item.column)} = $${params.length}`
     })
     .join(', ')
+
   const whereSql = compileWhereClause(node.where, params, relations, resolveRelation)
   const sql = `update ${tableSql} as ${tableAlias} set ${setSql}${whereSql}${compileReturning(node.returning)}`
   return { sql, params }

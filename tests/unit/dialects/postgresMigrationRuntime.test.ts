@@ -273,9 +273,11 @@ describe('PostgreSQL migration runtime failures', () => {
 
     try {
       const runtime = harness({ hangQuery: /pg_try_advisory_lock/i })
+
       const pending = runtime
         .execute(program(), { lockTimeoutMs: 0 })
         .catch((cause: unknown) => cause)
+
       await vi.advanceTimersByTimeAsync(5_000)
       const error = await pending
 
@@ -470,9 +472,11 @@ describe('PostgreSQL migration runtime failures', () => {
         lockResults: [false, true],
         lockDelayMs: 30,
       })
+
       const pending = runtime
         .execute(program(), { lockTimeoutMs: 40 })
         .catch((cause) => cause)
+
       await vi.advanceTimersByTimeAsync(100)
       const error = await pending
 
@@ -499,9 +503,11 @@ describe('PostgreSQL migration runtime failures', () => {
 
     try {
       const runtime = harness({ hangQuery: /pg_try_advisory_lock/i })
+
       const pending = runtime
         .execute(program(), { lockTimeoutMs: 100 })
         .catch((cause) => cause)
+
       await vi.advanceTimersByTimeAsync(100)
       const error = await pending
 

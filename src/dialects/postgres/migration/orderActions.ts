@@ -218,9 +218,11 @@ function topologicalOrder(
   dependencies: readonly Set<number>[],
 ): ActionDraft[] {
   const remaining = dependencies.map((edges) => new Set(edges))
+
   const available = drafts
     .map((_, index) => index)
     .filter((index) => remaining[index]!.size === 0)
+
   const ordered: ActionDraft[] = []
 
   while (available.length > 0) {
@@ -299,6 +301,7 @@ function cycleIssues(
     const sourceStepIndexes = cycle
       .map((index) => drafts[index]!.sourceStepIndex)
       .sort((left, right) => left - right)
+
     return {
       code: 'unsupported_dependency_cycle' as const,
       message: `PostgreSQL cannot safely order migration steps ${sourceStepIndexes.join(', ')} without CASCADE`,

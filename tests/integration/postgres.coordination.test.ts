@@ -232,10 +232,12 @@ describe('PostgreSQL transaction and coordination integration', () => {
           const contenderTriedLock = deferred()
           lockObserved = contenderTriedLock.resolve
           const controller = new AbortController()
+
           const cancelled = second.migrate().execute({
             signal: controller.signal,
             lockTimeoutMs: 30_000,
           })
+
           const cancelledOutcome = settle(cancelled)
           await waitForBarrier(
             contenderTriedLock.promise,

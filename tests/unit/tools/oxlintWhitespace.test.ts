@@ -343,6 +343,105 @@ describe('Oxlint whitespace rule', () => {
 `)
   })
 
+  it('puts exactly one blank line around a multiline type alias', async () => {
+    const source = `export function example(value: string) {
+  const before = value
+  type Result = {
+    value: string
+  }
+
+
+  const after: Result = { value: before }
+  return after
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(value: string) {
+  const before = value
+
+  type Result = {
+    value: string
+  }
+
+  const after: Result = { value: before }
+  return after
+}
+`)
+  })
+
+  it('puts the leading blank line before a comment on a multiline interface', async () => {
+    const source = `export const before = true
+// Public result shape.
+export interface Result {
+  value: string
+}
+export const after = true
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(`export const before = true
+
+// Public result shape.
+export interface Result {
+  value: string
+}
+
+export const after = true
+`)
+  })
+
+  it('does not pad a single-line type alias', async () => {
+    const source = `export const before = true
+export type Result = { value: string }
+export const after = true
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(source)
+  })
+
+  it('puts exactly one blank line between multiline function chains', async () => {
+    const source = `export function example(request: Request) {
+  const absentRelations = request.absentRelations
+    .map(resolveRelation)
+    .filter(isAbsent)
+    .sort(compareRelations)
+  const completeNamespaces = request.completeNamespaces
+    .map(resolveNamespace)
+    .filter(isComplete)
+    .sort(compareNamespaces)
+  return { absentRelations, completeNamespaces }
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(request: Request) {
+  const absentRelations = request.absentRelations
+    .map(resolveRelation)
+    .filter(isAbsent)
+    .sort(compareRelations)
+
+  const completeNamespaces = request.completeNamespaces
+    .map(resolveNamespace)
+    .filter(isComplete)
+    .sort(compareNamespaces)
+
+  return { absentRelations, completeNamespaces }
+}
+`)
+  })
+
+  it('does not treat a multiline call initializer as a function chain', async () => {
+    const source = `export function example(value: string) {
+  const result = createResult(
+    value,
+  )
+  return result
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(source)
+  })
+
   it('does not treat an object property as a declaration use', async () => {
     const source = `export function example() {
   const request = createRequest()

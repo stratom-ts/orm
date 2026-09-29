@@ -99,6 +99,7 @@ describe('joins compile', () => {
       .leftJoin(Users, (b) => b.eq(Posts.userId, Users.id))
       .select([Posts.title, Users.email])
       .compile()
+
     expect(left.sql.toLowerCase()).toContain('left join')
     expect(left.sql).toMatch(/"public\.posts"\."title"/)
     expect(left.sql).toMatch(/"public\.users"\."email"/)
@@ -108,6 +109,7 @@ describe('joins compile', () => {
       .rightJoin(Users, eq(Posts.userId, Users.id))
       .select([Posts.id, Users.email])
       .compile()
+
     expect(right.sql.toLowerCase()).toContain('right join')
 
     await db.close()
@@ -116,6 +118,7 @@ describe('joins compile', () => {
   it('should compile joins with where/order/limit', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })
+
     const compiled = db
       .from(Posts)
       .innerJoin(Users, eq(Posts.userId, Users.id))
@@ -238,6 +241,7 @@ describe('joins compile', () => {
       namespace: [{ role: 'schema', spelling: 'a' }] as const,
       relation: 'b.c',
     }
+
     const compiled = postgresDialect.query.resolve([]).compile({
       kind: 'select',
       relation: schemaRelation,
@@ -326,6 +330,7 @@ describe('joins compile', () => {
         },
       ],
     })
+
     const session = (schema: string) => ({
       database: 'analytics',
       namespaceContext: {
@@ -441,6 +446,7 @@ describe('joins compile', () => {
       .from(Users)
       .leftJoin(AppUsers, eq(Users.id, AppUsers.id))
       .select([Users.email])
+
     type PublicRow = Awaited<ReturnType<typeof publicQuery.execute>>[number]
     expectTypeOf<PublicRow>().toEqualTypeOf<{ email: string }>()
 
@@ -448,6 +454,7 @@ describe('joins compile', () => {
       .from(Users)
       .leftJoin(AppUsers, eq(Users.id, AppUsers.id))
       .select([AppUsers.email])
+
     type AppRow = Awaited<ReturnType<typeof appQuery.execute>>[number]
     expectTypeOf<AppRow>().toEqualTypeOf<{ email: string | null }>()
   })

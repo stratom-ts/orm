@@ -42,6 +42,7 @@ type ContractValue =
 type UnsupportedContract = Readonly<{ state: 'unsupported'; reason: string }>
 type SupportedContract<T> = Readonly<{ state: 'supported'; input: T }>
 type ContractSupport<T> = SupportedContract<T> | UnsupportedContract
+
 type DialectContractFacet =
   | 'catalog'
   | 'coordination'
@@ -70,6 +71,7 @@ const dialectMemberFacets = [
 ] as const
 
 type DialectMemberFacet = (typeof dialectMemberFacets)[number]
+
 type DialectMemberCapability<TShard extends string> =
   | Readonly<{ state: 'supported'; shard: TShard }>
   | Readonly<{ state: 'unsupported'; reason: string; shard: TShard }>
@@ -519,6 +521,7 @@ function registerIdentity(name: string, support: ContractSupport<IdentityContrac
 
   it(`${name} Dialect contract [identity] scenario [resolves canonical structured identity]`, () => {
     const input = support.input
+
     const actual = input.dialect.identity
       .create({
         context: input.context,
@@ -527,6 +530,7 @@ function registerIdentity(name: string, support: ContractSupport<IdentityContrac
           : { registrationDefault: input.registrationDefault }),
       })
       .resolve(input.relation)
+
     expect(actual).toEqual(input.expected)
   })
 }
@@ -539,9 +543,11 @@ function registerNaming(name: string, support: ContractSupport<NamingContractInp
 
   it(`${name} Dialect contract [naming] scenario [generates validates and collision-checks names]`, () => {
     const input = support.input
+
     const owner = input.dialect.identity
       .create({ context: input.context })
       .resolve(input.owner)
+
     const seed = { kind: 'index' as const, owner, columns: input.columns, unique: false }
     expect(input.dialect.naming.generate(seed)).toBe(input.expectedName)
 

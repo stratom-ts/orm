@@ -535,6 +535,7 @@ function compileUpdate(
 
   const relations = createRelationContext([node.relation], resolveRelation)
   const params: unknown[] = []
+
   const assignments = node.set
     .map((item) => {
       assertNonEmptyString(item.column, 'update column')
@@ -542,6 +543,7 @@ function compileUpdate(
       return `${quoteIdentifier(item.column)} = ?`
     })
     .join(', ')
+
   const where = compileWhereClause(node.where, params, relations, resolveRelation)
 
   return {
