@@ -67,11 +67,13 @@ export function getOperationReleaseCleanupFailures(cause: unknown): readonly unk
  *
  * @param provider - Provider to validate.
  */
-function assertProvider(provider: OperationSessionProvider): void {
+function assertProvider(provider: unknown): asserts provider is OperationSessionProvider {
+  const candidate = provider as Partial<OperationSessionProvider> | null
+
   if (
-    provider?.nativeTransactions !== true ||
-    typeof provider.open !== 'function' ||
-    typeof provider.close !== 'function'
+    candidate?.nativeTransactions !== true ||
+    typeof candidate.open !== 'function' ||
+    typeof candidate.close !== 'function'
   ) {
     throw new QueryError({
       message:
@@ -85,12 +87,14 @@ function assertProvider(provider: OperationSessionProvider): void {
  *
  * @param session - Session to validate.
  */
-function assertSession(session: OperationSession): void {
+function assertSession(session: unknown): asserts session is OperationSession {
+  const candidate = session as Partial<OperationSession> | null
+
   if (
-    typeof session?.query !== 'function' ||
-    typeof session.run !== 'function' ||
-    typeof session.cancel !== 'function' ||
-    typeof session.release !== 'function'
+    typeof candidate?.query !== 'function' ||
+    typeof candidate.run !== 'function' ||
+    typeof candidate.cancel !== 'function' ||
+    typeof candidate.release !== 'function'
   ) {
     throw new QueryError({
       message: 'Operation session provider returned an invalid pinned session',
@@ -171,7 +175,9 @@ function captureSessionIdentity(session: OperationSession): OperationSessionIden
   let namespaceContext: OperationSessionIdentity['namespaceContext']
 
   try {
-    const identity = session.identity
+    const identity = (
+      session as { readonly identity?: Partial<OperationSessionIdentity> }
+    ).identity
     database = identity?.database
     physicalSession = identity?.physicalSession
     namespaceContext = captureNamespaceContext(identity?.namespaceContext)
@@ -215,7 +221,9 @@ function assertStableSessionIdentity(
   let namespaceContext: OperationSessionIdentity['namespaceContext']
 
   try {
-    const identity = session.identity
+    const identity = (
+      session as { readonly identity?: Partial<OperationSessionIdentity> }
+    ).identity
     database = identity?.database
     physicalSession = identity?.physicalSession
     namespaceContext = captureNamespaceContext(identity?.namespaceContext)
@@ -398,7 +406,7 @@ export class OperationCoordinator {
             operation({
               executor,
               identity: token.identity,
-              discard: token.discard,
+              discard: () => token.discard(),
               /** Cancels work currently running on the pinned session. */
               cancel: () => {
                 disposition = 'discard'

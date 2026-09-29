@@ -604,7 +604,9 @@ describe('whole-graph desired-schema lowering', () => {
       /not registered/i,
     )
 
-    const globalMap = vi.fn((_dataType: string, value: unknown) => `global:${value}`)
+    const globalMap = vi.fn((_dataType: string, value: unknown) =>
+      typeof value === 'string' ? `global:${value}` : value,
+    )
     const globalMapper = createValueMapper(
       postgresDialect,
       { mapParamValue: globalMap },
@@ -613,7 +615,9 @@ describe('whole-graph desired-schema lowering', () => {
     expect(globalMapper.mapParam(Source, 'targetId', 'abc')).toBe('global:abc')
     expect(globalMap).toHaveBeenCalledWith('uuid', 'abc')
 
-    const dialectMap = vi.fn((_dataType: string, value: unknown) => `dialect:${value}`)
+    const dialectMap = vi.fn((_dataType: string, value: unknown) =>
+      typeof value === 'string' ? `dialect:${value}` : value,
+    )
     const dialectMapper = createValueMapper(
       {
         ...postgresDialect,

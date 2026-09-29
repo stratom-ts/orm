@@ -202,9 +202,9 @@ function sameNamespace(
   return (
     left.length === right.length &&
     left.every((segment, index) => {
-      const other = right[index]
+      const other = right.at(index)!
       return (
-        segment.role === other?.role &&
+        segment.role === other.role &&
         segment.identifier.comparisonKey === other.identifier.comparisonKey
       )
     })
@@ -268,7 +268,7 @@ function resolveRequest(
       (entry, index, values) =>
         values.findIndex((candidate) => identities.equals(candidate, entry)) === index,
     )
-    .sort(identities.compare)
+    .sort((left, right) => identities.compare(left, right))
 
   const completeNamespaces = request.completeNamespaces
     .map((namespace) => identities.resolveNamespace(namespace))
@@ -1524,7 +1524,7 @@ async function introspectSqlite(
           `SQLite table ${JSON.stringify(row.name)} has multiple primary-key indexes`,
         )
 
-      const pkIndex = pkIndexes[0]
+      const pkIndex = pkIndexes.at(0)
 
       if (pkIndex && (pkIndex.unique !== 1 || pkIndex.partial !== 0))
         throw new InvariantError(
@@ -1862,7 +1862,7 @@ async function introspectSqlite(
         const targetKeyUnknown =
           target.targetTable === undefined ||
           (target.targetTable.type !== 'view' && target.targetInfo === undefined) ||
-          (target.targetTable?.type === 'table' && matchingRichUniqueKey)
+          (target.targetTable.type === 'table' && matchingRichUniqueKey)
         const fkSimple = isSimpleForeignKey(
           targetKeyValid,
           target.targetTable,

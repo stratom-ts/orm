@@ -101,11 +101,13 @@ export function resolveSqliteQueryRelation(
   relation: RelationIdentityInput,
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): SqliteQueryRelation {
-  if (typeof relation !== 'object' || relation === null) {
+  const input = relation as unknown
+
+  if (typeof input !== 'object' || input === null) {
     throw new QueryError({ message: 'SQLite query relation must be an object' })
   }
 
-  const candidate = relation as { relation?: unknown; namespace?: unknown }
+  const candidate = input as { relation?: unknown; namespace?: unknown }
   assertNonEmptyString(candidate.relation, 'SQLite query relation name')
   resolveSqliteQueryNamespace(candidate.namespace, registrationDefault)
 
@@ -191,11 +193,16 @@ function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
 
-  if (returning.kind !== 'columns' || returning.columns.length === 0) {
+  const candidate = returning as {
+    readonly kind?: unknown
+    readonly columns?: readonly string[]
+  }
+
+  if (candidate.kind !== 'columns' || !candidate.columns?.length) {
     throw new QueryError({ message: 'returning columns must not be empty' })
   }
 
-  return ` returning ${returning.columns
+  return ` returning ${candidate.columns
     .map((column) => {
       assertNonEmptyString(column, 'returning column')
       return quoteIdentifier(column)
@@ -377,11 +384,13 @@ function compileOrderBy(
 
   return ` order by ${orderBy
     .map((item) => {
-      if (item.direction !== 'asc' && item.direction !== 'desc') {
+      const direction = (item as { readonly direction?: unknown }).direction
+
+      if (direction !== 'asc' && direction !== 'desc') {
         throw new QueryError({ message: 'order direction must be asc or desc' })
       }
 
-      return `${qualifyColumn(item.column, relations, item.relation, resolveRelation)} ${item.direction}`
+      return `${qualifyColumn(item.column, relations, item.relation, resolveRelation)} ${direction}`
     })
     .join(', ')}`
 }

@@ -115,13 +115,10 @@ function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): 
  * @param value - Value to inspect.
  */
 function isPredicateAst(value: unknown): value is PredicateAst {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'kind' in value &&
-    (value as { kind: string }).kind !== undefined &&
-    ['cmp', 'and', 'or', 'not'].includes((value as { kind: string }).kind)
-  )
+  if (typeof value !== 'object' || value === null || !('kind' in value)) return false
+
+  const kind = (value as { kind?: unknown }).kind
+  return typeof kind === 'string' && ['cmp', 'and', 'or', 'not'].includes(kind)
 }
 
 /**
@@ -223,18 +220,11 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
         return { kind: 'column', column: item }
       }
 
-      if (typeof item === 'object' && item !== null && 'kind' in item) {
-        if (item.kind === 'all' || item.kind === 'column' || item.kind === 'expr') {
-          return item as SelectItemAst
-        }
+      if ('kind' in item) {
+        return item as SelectItemAst
       }
 
-      if (
-        typeof item === 'object' &&
-        item !== null &&
-        'expr' in item &&
-        'alias' in item
-      ) {
+      if ('expr' in item && 'alias' in item) {
         return {
           kind: 'expr',
           expr: (item as { expr: SqlExprAst }).expr,

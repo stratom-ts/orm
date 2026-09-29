@@ -95,7 +95,7 @@ export function physicalNameDigest(seed: PhysicalNameSeed): string {
 function measuredLength(value: string, profile: PhysicalNamingProfile): number {
   return profile.lengthUnit === 'utf8Bytes'
     ? UTF8_ENCODER.encode(value).length
-    : [...value].length
+    : Array.from(value).length
 }
 
 /**

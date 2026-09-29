@@ -284,8 +284,8 @@ function namespaceIssues(
     issues.push(`${label} must contain exactly database and schema segments`)
   }
 
-  const database = namespace[0]
-  const schema = namespace[1]
+  const database = namespace.at(0)
+  const schema = namespace.at(1)
 
   if (database?.role !== 'database') {
     issues.push(`${label} segment 0 must have role 'database'`)

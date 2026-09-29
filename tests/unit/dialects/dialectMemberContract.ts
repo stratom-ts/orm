@@ -28,7 +28,7 @@ export type DialectLifecycleContractRuntime = Readonly<{
     queryRows: readonly unknown[]
     queryParam: unknown
   }>
-  postMigrationState(): unknown | Promise<unknown>
+  postMigrationState(): unknown
   migration:
     | Readonly<{
         state: 'supported'

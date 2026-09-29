@@ -217,9 +217,7 @@ function declaredPropertyNames(source: ts.SourceFile, declarationName: string): 
   if (!declaration) return []
 
   return descendants(declaration)
-    .flatMap((node) =>
-      ts.isPropertySignature(node) && node.name ? [propertyName(node.name)] : [],
-    )
+    .flatMap((node) => (ts.isPropertySignature(node) ? [propertyName(node.name)] : []))
     .filter((name): name is string => name !== undefined)
 }
 
@@ -326,10 +324,17 @@ function rawCollectionKeyLeak(source: ts.SourceFile, node: ts.Node): string | un
     !ts.isCallExpression(node) ||
     !ts.isPropertyAccessExpression(node.expression) ||
     !['get', 'has', 'set', 'add'].includes(node.expression.name.text) ||
-    !memberCollectionName(node.expression.expression) ||
-    !node.arguments[0] ||
-    !containsProperty(node.arguments[0], 'name') ||
-    containsProperty(node.arguments[0], 'comparisonKey')
+    !memberCollectionName(node.expression.expression)
+  ) {
+    return undefined
+  }
+
+  const argument = node.arguments.at(0)
+
+  if (
+    !argument ||
+    !containsProperty(argument, 'name') ||
+    containsProperty(argument, 'comparisonKey')
   ) {
     return undefined
   }

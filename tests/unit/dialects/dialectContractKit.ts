@@ -285,7 +285,7 @@ export async function runOperationSessionCommonContract(
     }
   }
 
-  if (completed && hasCleanupError) throw cleanupError
+  if (hasCleanupError) throw cleanupError
 
   expect(runtime.events()).toEqual(['query', 'run', 'cancel', 'release:reuse', 'close'])
 }
@@ -444,23 +444,31 @@ function validateDialectContractMember<
   TCapabilities extends DialectContractMemberCapabilities,
 >(capabilities: TCapabilities): void {
   for (const facet of dialectMemberFacets) {
-    const capability = capabilities[facet]
+    const capability = (capabilities as Partial<Record<DialectMemberFacet, unknown>>)[
+      facet
+    ]
 
     if (typeof capability !== 'object' || capability === null) {
       throw new Error(`Dialect contract capability declaration omits ${facet}`)
     }
 
-    if (capability.state !== 'supported' && capability.state !== 'unsupported') {
+    const candidate = capability as {
+      state?: unknown
+      shard?: unknown
+      reason?: unknown
+    }
+
+    if (candidate.state !== 'supported' && candidate.state !== 'unsupported') {
       throw new Error(`Dialect contract capability ${facet} has an invalid state`)
     }
 
-    if (typeof capability.shard !== 'string' || capability.shard.trim().length === 0) {
+    if (typeof candidate.shard !== 'string' || candidate.shard.trim().length === 0) {
       throw new Error(`Dialect contract capability ${facet} needs a non-empty shard`)
     }
 
     if (
-      capability.state === 'unsupported' &&
-      (typeof capability.reason !== 'string' || capability.reason.trim().length === 0)
+      candidate.state === 'unsupported' &&
+      (typeof candidate.reason !== 'string' || candidate.reason.trim().length === 0)
     ) {
       throw new Error(`Dialect contract capability ${facet} needs a non-empty reason`)
     }

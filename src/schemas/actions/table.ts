@@ -63,7 +63,7 @@ export function table<TInput = unknown, const TName extends string = string>(
 export function isTableMetadata(
   metadata: Record<string, unknown> | undefined,
 ): metadata is TableMetadata {
-  return metadata !== undefined && metadata.kind === 'table'
+  return metadata?.kind === 'table'
 }
 
 /**

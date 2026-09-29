@@ -250,7 +250,7 @@ export function createMigrateBuilder(options: {
    *
    * @param operation - Work receiving the session executor and lifecycle capabilities.
    */
-  runOperation<T>(
+  runOperation: <T>(
     /**
      * Performs migration work on one pinned operation session.
      *
@@ -265,7 +265,7 @@ export function createMigrateBuilder(options: {
       discard: () => void,
       cancel: () => Promise<void>,
     ) => Promise<T>,
-  ): Promise<T>
+  ) => Promise<T>
   applicationId?: string
   defaultNamespace?: readonly NamespaceIdentifierInput[]
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -391,8 +391,9 @@ export function createMigrateBuilder(options: {
         throw phaseError(cause, 'permission')
       }
 
-      let runtimeSuccess: { outcome: 'applied' | 'unchanged' } | undefined
-      let operationCallbackReturned = false
+      const runtime = {
+        success: undefined as { outcome: 'applied' | 'unchanged' } | undefined,
+      }
 
       try {
         await runOperation(async (executor, databaseIdentity, discard, cancel) => {
@@ -445,22 +446,21 @@ export function createMigrateBuilder(options: {
             })
           }
 
-          runtimeSuccess = execution.value
-          operationCallbackReturned = true
-          return runtimeSuccess
+          runtime.success = execution.value
+          return runtime.success
         })
       } catch (cause) {
         if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
 
         const cleanupFailures = sessionCleanupFailures(cause)
 
-        if (operationCallbackReturned && runtimeSuccess) {
+        if (runtime.success) {
           throw new MigrationError({
             message:
               cause instanceof Error ? cause.message : 'Migration session cleanup failed',
             cause,
             stage: 'sessionCleanup',
-            outcome: runtimeSuccess.outcome,
+            outcome: runtime.success.outcome,
             retryable: false,
             cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
           })

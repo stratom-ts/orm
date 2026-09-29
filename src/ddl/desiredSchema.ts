@@ -73,8 +73,6 @@ export function registerDesiredSchema(
     for (const [name, value] of Object.entries(handle.getSchema().entries)) {
       const schema = value as AnySchema
 
-      if (!schema || schema.kind !== 'schema') continue
-
       const reference = getReferenceMetadata(schema)
       const columnMetadata = getColumnMetadata(schema)
       const identifier = identities.member('column', name)

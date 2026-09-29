@@ -26,6 +26,16 @@ export function postgresMigrationProgram(
   }
 }
 
+function advisoryLockKey(params: unknown[]): string {
+  const [classId, lockId] = params
+
+  if (typeof classId !== 'number' || typeof lockId !== 'number') {
+    throw new TypeError('PostgreSQL advisory lock parameters must be numbers')
+  }
+
+  return `${classId}:${lockId}`
+}
+
 export function createPostgresMigrationRuntime(
   options: {
     failRun?: RegExp
@@ -76,7 +86,7 @@ export function createPostgresMigrationRuntime(
       configured ??
       options.sharedLockManager?.tryAcquire(
         options.clientId ?? 'client',
-        `${query.params[0]}:${query.params[1]}`,
+        advisoryLockKey(query.params),
       ) ??
       true
 
@@ -94,7 +104,7 @@ export function createPostgresMigrationRuntime(
 
     options.sharedLockManager?.release(
       options.clientId ?? 'client',
-      `${query.params[0]}:${query.params[1]}`,
+      advisoryLockKey(query.params),
     )
 
     return [{ unlocked: result ?? true }]

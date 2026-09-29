@@ -56,7 +56,7 @@ export type ReferenceOptions = {
  *
  * @returns `true` if `value` is a reference target handle
  */
-function isReferenceTargetHandle(value: ReferenceTarget): value is ReferenceTargetHandle {
+function isReferenceTargetHandle(value: unknown): value is ReferenceTargetHandle {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -164,7 +164,7 @@ export function reference<
 export function isReferenceMetadata(
   metadata: Record<string, unknown> | undefined,
 ): metadata is ReferenceMetadata {
-  return metadata !== undefined && metadata.kind === 'reference'
+  return metadata?.kind === 'reference'
 }
 
 /**

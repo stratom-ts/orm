@@ -136,13 +136,15 @@ export function resolvePostgresQueryRelation(
   relation: RelationIdentityInput,
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): PostgresQueryRelation {
-  if (typeof relation !== 'object' || relation === null) {
+  const input = relation as unknown
+
+  if (typeof input !== 'object' || input === null) {
     throw new QueryError({
       message: 'PostgreSQL query relation must be an object',
     })
   }
 
-  const candidate = relation as {
+  const candidate = input as {
     relation?: unknown
     namespace?: unknown
   }
@@ -622,16 +624,17 @@ function compileSelect(
   )
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
+  const selection = (node as Partial<SelectAst>).selection
 
-  if (!node.selection || node.selection.length === 0) {
+  if (!selection || selection.length === 0) {
     throw new QueryError({ message: 'select items must not be empty' })
   }
 
-  const selection = node.selection
+  const selectionSql = selection
     .map((item) => compileSelectItem(item, params, relations, resolveRelation))
     .join(', ')
 
-  let sql = `select ${selection} from ${tableSql} as ${tableAlias}`
+  let sql = `select ${selectionSql} from ${tableSql} as ${tableAlias}`
 
   if (node.joins) {
     for (const [index, join] of node.joins.entries()) {
@@ -1194,7 +1197,7 @@ export function compilePostgres(
       }
     }
     case 'drop_index': {
-      const schemaName = node.schema ?? 'public'
+      const schemaName = (node as { readonly schema?: string }).schema ?? 'public'
       return {
         sql: `drop index ${quoteIdent(schemaName)}.${quoteIdent(node.index)}`,
         params: [],

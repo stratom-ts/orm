@@ -122,19 +122,20 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
 
   for (const raw of metadata.indexes) {
     const index = raw
+    const columns = (index as { columns?: readonly string[] }).columns
 
     if (index.name !== undefined) {
       assertNonEmptyString(index.name, 'index name')
     }
 
-    if (!index.columns || index.columns.length === 0) {
+    if (!columns || columns.length === 0) {
       throw new SchemaError({
         message: `index on table "${metadata.name}" must list at least one column`,
       })
     }
 
-    for (const column of index.columns) assertNonEmptyString(column, 'index column')
-    const unknownColumn = index.columns.find((column) => !columnNames.includes(column))
+    for (const column of columns) assertNonEmptyString(column, 'index column')
+    const unknownColumn = columns.find((column) => !columnNames.includes(column))
 
     if (unknownColumn !== undefined) {
       throw new SchemaError({
@@ -142,13 +143,13 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
       })
     }
 
-    if (new Set(index.columns).size !== index.columns.length) {
+    if (new Set(columns).size !== columns.length) {
       throw new SchemaError({
         message: `index on table "${metadata.name}" contains duplicate columns`,
       })
     }
 
-    const definition = JSON.stringify([index.columns, index.unique ?? false])
+    const definition = JSON.stringify([columns, index.unique ?? false])
 
     if (definitions.has(definition)) {
       throw new SchemaError({
@@ -229,20 +230,24 @@ function validateColumnReference(columnName: string, ref: ReferenceMetadata): vo
     return
   }
 
-  if (typeof ref.target !== 'object' || ref.target === null) {
+  const target = ref.target as unknown
+
+  if (typeof target !== 'object' || target === null) {
     throw new SchemaError({
       message: `reference on column "${columnName}" is missing a structured target`,
     })
   }
 
-  if (typeof ref.target.relation !== 'object' || ref.target.relation === null) {
+  const candidate = target as { relation?: unknown; column?: unknown }
+
+  if (typeof candidate.relation !== 'object' || candidate.relation === null) {
     throw new SchemaError({
       message: `reference on column "${columnName}" is missing a target relation`,
     })
   }
 
-  validateRelationInput(ref.target.relation)
-  assertNonEmptyString(ref.target.column, 'referenced column')
+  validateRelationInput(candidate.relation as RelationIdentityInput)
+  assertNonEmptyString(candidate.column, 'referenced column')
 }
 
 /**
@@ -327,10 +332,6 @@ function validateColumns(schema: TableSchema, tableName: string): void {
   for (const [columnName, columnSchema] of Object.entries(schema.entries)) {
     const colSchema = columnSchema as AnySchema
 
-    if (colSchema.kind !== 'schema') {
-      continue
-    }
-
     const ref = getReferenceMetadata(colSchema)
     validateOptionalColumn(tableName, columnName, colSchema)
     validateColumnOptions(tableName, columnName, colSchema)
@@ -410,10 +411,7 @@ function buildTableHandle<
 
   const entries = schema.entries as ObjectEntries
 
-  const columnNames = Object.keys(entries).filter((key) => {
-    const entry = entries[key] as AnySchema
-    return entry && entry.kind === 'schema'
-  })
+  const columnNames = Object.keys(entries)
 
   if (columnNames.length === 0) {
     throw new SchemaError({

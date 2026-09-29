@@ -48,7 +48,7 @@ function assertDefinedInsertValue(
   value: unknown,
   schema: AnySchema | undefined,
 ): void {
-  if (value !== undefined || !schema || schema.kind !== 'schema') return
+  if (value !== undefined || schema === undefined) return
   if (isInsertOptional(schema)) return
 
   throw new ValidationError({
@@ -90,7 +90,6 @@ export function buildInsertSchema(
   const insertEntries: ObjectEntries = {}
 
   for (const [name, columnSchema] of Object.entries(entries)) {
-    if (!columnSchema || columnSchema.kind !== 'schema') continue
     if (isAlwaysGenerated(columnSchema)) continue
 
     if (isInsertOptional(columnSchema)) {
@@ -125,7 +124,6 @@ export function buildUpdateSchema(
   const updateEntries: ObjectEntries = {}
 
   for (const [name, columnSchema] of Object.entries(entries)) {
-    if (!columnSchema || columnSchema.kind !== 'schema') continue
     if (isAlwaysGenerated(columnSchema)) continue
 
     const meta = getColumnMetadata(columnSchema)
@@ -149,14 +147,7 @@ export function buildUpdateSchema(
 function formatIssues(issues: readonly BaseIssue<unknown>[]): string {
   return issues
     .map((issue) => {
-      const path =
-        issue.path
-          ?.map((item) =>
-            typeof item === 'object' && item !== null && 'key' in item
-              ? String((item as { key: unknown }).key)
-              : String(item),
-          )
-          .join('.') ?? ''
+      const path = issue.path?.map((item) => String(item.key)).join('.') ?? ''
       return path ? `${path}: ${issue.message}` : issue.message
     })
     .join('; ')

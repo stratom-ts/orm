@@ -325,9 +325,9 @@ function sameNamespace(
   return (
     left.length === right.length &&
     left.every((segment, index) => {
-      const other = right[index]
+      const other = right.at(index)!
       return (
-        segment.role === other?.role &&
+        segment.role === other.role &&
         segment.identifier.comparisonKey === other.identifier.comparisonKey
       )
     })
@@ -410,7 +410,7 @@ function resolveRequest(
   const absentRelations = request.absentRelations
     .map((input) => absentMap.get(identities.resolve(input))!)
     .filter((value, index, values) => values.indexOf(value) === index)
-    .sort(identities.compare)
+    .sort((a, b) => identities.compare(a, b))
 
   const completeNamespaces = request.completeNamespaces
     .map((namespace) => identities.resolveNamespace(namespace))
