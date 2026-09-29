@@ -112,7 +112,7 @@ function resolveColumnDataType(
   >
   const columnSchema = entries[columnName]
 
-  if (!columnSchema || columnSchema.kind !== 'schema') return undefined
+  if (columnSchema?.kind !== 'schema') return undefined
 
   const schema = columnSchema as Parameters<Dialect['schema']['inferColumnType']>[0]
   const columnMetadata = getColumnMetadata(schema)
@@ -176,7 +176,7 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
   >
   const columnSchema = entries[columnName]
 
-  if (!columnSchema || columnSchema.kind !== 'schema') return undefined
+  if (columnSchema?.kind !== 'schema') return undefined
 
   return getColumnMetadata(columnSchema as Parameters<typeof getColumnMetadata>[0])
 }
@@ -239,9 +239,11 @@ export function createValueMapper(
 
     if (meta?.mapParam) return meta.mapParam(value)
 
-    const dataType = columnTypes(handle)[column]
+    const types = columnTypes(handle)
 
-    if (dataType === undefined) return value
+    if (!Object.hasOwn(types, column)) return value
+
+    const dataType = types[column]
 
     if (map?.mapParamValue) return map.mapParamValue(dataType, value)
 
@@ -268,9 +270,11 @@ export function createValueMapper(
 
     if (meta?.mapResult) return meta.mapResult(value)
 
-    const dataType = columnTypes(handle)[column]
+    const types = columnTypes(handle)
 
-    if (dataType === undefined) return value
+    if (!Object.hasOwn(types, column)) return value
+
+    const dataType = types[column]
 
     if (map?.mapResultValue) return map.mapResultValue(dataType, value)
 

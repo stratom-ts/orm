@@ -719,8 +719,6 @@ function collectUniqueConstraintIssues({
   identities,
   liveColumns,
 }: ManagedConstraintIssueCollection): void {
-  if (live.uniqueConstraints === undefined) return
-
   const identity = live.identity
   const expected = desired.columns.filter(
     (column) => column.unique && liveColumns.has(column.identifier.comparisonKey),
@@ -747,7 +745,7 @@ function collectUniqueConstraintIssues({
     }
 
     for (const match of matches) matched.add(match)
-    const match = matches[0]
+    const match = matches.at(0)
 
     if (!match) continue
 
@@ -786,8 +784,6 @@ function collectForeignKeyIssues({
   identities,
   liveColumns,
 }: ManagedConstraintIssueCollection): void {
-  if (live.foreignKeys === undefined) return
-
   const identity = live.identity
   const tableName = identities.format(identity)
 
@@ -815,7 +811,7 @@ function collectForeignKeyIssues({
     }
 
     for (const match of matches) matched.add(match)
-    const match = matches[0]
+    const match = matches.at(0)
 
     if (!match) continue
 
@@ -928,11 +924,11 @@ function collectManagedPropertyIssues(
     }
   }
 
-  if (live.primaryKey !== undefined) {
-    const current = live.primaryKey?.columns ?? []
+  if (live.primaryKey !== null) {
+    const current = live.primaryKey.columns
 
     if (
-      (live.primaryKey && !hasSupportedCatalogSemantics(live.primaryKey)) ||
+      !hasSupportedCatalogSemantics(live.primaryKey) ||
       !arraysEqual(
         memberKeys('column', current, identities),
         desired.primaryKey.map((column) => column.comparisonKey),
@@ -1206,7 +1202,7 @@ function collectLiveIndexes(
   const indexes = new Map<string, CatalogIndex>()
   const unsupportedNames = new Set<string>()
 
-  const ordered = (live.indexes ?? [])
+  const ordered = live.indexes
     .map((liveIndex) => ({
       liveIndex,
       identifier: memberIdentifier(identity, 'index', liveIndex.name, identities),
@@ -1303,7 +1299,7 @@ function reconcileIndexes({
         return
       }
 
-      current = semanticMatches[0]
+      current = semanticMatches.at(0)
 
       if (!current) current = liveIndexes.get(index.name.comparisonKey)
     } else {
@@ -1372,7 +1368,7 @@ function reconcileIndexes({
   for (const index of desired) reconcileIndex(index)
 
   if (shape === 'complete') {
-    const unclaimedIndexes = (live.indexes ?? []).filter(
+    const unclaimedIndexes = live.indexes.filter(
       (liveIndex) =>
         !claimedLiveIndexNames.has(
           identities.member('index', liveIndex.name).comparisonKey,
@@ -1414,7 +1410,7 @@ function validateDesiredNames(
   naming: DialectNaming,
 ): void {
   function validateReferenceName(value: AnySchema | undefined): void {
-    if (!value || value.kind !== 'schema') return
+    if (value?.kind !== 'schema') return
 
     const reference = getReferenceMetadata(value)
 
@@ -1490,7 +1486,7 @@ function appendMissingColumnConstraints({
   reserveUniqueConstraint,
   liveColumns,
 }: ColumnConstraintReconciliation): void {
-  const uniqueColumns = live.uniqueConstraints === undefined ? [] : desired.columns
+  const uniqueColumns = desired.columns
 
   for (const desiredColumn of uniqueColumns) {
     if (!desiredColumn.unique || !liveColumns.has(desiredColumn.identifier.comparisonKey))
@@ -1516,7 +1512,7 @@ function appendMissingColumnConstraints({
     })
   }
 
-  const foreignKeyColumns = live.foreignKeys === undefined ? [] : desired.columns
+  const foreignKeyColumns = desired.columns
 
   for (const desiredColumn of foreignKeyColumns) {
     if (
@@ -1563,7 +1559,7 @@ function appendDroppedColumns(
     desired.columns.map((column) => column.identifier.comparisonKey),
   )
 
-  for (const liveColumn of live.columns ?? []) {
+  for (const liveColumn of live.columns) {
     if (desiredNames.has(identities.member('column', liveColumn.name).comparisonKey)) {
       continue
     }
@@ -1589,7 +1585,7 @@ function reconcileExistingColumns({
   reserveUniqueConstraint,
 }: ExistingColumnReconciliation): void {
   const liveColumns = new Map(
-    (live.columns ?? []).map((column) => [
+    live.columns.map((column) => [
       identities.member('column', column.name).comparisonKey,
       column,
     ]),
@@ -2054,7 +2050,7 @@ function buildMigrationPlan(
     representedCatalogNames.add(namespaceNameKey(namespace, identity.relation.spelling))
 
     reserveCatalogIndexes(
-      table.indexes ?? [],
+      table.indexes,
       identity,
       identities,
       physicalNames,
@@ -2084,7 +2080,7 @@ function buildMigrationPlan(
       representedCatalogNames.add(namespaceNameKey(namespace, table.primaryKey.name))
     }
 
-    for (const constraint of table.uniqueConstraints ?? []) {
+    for (const constraint of table.uniqueConstraints) {
       const backingToken = `catalog:${namespaceNameKey(namespace, constraint.name)}`
       const constraintToken = `catalog-constraint:${identities.format(identity)}:${constraint.name}`
 
@@ -2107,7 +2103,7 @@ function buildMigrationPlan(
       representedCatalogNames.add(namespaceNameKey(namespace, constraint.name))
     }
 
-    for (const constraint of table.foreignKeys ?? []) {
+    for (const constraint of table.foreignKeys) {
       physicalNames.reserve({
         kind: 'foreignKey',
         owner: identity,
@@ -2303,9 +2299,9 @@ function buildMigrationPlan(
     identities,
   })
 
-  const issue = issues.sort((left, right) =>
-    comparePlanningIssues(left, right, identities),
-  )[0]
+  const issue = issues
+    .sort((left, right) => comparePlanningIssues(left, right, identities))
+    .at(0)
 
   if (issue) throw new MigrationError({ message: issue.message })
 

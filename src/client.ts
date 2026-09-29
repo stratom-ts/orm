@@ -152,7 +152,7 @@ function scheduleTransactionScope<T>(
  * @param scope - Transaction scope to drain.
  */
 async function drainTransactionScope(scope: TransactionScope): Promise<void> {
-  while (true) {
+  for (;;) {
     const tail = scope.queue
     await tail
 

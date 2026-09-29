@@ -325,9 +325,9 @@ function sameNamespace(
   return (
     left.length === right.length &&
     left.every((segment, index) => {
-      const other = right[index]
+      const other = right.at(index)!
       return (
-        segment.role === other?.role &&
+        segment.role === other.role &&
         segment.identifier.comparisonKey === other.identifier.comparisonKey
       )
     })

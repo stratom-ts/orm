@@ -306,7 +306,7 @@ async function acquireCoordinationLock(
 ): Promise<void> {
   let firstAttempt = true
 
-  while (true) {
+  for (;;) {
     const deadlineRemaining = Math.max(0, deadline - performance.now())
     const timeout =
       options.lockTimeoutMs === 0

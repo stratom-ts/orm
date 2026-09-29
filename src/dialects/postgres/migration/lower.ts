@@ -144,7 +144,7 @@ function expectedDatabaseIdentifier(
     const namespace = planned.identities.resolveNamespace(
       expectedProfile.namespaceContext.writableDefault,
     )
-    const database = namespace[0]
+    const database = namespace.at(0)
 
     if (namespace.length === 2 && database?.role === 'database') {
       return database.identifier

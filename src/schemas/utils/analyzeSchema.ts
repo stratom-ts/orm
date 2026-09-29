@@ -60,7 +60,7 @@ function wrappedSchema(schema: TraversableSchema): AnySchema | undefined {
     : undefined
 }
 
-const OUTPUT_KINDS: Readonly<Record<string, SchemaOutputKind>> = {
+const OUTPUT_KINDS: Readonly<Partial<Record<string, SchemaOutputKind>>> = {
   string: 'string',
   number: 'number',
   bigint: 'bigint',

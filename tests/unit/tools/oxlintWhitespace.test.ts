@@ -16,7 +16,17 @@ async function formatWhitespace(source: string): Promise<string> {
     await writeFile(fixture, source)
     const result = spawnSync(
       process.execPath,
-      [oxlintBin, '--fix', '--config', ruleConfig, fixture],
+      [
+        oxlintBin,
+        '--fix',
+        '--config',
+        ruleConfig,
+        '--allow',
+        'all',
+        '--deny',
+        'stratom/whitespace',
+        fixture,
+      ],
       { encoding: 'utf8' },
     )
 

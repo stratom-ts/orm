@@ -39,7 +39,7 @@ export function column<
 export function isColumnMetadata(
   metadata: Record<string, unknown> | undefined,
 ): metadata is ColumnMetadata {
-  return metadata !== undefined && metadata.kind === 'column'
+  return metadata?.kind === 'column'
 }
 
 /**

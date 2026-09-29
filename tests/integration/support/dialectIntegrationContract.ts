@@ -40,7 +40,9 @@ export function validateDialectIntegrationCapabilities(
   capabilities: Readonly<Record<IntegrationCapabilityName, IntegrationCapability>>,
 ): void {
   for (const name of integrationCapabilityNames) {
-    const capability = capabilities[name]
+    const capability = (
+      capabilities as Partial<Record<IntegrationCapabilityName, IntegrationCapability>>
+    )[name]
 
     if (!capability) {
       throw new Error(`Integration capability declaration omits ${name}`)

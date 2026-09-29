@@ -3,7 +3,8 @@
   "plugins": ["import", "typescript"],
   "jsPlugins": ["./tools/oxlint-whitespace-plugin.mjs"],
   "categories": {
-    "correctness": "error"
+    "correctness": "error",
+    "nursery": "error"
   },
   "env": {
     "builtin": true,

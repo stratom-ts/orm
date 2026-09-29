@@ -20,7 +20,7 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
   'tuple_with_rest',
 ])
 
-function inferSqliteLiteralType(literal: Literal): SqlDataType {
+function inferSqliteLiteralType(literal: unknown): SqlDataType {
   if (typeof literal === 'string') return 'TEXT'
   if (typeof literal === 'number') return Number.isInteger(literal) ? 'INTEGER' : 'REAL'
   if (typeof literal === 'bigint') return 'BIGINT'
