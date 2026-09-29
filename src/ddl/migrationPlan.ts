@@ -21,6 +21,7 @@ import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwners
 import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
 import { getReferenceMetadata } from '@/schemas/actions/reference'
 import type { TableHandle } from '@/types'
+import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
 
 import { lowerDesiredSchema } from './desiredSchema'
@@ -1275,7 +1276,7 @@ function reconcileIndexes({
   const { indexes: liveIndexes, unsupportedNames: unsupportedLiveIndexNames } =
     collectLiveIndexes({ live, identity, shape, issues, identities })
 
-  desired.forEach((index) => {
+  function reconcileIndex(index: (typeof desired)[number]): void {
     let current: CatalogIndex | undefined
 
     if (index.origin === 'generated') {
@@ -1366,7 +1367,9 @@ function reconcileIndexes({
         })}`,
       })
     }
-  })
+  }
+
+  for (const index of desired) reconcileIndex(index)
 
   if (shape === 'complete') {
     const unclaimedIndexes = (live.indexes ?? []).filter(
@@ -1376,12 +1379,12 @@ function reconcileIndexes({
         ),
     )
 
-    unclaimedIndexes.forEach((liveIndex) => {
+    for (const liveIndex of unclaimedIndexes) {
       steps.push({
         kind: 'drop_index',
         target: indexTarget(identity, liveIndex.name, identities),
       })
-    })
+    }
   }
 
   if (
@@ -1410,24 +1413,24 @@ function validateDesiredNames(
   identities: CanonicalRelationIdentityModule,
   naming: DialectNaming,
 ): void {
+  function validateReferenceName(value: AnySchema | undefined): void {
+    if (!value || value.kind !== 'schema') return
+
+    const reference = getReferenceMetadata(value)
+
+    if (!reference) return
+
+    validateCanonicalRelationNames(identities.resolve(reference.target.relation), naming)
+    naming.validate(reference.target.column, 'referenced column name')
+  }
+
   for (const handle of schemas) {
     const metadata = handle.getTableMetadata()
     validateCanonicalRelationNames(identities.resolve(metadata.relation), naming)
 
-    Object.values(handle.getSchema().entries).forEach((value) => {
-      if (!value || value.kind !== 'schema') return
-
-      const reference = getReferenceMetadata(value)
-
-      if (!reference) return
-
-      validateCanonicalRelationNames(
-        identities.resolve(reference.target.relation),
-        naming,
-      )
-
-      naming.validate(reference.target.column, 'referenced column name')
-    })
+    for (const value of Object.values(handle.getSchema().entries)) {
+      validateReferenceName(value)
+    }
   }
 }
 
@@ -1487,63 +1490,60 @@ function appendMissingColumnConstraints({
   reserveUniqueConstraint,
   liveColumns,
 }: ColumnConstraintReconciliation): void {
-  if (live.uniqueConstraints !== undefined) {
-    desired.columns.forEach((desiredColumn) => {
-      if (
-        !desiredColumn.unique ||
-        !liveColumns.has(desiredColumn.identifier.comparisonKey)
-      )
-        return
+  const uniqueColumns = live.uniqueConstraints === undefined ? [] : desired.columns
 
-      const matches = matchUniqueConstraints(
-        live.uniqueConstraints,
-        desiredColumn.identifier,
-        identities,
-      )
+  for (const desiredColumn of uniqueColumns) {
+    if (!desiredColumn.unique || !liveColumns.has(desiredColumn.identifier.comparisonKey))
+      continue
 
-      if (matches.length !== 0) return
+    const matches = matchUniqueConstraints(
+      live.uniqueConstraints,
+      desiredColumn.identifier,
+      identities,
+    )
 
-      reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+    if (matches.length !== 0) continue
 
-      steps.push({
-        kind: 'add_unique_constraint',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-      })
+    reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+
+    steps.push({
+      kind: 'add_unique_constraint',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
     })
   }
 
-  if (live.foreignKeys !== undefined) {
-    desired.columns.forEach((desiredColumn) => {
-      if (
-        !desiredColumn.reference ||
-        !liveColumns.has(desiredColumn.identifier.comparisonKey)
-      )
-        return
+  const foreignKeyColumns = live.foreignKeys === undefined ? [] : desired.columns
 
-      const expected = canonicalDesiredForeignKey(desiredColumn)
-      const matches = matchForeignKeys(live.foreignKeys, expected, identities)
+  for (const desiredColumn of foreignKeyColumns) {
+    if (
+      !desiredColumn.reference ||
+      !liveColumns.has(desiredColumn.identifier.comparisonKey)
+    )
+      continue
 
-      if (matches.length !== 0) return
+    const expected = canonicalDesiredForeignKey(desiredColumn)
+    const matches = matchForeignKeys(live.foreignKeys, expected, identities)
 
-      reserveForeignKey(
-        identity,
-        desiredColumn.identifier.spelling,
-        desiredColumn.reference,
-      )
+    if (matches.length !== 0) continue
 
-      deferredForeignKeys.push({
-        kind: 'add_foreign_key',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-        references: structuredReference(desiredColumn.reference),
-      })
+    reserveForeignKey(
+      identity,
+      desiredColumn.identifier.spelling,
+      desiredColumn.reference,
+    )
+
+    deferredForeignKeys.push({
+      kind: 'add_foreign_key',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
+      references: structuredReference(desiredColumn.reference),
     })
   }
 }
@@ -1595,53 +1595,55 @@ function reconcileExistingColumns({
     ]),
   )
 
-  desired.columns.forEach((desiredColumn) => {
-    const current = liveColumns.get(desiredColumn.identifier.comparisonKey)
+  function appendMissingColumn(desiredColumn: LoweredDesiredColumn): void {
+    if (desiredColumn.reference) {
+      reserveForeignKey(
+        identity,
+        desiredColumn.identifier.spelling,
+        desiredColumn.reference,
+      )
 
-    if (!current) {
-      if (desiredColumn.reference) {
-        reserveForeignKey(
-          identity,
-          desiredColumn.identifier.spelling,
-          desiredColumn.reference,
-        )
-
-        deferredForeignKeys.push({
-          kind: 'add_foreign_key',
-          target: {
-            kind: 'column',
-            relation: identity,
-            column: desiredColumn.identifier,
-          },
-          references: structuredReference(desiredColumn.reference),
-        })
-      }
-
-      steps.push({
-        kind: 'add_column',
+      deferredForeignKeys.push({
+        kind: 'add_foreign_key',
         target: {
           kind: 'column',
           relation: identity,
           column: desiredColumn.identifier,
         },
-        dataType: desiredColumn.dataType,
-        notNull: desiredColumn.notNull,
-        ...(desiredColumn.unique ? { unique: true } : {}),
-        ...(desiredColumn.defaultValue !== undefined
-          ? { defaultValue: desiredColumn.defaultValue }
-          : {}),
-        ...(desiredColumn.databaseDefault !== undefined
-          ? { databaseDefault: desiredColumn.databaseDefault }
-          : {}),
-        ...(desiredColumn.generated ? { generated: desiredColumn.generated } : {}),
-        ...(desiredColumn.autoIncrement ? { autoIncrement: true } : {}),
+        references: structuredReference(desiredColumn.reference),
       })
+    }
 
-      if (desiredColumn.unique) {
-        reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
-      }
+    steps.push({
+      kind: 'add_column',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
+      dataType: desiredColumn.dataType,
+      notNull: desiredColumn.notNull,
+      ...(desiredColumn.unique ? { unique: true } : {}),
+      ...(desiredColumn.defaultValue !== undefined
+        ? { defaultValue: desiredColumn.defaultValue }
+        : {}),
+      ...(desiredColumn.databaseDefault !== undefined
+        ? { databaseDefault: desiredColumn.databaseDefault }
+        : {}),
+      ...(desiredColumn.generated ? { generated: desiredColumn.generated } : {}),
+      ...(desiredColumn.autoIncrement ? { autoIncrement: true } : {}),
+    })
 
-      return
+    if (desiredColumn.unique)
+      reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+  }
+
+  for (const desiredColumn of desired.columns) {
+    const current = liveColumns.get(desiredColumn.identifier.comparisonKey)
+
+    if (!current) {
+      appendMissingColumn(desiredColumn)
+      continue
     }
 
     const columnLabel = identities.format(identity, {
@@ -1695,7 +1697,7 @@ function reconcileExistingColumns({
         },
       })
     }
-  })
+  }
 
   appendDroppedColumns(live, desired, shape, identity, steps, identities)
 

@@ -100,13 +100,7 @@ export function registerDesiredSchema(
 
   tables.sort((left, right) => identities.compare(left.identity, right.identity))
 
-  for (const table of tables) {
-    if (table.columns.length === 0) {
-      throw new MigrationError({
-        message: `table ${identities.format(table.identity)} has no columns`,
-      })
-    }
-
+  function assertUniqueColumnNames(table: AuthoredDesiredTable): void {
     const ordered = [...table.columns].sort(
       (left, right) =>
         (left.identifier.comparisonKey < right.identifier.comparisonKey
@@ -116,11 +110,11 @@ export function registerDesiredSchema(
             : 0) || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
     )
 
-    ordered.slice(1).forEach((current, offset) => {
-      const index = offset + 1
+    for (let index = 1; index < ordered.length; index++) {
       const previous = ordered[index - 1]!
+      const current = ordered[index]!
 
-      if (previous.identifier.comparisonKey !== current.identifier.comparisonKey) return
+      if (previous.identifier.comparisonKey !== current.identifier.comparisonKey) continue
 
       throw new MigrationError({
         message: `Duplicate desired columns ${identities.format(table.identity, {
@@ -131,7 +125,17 @@ export function registerDesiredSchema(
           spelling: current.name,
         })}`,
       })
-    })
+    }
+  }
+
+  for (const table of tables) {
+    if (table.columns.length === 0) {
+      throw new MigrationError({
+        message: `table ${identities.format(table.identity)} has no columns`,
+      })
+    }
+
+    assertUniqueColumnNames(table)
   }
 
   for (const table of tables) {
@@ -144,63 +148,65 @@ export function registerDesiredSchema(
     registry.set(table.identity, table)
   }
 
-  for (const table of tables) {
-    const columns = [...table.columns].sort((left, right) =>
-      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-    )
+  const referencedColumns = tables.flatMap((table) =>
+    [...table.columns]
+      .sort((left, right) =>
+        left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+      )
+      .map((column) => ({ table, column })),
+  )
 
-    columns.forEach((column) => {
-      const reference = column.reference
+  for (const { table, column } of referencedColumns) {
+    const reference = column.reference
 
-      if (!reference) return
+    if (!reference) continue
 
-      const referenceIdentity = reference.targetRelation
-      const target = registry.get(referenceIdentity)
-      const sourceName = identities.format(table.identity, {
-        role: 'column',
-        spelling: column.name,
+    const referenceIdentity = reference.targetRelation
+    const target = registry.get(referenceIdentity)
+    const sourceName = identities.format(table.identity, {
+      role: 'column',
+      spelling: column.name,
+    })
+
+    if (!target) {
+      throw new MigrationError({
+        message: `Reference ${sourceName} targets unregistered relation ${identities.format(referenceIdentity)}`,
       })
+    }
 
-      if (!target) {
-        throw new MigrationError({
-          message: `Reference ${sourceName} targets unregistered relation ${identities.format(referenceIdentity)}`,
-        })
-      }
-
-      if (
-        !target.columns.some(
-          (candidate) =>
-            candidate.identifier.comparisonKey === reference.targetColumn.comparisonKey,
-        )
-      ) {
-        throw new MigrationError({
-          message: `Reference ${sourceName} targets missing column ${identities.format(
-            referenceIdentity,
-            {
-              role: 'column',
-              spelling: reference.targetColumn.spelling,
-            },
-          )}`,
-        })
-      }
-
-      const targetSpelling = target.columns.find(
+    if (
+      !target.columns.some(
         (candidate) =>
           candidate.identifier.comparisonKey === reference.targetColumn.comparisonKey,
-      )!.name
+      )
+    ) {
+      throw new MigrationError({
+        message: `Reference ${sourceName} targets missing column ${identities.format(
+          referenceIdentity,
+          {
+            role: 'column',
+            spelling: reference.targetColumn.spelling,
+          },
+        )}`,
+      })
+    }
 
-      if (!isCandidateKey(target, targetSpelling)) {
-        throw new MigrationError({
-          message: `Reference ${sourceName} must target a single-column primary or unique key; ${identities.format(
-            referenceIdentity,
-            {
-              role: 'column',
-              spelling: reference.targetColumn.spelling,
-            },
-          )} is not a candidate key`,
-        })
-      }
-    })
+    const targetSpelling = target.columns.find(
+      (candidate) =>
+        candidate.identifier.comparisonKey === reference.targetColumn.comparisonKey,
+    )!.name
+
+    if (!isCandidateKey(target, targetSpelling)) {
+      throw new MigrationError({
+        message: `Reference ${sourceName} must target a single-column primary or unique key; ${identities.format(
+          referenceIdentity,
+          {
+            role: 'column',
+            spelling: reference.targetColumn.spelling,
+          },
+        )} is not a candidate key`,
+      })
+    }
   }
 
   return Object.freeze({

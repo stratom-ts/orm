@@ -341,6 +341,13 @@ export function lowerPostgresDesiredSchema(
   const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
   const analyses = new Map<AuthoredDesiredColumn, SchemaAnalysis>()
 
+  function registerColumnAnalysis(column: AuthoredDesiredColumn): void {
+    const analysis = analyzeSchema(column.schema)
+    analyses.set(column, analysis)
+
+    if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
+  }
+
   for (const table of graph.tables) {
     if (table.columns.length === 0) {
       throw new MigrationError({
@@ -348,12 +355,7 @@ export function lowerPostgresDesiredSchema(
       })
     }
 
-    orderedColumns(table).forEach((column) => {
-      const analysis = analyzeSchema(column.schema)
-      analyses.set(column, analysis)
-
-      if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
-    })
+    for (const column of orderedColumns(table)) registerColumnAnalysis(column)
   }
 
   let pending = graph.tables.flatMap((table) =>
@@ -362,44 +364,50 @@ export function lowerPostgresDesiredSchema(
       .map((column) => ({ table, column })),
   )
 
+  function resolvePendingType(
+    item: (typeof pending)[number],
+    unresolved: typeof pending,
+  ): boolean {
+    const reference = item.column.reference!
+    const targetTable = graph.tables.find((table) =>
+      sameIdentity(table.identity, reference.targetRelation),
+    )
+
+    if (!targetTable) {
+      throw new MigrationError({
+        message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets unregistered relation ${formatIdentity(reference.targetRelation)}`,
+      })
+    }
+
+    const targetColumn = targetTable.columns.find(
+      (column) =>
+        column.identifier.comparisonKey === reference.targetColumn.comparisonKey,
+    )
+
+    if (!targetColumn) {
+      throw new MigrationError({
+        message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn.spelling)}`,
+      })
+    }
+
+    const targetType = resolvedTypes.get(targetColumn)
+
+    if (targetType === undefined) {
+      unresolved.push(item)
+      return false
+    }
+
+    validateReferencePhysicalType(item.table, item.column, targetType)
+    resolvedTypes.set(item.column, targetType)
+    return true
+  }
+
   while (pending.length > 0) {
     const unresolved: typeof pending = []
     let progress = false
 
-    pending.forEach((item) => {
-      const reference = item.column.reference!
-      const targetTable = graph.tables.find((table) =>
-        sameIdentity(table.identity, reference.targetRelation),
-      )
-
-      if (!targetTable) {
-        throw new MigrationError({
-          message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets unregistered relation ${formatIdentity(reference.targetRelation)}`,
-        })
-      }
-
-      const targetColumn = targetTable.columns.find(
-        (column) =>
-          column.identifier.comparisonKey === reference.targetColumn.comparisonKey,
-      )
-
-      if (!targetColumn) {
-        throw new MigrationError({
-          message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn.spelling)}`,
-        })
-      }
-
-      const targetType = resolvedTypes.get(targetColumn)
-
-      if (targetType === undefined) {
-        unresolved.push(item)
-        return
-      }
-
-      validateReferencePhysicalType(item.table, item.column, targetType)
-      resolvedTypes.set(item.column, targetType)
-      progress = true
-    })
+    for (const item of pending)
+      progress = resolvePendingType(item, unresolved) || progress
 
     if (!progress) {
       const first = unresolved[0]!

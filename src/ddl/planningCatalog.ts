@@ -283,7 +283,7 @@ export function catalogForPlanning(
         ? namespace.relations.items
         : requireComplete(namespace.relations, namespaceTarget)
 
-    relations.forEach((relation) => {
+    function appendRelation(relation: (typeof relations)[number]): void {
       const target = identities.format(relation.identity)
 
       if (relation.management === 'unmanaged') {
@@ -390,7 +390,9 @@ export function catalogForPlanning(
         })),
         opaqueObjects: opaqueObjects.map((object) => object.reason),
       })
-    })
+    }
+
+    for (const relation of relations) appendRelation(relation)
   }
 
   const reservations = requireComplete(snapshot.nameReservations, 'physical names')

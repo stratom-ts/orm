@@ -983,51 +983,53 @@ async function introspectSqlite(
     reservationIndexLists.set(row.name, observed)
   }
 
-  mainTables
-    .filter((entry) =>
-      relationRequested(scopeIdentity(entry.name), resolvedRequest, identities),
+  const requestedOwners = mainTables.filter((entry) =>
+    relationRequested(scopeIdentity(entry.name), resolvedRequest, identities),
+  )
+
+  function validateOwnerIndexes(owner: TableRow): void {
+    const indexes =
+      indexLists.get(owner.name) ?? reservationIndexLists.get(owner.name) ?? []
+    const listed = new Set(
+      indexes.map((entry) => identities.member('index', entry.name).comparisonKey),
     )
-    .forEach((owner) => {
-      const indexes =
-        indexLists.get(owner.name) ?? reservationIndexLists.get(owner.name) ?? []
-      const listed = new Set(
-        indexes.map((entry) => identities.member('index', entry.name).comparisonKey),
-      )
 
-      for (const entry of indexes) {
-        if (entry.origin === 'u' && (entry.unique !== 1 || entry.partial !== 0))
-          throw new InvariantError(
-            `SQLite UNIQUE index ${JSON.stringify(entry.name)} has invalid flags`,
-          )
-
-        if (entry.origin !== 'c') continue
-
-        const matches = schemaRows.filter(
-          (schema) =>
-            schema.type === 'index' &&
-            identities.member('index', schema.name).comparisonKey ===
-              identities.member('index', entry.name).comparisonKey &&
-            scopeIdentity(schema.tbl_name).relation.comparisonKey ===
-              scopeIdentity(owner.name).relation.comparisonKey,
+    for (const entry of indexes) {
+      if (entry.origin === 'u' && (entry.unique !== 1 || entry.partial !== 0))
+        throw new InvariantError(
+          `SQLite UNIQUE index ${JSON.stringify(entry.name)} has invalid flags`,
         )
 
-        if (matches.length !== 1 || matches[0]!.sql === null)
-          throw new InvariantError(
-            `SQLite user index ${JSON.stringify(entry.name)} has missing or mismatched sqlite_schema evidence`,
-          )
-      }
+      if (entry.origin !== 'c') continue
 
-      for (const schema of schemaRows.filter(
-        (entry) =>
-          entry.type === 'index' &&
-          scopeIdentity(entry.tbl_name).relation.comparisonKey ===
+      const matches = schemaRows.filter(
+        (schema) =>
+          schema.type === 'index' &&
+          identities.member('index', schema.name).comparisonKey ===
+            identities.member('index', entry.name).comparisonKey &&
+          scopeIdentity(schema.tbl_name).relation.comparisonKey ===
             scopeIdentity(owner.name).relation.comparisonKey,
-      ))
-        if (!listed.has(identities.member('index', schema.name).comparisonKey))
-          throw new InvariantError(
-            `SQLite sqlite_schema index ${JSON.stringify(schema.name)} is missing from index_list`,
-          )
-    })
+      )
+
+      if (matches.length !== 1 || matches[0]!.sql === null)
+        throw new InvariantError(
+          `SQLite user index ${JSON.stringify(entry.name)} has missing or mismatched sqlite_schema evidence`,
+        )
+    }
+
+    for (const schema of schemaRows.filter(
+      (entry) =>
+        entry.type === 'index' &&
+        scopeIdentity(entry.tbl_name).relation.comparisonKey ===
+          scopeIdentity(owner.name).relation.comparisonKey,
+    ))
+      if (!listed.has(identities.member('index', schema.name).comparisonKey))
+        throw new InvariantError(
+          `SQLite sqlite_schema index ${JSON.stringify(schema.name)} is missing from index_list`,
+        )
+  }
+
+  for (const owner of requestedOwners) validateOwnerIndexes(owner)
 
   const scopedRows = (rows: readonly TableRow[]) =>
     rows.filter(
@@ -1179,8 +1181,8 @@ async function introspectSqlite(
     compare(left.reason, right.reason) ||
     compare(JSON.stringify(left.nativeDefinition), JSON.stringify(right.nativeDefinition))
 
-  scopeRows.forEach((row) => {
-    if (row.name.startsWith('sqlite_')) return
+  for (const row of scopeRows) {
+    if (row.name.startsWith('sqlite_')) continue
 
     const identity = scopeIdentity(row.name)
     const schema = schemaForTable(row.name)
@@ -1304,7 +1306,7 @@ async function introspectSqlite(
       const seenCids = new Set<number>()
       const seenColumnNames = new Set<string>()
       const decodedColumns: CatalogColumn[] = []
-      columns.forEach((column) => {
+      for (const column of columns) {
         if (seenCids.has(column.cid))
           throw new InvariantError(
             `Duplicate SQLite table_xinfo cid for ${JSON.stringify(row.name)}`,
@@ -1374,7 +1376,7 @@ async function introspectSqlite(
           generation: generated,
           nativeDefinition: columnNative,
         })
-      })
+      }
 
       return { columns, decodedColumns }
     }
@@ -1548,42 +1550,29 @@ async function introspectSqlite(
 
       const uniqueConstraints: CatalogKeyConstraint[] = []
       const catalogIndexes: CatalogIndex[] = []
-      indexes.forEach((index) => {
-        const info = indexInfos.get(`${row.name}\0${index.name}`)!
-        const seqnos = info.map((entry) => entry.seqno).sort((a, b) => a - b)
 
-        if (seqnos.some((seqno, position) => seqno !== position))
-          throw new InvariantError(
-            `SQLite index ${JSON.stringify(index.name)} has non-contiguous index_xinfo seqnos`,
+      function validateAuxiliaryEntries(info: IndexInfoRow[], index: IndexListRow): void {
+        for (const auxiliary of info.filter((entry) => entry.key === 0)) {
+          if (
+            auxiliary.cid < -2 ||
+            auxiliary.cid === -2 ||
+            (auxiliary.cid === -1 && auxiliary.name !== null) ||
+            (auxiliary.cid >= 0 && auxiliary.name === null)
           )
+            throw new InvariantError(
+              `SQLite index ${JSON.stringify(index.name)} has malformed auxiliary index_xinfo row`,
+            )
+        }
+      }
 
-        const keyEntries = info
-          .filter((entry) => entry.key === 1)
-          .sort((a, b) => a.seqno - b.seqno)
-
-        if (keyEntries.some((entry, position) => entry.seqno !== position))
-          throw new InvariantError(
-            `SQLite index ${JSON.stringify(index.name)} has non-contiguous key index_xinfo seqnos`,
-          )
-
+      function decodeIndexColumns(
+        keyEntries: IndexInfoRow[],
+        index: IndexListRow,
+      ): { columnsForIndex: string[]; simple: boolean } {
         const columnsForIndex: string[] = []
         let simple = index.partial === 0
 
-        info
-          .filter((entry) => entry.key === 0)
-          .forEach((auxiliary) => {
-            if (
-              auxiliary.cid < -2 ||
-              auxiliary.cid === -2 ||
-              (auxiliary.cid === -1 && auxiliary.name !== null) ||
-              (auxiliary.cid >= 0 && auxiliary.name === null)
-            )
-              throw new InvariantError(
-                `SQLite index ${JSON.stringify(index.name)} has malformed auxiliary index_xinfo row`,
-              )
-          })
-
-        keyEntries.forEach((entry) => {
+        for (const entry of keyEntries) {
           if (entry.cid === -1)
             throw new InvariantError(
               `SQLite index ${JSON.stringify(index.name)} has a rowid auxiliary marked as a key term`,
@@ -1601,7 +1590,7 @@ async function introspectSqlite(
 
           if (entry.cid < 0 || entry.name === null) {
             simple = false
-            return
+            continue
           }
 
           const referencedColumn = columns.find((column) => column.cid === entry.cid)
@@ -1614,9 +1603,33 @@ async function introspectSqlite(
           columnsForIndex.push(entry.name)
 
           if (entry.desc !== 0 || entry.coll !== 'BINARY') simple = false
-        })
+        }
 
         if (keyEntries.length === 0) simple = false
+
+        return { columnsForIndex, simple }
+      }
+
+      function appendIndex(index: IndexListRow): void {
+        const info = indexInfos.get(`${row.name}\0${index.name}`)!
+        const seqnos = info.map((entry) => entry.seqno).sort((a, b) => a - b)
+
+        if (seqnos.some((seqno, position) => seqno !== position))
+          throw new InvariantError(
+            `SQLite index ${JSON.stringify(index.name)} has non-contiguous index_xinfo seqnos`,
+          )
+
+        const keyEntries = info
+          .filter((entry) => entry.key === 1)
+          .sort((a, b) => a.seqno - b.seqno)
+
+        if (keyEntries.some((entry, position) => entry.seqno !== position))
+          throw new InvariantError(
+            `SQLite index ${JSON.stringify(index.name)} has non-contiguous key index_xinfo seqnos`,
+          )
+
+        validateAuxiliaryEntries(info, index)
+        const { columnsForIndex, simple } = decodeIndexColumns(keyEntries, index)
 
         const indexSql =
           schemaRows.find(
@@ -1662,7 +1675,9 @@ async function introspectSqlite(
 
           if (!simple) managed = false
         }
-      })
+      }
+
+      for (const index of indexes) appendIndex(index)
 
       const fks: CatalogForeignKey[] = []
       const grouped = new Map<number, ForeignKeyRow[]>()
@@ -1739,32 +1754,32 @@ async function introspectSqlite(
           return { simpleUniqueKeys, matchingRichUniqueKey }
 
         const keyIndexes = indexLists.get(targetTable.name) ?? []
-        keyIndexes
-          .filter((candidate) => candidate.origin !== 'pk' && candidate.unique === 1)
-          .forEach((index) => {
-            if (index.partial !== 0) return
+        for (const index of keyIndexes.filter(
+          (candidate) => candidate.origin !== 'pk' && candidate.unique === 1,
+        )) {
+          if (index.partial !== 0) continue
 
-            const indexInfo = indexInfos.get(`${targetTable.name}\0${index.name}`) ?? []
+          const indexInfo = indexInfos.get(`${targetTable.name}\0${index.name}`) ?? []
 
-            const keyInfo = indexInfo
-              .filter((entry) => entry.key === 1)
-              .sort((left, right) => left.seqno - right.seqno)
+          const keyInfo = indexInfo
+            .filter((entry) => entry.key === 1)
+            .sort((left, right) => left.seqno - right.seqno)
 
-            const keyColumns = keyInfo.flatMap((entry) =>
-              entry.cid >= 0 && entry.name !== null ? [entry.name] : [],
-            )
+          const keyColumns = keyInfo.flatMap((entry) =>
+            entry.cid >= 0 && entry.name !== null ? [entry.name] : [],
+          )
 
-            if (!sameColumnIdentities(targetColumns, keyColumns, identities)) return
+          if (!sameColumnIdentities(targetColumns, keyColumns, identities)) continue
 
-            if (
-              keyColumns.length === keyInfo.length &&
-              keyInfo.every((entry) => entry.desc === 0 && entry.coll === 'BINARY')
-            ) {
-              simpleUniqueKeys.push(keyColumns)
-            } else {
-              matchingRichUniqueKey = true
-            }
-          })
+          if (
+            keyColumns.length === keyInfo.length &&
+            keyInfo.every((entry) => entry.desc === 0 && entry.coll === 'BINARY')
+          ) {
+            simpleUniqueKeys.push(keyColumns)
+          } else {
+            matchingRichUniqueKey = true
+          }
+        }
 
         return { simpleUniqueKeys, matchingRichUniqueKey }
       }
@@ -1796,7 +1811,7 @@ async function introspectSqlite(
         )
       }
 
-      grouped.forEach((group) => {
+      function appendForeignKey(group: ForeignKeyRow[]): void {
         group.sort((a, b) => a.seq - b.seq)
 
         if (group.some((entry, position) => entry.seq !== position))
@@ -1877,7 +1892,9 @@ async function introspectSqlite(
         })
 
         if (!fkSimple) managed = false
-      })
+      }
+
+      for (const group of grouped.values()) appendForeignKey(group)
 
       if (createSql !== null && hasSqlToken(createSql, 'CHECK')) {
         tableOpaque.push({
@@ -1952,7 +1969,7 @@ async function introspectSqlite(
       nativeDefinition,
       table: table === undefined ? absent : present(table),
     })
-  })
+  }
 
   relations.sort((a, b) => identities.compare(a.identity, b.identity))
   const namespace: CatalogNamespace = {

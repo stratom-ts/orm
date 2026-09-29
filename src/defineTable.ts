@@ -133,7 +133,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
       })
     }
 
-    index.columns.forEach((column) => assertNonEmptyString(column, 'index column'))
+    for (const column of index.columns) assertNonEmptyString(column, 'index column')
     const unknownColumn = index.columns.find((column) => !columnNames.includes(column))
 
     if (unknownColumn !== undefined) {

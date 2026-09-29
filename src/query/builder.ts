@@ -484,12 +484,16 @@ function resultColumnsForSelection(
     }
   }
 
+  const addHandles = (selectedHandles: readonly TableHandle[]) => {
+    for (const handle of selectedHandles) addAll(handle)
+  }
+
   for (const item of selection) {
     if (item.kind === 'all') {
       const selectedHandles = item.relation
         ? [findHandle(query, handles, item.relation)]
         : handles
-      selectedHandles.forEach(addAll)
+      addHandles(selectedHandles)
     } else if (item.kind === 'column') {
       const handle = findHandle(query, handles, item.relation)
       add(item.alias ?? item.column, {
