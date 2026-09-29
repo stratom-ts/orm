@@ -403,15 +403,21 @@ function compilePredicate(
         return `${left} ${op} ${compileQualifiedColumn(pred.right, relations, resolveRelation)}`
       }
 
-      if (pred.value === null) {
-        if (pred.op === 'eq') return `${left} is null`
-        if (pred.op === 'neq') return `${left} is not null`
-
-        throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
+      if (pred.value !== null) {
+        params.push(pred.value)
+        return `${left} ${op} $${params.length}`
       }
 
-      params.push(pred.value)
-      return `${left} ${op} $${params.length}`
+      const nullComparison =
+        pred.op === 'eq'
+          ? `${left} is null`
+          : pred.op === 'neq'
+            ? `${left} is not null`
+            : undefined
+
+      if (nullComparison) return nullComparison
+
+      throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
     }
     case 'and': {
       if (pred.preds.length === 0) return 'true'
@@ -851,12 +857,13 @@ function guardQuerySession(
       return requirement === undefined ? [] : [requirement]
     })
 
-    if (matches.length === 1) {
-      const requirement = matches[0]!
+    const requirement = matches.length === 1 ? matches[0] : undefined
 
-      if (requirement.database !== undefined || requirement.schema !== undefined) {
-        requirements.set(JSON.stringify(requirement), requirement)
-      }
+    if (
+      requirement &&
+      (requirement.database !== undefined || requirement.schema !== undefined)
+    ) {
+      requirements.set(JSON.stringify(requirement), requirement)
     }
   }
 

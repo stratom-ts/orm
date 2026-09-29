@@ -673,7 +673,7 @@ describe('Migration Plan construction', () => {
       for (const table of candidate.tables) {
         table.columns = rotate(table.columns)
 
-        if (table.indexes) table.indexes.reverse()
+        table.indexes?.reverse()
       }
     }
 

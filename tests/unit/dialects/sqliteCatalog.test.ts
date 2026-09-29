@@ -38,7 +38,7 @@ type FixtureOptions = {
 
 // oxlint-disable-next-line complexity
 function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
-  const tables = [
+  let tables = [
     { schema: 'main', name: 'parent', type: 'table', ncol: 5, wr: 0, strict: 0 },
     { schema: 'main', name: 'child', type: 'table', ncol: 3, wr: 0, strict: 0 },
     { schema: 'main', name: 'wr', type: 'table', ncol: 1, wr: 1, strict: 0 },
@@ -59,10 +59,8 @@ function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
     },
   ]
 
-  if (options.withoutOpaqueDependencies) {
-    for (let index = tables.length - 1; index >= 0; index--)
-      if (tables[index]!.type === 'view') tables.splice(index, 1)
-  }
+  if (options.withoutOpaqueDependencies)
+    tables = tables.filter((table) => table.type !== 'view')
 
   if (options.quotedName !== undefined)
     tables.push({
@@ -74,7 +72,7 @@ function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
       strict: 0,
     })
 
-  const schema = [
+  let schema = [
     {
       type: 'table',
       name: 'parent',
@@ -210,11 +208,8 @@ function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
       sql: 'CREATE TRIGGER view_trigger INSTEAD OF INSERT ON v BEGIN SELECT 1; END',
     })
 
-  if (options.withoutOpaqueDependencies) {
-    for (let index = schema.length - 1; index >= 0; index--)
-      if (schema[index]!.type === 'view' || schema[index]!.type === 'trigger')
-        schema.splice(index, 1)
-  }
+  if (options.withoutOpaqueDependencies)
+    schema = schema.filter((entry) => entry.type !== 'view' && entry.type !== 'trigger')
 
   if (options.crossTableTrigger)
     schema.push({

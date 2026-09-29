@@ -245,25 +245,25 @@ export function resolveMigrationOwnership(
     )
 
   for (const { declaration, identity } of resolvedRelations) {
+    if (declaration.kind === 'relation' && !registered.has(identity)) {
+      throw new InvariantError(
+        `Migration ownership for ${identities.format(identity)} requires a registered table handle`,
+      )
+    }
+
+    if (declaration.kind === 'relation' && explicitlyShaped.has(identity)) {
+      throw new InvariantError(
+        `Duplicate migration ownership relation ${identities.format(identity)}`,
+      )
+    }
+
+    if (declaration.kind === 'relation' && absent.has(identity)) {
+      throw new InvariantError(
+        `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
+      )
+    }
+
     if (declaration.kind === 'relation') {
-      if (!registered.has(identity)) {
-        throw new InvariantError(
-          `Migration ownership for ${identities.format(identity)} requires a registered table handle`,
-        )
-      }
-
-      if (explicitlyShaped.has(identity)) {
-        throw new InvariantError(
-          `Duplicate migration ownership relation ${identities.format(identity)}`,
-        )
-      }
-
-      if (absent.has(identity)) {
-        throw new InvariantError(
-          `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
-        )
-      }
-
       explicitlyShaped.set(identity, true)
       shapes.set(identity, declaration.shape)
       continue

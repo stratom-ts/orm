@@ -87,21 +87,22 @@ function fakeSqliteDialect(): Dialect {
 
   const lowerDesiredSchema = (graph: AuthoredDesiredSchema) => {
     const types = new Map<string, string>()
+    const authoredColumns = graph.tables.flatMap((table) =>
+      table.columns
+        .filter((authored) => !authored.reference)
+        .map((authored) => ({ table, authored })),
+    )
 
-    for (const table of graph.tables) {
-      for (const authored of table.columns) {
-        if (authored.reference) continue
+    for (const { table, authored } of authoredColumns) {
+      const selected = authored.metadata?.physicalType?.sqlite
 
-        const selected = authored.metadata?.physicalType?.sqlite
-
-        if (!selected) {
-          throw new MigrationError({
-            message: `fake SQLite requires a sqlite physical type for ${authored.name}`,
-          })
-        }
-
-        types.set(`${identityKey(table.identity)}\0${authored.name}`, selected)
+      if (!selected) {
+        throw new MigrationError({
+          message: `fake SQLite requires a sqlite physical type for ${authored.name}`,
+        })
       }
+
+      types.set(`${identityKey(table.identity)}\0${authored.name}`, selected)
     }
 
     return {

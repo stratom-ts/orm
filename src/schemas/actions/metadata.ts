@@ -48,11 +48,12 @@ export function findSchemaMetadata<T extends MetadataRecord>(
   if (traversable.pipe) {
     const actions = traversable.pipe.slice(1)
 
-    for (let index = actions.length - 1; index >= 0; index--) {
-      const metadata = actionMetadata(actions[index])
+    const metadata = actions
+      .map(actionMetadata)
+      .reverse()
+      .find((candidate) => candidate?.kind === kind)
 
-      if (metadata?.kind === kind) return metadata as T
-    }
+    if (metadata) return metadata as T
 
     // The first schema inside reference() describes the target value, not local
     // source-column options. A more-local column action would have returned above.
@@ -64,12 +65,12 @@ export function findSchemaMetadata<T extends MetadataRecord>(
     }
 
     const first = traversable.pipe[0]
+    const nested =
+      typeof first === 'object' && first !== null && 'kind' in first
+        ? findSchemaMetadata<T>(first as AnySchema, kind)
+        : undefined
 
-    if (typeof first === 'object' && first !== null && 'kind' in first) {
-      const nested = findSchemaMetadata<T>(first as AnySchema, kind)
-
-      if (nested) return nested
-    }
+    if (nested) return nested
   }
 
   if (traversable.wrapped) {

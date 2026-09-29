@@ -124,6 +124,39 @@ function reportedStage(
   return fallback
 }
 
+function retainCancellationFailures(
+  failures: MigrationCleanupFailure[],
+  cause: unknown,
+): void {
+  if (cause instanceof MigrationCancellationError) {
+    failures.push(...cause.cleanupFailures)
+  }
+}
+
+function assertPlanAtomicProgram(program: MigrationProgram): void {
+  if (program.atomicity !== 'plan-atomic') {
+    throw new MigrationError({
+      message: `Migration execution requires plan-atomic programs; received ${program.atomicity}`,
+      stage: 'lowering',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+  }
+
+  const invalidAction = program.actions.find(
+    (action) => action.transaction !== 'required',
+  )
+
+  if (invalidAction) {
+    throw new MigrationError({
+      message: `Plan-atomic PostgreSQL actions must require a transaction; received ${invalidAction.transaction}`,
+      stage: 'lowering',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+  }
+}
+
 /**
  * Classifies the database effect after a failed migration execution.
  *
@@ -228,12 +261,24 @@ export async function executePostgresMigration(
           sourceStepIndexes: precondition.sourceStepIndexes,
         }
 
-        if (cause instanceof MigrationCancellationError) {
-          cleanupFailures.push(...cause.cleanupFailures)
-        }
+        retainCancellationFailures(cleanupFailures, cause)
 
         break
       }
+    }
+  }
+
+  /** Executes each statement for one physical migration action. */
+  async function executeActionStatements(
+    action: MigrationProgram['actions'][number],
+  ): Promise<void> {
+    for (const statement of action.statements) {
+      await runCancellable({
+        runtime: options,
+        state: cancellation,
+        stage: 'ddl',
+        operation: () => options.executor.run(statement),
+      })
     }
   }
 
@@ -246,15 +291,7 @@ export async function executePostgresMigration(
 
       try {
         ddlStarted = true
-
-        for (const statement of action.statements) {
-          await runCancellable({
-            runtime: options,
-            state: cancellation,
-            stage: 'ddl',
-            operation: () => options.executor.run(statement),
-          })
-        }
+        await executeActionStatements(action)
       } catch (cause) {
         primary = {
           cause,
@@ -263,9 +300,7 @@ export async function executePostgresMigration(
           sourceStepIndexes: action.sourceStepIndexes,
         }
 
-        if (cause instanceof MigrationCancellationError) {
-          cleanupFailures.push(...cause.cleanupFailures)
-        }
+        retainCancellationFailures(cleanupFailures, cause)
 
         break
       }
@@ -294,9 +329,7 @@ export async function executePostgresMigration(
         stage: cancellationStage(cause, 'transaction'),
       }
 
-      if (cause instanceof MigrationCancellationError) {
-        cleanupFailures.push(...cause.cleanupFailures)
-      }
+      retainCancellationFailures(cleanupFailures, cause)
     }
 
     let program
@@ -309,37 +342,14 @@ export async function executePostgresMigration(
           stage: 'introspection',
           operation: options.prepare,
         })
-
-        if (program.atomicity !== 'plan-atomic') {
-          throw new MigrationError({
-            message: `Migration execution requires plan-atomic programs; received ${program.atomicity}`,
-            stage: 'lowering',
-            outcome: 'unchanged',
-            retryable: false,
-          })
-        }
-
-        const invalidAction = program.actions.find(
-          (action) => action.transaction !== 'required',
-        )
-
-        if (invalidAction) {
-          throw new MigrationError({
-            message: `Plan-atomic PostgreSQL actions must require a transaction; received ${invalidAction.transaction}`,
-            stage: 'lowering',
-            outcome: 'unchanged',
-            retryable: false,
-          })
-        }
+        assertPlanAtomicProgram(program)
       } catch (cause) {
         primary = {
           cause,
           stage: reportedStage(cause, 'lowering'),
         }
 
-        if (cause instanceof MigrationCancellationError) {
-          cleanupFailures.push(...cause.cleanupFailures)
-        }
+        retainCancellationFailures(cleanupFailures, cause)
       }
     }
 
@@ -365,9 +375,7 @@ export async function executePostgresMigration(
           stage: cancellationStage(cause, 'commit'),
         }
 
-        if (cause instanceof MigrationCancellationError) {
-          cleanupFailures.push(...cause.cleanupFailures)
-        }
+        retainCancellationFailures(cleanupFailures, cause)
       }
     } else if (transactionOpen && !cancellation.cancelled) {
       try {
@@ -385,9 +393,7 @@ export async function executePostgresMigration(
         options.discard()
         cleanupFailures.push({ stage: 'rollback', cause })
 
-        if (cause instanceof MigrationCancellationError) {
-          cleanupFailures.push(...cause.cleanupFailures)
-        }
+        retainCancellationFailures(cleanupFailures, cause)
       }
     }
   }
@@ -399,28 +405,30 @@ export async function executePostgresMigration(
       !cancellation.cancelled &&
       !cancellation.sessionUncertain
     ) {
-      try {
-        const failures = await runCancellable({
-          runtime: options,
-          state: cancellation,
-          stage: 'unlock',
-          timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
-          timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
-          operation: () => releaseCoordinationFailures(options, acquiredLocks),
-        })
+      return releaseConfirmedLocks()
+    }
+  }
 
-        if (failures.length > 0) {
-          options.discard()
-          cleanupFailures.push(...failures)
-        }
-      } catch (cause) {
+  /** Releases the confirmed locks after the caller verifies session safety. */
+  async function releaseConfirmedLocks(): Promise<void> {
+    try {
+      const failures = await runCancellable({
+        runtime: options,
+        state: cancellation,
+        stage: 'unlock',
+        timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
+        timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
+        operation: () => releaseCoordinationFailures(options, acquiredLocks),
+      })
+
+      if (failures.length > 0) {
         options.discard()
-        cleanupFailures.push({ stage: 'unlock', cause })
-
-        if (cause instanceof MigrationCancellationError) {
-          cleanupFailures.push(...cause.cleanupFailures)
-        }
+        cleanupFailures.push(...failures)
       }
+    } catch (cause) {
+      options.discard()
+      cleanupFailures.push({ stage: 'unlock', cause })
+      retainCancellationFailures(cleanupFailures, cause)
     }
   }
 

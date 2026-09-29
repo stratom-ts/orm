@@ -38,6 +38,16 @@ function retainOperationReleaseCleanupFailure(cause: unknown, failure: unknown):
   operationReleaseCleanupFailures.set(cause, failures)
 }
 
+function mergeOperationFailure(
+  failed: boolean,
+  error: unknown,
+  failure: unknown,
+): Readonly<{ failed: true; error: unknown }> {
+  if (failed) retainOperationReleaseCleanupFailure(error, failure)
+
+  return { failed: true, error: failed ? error : failure }
+}
+
 /**
  * Reads provider-release cleanup failures retained beside an object primary rejection.
  *
@@ -406,33 +416,37 @@ export class OperationCoordinator {
         operationError = operationAttempt.error
       }
 
-      if (session) {
-        if (capturedIdentity) {
-          const verification = await attempt(async () =>
-            assertStableSessionIdentity(session!, capturedIdentity!),
+      if (session && capturedIdentity) {
+        const activeSession = session
+        const identity = capturedIdentity
+        const verification = await attempt(async () =>
+          assertStableSessionIdentity(activeSession, identity),
+        )
+
+        if (!verification.ok) {
+          disposition = 'discard'
+          const failure = mergeOperationFailure(
+            operationFailed,
+            operationError,
+            verification.error,
           )
-
-          if (!verification.ok) {
-            disposition = 'discard'
-
-            if (!operationFailed) {
-              operationFailed = true
-              operationError = verification.error
-            } else {
-              retainOperationReleaseCleanupFailure(operationError, verification.error)
-            }
-          }
+          operationFailed = failure.failed
+          operationError = failure.error
         }
+      }
 
-        const release = await attempt(() => session!.release(disposition))
+      if (session) {
+        const activeSession = session
+        const release = await attempt(() => activeSession.release(disposition))
 
         if (!release.ok) {
-          if (!operationFailed) {
-            operationFailed = true
-            operationError = release.error
-          } else {
-            retainOperationReleaseCleanupFailure(operationError, release.error)
-          }
+          const failure = mergeOperationFailure(
+            operationFailed,
+            operationError,
+            release.error,
+          )
+          operationFailed = failure.failed
+          operationError = failure.error
         }
       }
 

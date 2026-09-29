@@ -198,14 +198,15 @@ function actionDependencies(
 ): Set<number>[] {
   const dependencies = drafts.map(() => new Set<number>())
 
+  function addDependency(action: number, candidate: number, draft: ActionDraft): void {
+    if (action !== candidate && actionDependsOn(drafts[action]!, draft, planned)) {
+      dependencies[action]!.add(candidate)
+    }
+  }
+
   for (let action = 0; action < drafts.length; action++) {
-    for (let candidate = 0; candidate < drafts.length; candidate++) {
-      if (
-        action !== candidate &&
-        actionDependsOn(drafts[action]!, drafts[candidate]!, planned)
-      ) {
-        dependencies[action]!.add(candidate)
-      }
+    for (const [candidate, draft] of drafts.entries()) {
+      addDependency(action, candidate, draft)
     }
   }
 
@@ -225,6 +226,11 @@ function topologicalOrder(
 
   const ordered: ActionDraft[] = []
 
+  function makeAvailable(edges: Set<number>, index: number, completed: number): void {
+    if (!edges.delete(completed) || edges.size !== 0) return
+    if (!ordered.includes(drafts[index]!)) available.push(index)
+  }
+
   while (available.length > 0) {
     available.sort(
       (left, right) => drafts[left]!.sourceStepIndex - drafts[right]!.sourceStepIndex,
@@ -233,9 +239,8 @@ function topologicalOrder(
     const next = available.shift()!
     ordered.push(drafts[next]!)
 
-    for (let index = 0; index < remaining.length; index++) {
-      if (!remaining[index]!.delete(next) || remaining[index]!.size !== 0) continue
-      if (!ordered.includes(drafts[index]!)) available.push(index)
+    for (const [index, edges] of remaining.entries()) {
+      makeAvailable(edges, index, next)
     }
   }
 

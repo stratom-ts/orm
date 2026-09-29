@@ -23,18 +23,18 @@ function normalizeQueryStart(sql: string): string {
   while (offset < sql.length) {
     while (/\s/.test(sql[offset] ?? '')) offset++
 
+    const commentEnd = sql.startsWith('/*', offset) ? sql.indexOf('*/', offset + 2) : null
+
+    if (commentEnd === -1) return sql.slice(offset)
+
     if (sql.startsWith('--', offset)) {
       const newline = sql.indexOf('\n', offset + 2)
       offset = newline === -1 ? sql.length : newline + 1
       continue
     }
 
-    if (sql.startsWith('/*', offset)) {
-      const closing = sql.indexOf('*/', offset + 2)
-
-      if (closing === -1) return sql.slice(offset)
-
-      offset = closing + 2
+    if (commentEnd !== null) {
+      offset = commentEnd + 2
       continue
     }
 

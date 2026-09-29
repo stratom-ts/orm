@@ -232,27 +232,33 @@ function compilePredicate(
       )
       const op = comparisonSql(predicate.op)
 
-      if (predicate.right !== undefined) {
-        if (Object.hasOwn(predicate, 'value')) {
-          throw new QueryError({
-            message: 'comparison cannot contain both right and value',
-          })
-        }
-
-        return `${left} ${op} ${qualifyColumn(predicate.right.column, relations, predicate.right.relation, resolveRelation)}`
-      }
-
-      if (predicate.value === null) {
-        if (predicate.op === 'eq') return `${left} is null`
-        if (predicate.op === 'neq') return `${left} is not null`
-
+      if (predicate.right !== undefined && Object.hasOwn(predicate, 'value')) {
         throw new QueryError({
-          message: `comparison '${predicate.op}' does not accept null`,
+          message: 'comparison cannot contain both right and value',
         })
       }
 
-      params.push(predicate.value)
-      return `${left} ${op} ?`
+      if (predicate.right !== undefined) {
+        return `${left} ${op} ${qualifyColumn(predicate.right.column, relations, predicate.right.relation, resolveRelation)}`
+      }
+
+      if (predicate.value !== null) {
+        params.push(predicate.value)
+        return `${left} ${op} ?`
+      }
+
+      const nullComparison =
+        predicate.op === 'eq'
+          ? `${left} is null`
+          : predicate.op === 'neq'
+            ? `${left} is not null`
+            : undefined
+
+      if (nullComparison) return nullComparison
+
+      throw new QueryError({
+        message: `comparison '${predicate.op}' does not accept null`,
+      })
     }
     case 'and':
       if (!Array.isArray(predicate.preds)) {

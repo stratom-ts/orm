@@ -634,38 +634,40 @@ describe('dialect extension locality architecture', () => {
     const selections: string[] = []
     const branches: string[] = []
 
+    function inspectNode(source: ts.SourceFile, node: ts.Node): void {
+      if (
+        ts.isPropertyAccessExpression(node) &&
+        node.name.text === 'dialect' &&
+        node.expression.getText() === 'config.connector'
+      ) {
+        const parent = node.parent
+        const selected =
+          ts.isCallExpression(parent) &&
+          ts.isIdentifier(parent.expression) &&
+          parent.expression.text === 'resolveDialect'
+        selections.push(`${location(source, node)}:${selected ? 'resolver' : 'other'}`)
+      }
+
+      if (
+        (ts.isIfStatement(node) ||
+          ts.isSwitchStatement(node) ||
+          ts.isConditionalExpression(node)) &&
+        containsDialectPolicySelector(
+          ts.isIfStatement(node)
+            ? node.expression
+            : ts.isSwitchStatement(node)
+              ? node.expression
+              : node.condition,
+        )
+      ) {
+        branches.push(location(source, node))
+      }
+    }
+
     for (const file of coreFiles) {
       const source = parse(file)
 
-      for (const node of descendants(source)) {
-        if (
-          ts.isPropertyAccessExpression(node) &&
-          node.name.text === 'dialect' &&
-          node.expression.getText() === 'config.connector'
-        ) {
-          const parent = node.parent
-          const selected =
-            ts.isCallExpression(parent) &&
-            ts.isIdentifier(parent.expression) &&
-            parent.expression.text === 'resolveDialect'
-          selections.push(`${location(source, node)}:${selected ? 'resolver' : 'other'}`)
-        }
-
-        if (
-          (ts.isIfStatement(node) ||
-            ts.isSwitchStatement(node) ||
-            ts.isConditionalExpression(node)) &&
-          containsDialectPolicySelector(
-            ts.isIfStatement(node)
-              ? node.expression
-              : ts.isSwitchStatement(node)
-                ? node.expression
-                : node.condition,
-          )
-        ) {
-          branches.push(location(source, node))
-        }
-      }
+      for (const node of descendants(source)) inspectNode(source, node)
     }
 
     expect(selections).toHaveLength(1)

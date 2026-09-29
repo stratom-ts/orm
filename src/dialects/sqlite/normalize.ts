@@ -28,8 +28,9 @@ function stripEnclosingParens(expression: string): string {
     const character = expression[index]!
 
     if (character === "'") {
-      if (quoted && expression[index + 1] === "'") index++
-      else quoted = !quoted
+      const escaped: boolean = quoted && expression[index + 1] === "'"
+      index += escaped ? 1 : 0
+      quoted = escaped ? quoted : !quoted
 
       continue
     }

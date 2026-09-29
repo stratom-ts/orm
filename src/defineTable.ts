@@ -133,14 +133,13 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
       })
     }
 
-    for (const col of index.columns) {
-      assertNonEmptyString(col, 'index column')
+    for (const column of index.columns) assertNonEmptyString(column, 'index column')
+    const unknownColumn = index.columns.find((column) => !columnNames.includes(column))
 
-      if (!columnNames.includes(col)) {
-        throw new SchemaError({
-          message: `index column "${col}" is not defined on table "${metadata.name}"`,
-        })
-      }
+    if (unknownColumn !== undefined) {
+      throw new SchemaError({
+        message: `index column "${unknownColumn}" is not defined on table "${metadata.name}"`,
+      })
     }
 
     if (new Set(index.columns).size !== index.columns.length) {
@@ -344,14 +343,13 @@ function validateColumns(schema: TableSchema, tableName: string): void {
       })
     }
 
-    if (actions.includes('set default')) {
-      const columnMetadata = getColumnMetadata(colSchema)
-
-      if (columnMetadata?.databaseDefault === undefined) {
-        throw new SchemaError({
-          message: `reference on "${tableName}.${columnName}" uses SET DEFAULT without a database default`,
-        })
-      }
+    if (
+      actions.includes('set default') &&
+      getColumnMetadata(colSchema)?.databaseDefault === undefined
+    ) {
+      throw new SchemaError({
+        message: `reference on "${tableName}.${columnName}" uses SET DEFAULT without a database default`,
+      })
     }
   }
 }
