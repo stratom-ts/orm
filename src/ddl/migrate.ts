@@ -250,7 +250,7 @@ export function createMigrateBuilder(options: {
    *
    * @param operation - Work receiving the session executor and lifecycle capabilities.
    */
-  runOperation<T>(
+  runOperation: <T>(
     /**
      * Performs migration work on one pinned operation session.
      *
@@ -265,7 +265,7 @@ export function createMigrateBuilder(options: {
       discard: () => void,
       cancel: () => Promise<void>,
     ) => Promise<T>,
-  ): Promise<T>
+  ) => Promise<T>
   applicationId?: string
   defaultNamespace?: readonly NamespaceIdentifierInput[]
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]

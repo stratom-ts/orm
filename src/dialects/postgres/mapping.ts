@@ -1,5 +1,18 @@
 import { postgresBaseType } from './normalize'
 
+function mapUuidValue(value: unknown): unknown {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'bigint' ||
+    typeof value === 'boolean'
+  ) {
+    return String(value)
+  }
+
+  return value
+}
+
 /**
  * Maps a PostgreSQL result value to its JavaScript representation.
  *
@@ -45,7 +58,7 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
   }
 
   if (base === 'uuid') {
-    return typeof value === 'string' ? value : String(value)
+    return mapUuidValue(value)
   }
 
   return value
@@ -58,7 +71,7 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
  *
  * - `Date` → ISO string for timestamp types
  * - Objects/arrays → JSON string for json/jsonb
- * - Non-string values → string for uuid.
+ * - String-compatible primitive values → string for uuid.
  *
  * @example
  *   mapPostgresParamValue('timestamptz', new Date('2024-01-15T10:30:00Z'))
@@ -90,7 +103,7 @@ export function mapPostgresParamValue(dataType: string, value: unknown): unknown
   }
 
   if (base === 'uuid') {
-    return typeof value === 'string' ? value : String(value)
+    return mapUuidValue(value)
   }
 
   return value

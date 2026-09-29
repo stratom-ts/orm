@@ -398,7 +398,7 @@ export class OperationCoordinator {
             operation({
               executor,
               identity: token.identity,
-              discard: token.discard,
+              discard: () => token.discard(),
               /** Cancels work currently running on the pinned session. */
               cancel: () => {
                 disposition = 'discard'

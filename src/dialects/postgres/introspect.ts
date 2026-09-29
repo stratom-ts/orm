@@ -410,7 +410,7 @@ function resolveRequest(
   const absentRelations = request.absentRelations
     .map((input) => absentMap.get(identities.resolve(input))!)
     .filter((value, index, values) => values.indexOf(value) === index)
-    .sort(identities.compare)
+    .sort((a, b) => identities.compare(a, b))
 
   const completeNamespaces = request.completeNamespaces
     .map((namespace) => identities.resolveNamespace(namespace))

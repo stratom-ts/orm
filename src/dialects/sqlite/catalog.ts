@@ -268,7 +268,7 @@ function resolveRequest(
       (entry, index, values) =>
         values.findIndex((candidate) => identities.equals(candidate, entry)) === index,
     )
-    .sort(identities.compare)
+    .sort((left, right) => identities.compare(left, right))
 
   const completeNamespaces = request.completeNamespaces
     .map((namespace) => identities.resolveNamespace(namespace))

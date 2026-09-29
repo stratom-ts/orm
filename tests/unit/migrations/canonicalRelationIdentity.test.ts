@@ -142,7 +142,7 @@ describe('canonical relation identity', () => {
       identities.resolve({ relation }),
     )
 
-    shuffled.sort(identities.compare)
+    shuffled.sort((left, right) => identities.compare(left, right))
 
     expect(shuffled.map((identity) => identity.relation.spelling)).toEqual(ordered)
   })
@@ -297,7 +297,7 @@ describe('canonical relation identity', () => {
       identities.resolve({ relation }),
     )
 
-    shuffled.sort(identities.compare)
+    shuffled.sort((left, right) => identities.compare(left, right))
 
     expect(shuffled.map((identity) => identity.relation.spelling)).toEqual([
       'a',
