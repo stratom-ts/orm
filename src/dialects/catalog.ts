@@ -147,7 +147,14 @@ export type CatalogTable = Readonly<{
 
 export type CatalogRelation = Readonly<{
   identity: CanonicalRelationIdentity
-  kind: 'table' | 'partitionedTable' | 'view' | 'materializedView' | 'foreignTable'
+  kind:
+    | 'table'
+    | 'partitionedTable'
+    | 'view'
+    | 'materializedView'
+    | 'foreignTable'
+    | 'virtualTable'
+    | 'shadowTable'
   persistence: 'permanent' | 'temporary' | 'unlogged'
   owner: CatalogFact<string>
   management: 'managed' | 'unmanaged'
