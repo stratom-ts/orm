@@ -18,6 +18,7 @@
     "typescript/prefer-function-type": "error",
     "typescript/prefer-includes": "error",
     "typescript/prefer-reduce-type-parameter": "error",
+    "typescript/switch-exhaustiveness-check": "error",
     "typescript/use-unknown-in-catch-callback-variable": "error"
   }
 }
