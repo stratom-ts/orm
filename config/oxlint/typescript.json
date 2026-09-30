@@ -8,8 +8,12 @@
     "typescript/consistent-indexed-object-style": "error",
     "typescript/consistent-type-assertions": "error",
     "typescript/consistent-type-imports": ["error", { "disallowTypeAnnotations": false }],
+    "typescript/no-empty-object-type": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-invalid-void-type": "error",
     "typescript/no-unnecessary-template-expression": "error",
     "typescript/no-unnecessary-type-arguments": "error",
+    "typescript/no-unsafe-function-type": "error",
     "typescript/prefer-function-type": "error",
     "typescript/prefer-includes": "error",
     "typescript/prefer-reduce-type-parameter": "error"
