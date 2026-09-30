@@ -582,7 +582,7 @@ type MutableTable = {
   uniqueConstraints: CatalogKeyConstraint[]
   foreignKeys: CatalogForeignKey[]
   indexes: CatalogIndex[]
-  options: Array<Readonly<{ name: string; value: string }>>
+  options: Readonly<{ name: string; value: string }>[]
   opaqueObjects: OpaqueCatalogObject[]
 }
 

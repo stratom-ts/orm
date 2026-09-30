@@ -1633,13 +1633,13 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   executeTakeFirst(): Promise<InferSelect<THandle> | undefined>
   executeTakeFirstOrThrow(): Promise<InferSelect<THandle>>
   /** Explicit select-all (same as default execute path). */
-  selectAll(): SelectBuilder<THandle, InferSelect<THandle>, true, never>
+  selectAll(): SelectBuilder<THandle, InferSelect<THandle>, true>
   selectAll<TSide extends TableHandle>(
     handle: TSide,
-  ): SelectBuilder<THandle, InferSelect<TSide>, true, never>
+  ): SelectBuilder<THandle, InferSelect<TSide>, true>
   select<const TCols extends readonly (ColumnRef | string)[]>(
     columns: TCols,
-  ): SelectBuilder<THandle, InferSelectedColumns<THandle, TCols>, true, never>
+  ): SelectBuilder<THandle, InferSelectedColumns<THandle, TCols>, true>
   select(
     callback: (
       builder: ExpressionBuilder,
@@ -1649,11 +1649,11 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
       | { expr: SqlExprAst; alias: string }
       | SelectItemAst
     )[],
-  ): SelectBuilder<THandle, Record<string, unknown>, true, never>
+  ): SelectBuilder<THandle, Record<string, unknown>, true>
   innerJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
-  ): SelectBuilder<THandle, InferSelect<THandle> & InferSelect<TSide>, false, never>
+  ): SelectBuilder<THandle, InferSelect<THandle> & InferSelect<TSide>>
   leftJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
@@ -1676,25 +1676,25 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     column: TCol,
     op: ComparisonOp,
     value: InferColumnValue<TCol>,
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
+  ): SelectBuilder<THandle, InferSelect<THandle>>
   where(
     predicate:
       | Record<string, unknown>
       | PredicateAst
       | ((builder: ExpressionBuilder) => PredicateAst),
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
+  ): SelectBuilder<THandle, InferSelect<THandle>>
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
-  limit(count: number): SelectBuilder<THandle, InferSelect<THandle>, false, never>
-  offset(count: number): SelectBuilder<THandle, InferSelect<THandle>, false, never>
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  limit(count: number): SelectBuilder<THandle, InferSelect<THandle>>
+  offset(count: number): SelectBuilder<THandle, InferSelect<THandle>>
   groupBy(
     columns: readonly (ColumnRef | string)[] | ColumnRef | string,
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
+  ): SelectBuilder<THandle, InferSelect<THandle>>
   having(
     predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
-  ): SelectBuilder<THandle, InferSelect<THandle>, false, never>
+  ): SelectBuilder<THandle, InferSelect<THandle>>
 }
 
 /** Creates an empty select-builder state. */

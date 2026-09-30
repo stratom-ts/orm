@@ -1,9 +1,7 @@
 import { expect, it } from 'vitest'
 
-import {
-  createControllableProvider,
-  createOperationSessionCommonRuntime,
-} from '../helpers/operationSessionFixtures'
+import type { createControllableProvider } from '../helpers/operationSessionFixtures'
+import { createOperationSessionCommonRuntime } from '../helpers/operationSessionFixtures'
 
 import { runOperationSessionCommonContract } from './dialectContractKit'
 
