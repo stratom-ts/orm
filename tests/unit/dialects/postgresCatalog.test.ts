@@ -509,7 +509,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
 })
 
 const catalogRequest = (
-  ...relations: Array<{ schema: string; table: string }>
+  ...relations: { schema: string; table: string }[]
 ): CatalogRequest => ({
   relations: relations.map(({ schema, table }) => ({
     relation: {

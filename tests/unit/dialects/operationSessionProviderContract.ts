@@ -24,7 +24,7 @@ export type ProviderContractFactoryOptions = Readonly<{
 export type ProviderContractControls = Readonly<{
   provider: OperationSessionProvider
   events: string[]
-  calls: Array<{ session: number; sql: string }>
+  calls: { session: number; sql: string }[]
   readonly openCount: number
   readonly maxActiveCalls: number
   readonly closeCount: number

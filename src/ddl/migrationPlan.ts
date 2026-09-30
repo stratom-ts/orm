@@ -1061,12 +1061,12 @@ function desiredIndexes(
   identity: CanonicalRelationIdentity,
   naming: DialectNaming,
   identities: CanonicalRelationIdentityModule,
-): Array<{
+): {
   name: CanonicalIdentifier
   columns: CanonicalIdentifier[]
   unique: boolean
   origin: 'explicit' | 'generated'
-}> {
+}[] {
   return (info.indexes ?? [])
     .map((raw) => {
       const index = raw
@@ -1757,7 +1757,7 @@ type CreatedTablePlanning = Readonly<{
   desired: LoweredDesiredTable
   indexes: readonly DesiredIndex[]
   identity: CanonicalRelationIdentity
-  ensuredNamespaces: Array<readonly CanonicalNamespaceSegment[]>
+  ensuredNamespaces: (readonly CanonicalNamespaceSegment[])[]
   steps: MigrationStep[]
   deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[]
   physicalNames: ReturnType<DialectNaming['createRegistry']>
@@ -1970,7 +1970,7 @@ function prepareDesiredTable({
 /** Adds missing namespace steps for every completely owned namespace. */
 function appendOwnedNamespaces(
   ownership: ReturnType<typeof resolveMigrationOwnership>,
-  ensuredNamespaces: Array<readonly CanonicalNamespaceSegment[]>,
+  ensuredNamespaces: (readonly CanonicalNamespaceSegment[])[],
   steps: MigrationStep[],
 ): void {
   for (const namespace of ownership.completeNamespaces) {

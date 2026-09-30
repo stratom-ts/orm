@@ -87,7 +87,7 @@ function createMockStatement(rows: unknown[] = [], runError?: Error): Statement 
 
 function createMockConnector(options?: {
   tables?: LiveTable[]
-  pgClassOnlyReservations?: Array<{ schema: string; name: string }>
+  pgClassOnlyReservations?: { schema: string; name: string }[]
   nullCount?: number
   failRun?: RegExp
 }): Connector & {
@@ -179,17 +179,17 @@ function createMockConnector(options?: {
       return createMockStatement()
     }
 
-    if (/pg_advisory_unlock/.test(normalized)) {
+    if (normalized.includes('pg_advisory_unlock')) {
       runSql.push(normalized)
       return createMockStatement([{ unlocked: true }])
     }
 
-    if (/pg_try_advisory_lock/.test(normalized)) {
+    if (normalized.includes('pg_try_advisory_lock')) {
       runSql.push(normalized)
       return createMockStatement([{ locked: true }])
     }
 
-    if (/pg_advisory_lock/.test(normalized)) {
+    if (normalized.includes('pg_advisory_lock')) {
       runSql.push(normalized)
       return createMockStatement()
     }

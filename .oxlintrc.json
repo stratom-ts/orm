@@ -13,7 +13,7 @@
     "node": true
   },
   "ignorePatterns": ["**/.output", "**/dist", "**/node_modules"],
-  "extends": ["./config/oxlint/import.json"],
+  "extends": ["./config/oxlint/import.json", "./config/oxlint/typescript.json"],
   "rules": {
     "stratom/whitespace": "error",
     "complexity": ["error", 20],

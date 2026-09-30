@@ -44,8 +44,8 @@ export type ExtensionContractCalls = {
   events: string[]
   operationCommands: OperationCommand[]
   compiledAst: SqlAst[]
-  statements: Array<{ sql: string; params: unknown[] }>
-  migrationOutcomes: Array<'applied' | 'unchanged'>
+  statements: { sql: string; params: unknown[] }[]
+  migrationOutcomes: ('applied' | 'unchanged')[]
   connector?: Connector
   catalog?: CatalogSnapshot
 }
@@ -694,11 +694,11 @@ function profileIssues(
   planned: MigrationSemanticProfile,
   expected: MigrationSemanticProfile,
 ) {
-  const issues: Array<{
+  const issues: {
     code: 'profile_mismatch'
     message: string
     sourceStepIndexes: readonly number[]
-  }> = []
+  }[] = []
   const add = (message: string) =>
     issues.push({ code: 'profile_mismatch', message, sourceStepIndexes: [] })
 

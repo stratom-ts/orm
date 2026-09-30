@@ -40,15 +40,15 @@ export function createPostgresMigrationRuntime(
   options: {
     failRun?: RegExp
     failUnlock?: boolean
-    unlockResults?: Array<boolean | Error>
-    releaseResults?: Array<boolean | Error>
+    unlockResults?: (boolean | Error)[]
+    releaseResults?: (boolean | Error)[]
     applicationId?: string
     clientId?: string
     noWork?: boolean
     holdAfterTransaction?: boolean
     sharedLockManager?: CoordinationContractLockManager
     nullCount?: number
-    lockResults?: Array<boolean | Error>
+    lockResults?: (boolean | Error)[]
     lockGate?: Promise<void>
     lockDelayMs?: number
     hangQuery?: RegExp
@@ -56,7 +56,7 @@ export function createPostgresMigrationRuntime(
   } = {},
 ) {
   const calls: string[] = []
-  const queries: Array<{ sql: string; params: unknown[] }> = []
+  const queries: { sql: string; params: unknown[] }[] = []
   const discard = vi.fn()
   const prepare = vi.fn(async (migrationProgram: MigrationProgram) => migrationProgram)
   let releaseHold: (() => void) | undefined

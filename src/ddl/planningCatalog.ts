@@ -59,14 +59,14 @@ export type PlanningCatalogTable = {
 export type PlanningCatalog = {
   tables: PlanningCatalogTable[]
   namespaces: readonly CanonicalRelationIdentity['namespace'][]
-  nameReservations: Array<{
+  nameReservations: {
     namespace: readonly CanonicalNamespaceSegment[]
     name: string
-  }>
-  constraintNameReservations: Array<{
+  }[]
+  constraintNameReservations: {
     relation: CanonicalRelationIdentity
     name: string
-  }>
+  }[]
 }
 
 /**

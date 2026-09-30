@@ -386,9 +386,7 @@ type ShardFacetInputs<
     TCapabilities,
     TFacet
   >
-} & {
-  [TFacet in Exclude<DialectMemberFacet, OwnedFacet<TCapabilities, TShard>>]?: never
-}
+} & Partial<Record<Exclude<DialectMemberFacet, OwnedFacet<TCapabilities, TShard>>, never>>
 
 type DialectContractShard<
   TCapabilities extends DialectContractMemberCapabilities,

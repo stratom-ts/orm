@@ -49,12 +49,12 @@ export type PostgresCatalogTableFixture = {
   primaryKey: PostgresCatalogKeyFixture | null
   uniqueConstraints?: PostgresCatalogKeyFixture[]
   foreignKeys?: PostgresCatalogForeignKeyFixture[]
-  opaqueObjects?: Array<{
+  opaqueObjects?: {
     kind: 'constraint' | 'index' | 'trigger' | 'policy' | 'other'
     name: string
     nativeDefinition: string
     reason: string
-  }>
+  }[]
 }
 
 export type CompletePostgresCatalogFixture = CatalogSnapshot & {
@@ -65,8 +65,8 @@ export type PostgresCatalogSnapshotFixture = {
   namespaceContext: NamespaceContext
   tables: PostgresCatalogTableFixture[]
   namespaces?: string[]
-  nameReservations: Array<{ schema: string; name: string }>
-  constraintNameReservations: Array<{ schema: string; table: string; name: string }>
+  nameReservations: { schema: string; name: string }[]
+  constraintNameReservations: { schema: string; table: string; name: string }[]
 }
 
 type SupportedSimpleSemantics = Pick<

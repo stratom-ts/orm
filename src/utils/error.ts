@@ -42,17 +42,15 @@ export function attemptSync<T>(operation: () => T): Attempt<T> {
  */
 export function TaggedError<Tag extends string>(
   tag: Tag,
-): {
-  new <A extends Record<string, unknown> = Record<string, unknown>>(
-    ...args: Equals<A, Record<string, unknown>> extends true
-      ? []
-      : [
-          args: {
-            readonly [P in keyof A as P extends '_tag' ? never : P]: A[P]
-          },
-        ]
-  ): Error & { readonly _tag: Tag } & Readonly<A>
-} {
+): new <A extends Record<string, unknown> = Record<string, unknown>>(
+  ...args: Equals<A, Record<string, unknown>> extends true
+    ? []
+    : [
+        args: {
+          readonly [P in keyof A as P extends '_tag' ? never : P]: A[P]
+        },
+      ]
+) => Error & { readonly _tag: Tag } & Readonly<A> {
   class BaseError extends Error {
     readonly _tag = tag
 
