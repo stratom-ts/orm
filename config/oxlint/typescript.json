@@ -11,11 +11,13 @@
     "typescript/no-empty-object-type": "error",
     "typescript/no-explicit-any": "error",
     "typescript/no-invalid-void-type": "error",
+    "typescript/no-misused-promises": "error",
     "typescript/no-unnecessary-template-expression": "error",
     "typescript/no-unnecessary-type-arguments": "error",
     "typescript/no-unsafe-function-type": "error",
     "typescript/prefer-function-type": "error",
     "typescript/prefer-includes": "error",
-    "typescript/prefer-reduce-type-parameter": "error"
+    "typescript/prefer-reduce-type-parameter": "error",
+    "typescript/use-unknown-in-catch-callback-variable": "error"
   }
 }

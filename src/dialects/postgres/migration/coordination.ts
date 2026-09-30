@@ -202,7 +202,7 @@ export async function runCancellable<T>(options: {
   })
   const settled = operation.then(
     (value) => ({ kind: 'value' as const, value }),
-    (cause) => ({ kind: 'error' as const, cause }),
+    (cause: unknown) => ({ kind: 'error' as const, cause }),
   )
   const result = await Promise.race([settled, interrupted])
 

@@ -432,7 +432,11 @@ export async function executePostgresMigration(
     }
   }
 
-  await executeTransaction().finally(releaseLock)
+  try {
+    await executeTransaction()
+  } finally {
+    await releaseLock()
+  }
 
   if (primary) {
     const outcome = failureOutcome(primary.stage, ddlStarted, rollbackAcknowledged)

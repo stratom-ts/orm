@@ -17,7 +17,7 @@ export function withDeadline<T>(promise: Promise<T>): Promise<T> {
         clearTimeout(timer)
         resolve(value)
       },
-      (cause) => {
+      (cause: unknown) => {
         clearTimeout(timer)
         reject(cause)
       },
