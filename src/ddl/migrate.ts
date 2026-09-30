@@ -165,7 +165,15 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
       return 'dropTable'
     case 'drop_index':
       return 'dropIndex'
-    default:
+    case 'ensure_namespace':
+    case 'create_table':
+    case 'add_column':
+    case 'alter_column_type':
+    case 'add_foreign_key':
+    case 'add_unique_constraint':
+    case 'set_not_null':
+    case 'drop_not_null':
+    case 'create_index':
       return undefined
   }
 }
