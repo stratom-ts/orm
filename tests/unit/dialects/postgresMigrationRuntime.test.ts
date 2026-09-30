@@ -444,7 +444,7 @@ describe('PostgreSQL migration runtime failures', () => {
     })
     const error = await runtime
       .execute(program(), { lockTimeoutMs: 0 })
-      .catch((cause) => cause)
+      .catch((cause: unknown) => cause)
 
     expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
 
@@ -475,7 +475,7 @@ describe('PostgreSQL migration runtime failures', () => {
 
       const pending = runtime
         .execute(program(), { lockTimeoutMs: 40 })
-        .catch((cause) => cause)
+        .catch((cause: unknown) => cause)
 
       await vi.advanceTimersByTimeAsync(100)
       const error = await pending
@@ -506,7 +506,7 @@ describe('PostgreSQL migration runtime failures', () => {
 
       const pending = runtime
         .execute(program(), { lockTimeoutMs: 100 })
-        .catch((cause) => cause)
+        .catch((cause: unknown) => cause)
 
       await vi.advanceTimersByTimeAsync(100)
       const error = await pending
@@ -539,7 +539,7 @@ describe('PostgreSQL migration runtime failures', () => {
       lockResults: [true],
       unlockResults: [false],
     })
-    const error = await runtime.execute().catch((cause) => cause)
+    const error = await runtime.execute().catch((cause: unknown) => cause)
 
     expect(error).toMatchObject({
       stage: 'unlock',
@@ -560,7 +560,7 @@ describe('PostgreSQL migration runtime failures', () => {
     const runtime = harness({ applicationId: 'billing', lockResults: [false] })
     const pending = runtime.execute(program(), { signal: controller.signal })
     controller.abort()
-    const error = await pending.catch((cause) => cause)
+    const error = await pending.catch((cause: unknown) => cause)
 
     expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
 
