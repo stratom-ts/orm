@@ -373,11 +373,13 @@ describe('Migration reconciliation identities and constraint order', () => {
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Public = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const catalog: CatalogSnapshot = {
       ...emptyCatalogReservations(),
       namespaceContext: {
@@ -414,11 +416,13 @@ describe('Migration reconciliation identities and constraint order: matches dott
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
     )
+
     const DottedRelation = defineTable(
       'b.c',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
+
     const catalog: CatalogSnapshot = createDottedCatalog()
 
     expect(
@@ -432,6 +436,7 @@ describe('Migration reconciliation identities and constraint order: matches dott
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
+
     const mismatchedCatalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
@@ -464,6 +469,7 @@ describe('Migration reconciliation identities and constraint order: matches dott
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
     )
+
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
@@ -507,6 +513,7 @@ describe('Migration reconciliation constraint ordering', () => {
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const catalog: CatalogSnapshot = createOrderingCatalog()
     const permuted = structuredClone(catalog)
     permuted.tables.reverse()
@@ -537,6 +544,7 @@ describe('Migration reconciliation diagnostics', () => {
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
     ])
+
     catalog.tables[0]!.primaryKey = {
       name: 'users_pkey',
       columns: ['email'],
@@ -680,6 +688,7 @@ describe('Migration reconciliation diagnostics: selects the same column issue ac
         },
       ],
     }
+
     const permuted = structuredClone(catalog)
     permuted.tables[0]!.columns.reverse()
 
@@ -705,6 +714,7 @@ describe('Migration reconciliation invalid inputs and ownership', () => {
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
     ])
+
     duplicateCatalog.tables.push(structuredClone(duplicateCatalog.tables[0]!))
     duplicateCatalog.tables[1]!.columns = duplicateCatalog.tables[1]!.columns.slice(0, 1)
     const reversedCatalog = structuredClone(duplicateCatalog)
@@ -741,6 +751,7 @@ describe('Migration reconciliation invalid inputs and ownership: breaks otherwis
       /** Returns the table's original Valibot schema for validation and metadata lookup. */
       getSchema: () => ({ entries: {} }),
     } as unknown as TableHandle
+
     const noColumns = invalidTableHandle('users')
 
     const first = planningError([missingPrimaryKey, noColumns], emptyCatalog())
@@ -822,10 +833,12 @@ describe('Migration reconciliation invalid inputs and ownership: accepts one phy
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'other_app' }] },
     )
+
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
     ])
+
     catalog.namespaces = ['other_app']
 
     // An unrelated object named 'users' occupies the other namespace, not this one.
@@ -843,6 +856,7 @@ describe('Migration reconciliation invalid inputs and ownership: does not infer 
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
     ])
+
     catalog.tables.push(
       {
         schema: 'public',

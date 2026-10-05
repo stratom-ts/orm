@@ -117,6 +117,7 @@ export async function runDialectLifecycleContract(
     runtime.registerDialect === false
       ? undefined
       : registerDialectForTest(runtime.dialect)
+
   let closeDatabase: (() => Promise<void>) | undefined
 
   try {
@@ -127,6 +128,7 @@ export async function runDialectLifecycleContract(
         ? {}
         : { defaultNamespace: runtime.defaultNamespace }),
     })
+
     closeDatabase = () => database.close()
     await database.ping()
     const rows = await runtime.executeQuery(database)
@@ -193,6 +195,7 @@ async function assertLifecycleMigration(
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'lowering',

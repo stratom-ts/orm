@@ -70,6 +70,7 @@ export function createRelationInput(
     relation,
     ...(namespace === undefined ? {} : { namespace }),
   } as RelationIdentityInput
+
   validateRelationInput(input)
   return input.namespace === undefined || input.namespace.length === 0
     ? { relation }

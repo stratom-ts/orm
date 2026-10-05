@@ -23,10 +23,12 @@ describe('canonical relation identity', () => {
       policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
+
     const identity = identities.resolve({
       namespace: [{ role: 'schema', spelling: 'App.Schema' }],
       relation: 'User"Profile',
     })
+
     const differentRole: CanonicalRelationIdentity = {
       ...identity,
       namespace: [identity.namespace[0]!, { ...identity.namespace[1]!, role: 'catalog' }],
@@ -56,6 +58,7 @@ describe('canonical relation identity: keeps dotted, quoted, case-distinct, and 
       policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
+
     const inputs = [
       { namespace: [{ role: 'schema' as const, spelling: 'a.b' }], relation: 'c' },
       { namespace: [{ role: 'schema' as const, spelling: 'a' }], relation: 'b.c' },
@@ -65,6 +68,7 @@ describe('canonical relation identity: keeps dotted, quoted, case-distinct, and 
       { namespace: [{ role: 'schema' as const, spelling: 'a' }], relation: 'cafe\u0301' },
       { namespace: [{ role: 'schema' as const, spelling: 'a' }], relation: 'caf\u00e9' },
     ]
+
     const registry = identities.createRegistry<number>()
 
     inputs.forEach((input, index) => registry.set(identities.resolve(input), index))
@@ -81,6 +85,7 @@ describe('canonical relation identity: resolves PostgreSQL omission from registr
       policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
+
     const registeredIdentities = createCanonicalRelationIdentityModule({
       policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
@@ -143,6 +148,7 @@ describe('canonical relation identity: treats an empty PostgreSQL namespace as o
       policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
+
     const ordered = ['A', 'Z', 'a', '\u00e9', '\ud83d\ude00']
     const shuffled = ['\ud83d\ude00', 'a', '\u00e9', 'Z', 'A'].map((relation) =>
       identities.resolve({ relation }),
@@ -187,11 +193,13 @@ describe('canonical SQLite relation identity', () => {
       policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
+
     const omitted = identities.resolve({ relation: 'Users' })
     const explicit = identities.resolve({
       namespace: [{ role: 'database', spelling: 'MAIN' }],
       relation: 'users',
     })
+
     const attached = identities.resolve({
       namespace: [{ role: 'database', spelling: 'audit' }],
       relation: 'users',
@@ -246,6 +254,7 @@ describe('canonical SQLite relation identity: resolves SQLite omission from regi
       policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
+
     const identity = identities.resolve({ relation: 'events' })
     const differentRole: CanonicalRelationIdentity = {
       ...identity,
@@ -262,6 +271,7 @@ describe('canonical SQLite relation identity: keeps SQLite tuples collision-free
       policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
+
     const inputs = [
       { namespace: [{ role: 'database' as const, spelling: 'a.b' }], relation: 'c' },
       { namespace: [{ role: 'database' as const, spelling: 'a' }], relation: 'b.c' },
@@ -276,6 +286,7 @@ describe('canonical SQLite relation identity: keeps SQLite tuples collision-free
         relation: 'cafe\u0301',
       },
     ]
+
     const registry = identities.createRegistry<number>()
 
     inputs.forEach((input, index) => registry.set(identities.resolve(input), index))
@@ -309,6 +320,7 @@ describe('canonical SQLite relation identity: keeps SQLite tuples collision-free
       policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,
     })
+
     const shuffled = ['\ud83d\ude00', 'Z', '\u00e9', 'a'].map((relation) =>
       identities.resolve({ relation }),
     )
@@ -330,6 +342,7 @@ describe('canonical SQLite relation identity: rejects invalid identifiers and di
       policy: POSTGRES_POLICY,
       context: POSTGRES_CONTEXT,
     })
+
     const sqlite = createCanonicalRelationIdentityModule({
       policy: SQLITE_IDENTITY_POLICY,
       context: SQLITE_CONTEXT,

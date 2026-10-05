@@ -126,6 +126,7 @@ describe('scoped transaction coordinator behavior: rejects ancestor transaction 
       operationSessionProvider: controls.provider,
       schemas: [],
     })
+
     let ancestor!: Parameters<Parameters<typeof db.transaction>[0]>[0]
 
     const transaction = db.transaction(async (trx) => {
@@ -136,6 +137,7 @@ describe('scoped transaction coordinator behavior: rejects ancestor transaction 
         await finishNested.promise
       })
     })
+
     await nestedStarted.promise
     const ancestorStatement = ancestor.ping()
     await Promise.resolve()
@@ -166,6 +168,7 @@ describe('scoped transaction coordinator behavior: queues unrelated ancestor sta
       operationSessionProvider: controls.provider,
       schemas: [],
     })
+
     let ancestor!: Parameters<Parameters<typeof db.transaction>[0]>[0]
 
     const transaction = db.transaction(async (trx) => {
@@ -179,6 +182,7 @@ describe('scoped transaction coordinator behavior: queues unrelated ancestor sta
         })
         .catch(() => undefined)
     })
+
     await nestedStarted.promise
     const ancestorStatement = ancestor.ping()
     await Promise.resolve()
@@ -210,6 +214,7 @@ describe('scoped transaction cleanup failures', () => {
         }
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -225,6 +230,7 @@ describe('scoped transaction cleanup failures', () => {
         trx.ping(),
       ])
     })
+
     await expect(withDeadline(transaction)).rejects.toThrow(/primary nested failure/i)
 
     expect(controls.calls.map((entry) => entry.sql)).toEqual([
@@ -249,6 +255,7 @@ describe('scoped transaction cleanup failures: poisons failed savepoint release 
         }
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -262,6 +269,7 @@ describe('scoped transaction cleanup failures: poisons failed savepoint release 
         trx.ping(),
       ])
     })
+
     await expect(withDeadline(transaction)).rejects.toThrow(
       /savepoint release cleanup failed/i,
     )

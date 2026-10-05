@@ -739,6 +739,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
       executor({ version: '180001' }),
       request,
     )
+
     const relation = catalog.namespaces.items[0]!.relations.items[0]!
 
     if (relation.table.state !== 'present') throw new Error('Expected table evidence')
@@ -782,6 +783,7 @@ describe('PostgreSQL evidence-bearing catalog: normalizes row-order permutations
       },
       request,
     )
+
     const second = await postgresDialect.catalog.introspectCatalog(
       executor({ reverse: true }),
       request,
@@ -797,6 +799,7 @@ describe('PostgreSQL evidence-bearing catalog: normalizes row-order permutations
     const richIndex = relation.table.value.indexes.items.find(
       (index) => index.name.state === 'present' && index.name.value.includes('lower'),
     )!
+
     assertPostgresNativeEvidence(richIndex, relation.table.value)
 
     expect(relation.table.value.opaqueObjects.items[0]).toMatchObject({
@@ -821,6 +824,7 @@ describe('PostgreSQL evidence-bearing catalog: ignores unrelated races and skips
       executor({ unrelatedRace: true }),
       request,
     )
+
     const identities = raced.namespaces.items.flatMap((namespace) =>
       namespace.relations.items.map((relation) => relation.identity),
     )
@@ -845,6 +849,7 @@ describe('PostgreSQL evidence-bearing catalog: ignores unrelated races and skips
       executor({ relationKind: 'v' }),
       request,
     )
+
     expect(view.namespaces.items[0]!.relations.items[0]!.table).toEqual({
       state: 'absent',
     })
@@ -938,6 +943,7 @@ async function assertCompleteNamespaceCoverage() {
     absentRelations: [],
     completeNamespaces: [[{ role: 'schema', spelling: 'public' }]],
   })
+
   expect(completeNamespace.namespaces.items[0]!.relations.coverage).toEqual({
     state: 'complete',
   })
@@ -1007,6 +1013,7 @@ function catalogFixtureView(snapshot: CatalogSnapshot) {
   const tables = snapshot.namespaces.items.flatMap((namespace) =>
     namespace.relations.items.flatMap(catalogRelationView),
   )
+
   tables.sort((left, right) => {
     if (right.schema < left.schema) return -1
     if (right.schema > left.schema) return 1
@@ -1127,6 +1134,7 @@ describe('PostgreSQL catalog row normalization', () => {
         { schema: 'app', table: 'events' },
       ),
     )
+
     const snapshot = catalogFixtureView(observed)
 
     assertNormalizedCatalogTables(snapshot)
@@ -1337,6 +1345,7 @@ function assertPostgresCatalogQueries(executedSql: string[]) {
   const reservationSql = executedSql.find((sql) =>
     sql.includes('c.relname as object_name'),
   )
+
   expect(reservationSql).toBeDefined()
   expect(reservationSql).not.toContain('relkind in')
   const indexSql = executedSql.find((sql) => sql.includes('from pg_index i'))
@@ -1428,6 +1437,7 @@ function catalogRelationView(relation: CatalogRelation) {
   const table = relation.table.value
   const schema = relation.identity.namespace.find(({ role }) => role === 'schema')!
     .identifier.spelling
+
   /** Projects native key evidence into the portable shape used by assertions. */
   const key = (constraint: (typeof table.uniqueConstraints.items)[number]) => ({
     name: constraint.name.state === 'present' ? constraint.name.value : '',
@@ -1437,6 +1447,7 @@ function catalogRelationView(relation: CatalogRelation) {
     isValid:
       constraint.validity.state === 'present' && constraint.validity.value === 'valid',
   })
+
   return [
     {
       name: relation.identity.relation.spelling,

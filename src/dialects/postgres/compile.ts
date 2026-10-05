@@ -228,6 +228,7 @@ function createRelationContext(
   const candidates = resolved.map((relation) =>
     postgresTableAlias(relation.database, relation.schema, relation.table),
   )
+
   const counts = new Map<string, number>()
 
   for (const candidate of candidates) {
@@ -240,6 +241,7 @@ function createRelationContext(
       counts.get(candidate) === 1 && utf8ByteLength(candidate) <= 63
         ? candidate
         : `__stratom_${index}`
+
     return {
       ...(relation.database === undefined ? {} : { database: relation.database }),
       ...(relation.schema === undefined ? {} : { schema: relation.schema }),
@@ -544,6 +546,7 @@ function compileOrderBy(
     (o) =>
       `${qualifyColumn(o.column, relations, o.relation, resolveRelation)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
   )
+
   return ` order by ${parts.join(', ')}`
 }
 
@@ -600,6 +603,7 @@ function compileSelect(
     [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
     resolveRelation,
   )
+
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
   const selection = (node as Partial<SelectAst>).selection
@@ -690,8 +694,10 @@ function compileInsert(
       params.push(value)
       return `$${params.length}`
     })
+
     return `(${placeholders.join(', ')})`
   })
+
   const sql = `insert into ${tableSql} (${cols}) values ${rowSql.join(', ')}${compileReturning(node.returning)}`
   return { sql, params }
 }
@@ -899,6 +905,7 @@ function guardQuerySession(
       const database =
         namespace?.find((segment) => segment.role === 'database')?.spelling ??
         identity.database
+
       const schema = namespace?.find((segment) => segment.role === 'schema')?.spelling
 
       for (const requirement of requirements.values()) {
@@ -1063,6 +1070,7 @@ function compileCreateTable(node: PostgresCreateTableAst): string {
     const name = node.primaryKeyName
       ? `constraint ${quoteIdent(node.primaryKeyName)} `
       : ''
+
     columnSql.push(
       `${name}primary key (${primaryKey.map((c) => quoteIdent(c)).join(', ')})`,
     )
@@ -1135,6 +1143,7 @@ function compileAddForeignKey(node: {
     node.references.schema,
     node.references.table,
   )
+
   const constraint = node.name ? `constraint ${quoteIdent(node.name)} ` : ''
   let sql = `alter table ${tableSql} add ${constraint}foreign key (${quoteIdent(node.column)}) references ${referenceTableSql} (${quoteIdent(node.references.column)})`
 

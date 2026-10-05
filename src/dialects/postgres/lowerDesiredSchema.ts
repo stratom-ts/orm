@@ -70,6 +70,7 @@ function formatIdentity(identity: CanonicalRelationIdentity, column?: string): s
   const parts = identity.namespace.map(
     (segment) => `${segment.role}:${JSON.stringify(segment.identifier.spelling)}`,
   )
+
   parts.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
 
   if (column !== undefined) parts.push(`column:${JSON.stringify(column)}`)
@@ -217,6 +218,7 @@ function physicalType(column: AuthoredDesiredColumn, analysis: SchemaAnalysis): 
   const metadata = column.metadata
   const selected =
     metadata?.physicalType?.postgresql ?? inferPostgresColumnType(column.schema, analysis)
+
   return assertSafePostgresDataType(String(selected))
 }
 
@@ -306,6 +308,7 @@ function lowerColumn(
   const primaryKey = Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
     : [table.metadata.primaryKey]
+
   const reference = column.reference
   return Object.freeze({
     identifier: column.identifier,
@@ -404,6 +407,7 @@ function freezeLoweredSchema(
         const primaryKey = Array.isArray(table.metadata.primaryKey)
           ? [...table.metadata.primaryKey]
           : [table.metadata.primaryKey]
+
         return Object.freeze({
           handle: table.handle,
           identity: table.identity,

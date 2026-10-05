@@ -431,6 +431,7 @@ function formatIdentity(
   const segments = identity.namespace.map(
     ({ role, identifier }) => `${role}:${JSON.stringify(identifier.spelling)}`,
   )
+
   segments.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
 
   if (member) segments.push(`${member.role}:${JSON.stringify(member.spelling)}`)
@@ -554,6 +555,7 @@ function resolveCanonicalNamespace(
       : registrationDefault && registrationDefault.length > 0
         ? registrationDefault
         : context.writableDefault
+
   const namespace = policy.resolveNamespace(selected, context.writableDefault)
 
   return namespace.map((segment) => canonicalSegment(policy, segment))

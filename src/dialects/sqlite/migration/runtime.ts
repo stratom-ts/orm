@@ -255,6 +255,7 @@ async function assertPrecondition(
     sql: `select count(*) as count from "main".${quote(table)} where ${quote(precondition.column)} is null`,
     params: [],
   })
+
   const count = (rows[0] as { count?: unknown } | undefined)?.count
 
   if (typeof count !== 'number' && typeof count !== 'bigint')
@@ -418,6 +419,7 @@ function outcome(state: State): { outcome: 'applied' | 'unchanged' } {
         : state.ddlStarted
           ? 'rolledBack'
           : 'unchanged'
+
     throw failure(state.primary, effect, state.cleanupFailures)
   }
 
@@ -446,6 +448,7 @@ export async function executeSqliteMigration(
     uncertain: false,
     cleanupFailures: [],
   }
+
   await acquire(options, state)
   await prepareAndExecute(options, state)
   await finishTransaction(options, state)

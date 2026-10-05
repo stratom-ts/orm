@@ -83,6 +83,7 @@ function formatRelationInput(relation: RelationIdentityInput): string {
     relation.namespace?.map(
       ({ role, spelling }) => `${role}:${JSON.stringify(spelling)}`,
     ) ?? []
+
   segments.push(`relation:${JSON.stringify(relation.relation)}`)
   return `[${segments.join(', ')}]`
 }
@@ -167,6 +168,7 @@ function resolveColumnDataType(
     string,
     { kind?: string } | undefined
   >
+
   const columnSchema = entries[columnName]
 
   if (columnSchema?.kind !== 'schema') return undefined
@@ -265,6 +267,7 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
     string,
     { kind?: string } | undefined
   >
+
   const columnSchema = entries[columnName]
 
   if (columnSchema?.kind !== 'schema') return undefined
@@ -316,9 +319,11 @@ export function createValueMapper(
    */
   const mapResultValueForColumn = (handle: TableHandle, column: string, value: unknown) =>
     mapResultValue(handle, column, value, dialect, map, columnTypes)
+
   /** Maps recognized result-column values while preserving the row's other fields. */
   const mapResultRow = (handle: TableHandle, row: Record<string, unknown>) =>
     mapObjectRow(handle, row, mapResultValueForColumn)
+
   /** Maps result objects while preserving result values that are not objects. */
   const mapResultRows = (handle: TableHandle, rows: unknown[]) =>
     mapRows(handle, rows, mapResultRow)

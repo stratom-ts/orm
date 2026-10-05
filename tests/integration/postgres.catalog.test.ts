@@ -55,6 +55,7 @@ function assertCatalogRelations(
   const parents = namespace?.relations.items.find(
     ({ identity }) => identity.relation.spelling === 'catalog_parents',
   )
+
   expect(parents).toMatchObject({
     kind: 'table',
     nativeDefinition: { state: 'unsupported', by: 'adapter' },
@@ -196,6 +197,7 @@ function assertCatalogScope(
   const namespace = catalog.namespaces.items.find(
     ({ identity }) => identity.at(-1)?.identifier.spelling === schema,
   )
+
   expect(namespace?.relations.coverage).toEqual({
     state: 'partial',
     remainder: {
@@ -211,6 +213,7 @@ function assertCatalogScope(
   const emptyNamespace = catalog.namespaces.items.find(
     ({ identity }) => identity.at(-1)?.identifier.spelling === alternateSchema,
   )
+
   expect(emptyNamespace).toMatchObject({
     owner: { state: 'present' },
     relations: { items: [], coverage: { state: 'complete' } },
@@ -242,6 +245,7 @@ function assertCatalogAbsenceAndReservations(
   const absent = catalog.request.absentRelations.find(
     ({ relation }) => relation.spelling === 'catalog_missing',
   )
+
   expect(absent).toEqual({
     namespace: [
       {

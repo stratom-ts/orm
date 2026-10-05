@@ -357,6 +357,7 @@ describe('select namespace resolution', () => {
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ createdAt: when.toISOString() }],
     })
+
     const db = createDatabase({ connector, schemas: [BareUsers] })
 
     try {
@@ -402,12 +403,14 @@ describe('select namespace resolution: uses the registration default for omitted
       },
       { primaryKey: 'id' },
     )
+
     const when = new Date('2026-01-02T03:04:05.000Z')
     const connector = createMockConnector({
       currentSchema: 'public',
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ id: 1, createdAt: when.toISOString() }],
     })
+
     const db = createDatabase({
       connector,
       schemas: [TenantUsers],
@@ -443,6 +446,7 @@ describe('select namespace resolution: resolves reference column types through m
       },
       { primaryKey: 'id' },
     )
+
     const Posts = defineTable(
       'posts',
       {
@@ -480,6 +484,7 @@ describe('select namespace resolution: fails safely when omitted and explicit-sc
       },
       { primaryKey: 'id' },
     )
+
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [BareUsers, Users] })
 
@@ -514,6 +519,7 @@ describe('select session identity and mapping', () => {
         relation: omitted,
         selection: [{ kind: 'all' }],
       })
+
     const tenantIdentity = postgresDialect.identity.create({
       context: {
         writableDefault: [
@@ -522,6 +528,7 @@ describe('select session identity and mapping', () => {
         ],
       },
     })
+
     const publicIdentity = postgresDialect.identity.create({
       context: {
         writableDefault: [
@@ -557,6 +564,7 @@ describe('select session identity and mapping: uses one non-public PostgreSQL se
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
       { primaryKey: 'id' },
     )
+
     const currentSchema = 'tenant'
     const crudPhysicalRelations: string[] = []
     const connector = createMockConnector({
@@ -575,6 +583,7 @@ describe('select session identity and mapping: uses one non-public PostgreSQL se
         return []
       },
     })
+
     const db = createDatabase({ connector, schemas: [Items] })
 
     try {
@@ -608,6 +617,7 @@ describe('select reference mapping and database guards', () => {
       },
       { primaryKey: 'id' },
     )
+
     const PublicUsers = defineTable(
       'users',
       {
@@ -615,6 +625,7 @@ describe('select reference mapping and database guards', () => {
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const Posts = defineTable(
       'posts',
       {
@@ -623,12 +634,14 @@ describe('select reference mapping and database guards', () => {
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const when = new Date('2026-04-05T06:07:08.000Z')
     const connector = createMockConnector({
       currentSchema: 'public',
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ userId: when.toISOString() }],
     })
+
     const db = createDatabase({ connector, schemas: [PublicUsers, Posts] })
 
     try {
@@ -648,11 +661,13 @@ describe('select reference mapping and database guards: rejects omitted-to-publi
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
       { primaryKey: 'id' },
     )
+
     const PublicUsers = defineTable(
       'users',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const Posts = defineTable(
       'posts',
       {
@@ -661,6 +676,7 @@ describe('select reference mapping and database guards: rejects omitted-to-publi
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const connector = createMockConnector({ currentSchema: 'tenant' })
     const db = createDatabase({ connector, schemas: [PublicUsers, Posts] })
 
@@ -689,6 +705,7 @@ describe('select reference mapping and database guards: maps and executes databa
         ],
       },
     )
+
     const TenantEvents = createTenantEventsTable(TenantOwners)
     const when = new Date('2026-03-04T05:06:07.000Z')
     const connector = createMockConnector({
@@ -696,10 +713,12 @@ describe('select reference mapping and database guards: maps and executes databa
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ createdAt: when.toISOString() }],
     })
+
     const mapper = createValueMapper(postgresDialect, undefined, [
       TenantOwners,
       TenantEvents,
     ])
+
     expect(mapper.columnTypes(TenantEvents).ownerId).toBe('integer')
     const db = createDatabase({ connector, schemas: [TenantOwners, TenantEvents] })
 
@@ -733,6 +752,7 @@ describe('select reference mapping and database guards: rejects a mismatched aut
         ],
       },
     )
+
     const connector = createMockConnector({ database: 'otherdb' })
     const db = createDatabase({ connector, schemas: [TenantEvents] })
 
@@ -790,6 +810,7 @@ describe('select execute terminals', () => {
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [],
     })
+
     const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(db.from(Users).executeTakeFirstOrThrow()).rejects.toBeInstanceOf(

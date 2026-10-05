@@ -98,14 +98,17 @@ function registerLeaseDrainScenario(createProvider: ProviderContractFactory) {
         await finish.promise
       },
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
     const first = coordinator.run(({ executor }) =>
       executor.run({ sql: 'first', params: [] }),
     )
+
     await started.promise
     const second = coordinator.run(({ executor }) =>
       executor.run({ sql: 'second', params: [] }),
     )
+
     const close = coordinator.close()
 
     expect(controls.openCount).toBe(1)
@@ -169,6 +172,7 @@ function registerIdentityScenarios(createProvider: ProviderContractFactory): voi
       mutateIdentityAfterCall: true,
       mutationFailure: { session: 1, value: primary },
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
 
     try {
@@ -243,6 +247,7 @@ function registerUnsettledCancellationScenario(createProvider: ProviderContractF
       /** Signals or holds cancellation to expose the requested concurrency scenario. */
       beforeCancel: async () => cancelled.resolve(),
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
 
     try {
@@ -252,6 +257,7 @@ function registerUnsettledCancellationScenario(createProvider: ProviderContractF
         await cancel()
         await unsettled
       })
+
       await expect(
         Promise.race([
           operation.then(() => 'settled' as const),
@@ -311,6 +317,7 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
         value: new Error('identity verification failed'),
       },
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
     let captured:
       | { readonly database: string; readonly physicalSession: string }
@@ -359,6 +366,7 @@ function registerInitialIdentityFailureScenario(createProvider: ProviderContract
         value: new Error('initial identity capture failed'),
       },
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
     let invoked = false
 
@@ -425,6 +433,7 @@ function registerCombinedIdentityCleanupScenario(
       mutationFailure: { session: 1, value: primary },
       releaseFailure: { session: 1, value: release },
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
 
     try {
@@ -468,6 +477,7 @@ function registerReleaseScenarios(createProvider: ProviderContractFactory): void
     const controls = createProvider({
       releaseFailure: { session: 1, value: release },
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
 
     try {
@@ -494,6 +504,7 @@ function registerReleaseScenarios(createProvider: ProviderContractFactory): void
       },
       releaseFailure: { session: 1, value: release },
     })
+
     const coordinator = new OperationCoordinator(controls.provider)
 
     try {
@@ -529,6 +540,7 @@ function registerMigrationScenarios(
       _tag: 'QueryError',
       message: expect.stringMatching(/verify operation session identity/i) as unknown,
     }) as unknown
+
     /** Creates the cleanup failure db fixture used by the contract scenario. */
     const createCleanupFailureDb = () =>
       createDatabase({
@@ -646,6 +658,7 @@ function registerMigrationOutcomeScenarios(
     const appliedControls = createProvider({
       releaseFailure: { session: 1, value: release },
     })
+
     const applied = createDatabase({
       connector: migration.connector(),
       operationSessionProvider: appliedControls.provider,
@@ -666,6 +679,7 @@ function registerMigrationOutcomeScenarios(
     const unchangedControls = createProvider({
       releaseFailure: { session: 1, value: release },
     })
+
     const unchanged = createDatabase({
       connector: migration.connector(),
       operationSessionProvider: unchangedControls.provider,

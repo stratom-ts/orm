@@ -25,6 +25,7 @@ import {
 const namespaceContext = {
   writableDefault: [{ role: 'database' as const, spelling: 'main' }],
 }
+
 const registrationDefault = namespaceContext.writableDefault
 
 const Records = defineTable(
@@ -39,6 +40,7 @@ const Records = defineTable(
   },
   { primaryKey: 'id' },
 )
+
 const Events = defineTable(
   'events',
   { id: string(), record_id: string(), label: string() },

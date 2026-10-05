@@ -141,6 +141,7 @@ function createMigrationMember(identityAdapter = 'postgresql') {
   const createIdentity = vi.fn<typeof selected.planning.identity.create>(
     selected.planning.identity.create,
   )
+
   const introspectCatalog = vi.fn<typeof selected.catalog.introspectCatalog>(
     async (_executor, request: Parameters<typeof completePostgresCatalog>[1]) =>
       completePostgresCatalog(
@@ -153,6 +154,7 @@ function createMigrationMember(identityAdapter = 'postgresql') {
         request,
       ),
   )
+
   const lower = vi.fn<typeof selected.lower>(selected.lower)
   const execute = vi.fn<typeof selected.execute>(
     async (options: MigrationRuntimeOptions) => {
@@ -163,6 +165,7 @@ function createMigrationMember(identityAdapter = 'postgresql') {
       }
     },
   )
+
   const migration: DialectMigrationAdapter = {
     planning: {
       ...selected.planning,
@@ -346,6 +349,7 @@ describe('dialect-neutral migration program preview and issues: rejects lowering
       { code: 'compile_failure', message: 'failed second', sourceStepIndexes: [3] },
       { code: 'invalid_target', message: 'failed first', sourceStepIndexes: [1, 3] },
     ]
+
     member.lower.mockReturnValue({ issues })
 
     const builder = createMigrateBuilder({

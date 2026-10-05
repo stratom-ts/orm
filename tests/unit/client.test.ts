@@ -34,6 +34,7 @@ function createMockStatement(rows: unknown[] = [{ '?column?': 1 }]): Statement {
       return rows[0]
     },
   }
+
   return statement
 }
 
@@ -69,6 +70,7 @@ function createMockConnector(): Connector & { disposed: boolean; prepared: strin
       connector.disposed = true
     },
   }
+
   return connector
 }
 
@@ -120,6 +122,7 @@ describe('client registration', () => {
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const connector = createMockConnector()
     const getInstance = vi.spyOn(connector, 'getInstance')
 
@@ -144,11 +147,13 @@ describe('client registration: allows equal relation names in different structur
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'app' }] },
     )
+
     const TenantUsers = defineTable(
       'users',
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'tenant' }] },
     )
+
     const db = createDatabase({
       connector: createMockConnector(),
       schemas: [AppUsers, TenantUsers],
@@ -168,6 +173,7 @@ describe('client registration: allows equal relation names in different structur
         ],
       },
     )
+
     expect(() => db.from(Missing)).toThrow(
       '[catalog:"app", database:"tenant", schema:"missing", relation:"users"]',
     )
@@ -183,21 +189,25 @@ describe('client registration: keeps dotted namespace and relation boundaries in
       { id: string() },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
     )
+
     const DottedRelation = defineTable(
       'b.c',
       { id: string() },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
+
     const SameSchema = defineTable(
       'same_relation',
       { id: string() },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'shared' }] },
     )
+
     const SameDatabase = defineTable(
       'same_relation',
       { id: string() },
       { primaryKey: 'id', namespace: [{ role: 'database', spelling: 'shared' }] },
     )
+
     const connector = createMockConnector()
     const db = createDatabase({
       connector,

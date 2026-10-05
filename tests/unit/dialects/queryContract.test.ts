@@ -31,6 +31,7 @@ describe('dialect query contract', () => {
         return { sql: 'test member compiled query', params: [] }
       },
     )
+
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
@@ -65,6 +66,7 @@ describe('dialect query contract: keeps omitted qualification omitted for the se
       { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
       { primaryKey: 'id' },
     )
+
     const selectedCompile = vi.fn<(node: SelectAst) => CompiledQuery>(
       (node: SelectAst) => {
         expect(node.relation).toEqual({ relation: 'events' })
@@ -72,6 +74,7 @@ describe('dialect query contract: keeps omitted qualification omitted for the se
         return { sql: 'unqualified test query', params: [] }
       },
     )
+
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
@@ -107,6 +110,7 @@ describe('dialect query contract: resolves reference types by complete structure
         namespace: [{ role: 'database', spelling: 'numeric' }],
       },
     )
+
     const TextItem = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { sqlite: 'text' } })) },
@@ -115,6 +119,7 @@ describe('dialect query contract: resolves reference types by complete structure
         namespace: [{ role: 'database', spelling: 'textual' }],
       },
     )
+
     const Link = defineTable(
       'links',
       {
@@ -123,6 +128,7 @@ describe('dialect query contract: resolves reference types by complete structure
       },
       { primaryKey: 'id' },
     )
+
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
@@ -153,6 +159,7 @@ describe('Dialect query relation lookup errors', () => {
         namespace: [{ role: 'database', spelling: 'analytics' }],
       },
     )
+
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
@@ -177,6 +184,7 @@ describe('Dialect query relation lookup errors: throws tagged errors when semant
         namespace: [{ role: 'database', spelling: 'analytics' }],
       },
     )
+
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',

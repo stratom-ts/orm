@@ -175,6 +175,24 @@ function isMultilineCallChainDeclaration(node) {
 }
 
 /**
+ * Recognizes multiline const declarations that require trailing whitespace.
+ *
+ * @param {SyntaxNode} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {boolean} True when the declaration spans multiple source lines.
+ */
+function isMultilineConstDeclaration(node) {
+  return (
+    node.type === 'VariableDeclaration' &&
+    node.kind === 'const' &&
+    node.declarations.some(
+      (declaration) => declaration.loc.start.line !== declaration.loc.end.line,
+    )
+  )
+}
+
+/**
  * Recognizes type declarations whose source layout requires surrounding whitespace.
  *
  * @param {SyntaxNode} node - Syntax node whose statement form and source boundaries are
@@ -393,6 +411,7 @@ function requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment
 
   if (
     isPaddedMultilineStatement(sourceCode, previousNode) ||
+    isMultilineConstDeclaration(previousNode) ||
     previousNode.type === 'IfStatement'
   ) {
     return true
@@ -476,6 +495,44 @@ function getAttachedLeadingComment(sourceCode, previousNode, node) {
 }
 
 /**
+ * Locates the source anchors that bound the whitespace between two statements.
+ *
+ * @param {SourceCode} sourceCode - Parsed source with token lookup used by whitespace
+ *   fixes.
+ * @param {SyntaxNode} previousNode - Statement before the boundary.
+ * @param {SyntaxNode} node - Statement after the boundary.
+ * @param {SourceComment | null} leadingComment - Comment attached to the next statement.
+ *
+ * @returns {{ anchor: SourceAnchor; target: SourceAnchor }} Tokens or comments bounding the
+ *   whitespace gap.
+ */
+function getStatementBoundary(sourceCode, previousNode, node, leadingComment) {
+  let anchor = getTrailingAnchor(sourceCode, previousNode),
+    target =
+      leadingComment ?? /** @type {SourceAnchor} */ (sourceCode.getFirstToken(node))
+  const lastDeclaration =
+    previousNode.type === 'VariableDeclaration'
+      ? previousNode.declarations.at(-1)
+      : undefined
+
+  // A leading ASI-protection semicolon can be tokenized as the terminator of the
+  // preceding declaration. Treat it as the start of the following statement so fixes
+  // put whitespace before the semicolon instead of splitting it from its expression.
+  if (
+    leadingComment === null &&
+    lastDeclaration !== undefined &&
+    'value' in anchor &&
+    anchor.value === ';' &&
+    anchor.loc.start.line > lastDeclaration.loc.end.line
+  ) {
+    target = anchor
+    anchor = /** @type {SourceAnchor} */ (sourceCode.getTokenBefore(anchor))
+  }
+
+  return { anchor, target }
+}
+
+/**
  * Reads indentation at a source node's start for whitespace fixes.
  *
  * @param {string} source - Full source text.
@@ -508,10 +565,14 @@ function checkStatementList(context, statements) {
       continue
     }
 
-    const anchor = getTrailingAnchor(sourceCode, previousNode),
-      target =
-        leadingComment ?? /** @type {SourceAnchor} */ (sourceCode.getFirstToken(node)),
-      between = source.slice(anchor.range[1], target.range[0])
+    const { anchor, target } = getStatementBoundary(
+      sourceCode,
+      previousNode,
+      node,
+      leadingComment,
+    )
+
+    const between = source.slice(anchor.range[1], target.range[0])
 
     // A detached comment between the statements is its own visual group. Leave it alone.
     if (!/^\s*$/u.test(between)) {
@@ -575,7 +636,7 @@ const padMultilineBlocks = {
   meta: {
     docs: {
       description:
-        'Require one blank line around if statements, multiline blocks, multiline calls, call chains, and types',
+        'Require one blank line around if statements, multiline blocks, multiline calls, call chains, const declarations, and types',
     },
     fixable: 'whitespace',
     messages: {

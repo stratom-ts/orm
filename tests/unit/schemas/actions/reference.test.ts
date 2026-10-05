@@ -19,11 +19,13 @@ describe('reference action', () => {
       { role: 'database' as const, spelling: 'tenant' },
       { role: 'schema' as const, spelling: 'audit' },
     ]
+
     const TargetSchema = pipe(
       object({ id: string() }),
       title('events'),
       table({ name: 'events', primaryKey: 'id', namespace }),
     )
+
     const TargetHandle = defineTable(
       'events',
       { id: string() },
@@ -46,6 +48,7 @@ describe('reference action', () => {
       title('raw_events'),
       table({ name: 'raw_events', primaryKey: 'id', namespace: [rawSegment] }),
     )
+
     const rawReference = reference(RawTarget, 'id')
     rawSegment.spelling = 'raw_other'
 
@@ -162,6 +165,7 @@ describe('reference action: should retain local column and nested reference meta
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
+
     const composed = pipe(reference(UserSchema, 'id'), column({ unique: true }))
 
     expect(getColumnMetadata(composed)).toMatchObject({ kind: 'column', unique: true })
@@ -178,6 +182,7 @@ describe('reference action: should retain local column and nested reference meta
       title('users'),
       table({ name: 'users', primaryKey: 'id' }),
     )
+
     const composed = nullable(
       pipe(
         reference(UserSchema, 'id'),

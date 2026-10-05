@@ -186,6 +186,7 @@ function captureSessionIdentity(session: OperationSession): OperationSessionIden
     const identity = (
       session as { readonly identity?: Partial<OperationSessionIdentity> }
     ).identity
+
     database = identity?.database
     physicalSession = identity?.physicalSession
     namespaceContext = captureNamespaceContext(identity?.namespaceContext)
@@ -232,6 +233,7 @@ function assertStableSessionIdentity(
     const identity = (
       session as { readonly identity?: Partial<OperationSessionIdentity> }
     ).identity
+
     database = identity?.database
     physicalSession = identity?.physicalSession
     namespaceContext = captureNamespaceContext(identity?.namespaceContext)
@@ -436,6 +438,7 @@ export class OperationCoordinator {
         state.disposition = 'discard'
       },
     }
+
     state.result = await activeOperation
       .run({ token, parent }, () =>
         operation({
@@ -533,6 +536,7 @@ async function verifyOperationSession<T>(state: OperationState<T>): Promise<void
         state.operationError,
         verification.error,
       )
+
       state.operationFailed = failure.failed
       state.operationError = failure.error
     }
@@ -556,6 +560,7 @@ async function releaseOperationSession<T>(state: OperationState<T>): Promise<voi
         state.operationError,
         release.error,
       )
+
       state.operationFailed = failure.failed
       state.operationError = failure.error
     }

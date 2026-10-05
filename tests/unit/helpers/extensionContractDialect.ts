@@ -267,6 +267,7 @@ function compileContractQuery(
     columns: selection,
     parameterColumns,
   }
+
   return { sql: `${CONTRACT_QUERY_PREFIX}${JSON.stringify(shape)}`, params }
 }
 
@@ -323,6 +324,7 @@ function compileContractPredicate(
           registrationDefault,
         )
       : [handle]
+
     const columnMatches =
       predicateHandle.length === 1
         ? findContractQueryColumnMatches(predicateHandle[0]!, node.where.column)
@@ -380,6 +382,7 @@ function compileContractSelection(
               registrationDefault,
             )
           : [handle]
+
         const columnMatches =
           selectedHandle.length === 1
             ? findContractQueryColumnMatches(selectedHandle[0]!, item.column)
@@ -420,6 +423,7 @@ function findContractQueryRelationMatches(
       handle.getTableMetadata().relation,
       registrationDefault,
     )
+
     return candidate.database === expected.database && candidate.table === expected.table
   })
 }
@@ -508,6 +512,7 @@ function resolvedRequest(
       ? {}
       : { registrationDefault: request.registrationDefault }),
   })
+
   return {
     relations: request.relations.map((relation) => ({
       identity: identities.resolve(relation.relation),
@@ -763,6 +768,7 @@ function profileIssues(
     message: string
     sourceStepIndexes: readonly number[]
   }[] = []
+
   /** Adds a selected output column while rejecting duplicate output names. */
   const add = (message: string) =>
     issues.push({ code: 'profile_mismatch', message, sourceStepIndexes: [] })
@@ -963,11 +969,13 @@ async function introspectExtensionCatalog(
       params: [],
     }),
   )
+
   const unsupported = {
     state: 'unsupported' as const,
     by: 'engine' as const,
     reason: 'The contract fixture deliberately has no identity generation',
   }
+
   const requestEvidence = resolvedRequest(request, namespaceContext, identity)
   const identities = identity.create({
     context: namespaceContext,
@@ -975,6 +983,7 @@ async function introspectExtensionCatalog(
       ? {}
       : { registrationDefault: request.registrationDefault }),
   })
+
   const namespaces: CatalogNamespace[] = decodeExtensionNamespaces(
     requestEvidence,
     rows,
@@ -1036,6 +1045,7 @@ function assembleExtensionCatalog(
     constraintNameReservations: { items: [], coverage: { state: 'complete' } },
     diagnostics: [],
   }
+
   calls.catalog = catalog
   return catalog
 }
@@ -1063,6 +1073,7 @@ function decodeExtensionNamespaces(
     ...requestEvidence.absentRelations.map((identity) => identity.namespace),
     ...requestEvidence.completeNamespaces,
   ]
+
   const namespaces: CatalogNamespace[] = []
 
   for (const row of rows) {
@@ -1129,6 +1140,7 @@ function appendExtensionRelations(
       ...(row.namespace === undefined ? {} : { namespace: row.namespace }),
       relation: row.relation,
     })
+
     const requested =
       requestEvidence.relations.some(({ identity }) =>
         identities.equals(identity, relation),
@@ -1241,6 +1253,7 @@ function lowerExtensionMigration(
     transaction: 'allowed',
     statements: [{ sql: `fixture migration ${step.kind} ${index}`, params: [] }],
   }))
+
   return {
     program: { atomicity: 'statement-atomic', preconditions: [], actions },
   }
@@ -1292,6 +1305,7 @@ async function executeExtensionSessionQuery(
   const shape = JSON.parse(
     query.sql.slice(CONTRACT_QUERY_PREFIX.length),
   ) as ContractCompiledShape
+
   return [
     Object.fromEntries(
       shape.columns.map(({ output, physical }) => {

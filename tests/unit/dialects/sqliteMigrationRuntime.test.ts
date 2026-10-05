@@ -100,6 +100,7 @@ function runtime(
         : { lockTimeoutMs: input.lockTimeoutMs }),
       ...(input.signal === undefined ? {} : { signal: input.signal }),
     })
+
   return { execute }
 }
 
@@ -109,6 +110,7 @@ it('reports engine version separately from the >=3.37 requirement', () => {
     const version = (
       db.prepare('select sqlite_version() as version').get() as { version: string }
     ).version
+
     expect(version).toMatch(/^\d+\.\d+\.\d+$/)
     const [major, minor] = version.split('.').map(Number)
     expect(major! > 3 || (major === 3 && minor! >= 37)).toBe(true)
@@ -123,9 +125,11 @@ it('excludes the same file before preparation and leaves another file independen
   const blockedProvider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ path }),
   )
+
   const freeProvider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ path: filePath() }),
   )
+
   const prepare = vi.fn<() => Promise<MigrationProgram>>(async () => program())
   const sessions: OperationSession[] = []
   try {
@@ -179,6 +183,7 @@ it('rejects forbidden actions before preconditions or DDL and rolls back', async
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const session = await provider.open()
   const invalid = {
     ...program(),
@@ -214,6 +219,7 @@ it('rolls back attempted DDL and retains action provenance', async () => {
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const session = await provider.open()
   const invalid = program('create table records (')
   try {

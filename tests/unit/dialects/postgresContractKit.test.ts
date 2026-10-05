@@ -153,11 +153,13 @@ const Records = defineTable(
   },
   { primaryKey: 'id' },
 )
+
 const Events = defineTable(
   'events',
   { id: string(), record_id: string(), label: string() },
   { primaryKey: 'id' },
 )
+
 const LifecycleRecords = defineTable(
   'lifecycle_records',
   { id: string(), label: string() },
@@ -629,6 +631,7 @@ function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
     onPrepare: (sql) =>
       prepareLifecycleStatement(sql, state, connector, operationCommands),
   })
+
   return {
     dialect: postgresDialect,
     registerDialect: false,
@@ -871,15 +874,18 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
               absentRelations: [],
               completeNamespaces: [],
             }
+
             const catalog = await postgresDialect.catalog.introspectCatalog(
               contractCatalogExecutor,
               migrationCatalogRequest,
             )
+
             const base = planMigration(
               [Records],
               catalog,
               postgresDialect.migration.planning,
             )
+
             const relation = base.identities.resolve({ relation: 'records' })
             const planned = {
               ...base,
@@ -896,6 +902,7 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
                 ],
               },
             }
+
             const profile = base.profile
             return {
               dialect: postgresDialect,

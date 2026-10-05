@@ -121,6 +121,7 @@ describe('whole-graph desired-schema lowering', () => {
         context: { writableDefault: [{ role: 'database', spelling: 'main' }] },
       }),
     )
+
     expect(registered.tables[0]!.identity.namespace).toEqual([
       {
         role: 'database',
@@ -185,6 +186,7 @@ describe('whole-graph desired-schema lowering: inherits the selected adapter tar
       },
       { primaryKey: 'id' },
     )
+
     const Child = defineTable(
       'children',
       {
@@ -217,6 +219,7 @@ describe('desired-schema references', () => {
       },
       { primaryKey: ['tenantId', 'memberId'] },
     )
+
     const Ref = defineTable(
       'refs',
       {
@@ -243,6 +246,7 @@ describe('desired-schema references: accepts table cycles when reference targets
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const B = defineTable(
       'b',
       {
@@ -251,6 +255,7 @@ describe('desired-schema references: accepts table cycles when reference targets
       },
       { primaryKey: 'id' },
     )
+
     const A = defineTable(
       'a',
       {
@@ -273,21 +278,25 @@ describe('desired-schema references: resolves reference chains and reports refer
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Middle = defineTable(
       'middle',
       { id: reference(Root, 'id') },
       { primaryKey: 'id' },
     )
+
     const Leaf = defineTable(
       'leaf',
       { id: reference(Middle, 'id') },
       { primaryKey: 'id' },
     )
+
     const lowered = lowerDesiredSchema(
       [Leaf, Middle, Root],
       postgresIdentities(),
       postgresDialect.schema,
     )
+
     expect(
       lowered.tables
         .find((table) => table.identity.relation.spelling === 'leaf')!
@@ -299,16 +308,19 @@ describe('desired-schema references: resolves reference chains and reports refer
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const CycleA = defineTable(
       'cycle_a',
       { id: reference(InitialB, 'id') },
       { primaryKey: 'id' },
     )
+
     const CycleB = defineTable(
       'cycle_b',
       { id: reference(CycleA, 'id') },
       { primaryKey: 'id' },
     )
+
     expect(() =>
       lowerDesiredSchema([CycleB, CycleA], postgresIdentities(), postgresDialect.schema),
     ).toThrow(/reference-only physical type cycle.*cycle_a/i)
@@ -325,6 +337,7 @@ describe('desired-schema references: resolves reference chains and reports refer
       },
       { primaryKey: 'id', indexes: [{ columns: ['code'], unique: true }] },
     )
+
     const Source = defineTable(
       'indexed_source',
       {
@@ -353,6 +366,7 @@ describe('desired-schema references: resolves reference chains and reports refer
       },
       { primaryKey: ['tenantId', 'memberId'] },
     )
+
     const [table] = lowerDesiredSchema(
       [Membership],
       postgresIdentities(),
@@ -386,6 +400,7 @@ describe('desired-schema reference metadata and value mapping: maps reference va
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Source = defineTable(
       'mapped_sources',
       {
@@ -402,6 +417,7 @@ describe('desired-schema reference metadata and value mapping: maps reference va
       },
       { primaryKey: 'id' },
     )
+
     const mapper = createValueMapper(postgresDialect, undefined, [Source, Target])
 
     expect(mapper.columnTypes(Source).targetId).toBe('uuid')
@@ -417,6 +433,7 @@ describe('desired-schema reference metadata and value mapping: validates referen
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Source = defineTable(
       'mapper_sources',
       {
@@ -434,11 +451,13 @@ describe('desired-schema reference metadata and value mapping: validates referen
       (_dataType: string, value: unknown) =>
         typeof value === 'string' ? `global:${value}` : value,
     )
+
     const globalMapper = createValueMapper(
       postgresDialect,
       { mapParamValue: globalMap },
       [Source, Target],
     )
+
     expect(globalMapper.mapParam(Source, 'targetId', 'abc')).toBe('global:abc')
     expect(globalMap).toHaveBeenCalledWith('uuid', 'abc')
 
@@ -446,6 +465,7 @@ describe('desired-schema reference metadata and value mapping: validates referen
       (_dataType: string, value: unknown) =>
         typeof value === 'string' ? `dialect:${value}` : value,
     )
+
     const dialectMapper = createValueMapper(
       {
         ...postgresDialect,
@@ -454,6 +474,7 @@ describe('desired-schema reference metadata and value mapping: validates referen
       undefined,
       [Source, Target],
     )
+
     expect(dialectMapper.mapParam(Source, 'targetId', 'abc')).toBe('dialect:abc')
     expect(dialectMap).toHaveBeenCalledWith('uuid', 'abc')
   })
@@ -480,6 +501,7 @@ function createFakeSqliteFacets(identity: {
   const inferColumnType = vi.fn<() => never>(() => {
     throw new Error('fake adapter inference must not be used by this contract')
   })
+
   const normalizeDataType = vi.fn<(value: string) => string>((value: string) => value)
   const compile = vi.fn<() => CompiledQuery>(() => ({ sql: '', params: [] }))
   const catalog = {

@@ -236,6 +236,7 @@ describe('InferSelectedColumns: should distinguish same-named tables by ordered 
         namespace: [{ role: 'database', spelling: 'numeric' }],
       },
     )
+
     const TextItem = defineTable(
       'items',
       {
@@ -300,6 +301,7 @@ describe('InferInsert: should only make defined database defaults optional', () 
       },
       { primaryKey: 'id' },
     )
+
     /** Defines a table whose value column has the supplied optional database default. */
     const withMaybeDefault = (databaseDefault: DatabaseDefault | undefined) =>
       defineTable(
@@ -378,6 +380,7 @@ describe('InferInsert: should model identity and computed generation', () => {
       },
       { primaryKey: 'id' },
     )
+
     type Insert = InferInsert<typeof Generated>
 
     expectTypeOf<Insert['id']>().toEqualTypeOf<number | undefined>()

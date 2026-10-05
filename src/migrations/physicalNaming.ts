@@ -171,6 +171,7 @@ export function generatePhysicalName(
         }
       : {}),
   }
+
   const fixed = `__${physicalNameDigest(canonicalSeed)}_${SUFFIX[seed.kind]}`
   const available = profile.maximumLength - measuredLength(fixed, profile)
 
@@ -402,6 +403,7 @@ export function createPhysicalNameRegistry(
       const key = `${physicalNameScopeKey(profile, kind, owner)}:${JSON.stringify(
         profile.comparisonKey(name),
       )}`
+
       const current = names.get(key)
 
       if (current && current.token !== token) {

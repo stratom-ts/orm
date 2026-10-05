@@ -96,6 +96,7 @@ function createMockStatement(rows: unknown[] = [], runError?: Error): Statement 
       return rows[0]
     },
   }
+
   return statement
 }
 
@@ -123,6 +124,7 @@ function relationCatalogStatement(
     const schemas = ['public', ...liveTables.map((table) => table.schema)].filter(
       (schema, index, values) => values.indexOf(schema) === index,
     )
+
     return createMockStatement(schemas.map((schema) => ({ schema, owner: 'app' })))
   }
 
@@ -208,6 +210,7 @@ function createMockConnector(options?: {
     /** Records disposal and closes owned fixture resources. */
     dispose: async () => {},
   }
+
   return connector
 }
 
@@ -364,6 +367,7 @@ describe('db.migrate() adapters and execution: lowers wrapper nullability and in
     const createSql = connector.runSql.find((sql) =>
       /create table .*wrapper_migration/i.test(sql),
     )
+
     expect(createSql).toBeDefined()
     expect(createSql).toContain('"exact" varchar(20) not null default')
     expect(createSql).toContain('"undefinedValue" text not null')
@@ -406,6 +410,7 @@ describe('db.migrate() adapters and execution: treats omitted and public schemas
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const PublicItems = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -421,6 +426,7 @@ describe('db.migrate() adapters and execution: treats omitted and public schemas
       .migrate()
       .plan()
       .catch((cause: unknown) => cause)
+
     expect(error).toBeInstanceOf(MigrationError)
 
     expect(error).toMatchObject({
@@ -501,6 +507,7 @@ describe('db.migrate() lowering and rollback', () => {
       },
       { primaryKey: 'id', indexes: [{ columns: ['createdAt'] }] },
     )
+
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [IndexedEvents] })
 
@@ -534,6 +541,7 @@ describe('db.migrate() lowering and rollback: preflights generated names against
       },
       { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
     )
+
     const identities = createCanonicalRelationIdentityModule({
       policy: POSTGRES_POLICY,
       context: {
@@ -543,15 +551,18 @@ describe('db.migrate() lowering and rollback: preflights generated names against
         ],
       },
     })
+
     const reservedName = generatedIndexName(
       identities.resolve({ relation: 'reserved_events' }),
       ['payload'],
       false,
       POSTGRES_PHYSICAL_NAMING,
     )
+
     const connector = createMockConnector({
       pgClassOnlyReservations: [{ schema: 'public', name: reservedName }],
     })
+
     const db = createDatabase({ connector, schemas: [ReservedEvents] })
 
     await expect(db.migrate().plan()).rejects.toThrow(/physical name collision/i)
@@ -577,6 +588,7 @@ describe('db.migrate() lowering and rollback: lowers additive unique-constraint 
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const connector = createMockConnector({ tables: [matchingUsers()] })
     const db = createDatabase({
       connector,
@@ -614,6 +626,7 @@ describe('db.migrate() lowering and rollback: lowers additive unique-constraint 
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const connector = createMockConnector()
     const db = createDatabase({
       connector,
@@ -654,6 +667,7 @@ describe('db.migrate() lowering and rollback: executes dotted relation tuples th
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a.b' }] },
     )
+
     const DottedRelation = defineTable(
       'b.c',
       {
@@ -662,6 +676,7 @@ describe('db.migrate() lowering and rollback: executes dotted relation tuples th
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
+
     const connector = createMockConnector()
     const db = createDatabase({
       connector,
@@ -673,9 +688,11 @@ describe('db.migrate() lowering and rollback: executes dotted relation tuples th
     const dottedSchemaSql = connector.runSql.find((sql) =>
       /create table "a\.b"\."c"/i.test(sql),
     )
+
     const dottedRelationSql = connector.runSql.find((sql) =>
       /create table "a"\."b\.c"/i.test(sql),
     )
+
     expect(dottedSchemaSql).toBeDefined()
     expect(dottedRelationSql).toBeDefined()
     expect(dottedSchemaSql).toContain('"schemaMarker" text')
@@ -697,6 +714,7 @@ describe('db.migrate() runtime rollback', () => {
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const connector = createMockConnector({
       tables: [
         matchingUsers({
@@ -708,12 +726,14 @@ describe('db.migrate() runtime rollback', () => {
       ],
       nullCount: 3,
     })
+
     const db = createDatabase({ connector, schemas: [RequiredUsers] })
 
     const error = await db
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toBeInstanceOf(MigrationError)
 
     expect(error).toMatchObject({
@@ -741,6 +761,7 @@ describe('db.migrate() runtime rollback: wraps executor errors, rolls back, and 
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toBeInstanceOf(MigrationError)
 
     expect(error).toMatchObject({
@@ -770,6 +791,7 @@ describe('db.migrate() policy and coordination', () => {
         .migrate()
         .execute({ lockTimeoutMs })
         .catch((cause: unknown) => cause)
+
       expect(error).toMatchObject({
         stage: 'lock',
         outcome: 'unchanged',
@@ -795,6 +817,7 @@ describe('db.migrate() policy and coordination: classifies authoritative catalog
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       stage: 'introspection',
       outcome: 'unchanged',
@@ -827,6 +850,7 @@ describe('db.migrate() policy and coordination: executes no DDL when whole-plan 
         sourceStepIndexes: [2],
       },
     ]
+
     vi.spyOn(postgresDialect.migration!, 'lower').mockReturnValueOnce({
       issues: capabilityIssues,
     })
@@ -835,6 +859,7 @@ describe('db.migrate() policy and coordination: executes no DDL when whole-plan 
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       stage: 'lowering',
       outcome: 'unchanged',
@@ -882,6 +907,7 @@ describe('db.migrate() permissions and coordination', () => {
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       stage: 'permission',
       outcome: 'unchanged',
@@ -911,6 +937,7 @@ describe('db.migrate() permissions and coordination: normalizes a plain nonconfo
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'ddl',
@@ -930,6 +957,7 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({
       connector,
@@ -982,15 +1010,19 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
     const lock = connector.prepared.findIndex((sql) =>
       /pg_try_advisory_lock\(/i.test(sql),
     )
+
     const introspection = connector.prepared.findIndex((sql) =>
       /c\.relkind as relation_kind/i.test(sql),
     )
+
     const transaction = connector.prepared.findIndex((sql) =>
       /^begin isolation level repeatable read$/i.test(sql),
     )
+
     const unlock = connector.prepared.findIndex((sql) =>
       /pg_advisory_unlock\(/i.test(sql),
     )
+
     expect(lock).toBeGreaterThanOrEqual(0)
     expect(transaction).toBeGreaterThan(lock)
     expect(introspection).toBeGreaterThan(transaction)
@@ -1095,6 +1127,7 @@ function prepareMockQuery(
     const error = options?.failRun?.test(normalized)
       ? new Error(`executor rejected: ${normalized}`)
       : undefined
+
     return createMockStatement([], error)
   }
 

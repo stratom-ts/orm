@@ -613,6 +613,7 @@ describe('CRUD execute terminals', () => {
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => rows,
     })
+
     const db = createDatabase({ connector, schemas: [Users] })
 
     const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
@@ -629,6 +630,7 @@ describe('CRUD execute terminals', () => {
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => rows,
     })
+
     const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(
@@ -648,6 +650,7 @@ describe('CRUD execute terminals: should return rows when calling executeTakeFir
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [row],
     })
+
     const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(

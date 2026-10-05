@@ -12,6 +12,7 @@ describe('portable migration coordination scope', () => {
       dialect: 'postgresql',
       database: 'app_db',
     })
+
     expect(scope).toEqual({
       database: {
         dialect: 'postgresql',
@@ -30,6 +31,7 @@ describe('portable migration coordination scope', () => {
       database: 'app.db',
       applicationId: 'billing.v2',
     })
+
     const acquire = migrationLockAcquisitionOrder(scope)
     expect(acquire.map((identity) => identity.kind)).toEqual(['scoped'])
     expect(migrationLockReleaseOrder(scope)).toEqual([...acquire].reverse())
@@ -45,6 +47,7 @@ describe('portable migration coordination scope: separates dialect, database, an
         applicationId: 'c',
       }),
     )[0]
+
     const right = migrationLockAcquisitionOrder(
       createMigrationCoordinationScope({
         dialect: 'postgresql',
@@ -52,6 +55,7 @@ describe('portable migration coordination scope: separates dialect, database, an
         applicationId: 'b.c',
       }),
     )[0]
+
     const otherDialect = migrationLockAcquisitionOrder(
       createMigrationCoordinationScope({
         dialect: 'sqlite',
@@ -59,6 +63,7 @@ describe('portable migration coordination scope: separates dialect, database, an
         applicationId: 'c',
       }),
     )[0]
+
     expect(left).not.toEqual(right)
     expect(left).not.toEqual(otherDialect)
   })

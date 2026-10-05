@@ -130,6 +130,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
           .select([TransactionRows.label])
           .orderBy(TransactionRows.id, 'asc')
           .execute()
+
         expect(rows.map(({ label }) => label)).toEqual([
           'outer before',
           'nested success',
@@ -281,6 +282,7 @@ function assertSavepointSessionEvents(
   const commit = events.findIndex(
     ({ sql }, index) => index > begin && sql.toLowerCase() === 'commit',
   )
+
   expect(begin).toBeGreaterThanOrEqual(0)
   expect(commit).toBeGreaterThan(begin)
 

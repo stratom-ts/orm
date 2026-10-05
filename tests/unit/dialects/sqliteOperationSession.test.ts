@@ -96,6 +96,7 @@ it('rolls back an open transaction before reuse and supports savepoints', async 
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const session = await provider.open()
   await session.run({ sql: 'create table records (id integer)', params: [] })
   await session.run(compileSqliteOperationCommand({ kind: 'begin' }))
@@ -122,6 +123,7 @@ it('serializes concurrent native writes and binds a DataView without coercion', 
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const session = await provider.open()
   try {
     await session.run({
@@ -138,6 +140,7 @@ it('serializes concurrent native writes and binds a DataView without coercion', 
         params: [],
       }),
     ])
+
     expect(observed).toEqual([{ position: 1 }, { position: 2 }])
 
     expect(
@@ -159,9 +162,11 @@ it('gives separate file and memory databases separate identities and poisons can
   const first = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const second = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const one = await first.open()
   const two = await second.open()
   expect(one.identity.database).not.toBe(two.identity.database)
@@ -191,9 +196,11 @@ it('uses one canonical file identity across connectors while keeping physical se
   const second = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ path: aliasPath }),
   )
+
   const other = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ path: filePath() }),
   )
+
   const sessions: OperationSession[] = []
   try {
     const one = await first.open()
@@ -221,12 +228,15 @@ it('keeps file database identity distinct from independent memory identities', a
   const file = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ path: filePath() }),
   )
+
   const first = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const second = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const sessions: OperationSession[] = []
   try {
     const onDisk = await file.open()
@@ -258,6 +268,7 @@ it('drains an active lease on close and retries a failed connector disposal', as
       return native.dispose!()
     },
   })
+
   const session = await provider.open()
   let closed = false
 
@@ -296,11 +307,13 @@ it('blocks new leases after repeated discard failure until close disposes the na
       return native.dispose!()
     },
   }
+
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
   const session = await provider.open()
   const rejection: unknown = await session
     .release('discard')
     .catch((cause: unknown) => cause)
+
   expect(rejection).toMatchObject({
     _tag: 'QueryError',
     cause: { message: 'dispose attempt 1' },
@@ -333,6 +346,7 @@ it('shares one successful close promise and disposes once after the active lease
       return native.dispose!()
     },
   })
+
   const session = await provider.open()
   const first = provider.close()
   const second = provider.close()

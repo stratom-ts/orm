@@ -167,6 +167,7 @@ export function stepToAst(
         kind: 'create_schema',
         schema: schemaFromNamespace(step.target.namespace),
       }
+
       return ast
     }
     case 'create_table':
@@ -291,6 +292,7 @@ export function stepTargetIssues(
     step.target.kind === 'namespace'
       ? step.target.namespace
       : step.target.relation.namespace
+
   issues.push(
     ...namespaceIssues(namespace, expectedDatabase, 'Migration target namespace'),
   )

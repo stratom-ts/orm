@@ -44,6 +44,7 @@ const IndexedEvents = defineTable(
   },
   { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
 )
+
 const UniqueIndexedEvents = defineTable(
   'indexed_events',
   {
@@ -319,11 +320,13 @@ describe('catalog semantic adoption: reserves check and exclusion constraint nam
       policy: POSTGRES_POLICY,
       context: namespaceContext,
     })
+
     const generated = generatedUniqueName(
       identities.resolve({ relation: 'children' }),
       'email',
       POSTGRES_PHYSICAL_NAMING,
     )
+
     const catalog = relationCatalog()
     catalog.constraintNameReservations = [
       { schema: 'public', table: 'children', name: generated },

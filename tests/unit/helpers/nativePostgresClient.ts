@@ -115,6 +115,7 @@ export function createMockStatement(rows: unknown[] = []): Statement {
       return rows[0]
     },
   }
+
   return statement
 }
 
@@ -154,6 +155,7 @@ export function createMockPostgresConnector(options?: {
     options?.database,
     options?.currentSchema,
   )
+
   const connector = {
     name: 'postgresql',
     dialect: 'postgresql' as const,
@@ -170,6 +172,7 @@ export function createMockPostgresConnector(options?: {
       connector.disposed = true
     },
   }
+
   return connector
 }
 
@@ -252,9 +255,11 @@ function prepareMockNativeStatement(
     scan.parameters.length === 0
       ? params
       : scan.parameters.map((parameter) => params[parameter.index])
+
   const statement = prepare(db0Sql)
   const bound =
     orderedParams.length === 0 ? statement : statement.bind(...(orderedParams as never[]))
+
   return bound
 }
 
@@ -277,6 +282,7 @@ function prepareRecordedStatement(
   prepared.push(sql)
   const base =
     options?.onPrepare?.(sql) ?? createMockStatement(options?.rowsBySql?.(sql) ?? [])
+
   return {
     /** Binds fixture parameter values and returns the statement for execution. */
     bind(...params: unknown[]) {

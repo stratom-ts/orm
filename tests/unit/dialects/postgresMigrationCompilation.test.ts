@@ -19,6 +19,7 @@ describe('PostgreSQL migration AST compilation', () => {
         onUpdate: 'restrict',
       },
     }).sql
+
     expect(foreignKey).toContain('references "public"."users" ("id")')
     expect(foreignKey.toLowerCase()).toContain('on delete cascade on update restrict')
   })

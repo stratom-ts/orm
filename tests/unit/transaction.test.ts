@@ -120,6 +120,7 @@ describe('db.transaction: should serialize concurrent top-level transactions', (
     const firstCanFinish = new Promise<void>((resolve) => {
       releaseFirst = resolve
     })
+
     const firstStarted = new Promise<void>((resolve) => {
       markFirstStarted = resolve
     })
@@ -129,6 +130,7 @@ describe('db.transaction: should serialize concurrent top-level transactions', (
       await firstCanFinish
       throw new Error('first failed')
     })
+
     await firstStarted
 
     const second = db.transaction(async (trx) => {

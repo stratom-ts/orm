@@ -86,6 +86,7 @@ export function createNativeConnector(options?: NativeConnectorOptions) {
       return state.queryCalls
     },
   }
+
   return connector
 }
 
@@ -300,6 +301,7 @@ function createNativeFixtureClient(
         nativeClient,
       ),
   }
+
   return nativeClient
 }
 
@@ -429,6 +431,7 @@ function callControllableSession<T>(
       }
     }
   })
+
   sessionState.queue = result.then(
     () => undefined,
     () => undefined,
@@ -503,10 +506,12 @@ async function executeNativeFixtureQuery(
     const terminated = new Promise<never>((_, reject) => {
       queryState.rejectActive = reject
     })
+
     const rows = await Promise.race([
       options?.onQuery?.(text, signal, values) ?? Promise.resolve([]),
       terminated,
     ])
+
     return { rows }
   } finally {
     queryState.rejectActive = undefined

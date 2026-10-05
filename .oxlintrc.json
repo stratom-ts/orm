@@ -24,7 +24,7 @@
     "complexity": ["error", 20],
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "max-depth": ["error", 2],
-    "max-lines-per-function": ["error", 50],
+    "max-lines-per-function": ["error", { "max": 50, "skipBlankLines": true }],
     "no-else-return": "error",
     "no-lonely-if": "error",
     "jsdoc/require-param-description": "error",

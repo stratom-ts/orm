@@ -172,10 +172,12 @@ function buildFixtureTable(
   /** Resolves the supplied schema and relation under the fixture identity policy. */
   const relationIdentity = (schema: string, relation: string) =>
     identities.resolve({ namespace: [{ role: 'schema', spelling: schema }], relation })
+
   const columns = buildFixtureColumns(fixture)
   const primaryKey = fixture.primaryKey
     ? ({ state: 'present', value: keyConstraint(fixture.primaryKey) } as const)
     : ({ state: 'absent' } as const)
+
   return fixtureTableEvidence(fixture, relationIdentity, columns, primaryKey)
 }
 
@@ -240,6 +242,7 @@ function buildFixtureConstraints(
       onUpdate: foreignKey.onUpdate,
     }),
   )
+
   const indexes: CatalogIndex[] = (fixture.indexes ?? []).map((index) => ({
     name: { state: 'present', value: index.name },
     origin: 'user',
@@ -252,6 +255,7 @@ function buildFixtureConstraints(
     },
     nativeDefinition: { state: 'present', value: index.name },
   }))
+
   const opaqueObjects = (fixture.opaqueObjects ?? []).map((object) => ({
     kind: object.kind,
     name: { state: 'present' as const, value: object.name },
@@ -261,6 +265,7 @@ function buildFixtureConstraints(
     },
     reason: object.reason,
   }))
+
   return { uniqueConstraints, foreignKeys, indexes, opaqueObjects }
 }
 
@@ -332,6 +337,7 @@ export function completePostgresCatalog(
       ? {}
       : { registrationDefault: request.registrationDefault }),
   })
+
   const defaultSchema = input.namespaceContext.writableDefault.find(
     ({ role }) => role === 'schema',
   )?.spelling
@@ -342,9 +348,11 @@ export function completePostgresCatalog(
       namespace: [{ role: 'schema', spelling: schema }],
       relation,
     })
+
   /** Resolves the supplied schema under the fixture namespace default. */
   const namespaceIdentity = (schema: string) =>
     identities.resolveNamespace([{ role: 'schema', spelling: schema }])
+
   const resolvedRequest = resolveFixtureCatalogRequest(request, identities)
   /** Builds namespaces for the current fixture scenario. */
   const buildNamespaces = () =>
@@ -494,6 +502,7 @@ function buildFixtureNamespaces(
     ...(input.namespaces ?? []),
     ...tables.map((table) => table.schema),
   ].filter((schema, index, values) => values.indexOf(schema) === index)
+
   return schemaNames.map((schema) => ({
     identity: namespaceIdentity(schema),
     owner: { state: 'present', value: 'fixture_owner' },

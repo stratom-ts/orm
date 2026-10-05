@@ -71,6 +71,7 @@ function fixture(options: FixtureOptions = {}) {
         throw new Error('restore failed')
     },
   }
+
   const execute = (migrationProgram = program(), lockTimeoutMs = 0) =>
     executeSqliteMigration({
       executor,
@@ -86,6 +87,7 @@ function fixture(options: FixtureOptions = {}) {
         return migrationProgram
       },
     })
+
   return { calls, discard, prepare, execute }
 }
 
@@ -172,6 +174,7 @@ it('retains structured preparation diagnostics and appends rollback cleanup evid
       sourceStepIndexes: [6],
     },
   ]
+
   const structured = new MigrationError({
     message: 'Cannot lower target',
     cause: primary,
@@ -183,6 +186,7 @@ it('retains structured preparation diagnostics and appends rollback cleanup evid
     capabilityIssues,
     cleanupFailures: [{ stage: 'sessionCleanup', cause: earlierCleanup }],
   })
+
   const test = fixture({ prepareFailure: structured, rollbackFailure: true })
   const rejection: unknown = await test.execute().catch((cause: unknown) => cause)
 
@@ -208,6 +212,7 @@ it('retains transaction-incompatible action provenance before any precondition o
     ...program(),
     actions: [{ ...program().actions[0]!, transaction: 'forbidden' as const }],
   }
+
   await expect(test.execute(incompatible)).rejects.toMatchObject({
     stage: 'lowering',
     outcome: 'unchanged',

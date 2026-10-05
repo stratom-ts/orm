@@ -151,6 +151,7 @@ async function readIdentity(
   const row = result.rows?.[0] as
     | { database?: unknown; physicalSession?: unknown; schema?: unknown }
     | undefined
+
   const database = row?.database
   const physicalSession = row?.physicalSession
   const schema = row?.schema
@@ -294,6 +295,7 @@ function enqueueSessionOperation<T>(
 
     return operation()
   })
+
   state.queue = result.then(
     () => undefined,
     () => undefined,
@@ -412,6 +414,7 @@ function createNativeOperationSession(
     activeController: undefined,
     queue: Promise.resolve(),
   }
+
   return {
     identity,
     /** Executes a row-returning query on the pinned physical session. */
@@ -541,6 +544,7 @@ async function openNativeLease(
   const lease = new Promise<void>((resolve) => {
     finishLease = resolve
   })
+
   state.activeLease = lease
 
   let {

@@ -239,6 +239,7 @@ function enqueue<T>(
       throw queryFailure(cause, 'SQLite operation failed')
     }
   })
+
   state.queue = result.then(
     () => undefined,
     () => undefined,
@@ -259,6 +260,7 @@ function createLease(
     cancelled: false,
     released: false,
   }
+
   return {
     identity,
     /** Reads rows with StatementSync.all. */
@@ -324,6 +326,7 @@ async function openLease(
       cause,
       'Failed to open SQLite operation session',
     )
+
     finishLease()
     throw error
   }

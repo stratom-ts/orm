@@ -208,6 +208,7 @@ function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
           .insert(ContractRecords)
           .values({ label: 'shared query' })
           .executeTakeFirstOrThrow()
+
         expect(inserted).toMatchObject({ label: 'shared query', active: true })
 
         await expect(

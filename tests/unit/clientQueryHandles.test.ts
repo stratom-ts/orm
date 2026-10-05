@@ -57,6 +57,7 @@ function createMalformedDefinedHandle(mutation: MalformedHandleMutation) {
     { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
     { primaryKey: 'id' },
   )
+
   const mutableHandle = handle as unknown as Record<PropertyKey, unknown>
 
   switch (mutation) {

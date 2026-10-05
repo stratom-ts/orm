@@ -263,6 +263,7 @@ describe('Migration Plan selected dialect semantics', () => {
     const PortableSettings = createPortableSettingsTable()
     const { dialect, introspect, compile, identity, identityModules, naming } =
       createCustomPlanningDialect()
+
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
@@ -294,6 +295,7 @@ describe('Migration Plan selected dialect semantics', () => {
       ),
       dialect,
     )
+
     assertCustomPlanningFacets(planned, identity, identityModules, naming)
   })
 })
@@ -327,6 +329,7 @@ describe('Migration Plan ordering and semantic profiles', () => {
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Uppercase = defineTable(
       'Zulu',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -351,16 +354,19 @@ describe('Migration Plan ordering and semantic profiles: produces equal Migratio
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Public = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const Tenant = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'tenant' }] },
     )
+
     const FullyQualifiedTenant = createFullyQualifiedTenantTable()
     const tenantCatalog: CatalogSnapshot = {
       tables: [],
@@ -400,6 +406,7 @@ describe('Migration Plan ordering and semantic profiles: uses an explicit regist
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Tenant = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -421,6 +428,7 @@ describe('Migration Plan ordering and semantic profiles: uses an explicit regist
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Child = defineTable(
       'children',
       {
@@ -460,6 +468,7 @@ describe('Migration Plan ordering and semantic profiles: keeps structured migrat
       ['caf\u00e9', 'a'],
       ['cafe\u0301', 'a'],
     ] as const
+
     const handles = definitions.map(([name, schema]) =>
       defineTable(
         name,
@@ -548,6 +557,7 @@ describe('Migration Plan determinism and semantic profiles: keeps step kinds and
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const tenantCatalog: CatalogSnapshot = {
       ...emptyCatalog(),
       namespaceContext: {
@@ -692,6 +702,7 @@ function assertCustomPlanningFacets(
 function createCustomPlanningDialect() {
   const { identity, naming, compile, introspect, identityModules } =
     createPlanningDialectSpies()
+
   const lowerDesiredSchema = lowerCustomDesiredSchema
   const inferColumnType = inferCustomPlanningType
   const normalizeDataType = normalizeCustomPlanningType
@@ -736,6 +747,7 @@ function createCustomPlanningDialect() {
     },
     catalog: { introspectCatalog: introspect },
   }
+
   return { dialect, introspect, compile, identity, identityModules, naming }
 }
 
@@ -748,6 +760,7 @@ function createPlanningDialectSpies() {
   const introspect = vi.fn<Dialect['catalog']['introspectCatalog']>(
     async (_executor, request) => completePostgresCatalog(emptyCatalog(), request),
   )
+
   const compile = vi.fn<() => CompiledQuery>(() => ({ sql: '', params: [] }))
   const identityModules: CanonicalRelationIdentityModule[] = []
   const identity = {
@@ -761,11 +774,13 @@ function createPlanningDialectSpies() {
           policy: POSTGRES_POLICY,
           ...options,
         })
+
         identityModules.push(identities)
         return identities
       },
     ),
   }
+
   const naming = {
     generate: vi.fn<Dialect['naming']['generate']>(
       (seed: Parameters<typeof generatePhysicalName>[0]) =>
@@ -778,6 +793,7 @@ function createPlanningDialectSpies() {
       createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
     ),
   }
+
   return { identity, naming, compile, introspect, identityModules }
 }
 

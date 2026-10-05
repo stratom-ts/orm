@@ -150,6 +150,7 @@ export function createCatalogRequest(
     relation: relationInput(handle),
     shape: 'complete',
   }))
+
   const absentRelations: RelationIdentityInput[] = []
   const completeNamespaces: (readonly NamespaceIdentifierInput[])[] = []
 
@@ -235,6 +236,7 @@ function resolveRelationDeclarations(
             ? relationInput(declaration.relation)
             : declaration.relation
           : declaration.relation
+
       return { declaration, identity: identities.resolve(input) }
     })
     .sort(
@@ -429,10 +431,12 @@ function resolveCompleteNamespaces(
         namespace: left,
         relation: { spelling: '', comparisonKey: '' },
       }
+
       const rightIdentity: CanonicalRelationIdentity = {
         namespace: right,
         relation: { spelling: '', comparisonKey: '' },
       }
+
       return (
         identities.compare(leftIdentity, rightIdentity) ||
         compareNamespaceSpelling(left, right)

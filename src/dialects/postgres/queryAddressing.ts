@@ -171,6 +171,7 @@ function compileResolvedPostgresQuery(
       const database =
         namespace?.find((segment) => segment.role === 'database')?.spelling ??
         identity.database
+
       const schema = namespace?.find((segment) => segment.role === 'schema')?.spelling
 
       for (const requirement of requirements.values()) {

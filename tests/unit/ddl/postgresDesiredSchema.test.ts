@@ -52,6 +52,7 @@ function supportedSchemaHandles() {
     },
     { primaryKey: ['accountId', 'memberId'] },
   )
+
   const References = defineTable(
     'references',
     {
@@ -63,6 +64,7 @@ function supportedSchemaHandles() {
     },
     { primaryKey: 'id' },
   )
+
   return { Accounts, Memberships, References }
 }
 
@@ -122,6 +124,7 @@ describe('PostgreSQL desired-schema validation', () => {
       },
       storage: 'stored' as const,
     }
+
     const CapabilityForward = createCapabilityForwardTable(computed)
     const CapabilityReverse = createCapabilityReverseTable(computed)
     const capabilityForward = loweringError(CapabilityForward)
@@ -138,12 +141,14 @@ describe('PostgreSQL desired-schema validation: acknowledges matching local refe
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
       { primaryKey: 'id' },
     )
+
     const Matching = createMatchingTable(Target)
     const matching = lowerDesiredSchema(
       [Matching, Target],
       postgresIdentities(),
       postgresDialect.schema,
     ).tables.find((table) => table.identity.relation.spelling === 'matching_refs')!
+
     expect(
       matching.columns
         .filter((value) => value.identifier.spelling !== 'id')
@@ -161,6 +166,7 @@ describe('PostgreSQL desired-schema validation: acknowledges matching local refe
       },
       { primaryKey: 'id' },
     )
+
     const SelectedMismatch = defineTable(
       'selected_mismatch',
       {
@@ -185,6 +191,7 @@ describe('PostgreSQL desired-schema default expressions', () => {
       postgresIdentities(),
       postgresDialect.schema,
     ).tables[0]!
+
     const defaults = table.columns.map((column) => column.databaseDefault?.sql)
 
     expect(defaults).toContain(`'now()'`)
@@ -227,6 +234,7 @@ describe('PostgreSQL desired-schema default expressions: rejects unbalanced or d
       },
       { primaryKey: 'id' },
     )
+
     expect(() =>
       lowerDesiredSchema([Valid], postgresIdentities(), postgresDialect.schema),
     ).not.toThrow()
@@ -243,6 +251,7 @@ describe('PostgreSQL desired-schema references and generation', () => {
       },
       { primaryKey: 'id' },
     )
+
     const Source = defineTable(
       'direct_sources',
       {
@@ -251,6 +260,7 @@ describe('PostgreSQL desired-schema references and generation', () => {
       },
       { primaryKey: 'id' },
     )
+
     const graph = registerDesiredSchema([Source, Target], postgresIdentities())
 
     expect(() =>
@@ -294,6 +304,7 @@ describe('PostgreSQL desired-schema references and generation: rejects mismatche
       },
       { primaryKey: 'id' },
     )
+
     const Computed = defineTable(
       'computed',
       {
@@ -335,6 +346,7 @@ describe('PostgreSQL desired-schema references and generation: defers comments, 
       },
       { primaryKey: 'id' },
     )
+
     const Updated = defineTable(
       'updated',
       {
@@ -370,6 +382,7 @@ describe('PostgreSQL desired-schema composed reference metadata', () => {
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Commented = defineTable(
       'reference_commented',
       {
@@ -378,6 +391,7 @@ describe('PostgreSQL desired-schema composed reference metadata', () => {
       },
       { primaryKey: 'id' },
     )
+
     const Updated = defineTable(
       'reference_updated',
       {
@@ -386,6 +400,7 @@ describe('PostgreSQL desired-schema composed reference metadata', () => {
       },
       { primaryKey: 'id' },
     )
+
     const Computed = createComputedTable(Target)
 
     for (const [source, message] of [
@@ -481,6 +496,7 @@ describe('PostgreSQL desired-schema generation modes: lowers identity generation
       },
       { primaryKey: 'id' },
     )
+
     const columns = lowerDesiredSchema(
       [Identities],
       postgresIdentities(),

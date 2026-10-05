@@ -20,6 +20,7 @@ function createCommonRuntime() {
   const native = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
+
   const events: ('query' | 'run' | 'cancel' | 'release:reuse' | 'close')[] = []
   return {
     provider: {
@@ -215,6 +216,7 @@ const createSqliteCoordinationRuntime: CoordinationContractFactory = (options = 
   const hold = new Promise<void>((resolve) => {
     releaseHold = resolve
   })
+
   const lockResults = [...(controls.lockResults ?? [])]
   const releaseResults = [...(controls.releaseResults ?? [])]
 

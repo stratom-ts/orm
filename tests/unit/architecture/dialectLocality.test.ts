@@ -66,6 +66,7 @@ const CORE_PATHS = [
   'src/query',
   'src/schemas',
 ]
+
 const SHARED_EXECUTION_PATHS = [
   'src/query',
   'src/ddl',
@@ -589,6 +590,7 @@ function rawMemberComparisonLeaks(source: ts.SourceFile): string[] {
       rawCollectionKeyLeak(source, node) ??
       rawCollectionConstructionLeak(source, node) ??
       rawOrderingLeak(source, node)
+
     return leak === undefined ? [] : [leak]
   })
 }
@@ -675,10 +677,12 @@ describe('dialect extension locality architecture: keeps physical SQL constructi
           ts.isStringLiteralLike(node) &&
           ts.isPropertyAssignment(node.parent) &&
           propertyName(node.parent.name) === 'kind'
+
         const literalSql =
           !semanticKind &&
           (ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) &&
           looksLikePhysicalSql(physicalSqlText(node))
+
         const sqlProperty =
           ts.isPropertyAssignment(node) &&
           propertyName(node.name) === 'sql' &&
@@ -706,6 +710,7 @@ describe('dialect semantic locality', () => {
       return descendants(source).flatMap((node) => {
         const engineIdentifier =
           ts.isStringLiteralLike(node) && engineTerms.has(node.text.toLowerCase())
+
         const namespaceDefault =
           ts.isPropertyAssignment(node) &&
           ['registrationDefault', 'writableDefault'].includes(
@@ -767,6 +772,7 @@ describe('dialect semantic locality: keeps physical DDL addressing out of generi
         return []
       })
     })
+
     const sharedTypes = parse(join(ROOT, 'src/dialects/types.ts'))
 
     const physicalDdlTypes = descendants(sharedTypes).flatMap((node) => {
@@ -861,6 +867,7 @@ function inspectDialectPolicy(
       ts.isCallExpression(parent) &&
       ts.isIdentifier(parent.expression) &&
       parent.expression.text === 'resolveDialect'
+
     selections.push(`${location(source, node)}:${selected ? 'resolver' : 'other'}`)
   }
 

@@ -172,6 +172,7 @@ function createRelationContext(
       counts.get(asciiFoldSqliteIdentifier(candidate)) === 1
         ? candidate
         : `__stratom_${index}`
+
     return { ...relation, alias }
   })
 }
@@ -514,6 +515,7 @@ function compileSelect(
     [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
     resolveRelation,
   )
+
   const params: unknown[] = []
   const selection =
     node.selection.length === 0
@@ -521,6 +523,7 @@ function compileSelect(
       : node.selection
           .map((item) => compileSelectItem(item, params, relations, resolveRelation))
           .join(', ')
+
   let sql = `select ${selection} from ${qualifySqliteQueryRelation(node.relation, resolveRelation)} as ${quoteIdentifier(relations[0]!.alias)}`
 
   for (const [index, join] of (node.joins ?? []).entries()) {
@@ -625,6 +628,7 @@ function compileInsert(
     assertNonEmptyString(column, 'insert column')
     return quoteIdentifier(column)
   })
+
   const params: unknown[] = []
   const values = compileInsertValues(node, params)
 
@@ -772,6 +776,7 @@ function compileComparison(
     predicate.relation,
     resolveRelation,
   )
+
   const op = comparisonSql(predicate.op)
 
   if (predicate.right !== undefined && Object.hasOwn(predicate, 'value')) {

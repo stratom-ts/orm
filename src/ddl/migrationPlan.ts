@@ -745,6 +745,7 @@ function collectUniqueConstraintIssues({
   const expected = desired.columns.filter(
     (column) => column.unique && liveColumns.has(column.identifier.comparisonKey),
   )
+
   const matched = new Set<CatalogKeyConstraint>()
 
   matchDesiredUniqueConstraints({ expected, live, identities, issues, identity, matched })
@@ -1024,6 +1025,7 @@ function collectOwnedConstraintIssues(
     identities,
     liveColumns,
   }
+
   collectUniqueConstraintIssues(constraintInput)
   collectForeignKeyIssues(constraintInput)
 }
@@ -1115,6 +1117,7 @@ function collectExistingColumnIssues(
     role: 'column',
     spelling: column.identifier.spelling,
   })
+
   const defaultMessage = defaultMismatch(columnLabel, current, column, planning)
 
   if (defaultMessage) {
@@ -2013,6 +2016,7 @@ function reserveCreatedPrimaryKey(
     owner: identity,
     columns: desired.primaryKey.map((column) => column.spelling),
   })
+
   const primaryKeyToken = `generated-primary-key:${identities.format(identity)}:${JSON.stringify(desired.primaryKey.map((column) => column.comparisonKey))}`
   const primaryKeyDescription = `generated primary key on ${identities.format(identity)}`
   physicalNames.reserve({
@@ -2238,6 +2242,7 @@ function reservePhysicalCatalogNames(
       })),
       relation: reservation.name,
     })
+
     physicalNames.reserve({
       kind: 'relation',
       owner,
@@ -2487,6 +2492,7 @@ function reserveDesiredUniqueConstraint(
     role: 'column',
     spelling: column,
   })}`
+
   physicalNames.reserve({
     kind: 'unique',
     owner,
@@ -2529,6 +2535,7 @@ function reserveDesiredForeignKey(
     onDelete: normalizeAction(reference.onDelete),
     onUpdate: normalizeAction(reference.onUpdate),
   })
+
   physicalNames.reserve({
     kind: 'foreignKey',
     owner,
@@ -2576,6 +2583,7 @@ function buildMigrationPlan(
     registrationDefault,
     ownershipDeclarations,
   )
+
   reconcileDesiredTables(state)
   state.steps.push(...state.deferredForeignKeys)
   appendDroppedTables({ ...state, catalogTables: state.sortedCatalogTables })
@@ -2804,9 +2812,11 @@ function createDesiredNameReservations(
     reference: NonNullable<LoweredDesiredColumn['reference']>,
   ) =>
     reserveDesiredForeignKey(owner, column, reference, naming, physicalNames, identities)
+
   /** Reserves the generated unique-constraint name using the planning state's policies. */
   const reserveUniqueConstraint = (owner: CanonicalRelationIdentity, column: string) =>
     reserveDesiredUniqueConstraint(owner, column, naming, physicalNames, identities)
+
   return { reserveForeignKey, reserveUniqueConstraint }
 }
 
@@ -2918,6 +2928,7 @@ function createPlanningState(
     planning,
     registrationDefault,
   )
+
   const { identities, desiredTables, issues, naming, steps } = desiredState
   const catalogState = resolvePlanningCatalog(
     schemas,
@@ -2928,6 +2939,7 @@ function createPlanningState(
     lowered,
     issues,
   )
+
   const { planningCatalog, ownership, sortedCatalogTables } = catalogState
   const reservations = createPlanningReservations(
     planningCatalog,
@@ -2937,6 +2949,7 @@ function createPlanningState(
     sortedCatalogTables,
     steps,
   )
+
   return { ...desiredState, ...catalogState, ...reservations, planning }
 }
 
@@ -2972,9 +2985,11 @@ function resolvePlanningCatalog(
     lowered.tables.map(({ identity }) => identity),
     ownership,
   )
+
   const sortedCatalogTables = [...planningCatalog.tables].sort((left, right) =>
     compareCatalogTables(left, right, identities),
   )
+
   const existing = catalogTableMap(sortedCatalogTables, issues, identities)
   return { planningCatalog, ownership, sortedCatalogTables, existing }
 }
@@ -3157,6 +3172,7 @@ function reconcileDesiredColumn(
     role: 'column',
     spelling: desiredColumn.identifier.spelling,
   })
+
   const properties = requireColumnProperties(current, columnLabel)
   appendColumnAlterations(input, desiredColumn, properties)
 }
@@ -3261,6 +3277,7 @@ function appendMissingForeignKeys(input: ColumnConstraintReconciliation) {
     reserveForeignKey,
     liveColumns,
   } = input
+
   const foreignKeyColumns = desired.columns
   for (const desiredColumn of foreignKeyColumns) {
     if (
@@ -3333,6 +3350,7 @@ function createPlanningReservations(
     physicalNames,
     identities,
   )
+
   return {
     ensuredSchemas,
     registered,
@@ -3366,12 +3384,14 @@ function initializeDesiredPlanning(
     context: catalog.namespaceContext,
     ...(registrationDefault === undefined ? {} : { registrationDefault }),
   })
+
   const steps: MigrationStep[] = []
   const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
   const issues: PlanningIssue[] = []
   const sortedSchemas = [...schemas].sort((left, right) =>
     compareTableHandles(left, right, identities),
   )
+
   const naming = planning.naming
   validateDesiredNames(sortedSchemas, identities, naming)
   const { desiredTables, lowered } = registerLoweredTables(
@@ -3379,6 +3399,7 @@ function initializeDesiredPlanning(
     identities,
     planning,
   )
+
   return {
     identities,
     steps,

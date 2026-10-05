@@ -116,6 +116,7 @@ export function inferPostgresColumnType(
         Literal,
         ErrorMessage<BaseIssue<unknown>>
       >
+
       return inferPostgresLiteralType(literalSchema.literal)
     }
     case 'date':

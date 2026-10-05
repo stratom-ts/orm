@@ -47,12 +47,15 @@ function createContractConnector() {
   const getInstance = vi.fn<() => never>(() => {
     throw new Error('The selected member must not use connector.getInstance directly')
   })
+
   const exec = vi.fn<() => never>(() => {
     throw new Error('The selected member must not use connector.exec directly')
   })
+
   const prepare = vi.fn<() => never>(() => {
     throw new Error('The selected member must not use connector.prepare directly')
   })
+
   const connector = {
     name: EXTENSION_CONTRACT_DIALECT_ID,
     dialect: EXTENSION_CONTRACT_DIALECT_ID,
@@ -64,6 +67,7 @@ function createContractConnector() {
       disposed = true
     },
   } satisfies Connector
+
   return {
     connector,
     directMethods: { getInstance, exec, prepare },
@@ -191,6 +195,7 @@ function createContractRuntime(
     unsupportedMigration,
     options,
   )
+
   const { connector, directMethods, disposed } = createContractConnector()
   const Records = createContractRecords()
   return {
@@ -234,6 +239,7 @@ const SemanticEvents = createContractEvents()
 const semanticContext = {
   writableDefault: [{ role: 'database' as const, spelling: 'fixture_tenant' }],
 }
+
 const semanticQuery: SqlAst = {
   kind: 'select',
   relation: { relation: 'records' },
@@ -250,6 +256,7 @@ const contractInput = (node: SqlAst) => ({
   registrationDefault: semanticContext.writableDefault,
   node,
 })
+
 /** Records adapter-level unsupported catalog evidence with its reason. */
 const unsupported = (expectedMessage: string) => (node: SqlAst) => ({
   support: {
@@ -259,15 +266,19 @@ const unsupported = (expectedMessage: string) => (node: SqlAst) => ({
     expectedMessage,
   },
 })
+
 const unsupportedSimpleSelect = unsupported(
   'Extension contract compiler only supports simple SELECT clauses',
 )
+
 const unsupportedPredicate = unsupported(
   'Extension contract compiler only supports one value predicate',
 )
+
 const unsupportedSelection = unsupported(
   'Extension contract compiler only supports column selections',
 )
+
 const unsupportedNonSelect = unsupported(
   'Extension contract compiler only supports select queries',
 )
@@ -581,6 +592,7 @@ function createLifecycleDialect(
     calls,
     unsupportedMigration ? { migration: 'unsupported' } : undefined,
   )
+
   const faultyLifecycle = options?.emptyPlanReportsApplied
   const dialect: Dialect = faultyLifecycle
     ? {
@@ -609,6 +621,7 @@ function createLifecycleDialect(
         },
       }
     : baseDialect
+
   return { dialect, faultyLifecycle }
 }
 
@@ -626,11 +639,13 @@ async function createSemanticPlannedMigration() {
     },
     request,
   )
+
   const planned = planMigration(
     [SemanticRecords],
     catalog,
     semanticDialect.migration.planning,
   )
+
   return { planned, profile: planned.profile }
 }
 
@@ -831,6 +846,7 @@ it.each(['relations', 'absentRelations', 'completeNamespaces'] as const)(
             executor,
             ignoredRequest,
           )
+
           const reportedRequest = await semanticDialect.catalog.introspectCatalog(
             {
               /** Executes fixture SQL with the configured native observations. */
@@ -838,6 +854,7 @@ it.each(['relations', 'absentRelations', 'completeNamespaces'] as const)(
             },
             request,
           )
+
           return {
             ...snapshot,
             request: reportedRequest.request,
@@ -1146,6 +1163,7 @@ describe('dialect extension contract: rejects a compiler that disagrees with the
         },
       },
     }
+
     const Records = createMismatchedQueryRecords(runtime.dialect)
     unregister = registerDialectForTest(mismatched.dialect)
     const db = createDatabase({ connector: mismatched.connector, schemas: [Records] })
@@ -1155,6 +1173,7 @@ describe('dialect extension contract: rejects a compiler that disagrees with the
         .from(Records)
         .where(Records.label, 'eq', 'authored-value')
         .execute()
+
       expect(() => {
         expect(rows).toEqual(mismatched.expected.queryRows)
         expect(mismatched.queryParams()).toEqual([mismatched.expected.queryParam])

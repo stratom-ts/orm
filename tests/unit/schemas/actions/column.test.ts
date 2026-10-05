@@ -19,6 +19,7 @@ describe('column action', () => {
       generation: { kind: 'identity', mode: 'byDefault' },
       unique: true,
     })
+
     const metadata = action.metadata as Record<string, unknown>
     expect(metadata).toMatchObject({
       kind: 'column',
@@ -48,6 +49,7 @@ describe('getColumnMetadata', () => {
       string(),
       column({ physicalType: { postgresql: 'varchar(255)' } }),
     )
+
     const metadata = getColumnMetadata(schema)
     expect(metadata).toBeDefined()
     expect(metadata!.physicalType).toEqual({ postgresql: 'varchar(255)' })

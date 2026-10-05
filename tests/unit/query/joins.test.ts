@@ -150,6 +150,7 @@ describe('joins compile: should compile joins with where/order/limit', () => {
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => rows,
     })
+
     const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     await expect(
@@ -171,6 +172,7 @@ describe('joins compile: should map joined-table parameters and results with the
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ title: 'Hello', createdAt: when.toISOString() }],
     })
+
     const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     const query = db
@@ -251,6 +253,7 @@ describe('joins namespace resolution: should generate distinct aliases when sche
       namespace: [{ role: 'schema', spelling: 'a.b' }] as const,
       relation: 'c',
     }
+
     const dottedRelation = {
       namespace: [{ role: 'schema', spelling: 'a' }] as const,
       relation: 'b.c',
@@ -302,6 +305,7 @@ describe('joins namespace resolution: should keep aliases within the PostgreSQL 
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: longSchema }] },
     )
+
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [LongSchemaTable] })
 

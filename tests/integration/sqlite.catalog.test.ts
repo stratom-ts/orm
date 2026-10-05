@@ -48,6 +48,7 @@ function relationNamed(snapshot: CatalogSnapshot, name: string): CatalogRelation
   const relation = snapshot.namespaces.items[0]?.relations.items.find(
     (entry) => entry.identity.relation.spelling === name,
   )
+
   expect(relation).toBeDefined()
 
   if (relation === undefined) throw new Error(`Missing SQLite relation ${name}`)
@@ -144,6 +145,7 @@ describe('SQLite catalog introspection with node:sqlite: observes attached and t
             completeNamespaces: [[{ role: 'database', spelling: 'main' }]],
           },
         )
+
         const unique = tableOf(relationNamed(snapshot, 'unique_data'))
 
         expect(unique.uniqueConstraints.items).toMatchObject([
