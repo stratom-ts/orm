@@ -1,5 +1,6 @@
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type {
+  CanonicalRelationIdentityModule,
   CanonicalRelationIdentityPolicy,
   NamespaceContext,
   NamespaceIdentifierInput,
@@ -61,7 +62,7 @@ export const postgresIdentity = {
   create(options: {
     context: NamespaceContext
     registrationDefault?: readonly NamespaceIdentifierInput[]
-  }) {
+  }): CanonicalRelationIdentityModule {
     return createCanonicalRelationIdentityModule({ policy: POSTGRES_POLICY, ...options })
   },
 }

@@ -124,7 +124,8 @@ describe('PostgreSQL catalog integration', () => {
           {
             /** Executes fixture SQL with the configured native observations. */
             async execute(query) {
-              return (await admin.query(query.sql, query.params)).rows
+              return (await admin.query<Record<string, unknown>>(query.sql, query.params))
+                .rows
             },
           },
           request,
@@ -183,7 +184,7 @@ function assertCatalogScope(
 ) {
   expect(catalog.source).toEqual({
     dialect: 'postgresql',
-    version: expect.stringMatching(/^\d+$/),
+    version: expect.stringMatching(/^\d+$/) as unknown,
   })
 
   expect(catalog.capabilities).toMatchObject({

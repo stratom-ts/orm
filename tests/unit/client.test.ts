@@ -77,8 +77,8 @@ describe('createDatabase', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [] })
     expect(db).toMatchObject({
-      ping: expect.any(Function),
-      close: expect.any(Function),
+      ping: expect.any(Function) as unknown,
+      close: expect.any(Function) as unknown,
     })
 
     expect(typeof db[Symbol.asyncDispose]).toBe('function')
@@ -126,7 +126,9 @@ describe('client registration', () => {
     expect(() => createDatabase({ connector, schemas: [Users, DuplicateUsers] })).toThrow(
       expect.objectContaining({
         _tag: 'SchemaError',
-        message: expect.stringContaining('[schema:"public", relation:"users"]'),
+        message: expect.stringContaining(
+          '[schema:"public", relation:"users"]',
+        ) as unknown,
       }),
     )
 
@@ -261,8 +263,8 @@ describe('client registration: does not call the dialect provider when an explic
     const createProvider = vi.spyOn(postgresDialect.operations, 'createSessionProvider')
     const provider = {
       nativeTransactions: true as const,
-      open: vi.fn(),
-      close: vi.fn(async () => undefined),
+      open: vi.fn<() => Promise<never>>(),
+      close: vi.fn<() => Promise<void>>(async () => undefined),
     }
 
     const db = createDatabase({
@@ -304,7 +306,7 @@ describe('client registration: does not call the dialect provider when an explic
     expect(() => createDatabase({ connector, schemas: [] })).toThrow(
       expect.objectContaining({
         _tag: 'SchemaError',
-        message: expect.stringMatching(/unsupported connector dialect/i),
+        message: expect.stringMatching(/unsupported connector dialect/i) as unknown,
       }),
     )
 

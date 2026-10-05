@@ -92,12 +92,12 @@ describe('client lifecycle: rejects root and scoped close calls during active tr
     await db.transaction(async (trx) => {
       await expect(trx.close()).rejects.toMatchObject({
         _tag: 'QueryError',
-        message: expect.stringMatching(/transaction clients cannot close/i),
+        message: expect.stringMatching(/transaction clients cannot close/i) as unknown,
       })
 
       await expect(db.close()).rejects.toMatchObject({
         _tag: 'QueryError',
-        message: expect.stringMatching(/inside an active operation callback/i),
+        message: expect.stringMatching(/inside an active operation callback/i) as unknown,
       })
     })
 

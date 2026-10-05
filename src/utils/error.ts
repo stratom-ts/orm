@@ -84,7 +84,7 @@ export function catchTag<T, E extends Extract<T, { _tag: string }>['_tag'], V>(
   value: T,
   tag: E,
   callback: (error: Extract<T, { _tag: E }>) => V,
-) {
+): V | Exclude<T, { _tag: E }> {
   if (value instanceof Error && '_tag' in value && value._tag === tag) {
     return callback(value as Extract<T, { _tag: E }>)
   }
@@ -105,7 +105,10 @@ export function catchTag<T, E extends Extract<T, { _tag: string }>['_tag'], V>(
  *
  * @returns Handler result, or `value` if no tag matched
  */
-export function catchTags<T, E extends ErrorHandlers<T>>(value: T, handlers: E) {
+export function catchTags<T, E extends ErrorHandlers<T>>(
+  value: T,
+  handlers: E,
+): Exclude<T, { _tag: keyof E }> {
   for (const [tag, callback] of Object.entries<(error: unknown) => unknown>(
     handlers as Record<string, (error: unknown) => unknown>,
   )) {

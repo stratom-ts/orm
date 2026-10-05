@@ -1217,7 +1217,7 @@ describe('SQLite catalog management and opaque evidence: preserves CHECK, genera
 
     expect(generatedTable.columns.items[1]!.nativeDefinition).toMatchObject({
       state: 'present',
-      value: expect.stringContaining('GENERATED ALWAYS'),
+      value: expect.stringContaining('GENERATED ALWAYS') as unknown,
     })
 
     const parent = relationNamed(snapshot, 'parent')
@@ -1267,7 +1267,9 @@ describe('SQLite catalog management and opaque evidence: preserves CHECK, genera
 
     expect(parentTable.uniqueConstraints.items).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: expect.objectContaining({ state: 'unknown' }) }),
+        expect.objectContaining({
+          name: expect.objectContaining({ state: 'unknown' }) as unknown,
+        }),
       ]),
     )
 
@@ -1409,9 +1411,9 @@ describe('SQLite catalog constraints and dependencies: treats authored MATCH cla
         kind: 'other',
         nativeDefinition: {
           state: 'present',
-          value: expect.stringContaining('MATCH FULL'),
+          value: expect.stringContaining('MATCH FULL') as unknown,
         },
-        reason: expect.stringContaining('MATCH'),
+        reason: expect.stringContaining('MATCH') as unknown,
       }),
     )
 
@@ -1492,11 +1494,11 @@ describe('SQLite catalog table clauses and name reservations', () => {
           kind: 'other',
           nativeDefinition: {
             state: 'present',
-            value: expect.stringContaining('CREATE TABLE'),
+            value: expect.stringContaining('CREATE TABLE') as unknown,
           },
           reason: expect.stringContaining(
             'SQLite table clauses are not fully represented',
-          ),
+          ) as unknown,
         }),
       )
     }

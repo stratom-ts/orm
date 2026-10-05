@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
 import type { TableHandle } from '@/types'
+import { attemptSync } from '@/utils/error'
 
 import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import {
@@ -202,14 +203,12 @@ function planningError(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
 ): MigrationError {
-  try {
-    planMigration(schemas, catalog, postgresDialect)
-  } catch (error) {
-    expect(error).toBeInstanceOf(MigrationError)
-    return error as MigrationError
-  }
+  const result = attemptSync(() => planMigration(schemas, catalog, postgresDialect))
 
-  throw new Error('Expected migration planning to fail')
+  if (result.ok) throw new Error('Expected migration planning to fail')
+
+  expect(result.error).toBeInstanceOf(MigrationError)
+  return result.error as MigrationError
 }
 
 /**

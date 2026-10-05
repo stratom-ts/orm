@@ -38,7 +38,11 @@ describe('OperationCoordinator', () => {
 
       expect(capturedSchema).toBe('public')
       expect(error).toBeInstanceOf(QueryError)
-      expect(error).toMatchObject({ message: expect.stringMatching(/identity changed/i) })
+
+      expect(error).toMatchObject({
+        message: expect.stringMatching(/identity changed/i) as unknown,
+      })
+
       expect(dispositions).toEqual(['discard'])
     } finally {
       await coordinator.close()

@@ -2,7 +2,7 @@ import type { RelationIdentityInput } from '@/schemas'
 import type { TableHandle } from '@/types'
 import { QueryError } from '@/utils/error'
 
-import type { DialectQueryResolveOptions } from '../types'
+import type { DialectQueryResolution, DialectQueryResolveOptions } from '../types'
 
 import { compilePostgres, createPostgresQueryRelationResolver } from './compile'
 
@@ -104,7 +104,7 @@ function findPostgresQueryColumnMatches(
 export function resolvePostgresQuery(
   handles: readonly TableHandle[],
   options?: DialectQueryResolveOptions,
-) {
+): DialectQueryResolution {
   const registered = [...handles]
   const requirements = new Map<string, SessionRequirement>()
   const resolveRelation = createPostgresQueryRelationResolver(

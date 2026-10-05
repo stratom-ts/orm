@@ -1,4 +1,11 @@
-import type { ObjectEntries } from 'valibot'
+import type {
+  InferOutput,
+  MetadataAction,
+  ObjectEntries,
+  ObjectSchema,
+  SchemaWithPipe,
+  TitleAction,
+} from 'valibot'
 import { object, pipe, title } from 'valibot'
 
 import type {
@@ -466,6 +473,17 @@ type RelationForNamespace<
     : Readonly<{ namespace: TNamespace; relation: TName }>
   : Readonly<{ relation: TName }>
 
+type DefinedTableSchema<
+  TName extends string,
+  TCols extends ObjectEntries,
+> = SchemaWithPipe<
+  readonly [
+    ObjectSchema<TCols, undefined>,
+    TitleAction<InferOutput<ObjectSchema<TCols, undefined>>, TName>,
+    MetadataAction<InferOutput<ObjectSchema<TCols, undefined>>, TableMetadata<TName>>,
+  ]
+>
+
 /**
  * Builds typed column references from the validated table metadata.
  *
@@ -546,7 +564,14 @@ export function defineTable<
   const TName extends string,
   TCols extends ObjectEntries,
   const TNamespace extends readonly NamespaceIdentifierInput[] | undefined = undefined,
->(name: TName, columns: TCols, options: TableOptions<TCols, TNamespace>) {
+>(
+  name: TName,
+  columns: TCols,
+  options: TableOptions<TCols, TNamespace>,
+): TableHandle<
+  DefinedTableSchema<TName, TCols>,
+  RelationForNamespace<TName, TNamespace>
+> {
   const schema = pipe(object(columns), title(name), table({ name, ...options }))
   return buildTableHandle<typeof schema, RelationForNamespace<TName, TNamespace>>(schema)
 }

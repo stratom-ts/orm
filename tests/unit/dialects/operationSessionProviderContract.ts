@@ -187,7 +187,7 @@ function registerIdentityScenarios(createProvider: ProviderContractFactory): voi
 
       expect(cleanupFailures[0]).toMatchObject({
         _tag: 'QueryError',
-        message: expect.stringMatching(/identity changed/i),
+        message: expect.stringMatching(/identity changed/i) as unknown,
       })
 
       expect(controls.events).toContain('release-finished:1:discard')
@@ -315,18 +315,13 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
     let captured:
       | { readonly database: string; readonly physicalSession: string }
       | undefined
+    let capturedWasFrozen = false
 
     try {
       const error = await coordinator
         .run(async ({ identity }) => {
           captured = identity
-
-          expect(identity).toEqual({
-            database: 'coordinator_test',
-            physicalSession: 'physical-1',
-          })
-
-          expect(Object.isFrozen(identity)).toBe(true)
+          capturedWasFrozen = Object.isFrozen(identity)
         })
         .catch((cause: unknown) => cause)
 
@@ -334,6 +329,8 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
         database: 'coordinator_test',
         physicalSession: 'physical-1',
       })
+
+      expect(capturedWasFrozen).toBe(true)
 
       expect(error).toBeInstanceOf(Error)
       expect((error as Error).message).toMatch(/verify operation session identity/i)
@@ -446,7 +443,7 @@ function registerCombinedIdentityCleanupScenario(
 
       expect(cleanupFailures[0]).toMatchObject({
         _tag: 'QueryError',
-        message: expect.stringMatching(/identity changed/i),
+        message: expect.stringMatching(/identity changed/i) as unknown,
       })
 
       expect(cleanupFailures[1]).toBe(release)
@@ -528,6 +525,10 @@ function registerMigrationScenarios(
 
   it('preserves final identity cleanup evidence across plan and execute wrapping', async () => {
     const release = new Error('release cleanup failure')
+    const verificationFailure = expect.objectContaining({
+      _tag: 'QueryError',
+      message: expect.stringMatching(/verify operation session identity/i) as unknown,
+    }) as unknown
     /** Creates the cleanup failure db fixture used by the contract scenario. */
     const createCleanupFailureDb = () =>
       createDatabase({
@@ -553,13 +554,7 @@ function registerMigrationScenarios(
         stage: 'sessionCleanup',
         outcome: 'applied',
         cleanupFailures: [
-          {
-            stage: 'sessionCleanup',
-            cause: expect.objectContaining({
-              _tag: 'QueryError',
-              message: expect.stringMatching(/verify operation session identity/i),
-            }),
-          },
+          { stage: 'sessionCleanup', cause: verificationFailure },
           { stage: 'sessionCleanup', cause: release },
         ],
       })

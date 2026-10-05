@@ -243,14 +243,13 @@ describe('migration ownership identities and validation', () => {
     expect(second).toThrow(/duplicate migration ownership relation/i)
     const firstAttempt = attemptSync(first)
     const secondAttempt = attemptSync(second)
-    expect(firstAttempt.ok).toBe(false)
-    expect(secondAttempt.ok).toBe(false)
 
-    if (!firstAttempt.ok && !secondAttempt.ok) {
-      expect((firstAttempt.error as Error).message).toBe(
-        (secondAttempt.error as Error).message,
-      )
-    }
+    if (firstAttempt.ok || secondAttempt.ok)
+      throw new Error('Expected both ownership plans to fail')
+
+    expect((firstAttempt.error as Error).message).toBe(
+      (secondAttempt.error as Error).message,
+    )
   })
 })
 

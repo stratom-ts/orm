@@ -121,8 +121,8 @@ function createOperationRunner() {
     return operation(
       executor,
       'test',
-      vi.fn(),
-      vi.fn(async () => undefined),
+      vi.fn<() => void>(),
+      vi.fn<() => Promise<void>>(async () => undefined),
     )
   }
 
@@ -138,8 +138,10 @@ function createOperationRunner() {
  */
 function createMigrationMember(identityAdapter = 'postgresql') {
   const selected = postgresDialect.migration
-  const createIdentity = vi.fn(selected.planning.identity.create)
-  const introspectCatalog = vi.fn(
+  const createIdentity = vi.fn<typeof selected.planning.identity.create>(
+    selected.planning.identity.create,
+  )
+  const introspectCatalog = vi.fn<typeof selected.catalog.introspectCatalog>(
     async (_executor, request: Parameters<typeof completePostgresCatalog>[1]) =>
       completePostgresCatalog(
         {
@@ -151,14 +153,16 @@ function createMigrationMember(identityAdapter = 'postgresql') {
         request,
       ),
   )
-  const lower = vi.fn(selected.lower)
-  const execute = vi.fn(async (options: MigrationRuntimeOptions) => {
-    const program = await options.prepare()
-    return {
-      outcome:
-        program.actions.length === 0 ? ('unchanged' as const) : ('applied' as const),
-    }
-  })
+  const lower = vi.fn<typeof selected.lower>(selected.lower)
+  const execute = vi.fn<typeof selected.execute>(
+    async (options: MigrationRuntimeOptions) => {
+      const program = await options.prepare()
+      return {
+        outcome:
+          program.actions.length === 0 ? ('unchanged' as const) : ('applied' as const),
+      }
+    },
+  )
   const migration: DialectMigrationAdapter = {
     planning: {
       ...selected.planning,
@@ -198,7 +202,7 @@ describe('dialect-neutral migration adapter contract', () => {
 
     expect(member.lower).toHaveBeenCalledWith(
       expect.objectContaining({
-        profile: expect.objectContaining({ identityAdapter: 'postgresql' }),
+        profile: expect.objectContaining({ identityAdapter: 'postgresql' }) as unknown,
       }),
       expect.objectContaining({ identityAdapter: 'postgresql' }),
     )
@@ -227,7 +231,9 @@ describe('dialect-neutral migration adapter contract: keeps executing Semantic P
 
     expect(member.lower).toHaveBeenCalledWith(
       expect.objectContaining({
-        profile: expect.objectContaining({ identityAdapter: 'not-postgresql' }),
+        profile: expect.objectContaining({
+          identityAdapter: 'not-postgresql',
+        }) as unknown,
       }),
       expect.objectContaining({ identityAdapter: 'not-postgresql' }),
     )
@@ -254,7 +260,9 @@ describe('dialect-neutral migration adapter contract: validates the Semantic Pro
 
     expect(member.lower).toHaveBeenCalledWith(
       expect.objectContaining({
-        profile: expect.objectContaining({ identityAdapter: 'not-postgresql' }),
+        profile: expect.objectContaining({
+          identityAdapter: 'not-postgresql',
+        }) as unknown,
       }),
       expect.objectContaining({ identityAdapter: 'not-postgresql' }),
     )
@@ -281,7 +289,7 @@ describe('dialect-neutral migration program preview and issues', () => {
               {
                 sql: 'alter table x add column a text',
                 params: ['secret', 42],
-                assertSession: vi.fn(),
+                assertSession: vi.fn<() => void>(),
               },
               { sql: 'alter table x add column b text', params: [] },
             ],
@@ -334,12 +342,11 @@ describe('dialect-neutral migration program preview and issues: returns zero low
 describe('dialect-neutral migration program preview and issues: rejects lowering issues atomically with the execution error evidence', () => {
   it('rejects lowering issues atomically with the execution error evidence', async () => {
     const member = createMigrationMember()
-    member.lower.mockReturnValue({
-      issues: [
-        { code: 'compile_failure', message: 'failed second', sourceStepIndexes: [3] },
-        { code: 'invalid_target', message: 'failed first', sourceStepIndexes: [1, 3] },
-      ],
-    })
+    const issues: ReturnType<typeof member.lower>['issues'] = [
+      { code: 'compile_failure', message: 'failed second', sourceStepIndexes: [3] },
+      { code: 'invalid_target', message: 'failed first', sourceStepIndexes: [1, 3] },
+    ]
+    member.lower.mockReturnValue({ issues })
 
     const builder = createMigrateBuilder({
       schemas: [],
@@ -354,7 +361,7 @@ describe('dialect-neutral migration program preview and issues: rejects lowering
       outcome: 'unchanged',
       retryable: false,
       sourceStepIndexes: [1, 3],
-      capabilityIssues: member.lower.mock.results[0]!.value.issues,
+      capabilityIssues: issues,
       message: 'failed second\nfailed first',
     })
 
@@ -386,7 +393,7 @@ function assertMigrationPreview(
 
   expect(member.lower).toHaveBeenCalledWith(
     expect.objectContaining({
-      profile: expect.objectContaining({ identityAdapter: 'postgresql' }),
+      profile: expect.objectContaining({ identityAdapter: 'postgresql' }) as unknown,
     }),
     expect.objectContaining({ identityAdapter: 'postgresql' }),
   )

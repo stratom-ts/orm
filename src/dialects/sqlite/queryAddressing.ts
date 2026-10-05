@@ -2,7 +2,7 @@ import type { RelationIdentityInput } from '@/schemas'
 import type { TableHandle } from '@/types'
 import { QueryError } from '@/utils/error'
 
-import type { DialectQueryResolveOptions } from '../types'
+import type { DialectQueryResolution, DialectQueryResolveOptions } from '../types'
 
 import { compileSqlite, createSqliteQueryRelationResolver } from './compile'
 import { asciiFoldSqliteIdentifier } from './identity'
@@ -11,7 +11,7 @@ import { asciiFoldSqliteIdentifier } from './identity'
 export function resolveSqliteQuery(
   handles: readonly TableHandle[],
   options?: DialectQueryResolveOptions,
-) {
+): DialectQueryResolution {
   const resolveRelation = createSqliteQueryRelationResolver(options?.registrationDefault)
   const registered = handles.map((handle) => ({
     handle,

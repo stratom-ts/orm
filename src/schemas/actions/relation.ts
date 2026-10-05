@@ -28,16 +28,18 @@ export function validateRelationInput(input: RelationIdentityInput): void {
 
   if (input.namespace === undefined) return
 
-  if (!Array.isArray(input.namespace)) {
+  if (!Array.isArray(input.namespace as unknown)) {
     throw new SchemaError({ message: 'table namespace must be an array' })
   }
 
   const roles = new Set<NamespaceRole>()
 
-  for (const segment of input.namespace) {
-    if (typeof segment !== 'object' || segment === null) {
+  for (const value of input.namespace as readonly unknown[]) {
+    if (typeof value !== 'object' || value === null) {
       throw new SchemaError({ message: 'table namespace segments must be objects' })
     }
+
+    const segment = value as NamespaceIdentifierInput
 
     if (!NAMESPACE_ROLES.has(segment.role)) {
       throw new SchemaError({

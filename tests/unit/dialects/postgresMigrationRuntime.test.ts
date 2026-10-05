@@ -554,7 +554,7 @@ describe('PostgreSQL application-scoped migration coordination: reports the conf
       expect(runtime.queries).toEqual([
         {
           sql: 'select pg_try_advisory_lock($1, $2) as "locked"',
-          params: expect.any(Array),
+          params: expect.any(Array) as unknown,
         },
       ])
 

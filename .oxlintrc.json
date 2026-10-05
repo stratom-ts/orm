@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["import", "typescript"],
+  "plugins": ["import", "typescript", "jsdoc"],
   "jsPlugins": ["./tools/oxlint-whitespace-plugin.mjs"],
   "categories": {
     "correctness": "error",
@@ -13,11 +13,21 @@
     "node": true
   },
   "ignorePatterns": ["**/.output", "**/dist", "**/node_modules"],
-  "extends": ["./config/oxlint/import.json", "./config/oxlint/typescript.json"],
+  "extends": [
+    "./config/oxlint/import.json",
+    "./config/oxlint/typescript.json",
+    "./config/oxlint/vitest.json"
+  ],
   "rules": {
     "stratom/whitespace": "error",
+    "array-callback-return": "error",
     "complexity": ["error", 20],
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
     "max-depth": ["error", 2],
-    "max-lines-per-function": ["error", 50]
+    "max-lines-per-function": ["error", 50],
+    "no-else-return": "error",
+    "no-lonely-if": "error",
+    "jsdoc/require-param-description": "error",
+    "jsdoc/require-returns-description": "error"
   }
 }
