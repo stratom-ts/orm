@@ -42,6 +42,7 @@ const Events = defineTable(
 const records = { relation: 'records' } as const
 const events = { relation: 'events' } as const
 
+/** Rejects accidental use of a facet outside the declared SQLite contract capability. */
 function unsupportedFacet(facet: string): never {
   throw new Error(`SQLite contract fixture does not exercise ${facet}`)
 }
@@ -55,13 +56,23 @@ const sqliteContractDialect: Dialect = {
   query: sqliteQuery,
   catalog: sqliteCatalog,
   operations: {
+    /** Creates the connector's provider for exclusive native operation sessions. */
     createSessionProvider: () => unsupportedFacet('operation sessions'),
+    /** Compiles the current query or command into SQL and ordered bound parameters. */
     compile: () => unsupportedFacet('operation commands'),
   },
   migration: {
     planning: { identity: sqliteIdentity, naming: sqliteNaming, schema: sqliteSchema },
-    catalog: { introspectCatalog: async () => unsupportedFacet('catalog') },
+    catalog: {
+      /**
+       * Reads the requested native catalog scope and returns its portable evidence
+       * snapshot.
+       */
+      introspectCatalog: async () => unsupportedFacet('catalog'),
+    },
+    /** Lowers for the current fixture scenario. */
     lower: () => unsupportedFacet('migration lowering'),
+    /** Executes fixture SQL with the configured native observations. */
     execute: async () => unsupportedFacet('migration execution'),
   },
 }
@@ -99,6 +110,7 @@ type SupportedQueryInput = Extract<
   { state: 'supported' }
 >['input']
 
+/** Wraps contract input in explicit supported-capability evidence. */
 function supported(
   node: SqlAst,
   expected: Readonly<{ sql: string; params: readonly unknown[] }>,
@@ -117,6 +129,7 @@ function supported(
   }
 }
 
+/** Records adapter-level unsupported catalog evidence with its reason. */
 function unsupported(node: SqlAst, expectedMessage: string) {
   return {
     support: {
@@ -496,6 +509,7 @@ registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities,
             relation: records,
             selection: [{ kind: 'column', column: 'label' }],
           },
+          /** Projects compiled SQL and bindings into the contract's assertion shape. */
           inspectCompiled: (query) => ({
             parameterCount: query.params.length,
             addressesMain: query.sql.includes('"main"."records"'),
@@ -532,6 +546,7 @@ registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities,
       input: {
         dialect: sqliteContractDialect,
         executor: {
+          /** Executes fixture SQL with the configured native observations. */
           execute: async ({ sql }) => {
             if (sql.includes('sqlite_version')) return [{ version: '3.45.0' }]
 

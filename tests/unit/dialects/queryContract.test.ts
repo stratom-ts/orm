@@ -9,14 +9,7 @@ import { exactQueryAddressing } from '../helpers/queryAddressing'
 
 describe('dialect query contract', () => {
   it('delivers authored relation intent to the selected query member', () => {
-    const Events = defineTable(
-      'events',
-      { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
-      {
-        primaryKey: 'id',
-        namespace: [{ role: 'database', spelling: 'analytics' }],
-      },
-    )
+    const Events = createEventsTable()
     const selectedCompile = vi.fn((node: SelectAst) => {
       expect(node.relation).toEqual({
         namespace: [{ role: 'database', spelling: 'analytics' }],
@@ -49,7 +42,9 @@ describe('dialect query contract', () => {
       handle: Events,
       dialect,
       executor: {
+        /** Executes fixture SQL with the configured native observations. */
         execute: async () => [],
+        /** Runs a fixture statement with configured outcomes. */
         run: async () => undefined,
       },
     })
@@ -59,7 +54,9 @@ describe('dialect query contract', () => {
     expect(compiled.sql).toBe('test member compiled query')
     expect(selectedCompile).toHaveBeenCalledOnce()
   })
+})
 
+describe('dialect query contract: keeps omitted qualification omitted for the selected member', () => {
   it('keeps omitted qualification omitted for the selected member', () => {
     const Events = defineTable(
       'events',
@@ -84,7 +81,9 @@ describe('dialect query contract', () => {
       handle: Events,
       dialect,
       executor: {
+        /** Executes fixture SQL with the configured native observations. */
         execute: async () => [],
+        /** Runs a fixture statement with configured outcomes. */
         run: async () => undefined,
       },
     }).compile()
@@ -92,7 +91,9 @@ describe('dialect query contract', () => {
     expect(compiled.sql).toBe('unqualified test query')
     expect(selectedCompile).toHaveBeenCalledOnce()
   })
+})
 
+describe('dialect query contract: resolves reference types by complete structured relation intent', () => {
   it('resolves reference types by complete structured relation intent', () => {
     const NumericItem = defineTable(
       'items',
@@ -123,6 +124,7 @@ describe('dialect query contract', () => {
       id: 'sqlite',
       schema: {
         ...postgresDialect.schema,
+        /** Infers a supported physical SQL type from Valibot schema facts. */
         inferColumnType: () => 'fallback',
       },
       query: {
@@ -135,7 +137,9 @@ describe('dialect query contract', () => {
 
     expect(mapper.columnTypes(Link).itemId).toBe('text')
   })
+})
 
+describe('Dialect query relation lookup errors', () => {
   it('throws tagged errors when semantic relation lookup finds zero matches', () => {
     const Events = defineTable(
       'events',
@@ -154,56 +158,13 @@ describe('dialect query contract', () => {
       },
     }
 
-    expect(() =>
-      createTableBuilder({
-        handle: Events,
-        dialect,
-        executor: { execute: async () => [], run: async () => undefined },
-      })
-        .select(() => [
-          {
-            kind: 'column',
-            relation: {
-              namespace: [{ role: 'database', spelling: 'missing' }],
-              relation: 'events',
-            },
-            column: 'id',
-            alias: 'id',
-          } as const,
-        ])
-        .compile(),
-    ).toThrow(QueryError)
-
-    expect(() =>
-      createTableBuilder({
-        handle: Events,
-        dialect,
-        executor: { execute: async () => [], run: async () => undefined },
-      })
-        .select(() => [
-          {
-            kind: 'column',
-            relation: {
-              namespace: [{ role: 'database', spelling: 'missing' }],
-              relation: 'events',
-            },
-            column: 'id',
-            alias: 'id',
-          } as const,
-        ])
-        .compile(),
-    ).toThrow(/not available in this query/i)
+    assertMissingRelationError(Events, dialect)
   })
+})
 
+describe('Dialect query relation lookup errors: throws tagged errors when semantic relation lookup finds multiple matches', () => {
   it('throws tagged errors when semantic relation lookup finds multiple matches', () => {
-    const Events = defineTable(
-      'events',
-      { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
-      {
-        primaryKey: 'id',
-        namespace: [{ role: 'database', spelling: 'analytics' }],
-      },
-    )
+    const Events = createAmbiguousEventsTable()
     const DuplicateEvents = defineTable(
       'events',
       { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
@@ -221,32 +182,19 @@ describe('dialect query contract', () => {
       },
     }
 
-    expect(() =>
-      createTableBuilder({
-        handle: Events,
-        dialect,
-        executor: { execute: async () => [], run: async () => undefined },
-      })
-        .innerJoin(DuplicateEvents, eq(Events.id, DuplicateEvents.id))
-        .select(() => [
-          {
-            kind: 'column',
-            relation: {
-              namespace: [{ role: 'database', spelling: 'analytics' }],
-              relation: 'events',
-            },
-            column: 'id',
-            alias: 'id',
-          } as const,
-        ])
-        .compile(),
-    ).toThrow(QueryError)
+    assertAmbiguousRelationError(Events, dialect, DuplicateEvents)
 
     expect(() =>
       createTableBuilder({
         handle: Events,
         dialect,
-        executor: { execute: async () => [], run: async () => undefined },
+        executor: {
+          /** Executes fixture SQL with the configured native observations. */
+          execute: async () => [],
+
+          /** Runs a fixture statement with configured outcomes. */
+          run: async () => undefined,
+        },
       })
         .innerJoin(DuplicateEvents, eq(Events.id, DuplicateEvents.id))
         .select(() => [
@@ -264,3 +212,142 @@ describe('dialect query contract', () => {
     ).toThrow(/ambiguous in this query/i)
   })
 })
+
+/**
+ * Builds a fresh ambiguous events table handle for the schema scenario.
+ *
+ * @returns A fresh ambiguous events table handle for the schema scenario.
+ */
+function createAmbiguousEventsTable() {
+  return defineTable(
+    'events',
+    { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
+    {
+      primaryKey: 'id',
+      namespace: [{ role: 'database', spelling: 'analytics' }],
+    },
+  )
+}
+
+/**
+ * Builds a fresh events table handle for the schema scenario.
+ *
+ * @returns A fresh events table handle for the schema scenario.
+ */
+function createEventsTable() {
+  return defineTable(
+    'events',
+    { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
+    {
+      primaryKey: 'id',
+      namespace: [{ role: 'database', spelling: 'analytics' }],
+    },
+  )
+}
+
+/**
+ * Checks the tagged query error for an ambiguous authored relation reference.
+ *
+ * @param Events - Table handle used to exercise events schema behavior.
+ * @param dialect - Selected dialect's schema, query, and lifecycle operations.
+ * @param DuplicateEvents - Table handle used to exercise duplicate events schema
+ *   behavior.
+ */
+function assertAmbiguousRelationError(
+  Events: ReturnType<typeof createEventsTable>,
+  dialect: Dialect,
+  DuplicateEvents: ReturnType<typeof createEventsTable>,
+) {
+  expect(() =>
+    createTableBuilder({
+      handle: Events,
+      dialect,
+      executor: {
+        /** Executes fixture SQL with the configured native observations. */
+        execute: async () => [],
+
+        /** Runs a fixture statement with configured outcomes. */
+        run: async () => undefined,
+      },
+    })
+      .innerJoin(DuplicateEvents, eq(Events.id, DuplicateEvents.id))
+      .select(() => [
+        {
+          kind: 'column',
+          relation: {
+            namespace: [{ role: 'database', spelling: 'analytics' }],
+            relation: 'events',
+          },
+          column: 'id',
+          alias: 'id',
+        } as const,
+      ])
+      .compile(),
+  ).toThrow(QueryError)
+}
+
+/**
+ * Checks the tagged query error for an unregistered authored relation reference.
+ *
+ * @param Events - Table handle used to exercise events schema behavior.
+ * @param dialect - Selected dialect's schema, query, and lifecycle operations.
+ */
+function assertMissingRelationError(
+  Events: ReturnType<typeof createEventsTable>,
+  dialect: Dialect,
+) {
+  expect(() =>
+    createTableBuilder({
+      handle: Events,
+      dialect,
+      executor: createEmptyQueryExecutor(),
+    })
+      .select(() => [
+        {
+          kind: 'column',
+          relation: {
+            namespace: [{ role: 'database', spelling: 'missing' }],
+            relation: 'events',
+          },
+          column: 'id',
+          alias: 'id',
+        } as const,
+      ])
+      .compile(),
+  ).toThrow(QueryError)
+
+  expect(() =>
+    createTableBuilder({
+      handle: Events,
+      dialect,
+      executor: createEmptyQueryExecutor(),
+    })
+      .select(() => [
+        {
+          kind: 'column',
+          relation: {
+            namespace: [{ role: 'database', spelling: 'missing' }],
+            relation: 'events',
+          },
+          column: 'id',
+          alias: 'id',
+        } as const,
+      ])
+      .compile(),
+  ).toThrow(/not available in this query/i)
+}
+
+/**
+ * Supplies inert execution methods for query-compilation rejection checks.
+ *
+ * @returns An executor whose queries return no rows and whose statements do nothing.
+ */
+function createEmptyQueryExecutor(): import('@/query').Executor {
+  return {
+    /** Executes fixture SQL with the configured native observations. */
+    execute: async () => [],
+
+    /** Runs a fixture statement with configured outcomes. */
+    run: async () => undefined,
+  }
+}

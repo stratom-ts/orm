@@ -45,7 +45,9 @@ describe('isTruthyFlag', () => {
     expect(isTruthyFlag('0')).toBe(false)
     expect(isTruthyFlag('')).toBe(false)
   })
+})
 
+describe('isTruthyFlag: should return false for null', () => {
   it('should return false for null', () => {
     expect(isTruthyFlag(null)).toBe(false)
   })

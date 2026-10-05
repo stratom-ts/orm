@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import type { OperationSessionProvider } from '@/index'
 import { createDatabase } from '@/index'
 
 import { deferred } from '../helpers/deferredPromise'
@@ -14,6 +15,7 @@ describe('operation coordinator lifecycle', () => {
     const firstCall = deferred()
     const finishFirst = deferred()
     const controls = createControllableProvider({
+      /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (session) => {
         if (session === 1) {
           firstCall.resolve()
@@ -36,36 +38,18 @@ describe('operation coordinator lifecycle', () => {
     finishFirst.resolve()
     await Promise.all([query, transaction, planning, migration])
 
-    expect(controls.events.filter((event) => event.startsWith('lease-opened:'))).toEqual([
-      'lease-opened:1',
-      'lease-opened:2',
-      'lease-opened:3',
-      'lease-opened:4',
-    ])
-
-    expect(
-      controls.calls.some((entry) => entry.session === 2 && entry.sql === 'begin'),
-    ).toBe(true)
-
-    expect(
-      controls.calls.some(
-        (entry) => entry.session === 3 && /current_database\(\)/i.test(entry.sql),
-      ),
-    ).toBe(true)
-
-    expect(
-      controls.calls.some(
-        (entry) => entry.session === 4 && /pg_try_advisory_lock/i.test(entry.sql),
-      ),
-    ).toBe(true)
+    assertRootOperationOrder(controls)
 
     await db.close()
   })
+})
 
+describe('operation coordinator lifecycle: drains accepted operations and releases them before provider close', () => {
   it('drains accepted operations and releases them before provider close', async () => {
     const firstStarted = deferred()
     const finishFirst = deferred()
     const controls = createControllableProvider({
+      /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (session) => {
         if (session === 1) {
           firstStarted.resolve()
@@ -93,7 +77,9 @@ describe('operation coordinator lifecycle', () => {
     expect(controls.events).toContain('release-finished:2:reuse')
     await expect(db.ping()).rejects.toThrow(/closed/i)
   })
+})
 
+describe('operation coordinator lifecycle: returns one shutdown promise and preserves provider close rejection', () => {
   it('returns one shutdown promise and preserves provider close rejection', async () => {
     const closeError = new Error('provider close failed')
     const controls = createControllableProvider({
@@ -114,7 +100,9 @@ describe('operation coordinator lifecycle', () => {
     await expect(later).rejects.toBe(closeError)
     expect(controls.closeCount).toBe(1)
   })
+})
 
+describe('operation coordinator lifecycle: returns one shutdown promise and preserves provider close rejection: preserves rejection with undefined from callbacks and release cleanup', () => {
   it('preserves rejection with undefined from callbacks and release cleanup', async () => {
     const callbackControls = createControllableProvider()
     const callbackDb = createDatabase({
@@ -152,3 +140,41 @@ describe('operation coordinator lifecycle', () => {
     await releaseDb.close()
   })
 })
+
+/**
+ * Checks that query, transaction, planning, and migration calls receive separate
+ * serialized root sessions.
+ *
+ * @param controls - Mutable test observations and synchronization controls.
+ */
+function assertRootOperationOrder(controls: {
+  provider: OperationSessionProvider
+  events: string[]
+  calls: { session: number; sql: string }[]
+  readonly openCount: number
+  readonly maxActiveCalls: number
+  readonly closeCount: number
+}) {
+  expect(controls.events.filter((event) => event.startsWith('lease-opened:'))).toEqual([
+    'lease-opened:1',
+    'lease-opened:2',
+    'lease-opened:3',
+    'lease-opened:4',
+  ])
+
+  expect(
+    controls.calls.some((entry) => entry.session === 2 && entry.sql === 'begin'),
+  ).toBe(true)
+
+  expect(
+    controls.calls.some(
+      (entry) => entry.session === 3 && /current_database\(\)/i.test(entry.sql),
+    ),
+  ).toBe(true)
+
+  expect(
+    controls.calls.some(
+      (entry) => entry.session === 4 && /pg_try_advisory_lock/i.test(entry.sql),
+    ),
+  ).toBe(true)
+}

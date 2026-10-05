@@ -397,30 +397,8 @@ function compilePredicate(
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
   switch (pred.kind) {
-    case 'cmp': {
-      const left = qualifyColumn(pred.column, relations, pred.relation, resolveRelation)
-      const op = comparisonSql(pred.op)
-
-      if (pred.right) {
-        return `${left} ${op} ${compileQualifiedColumn(pred.right, relations, resolveRelation)}`
-      }
-
-      if (pred.value !== null) {
-        params.push(pred.value)
-        return `${left} ${op} $${params.length}`
-      }
-
-      const nullComparison =
-        pred.op === 'eq'
-          ? `${left} is null`
-          : pred.op === 'neq'
-            ? `${left} is not null`
-            : undefined
-
-      if (nullComparison) return nullComparison
-
-      throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
-    }
+    case 'cmp':
+      return compileComparison(pred, params, relations, resolveRelation)
     case 'and': {
       if (pred.preds.length === 0) return 'true'
 
@@ -644,6 +622,30 @@ function compileSelect(
 
   sql += compileWhereClause(node.where, params, relations, resolveRelation)
 
+  sql = compileSelectTail(node, sql, relations, resolveRelation, params)
+
+  return { sql, params }
+}
+
+/**
+ * Adds grouping, HAVING, ordering, and pagination to a compiled select prefix.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param sql - Native SQL text being scanned, compiled, or observed.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
+function compileSelectTail(
+  node: SelectAst,
+  sql: string,
+  relations: PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
+  params: unknown[],
+) {
   if (node.groupBy && node.groupBy.length > 0) {
     sql += ` group by ${node.groupBy.map((c) => compileQualifiedColumn(c, relations, resolveRelation)).join(', ')}`
   }
@@ -664,7 +666,7 @@ function compileSelect(
     sql += ` offset $${params.length}`
   }
 
-  return { sql, params }
+  return sql
 }
 
 /**
@@ -761,6 +763,13 @@ function queryExpressionRelations(expression: SqlExprAst): RelationIdentityInput
   return expression.arg.relation === undefined ? [] : [expression.arg.relation]
 }
 
+/**
+ * Collects relation references from nested query predicates.
+ *
+ * @param predicate - Predicate or predicate factory used to filter query results.
+ *
+ * @returns Relation references appearing in the predicate tree.
+ */
 function queryPredicateRelations(
   predicate: PredicateAst | undefined,
 ): RelationIdentityInput[] {
@@ -778,6 +787,13 @@ function queryPredicateRelations(
   ]
 }
 
+/**
+ * Collects explicit relation references from select expressions and predicates.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ *
+ * @returns Relation references used by the select clauses.
+ */
 function selectRelationReferences(node: SelectAst): RelationIdentityInput[] {
   return [
     ...node.selection.flatMap((item) => {
@@ -801,6 +817,14 @@ function selectRelationReferences(node: SelectAst): RelationIdentityInput[] {
   ]
 }
 
+/**
+ * Finds database and namespace evidence required for a query relation to be valid.
+ *
+ * @param physical - Observed physical namespace or relation-name reservation.
+ * @param reference - Foreign-key target and referential actions.
+ *
+ * @returns The native namespace requirement for the resolved relation, when needed.
+ */
 function relationSessionRequirement(
   physical: PostgresQueryRelation,
   reference: PostgresQueryRelation,
@@ -837,6 +861,18 @@ function relationSessionRequirement(
   }
 }
 
+/**
+ * Adds physical-session preconditions to a compiled PostgreSQL query.
+ *
+ * @param compiled - Compiled SQL, bound parameters, and optional session preconditions.
+ * @param physicalRelations - Native relation inventory used for physical-name
+ *   reservation.
+ * @param references - Foreign-key references used by the fixture schema.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The compiled query with any required physical-session identity guard attached.
+ */
 function guardQuerySession(
   compiled: CompiledQuery,
   physicalRelations: readonly RelationIdentityInput[],
@@ -844,6 +880,62 @@ function guardQuerySession(
   resolveRelation: PostgresQueryRelationResolver,
 ): CompiledQuery {
   const resolvedPhysical = physicalRelations.map(resolveRelation)
+  const requirements = collectSessionRequirements(
+    resolvedPhysical,
+    references,
+    resolveRelation,
+  )
+
+  if (requirements.size === 0) return compiled
+
+  return {
+    ...compiled,
+    /**
+     * Rejects execution on a session that does not satisfy the compiled query's identity
+     * requirements.
+     */
+    assertSession(identity) {
+      const namespace = identity.namespaceContext?.writableDefault
+      const database =
+        namespace?.find((segment) => segment.role === 'database')?.spelling ??
+        identity.database
+      const schema = namespace?.find((segment) => segment.role === 'schema')?.spelling
+
+      for (const requirement of requirements.values()) {
+        if (requirement.database !== undefined && requirement.database !== database) {
+          throw new QueryError({
+            message: `PostgreSQL query database ${JSON.stringify(requirement.database)} does not match executing database ${JSON.stringify(database)}`,
+          })
+        }
+
+        if (requirement.schema !== undefined && requirement.schema !== schema) {
+          throw new QueryError({
+            message: `PostgreSQL query schema ${JSON.stringify(requirement.schema)} does not match executing current schema ${JSON.stringify(schema)}`,
+          })
+        }
+      }
+    },
+  }
+}
+
+/**
+ * Collects and checks identity requirements introduced by resolved query relations.
+ *
+ * @param resolvedPhysical - Validated physical-name and namespace evidence.
+ * @param references - Foreign-key references used by the fixture schema.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns And checks identity requirements introduced by resolved query relations.
+ */
+function collectSessionRequirements(
+  resolvedPhysical: PostgresQueryRelation[],
+  references: readonly Readonly<{
+    namespace?: readonly NamespaceIdentifierInput[]
+    relation: string
+  }>[],
+  resolveRelation: PostgresQueryRelationResolver,
+) {
   const requirements = new Map<string, Readonly<{ database?: string; schema?: string }>>()
 
   for (const relation of resolvedPhysical) {
@@ -870,32 +962,7 @@ function guardQuerySession(
     }
   }
 
-  if (requirements.size === 0) return compiled
-
-  return {
-    ...compiled,
-    assertSession(identity) {
-      const namespace = identity.namespaceContext?.writableDefault
-      const database =
-        namespace?.find((segment) => segment.role === 'database')?.spelling ??
-        identity.database
-      const schema = namespace?.find((segment) => segment.role === 'schema')?.spelling
-
-      for (const requirement of requirements.values()) {
-        if (requirement.database !== undefined && requirement.database !== database) {
-          throw new QueryError({
-            message: `PostgreSQL query database ${JSON.stringify(requirement.database)} does not match executing database ${JSON.stringify(database)}`,
-          })
-        }
-
-        if (requirement.schema !== undefined && requirement.schema !== schema) {
-          throw new QueryError({
-            message: `PostgreSQL query schema ${JSON.stringify(requirement.schema)} does not match executing current schema ${JSON.stringify(schema)}`,
-          })
-        }
-      }
-    },
-  }
+  return requirements
 }
 
 /**
@@ -1118,6 +1185,45 @@ export function compilePostgres(
 ): CompiledQuery {
   switch (node.kind) {
     case 'select':
+    case 'insert':
+    case 'update':
+    case 'delete':
+      return compilePostgresQuery(node, resolveRelation)
+    case 'create_schema':
+    case 'create_table':
+    case 'create_index':
+    case 'add_column':
+    case 'add_unique_constraint':
+    case 'add_foreign_key':
+    case 'alter_column_type':
+    case 'set_not_null':
+    case 'drop_not_null':
+    case 'drop_column':
+    case 'drop_table':
+    case 'drop_index':
+      return compilePostgresDdl(node)
+    default: {
+      const _exhaustive: never = node
+      return _exhaustive
+    }
+  }
+}
+
+/**
+ * Dispatches query AST forms and attaches their required session identity checks.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
+function compilePostgresQuery(
+  node: Extract<PostgresAst, { kind: 'select' | 'insert' | 'update' | 'delete' }>,
+  resolveRelation: PostgresQueryRelationResolver,
+): CompiledQuery {
+  switch (node.kind) {
+    case 'select':
       return guardQuerySession(
         compileSelect(node, resolveRelation),
         [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
@@ -1145,21 +1251,18 @@ export function compilePostgres(
         [...queryPredicateRelations(node.where)],
         resolveRelation,
       )
-    case 'create_schema':
-      return {
-        sql: `create schema if not exists ${quoteIdent(node.schema)}`,
-        params: [],
-      }
-    case 'create_table':
-      return { sql: compileCreateTable(node), params: [] }
-    case 'create_index':
-      return { sql: compileCreateIndex(node), params: [] }
-    case 'add_column':
-      return { sql: compileAddColumn(node), params: [] }
-    case 'add_unique_constraint':
-      return { sql: compileAddUniqueConstraint(node), params: [] }
-    case 'add_foreign_key':
-      return { sql: compileAddForeignKey(node), params: [] }
+  }
+}
+
+/**
+ * Compiles column and relation alterations into PostgreSQL statements.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
+function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
+  switch (node.kind) {
     case 'alter_column_type': {
       const tableSql = qualifyPostgresTable(node.schema, node.table)
       const safeType = assertSafePostgresDataType(node.dataType)
@@ -1168,20 +1271,10 @@ export function compilePostgres(
         params: [],
       }
     }
-    case 'set_not_null': {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} set not null`,
-        params: [],
-      }
-    }
-    case 'drop_not_null': {
-      const tableSql = qualifyPostgresTable(node.schema, node.table)
-      return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} drop not null`,
-        params: [],
-      }
-    }
+    case 'set_not_null':
+      return compileNullabilityAlteration(node)
+    case 'drop_not_null':
+      return compileNullabilityAlteration(node)
     case 'drop_column': {
       const tableSql = qualifyPostgresTable(node.schema, node.table)
       return {
@@ -1206,6 +1299,136 @@ export function compilePostgres(
     default: {
       const _exhaustive: never = node
       return _exhaustive
+    }
+  }
+}
+
+/**
+ * Dispatches PostgreSQL creation, constraint, and alteration AST forms.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
+function compilePostgresDdl(
+  node: Exclude<
+    PostgresAst,
+    Extract<PostgresAst, { kind: 'select' | 'insert' | 'update' | 'delete' }>
+  >,
+): CompiledQuery {
+  switch (node.kind) {
+    case 'create_schema':
+      return {
+        sql: `create schema if not exists ${quoteIdent(node.schema)}`,
+        params: [],
+      }
+    case 'create_table':
+      return { sql: compileCreateTable(node), params: [] }
+    case 'create_index':
+      return { sql: compileCreateIndex(node), params: [] }
+    case 'add_column':
+      return { sql: compileAddColumn(node), params: [] }
+    case 'add_unique_constraint':
+      return { sql: compileAddUniqueConstraint(node), params: [] }
+    case 'add_foreign_key':
+      return { sql: compileAddForeignKey(node), params: [] }
+    case 'alter_column_type':
+    case 'set_not_null':
+    case 'drop_not_null':
+    case 'drop_column':
+    case 'drop_table':
+    case 'drop_index':
+      return compilePostgresAlteration(node)
+    default: {
+      const _exhaustive: never = node
+      return _exhaustive
+    }
+  }
+}
+
+/**
+ * Compiles column or value comparisons, including SQL's special null predicates.
+ *
+ * @param pred - Predicate whose values and relation references are being resolved.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
+function compileComparison(
+  pred: Extract<PredicateAst, { kind: 'cmp' }>,
+  params: unknown[],
+  relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
+): string {
+  const left = qualifyColumn(pred.column, relations, pred.relation, resolveRelation)
+  const op = comparisonSql(pred.op)
+
+  if (pred.right) {
+    return `${left} ${op} ${compileQualifiedColumn(pred.right, relations, resolveRelation)}`
+  }
+
+  if (pred.value !== null) {
+    params.push(pred.value)
+    return `${left} ${op} $${params.length}`
+  }
+
+  const nullComparison =
+    pred.op === 'eq'
+      ? `${left} is null`
+      : pred.op === 'neq'
+        ? `${left} is not null`
+        : undefined
+
+  if (nullComparison) return nullComparison
+
+  throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
+}
+
+type PostgresAlteration = Extract<
+  PostgresAst,
+  {
+    kind:
+      | 'alter_column_type'
+      | 'set_not_null'
+      | 'drop_not_null'
+      | 'drop_column'
+      | 'drop_table'
+      | 'drop_index'
+  }
+>
+
+/**
+ * Compiles the requested SET NOT NULL or DROP NOT NULL alteration.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
+function compileNullabilityAlteration(
+  node: Extract<
+    PostgresAlteration,
+    { kind: 'set_not_null' | 'drop_not_null' | 'drop_column' }
+  >,
+): CompiledQuery {
+  if (node.kind === 'drop_column') return compilePostgresAlteration(node)
+
+  switch (node.kind) {
+    case 'set_not_null': {
+      const tableSql = qualifyPostgresTable(node.schema, node.table)
+      return {
+        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} set not null`,
+        params: [],
+      }
+    }
+    case 'drop_not_null': {
+      const tableSql = qualifyPostgresTable(node.schema, node.table)
+      return {
+        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} drop not null`,
+        params: [],
+      }
     }
   }
 }

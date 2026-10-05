@@ -6,17 +6,30 @@ import { QueryError, column, createDatabase, defineTable, postgresDialect } from
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 
+/**
+ * Creates a reusable db0 statement fixture with deterministic rows and optional execution
+ * failure.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ *
+ * @returns A reusable db0 statement fixture with deterministic rows and optional
+ *   execution failure.
+ */
 function createMockStatement(rows: unknown[] = [{ '?column?': 1 }]): Statement {
   const statement: Statement = {
+    /** Binds fixture parameter values and returns the statement for execution. */
     bind() {
       return statement
     },
+    /** Returns the fixture statement rows or its configured rejection. */
     async all() {
       return rows
     },
+    /** Runs a fixture statement with configured outcomes. */
     async run() {
       return { success: true }
     },
+    /** Returns the first fixture row, or undefined when no rows exist. */
     async get() {
       return rows[0]
     },
@@ -24,9 +37,17 @@ function createMockStatement(rows: unknown[] = [{ '?column?': 1 }]): Statement {
   return statement
 }
 
+/**
+ * Creates a connector fixture that records prepared statements and supplies controlled
+ * native behavior.
+ *
+ * @returns A connector fixture that records prepared statements and supplies controlled
+ *   native behavior.
+ */
 function createMockConnector(): Connector & { disposed: boolean; prepared: string[] } {
   const prepared: string[] = []
 
+  /** Prepares the fixture statement for the supplied SQL. */
   const prepare = (sql: string) => {
     prepared.push(sql)
     return createMockStatement()
@@ -38,9 +59,12 @@ function createMockConnector(): Connector & { disposed: boolean; prepared: strin
     dialect: 'postgresql' as const,
     disposed: false,
     prepared,
+    /** Returns the native client owned by the fixture connector. */
     getInstance: () => nativeClient,
+    /** Executes connector SQL for the fixture scenario. */
     exec: async () => ({}),
     prepare,
+    /** Records disposal and closes owned fixture resources. */
     dispose: async () => {
       connector.disposed = true
     },
@@ -109,7 +133,9 @@ describe('client registration', () => {
     expect(getInstance).not.toHaveBeenCalled()
     expect(connector.prepared).toEqual([])
   })
+})
 
+describe('client registration: allows equal relation names in different structured namespaces', () => {
   it('allows equal relation names in different structured namespaces', async () => {
     const AppUsers = defineTable(
       'users',
@@ -146,7 +172,9 @@ describe('client registration', () => {
 
     await db.close()
   })
+})
 
+describe('client registration: keeps dotted namespace and relation boundaries independent through the public handle seam', () => {
   it('keeps dotted namespace and relation boundaries independent through the public handle seam', async () => {
     const DottedNamespace = defineTable(
       'c',
@@ -182,7 +210,9 @@ describe('client registration', () => {
 
     await db.close()
   })
+})
 
+describe('client registration: should retain registered schemas on the client', () => {
   it('should retain registered schemas on the client', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -223,7 +253,9 @@ describe('client registration', () => {
     await db.close()
     createProvider.mockRestore()
   })
+})
 
+describe('client registration: does not call the dialect provider when an explicit provider is supplied', () => {
   it('does not call the dialect provider when an explicit provider is supplied', async () => {
     const connector = createMockConnector()
     const createProvider = vi.spyOn(postgresDialect.operations, 'createSessionProvider')
@@ -261,7 +293,9 @@ describe('client registration', () => {
     expect(getInstance).not.toHaveBeenCalled()
     expect(connector.prepared).toHaveLength(0)
   })
+})
 
+describe('client registration: does not call the dialect provider when an explicit provider is supplied: should reject unsupported connector dialects', () => {
   it('should reject unsupported connector dialects', () => {
     const connector = createMockConnector()
     const getInstance = vi.spyOn(connector, 'getInstance')

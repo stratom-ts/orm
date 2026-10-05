@@ -5,6 +5,12 @@ import { createOperationSessionCommonRuntime } from '../helpers/operationSession
 
 import { runOperationSessionCommonContract } from './dialectContractKit'
 
+/**
+ * Checks that retained cleanup evidence preserves verification and release order.
+ *
+ * @param controls - Mutable test observations and synchronization controls.
+ * @param releaseEvent - Recorded session release used to check cleanup ordering.
+ */
 function expectCleanupOrder(
   controls: ReturnType<typeof createControllableProvider>,
   releaseEvent: string,
@@ -42,6 +48,7 @@ it('cleans up the common session after an assertion failure', async () => {
 it('preserves the primary operation failure when release and close also fail', async () => {
   const primary = new Error('primary operation failure')
   const { controls, runtime } = createOperationSessionCommonRuntime({
+    /** Runs the configured synchronization or failure control before a fixture SQL call. */
     beforeCall: async () => {
       throw primary
     },

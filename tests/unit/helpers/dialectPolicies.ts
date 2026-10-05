@@ -5,6 +5,13 @@ import type {
 import type { PhysicalNamingProfile } from '@/migrations/physicalNaming'
 import { InvariantError } from '@/utils/error'
 
+/**
+ * Folds ASCII uppercase letters while preserving every other character.
+ *
+ * @param spelling - Authored identifier spelling before canonicalization.
+ *
+ * @returns The spelling with ASCII uppercase folded and other characters unchanged.
+ */
 function asciiCaseFold(spelling: string): string {
   let key = ''
 
@@ -16,6 +23,7 @@ function asciiCaseFold(spelling: string): string {
   return key
 }
 
+/** Rejects namespaces that do not contain exactly one database role. */
 function requireDatabaseNamespace(
   namespace: readonly NamespaceIdentifierInput[],
   description: string,
@@ -29,6 +37,7 @@ function requireDatabaseNamespace(
 export const SQLITE_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
   id: 'sqlite-fixture',
   comparisonKey: asciiCaseFold,
+  /** Resolves authored namespace segments using the configured writable defaults. */
   resolveNamespace(selected, writableDefault) {
     requireDatabaseNamespace(writableDefault, 'SQLite writable default')
     requireDatabaseNamespace(selected, 'SQLite relation namespace')
@@ -42,6 +51,7 @@ export const SQLITE_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
   maximumLength: 255,
   lengthUnit: 'unicodeScalars',
   comparisonKey: asciiCaseFold,
+  /** Selects the uniqueness scope used to reserve one kind of physical name. */
   scope: (kind) =>
     kind === 'foreignKey' || kind === 'check'
       ? 'relationConstraints'
@@ -54,5 +64,6 @@ export const TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE: PhysicalNamingProfile = {
   maximumLength: 64,
   lengthUnit: 'unicodeScalars',
   comparisonKey: asciiCaseFold,
+  /** Selects the uniqueness scope used to reserve one kind of physical name. */
   scope: () => 'tableLocal',
 }

@@ -20,15 +20,36 @@ type NativePostgresClient = {
   readyForQuery?: boolean
   activeQuery?: unknown
   _activeQuery?: unknown
+  /**
+   * Reads the native client's currently active query for cancellation and reuse checks.
+   *
+   * @returns The native query currently active on the client.
+   */
   _getActiveQuery?(): unknown
   queryQueue?: unknown[]
   _queryQueue?: unknown[]
   connection?: {
     stream?: {
+      /**
+       * Destroys the native transport when the session cannot be reused safely.
+       *
+       * @param error - Primary operation rejection, including primitive or undefined
+       *   values.
+       */
       destroy(error?: Error): void
     }
   }
+  /** Closes the native PostgreSQL client and its physical connection. */
   end?(): Promise<void>
+  /**
+   * Executes a row-returning query on the pinned physical session.
+   *
+   * @param query - Compiled SQL and ordered parameter bindings for the current physical
+   *   call.
+   * @param values - Ordered values supplied for SQL parameter binding.
+   *
+   * @returns Native result rows from the session-bound physical SQL call.
+   */
   query(
     query:
       | string
@@ -199,6 +220,228 @@ function sameOperationSessionIdentity(
   )
 }
 
+/** Verifies reuse after clearing transaction and advisory lock state. */
+async function verifyReleasedSession(
+  connector: Connector,
+  client: NativePostgresClient,
+  identity: OperationSessionIdentity,
+  requiresCleanup: boolean,
+): Promise<void> {
+  assertReusableNativeClient(client)
+
+  if (asNativePostgresClient(await connector.getInstance()) !== client) {
+    throw new QueryError({
+      message: 'PostgreSQL physical session changed before release',
+    })
+  }
+
+  if (requiresCleanup) {
+    await client.query(POSTGRES_OPERATION_ROLLBACK_SQL)
+    await client.query(POSTGRES_OPERATION_UNLOCK_SQL)
+  }
+
+  const releasedIdentity = await readIdentity(client)
+
+  if (!sameOperationSessionIdentity(releasedIdentity, identity)) {
+    throw new QueryError({
+      message: 'PostgreSQL session identity changed before release',
+    })
+  }
+}
+
+/** Hard-discards an active native call after cancellation. */
+async function discardActiveQuery(client: NativePostgresClient): Promise<void> {
+  if (getActiveQuery(client) != null) {
+    if (client.end) {
+      // This hard-discard teardown is not a PostgreSQL backend cancel request.
+      await client.end().catch(() => undefined)
+    } else {
+      client.connection?.stream?.destroy()
+    }
+  }
+}
+
+/** Serializes native calls and owns cleanup for one verified PostgreSQL lease. */
+type NativeSessionState = {
+  released: boolean
+  cancelled: boolean
+  requiresCleanup: boolean
+  activeController: AbortController | undefined
+  queue: Promise<void>
+}
+
+/** Serializes work on one native PostgreSQL session. */
+function enqueueSessionOperation<T>(
+  state: NativeSessionState,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (state.released) {
+    return Promise.reject(
+      new QueryError({ message: 'Operation session has been released' }),
+    )
+  }
+
+  if (state.cancelled) {
+    return Promise.reject(
+      new QueryError({ message: 'Operation session has been cancelled' }),
+    )
+  }
+
+  const result = state.queue.then(() => {
+    if (state.cancelled) {
+      throw new QueryError({ message: 'Operation session has been cancelled' })
+    }
+
+    return operation()
+  })
+  state.queue = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
+}
+
+/** Executes a query on the verified physical PostgreSQL session. */
+async function executeNativeQuery(
+  connector: Connector,
+  client: NativePostgresClient,
+  state: NativeSessionState,
+  query: CompiledQuery,
+): Promise<NativePostgresResult> {
+  if (asNativePostgresClient(await connector.getInstance()) !== client) {
+    throw new QueryError({
+      message: 'PostgreSQL physical session changed during an operation',
+    })
+  }
+
+  const controller = new AbortController()
+  state.activeController = controller
+  state.requiresCleanup ||= scanPostgresSql(query.sql).requiresCleanup
+
+  try {
+    return await client.query({
+      text: query.sql,
+      values: query.params,
+      signal: controller.signal,
+    })
+  } finally {
+    state.activeController = undefined
+  }
+}
+
+/** Cancels a native call and discards its uncertain physical session. */
+async function cancelNativeSession(
+  client: NativePostgresClient,
+  state: NativeSessionState,
+): Promise<void> {
+  if (state.released) {
+    throw new QueryError({ message: 'Operation session has been released' })
+  }
+
+  state.cancelled = true
+  state.activeController?.abort()
+
+  await discardActiveQuery(client)
+}
+
+/** Releases one lease after its queued work and cleanup finish. */
+async function releaseNativeSession(
+  connector: Connector,
+  client: NativePostgresClient,
+  identity: OperationSessionIdentity,
+  state: NativeSessionState,
+  disposeConnector: () => Promise<void>,
+  finishLease: () => void,
+  disposition: Parameters<OperationSession['release']>[0],
+): Promise<void> {
+  if (state.released) {
+    throw new QueryError({
+      message: 'Operation session was released more than once',
+    })
+  }
+
+  state.released = true
+  await state.queue
+
+  let releaseFailed = false
+  let releaseError: unknown
+
+  try {
+    if (disposition === 'discard' || state.cancelled) {
+      await disposeConnector()
+      return
+    }
+
+    await verifyReleasedSession(connector, client, identity, state.requiresCleanup)
+  } catch (cause) {
+    releaseFailed = true
+    releaseError = cause
+    await disposeConnector().catch(() => undefined)
+  } finally {
+    finishLease()
+  }
+
+  if (releaseFailed) throw releaseError
+}
+
+/**
+ * Binds a lease's query, cancellation, and release operations to its native PostgreSQL
+ * client.
+ *
+ * @param connector - Connector that owns native connection resources.
+ * @param client - Native client used for queries, cancellation, or identity checks.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param disposeConnector - Callback that disposes the connector's native resources.
+ * @param finishLease - Callback that resolves the active lease after release completes.
+ *
+ * @returns A session exposing the lease's identity, query, cancellation, and release
+ *   controls.
+ */
+function createNativeOperationSession(
+  connector: Connector,
+  client: NativePostgresClient,
+  identity: OperationSessionIdentity,
+  disposeConnector: () => Promise<void>,
+  finishLease: () => void,
+): OperationSession {
+  const state: NativeSessionState = {
+    released: false,
+    cancelled: false,
+    requiresCleanup: false,
+    activeController: undefined,
+    queue: Promise.resolve(),
+  }
+  return {
+    identity,
+    /** Executes a row-returning query on the pinned physical session. */
+    query: (query) =>
+      enqueueSessionOperation(
+        state,
+        async () =>
+          (await executeNativeQuery(connector, client, state, query)).rows ?? [],
+      ),
+    /** Executes a statement without requiring result rows. */
+    run: (query) =>
+      enqueueSessionOperation(state, async () => {
+        await executeNativeQuery(connector, client, state, query)
+      }),
+    /** Cancels the active physical-session operation. */
+    cancel: () => cancelNativeSession(client, state),
+    /** Settles queued work and releases the lease for reuse or discard. */
+    release: (disposition) =>
+      releaseNativeSession(
+        connector,
+        client,
+        identity,
+        state,
+        disposeConnector,
+        finishLease,
+        disposition,
+      ),
+  }
+}
+
 /**
  * Creates the exact operation-session provider for db0 0.3.4's PostgreSQL
  * connector, whose `getInstance()` is one lazily connected native `pg.Client`.
@@ -211,6 +454,34 @@ function sameOperationSessionIdentity(
 export function createDb0PostgresqlOperationSessionProvider(
   connector: Connector,
 ): OperationSessionProvider {
+  assertDb0PostgresConnector(connector)
+
+  /** Disposes the connector while normalizing synchronous failures to rejections. */
+  const dispose = () => disposeConnector(connector)
+
+  const state: NativeProviderState = {
+    leased: false,
+    closed: false,
+    closePromise: undefined,
+    activeLease: undefined,
+  }
+
+  return {
+    nativeTransactions: true,
+    /** Opens an exclusive physical-session lease. */
+    open: () => openNativeLease(state, connector, dispose),
+    /** Closes owned resources after active work has settled. */
+    close: () => closeNativeProvider(state, dispose),
+  }
+}
+
+/**
+ * Requires the connector capabilities needed for exact native PostgreSQL session
+ * ownership.
+ *
+ * @param connector - Connector that owns native connection resources.
+ */
+function assertDb0PostgresConnector(connector: Connector): void {
   if (
     connector.name !== 'postgresql' ||
     connector.dialect !== 'postgresql' ||
@@ -222,270 +493,130 @@ export function createDb0PostgresqlOperationSessionProvider(
         'Automatic operation sessions require the db0 PostgreSQL connector; provide an explicit operationSessionProvider for a custom connector',
     })
   }
+}
 
-  /** Disposes the connector while normalizing synchronous failures to rejections. */
-  const disposeConnector = (): Promise<void> => {
-    try {
-      return Promise.resolve(connector.dispose!()).then(() => undefined)
-    } catch (cause) {
-      return Promise.reject(cause)
-    }
+/**
+ * Disposes the connector and exposes synchronous disposal failures as promise rejections.
+ *
+ * @param connector - Connector that owns native connection resources.
+ */
+function disposeConnector(connector: Connector): Promise<void> {
+  try {
+    return Promise.resolve(connector.dispose!()).then(() => undefined)
+  } catch (cause) {
+    return Promise.reject(cause)
+  }
+}
+
+type NativeProviderState = {
+  leased: boolean
+  closed: boolean
+  closePromise: Promise<void> | undefined
+  activeLease: Promise<void> | undefined
+}
+
+/**
+ * Opens an exclusive operation session on the connector's native client.
+ *
+ * @example
+ *   const session = await provider.open()
+ */
+async function openNativeLease(
+  state: NativeProviderState,
+  connector: Connector,
+  dispose: () => Promise<void>,
+): Promise<OperationSession> {
+  if (state.closed) {
+    throw new QueryError({ message: 'Operation session provider has been closed' })
   }
 
-  let leased = false
-  let closed = false
-  let closePromise: Promise<void> | undefined
-  let activeLease: Promise<void> | undefined
-
-  return {
-    nativeTransactions: true,
-
-    /**
-     * Opens an exclusive operation session on the connector's native client.
-     *
-     * @example
-     *   const session = await provider.open()
-     */
-    async open(): Promise<OperationSession> {
-      if (closed) {
-        throw new QueryError({ message: 'Operation session provider has been closed' })
-      }
-
-      if (leased) {
-        throw new QueryError({
-          message: 'PostgreSQL operation session is already leased',
-        })
-      }
-
-      leased = true
-      let finishLease!: () => void
-      const lease = new Promise<void>((resolve) => {
-        finishLease = resolve
-      })
-      activeLease = lease
-
-      let client: NativePostgresClient
-      let identity: OperationSessionIdentity
-
-      try {
-        client = asNativePostgresClient(await connector.getInstance())
-        assertReusableNativeClient(client)
-        identity = await readIdentity(client)
-      } catch (cause) {
-        await disposeConnector().catch(() => undefined)
-        leased = false
-        activeLease = undefined
-        finishLease()
-
-        if (cause instanceof QueryError) throw cause
-
-        throw new QueryError({
-          message:
-            cause instanceof Error
-              ? `Failed to open PostgreSQL operation session: ${cause.message}`
-              : 'Failed to open PostgreSQL operation session',
-          cause,
-        })
-      }
-
-      let released = false
-      let cancelled = false
-      let requiresCleanup = false
-      let activeController: AbortController | undefined
-      let queue = Promise.resolve()
-
-      /**
-       * Serializes a session operation behind previously enqueued work.
-       *
-       * @param operation - Asynchronous session operation.
-       */
-      const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
-        if (released) {
-          return Promise.reject(
-            new QueryError({ message: 'Operation session has been released' }),
-          )
-        }
-
-        if (cancelled) {
-          return Promise.reject(
-            new QueryError({ message: 'Operation session has been cancelled' }),
-          )
-        }
-
-        const result = queue.then(() => {
-          if (cancelled) {
-            throw new QueryError({ message: 'Operation session has been cancelled' })
-          }
-
-          return operation()
-        })
-        queue = result.then(
-          () => undefined,
-          () => undefined,
-        )
-        return result
-      }
-
-      /**
-       * Executes a compiled query on the verified native client.
-       *
-       * @param query - Compiled query to execute.
-       */
-      const executeNative = async (
-        query: CompiledQuery,
-      ): Promise<NativePostgresResult> => {
-        if (asNativePostgresClient(await connector.getInstance()) !== client) {
-          throw new QueryError({
-            message: 'PostgreSQL physical session changed during an operation',
-          })
-        }
-
-        const controller = new AbortController()
-        activeController = controller
-        requiresCleanup ||= scanPostgresSql(query.sql).requiresCleanup
-
-        try {
-          return await client.query({
-            text: query.sql,
-            values: query.params,
-            signal: controller.signal,
-          })
-        } finally {
-          activeController = undefined
-        }
-      }
-
-      return {
-        identity,
-
-        /**
-         * Executes a query and returns its rows.
-         *
-         * @example
-         *   const rows = await session.query(query)
-         *
-         * @param query - Compiled query to execute.
-         */
-        query(query): Promise<unknown[]> {
-          return enqueue(async () => (await executeNative(query)).rows ?? [])
-        },
-
-        /**
-         * Executes a statement without returning rows.
-         *
-         * @example
-         *   await session.run(query)
-         *
-         * @param query - Compiled query to execute.
-         */
-        run(query): Promise<void> {
-          return enqueue(async () => {
-            await executeNative(query)
-          })
-        },
-
-        /**
-         * Cancels the session and hard-discards an active native query.
-         *
-         * @example
-         *   await session.cancel()
-         */
-        async cancel(): Promise<void> {
-          if (released) {
-            throw new QueryError({ message: 'Operation session has been released' })
-          }
-
-          cancelled = true
-          activeController?.abort()
-
-          if (getActiveQuery(client) != null) {
-            if (client.end) {
-              // This hard-discard teardown is not a PostgreSQL backend cancel request.
-              await client.end().catch(() => undefined)
-            } else {
-              client.connection?.stream?.destroy()
-            }
-          }
-        },
-
-        /**
-         * Releases the session for reuse or disposal.
-         *
-         * @example
-         *   await session.release('reuse')
-         *
-         * @param disposition - Whether to reuse or discard the physical session.
-         */
-        async release(disposition): Promise<void> {
-          if (released) {
-            throw new QueryError({
-              message: 'Operation session was released more than once',
-            })
-          }
-
-          released = true
-          await queue
-
-          let releaseFailed = false
-          let releaseError: unknown
-
-          try {
-            if (disposition === 'discard' || cancelled) {
-              await disposeConnector()
-              return
-            }
-
-            assertReusableNativeClient(client)
-
-            if (asNativePostgresClient(await connector.getInstance()) !== client) {
-              throw new QueryError({
-                message: 'PostgreSQL physical session changed before release',
-              })
-            }
-
-            if (requiresCleanup) {
-              await client.query(POSTGRES_OPERATION_ROLLBACK_SQL)
-              await client.query(POSTGRES_OPERATION_UNLOCK_SQL)
-            }
-
-            const releasedIdentity = await readIdentity(client)
-
-            if (!sameOperationSessionIdentity(releasedIdentity, identity)) {
-              throw new QueryError({
-                message: 'PostgreSQL session identity changed before release',
-              })
-            }
-          } catch (cause) {
-            releaseFailed = true
-            releaseError = cause
-            await disposeConnector().catch(() => undefined)
-          } finally {
-            leased = false
-            activeLease = undefined
-            finishLease()
-          }
-
-          if (releaseFailed) throw releaseError
-        },
-      }
-    },
-
-    /**
-     * Closes the provider after any active lease finishes.
-     *
-     * @example
-     *   await provider.close()
-     */
-    close(): Promise<void> {
-      if (closePromise) return closePromise
-
-      closed = true
-      const closing = (activeLease ?? Promise.resolve()).then(disposeConnector)
-      closePromise = closing.catch((cause: unknown) => {
-        closePromise = undefined
-        throw cause
-      })
-      return closePromise
-    },
+  if (state.leased) {
+    throw new QueryError({
+      message: 'PostgreSQL operation session is already leased',
+    })
   }
+
+  state.leased = true
+  let finishLease!: () => void
+  const lease = new Promise<void>((resolve) => {
+    finishLease = resolve
+  })
+  state.activeLease = lease
+
+  let {
+    client,
+    identity,
+  }: { client: NativePostgresClient; identity: OperationSessionIdentity } =
+    await readNativeLeaseIdentity(connector, dispose, state, finishLease)
+
+  return createNativeOperationSession(connector, client, identity, dispose, () => {
+    state.leased = false
+    state.activeLease = undefined
+    finishLease()
+  })
+}
+
+/**
+ * Captures native session identity and disposes leases whose identity cannot be verified.
+ *
+ * @param connector - Connector that owns native connection resources.
+ * @param dispose - Callback that closes the connector and retains disposal failures.
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param finishLease - Callback that resolves the active lease after release completes.
+ *
+ * @returns Verified native identity, with unverifiable leases disposed before rejection.
+ */
+async function readNativeLeaseIdentity(
+  connector: Connector,
+  dispose: () => Promise<void>,
+  state: NativeProviderState,
+  finishLease: () => void,
+) {
+  let client: NativePostgresClient
+  let identity: OperationSessionIdentity
+
+  try {
+    client = asNativePostgresClient(await connector.getInstance())
+    assertReusableNativeClient(client)
+    identity = await readIdentity(client)
+  } catch (cause) {
+    await dispose().catch(() => undefined)
+    state.leased = false
+    state.activeLease = undefined
+    finishLease()
+
+    if (cause instanceof QueryError) throw cause
+
+    throw new QueryError({
+      message:
+        cause instanceof Error
+          ? `Failed to open PostgreSQL operation session: ${cause.message}`
+          : 'Failed to open PostgreSQL operation session',
+      cause,
+    })
+  }
+
+  return { client, identity }
+}
+
+/**
+ * Closes the provider after any active lease finishes.
+ *
+ * @example
+ *   await provider.close()
+ */
+function closeNativeProvider(
+  state: NativeProviderState,
+  dispose: () => Promise<void>,
+): Promise<void> {
+  if (state.closePromise) return state.closePromise
+
+  state.closed = true
+  const closing = (state.activeLease ?? Promise.resolve()).then(dispose)
+  state.closePromise = closing.catch((cause: unknown) => {
+    state.closePromise = undefined
+    throw cause
+  })
+  return state.closePromise
 }

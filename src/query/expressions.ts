@@ -408,6 +408,13 @@ export function dateTrunc(unit: string, column: ColumnRef | string): DateFnExprA
 
 /** Expression builder passed to select/where/having/join-on callbacks. */
 export type ExpressionBuilder = {
+  /**
+   * Converts a column name or reference into a scalar column expression.
+   *
+   * @param column - Column reference or authored name used to address the query member.
+   *
+   * @returns A scalar column-expression AST for the supplied name or reference.
+   */
   ref(column: ColumnRef | string): ColumnExprAst
   eq: typeof eq
   neq: typeof neq

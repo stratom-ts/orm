@@ -35,6 +35,13 @@ export type SqlDataType = string
 export type DialectIdentity = Readonly<{
   /** Stable semantic identity key for MigrationSemanticProfile comparison. */
   readonly id: string
+  /**
+   * Binds canonical relation identity operations to the configured namespace context.
+   *
+   * @param options - Configuration and dependencies for this operation.
+   *
+   * @returns Canonical identity operations bound to the selected namespace defaults.
+   */
   create(options: {
     context: NamespaceContext
     registrationDefault?: readonly NamespaceIdentifierInput[]
@@ -48,8 +55,30 @@ export type DialectIdentity = Readonly<{
  * implementation details of the selected dialect.
  */
 export type DialectNaming = Readonly<{
+  /**
+   * Generates a deterministic physical name under the selected dialect's limits.
+   *
+   * @param seed - Structured owning identity and object details used to generate the
+   *   physical name.
+   *
+   * @returns The deterministic physical name within the selected dialect's identifier
+   *   limits.
+   */
   generate(seed: PhysicalNameSeed): string
+  /**
+   * Rejects physical identifiers that violate the selected dialect's naming rules.
+   *
+   * @param name - Physical identifier or dialect label used by this operation.
+   * @param description - Diagnostic label that identifies invalid input.
+   */
   validate(name: string, description: string): void
+  /**
+   * Creates a registry that detects physical-name collisions in the selected uniqueness
+   * scopes.
+   *
+   * @returns A registry that detects physical-name collisions in the selected uniqueness
+   *   scopes.
+   */
   createRegistry(): PhysicalNameRegistry
 }>
 
@@ -118,8 +147,32 @@ export type LoweredDesiredSchema = Readonly<{
 
 /** Whole-graph schema lowering and physical column type behavior. */
 export type DialectSchema = Readonly<{
+  /**
+   * Resolves authored column storage into the selected dialect's desired-schema
+   * representation.
+   *
+   * @param graph - Registered authored tables and their resolved reference graph.
+   *
+   * @returns Desired tables with dialect-specific physical storage and resolved
+   *   references.
+   */
   lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+  /**
+   * Infers a supported physical SQL type from Valibot schema facts.
+   *
+   * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+   *
+   * @returns The supported physical SQL type; unsupported schema facts throw.
+   */
   inferColumnType(schema: AnySchema): SqlDataType
+  /**
+   * Normalizes physical SQL type spelling for stable schema comparison.
+   *
+   * @param dataType - Physical SQL type used for validation, comparison, or value
+   *   mapping.
+   *
+   * @returns The normalized type spelling used for storage equality.
+   */
   normalizeDataType(dataType: string): string
   normalizeDefaultValue?: (value: string | number | boolean | null) => string
 }>
@@ -145,11 +198,36 @@ export type CompiledQuery = {
  * reusable member contract enforces that its addressing policies agree.
  */
 export type DialectQueryResolution = Readonly<{
+  /**
+   * Compiles the current query or command into SQL and ordered bound parameters.
+   *
+   * @param node - AST node or dependency-graph node being processed.
+   *
+   * @returns Compiled SQL and bound values in emitted order.
+   */
   compile(node: SqlAst): CompiledQuery
+  /**
+   * Finds registered handles compatible with the authored relation under the selected
+   * query rules.
+   *
+   * @param relation - Authored or canonical relation addressed by this operation.
+   * @param handles - Registered handles used for relation and column resolution.
+   *
+   * @returns Registered handles compatible with the authored relation under the selected
+   *   query rules.
+   */
   findRelationMatches(
     relation: RelationIdentityInput,
     handles?: readonly TableHandle[],
   ): readonly TableHandle[]
+  /**
+   * Finds columns compatible with an authored name under the selected query rules.
+   *
+   * @param handle - Table handle whose schema and relation metadata are required.
+   * @param column - Authored column spelling to resolve, map, or compile.
+   *
+   * @returns Columns compatible with an authored name under the selected query rules.
+   */
   findColumnMatches(handle: TableHandle, column: string): readonly string[]
 }>
 
@@ -161,6 +239,14 @@ export type DialectQueryResolveOptions = Readonly<{
 
 /** SQL resolution, compilation, and optional dialect value conversion behavior. */
 export type DialectQuery = Readonly<{
+  /**
+   * Binds query compilation and matching to the registered table handles.
+   *
+   * @param handles - Registered handles used for relation and column resolution.
+   * @param options - Configuration and dependencies for this operation.
+   *
+   * @returns Query compilation and matching operations for the resolved registry.
+   */
   resolve(
     handles: readonly TableHandle[],
     options?: DialectQueryResolveOptions,
@@ -180,7 +266,21 @@ export type OperationCommand =
 
 /** Adapts a selected connector and compiles its operation lifecycle commands. */
 export type DialectOperations = Readonly<{
+  /**
+   * Creates the connector's provider for exclusive native operation sessions.
+   *
+   * @param connector - Connector that owns native connection resources.
+   *
+   * @returns The connector's provider for exclusive native operation sessions.
+   */
   createSessionProvider(connector: Connector): OperationSessionProvider
+  /**
+   * Compiles the current query or command into SQL and ordered bound parameters.
+   *
+   * @param command - Portable operation lifecycle command to compile.
+   *
+   * @returns Compiled SQL and bound values in emitted order.
+   */
   compile(command: OperationCommand): CompiledQuery
 }>
 

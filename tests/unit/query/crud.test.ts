@@ -14,6 +14,7 @@ import {
 } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
+import type { Db } from '@/index'
 import { QueryError, ValidationError, column, createDatabase, defineTable } from '@/index'
 
 import { createMockPostgresConnector as createMockConnector } from '../helpers/nativePostgresClient'
@@ -130,45 +131,7 @@ describe('CRUD compile', () => {
       nonNullishValue: 'q',
     }
 
-    const { undefinedValue: _undefinedValue, ...withoutUndefinedValue } = complete
-    void _undefinedValue
-
-    expect(() =>
-      db
-        .insert(WrapperBehavior)
-        .values(withoutUndefinedValue as never)
-        .compile(),
-    ).toThrow(/undefinedValue/)
-
-    const { nonOptionalValue: _nonOptionalValue, ...withoutNonOptionalValue } = complete
-    void _nonOptionalValue
-
-    expect(() =>
-      db
-        .insert(WrapperBehavior)
-        .values(withoutNonOptionalValue as never)
-        .compile(),
-    ).toThrow(/nonOptionalValue/)
-
-    const { nonNullableValue: _nonNullableValue, ...withoutNonNullableValue } = complete
-    void _nonNullableValue
-
-    expect(() =>
-      db
-        .insert(WrapperBehavior)
-        .values(withoutNonNullableValue as never)
-        .compile(),
-    ).toThrow(/nonNullableValue/)
-
-    const { nonNullishValue: _nonNullishValue, ...withoutNonNullishValue } = complete
-    void _nonNullishValue
-
-    expect(() =>
-      db
-        .insert(WrapperBehavior)
-        .values(withoutNonNullishValue as never)
-        .compile(),
-    ).toThrow(/nonNullishValue/)
+    assertRequiredInsertValues(complete, db)
 
     const { nullishValue: _nullishValue, ...exactAndNullishRow } = complete
     void _nullishValue
@@ -197,7 +160,9 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD compile: should compile insert with parameterized values and schema-qualified table', () => {
   it('should compile insert with parameterized values and schema-qualified table', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -235,7 +200,9 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD compile: should compile insert with parameterized values and schema-qualified table: should compile update with where and default returning *', () => {
   it('should compile update with where and default returning *', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -254,7 +221,9 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD compile: should compile delete with object where and column returning', () => {
   it('should compile delete with object where and column returning', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -271,7 +240,9 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD input validation', () => {
   it('should reject empty returning projections', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -314,7 +285,9 @@ describe('CRUD compile', () => {
     expect(connector.prepared).toEqual([])
     await db.close()
   })
+})
 
+describe('CRUD input validation: should reject empty where inputs synchronously at the public boundary before database work', () => {
   it('should reject empty where inputs synchronously at the public boundary before database work', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -345,7 +318,9 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD input validation: should reject update all().where(...) before connector preparation', () => {
   it('should reject update all().where(...) before connector preparation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -361,7 +336,9 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD input validation: should reject an empty delete predicate with a tagged error before connector preparation', () => {
   it('should reject an empty delete predicate with a tagged error before connector preparation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -393,7 +370,9 @@ describe('CRUD compile', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD input validation: should reject an empty delete predicate with a tagged error before connector preparation: should reject delete all().where(...) before connector preparation', () => {
   it('should reject delete all().where(...) before connector preparation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -483,7 +462,9 @@ describe('CRUD safety and validation', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD safety and validation: should reject invalid insert with ValidationError before SQL', () => {
   it('should reject invalid insert with ValidationError before SQL', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -524,7 +505,9 @@ describe('CRUD safety and validation', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD safety and validation: should require bare nullable columns on insert but accept null', () => {
   it('should require bare nullable columns on insert but accept null', async () => {
     const WithNullable = defineTable(
       'with_nullable',
@@ -560,7 +543,9 @@ describe('CRUD safety and validation', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD safety and validation: should require bare nullable columns on insert but accept null: should accept omitted and null nested wrapper values', () => {
   it('should accept omitted and null nested wrapper values', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [NestedWrappers] })
@@ -600,7 +585,9 @@ describe('CRUD safety and validation', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD safety and validation: should reject invalid update patch', () => {
   it('should reject invalid update patch', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -622,7 +609,10 @@ describe('CRUD safety and validation', () => {
 describe('CRUD execute terminals', () => {
   it('should return full rows by default when calling insert.values().execute', async () => {
     const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
-    const connector = createMockConnector({ rowsBySql: () => rows })
+    const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
+      rowsBySql: () => rows,
+    })
     const db = createDatabase({ connector, schemas: [Users] })
 
     const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
@@ -636,6 +626,7 @@ describe('CRUD execute terminals', () => {
   it('should return full rows when calling insert.returningAll().execute', async () => {
     const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
     const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => rows,
     })
     const db = createDatabase({ connector, schemas: [Users] })
@@ -648,10 +639,15 @@ describe('CRUD execute terminals', () => {
 
     await db.close()
   })
+})
 
+describe('CRUD execute terminals: should return rows when calling executeTakeFirst on update/delete', () => {
   it('should return rows when calling executeTakeFirst on update/delete', async () => {
     const row = { id: 1, email: 'a@b.com', displayName: 'Z', active: true }
-    const connector = createMockConnector({ rowsBySql: () => [row] })
+    const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
+      rowsBySql: () => [row],
+    })
     const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(
@@ -669,3 +665,63 @@ describe('CRUD execute terminals', () => {
     await db.close()
   })
 })
+
+/**
+ * Removes required fields from otherwise valid values and checks that insert validation
+ * rejects each omission.
+ *
+ * @param complete - Complete valid insert values from which required-column cases are
+ *   derived.
+ * @param db - Database client exercised by this test scenario.
+ */
+function assertRequiredInsertValues(complete: WrapperInsertValues, db: Db) {
+  const { undefinedValue: _undefinedValue, ...withoutUndefinedValue } = complete
+  void _undefinedValue
+
+  expect(() =>
+    db
+      .insert(WrapperBehavior)
+      .values(withoutUndefinedValue as never)
+      .compile(),
+  ).toThrow(/undefinedValue/)
+
+  const { nonOptionalValue: _nonOptionalValue, ...withoutNonOptionalValue } = complete
+  void _nonOptionalValue
+
+  expect(() =>
+    db
+      .insert(WrapperBehavior)
+      .values(withoutNonOptionalValue as never)
+      .compile(),
+  ).toThrow(/nonOptionalValue/)
+
+  const { nonNullableValue: _nonNullableValue, ...withoutNonNullableValue } = complete
+  void _nonNullableValue
+
+  expect(() =>
+    db
+      .insert(WrapperBehavior)
+      .values(withoutNonNullableValue as never)
+      .compile(),
+  ).toThrow(/nonNullableValue/)
+
+  const { nonNullishValue: _nonNullishValue, ...withoutNonNullishValue } = complete
+  void _nonNullishValue
+
+  expect(() =>
+    db
+      .insert(WrapperBehavior)
+      .values(withoutNonNullishValue as never)
+      .compile(),
+  ).toThrow(/nonNullishValue/)
+}
+
+type WrapperInsertValues = {
+  id: string
+  undefinedValue: string
+  nullableValue: null
+  nullishValue: string
+  nonOptionalValue: string
+  nonNullableValue: string
+  nonNullishValue: string
+}

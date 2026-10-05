@@ -13,6 +13,7 @@ export const SQLITE_PHYSICAL_NAMING: PhysicalNamingProfile = {
   maximumLength: Number.POSITIVE_INFINITY,
   lengthUnit: 'unicodeScalars',
   comparisonKey: asciiFoldSqliteIdentifier,
+  /** Selects the uniqueness scope used to reserve one kind of physical name. */
   scope: (kind) =>
     kind === 'foreignKey' || kind === 'check'
       ? 'relationConstraints'
@@ -21,9 +22,15 @@ export const SQLITE_PHYSICAL_NAMING: PhysicalNamingProfile = {
 
 /** SQLite physical naming semantics. */
 export const sqliteNaming = {
+  /** Generates a deterministic physical name under the selected dialect's limits. */
   generate: (seed: Parameters<typeof generatePhysicalName>[0]) =>
     generatePhysicalName(seed, SQLITE_PHYSICAL_NAMING),
+  /** Rejects physical identifiers that violate the selected dialect's naming rules. */
   validate: (name: string, description: string) =>
     validatePhysicalName(name, description, SQLITE_PHYSICAL_NAMING),
+  /**
+   * Creates a registry that detects physical-name collisions in the selected uniqueness
+   * scopes.
+   */
   createRegistry: () => createPhysicalNameRegistry(SQLITE_PHYSICAL_NAMING),
 }

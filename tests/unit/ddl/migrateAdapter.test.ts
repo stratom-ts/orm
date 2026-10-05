@@ -1,14 +1,80 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { MigrationDryRunAction } from '@/ddl/migrate'
 import { createMigrateBuilder } from '@/ddl/migrate'
 import type {
   DialectMigrationAdapter,
+  MigrationProgram,
   MigrationRuntimeOptions,
 } from '@/ddl/migrationProgram'
 import { postgresDialect } from '@/dialects/postgres'
 import type { Executor } from '@/query'
 
 import { completePostgresCatalog } from '../helpers/catalog'
+
+const returnsGroupedPhysicalActionsWithStableRedactionAndNoExecutionData2: MigrationProgram['preconditions'] =
+  [
+    {
+      kind: 'column_has_no_nulls',
+      relation: {
+        namespace: [
+          {
+            role: 'database',
+            identifier: { spelling: 'test', comparisonKey: 'test' },
+          },
+          {
+            role: 'schema',
+            identifier: { spelling: 'public', comparisonKey: 'public' },
+          },
+        ],
+        relation: { spelling: 'users', comparisonKey: 'users' },
+      },
+      column: 'email',
+      sourceStepIndexes: [3],
+    },
+  ]
+
+const returnsGroupedPhysicalActionsWithStableRedactionAndNoExecutionData = {
+  atomicity: 'statement-atomic',
+  preconditions: [
+    {
+      kind: 'column_has_no_nulls',
+      relation: {
+        namespace: [
+          {
+            role: 'database',
+            identifier: { spelling: 'test', comparisonKey: 'test' },
+          },
+          {
+            role: 'schema',
+            identifier: { spelling: 'public', comparisonKey: 'public' },
+          },
+        ],
+        relation: { spelling: 'users', comparisonKey: 'users' },
+      },
+      column: 'email',
+      sourceStepIndexes: [3],
+    },
+  ],
+  actions: [
+    {
+      sourceStepIndexes: [1, 3],
+      transaction: 'allowed',
+      statements: [
+        {
+          sql: 'alter table x add column a text',
+          params: ['[REDACTED]', '[REDACTED]'],
+        },
+        { sql: 'alter table x add column b text', params: [] },
+      ],
+    },
+    {
+      sourceStepIndexes: [4],
+      transaction: 'forbidden',
+      statements: [{ sql: 'create index users_email_idx on users (email)', params: [] }],
+    },
+  ],
+}
 
 const namespaceContext = {
   writableDefault: [
@@ -18,17 +84,31 @@ const namespaceContext = {
 }
 
 const executor: Executor = {
+  /** Executes fixture SQL with the configured native observations. */
   async execute() {
     return []
   },
+  /** Runs a fixture statement with configured outcomes. */
   async run() {
     return undefined
   },
 }
 
+/**
+ * Creates the operation runner fixture used by the contract scenario.
+ *
+ * @returns The operation runner fixture used by the contract scenario.
+ */
 function createOperationRunner() {
   const state = { calls: 0 }
 
+  /**
+   * Runs the callback with the fixture executor and records the operation boundary.
+   *
+   * @param operation - Work to run within the current session or error boundary.
+   *
+   * @returns The callback value after the operation and required cleanup complete.
+   */
   async function runOperation<T>(
     operation: (
       executor: Executor,
@@ -49,6 +129,13 @@ function createOperationRunner() {
   return { runOperation, state }
 }
 
+/**
+ * Creates the migration member fixture used by the contract scenario.
+ *
+ * @param identityAdapter - Selected adapter's canonical identity operations.
+ *
+ * @returns The migration member fixture used by the contract scenario.
+ */
 function createMigrationMember(identityAdapter = 'postgresql') {
   const selected = postgresDialect.migration
   const createIdentity = vi.fn(selected.planning.identity.create)
@@ -116,7 +203,9 @@ describe('dialect-neutral migration adapter contract', () => {
       expect.objectContaining({ identityAdapter: 'postgresql' }),
     )
   })
+})
 
+describe('dialect-neutral migration adapter contract: keeps executing Semantic Profile validation explicit at lowering', () => {
   it('keeps executing Semantic Profile validation explicit at lowering', async () => {
     const member = createMigrationMember('not-postgresql')
     const builder = createMigrateBuilder({
@@ -143,7 +232,9 @@ describe('dialect-neutral migration adapter contract', () => {
       expect.objectContaining({ identityAdapter: 'not-postgresql' }),
     )
   })
+})
 
+describe('dialect-neutral migration adapter contract: validates the Semantic Profile during dry run', () => {
   it('validates the Semantic Profile during dry run', async () => {
     const member = createMigrationMember('not-postgresql')
     const builder = createMigrateBuilder({
@@ -170,33 +261,18 @@ describe('dialect-neutral migration adapter contract', () => {
 
     expect(member.execute).not.toHaveBeenCalled()
   })
+})
 
+describe('dialect-neutral migration program preview and issues', () => {
   it('returns grouped physical actions with stable redaction and no execution', async () => {
     const member = createMigrationMember()
     const sourceStepIndexes = [1, 3]
     member.lower.mockReturnValue({
       program: {
         atomicity: 'statement-atomic',
-        preconditions: [
-          {
-            kind: 'column_has_no_nulls',
-            relation: {
-              namespace: [
-                {
-                  role: 'database',
-                  identifier: { spelling: 'test', comparisonKey: 'test' },
-                },
-                {
-                  role: 'schema',
-                  identifier: { spelling: 'public', comparisonKey: 'public' },
-                },
-              ],
-              relation: { spelling: 'users', comparisonKey: 'users' },
-            },
-            column: 'email',
-            sourceStepIndexes: [3],
-          },
-        ],
+        preconditions: structuredClone(
+          returnsGroupedPhysicalActionsWithStableRedactionAndNoExecutionData2,
+        ),
         actions: [
           {
             sourceStepIndexes,
@@ -229,65 +305,14 @@ describe('dialect-neutral migration adapter contract', () => {
 
     const preview = await builder.dryRun()
 
-    expect(preview).toEqual({
-      atomicity: 'statement-atomic',
-      preconditions: [
-        {
-          kind: 'column_has_no_nulls',
-          relation: {
-            namespace: [
-              {
-                role: 'database',
-                identifier: { spelling: 'test', comparisonKey: 'test' },
-              },
-              {
-                role: 'schema',
-                identifier: { spelling: 'public', comparisonKey: 'public' },
-              },
-            ],
-            relation: { spelling: 'users', comparisonKey: 'users' },
-          },
-          column: 'email',
-          sourceStepIndexes: [3],
-        },
-      ],
-      actions: [
-        {
-          sourceStepIndexes: [1, 3],
-          transaction: 'allowed',
-          statements: [
-            {
-              sql: 'alter table x add column a text',
-              params: ['[REDACTED]', '[REDACTED]'],
-            },
-            { sql: 'alter table x add column b text', params: [] },
-          ],
-        },
-        {
-          sourceStepIndexes: [4],
-          transaction: 'forbidden',
-          statements: [
-            { sql: 'create index users_email_idx on users (email)', params: [] },
-          ],
-        },
-      ],
-    })
-
-    expect('assertSession' in preview.actions[0]!.statements[0]!).toBe(false)
-    expect('assertSession' in preview.actions[1]!.statements[0]!).toBe(false)
-    expect(member.execute).not.toHaveBeenCalled()
-
-    expect(member.lower).toHaveBeenCalledWith(
-      expect.objectContaining({
-        profile: expect.objectContaining({ identityAdapter: 'postgresql' }),
-      }),
-      expect.objectContaining({ identityAdapter: 'postgresql' }),
-    )
+    assertMigrationPreview(preview, member)
 
     sourceStepIndexes.push(99)
     expect(preview.actions[0]!.sourceStepIndexes).toEqual([1, 3])
   })
+})
 
+describe('dialect-neutral migration program preview and issues: returns zero lowered actions during dry run', () => {
   it('returns zero lowered actions during dry run', async () => {
     const member = createMigrationMember()
     const builder = createMigrateBuilder({
@@ -304,7 +329,9 @@ describe('dialect-neutral migration adapter contract', () => {
 
     expect(member.execute).not.toHaveBeenCalled()
   })
+})
 
+describe('dialect-neutral migration program preview and issues: rejects lowering issues atomically with the execution error evidence', () => {
   it('rejects lowering issues atomically with the execution error evidence', async () => {
     const member = createMigrationMember()
     member.lower.mockReturnValue({
@@ -334,3 +361,33 @@ describe('dialect-neutral migration adapter contract', () => {
     expect(member.execute).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * Checks ordered, redacted physical actions without executing migration statements.
+ *
+ * @param preview - Physical migration preview inspected without executing its statements.
+ * @param member - Optional relation-member identity or contract adapter under evaluation.
+ */
+function assertMigrationPreview(
+  preview: Readonly<{
+    atomicity: 'plan-atomic' | 'statement-atomic' | 'non-atomic'
+    preconditions: MigrationProgram['preconditions']
+    actions: readonly MigrationDryRunAction[]
+  }>,
+  member: ReturnType<typeof createMigrationMember>,
+) {
+  expect(preview).toEqual(
+    structuredClone(returnsGroupedPhysicalActionsWithStableRedactionAndNoExecutionData),
+  )
+
+  expect('assertSession' in preview.actions[0]!.statements[0]!).toBe(false)
+  expect('assertSession' in preview.actions[1]!.statements[0]!).toBe(false)
+  expect(member.execute).not.toHaveBeenCalled()
+
+  expect(member.lower).toHaveBeenCalledWith(
+    expect.objectContaining({
+      profile: expect.objectContaining({ identityAdapter: 'postgresql' }),
+    }),
+    expect.objectContaining({ identityAdapter: 'postgresql' }),
+  )
+}

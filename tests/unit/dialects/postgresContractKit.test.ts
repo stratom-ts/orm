@@ -10,16 +10,117 @@ import {
   createMockStatement,
 } from '../helpers/nativePostgresClient'
 
-import { registerDialectContractMember } from './dialectContractKit'
 import type {
   DialectContractMemberCapabilities,
+  MigrationContractCase,
   QueryCompilerScenarios,
 } from './dialectContractKit'
+import { registerDialectContractMember } from './dialectContractKit'
 import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
 import {
   postgresCoordinationContractShard,
   postgresOperationSessionContractShard,
 } from './postgresSharedShards'
+
+const createPostgresLifecycleRuntimeData: MigrationPlan = {
+  steps: [
+    {
+      kind: 'ensure_namespace',
+      target: {
+        kind: 'namespace',
+        namespace: [
+          {
+            role: 'database',
+            identifier: {
+              spelling: 'contract_database',
+              comparisonKey: 'contract_database',
+            },
+          },
+          {
+            role: 'schema',
+            identifier: {
+              spelling: 'contract_schema',
+              comparisonKey: 'contract_schema',
+            },
+          },
+        ],
+      },
+    },
+    {
+      kind: 'create_table',
+      target: {
+        kind: 'relation',
+        relation: {
+          namespace: [
+            {
+              role: 'database',
+              identifier: {
+                spelling: 'contract_database',
+                comparisonKey: 'contract_database',
+              },
+            },
+            {
+              role: 'schema',
+              identifier: {
+                spelling: 'contract_schema',
+                comparisonKey: 'contract_schema',
+              },
+            },
+          ],
+          relation: {
+            spelling: 'lifecycle_records',
+            comparisonKey: 'lifecycle_records',
+          },
+        },
+      },
+    },
+  ],
+}
+
+const fixtureData: import('@/ddl/migrationProgram').MigrationProgram = {
+  atomicity: 'plan-atomic',
+  preconditions: [
+    {
+      kind: 'column_has_no_nulls',
+      relation: {
+        namespace: [
+          {
+            role: 'database',
+            identifier: {
+              spelling: 'contract_database',
+              comparisonKey: 'contract_database',
+            },
+          },
+          {
+            role: 'schema',
+            identifier: {
+              spelling: 'contract_schema',
+              comparisonKey: 'contract_schema',
+            },
+          },
+        ],
+        relation: {
+          spelling: 'records',
+          comparisonKey: 'records',
+        },
+      },
+      column: 'label',
+      sourceStepIndexes: [0],
+    },
+  ],
+  actions: [
+    {
+      sourceStepIndexes: [0],
+      transaction: 'required',
+      statements: [
+        {
+          sql: 'alter table "contract_schema"."records" alter column "label" set not null',
+          params: [],
+        },
+      ],
+    },
+  ],
+}
 
 const namespaceContext = {
   writableDefault: [
@@ -75,6 +176,7 @@ type SupportedQueryInput = Extract<
   { state: 'supported' }
 >['input']
 
+/** Wraps contract input in explicit supported-capability evidence. */
 const supported = (input: SupportedQueryInput) => ({
   support: { state: 'supported' as const, input },
 })
@@ -456,6 +558,13 @@ const contractCatalogRequest: CatalogRequest = {
 }
 
 const contractCatalogExecutor: CatalogExecutor = {
+  /**
+   * Executes the compiled query through its owning session or executor.
+   *
+   * @param options - Resolved operation inputs, including sql.
+   *
+   * @returns The execute observations in their required order.
+   */
   async execute({ sql }) {
     if (sql.includes('current_database()')) {
       return [
@@ -501,135 +610,58 @@ const contractCatalogExecutor: CatalogExecutor = {
   },
 }
 
+/**
+ * Creates the postgres lifecycle runtime fixture used by the contract scenario.
+ *
+ * @returns The postgres lifecycle runtime fixture used by the contract scenario.
+ */
 function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
-  let createdRelation: Readonly<{ schema: string; relation: string }> | undefined
-  let selectedConnector: ReturnType<typeof createMockPostgresConnector> | undefined
+  const state: PostgresLifecycleFixtureState = {
+    createdRelation: undefined,
+    selectedConnector: undefined,
+  }
+
   const operationCommands: OperationCommand[] = []
   const connector = createMockPostgresConnector({
     database: 'contract_database',
     currentSchema: 'contract_schema',
-    onPrepare(sql) {
-      selectedConnector = connector
-
-      if (sql === 'select 1') operationCommands.push({ kind: 'ping' })
-      if (sql === 'begin') operationCommands.push({ kind: 'begin' })
-      if (sql === 'commit') operationCommands.push({ kind: 'commit' })
-
-      const statement = createMockStatement(
-        sql.includes('pg_try_advisory_lock')
-          ? [{ locked: true }]
-          : sql.includes('pg_advisory_unlock')
-            ? [{ unlocked: true }]
-            : sql.includes('current_database()')
-              ? [
-                  {
-                    database: 'contract_database',
-                    schema: 'contract_schema',
-                    version: '160000',
-                  },
-                ]
-              : sql.includes('"lifecycle_records"')
-                ? [{ id: 'lifecycle-1', label: 'connector-selected' }]
-                : [],
-      )
-
-      if (!/^create table "contract_schema"\."lifecycle_records"/i.test(sql)) {
-        return statement
-      }
-
-      return {
-        ...statement,
-        async run() {
-          createdRelation = {
-            schema: 'contract_schema',
-            relation: 'lifecycle_records',
-          }
-          return { success: true }
-        },
-      }
-    },
+    /** Dispatches prepared fixture SQL and records lifecycle commands. */
+    onPrepare: (sql) =>
+      prepareLifecycleStatement(sql, state, connector, operationCommands),
   })
   return {
     dialect: postgresDialect,
     registerDialect: false,
     connector,
     schemas: [LifecycleRecords],
+    /** Executes query for the current fixture scenario. */
     executeQuery: (database: import('@/client').Db) =>
       database
         .from(LifecycleRecords)
         .where(LifecycleRecords.label, 'eq', 'connector-selected')
         .execute(),
     operationCommands,
-    selectedConnector: () => selectedConnector,
+    /** Returns the connector received by the selected dialect lifecycle facet. */
+    selectedConnector: () => state.selectedConnector,
+    /** Reports whether the fixture connector has been disposed. */
     disposed: () => connector.disposed,
+    /** Returns bindings recorded for the representative query. */
     queryParams: () =>
       connector.binds.find((params) => params.includes('connector-selected')),
+    /** Detects another dialect's physical policy in fixture SQL. */
     foreignPolicyLeak: () => false,
     directConnectorMethods: [],
-    expected: {
-      queryRows: [{ id: 'lifecycle-1', label: 'connector-selected' }],
-      queryParam: 'connector-selected',
-    },
-    postMigrationState: () => ({ relation: createdRelation }),
+    expected: createPostgresLifecycleExpectation(),
+    /** Returns physical actions recorded after fixture migration. */
+    postMigrationState: () => ({ relation: state.createdRelation }),
     migration: {
       state: 'supported' as const,
       expectedPostMigrationState: {
         relation: { schema: 'contract_schema', relation: 'lifecycle_records' },
       },
-      expectedPlan: {
-        steps: [
-          {
-            kind: 'ensure_namespace',
-            target: {
-              kind: 'namespace',
-              namespace: [
-                {
-                  role: 'database',
-                  identifier: {
-                    spelling: 'contract_database',
-                    comparisonKey: 'contract_database',
-                  },
-                },
-                {
-                  role: 'schema',
-                  identifier: {
-                    spelling: 'contract_schema',
-                    comparisonKey: 'contract_schema',
-                  },
-                },
-              ],
-            },
-          },
-          {
-            kind: 'create_table',
-            target: {
-              kind: 'relation',
-              relation: {
-                namespace: [
-                  {
-                    role: 'database',
-                    identifier: {
-                      spelling: 'contract_database',
-                      comparisonKey: 'contract_database',
-                    },
-                  },
-                  {
-                    role: 'schema',
-                    identifier: {
-                      spelling: 'contract_schema',
-                      comparisonKey: 'contract_schema',
-                    },
-                  },
-                ],
-                relation: {
-                  spelling: 'lifecycle_records',
-                  comparisonKey: 'lifecycle_records',
-                },
-              },
-            },
-          },
-        ],
-      } satisfies MigrationPlan,
+      expectedPlan: structuredClone(
+        createPostgresLifecycleRuntimeData,
+      ) satisfies MigrationPlan,
     },
   }
 }
@@ -712,6 +744,7 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
           relation: records,
           column: 'label',
           node: queryCompilerScenarios['select.projection'].support.input.node,
+          /** Projects compiled SQL and bindings into the contract's assertion shape. */
           inspectCompiled: (query) => ({
             parameterCount: query.params.length,
             addressesRelation: query.sql.includes('"contract_schema"."records"'),
@@ -827,6 +860,11 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
       state: 'supported',
       input: {
         lowering: {
+          /**
+           * Creates the case fixture used by the contract scenario.
+           *
+           * @returns The case fixture used by the contract scenario.
+           */
           async createCase() {
             const migrationCatalogRequest: CatalogRequest = {
               relations: [{ relation: { relation: 'records' }, shape: 'complete' }],
@@ -864,104 +902,11 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
               planned,
               profile,
               mismatchedProfiles: {
-                identityAdapter: {
-                  profile: {
-                    ...profile,
-                    identityAdapter: 'contract-other-identity',
-                  },
-                  issues: [
-                    {
-                      code: 'profile_mismatch',
-                      message:
-                        "Executing profile adapter 'contract-other-identity' does not match PostgreSQL",
-                      sourceStepIndexes: [],
-                    },
-                    {
-                      code: 'profile_mismatch',
-                      message:
-                        "Identity adapter 'postgresql' does not match executing adapter 'contract-other-identity'",
-                      sourceStepIndexes: [],
-                    },
-                  ],
-                },
-                namespaceContext: {
-                  profile: {
-                    ...profile,
-                    namespaceContext: {
-                      writableDefault: [
-                        { role: 'database', spelling: 'contract_database' },
-                        { role: 'schema', spelling: 'other_schema' },
-                      ],
-                    },
-                  },
-                  issues: [
-                    {
-                      code: 'profile_mismatch',
-                      message:
-                        'Writable namespace context does not match the executing session',
-                      sourceStepIndexes: [],
-                    },
-                  ],
-                },
-                registrationDefault: {
-                  profile: {
-                    ...profile,
-                    registrationDefault: [{ role: 'schema', spelling: 'other_schema' }],
-                  },
-                  issues: [
-                    {
-                      code: 'profile_mismatch',
-                      message:
-                        'Registration default does not match the executing configuration',
-                      sourceStepIndexes: [],
-                    },
-                  ],
-                },
+                identityAdapter: createIdentityAdapterMismatch(profile),
+                namespaceContext: createNamespaceContextMismatch(profile),
+                registrationDefault: createRegistrationDefaultMismatch(profile),
               },
-              expectedProgram: {
-                atomicity: 'plan-atomic',
-                preconditions: [
-                  {
-                    kind: 'column_has_no_nulls',
-                    relation: {
-                      namespace: [
-                        {
-                          role: 'database',
-                          identifier: {
-                            spelling: 'contract_database',
-                            comparisonKey: 'contract_database',
-                          },
-                        },
-                        {
-                          role: 'schema',
-                          identifier: {
-                            spelling: 'contract_schema',
-                            comparisonKey: 'contract_schema',
-                          },
-                        },
-                      ],
-                      relation: {
-                        spelling: 'records',
-                        comparisonKey: 'records',
-                      },
-                    },
-                    column: 'label',
-                    sourceStepIndexes: [0],
-                  },
-                ],
-                actions: [
-                  {
-                    sourceStepIndexes: [0],
-                    transaction: 'required',
-                    statements: [
-                      {
-                        sql: 'alter table "contract_schema"."records" alter column "label" set not null',
-                        params: [],
-                      },
-                    ],
-                  },
-                ],
-              },
+              expectedProgram: structuredClone(fixtureData),
             }
           },
         },
@@ -979,3 +924,146 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
   coordination: postgresCoordinationContractShard,
   'operation-session': postgresOperationSessionContractShard,
 })
+
+/** Creates the identity adapter mismatch fixture used by the contract scenario. */
+function createIdentityAdapterMismatch(
+  profile: MigrationContractCase['profile'],
+): MigrationContractCase['mismatchedProfiles']['identityAdapter'] {
+  return {
+    profile: {
+      ...profile,
+      identityAdapter: 'contract-other-identity',
+    },
+    issues: [
+      {
+        code: 'profile_mismatch',
+        message:
+          "Executing profile adapter 'contract-other-identity' does not match PostgreSQL",
+        sourceStepIndexes: [],
+      },
+      {
+        code: 'profile_mismatch',
+        message:
+          "Identity adapter 'postgresql' does not match executing adapter 'contract-other-identity'",
+        sourceStepIndexes: [],
+      },
+    ],
+  }
+}
+
+/** Creates the namespace context mismatch fixture used by the contract scenario. */
+function createNamespaceContextMismatch(
+  profile: MigrationContractCase['profile'],
+): MigrationContractCase['mismatchedProfiles']['namespaceContext'] {
+  return {
+    profile: {
+      ...profile,
+      namespaceContext: {
+        writableDefault: [
+          { role: 'database', spelling: 'contract_database' },
+          { role: 'schema', spelling: 'other_schema' },
+        ],
+      },
+    },
+    issues: [
+      {
+        code: 'profile_mismatch',
+        message: 'Writable namespace context does not match the executing session',
+        sourceStepIndexes: [],
+      },
+    ],
+  }
+}
+
+/** Creates the registration default mismatch fixture used by the contract scenario. */
+function createRegistrationDefaultMismatch(
+  profile: MigrationContractCase['profile'],
+): MigrationContractCase['mismatchedProfiles']['registrationDefault'] {
+  return {
+    profile: {
+      ...profile,
+      registrationDefault: [{ role: 'schema', spelling: 'other_schema' }],
+    },
+    issues: [
+      {
+        code: 'profile_mismatch',
+        message: 'Registration default does not match the executing configuration',
+        sourceStepIndexes: [],
+      },
+    ],
+  }
+}
+
+type PostgresLifecycleFixtureState = {
+  createdRelation: Readonly<{ schema: string; relation: string }> | undefined
+  selectedConnector: ReturnType<typeof createMockPostgresConnector> | undefined
+}
+
+/**
+ * Prepares lifecycle statement for the current fixture scenario.
+ *
+ * @param sql - Native SQL text being scanned, compiled, or observed.
+ * @param state - Mutable fixture state shared across observed calls and cleanup.
+ * @param connector - Connector that owns native connection resources.
+ * @param operationCommands - Recorded transaction and savepoint SQL commands.
+ *
+ * @returns The fixture statement with lifecycle observations attached where required.
+ */
+function prepareLifecycleStatement(
+  sql: string,
+  state: PostgresLifecycleFixtureState,
+  connector: ReturnType<typeof createMockPostgresConnector>,
+  operationCommands: OperationCommand[],
+) {
+  state.selectedConnector = connector
+
+  if (sql === 'select 1') operationCommands.push({ kind: 'ping' })
+  if (sql === 'begin') operationCommands.push({ kind: 'begin' })
+  if (sql === 'commit') operationCommands.push({ kind: 'commit' })
+
+  const statement = createMockStatement(
+    sql.includes('pg_try_advisory_lock')
+      ? [{ locked: true }]
+      : sql.includes('pg_advisory_unlock')
+        ? [{ unlocked: true }]
+        : sql.includes('current_database()')
+          ? [
+              {
+                database: 'contract_database',
+                schema: 'contract_schema',
+                version: '160000',
+              },
+            ]
+          : sql.includes('"lifecycle_records"')
+            ? [{ id: 'lifecycle-1', label: 'connector-selected' }]
+            : [],
+  )
+
+  if (!/^create table "contract_schema"\."lifecycle_records"/i.test(sql)) {
+    return statement
+  }
+
+  return {
+    ...statement,
+    /** Runs a fixture statement with configured outcomes. */
+    async run() {
+      state.createdRelation = {
+        schema: 'contract_schema',
+        relation: 'lifecycle_records',
+      }
+      return { success: true }
+    },
+  }
+}
+
+/**
+ * Builds expected mapped rows and parameter evidence for the lifecycle query.
+ *
+ * @returns Expected lifecycle query results and bindings.
+ */
+function createPostgresLifecycleExpectation() {
+  return {
+    queryRows: [{ id: 'lifecycle-1', label: 'connector-selected' }],
+    queryParam: 'connector-selected',
+  }
+}

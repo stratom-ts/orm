@@ -52,6 +52,7 @@ const supportedSimple = {
 }
 const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 
+/** Resolves a PostgreSQL fixture relation for physical-name ownership checks. */
 function owner(schema: string, relation: string) {
   return identities.resolve({
     namespace: [{ role: 'schema', spelling: schema }],
@@ -59,6 +60,7 @@ function owner(schema: string, relation: string) {
   })
 }
 
+/** Resolves a SQLite fixture relation for physical-name ownership checks. */
 function sqliteOwner(database: string, relation: string) {
   return sqliteIdentities.resolve({
     namespace: [{ role: 'database', spelling: database }],
@@ -80,59 +82,41 @@ describe('generated physical naming', () => {
       generatedIndexName(seed.owner, seed.columns, false, POSTGRES_PHYSICAL_NAMING),
     ).toBe('users_email__5a64532c865bca5a_idx')
   })
+})
 
+describe('generated physical naming: generates fixed names for every constraint seed and referential action', () => {
   it('generates fixed names for every constraint seed and referential action', () => {
     const users = owner('public', 'users')
     const accounts = owner('public', 'accounts')
-    const omittedActions = generatedForeignKeyName(
+    const omittedActions = generatedUserAccountForeignKey(
       users,
-      'accountId',
       accounts,
-      'id',
       undefined,
       undefined,
-      POSTGRES_PHYSICAL_NAMING,
     )
 
     expect({
       primaryKey: generatedPrimaryKeyName(users, ['id'], POSTGRES_PHYSICAL_NAMING),
       unique: generatedUniqueName(users, 'email', POSTGRES_PHYSICAL_NAMING),
       omittedActions,
-      explicitDefaultActions: generatedForeignKeyName(
+      explicitDefaultActions: generatedUserAccountForeignKey(
         users,
-        'accountId',
         accounts,
-        'id',
         'no action',
         'no action',
-        POSTGRES_PHYSICAL_NAMING,
       ),
-      deleteAction: generatedForeignKeyName(
+      deleteAction: generatedUserAccountForeignKey(users, accounts, 'cascade', undefined),
+      updateAction: generatedUserAccountForeignKey(
         users,
-        'accountId',
         accounts,
-        'id',
-        'cascade',
-        undefined,
-        POSTGRES_PHYSICAL_NAMING,
-      ),
-      updateAction: generatedForeignKeyName(
-        users,
-        'accountId',
-        accounts,
-        'id',
         undefined,
         'restrict',
-        POSTGRES_PHYSICAL_NAMING,
       ),
-      actionForeignKey: generatedForeignKeyName(
+      actionForeignKey: generatedUserAccountForeignKey(
         users,
-        'accountId',
         accounts,
-        'id',
         'cascade',
         'restrict',
-        POSTGRES_PHYSICAL_NAMING,
       ),
     }).toEqual({
       primaryKey: 'users_id__d7178c290e1964b2_pkey',
@@ -144,7 +128,9 @@ describe('generated physical naming', () => {
       actionForeignKey: 'users_accountId__b111b074295440b0_fkey',
     })
   })
+})
 
+describe('generated physical naming: uses structured seeds and does not flatten ambiguous column tuples', () => {
   it('uses structured seeds and does not flatten ambiguous column tuples', () => {
     const relation = owner('public', 'events')
     expect(
@@ -153,7 +139,9 @@ describe('generated physical naming', () => {
       generatedIndexName(relation, ['a', 'b_c'], false, POSTGRES_PHYSICAL_NAMING),
     )
   })
+})
 
+describe('generated physical naming: truncates only the readable UTF-8 prefix without splitting scalars', () => {
   it('truncates only the readable UTF-8 prefix without splitting scalars', () => {
     const relation = owner('public', `events_${'😀'.repeat(30)}`)
     const name = generatedIndexName(
@@ -184,7 +172,9 @@ describe('generated physical naming', () => {
       /2 Unicode scalars/,
     )
   })
+})
 
+describe('physical name reservations', () => {
   it('collides equal PostgreSQL names within one schema but not across schemas', () => {
     const publicUsers = owner('public', 'users')
     const publicPosts = owner('public', 'posts')
@@ -218,7 +208,9 @@ describe('generated physical naming', () => {
       }),
     ).not.toThrow()
   })
+})
 
+describe('physical name reservations: collides equal SQLite names within one database alias but not across aliases', () => {
   it('collides equal SQLite names within one database alias but not across aliases', () => {
     const mainUsers = sqliteOwner('main', 'users')
     const mainPosts = sqliteOwner('main', 'posts')
@@ -252,7 +244,9 @@ describe('generated physical naming', () => {
       }),
     ).not.toThrow()
   })
+})
 
+describe('physical name reservations: preserves table-local naming profiles', () => {
   it('preserves table-local naming profiles', () => {
     const publicUsers = owner('public', 'users')
     const publicPosts = owner('public', 'posts')
@@ -276,7 +270,9 @@ describe('generated physical naming', () => {
       }),
     ).not.toThrow()
   })
+})
 
+describe('physical name reservations: makes relation-constraint reservations idempotent and owner-scoped', () => {
   it('makes relation-constraint reservations idempotent and owner-scoped', () => {
     const users = owner('public', 'users')
     const posts = owner('public', 'posts')
@@ -309,7 +305,9 @@ describe('generated physical naming', () => {
       }),
     ).not.toThrow()
   })
+})
 
+describe('physical name validation and legacy adoption', () => {
   it('rejects explicit PostgreSQL overlength and schema-wide collisions', () => {
     const TooLong = defineTable(
       'too_long',
@@ -354,7 +352,9 @@ describe('generated physical naming', () => {
       ),
     ).toThrow(/physical name collision.*shared_idx/i)
   })
+})
 
+describe('physical name validation and legacy adoption: adopts one legacy generated index by semantics and rejects ambiguity', () => {
   it('adopts one legacy generated index by semantics and rejects ambiguity', () => {
     const Events = defineTable(
       'events',
@@ -400,7 +400,9 @@ describe('generated physical naming', () => {
       /ambiguous index semantic match/i,
     )
   })
+})
 
+describe('physical name validation and legacy adoption: checks generated names against non-table PostgreSQL catalog reservations', () => {
   it('checks generated names against non-table PostgreSQL catalog reservations', () => {
     const Events = defineTable(
       'events',
@@ -429,7 +431,9 @@ describe('generated physical naming', () => {
       ),
     ).toThrow(/physical name collision/i)
   })
+})
 
+describe('physical name validation and legacy adoption: adopts legacy constraint names by unique semantics and rejects ambiguity', () => {
   it('adopts legacy constraint names by unique semantics and rejects ambiguity', () => {
     const Accounts = defineTable(
       'accounts',
@@ -477,3 +481,30 @@ describe('generated physical naming', () => {
     )
   })
 })
+
+/**
+ * Generates the users-to-accounts foreign-key name with the supplied referential actions.
+ *
+ * @param users - Canonical users relation owning the generated foreign key.
+ * @param accounts - Canonical accounts relation referenced by the generated foreign key.
+ * @param onDelete - Requested foreign-key deletion action.
+ * @param onUpdate - Requested foreign-key update action.
+ *
+ * @returns The users-to-accounts foreign-key name derived from the requested actions.
+ */
+function generatedUserAccountForeignKey(
+  users: ReturnType<typeof owner>,
+  accounts: ReturnType<typeof owner>,
+  onDelete: Parameters<typeof generatedForeignKeyName>[4],
+  onUpdate: Parameters<typeof generatedForeignKeyName>[5],
+) {
+  return generatedForeignKeyName(
+    users,
+    'accountId',
+    accounts,
+    'id',
+    onDelete,
+    onUpdate,
+    POSTGRES_PHYSICAL_NAMING,
+  )
+}

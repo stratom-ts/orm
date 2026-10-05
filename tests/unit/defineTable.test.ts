@@ -109,7 +109,9 @@ describe('defineTable', () => {
 
     expect(User.id.column).toBe('id')
   })
+})
 
+describe('defineTable: retains ordered multi-role namespace intent on column refs', () => {
   it('retains ordered multi-role namespace intent on column refs', () => {
     const TenantEvents = defineTable(
       'events',
@@ -135,7 +137,9 @@ describe('defineTable', () => {
 
     expect(TenantEvents.id.relation).toEqual(TenantEvents.getTableMetadata().relation)
   })
+})
 
+describe('defineTable: normalizes an empty namespace to omitted intent in runtime and types', () => {
   it('normalizes an empty namespace to omitted intent in runtime and types', () => {
     const Events = defineTable(
       'events',
@@ -154,7 +158,9 @@ describe('defineTable', () => {
       Readonly<{ relation: 'events' }>
     >()
   })
+})
 
+describe('defineTable: should support composite primary keys and index configs', () => {
   it('should support composite primary keys and index configs', () => {
     const Membership = defineTable(
       'memberships',
@@ -178,7 +184,9 @@ describe('defineTable', () => {
       { columns: ['orgId', 'role'], unique: true },
     ])
   })
+})
 
+describe('defineTable: should reject string index shorthand', () => {
   it('should reject string index shorthand', () => {
     expect(() =>
       defineTable(
@@ -192,7 +200,9 @@ describe('defineTable', () => {
       ),
     ).toThrow(/must list at least one column/)
   })
+})
 
+describe('defineTable structural validation', () => {
   it('should throw SchemaError when primaryKey column is missing', () => {
     expect(() =>
       defineTable(
@@ -233,7 +243,9 @@ describe('defineTable', () => {
       ),
     ).toThrow(SchemaError)
   })
+})
 
+describe('defineTable structural validation: should throw SchemaError when a column name collides with a reserved handle method', () => {
   it('should throw SchemaError when a column name collides with a reserved handle method', () => {
     expect(() =>
       defineTable(
@@ -260,7 +272,9 @@ describe('defineTable', () => {
       ),
     ).toThrow(/reserved/)
   })
+})
 
+describe('defineTable structural validation: should defer physical identity compatibility to the selected adapter', () => {
   it('should defer physical identity compatibility to the selected adapter', () => {
     expect(() =>
       defineTable(
@@ -294,7 +308,9 @@ describe('defineTable', () => {
       ),
     ).not.toThrow()
   })
+})
 
+describe('defineTable structural validation: should defer physical identity compatibility to the selected adapter: should require a value source for optional NOT NULL columns', () => {
   it('should require a value source for optional NOT NULL columns', () => {
     expect(() =>
       defineTable(
@@ -324,7 +340,9 @@ describe('defineTable', () => {
       ),
     ).toThrow(/cannot default to null/)
   })
+})
 
+describe('defineTable structural validation: should accept database and Valibot defaults for optional columns', () => {
   it('should accept database and Valibot defaults for optional columns', () => {
     expect(() =>
       defineTable(
@@ -352,7 +370,9 @@ describe('defineTable', () => {
     expect(parse(SchemaDefault.getSchema(), {})).toEqual({ id: 'new' })
     expect(validateInsertRow(SchemaDefault, {})).toEqual({ id: 'new' })
   })
+})
 
+describe('defineTable column metadata and keys', () => {
   it('should accept generated and autoIncrement value sources for optional columns', () => {
     expect(() =>
       defineTable(
@@ -390,7 +410,9 @@ describe('defineTable', () => {
       ),
     ).not.toThrow()
   })
+})
 
+describe('defineTable column metadata and keys: should retain adapter-owned column metadata during construction', () => {
   it('should retain adapter-owned column metadata during construction', () => {
     expect(() =>
       defineTable(
@@ -418,7 +440,9 @@ describe('defineTable', () => {
       ),
     ).not.toThrow()
   })
+})
 
+describe('defineTable column metadata and keys: should reject defaults combined with identity generation', () => {
   it('should reject defaults combined with identity generation', () => {
     expect(() =>
       defineTable(
@@ -454,7 +478,9 @@ describe('defineTable', () => {
       ),
     ).toThrow(/cannot combine a default with identity/)
   })
+})
 
+describe('defineTable structural keys and references', () => {
   it('should reject duplicate index definitions', () => {
     expect(() =>
       defineTable(
@@ -470,7 +496,9 @@ describe('defineTable', () => {
       ),
     ).toThrow(/duplicate index definition/)
   })
+})
 
+describe('defineTable structural keys and references: should reject duplicate and nullable structural key members', () => {
   it('should reject duplicate and nullable structural key members', () => {
     expect(() =>
       defineTable(
@@ -501,44 +529,11 @@ describe('defineTable', () => {
       ),
     ).toThrow(/index.*duplicate columns/i)
   })
+})
 
+describe('defineTable structural keys and references: should reject null database defaults and incoherent FK actions structurally', () => {
   it('should reject null database defaults and incoherent FK actions structurally', () => {
-    expect(() =>
-      defineTable(
-        'null_default',
-        {
-          id: pipe(
-            string(),
-            column({
-              databaseDefault: { kind: 'literal', value: null },
-            }),
-          ),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).toThrow(/NOT NULL.*null database default/i)
-
-    expect(() =>
-      defineTable(
-        'bad_set_null',
-        {
-          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-          userId: reference(User, 'id', { onDelete: 'set null' }),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).toThrow(/SET NULL.*NOT NULL/i)
-
-    expect(() =>
-      defineTable(
-        'bad_set_default',
-        {
-          id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-          userId: reference(User, 'id', { onDelete: 'set default' }),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).toThrow(/SET DEFAULT.*without a database default/i)
+    assertInvalidColumnDefaultsAndReferenceActions()
 
     expect(() =>
       defineTable(
@@ -559,8 +554,11 @@ describe('defineTable', () => {
       ),
     ).not.toThrow()
   })
+})
 
+describe('defineTable structural keys and references: should reject null database defaults and incoherent FK actions structurally: validates structured reference targets instead of legacy flat fields', () => {
   it('validates structured reference targets instead of legacy flat fields', () => {
+    /** Defines a posts table with the supplied reference metadata for validation checks. */
     const defineWithReferenceMetadata = (referenceMetadata: Record<string, unknown>) =>
       defineTable(
         'posts',
@@ -626,7 +624,9 @@ describe('reference with FK actions', () => {
     expect(meta).not.toHaveProperty('table')
     expect(meta).not.toHaveProperty('key')
   })
+})
 
+describe('reference with FK actions: should accept a table handle as reference target', () => {
   it('should accept a table handle as reference target', () => {
     const Post = defineTable(
       'posts',
@@ -671,3 +671,46 @@ describe('table handle typing', () => {
     expectTypeOf<typeof User>().toExtend<TableHandle>()
   })
 })
+
+/**
+ * Checks rejected defaults and referential actions that conflict with column storage
+ * semantics.
+ */
+function assertInvalidColumnDefaultsAndReferenceActions() {
+  expect(() =>
+    defineTable(
+      'null_default',
+      {
+        id: pipe(
+          string(),
+          column({
+            databaseDefault: { kind: 'literal', value: null },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    ),
+  ).toThrow(/NOT NULL.*null database default/i)
+
+  expect(() =>
+    defineTable(
+      'bad_set_null',
+      {
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        userId: reference(User, 'id', { onDelete: 'set null' }),
+      },
+      { primaryKey: 'id' },
+    ),
+  ).toThrow(/SET NULL.*NOT NULL/i)
+
+  expect(() =>
+    defineTable(
+      'bad_set_default',
+      {
+        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+        userId: reference(User, 'id', { onDelete: 'set default' }),
+      },
+      { primaryKey: 'id' },
+    ),
+  ).toThrow(/SET DEFAULT.*without a database default/i)
+}

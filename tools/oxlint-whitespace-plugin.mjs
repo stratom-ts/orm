@@ -1,7 +1,17 @@
+/** Reads the source token that ends a statement for whitespace boundary checks. */
 function getActualLastToken(sourceCode, node) {
   return sourceCode.getLastToken(node)
 }
 
+/**
+ * Recognizes immediately invoked function statements through chain and unary wrappers.
+ *
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function isIifeStatement(node) {
   if (node.type !== 'ExpressionStatement') {
     return false
@@ -28,6 +38,17 @@ function isIifeStatement(node) {
   )
 }
 
+/**
+ * Checks whether a statement ends in an owned block or an immediately invoked function.
+ *
+ * @param {object} sourceCode - Parsed source with token and comment lookup used by
+ *   whitespace checks.
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function isBlockLikeStatement(sourceCode, node) {
   if (node.type === 'DoWhileStatement' && node.body.type === 'BlockStatement') {
     return true
@@ -51,6 +72,15 @@ function isBlockLikeStatement(sourceCode, node) {
   return owner?.type === 'BlockStatement' || owner?.type === 'SwitchStatement'
 }
 
+/**
+ * Recognizes calls through await and optional-chain wrappers.
+ *
+ * @param {object} expression - Scalar SQL expression or default expression being
+ *   processed.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function isCallExpression(expression) {
   if (expression.type === 'CallExpression') {
     return true
@@ -67,6 +97,7 @@ function isCallExpression(expression) {
   return false
 }
 
+/** Tests whether a statement is a call spanning more than one source line. */
 function isMultilineCallStatement(node) {
   return (
     node.type === 'ExpressionStatement' &&
@@ -75,6 +106,14 @@ function isMultilineCallStatement(node) {
   )
 }
 
+/**
+ * Counts chained calls through member and optional-chain expressions.
+ *
+ * @param {object} expression - Scalar SQL expression or default expression being
+ *   processed.
+ *
+ * @returns {number} The number of calls in the expression chain.
+ */
 function callChainDepth(expression) {
   if (expression.type === 'ChainExpression') {
     return callChainDepth(expression.expression)
@@ -91,6 +130,15 @@ function callChainDepth(expression) {
   return 0
 }
 
+/**
+ * Recognizes declarations whose chained calls span multiple source lines.
+ *
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function isMultilineCallChainDeclaration(node) {
   return (
     node.type === 'VariableDeclaration' &&
@@ -101,6 +149,15 @@ function isMultilineCallChainDeclaration(node) {
   )
 }
 
+/**
+ * Recognizes type declarations whose source layout requires surrounding whitespace.
+ *
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function isMultilineTypeDeclaration(node) {
   const declaration =
     node.type === 'ExportNamedDeclaration' && node.declaration !== null
@@ -114,12 +171,14 @@ function isMultilineTypeDeclaration(node) {
   )
 }
 
+/** Recognizes statements with multiline block bodies. */
 function isMultilineBlockStatement(sourceCode, node) {
   return (
     node.loc.start.line !== node.loc.end.line && isBlockLikeStatement(sourceCode, node)
   )
 }
 
+/** Selects statement forms that require a surrounding blank line. */
 function isPaddedMultilineStatement(sourceCode, node) {
   return (
     isMultilineBlockStatement(sourceCode, node) ||
@@ -129,10 +188,18 @@ function isPaddedMultilineStatement(sourceCode, node) {
   )
 }
 
+/** Recognizes compact guards that should remain adjacent to related statements. */
 function isSingleLineIfStatement(node) {
   return node.type === 'IfStatement' && node.loc.start.line === node.loc.end.line
 }
 
+/**
+ * Collects local names from nested variable-binding patterns.
+ *
+ * @param {object} pattern - Binding pattern whose declared names must be collected.
+ * @param {Set<string>} names - Mutable set of local binding names used for dependency
+ *   detection.
+ */
 function addBindingNames(pattern, names) {
   if (pattern.type === 'Identifier') {
     names.add(pattern.name)
@@ -167,6 +234,16 @@ function addBindingNames(pattern, names) {
   }
 }
 
+/**
+ * Tests whether a node references a name introduced by the preceding declaration.
+ *
+ * @param {unknown} value - Runtime value to validate, normalize, or map.
+ * @param {Set<string>} names - Mutable set of local binding names used for dependency
+ *   detection.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function containsBindingReference(value, names) {
   if (value === null || typeof value !== 'object') {
     return false
@@ -189,6 +266,17 @@ function containsBindingReference(value, names) {
   )
 }
 
+/**
+ * Checks whether a declaration supplies values used by the following block.
+ *
+ * @param {object} previousNode - Previous statement whose trailing token or attached
+ *   comment anchors the gap.
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function declarationFeedsBlock(previousNode, node) {
   if (previousNode.type !== 'VariableDeclaration') {
     return false
@@ -206,6 +294,19 @@ function declarationFeedsBlock(previousNode, node) {
   return containsBindingReference(node, names)
 }
 
+/**
+ * Checks whether a declaration supplies values used by the following statement.
+ *
+ * @param {object} sourceCode - Parsed source with token and comment lookup used by
+ *   whitespace checks.
+ * @param {object} previousNode - Previous statement whose trailing token or attached
+ *   comment anchors the gap.
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function declarationFeedsNode(sourceCode, previousNode, node) {
   if (
     previousNode.type !== 'VariableDeclaration' ||
@@ -226,6 +327,21 @@ function declarationFeedsNode(sourceCode, previousNode, node) {
     )
 }
 
+/**
+ * Applies the repository's statement separation rules to adjacent statements.
+ *
+ * @param {object} sourceCode - Parsed source with token and comment lookup used by
+ *   whitespace checks.
+ * @param {object} previousNode - Previous statement whose trailing token or attached
+ *   comment anchors the gap.
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ * @param {object | null} leadingComment - Leading comment attached to the next statement,
+ *   or null when none exists.
+ *
+ * @returns {boolean} True when the inspected syntax requires this statement
+ *   classification.
+ */
 function requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment) {
   const consecutiveSingleLineIfs =
     leadingComment === null &&
@@ -260,6 +376,16 @@ function requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment
   )
 }
 
+/**
+ * Finds the token or attached comment that ends the previous statement.
+ *
+ * @param {object} sourceCode - Parsed source with token and comment lookup used by
+ *   whitespace checks.
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {object} The token or attached comment ending the previous statement.
+ */
 function getTrailingAnchor(sourceCode, node) {
   let anchor = getActualLastToken(sourceCode, node)
 
@@ -274,6 +400,19 @@ function getTrailingAnchor(sourceCode, node) {
   return anchor
 }
 
+/**
+ * Finds a comment that must stay attached to the following statement.
+ *
+ * @param {object} sourceCode - Parsed source with token and comment lookup used by
+ *   whitespace checks.
+ * @param {object} previousNode - Previous statement whose trailing token or attached
+ *   comment anchors the gap.
+ * @param {object} node - Syntax node whose statement form and source boundaries are
+ *   inspected.
+ *
+ * @returns {object | null} The leading comment attached to the statement, or undefined
+ *   when none exists.
+ */
 function getAttachedLeadingComment(sourceCode, previousNode, node) {
   const comments = sourceCode
     .getCommentsBefore(node)
@@ -296,11 +435,20 @@ function getAttachedLeadingComment(sourceCode, previousNode, node) {
   return firstAttached
 }
 
+/** Reads indentation at a source node's start for whitespace fixes. */
 function getIndent(source, offset) {
   const lineStart = Math.max(source.lastIndexOf('\n', offset - 1) + 1, 0)
   return /^[\t ]*/u.exec(source.slice(lineStart, offset))?.[0] ?? ''
 }
 
+/**
+ * Reports and fixes incorrect blank-line separation between adjacent statements.
+ *
+ * @param {object} context - Lint rule context providing source lookup and diagnostic
+ *   reporting.
+ * @param {object[]} statements - Adjacent statements whose blank-line separation must be
+ *   checked.
+ */
 function checkStatementList(context, statements) {
   const { sourceCode } = context
   const source = sourceCode.text,
@@ -329,6 +477,7 @@ function checkStatementList(context, statements) {
     }
 
     context.report({
+      /** Produces source replacements that enforce the required statement separation. */
       fix(fixer) {
         const indent = getIndent(source, target.range[0])
         return fixer.replaceTextRange(
@@ -343,20 +492,33 @@ function checkStatementList(context, statements) {
 }
 
 const padMultilineBlocks = {
+  /**
+   * Creates the whitespace rule listener for statement lists.
+   *
+   * @param {object} context - Lint rule context providing source lookup and diagnostic
+   *   reporting.
+   *
+   * @returns {object} Statement-list visitors for the whitespace rule.
+   */
   create(context) {
     return {
+      /** Checks statement separation in the program body. */
       'Program:exit'(node) {
         checkStatementList(context, node.body)
       },
+      /** Checks statement separation in a block body. */
       'BlockStatement:exit'(node) {
         checkStatementList(context, node.body)
       },
+      /** Checks statement separation in a static initialization block. */
       'StaticBlock:exit'(node) {
         checkStatementList(context, node.body)
       },
+      /** Checks statement separation in a switch case. */
       'SwitchCase:exit'(node) {
         checkStatementList(context, node.consequent)
       },
+      /** Checks statement separation in a TypeScript namespace body. */
       'TSModuleBlock:exit'(node) {
         checkStatementList(context, node.body)
       },

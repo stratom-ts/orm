@@ -26,7 +26,22 @@ export type PhysicalNamingProfile = Readonly<{
   id: string
   maximumLength: number
   lengthUnit: 'utf8Bytes' | 'unicodeScalars'
+  /**
+   * Converts an identifier spelling into the selected policy's comparison key.
+   *
+   * @param name - Physical identifier or dialect label used by this operation.
+   *
+   * @returns The policy-normalized key used for identifier equality.
+   */
   comparisonKey(name: string): string
+  /**
+   * Selects the uniqueness scope used to reserve one kind of physical name.
+   *
+   * @param kind - Native relation or query kind used to select fixture evidence.
+   *
+   * @returns The physical-name uniqueness scope required by the selected dialect and
+   *   object kind.
+   */
   scope(
     kind: PhysicalNameKind,
   ): 'namespaceRelations' | 'relationConstraints' | 'tableLocal'
@@ -347,6 +362,11 @@ export function physicalNameScopeKey(
 }
 
 export type PhysicalNameRegistry = {
+  /**
+   * Reserves a physical name or accepts a repeated reservation from the same owner token.
+   *
+   * @param options - Configuration and dependencies for this operation.
+   */
   reserve(options: {
     kind: PhysicalNameKind
     owner: CanonicalRelationIdentity

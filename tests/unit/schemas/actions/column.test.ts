@@ -71,7 +71,9 @@ describe('getColumnMetadata', () => {
 
     expect(getColumnMetadata(schema)).toEqual({ kind: 'column', unique: true })
   })
+})
 
+describe('getColumnMetadata: ignores malformed metadata actions instead of treating them as columns', () => {
   it('ignores malformed metadata actions instead of treating them as columns', () => {
     const schema = pipe(
       string(),

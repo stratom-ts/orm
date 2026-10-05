@@ -43,6 +43,48 @@ export function formatSqliteLiteral(value: string | number | boolean | null): st
 /** Verifies that a SQLite expression is a balanced, side-effect-free default. */
 export function assertSafeSqliteDefaultExpression(expression: string): string {
   const value = expression.trim()
+  let { unquoted, unsafe } = scanSqliteDefaultExpression(value)
+
+  if (
+    /\b(?:select|from|pragma|attach|detach|insert|update|delete|create|alter|drop|vacuum)\b/i.test(
+      unquoted,
+    )
+  ) {
+    unsafe = true
+  }
+
+  const postgresOnly =
+    /^(?:now|clock_timestamp|gen_random_uuid|uuid_generate_v4|date_trunc)\s*\(/i
+
+  if (postgresOnly.test(unquoted)) unsafe = true
+
+  for (const match of unquoted.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+    const name = match[0].toLowerCase()
+
+    if (!SQLITE_DEFAULT_EXPRESSION_NAMES.has(name)) {
+      unsafe = true
+      break
+    }
+  }
+
+  if (unsafe) {
+    throw new MigrationError({
+      message: `Unsafe SQLite database expression ${JSON.stringify(expression)}`,
+    })
+  }
+
+  return value
+}
+
+/**
+ * Checks quoted text and parenthesis balance while collecting unquoted default-expression
+ * tokens.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns Validated expression boundaries and supported literal or function tokens.
+ */
+function scanSqliteDefaultExpression(value: string) {
   let quoted = false
   let depth = 0
   let unquoted = ''
@@ -67,75 +109,7 @@ export function assertSafeSqliteDefaultExpression(expression: string): string {
 
   if (quoted || depth !== 0) unsafe = true
 
-  if (
-    /\b(?:select|from|pragma|attach|detach|insert|update|delete|create|alter|drop|vacuum)\b/i.test(
-      unquoted,
-    )
-  ) {
-    unsafe = true
-  }
-
-  const postgresOnly =
-    /^(?:now|clock_timestamp|gen_random_uuid|uuid_generate_v4|date_trunc)\s*\(/i
-
-  if (postgresOnly.test(unquoted)) unsafe = true
-
-  const allowedNames = new Set([
-    'abs',
-    'as',
-    'cast',
-    'char',
-    'coalesce',
-    'current_date',
-    'current_time',
-    'current_timestamp',
-    'date',
-    'datetime',
-    'format',
-    'hex',
-    'ifnull',
-    'instr',
-    'julianday',
-    'length',
-    'lower',
-    'ltrim',
-    'max',
-    'min',
-    'null',
-    'nullif',
-    'printf',
-    'quote',
-    'replace',
-    'round',
-    'rtrim',
-    'sign',
-    'strftime',
-    'substr',
-    'substring',
-    'time',
-    'trim',
-    'true',
-    'unicode',
-    'unixepoch',
-    'upper',
-  ])
-
-  for (const match of unquoted.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
-    const name = match[0].toLowerCase()
-
-    if (!allowedNames.has(name)) {
-      unsafe = true
-      break
-    }
-  }
-
-  if (unsafe) {
-    throw new MigrationError({
-      message: `Unsafe SQLite database expression ${JSON.stringify(expression)}`,
-    })
-  }
-
-  return value
+  return { unquoted, unsafe }
 }
 
 /** Wraps a SQLite expression in the form accepted by DEFAULT. */
@@ -153,3 +127,43 @@ export function normalizeSqliteDefaultValue(
 ): string {
   return normalizeSqliteDefaultExpression(formatSqliteLiteral(value))
 }
+
+const SQLITE_DEFAULT_EXPRESSION_NAMES = new Set([
+  'abs',
+  'as',
+  'cast',
+  'char',
+  'coalesce',
+  'current_date',
+  'current_time',
+  'current_timestamp',
+  'date',
+  'datetime',
+  'format',
+  'hex',
+  'ifnull',
+  'instr',
+  'julianday',
+  'length',
+  'lower',
+  'ltrim',
+  'max',
+  'min',
+  'null',
+  'nullif',
+  'printf',
+  'quote',
+  'replace',
+  'round',
+  'rtrim',
+  'sign',
+  'strftime',
+  'substr',
+  'substring',
+  'time',
+  'trim',
+  'true',
+  'unicode',
+  'unixepoch',
+  'upper',
+])

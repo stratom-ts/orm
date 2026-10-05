@@ -17,6 +17,7 @@ type OperationToken = {
   readonly executor: Executor
   readonly identity: OperationSessionIdentity
   active: boolean
+  /** Marks the current physical session for disposal instead of reuse. */
   discard(): void
 }
 
@@ -28,6 +29,12 @@ type OperationFrame = {
 const activeOperation = new AsyncLocalStorage<OperationFrame>()
 const operationReleaseCleanupFailures = new WeakMap<object, unknown[]>()
 
+/**
+ * Keeps secondary cleanup failures beside an object-valued primary rejection.
+ *
+ * @param cause - Original rejection whose identity and failure details must be preserved.
+ * @param failure - Secondary verification or cleanup rejection to retain.
+ */
 function retainOperationReleaseCleanupFailure(cause: unknown, failure: unknown): void {
   if (!((typeof cause === 'object' && cause !== null) || typeof cause === 'function')) {
     return
@@ -38,6 +45,7 @@ function retainOperationReleaseCleanupFailure(cause: unknown, failure: unknown):
   operationReleaseCleanupFailures.set(cause, failures)
 }
 
+/** Keeps the first rejection and retains later cleanup failures when possible. */
 function mergeOperationFailure(
   failed: boolean,
   error: unknown,
@@ -338,130 +346,7 @@ export class OperationCoordinator {
       finish = resolve
     })
 
-    return (async () => {
-      let session: OperationSession | undefined
-
-      // Fresh sessions remain discard-only until their capabilities and identity pass.
-      let disposition: OperationSessionDisposition = 'discard'
-      let operationFailed = false
-      let operationError: unknown
-      let result: T | undefined
-      let capturedIdentity: OperationSessionIdentity | undefined
-      const operationAttempt = await attempt(async () => {
-        await previous
-        session = await this.provider.open()
-        assertSession(session)
-        capturedIdentity = captureSessionIdentity(session)
-        disposition = 'reuse'
-        const executor: Executor = {
-          /**
-           * Executes a query through the pinned operation session.
-           *
-           * @param query - Compiled query to execute.
-           */
-          async execute(query) {
-            try {
-              return await session!.query(query)
-            } catch (cause) {
-              if (cause instanceof QueryError) throw cause
-
-              throw new QueryError({
-                message:
-                  cause instanceof Error ? cause.message : 'Query execution failed',
-                cause,
-              })
-            }
-          },
-          /**
-           * Executes a statement through the pinned operation session.
-           *
-           * @param query - Compiled query to execute.
-           */
-          async run(query) {
-            try {
-              await session!.run(query)
-            } catch (cause) {
-              if (cause instanceof QueryError) throw cause
-
-              throw new QueryError({
-                message:
-                  cause instanceof Error ? cause.message : 'Statement execution failed',
-                cause,
-              })
-            }
-          },
-        }
-        const token: OperationToken = {
-          coordinator: this,
-          executor,
-          identity: capturedIdentity,
-          active: true,
-          /** Marks the physical session for disposal after the operation. */
-          discard() {
-            disposition = 'discard'
-          },
-        }
-        result = await activeOperation
-          .run({ token, parent }, () =>
-            operation({
-              executor,
-              identity: token.identity,
-              discard: () => token.discard(),
-              /** Cancels work currently running on the pinned session. */
-              cancel: () => {
-                disposition = 'discard'
-                return session!.cancel()
-              },
-            }),
-          )
-          .finally(() => {
-            token.active = false
-          })
-      })
-
-      if (!operationAttempt.ok) {
-        operationFailed = true
-        operationError = operationAttempt.error
-      }
-
-      if (session && capturedIdentity) {
-        const activeSession = session
-        const identity = capturedIdentity
-        const verification = await attempt(async () =>
-          assertStableSessionIdentity(activeSession, identity),
-        )
-
-        if (!verification.ok) {
-          disposition = 'discard'
-          const failure = mergeOperationFailure(
-            operationFailed,
-            operationError,
-            verification.error,
-          )
-          operationFailed = failure.failed
-          operationError = failure.error
-        }
-      }
-
-      if (session) {
-        const activeSession = session
-        const release = await attempt(() => activeSession.release(disposition))
-
-        if (!release.ok) {
-          const failure = mergeOperationFailure(
-            operationFailed,
-            operationError,
-            release.error,
-          )
-          operationFailed = failure.failed
-          operationError = failure.error
-        }
-      }
-
-      if (operationFailed) throw operationError
-
-      return result as T
-    })().finally(finish)
+    return this.runSession(previous, parent, operation).finally(finish)
   }
 
   /**
@@ -476,5 +361,203 @@ export class OperationCoordinator {
     this.closing = true
     this.closePromise = this.tail.then(() => this.provider.close())
     return this.closePromise
+  }
+  /**
+   * Opens, executes, verifies, and releases one exclusive operation session.
+   *
+   * @param previous - Earlier native observation used to detect a catalog race.
+   * @param parent - Parent relation or syntax node used by the fixture scenario.
+   * @param operation - Work to run within the current session or error boundary.
+   *
+   * @returns The callback result after identity verification and lease release succeed.
+   */
+  private async runSession<T>(
+    previous: Promise<void>,
+    parent: ReturnType<typeof activeOperation.getStore>,
+    operation: (context: OperationContext) => Promise<T>,
+  ): Promise<T> {
+    const state: OperationState<T> = {
+      session: undefined,
+      disposition: 'discard',
+      operationFailed: false,
+      operationError: undefined,
+      result: undefined,
+      capturedIdentity: undefined,
+    }
+
+    // Fresh sessions remain discard-only until their capabilities and identity pass.
+
+    const operationAttempt = await attempt(() =>
+      this.performOperation(state, previous, parent, operation),
+    )
+
+    if (!operationAttempt.ok) {
+      state.operationFailed = true
+      state.operationError = operationAttempt.error
+    }
+
+    await verifyOperationSession(state)
+
+    await releaseOperationSession(state)
+
+    if (state.operationFailed) throw state.operationError
+
+    return state.result as T
+  }
+  /**
+   * Runs a callback within its captured session identity and closes its asynchronous
+   * scope afterward.
+   *
+   * @param state - Shared mutable state that preserves progress and cleanup outcomes
+   *   across calls.
+   * @param previous - Earlier native observation used to detect a catalog race.
+   * @param parent - Parent relation or syntax node used by the fixture scenario.
+   * @param operation - Work to run within the current session or error boundary.
+   */
+  private async performOperation<T>(
+    state: OperationState<T>,
+    previous: Promise<void>,
+    parent: ReturnType<typeof activeOperation.getStore>,
+    operation: (context: OperationContext) => Promise<T>,
+  ): Promise<void> {
+    await previous
+    state.session = await this.provider.open()
+    assertSession(state.session)
+    state.capturedIdentity = captureSessionIdentity(state.session)
+    state.disposition = 'reuse'
+    const executor = createSessionExecutor(state.session)
+    const token: OperationToken = {
+      coordinator: this,
+      executor,
+      identity: state.capturedIdentity,
+      active: true,
+      /** Marks the physical session for disposal after the operation. */
+      discard() {
+        state.disposition = 'discard'
+      },
+    }
+    state.result = await activeOperation
+      .run({ token, parent }, () =>
+        operation({
+          executor,
+          identity: token.identity,
+          /** Marks the current physical session for disposal instead of reuse. */
+          discard: () => token.discard(),
+          /** Cancels work currently running on the pinned session. */
+          cancel: () => {
+            state.disposition = 'discard'
+            return state.session!.cancel()
+          },
+        }),
+      )
+      .finally(() => {
+        token.active = false
+      })
+  }
+}
+
+/**
+ * Wraps pinned query and statement calls with consistent query errors.
+ *
+ * @param session - Pinned physical session whose identity and lifecycle must remain
+ *   valid.
+ *
+ * @returns A pinned-session executor that wraps native failures as query errors.
+ */
+function createSessionExecutor(session: OperationSession): Executor {
+  return {
+    /**
+     * Executes a query through the pinned operation session.
+     *
+     * @param query - Compiled query to execute.
+     */
+    async execute(query) {
+      try {
+        return await session.query(query)
+      } catch (cause) {
+        if (cause instanceof QueryError) throw cause
+
+        throw new QueryError({
+          message: cause instanceof Error ? cause.message : 'Query execution failed',
+          cause,
+        })
+      }
+    },
+    /**
+     * Executes a statement through the pinned operation session.
+     *
+     * @param query - Compiled query to execute.
+     */
+    async run(query) {
+      try {
+        await session.run(query)
+      } catch (cause) {
+        if (cause instanceof QueryError) throw cause
+
+        throw new QueryError({
+          message: cause instanceof Error ? cause.message : 'Statement execution failed',
+          cause,
+        })
+      }
+    },
+  }
+}
+
+type OperationState<T> = {
+  session: OperationSession | undefined
+  disposition: OperationSessionDisposition
+  operationFailed: boolean
+  operationError: unknown
+  result: T | undefined
+  capturedIdentity: OperationSessionIdentity | undefined
+}
+
+/**
+ * Marks a session for discard when final identity verification fails.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ */
+async function verifyOperationSession<T>(state: OperationState<T>): Promise<void> {
+  if (state.session && state.capturedIdentity) {
+    const activeSession = state.session
+    const identity = state.capturedIdentity
+    const verification = await attempt(async () =>
+      assertStableSessionIdentity(activeSession, identity),
+    )
+
+    if (!verification.ok) {
+      state.disposition = 'discard'
+      const failure = mergeOperationFailure(
+        state.operationFailed,
+        state.operationError,
+        verification.error,
+      )
+      state.operationFailed = failure.failed
+      state.operationError = failure.error
+    }
+  }
+}
+
+/**
+ * Releases the lease and preserves earlier operation or verification failures.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ */
+async function releaseOperationSession<T>(state: OperationState<T>): Promise<void> {
+  if (state.session) {
+    const activeSession = state.session
+    const release = await attempt(() => activeSession.release(state.disposition))
+
+    if (!release.ok) {
+      const failure = mergeOperationFailure(
+        state.operationFailed,
+        state.operationError,
+        release.error,
+      )
+      state.operationFailed = failure.failed
+      state.operationError = failure.error
+    }
   }
 }

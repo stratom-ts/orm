@@ -40,7 +40,9 @@ describe('scoped transaction coordinator behavior', () => {
 
     await db.close()
   })
+})
 
+describe('scoped transaction coordinator behavior: serializes sibling savepoint callbacks while preserving deeper nesting', () => {
   it('serializes sibling savepoint callbacks while preserving deeper nesting', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
@@ -73,7 +75,9 @@ describe('scoped transaction coordinator behavior', () => {
 
     await db.close()
   })
+})
 
+describe('scoped transaction coordinator behavior: rejects ancestor transaction use from a descendant callback', () => {
   it('rejects ancestor transaction use from a descendant callback', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
@@ -110,7 +114,9 @@ describe('scoped transaction coordinator behavior', () => {
 
     await db.close()
   })
+})
 
+describe('scoped transaction coordinator behavior: rejects ancestor transaction use from a descendant callback: queues unrelated ancestor statements until a successful savepoint releases', () => {
   it('queues unrelated ancestor statements until a successful savepoint releases', async () => {
     const nestedStarted = deferred()
     const finishNested = deferred()
@@ -148,7 +154,9 @@ describe('scoped transaction coordinator behavior', () => {
 
     await db.close()
   })
+})
 
+describe('scoped transaction coordinator behavior: queues unrelated ancestor statements until a failing savepoint cleans up', () => {
   it('queues unrelated ancestor statements until a failing savepoint cleans up', async () => {
     const nestedStarted = deferred()
     const failNested = deferred()
@@ -190,9 +198,12 @@ describe('scoped transaction coordinator behavior', () => {
 
     await db.close()
   })
+})
 
+describe('scoped transaction cleanup failures', () => {
   it('poisons cleanup failure and suppresses queued sibling and ancestor SQL', async () => {
     const controls = createControllableProvider({
+      /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/^rollback to savepoint/i.test(sql)) {
           throw new Error('savepoint rollback cleanup failed')
@@ -226,9 +237,12 @@ describe('scoped transaction coordinator behavior', () => {
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
   })
+})
 
+describe('scoped transaction cleanup failures: poisons failed savepoint release and suppresses all queued scoped SQL', () => {
   it('poisons failed savepoint release and suppresses all queued scoped SQL', async () => {
     const controls = createControllableProvider({
+      /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/^release savepoint sp_1$/i.test(sql)) {
           throw new Error('savepoint release cleanup failed')
@@ -262,7 +276,9 @@ describe('scoped transaction coordinator behavior', () => {
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()
   })
+})
 
+describe('scoped transaction cleanup failures: drains an accepted sibling savepoint before root rollback', () => {
   it('drains an accepted sibling savepoint before root rollback', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({

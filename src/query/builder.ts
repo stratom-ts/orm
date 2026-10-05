@@ -371,9 +371,12 @@ function formatRelationInput(relation: RelationIdentityInput): string {
 /**
  * Finds the unambiguous handle for a qualified table reference.
  *
- * @param dialect - Selected dialect query semantics.
+ * @param query - Resolved query compilation and relation-member lookup operations.
  * @param handles - Table handles to search.
  * @param relation - Optional authored relation intent.
+ *
+ * @returns The uniquely matched registered table handle; absent or ambiguous matches
+ *   throw.
  */
 function findHandle(
   query: DialectQueryResolution,
@@ -400,10 +403,12 @@ function findHandle(
 /**
  * Finds the unambiguous column owned by a matched handle.
  *
- * @param dialect - Selected dialect query semantics.
+ * @param query - Resolved query compilation and relation-member lookup operations.
  * @param handle - Handle whose columns are being addressed.
  * @param column - Authored column spelling to resolve.
  * @param relation - Optional authored relation for diagnostics.
+ *
+ * @returns The unambiguous column owned by a matched handle.
  */
 function findColumn(
   query: DialectQueryResolution,
@@ -444,38 +449,13 @@ function resultColumnsForSelection(
 ): Map<string, ResultColumn> {
   const columns = new Map<string, ResultColumn>()
   const outputNames = new Set<string>()
+  /** Adds a selected output column while rejecting duplicate output names. */
+  const add = (outputName: string, mapping?: ResultColumn) =>
+    addOutputColumn(outputName, mapping, outputNames, columns)
 
-  /**
-   * Registers a unique output column.
-   *
-   * @param outputName - Output column name.
-   * @param mapping - Optional source-column mapping.
-   */
-  const add = (outputName: string, mapping?: ResultColumn) => {
-    if (outputNames.has(outputName)) {
-      throw new QueryError({
-        message: `select output column "${outputName}" is ambiguous; alias one of the selected columns`,
-      })
-    }
-
-    outputNames.add(outputName)
-
-    if (mapping) columns.set(outputName, mapping)
-  }
-
-  /**
-   * Registers every column from a table handle.
-   *
-   * @param handle - Handle whose columns are registered.
-   */
-  const addAll = (handle: TableHandle) => {
-    for (const column of Object.keys(handle.getSchema().entries)) {
-      add(column, { handle, column })
-    }
-  }
-
+  /** Adds source mappings for all columns on the selected table handles. */
   const addHandles = (selectedHandles: readonly TableHandle[]) => {
-    for (const handle of selectedHandles) addAll(handle)
+    for (const handle of selectedHandles) addAllOutputColumns(handle, add)
   }
 
   for (const item of selection) {
@@ -545,7 +525,7 @@ function mapSelectedRows(
  * @example
  *   const rows = await runQuery(dialect, executor, handle, mapper, columns, selectAst)
  *
- * @param dialect - SQL dialect for compilation.
+ * @param query - Resolved query compilation and relation-member lookup operations.
  * @param executor - Database executor.
  * @param handle - Table handle for result mapping.
  * @param mapper - Optional value mapper for result conversion.
@@ -593,7 +573,7 @@ async function runQuery<T>(
  * @example
  *   const result = await runWrite(dialect, executor, handle, mapper, insertAst)
  *
- * @param dialect - SQL dialect for compilation.
+ * @param query - Resolved query compilation and relation-member lookup operations.
  * @param executor - Database executor.
  * @param handle - Table handle for result mapping.
  * @param mapper - Optional value mapper for result conversion.
@@ -661,15 +641,51 @@ export type InsertBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = WriteResult,
 > = {
+  /**
+   * Creates a write builder that returns every affected row's columns.
+   *
+   * @returns A fresh write builder configured to return all columns of affected rows.
+   */
   returningAll(): InsertBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Creates a write builder that returns the requested columns.
+   *
+   * @param columns - Ordered column names, references, or observations used by this
+   *   operation.
+   *
+   * @returns A fresh write builder configured to return the requested columns.
+   */
   returning<const TCols extends readonly (ColumnRef | string)[]>(
     columns: TCols,
   ): InsertBuilder<THandle, InferSelectedColumns<THandle, TCols>>
+  /**
+   * Compiles the current query or command into SQL and ordered bound parameters.
+   *
+   * @returns Compiled SQL and bound values in emitted order.
+   */
   compile(): CompiledQuery
+  /**
+   * Executes the compiled query through its owning session or executor.
+   *
+   * @returns Query result rows, or the native write result for a statement without
+   *   returned rows.
+   */
   execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  /**
+   * Executes the query and returns its first row, or undefined when no row exists.
+   *
+   * @returns The first result row, or undefined when no row exists.
+   */
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
   >
+  /**
+   * Executes the query and requires a result row, preserving write results without a
+   * returning clause.
+   *
+   * @returns The first result row, or the write result when no returning clause is
+   *   configured.
+   */
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
@@ -691,120 +707,33 @@ export type InsertBuilder<
  *
  * @returns Insert builder with `returning`, `compile`, and `execute` methods
  */
-export function createInsertBuilder<THandle extends TableHandle>(options: {
-  handle: THandle
-  dialect: Dialect
-  query?: DialectQueryResolution
-  executor: Executor
-  mapper?: ValueMapper
-  rows: Record<string, unknown>[]
-  returning?: ReturningAst
-}): InsertBuilder<THandle, unknown> {
+export function createInsertBuilder<THandle extends TableHandle>(
+  options: InsertBuilderOptions<THandle>,
+): InsertBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, rows, returning } = options
+  const captured = { handle, dialect, executor, mapper, rows, returning }
+
   const query = options.query ?? dialect.query.resolve([handle])
 
   /** Builds the insert AST. */
-  const buildAst = (): InsertAst => {
-    // Union of keys across rows (stable order: first row keys, then extras)
-    const columnSet: string[] = []
-    const seen = new Set<string>()
-
-    for (const key of rows.flatMap((row) => Object.keys(row))) {
-      if (!seen.has(key)) {
-        seen.add(key)
-        columnSet.push(key)
-      }
-    }
-
-    const info = handle.getTableMetadata()
-
-    if (columnSet.length === 0) {
-      throw new QueryError({
-        message: `insert into "${info.name}" requires at least one column`,
-      })
-    }
-
-    // Missing keys become undefined → dialect emits DEFAULT (not NULL).
-    const rawValues = rows.map((row) =>
-      columnSet.map((col) => (Object.hasOwn(row, col) ? row[col] : undefined)),
-    )
-    const values = mapWriteParams(handle, mapper, columnSet, rawValues)
-
-    return {
-      kind: 'insert',
-      relation: info.relation,
-      columns: columnSet,
-      values,
-      ...(returning ? { returning } : {}),
-    }
-  }
+  const buildAst = () =>
+    buildInsertAst({ handle, dialect, executor, mapper, rows, returning })
 
   /** Compiles the current insert query. */
   const compile = () => query.compile(buildAst())
 
   /** Executes the current insert query. */
   const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
-
-  /**
-   * Executes the insert and returns the first row when `returning` is configured.
-   * Without `returning`, returns the full write result.
-   */
-  const executeTakeFirst = async () => {
-    const result = await execute()
-
-    if (returning) {
-      return (result as unknown[])[0]
-    }
-
-    return result
-  }
-
-  /**
-   * Executes the insert and requires a row when `returning` is configured.
-   * Without `returning`, returns the full write result.
-   */
-  const executeTakeFirstOrThrow = async () => {
-    const result = await execute()
-
-    if (returning) {
-      return takeFirstOrThrow(result as unknown[], 'No rows returned from insert')
-    }
-
-    return result
-  }
+  const { executeTakeFirst, executeTakeFirstOrThrow } = writeResultTerminals(
+    execute,
+    returning,
+    'insert',
+  )
 
   return {
-    /** Returns a builder configured to return every column. */
-    returningAll() {
-      return createInsertBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        rows,
-        returning: { kind: 'all' },
-      }) as never
-    },
-    /**
-     * Returns a builder configured to return selected columns.
-     *
-     * @param columns - Columns to return.
-     */
-    returning(columns) {
-      return createInsertBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        rows,
-        returning: {
-          kind: 'columns',
-          columns: resolveReturningColumns(columns),
-        },
-      }) as never
-    },
+    ...createWriteReturning((changes) =>
+      createInsertBuilder({ ...captured, query, ...changes }),
+    ),
     compile,
     execute: execute as never,
     executeTakeFirst: executeTakeFirst as never,
@@ -817,6 +746,13 @@ export function createInsertBuilder<THandle extends TableHandle>(options: {
 // ---------------------------------------------------------------------------
 
 export type InsertValuesBuilder<THandle extends TableHandle = TableHandle> = {
+  /**
+   * Supplies insert rows for schema validation and SQL compilation.
+   *
+   * @param row - Current native catalog row, insert row, or result object.
+   *
+   * @returns An insert builder containing the validated and mapped rows.
+   */
   values(
     row: InferInsert<THandle> | InferInsert<THandle>[],
   ): InsertBuilder<THandle, InferSelect<THandle>>
@@ -827,6 +763,13 @@ export type InsertValuesBuilder<THandle extends TableHandle = TableHandle> = {
 // ---------------------------------------------------------------------------
 
 export type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
+  /**
+   * Supplies the column patch for schema validation and update compilation.
+   *
+   * @param patch - Column updates or builder state changes applied to a fresh builder.
+   *
+   * @returns An update builder containing the validated and mapped column patch.
+   */
   set(patch: InferUpdate<THandle>): UpdateBuilder<THandle, InferSelect<THandle>>
 }
 
@@ -834,25 +777,79 @@ export type UpdateBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = WriteResult,
 > = {
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param column - Authored or observed column metadata used for storage comparison.
+   * @param op - SQL operator used by the fixture expression.
+   * @param value - Runtime value to validate, normalize, or map.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where<TCol extends ColumnRef | string>(
     column: TCol,
     op: ComparisonOp,
     value: InferColumnValue<TCol>,
   ): UpdateBuilder<THandle, TResult>
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param predicate - Predicate or predicate factory used to filter query results.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where(
     predicate: Record<string, unknown> | PredicateAst,
   ): UpdateBuilder<THandle, TResult>
   /** Opt into full-table update (no where). */
   all(): UpdateBuilder<THandle, TResult>
+  /**
+   * Creates a write builder that returns every affected row's columns.
+   *
+   * @returns A fresh write builder configured to return all columns of affected rows.
+   */
   returningAll(): UpdateBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Creates a write builder that returns the requested columns.
+   *
+   * @param columns - Ordered column names, references, or observations used by this
+   *   operation.
+   *
+   * @returns A fresh write builder configured to return the requested columns.
+   */
   returning<const TCols extends readonly (ColumnRef | string)[]>(
     columns: TCols,
   ): UpdateBuilder<THandle, InferSelectedColumns<THandle, TCols>>
+  /**
+   * Compiles the current query or command into SQL and ordered bound parameters.
+   *
+   * @returns Compiled SQL and bound values in emitted order.
+   */
   compile(): CompiledQuery
+  /**
+   * Executes the compiled query through its owning session or executor.
+   *
+   * @returns Query result rows, or the native write result for a statement without
+   *   returned rows.
+   */
   execute(): Promise<Prettify<TResult extends WriteResult ? WriteResult : TResult>[]>
+  /**
+   * Executes the query and returns its first row, or undefined when no row exists.
+   *
+   * @returns The first result row, or undefined when no row exists.
+   */
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
   >
+  /**
+   * Executes the query and requires a result row, preserving write results without a
+   * returning clause.
+   *
+   * @returns The first result row, or the write result when no returning clause is
+   *   configured.
+   */
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
@@ -877,167 +874,48 @@ export type UpdateBuilder<
  * @returns Update builder with `where`, `all`, `returning`, `compile`, and `execute`
  *   methods.
  */
-export function createUpdateBuilder<THandle extends TableHandle>(options: {
-  handle: THandle
-  dialect: Dialect
-  query?: DialectQueryResolution
-  executor: Executor
-  mapper?: ValueMapper
-  patch: Record<string, unknown>
-  where?: PredicateAst
-  allowAll: boolean
-  returning?: ReturningAst
-}): UpdateBuilder<THandle, unknown> {
+export function createUpdateBuilder<THandle extends TableHandle>(
+  options: UpdateBuilderOptions<THandle>,
+): UpdateBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, patch, where, allowAll, returning } = options
   const query = options.query ?? dialect.query.resolve([handle])
+  const captured = {
+    handle,
+    dialect,
+    query,
+    executor,
+    mapper,
+    patch,
+    where,
+    allowAll,
+    returning,
+  }
 
   /** Builds the update AST. */
-  const buildAst = (): UpdateAst => {
-    const info = handle.getTableMetadata()
-
-    if (where && allowAll) {
-      throw new QueryError({
-        message: `update on "${info.name}" cannot combine where(...) and .all()`,
-      })
-    }
-
-    if (!where && !allowAll) {
-      throw new QueryError({
-        message: `update on "${info.name}" requires where(...) or .all()`,
-      })
-    }
-
-    const set = mapSetParams(
-      handle,
-      mapper,
-      Object.entries(patch).map(([column, value]) => ({ column, value })),
+  const buildAst = () =>
+    buildUpdateAst(
+      { handle, dialect, executor, mapper, patch, where, allowAll, returning },
+      query,
     )
-    return {
-      kind: 'update',
-      relation: info.relation,
-      set,
-      ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
-      allowAll,
-      ...(returning ? { returning } : {}),
-    }
-  }
 
   /** Compiles the current update query. */
   const compile = () => query.compile(buildAst())
 
   /** Executes the current update query. */
   const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
+  const { executeTakeFirst, executeTakeFirstOrThrow } = writeResultTerminals(
+    execute,
+    returning,
+    'update',
+  )
 
-  /**
-   * Executes the update and returns the first row when `returning` is configured.
-   * Without `returning`, returns the full write result.
-   */
-  const executeTakeFirst = async () => {
-    const result = await execute()
-
-    if (returning) return (result as unknown[])[0]
-
-    return result
-  }
-
-  /**
-   * Executes the update and requires a row when `returning` is configured.
-   * Without `returning`, returns the full write result.
-   */
-  const executeTakeFirstOrThrow = async () => {
-    const result = await execute()
-
-    if (returning) {
-      return takeFirstOrThrow(result as unknown[], 'No rows returned from update')
-    }
-
-    return result
-  }
-
-  /**
-   * Returns an update builder with an additional predicate.
-   *
-   * @param input - Predicate input to append.
-   */
-  const withWhere = (input: WhereInput) =>
-    createUpdateBuilder({
-      handle,
-      dialect,
-      query,
-      executor,
-      mapper,
-      patch,
-      where: mergeWhere(where, normalizeWhere(input)),
-      allowAll,
-      returning,
-    })
+  /** Creates a new builder with patched query state while preserving unchanged clauses. */
+  const next = (changes: Partial<Parameters<typeof createUpdateBuilder<THandle>>[0]>) =>
+    createUpdateBuilder({ ...captured, ...changes })
 
   return {
-    /**
-     * Returns a builder with an additional predicate.
-     *
-     * @param args - Supported where arguments.
-     */
-    where(...args: unknown[]) {
-      if (args.length === 1) {
-        return withWhere(args[0] as WhereInput) as never
-      }
-
-      return withWhere([
-        args[0] as ColumnRef | string,
-        args[1] as ComparisonOp,
-        args[2],
-      ]) as never
-    },
-    /** Allows the update to affect every row. */
-    all() {
-      return createUpdateBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        patch,
-        where,
-        allowAll: true,
-        returning,
-      }) as never
-    },
-    /** Returns a builder configured to return every column. */
-    returningAll() {
-      return createUpdateBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        patch,
-        where,
-        allowAll,
-        returning: { kind: 'all' },
-      }) as never
-    },
-    /**
-     * Returns a builder configured to return selected columns.
-     *
-     * @param columns - Columns to return.
-     */
-    returning(columns) {
-      return createUpdateBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        patch,
-        where,
-        allowAll,
-        returning: {
-          kind: 'columns',
-          columns: resolveReturningColumns(columns),
-        },
-      }) as never
-    },
+    ...createWriteFilters(where, next),
+    ...createWriteReturning(next),
     compile,
     execute: execute as never,
     executeTakeFirst: executeTakeFirst as never,
@@ -1053,25 +931,79 @@ export type DeleteBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = WriteResult,
 > = {
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param column - Authored or observed column metadata used for storage comparison.
+   * @param op - SQL operator used by the fixture expression.
+   * @param value - Runtime value to validate, normalize, or map.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where<TCol extends ColumnRef | string>(
     column: TCol,
     op: ComparisonOp,
     value: InferColumnValue<TCol>,
   ): DeleteBuilder<THandle, TResult>
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param predicate - Predicate or predicate factory used to filter query results.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where(
     predicate: Record<string, unknown> | PredicateAst,
   ): DeleteBuilder<THandle, TResult>
   /** Opt into full-table delete (no where). */
   all(): DeleteBuilder<THandle, TResult>
+  /**
+   * Creates a write builder that returns every affected row's columns.
+   *
+   * @returns A fresh write builder configured to return all columns of affected rows.
+   */
   returningAll(): DeleteBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Creates a write builder that returns the requested columns.
+   *
+   * @param columns - Ordered column names, references, or observations used by this
+   *   operation.
+   *
+   * @returns A fresh write builder configured to return the requested columns.
+   */
   returning<const TCols extends readonly (ColumnRef | string)[]>(
     columns: TCols,
   ): DeleteBuilder<THandle, InferSelectedColumns<THandle, TCols>>
+  /**
+   * Compiles the current query or command into SQL and ordered bound parameters.
+   *
+   * @returns Compiled SQL and bound values in emitted order.
+   */
   compile(): CompiledQuery
+  /**
+   * Executes the compiled query through its owning session or executor.
+   *
+   * @returns Query result rows, or the native write result for a statement without
+   *   returned rows.
+   */
   execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  /**
+   * Executes the query and returns its first row, or undefined when no row exists.
+   *
+   * @returns The first result row, or undefined when no row exists.
+   */
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
   >
+  /**
+   * Executes the query and requires a result row, preserving write results without a
+   * returning clause.
+   *
+   * @returns The first result row, or the write result when no returning clause is
+   *   configured.
+   */
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
@@ -1095,156 +1027,47 @@ export type DeleteBuilder<
  * @returns Delete builder with `where`, `all`, `returning`, `compile`, and `execute`
  *   methods.
  */
-export function createDeleteBuilder<THandle extends TableHandle>(options: {
-  handle: THandle
-  dialect: Dialect
-  query?: DialectQueryResolution
-  executor: Executor
-  mapper?: ValueMapper
-  where?: PredicateAst
-  allowAll: boolean
-  returning?: ReturningAst
-}): DeleteBuilder<THandle, unknown> {
+export function createDeleteBuilder<THandle extends TableHandle>(
+  options: DeleteBuilderOptions<THandle>,
+): DeleteBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, where, allowAll, returning } = options
   const query = options.query ?? dialect.query.resolve([handle])
+  const captured = {
+    handle,
+    dialect,
+    query,
+    executor,
+    mapper,
+    where,
+    allowAll,
+    returning,
+  }
 
   /** Builds the delete AST. */
-  const buildAst = (): DeleteAst => {
-    const info = handle.getTableMetadata()
-
-    if (where && allowAll) {
-      throw new QueryError({
-        message: `delete from "${info.name}" cannot combine where(...) and .all()`,
-      })
-    }
-
-    if (!where && !allowAll) {
-      throw new QueryError({
-        message: `delete from "${info.name}" requires where(...) or .all()`,
-      })
-    }
-
-    return {
-      kind: 'delete',
-      relation: info.relation,
-      ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
-      allowAll,
-      ...(returning ? { returning } : {}),
-    }
-  }
+  const buildAst = () =>
+    buildDeleteAst(
+      { handle, dialect, executor, mapper, where, allowAll, returning },
+      query,
+    )
 
   /** Compiles the current delete query. */
   const compile = () => query.compile(buildAst())
 
   /** Executes the current delete query. */
   const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
+  const { executeTakeFirst, executeTakeFirstOrThrow } = writeResultTerminals(
+    execute,
+    returning,
+    'delete',
+  )
 
-  /**
-   * Executes the delete and returns the first row when `returning` is configured.
-   * Without `returning`, returns the full write result.
-   */
-  const executeTakeFirst = async () => {
-    const result = await execute()
-
-    if (returning) return (result as unknown[])[0]
-
-    return result
-  }
-
-  /**
-   * Executes the delete and requires a row when `returning` is configured.
-   * Without `returning`, returns the full write result.
-   */
-  const executeTakeFirstOrThrow = async () => {
-    const result = await execute()
-
-    if (returning) {
-      return takeFirstOrThrow(result as unknown[], 'No rows returned from delete')
-    }
-
-    return result
-  }
-
-  /**
-   * Returns a delete builder with an additional predicate.
-   *
-   * @param input - Predicate input to append.
-   */
-  const withWhere = (input: WhereInput) =>
-    createDeleteBuilder({
-      handle,
-      dialect,
-      query,
-      executor,
-      mapper,
-      where: mergeWhere(where, normalizeWhere(input)),
-      allowAll,
-      returning,
-    })
+  /** Creates a new builder with patched query state while preserving unchanged clauses. */
+  const next = (changes: Partial<Parameters<typeof createDeleteBuilder<THandle>>[0]>) =>
+    createDeleteBuilder({ ...captured, ...changes })
 
   return {
-    /**
-     * Returns a builder with an additional predicate.
-     *
-     * @param args - Supported where arguments.
-     */
-    where(...args: unknown[]) {
-      if (args.length === 1) {
-        return withWhere(args[0] as WhereInput) as never
-      }
-
-      return withWhere([
-        args[0] as ColumnRef | string,
-        args[1] as ComparisonOp,
-        args[2],
-      ]) as never
-    },
-    /** Allows the delete to affect every row. */
-    all() {
-      return createDeleteBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        where,
-        allowAll: true,
-        returning,
-      }) as never
-    },
-    /** Returns a builder configured to return every column. */
-    returningAll() {
-      return createDeleteBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        where,
-        allowAll,
-        returning: { kind: 'all' },
-      }) as never
-    },
-    /**
-     * Returns a builder configured to return selected columns.
-     *
-     * @param columns - Columns to return.
-     */
-    returning(columns) {
-      return createDeleteBuilder({
-        handle,
-        dialect,
-        query,
-        executor,
-        mapper,
-        where,
-        allowAll,
-        returning: {
-          kind: 'columns',
-          columns: resolveReturningColumns(columns),
-        },
-      }) as never
-    },
+    ...createWriteFilters(where, next),
+    ...createWriteReturning(next),
     compile,
     execute: execute as never,
     executeTakeFirst: executeTakeFirst as never,
@@ -1263,12 +1086,24 @@ export type SelectBuilder<
   /** Schema-and-table identities whose selected columns are outer-join nullable. */
   TNullable = never,
 > = {
+  /**
+   * Selects every column from the root or requested joined table.
+   *
+   * @returns A fresh select builder including all columns of the selected table.
+   */
   selectAll(): SelectBuilder<
     THandle,
     MergeSelection<HasSelection, TResult, InferSelectAllSide<THandle, TNullable>>,
     true,
     TNullable
   >
+  /**
+   * Selects every column from the root or requested joined table.
+   *
+   * @param handle - Table handle whose schema and relation metadata are required.
+   *
+   * @returns A fresh select builder including all columns of the selected table.
+   */
   selectAll<TSide extends TableHandle>(
     handle: TSide,
   ): SelectBuilder<
@@ -1277,6 +1112,14 @@ export type SelectBuilder<
     true,
     TNullable
   >
+  /**
+   * Adds selected columns or expressions to the query's result shape.
+   *
+   * @param columns - Ordered column names, references, or observations used by this
+   *   operation.
+   *
+   * @returns A fresh select builder with the requested columns or expressions added.
+   */
   select<const TCols extends readonly (ColumnRef | string)[]>(
     columns: TCols,
   ): SelectBuilder<
@@ -1289,6 +1132,13 @@ export type SelectBuilder<
     true,
     TNullable
   >
+  /**
+   * Adds selected columns or expressions to the query's result shape.
+   *
+   * @param callback - Work to run within the owned client or session scope.
+   *
+   * @returns A fresh select builder with the requested columns or expressions added.
+   */
   select(
     callback: (
       builder: ExpressionBuilder,
@@ -1299,29 +1149,93 @@ export type SelectBuilder<
       | SelectItemAst
     )[],
   ): SelectBuilder<THandle, Record<string, unknown>, true, TNullable>
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param column - Authored or observed column metadata used for storage comparison.
+   * @param op - SQL operator used by the fixture expression.
+   * @param value - Runtime value to validate, normalize, or map.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where<TCol extends ColumnRef | string>(
     column: TCol,
     op: ComparisonOp,
     value: InferColumnValue<TCol>,
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param predicate - Predicate or predicate factory used to filter query results.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where(
     predicate:
       | Record<string, unknown>
       | PredicateAst
       | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  /**
+   * Adds an ordering clause with an ascending or descending direction.
+   *
+   * @param column - Column reference or authored name used to address the query member.
+   * @param direction - Ascending or descending sort direction.
+   *
+   * @returns A fresh select builder with the requested sort clause appended.
+   */
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  /**
+   * Sets the maximum number of result rows.
+   *
+   * @param count - Row limit or offset count for the requested query operation.
+   *
+   * @returns A fresh select builder with the requested row limit.
+   */
   limit(count: number): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  /**
+   * Sets the number of result rows to skip.
+   *
+   * @param count - Number of result rows to skip before returning rows.
+   *
+   * @returns A fresh select builder with the requested row offset.
+   */
   offset(count: number): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  /**
+   * Adds columns to the query's grouping clause.
+   *
+   * @param columns - Ordered column names, references, or observations used by this
+   *   operation.
+   *
+   * @returns A fresh select builder with the requested grouping columns.
+   */
   groupBy(
     columns: readonly (ColumnRef | string)[] | ColumnRef | string,
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  /**
+   * Adds a predicate evaluated against grouped query results.
+   *
+   * @param predicate - Predicate or predicate factory used to filter query results.
+   *
+   * @returns A fresh select builder with the requested grouped-result predicate.
+   */
   having(
     predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  /**
+   * Adds an inner join and its ON predicate to the current query.
+   *
+   * @param table - Table metadata or evidence used to resolve its members.
+   * @param on - Join predicate or factory that produces the ON expression.
+   *
+   * @returns A fresh select builder with the inner join and its relation handle
+   *   registered.
+   */
   innerJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
@@ -1331,6 +1245,15 @@ export type SelectBuilder<
     HasSelection,
     TNullable
   >
+  /**
+   * Adds a left join and its ON predicate to the current query.
+   *
+   * @param table - Table metadata or evidence used to resolve its members.
+   * @param on - Join predicate or factory that produces the ON expression.
+   *
+   * @returns A fresh select builder with the left join and its relation handle
+   *   registered.
+   */
   leftJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
@@ -1340,6 +1263,15 @@ export type SelectBuilder<
     HasSelection,
     TNullable | TableIdentityOf<TSide>
   >
+  /**
+   * Adds a right join and its ON predicate to the current query.
+   *
+   * @param table - Table metadata or evidence used to resolve its members.
+   * @param on - Join predicate or factory that produces the ON expression.
+   *
+   * @returns A fresh select builder with the right join and its relation handle
+   *   registered.
+   */
   rightJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
@@ -1349,9 +1281,32 @@ export type SelectBuilder<
     HasSelection,
     TNullable | TableIdentityOf<THandle>
   >
+  /**
+   * Compiles the current query or command into SQL and ordered bound parameters.
+   *
+   * @returns Compiled SQL and bound values in emitted order.
+   */
   compile(): CompiledQuery
+  /**
+   * Executes the compiled query through its owning session or executor.
+   *
+   * @returns Query result rows, or the native write result for a statement without
+   *   returned rows.
+   */
   execute(): Promise<Prettify<TResult>[]>
+  /**
+   * Executes the query and returns its first row, or undefined when no row exists.
+   *
+   * @returns The first result row, or undefined when no row exists.
+   */
   executeTakeFirst(): Promise<TResult | undefined>
+  /**
+   * Executes the query and requires a result row, preserving write results without a
+   * returning clause.
+   *
+   * @returns The first result row, or the write result when no returning clause is
+   *   configured.
+   */
   executeTakeFirstOrThrow(): Promise<TResult>
 }
 
@@ -1367,213 +1322,61 @@ type SelectState = {
   having?: PredicateAst
 }
 
-/**
- * Creates a select builder from an initial state.
- *
- * @example
- *   const builder = createSelectBuilder({ handle: User, dialect, executor, state: emptySelectState() })
- *
- * @param options - Builder configuration including handle, dialect, executor, mapper, and
- *   state.
- *
- * @returns Select builder with chaining methods and execution
- */
-function createSelectBuilder<THandle extends TableHandle>(options: {
-  handle: THandle
-  dialect: Dialect
+/** Builds the select AST and result-column mappings. */
+function buildSelectQuery(options: {
+  handle: TableHandle
   query: DialectQueryResolution
-  executor: Executor
   mapper?: ValueMapper
   state: SelectState
-}): SelectBuilder<THandle, unknown> {
-  const { handle, dialect, query, executor, mapper, state } = options
-
-  /** Builds the select AST and result-column mappings. */
-  const buildQuery = () => {
-    const info = handle.getTableMetadata()
-    const handles = [handle, ...state.joinedHandles]
-    const selection =
-      state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
-    const resultColumns = resultColumnsForSelection(query, handles, selection)
-    const ast: SelectAst = {
-      kind: 'select',
-      relation: info.relation,
-      selection,
-      ...(state.joins.length > 0
-        ? { joins: mapJoinsParams(query, handles, mapper, state.joins) }
-        : {}),
-      ...(state.where
-        ? { where: mapPredicateParams(query, handles, mapper, state.where) }
-        : {}),
-      ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
-      ...(state.limit !== undefined ? { limit: state.limit } : {}),
-      ...(state.offset !== undefined ? { offset: state.offset } : {}),
-      ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
-      ...(state.having
-        ? { having: mapPredicateParams(query, handles, mapper, state.having) }
-        : {}),
-    }
-    return { ast, resultColumns }
+}) {
+  const { handle, query, mapper, state } = options
+  const info = handle.getTableMetadata()
+  const handles = [handle, ...state.joinedHandles]
+  const selection =
+    state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
+  const resultColumns = resultColumnsForSelection(query, handles, selection)
+  const ast: SelectAst = {
+    kind: 'select',
+    relation: info.relation,
+    selection,
+    ...(state.joins.length > 0
+      ? { joins: mapJoinsParams(query, handles, mapper, state.joins) }
+      : {}),
+    ...(state.where
+      ? { where: mapPredicateParams(query, handles, mapper, state.where) }
+      : {}),
+    ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
+    ...(state.limit !== undefined ? { limit: state.limit } : {}),
+    ...(state.offset !== undefined ? { offset: state.offset } : {}),
+    ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
+    ...(state.having
+      ? { having: mapPredicateParams(query, handles, mapper, state.having) }
+      : {}),
   }
+  return { ast, resultColumns }
+}
 
-  /**
-   * Returns a select builder with patched state.
-   *
-   * @param patch - State values to replace.
-   */
-  const next = (patch: Partial<SelectState>) =>
-    createSelectBuilder({
-      handle,
-      dialect,
-      query,
-      executor,
-      mapper,
-      state: {
-        selection: patch.selection ?? state.selection,
-        joins: patch.joins ?? state.joins,
-        joinedHandles: patch.joinedHandles ?? state.joinedHandles,
-        where: 'where' in patch ? patch.where : state.where,
-        orderBy: patch.orderBy ?? state.orderBy,
-        limit: 'limit' in patch ? patch.limit : state.limit,
-        offset: 'offset' in patch ? patch.offset : state.offset,
-        groupBy: patch.groupBy ?? state.groupBy,
-        having: 'having' in patch ? patch.having : state.having,
-      },
-    })
-
-  /** Compiles the current select query. */
-  const compile = () => query.compile(buildQuery().ast)
-
-  /** Executes the current select query. */
-  const execute = async () => {
-    const { ast, resultColumns } = buildQuery()
-    return runQuery(query, executor, handle, mapper, resultColumns, ast)
-  }
-
-  /** Executes the select and returns its first row. */
-  const executeTakeFirst = async () => {
-    const rows = (await execute()) as unknown[]
-    return rows[0]
-  }
-
-  /** Executes the select and requires a row. */
-  const executeTakeFirstOrThrow = async () => {
-    const rows = (await execute()) as unknown[]
-    return takeFirstOrThrow(rows, 'No rows returned from select')
-  }
-
+/** Applies select state changes while preserving explicit clearing of optional clauses. */
+function patchSelectState(state: SelectState, patch: Partial<SelectState>): SelectState {
   return {
-    /**
-     * Appends an all-columns selection.
-     *
-     * @param side - Optional joined table to select from.
-     */
-    selectAll(side?: TableHandle) {
-      const metadata = side?.getTableMetadata()
-      const item: SelectItemAst = metadata
-        ? {
-            kind: 'all',
-            relation: metadata.relation,
-          }
-        : { kind: 'all' }
-      return next({ selection: [...state.selection, item] }) as never
-    },
-    /**
-     * Appends selected columns or expressions.
-     *
-     * @param input - Selection list or selection factory.
-     */
-    select(input: SelectSelectionInput) {
-      return next({
-        selection: [...state.selection, ...normalizeSelection(input)],
-      }) as never
-    },
-    /**
-     * Appends a where predicate.
-     *
-     * @param args - Supported where arguments.
-     */
-    where(...args: unknown[]) {
-      let pred: PredicateAst
+    selection: patch.selection ?? state.selection,
+    joins: patch.joins ?? state.joins,
+    joinedHandles: patch.joinedHandles ?? state.joinedHandles,
+    where: 'where' in patch ? patch.where : state.where,
+    orderBy: patch.orderBy ?? state.orderBy,
+    limit: 'limit' in patch ? patch.limit : state.limit,
+    offset: 'offset' in patch ? patch.offset : state.offset,
+    groupBy: patch.groupBy ?? state.groupBy,
+    having: 'having' in patch ? patch.having : state.having,
+  }
+}
 
-      if (args.length === 1) {
-        const arg = args[0]
-
-        if (typeof arg === 'function') {
-          pred = (arg as (builder: ExpressionBuilder) => PredicateAst)(eb)
-        } else {
-          pred = normalizeWhere(arg as WhereInput)
-        }
-      } else {
-        pred = normalizeWhere([
-          args[0] as ColumnRef | string,
-          args[1] as ComparisonOp,
-          args[2],
-        ])
-      }
-
-      return next({ where: mergeWhere(state.where, pred) }) as never
-    },
-    /**
-     * Appends an ordering clause.
-     *
-     * @param column - Column to order by.
-     * @param direction - Sort direction.
-     */
-    orderBy(column, direction: 'asc' | 'desc' = 'asc') {
-      const q = toQualified(column)
-      return next({
-        orderBy: [
-          ...state.orderBy,
-          {
-            column: q.column,
-            ...(q.relation !== undefined ? { relation: q.relation } : {}),
-            direction,
-          },
-        ],
-      }) as never
-    },
-    /**
-     * Sets the row limit.
-     *
-     * @param count - Maximum rows to return.
-     */
-    limit(count) {
-      return next({ limit: count }) as never
-    },
-    /**
-     * Sets the row offset.
-     *
-     * @param count - Rows to skip.
-     */
-    offset(count) {
-      return next({ offset: count }) as never
-    },
-    /**
-     * Appends grouping columns.
-     *
-     * @param columns - Columns to group by.
-     */
-    groupBy(columns) {
-      const list = Array.isArray(columns) ? columns : [columns]
-      return next({
-        groupBy: [
-          ...state.groupBy,
-          ...list.map((c) => toQualified(c as ColumnRef | string)),
-        ],
-      }) as never
-    },
-    /**
-     * Appends a having predicate.
-     *
-     * @param input - Predicate or predicate factory.
-     */
-    having(input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)) {
-      const pred = typeof input === 'function' ? input(eb) : input
-      return next({
-        having: state.having ? and(state.having, pred) : pred,
-      }) as never
-    },
+/** Creates join clauses while retaining all previously joined handles. */
+function createSelectJoins<THandle extends TableHandle>(
+  state: SelectState,
+  next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
+): Pick<SelectBuilder<THandle, unknown>, 'innerJoin' | 'leftJoin' | 'rightJoin'> {
+  return {
     /**
      * Appends an inner join.
      *
@@ -1610,6 +1413,108 @@ function createSelectBuilder<THandle extends TableHandle>(options: {
         joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
+  }
+}
+
+/** Creates ordering and pagination clauses for a select query. */
+function createSelectPagination<THandle extends TableHandle>(
+  state: SelectState,
+  next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
+): Pick<SelectBuilder<THandle, unknown>, 'orderBy' | 'limit' | 'offset'> {
+  return {
+    /**
+     * Appends an ordering clause.
+     *
+     * @param column - Column to order by.
+     * @param direction - Sort direction.
+     */
+    orderBy(column, direction: 'asc' | 'desc' = 'asc') {
+      const q = toQualified(column)
+      return next({
+        orderBy: [
+          ...state.orderBy,
+          {
+            column: q.column,
+            ...(q.relation !== undefined ? { relation: q.relation } : {}),
+            direction,
+          },
+        ],
+      }) as never
+    },
+    /**
+     * Sets the row limit.
+     *
+     * @param count - Maximum rows to return.
+     */
+    limit(count) {
+      return next({ limit: count }) as never
+    },
+    /**
+     * Sets the row offset.
+     *
+     * @param count - Rows to skip.
+     */
+    offset(count) {
+      return next({ offset: count }) as never
+    },
+  }
+}
+
+/**
+ * Creates a select builder from an initial state.
+ *
+ * @example
+ *   const builder = createSelectBuilder({ handle: User, dialect, executor, state: emptySelectState() })
+ *
+ * @param options - Builder configuration including handle, dialect, executor, mapper, and
+ *   state.
+ *
+ * @returns Select builder with chaining methods and execution
+ */
+function createSelectBuilder<THandle extends TableHandle>(
+  options: SelectBuilderOptions<THandle>,
+): SelectBuilder<THandle, unknown> {
+  const { handle, dialect, query, executor, mapper, state } = options
+
+  /**
+   * Returns a select builder with patched state.
+   *
+   * @param patch - State values to replace.
+   */
+  const next = (patch: Partial<SelectState>) =>
+    createSelectBuilder({
+      handle,
+      dialect,
+      query,
+      executor,
+      mapper,
+      state: patchSelectState(state, patch),
+    })
+
+  /** Compiles the current select query. */
+  const compile = () => query.compile(buildSelectQuery(options).ast)
+
+  /** Executes the current select query. */
+  const execute = async () => {
+    const { ast, resultColumns } = buildSelectQuery(options)
+    return runQuery(query, executor, handle, mapper, resultColumns, ast)
+  }
+
+  /** Executes the select and returns its first row. */
+  const executeTakeFirst = async () => {
+    const rows = (await execute()) as unknown[]
+    return rows[0]
+  }
+
+  /** Executes the query and requires its first result. */
+  const executeTakeFirstOrThrow = () => takeFirstSelectRow(execute)
+
+  return {
+    ...createSelectSelection(state, next),
+    ...createSelectFilters(state, next),
+    ...createSelectPagination(state, next),
+    ...createSelectGrouping(state, next),
+    ...createSelectJoins(state, next),
     compile,
     execute: execute as never,
     executeTakeFirst: executeTakeFirst as never,
@@ -1630,16 +1535,50 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   compile(): CompiledQuery
   /** Execute `select * from table`. */
   execute(): Promise<InferSelect<THandle>[]>
+  /**
+   * Executes the query and returns its first row, or undefined when no row exists.
+   *
+   * @returns The first result row, or undefined when no row exists.
+   */
   executeTakeFirst(): Promise<InferSelect<THandle> | undefined>
+  /**
+   * Executes the query and requires a result row, preserving write results without a
+   * returning clause.
+   *
+   * @returns The first result row, or the write result when no returning clause is
+   *   configured.
+   */
   executeTakeFirstOrThrow(): Promise<InferSelect<THandle>>
   /** Explicit select-all (same as default execute path). */
   selectAll(): SelectBuilder<THandle, InferSelect<THandle>, true>
+  /**
+   * Selects every column from the root or requested joined table.
+   *
+   * @param handle - Table handle whose schema and relation metadata are required.
+   *
+   * @returns A fresh select builder including all columns of the selected table.
+   */
   selectAll<TSide extends TableHandle>(
     handle: TSide,
   ): SelectBuilder<THandle, InferSelect<TSide>, true>
+  /**
+   * Adds selected columns or expressions to the query's result shape.
+   *
+   * @param columns - Ordered column names, references, or observations used by this
+   *   operation.
+   *
+   * @returns A fresh select builder with the requested columns or expressions added.
+   */
   select<const TCols extends readonly (ColumnRef | string)[]>(
     columns: TCols,
   ): SelectBuilder<THandle, InferSelectedColumns<THandle, TCols>, true>
+  /**
+   * Adds selected columns or expressions to the query's result shape.
+   *
+   * @param callback - Work to run within the owned client or session scope.
+   *
+   * @returns A fresh select builder with the requested columns or expressions added.
+   */
   select(
     callback: (
       builder: ExpressionBuilder,
@@ -1650,10 +1589,28 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
       | SelectItemAst
     )[],
   ): SelectBuilder<THandle, Record<string, unknown>, true>
+  /**
+   * Adds an inner join and its ON predicate to the current query.
+   *
+   * @param table - Table metadata or evidence used to resolve its members.
+   * @param on - Join predicate or factory that produces the ON expression.
+   *
+   * @returns A fresh select builder with the inner join and its relation handle
+   *   registered.
+   */
   innerJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
   ): SelectBuilder<THandle, InferSelect<THandle> & InferSelect<TSide>>
+  /**
+   * Adds a left join and its ON predicate to the current query.
+   *
+   * @param table - Table metadata or evidence used to resolve its members.
+   * @param on - Join predicate or factory that produces the ON expression.
+   *
+   * @returns A fresh select builder with the left join and its relation handle
+   *   registered.
+   */
   leftJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
@@ -1663,6 +1620,15 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     false,
     TableIdentityOf<TSide>
   >
+  /**
+   * Adds a right join and its ON predicate to the current query.
+   *
+   * @param table - Table metadata or evidence used to resolve its members.
+   * @param on - Join predicate or factory that produces the ON expression.
+   *
+   * @returns A fresh select builder with the right join and its relation handle
+   *   registered.
+   */
   rightJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
@@ -1672,26 +1638,81 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     false,
     TableIdentityOf<THandle>
   >
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param column - Authored or observed column metadata used for storage comparison.
+   * @param op - SQL operator used by the fixture expression.
+   * @param value - Runtime value to validate, normalize, or map.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where<TCol extends ColumnRef | string>(
     column: TCol,
     op: ComparisonOp,
     value: InferColumnValue<TCol>,
   ): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Adds a filter and combines it with any existing predicate using AND.
+   *
+   * @param predicate - Predicate or predicate factory used to filter query results.
+   *
+   * @returns A fresh builder with the new predicate combined with any existing filter
+   *   using AND.
+   */
   where(
     predicate:
       | Record<string, unknown>
       | PredicateAst
       | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Adds an ordering clause with an ascending or descending direction.
+   *
+   * @param column - Column reference or authored name used to address the query member.
+   * @param direction - Ascending or descending sort direction.
+   *
+   * @returns A fresh select builder with the requested sort clause appended.
+   */
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
   ): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Sets the maximum number of result rows.
+   *
+   * @param count - Row limit or offset count for the requested query operation.
+   *
+   * @returns A fresh select builder with the requested row limit.
+   */
   limit(count: number): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Sets the number of result rows to skip.
+   *
+   * @param count - Number of result rows to skip before returning rows.
+   *
+   * @returns A fresh select builder with the requested row offset.
+   */
   offset(count: number): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Adds columns to the query's grouping clause.
+   *
+   * @param columns - Ordered column names, references, or observations used by this
+   *   operation.
+   *
+   * @returns A fresh select builder with the requested grouping columns.
+   */
   groupBy(
     columns: readonly (ColumnRef | string)[] | ColumnRef | string,
   ): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Adds a predicate evaluated against grouped query results.
+   *
+   * @param predicate - Predicate or predicate factory used to filter query results.
+   *
+   * @returns A fresh select builder with the requested grouped-result predicate.
+   */
   having(
     predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, InferSelect<THandle>>
@@ -1721,13 +1742,9 @@ function emptySelectState(): SelectState {
  * @returns Query builder with `selectAll`, `select`, `where`, `compile`, and `execute`
  *   methods.
  */
-export function createTableBuilder<THandle extends TableHandle>(options: {
-  handle: THandle
-  dialect: Dialect
-  query?: DialectQueryResolution
-  executor: Executor
-  mapper?: ValueMapper
-}): QueryBuilder<THandle> {
+export function createTableBuilder<THandle extends TableHandle>(
+  options: TableBuilderOptions<THandle>,
+): QueryBuilder<THandle> {
   const { handle, dialect, executor, mapper } = options
   const query = options.query ?? dialect.query.resolve([handle])
 
@@ -1763,6 +1780,353 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     /** Executes the default select and requires a row. */
     executeTakeFirstOrThrow: () =>
       defaultSelect.executeTakeFirstOrThrow() as Promise<InferSelect<THandle>>,
+    ...createTableSelection(rootSelect),
+    ...createTableJoins(rootSelect),
+    ...createTablePagination(rootSelect),
+  }
+}
+
+type InsertBuilderOptions<THandle extends TableHandle> = {
+  handle: THandle
+  dialect: Dialect
+  query?: DialectQueryResolution
+  executor: Executor
+  mapper?: ValueMapper
+  rows: Record<string, unknown>[]
+  returning?: ReturningAst
+}
+
+/**
+ * Builds an insert AST with ordered columns and mapped row values.
+ *
+ * @param options - Configuration and dependencies for this operation.
+ *
+ * @returns An insert AST with ordered columns and mapped row values.
+ */
+function buildInsertAst<THandle extends TableHandle>(
+  options: InsertBuilderOptions<THandle>,
+): InsertAst {
+  const { handle, mapper, rows, returning } = options
+  const columnSet: string[] = []
+  const seen = new Set<string>()
+  for (const key of rows.flatMap((row) => Object.keys(row))) {
+    if (!seen.has(key)) {
+      seen.add(key)
+      columnSet.push(key)
+    }
+  }
+
+  const info = handle.getTableMetadata()
+
+  if (columnSet.length === 0) {
+    throw new QueryError({
+      message: `insert into "${info.name}" requires at least one column`,
+    })
+  }
+
+  const rawValues = rows.map((row) =>
+    columnSet.map((col) => (Object.hasOwn(row, col) ? row[col] : undefined)),
+  )
+  const values = mapWriteParams(handle, mapper, columnSet, rawValues)
+  return {
+    kind: 'insert',
+    relation: info.relation,
+    columns: columnSet,
+    values,
+    ...(returning ? { returning } : {}),
+  }
+}
+
+type UpdateBuilderOptions<THandle extends TableHandle> = {
+  handle: THandle
+  dialect: Dialect
+  query?: DialectQueryResolution
+  executor: Executor
+  mapper?: ValueMapper
+  patch: Record<string, unknown>
+  where?: PredicateAst
+  allowAll: boolean
+  returning?: ReturningAst
+}
+
+/**
+ * Builds an update AST after enforcing explicit full-table permission or a filter.
+ *
+ * @param options - Configuration and dependencies for this operation.
+ * @param query - Resolved query compilation and relation-member lookup operations.
+ *
+ * @returns An update AST after enforcing explicit full-table permission or a filter.
+ */
+function buildUpdateAst<THandle extends TableHandle>(
+  options: UpdateBuilderOptions<THandle>,
+  query: DialectQueryResolution,
+): UpdateAst {
+  const { handle, mapper, patch, where, allowAll, returning } = options
+  const info = handle.getTableMetadata()
+
+  if (where && allowAll) {
+    throw new QueryError({
+      message: `update on "${info.name}" cannot combine where(...) and .all()`,
+    })
+  }
+
+  if (!where && !allowAll) {
+    throw new QueryError({
+      message: `update on "${info.name}" requires where(...) or .all()`,
+    })
+  }
+
+  const set = mapSetParams(
+    handle,
+    mapper,
+    Object.entries(patch).map(([column, value]) => ({ column, value })),
+  )
+  return {
+    kind: 'update',
+    relation: info.relation,
+    set,
+    ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
+    allowAll,
+    ...(returning ? { returning } : {}),
+  }
+}
+
+type DeleteBuilderOptions<THandle extends TableHandle> = {
+  handle: THandle
+  dialect: Dialect
+  query?: DialectQueryResolution
+  executor: Executor
+  mapper?: ValueMapper
+  where?: PredicateAst
+  allowAll: boolean
+  returning?: ReturningAst
+}
+
+/**
+ * Builds a delete AST after enforcing explicit full-table permission or a filter.
+ *
+ * @param options - Configuration and dependencies for this operation.
+ * @param query - Resolved query compilation and relation-member lookup operations.
+ *
+ * @returns A delete AST after enforcing explicit full-table permission or a filter.
+ */
+function buildDeleteAst<THandle extends TableHandle>(
+  options: DeleteBuilderOptions<THandle>,
+  query: DialectQueryResolution,
+): DeleteAst {
+  const { handle, mapper, where, allowAll, returning } = options
+  const info = handle.getTableMetadata()
+
+  if (where && allowAll) {
+    throw new QueryError({
+      message: `delete from "${info.name}" cannot combine where(...) and .all()`,
+    })
+  }
+
+  if (!where && !allowAll) {
+    throw new QueryError({
+      message: `delete from "${info.name}" requires where(...) or .all()`,
+    })
+  }
+
+  return {
+    kind: 'delete',
+    relation: info.relation,
+    ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
+    allowAll,
+    ...(returning ? { returning } : {}),
+  }
+}
+
+type SelectBuilderOptions<THandle extends TableHandle> = {
+  handle: THandle
+  dialect: Dialect
+  query: DialectQueryResolution
+  executor: Executor
+  mapper?: ValueMapper
+  state: SelectState
+}
+
+type TableBuilderOptions<THandle extends TableHandle> = {
+  handle: THandle
+  dialect: Dialect
+  query?: DialectQueryResolution
+  executor: Executor
+  mapper?: ValueMapper
+}
+
+/**
+ * Adds first-result operations while preserving writes that have no returning clause.
+ *
+ * @param execute - Callback that executes the current query or write.
+ * @param returning - Requested returning columns, or undefined when the write returns no
+ *   rows.
+ * @param operation - Work to run within the current session or error boundary.
+ *
+ * @returns Write execution methods preserving the distinction between returned rows and a
+ *   write result.
+ */
+function writeResultTerminals(
+  execute: () => Promise<unknown>,
+  returning: ReturningAst | undefined,
+  operation: string,
+) {
+  return {
+    /** Executes the query and returns its first row, or undefined when no row exists. */
+    executeTakeFirst: async () => {
+      const result = await execute()
+      return returning ? (result as unknown[])[0] : result
+    },
+    /** Executes the query and requires its first result. */
+    executeTakeFirstOrThrow: async () => {
+      const result = await execute()
+      return returning
+        ? takeFirstOrThrow(result as unknown[], 'No rows returned from ' + operation)
+        : result
+    },
+  }
+}
+
+/**
+ * Adds immutable selection operations to the current select state.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param next - Factory for a fresh builder with the supplied state changes.
+ *
+ * @returns Immutable selectAll and select operations preserving prior clauses.
+ */
+function createSelectSelection<THandle extends TableHandle>(
+  state: SelectState,
+  next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
+): Pick<SelectBuilder<THandle, unknown>, 'selectAll' | 'select'> {
+  return {
+    /**
+     * Appends an all-columns selection.
+     *
+     * @param side - Optional joined table to select from.
+     */
+    selectAll(side?: TableHandle) {
+      const metadata = side?.getTableMetadata()
+      const item: SelectItemAst = metadata
+        ? {
+            kind: 'all',
+            relation: metadata.relation,
+          }
+        : { kind: 'all' }
+      return next({ selection: [...state.selection, item] }) as never
+    },
+
+    /**
+     * Appends selected columns or expressions.
+     *
+     * @param input - Selection list or selection factory.
+     */
+    select(input: SelectSelectionInput) {
+      return next({
+        selection: [...state.selection, ...normalizeSelection(input)],
+      }) as never
+    },
+  }
+}
+
+/**
+ * Adds filters while combining existing predicates with AND.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param next - Factory for a fresh builder with the supplied state changes.
+ *
+ * @returns An immutable where operation that combines predicates using AND.
+ */
+function createSelectFilters<THandle extends TableHandle>(
+  state: SelectState,
+  next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
+): Pick<SelectBuilder<THandle, unknown>, 'where'> {
+  return {
+    /**
+     * Appends a where predicate.
+     *
+     * @param args - Supported where arguments.
+     */
+    where(...args: unknown[]) {
+      let pred: PredicateAst
+
+      if (args.length === 1) {
+        const arg = args[0]
+
+        if (typeof arg === 'function') {
+          pred = (arg as (builder: ExpressionBuilder) => PredicateAst)(eb)
+        } else {
+          pred = normalizeWhere(arg as WhereInput)
+        }
+      } else {
+        pred = normalizeWhere([
+          args[0] as ColumnRef | string,
+          args[1] as ComparisonOp,
+          args[2],
+        ])
+      }
+
+      return next({ where: mergeWhere(state.where, pred) }) as never
+    },
+  }
+}
+
+/**
+ * Adds grouping and HAVING clauses without mutating the current builder.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param next - Factory for a fresh builder with the supplied state changes.
+ *
+ * @returns Immutable grouping and HAVING operations preserving prior clauses.
+ */
+function createSelectGrouping<THandle extends TableHandle>(
+  state: SelectState,
+  next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
+): Pick<SelectBuilder<THandle, unknown>, 'groupBy' | 'having'> {
+  return {
+    /**
+     * Appends grouping columns.
+     *
+     * @param columns - Columns to group by.
+     */
+    groupBy(columns) {
+      const list = Array.isArray(columns) ? columns : [columns]
+      return next({
+        groupBy: [
+          ...state.groupBy,
+          ...list.map((c) => toQualified(c as ColumnRef | string)),
+        ],
+      }) as never
+    },
+
+    /**
+     * Appends a having predicate.
+     *
+     * @param input - Predicate or predicate factory.
+     */
+    having(input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)) {
+      const pred = typeof input === 'function' ? input(eb) : input
+      return next({
+        having: state.having ? and(state.having, pred) : pred,
+      }) as never
+    },
+  }
+}
+
+/**
+ * Starts table queries with selections or filters rooted at the registered handle.
+ *
+ * @param rootSelect - Factory for a select builder rooted at the table handle.
+ *
+ * @returns Root-table selection and filtering entry points.
+ */
+function createTableSelection<THandle extends TableHandle>(
+  rootSelect: () => SelectBuilder<THandle, unknown>,
+): Pick<QueryBuilder<THandle>, 'selectAll' | 'select' | 'where'> {
+  return {
     /**
      * Selects every column from the root or a joined table.
      *
@@ -1771,6 +2135,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     selectAll(tableHandle?: TableHandle) {
       return rootSelect().selectAll(tableHandle as never) as never
     },
+
     /**
      * Selects columns or expressions.
      *
@@ -1779,6 +2144,29 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     select(input: SelectSelectionInput) {
       return rootSelect().select(input as never) as never
     },
+
+    /**
+     * Starts a filtered select query.
+     *
+     * @param args - Supported where arguments.
+     */
+    where(...args: unknown[]) {
+      return (rootSelect().where as (...a: unknown[]) => SelectBuilder)(...args) as never
+    },
+  }
+}
+
+/**
+ * Starts table queries with inner, left, or right joins.
+ *
+ * @param rootSelect - Factory for a select builder rooted at the table handle.
+ *
+ * @returns Root-table inner, left, and right join entry points.
+ */
+function createTableJoins<THandle extends TableHandle>(
+  rootSelect: () => SelectBuilder<THandle, unknown>,
+): Pick<QueryBuilder<THandle>, 'innerJoin' | 'leftJoin' | 'rightJoin'> {
+  return {
     /**
      * Starts an inner join query.
      *
@@ -1788,6 +2176,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     innerJoin(table, on) {
       return rootSelect().innerJoin(table, on) as never
     },
+
     /**
      * Starts a left join query.
      *
@@ -1797,6 +2186,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     leftJoin(table, on) {
       return rootSelect().leftJoin(table, on) as never
     },
+
     /**
      * Starts a right join query.
      *
@@ -1806,14 +2196,20 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     rightJoin(table, on) {
       return rootSelect().rightJoin(table, on) as never
     },
-    /**
-     * Starts a filtered select query.
-     *
-     * @param args - Supported where arguments.
-     */
-    where(...args: unknown[]) {
-      return (rootSelect().where as (...a: unknown[]) => SelectBuilder)(...args) as never
-    },
+  }
+}
+
+/**
+ * Starts table queries with ordering, row limits, or row offsets.
+ *
+ * @param rootSelect - Factory for a select builder rooted at the table handle.
+ *
+ * @returns Root-table ordering, limit, and offset entry points.
+ */
+function createTablePagination<THandle extends TableHandle>(
+  rootSelect: () => SelectBuilder<THandle, unknown>,
+): Pick<QueryBuilder<THandle>, 'orderBy' | 'limit' | 'offset' | 'groupBy' | 'having'> {
+  return {
     /**
      * Starts an ordered select query.
      *
@@ -1823,6 +2219,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     orderBy(column, direction) {
       return rootSelect().orderBy(column, direction) as never
     },
+
     /**
      * Starts a limited select query.
      *
@@ -1831,6 +2228,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     limit(count) {
       return rootSelect().limit(count) as never
     },
+
     /**
      * Starts an offset select query.
      *
@@ -1839,6 +2237,131 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     offset(count) {
       return rootSelect().offset(count) as never
     },
+    ...createTableGrouping(rootSelect),
+  }
+}
+
+/**
+ * Registers a unique output column.
+ *
+ * @param outputName - Output column name.
+ * @param mapping - Optional source-column mapping.
+ */
+function addOutputColumn(
+  outputName: string,
+  mapping: ResultColumn | undefined,
+  outputNames: Set<string>,
+  columns: Map<string, ResultColumn>,
+) {
+  if (outputNames.has(outputName)) {
+    throw new QueryError({
+      message: `select output column "${outputName}" is ambiguous; alias one of the selected columns`,
+    })
+  }
+
+  outputNames.add(outputName)
+
+  if (mapping) columns.set(outputName, mapping)
+}
+
+/**
+ * Adds returning clauses without mutating the current write builder.
+ *
+ * @param next - Factory for a fresh builder with the supplied state changes.
+ *
+ * @returns Immutable returning operations for all or selected affected-row columns.
+ */
+function createWriteReturning(next: (changes: { returning: ReturningAst }) => unknown) {
+  return {
+    /** Returns a builder configured to return every column. */
+    returningAll() {
+      return next({ returning: { kind: 'all' } }) as never
+    },
+
+    /**
+     * Returns a builder configured to return selected columns.
+     *
+     * @param columns - Columns to return.
+     */
+    returning(columns: readonly (ColumnRef | string)[]) {
+      return next({
+        returning: { kind: 'columns', columns: resolveReturningColumns(columns) },
+      }) as never
+    },
+  }
+}
+
+/**
+ * Adds write filters and explicit permission for an operation that affects every row.
+ *
+ * @param where - Current filter predicate, if one has been supplied.
+ * @param next - Factory for a fresh builder with the supplied state changes.
+ *
+ * @returns Immutable write filters and explicit permission to affect every row.
+ */
+function createWriteFilters(
+  where: PredicateAst | undefined,
+  next: (changes: { where?: PredicateAst; allowAll?: boolean }) => unknown,
+) {
+  /** Combines an additional write predicate with the current filter. */
+  const withWhere = (input: WhereInput) =>
+    next({ where: mergeWhere(where, normalizeWhere(input)) })
+  return {
+    /**
+     * Returns a builder with an additional predicate.
+     *
+     * @param args - Supported where arguments.
+     */
+    where(...args: unknown[]) {
+      if (args.length === 1) {
+        return withWhere(args[0] as WhereInput) as never
+      }
+
+      return withWhere([
+        args[0] as ColumnRef | string,
+        args[1] as ComparisonOp,
+        args[2],
+      ]) as never
+    },
+
+    /** Allows the update to affect every row. */
+    all() {
+      return next({ allowAll: true }) as never
+    },
+  }
+}
+
+/**
+ * Registers every column from a table handle.
+ *
+ * @param handle - Handle whose columns are registered.
+ */
+function addAllOutputColumns(
+  handle: TableHandle,
+  add: (outputName: string, mapping?: ResultColumn) => void,
+) {
+  for (const column of Object.keys(handle.getSchema().entries)) {
+    add(column, { handle, column })
+  }
+}
+
+/** Executes the select and requires a row. */
+async function takeFirstSelectRow(execute: () => Promise<unknown>) {
+  const rows = (await execute()) as unknown[]
+  return takeFirstOrThrow(rows, 'No rows returned from select')
+}
+
+/**
+ * Starts table queries with grouping or HAVING clauses.
+ *
+ * @param rootSelect - Factory for a select builder rooted at the table handle.
+ *
+ * @returns Root-table grouping and HAVING entry points.
+ */
+function createTableGrouping<THandle extends TableHandle>(
+  rootSelect: () => SelectBuilder<THandle, unknown>,
+): Pick<QueryBuilder<THandle>, 'groupBy' | 'having'> {
+  return {
     /**
      * Starts a grouped select query.
      *
@@ -1847,6 +2370,7 @@ export function createTableBuilder<THandle extends TableHandle>(options: {
     groupBy(columns) {
       return rootSelect().groupBy(columns) as never
     },
+
     /**
      * Starts a select query with a having predicate.
      *

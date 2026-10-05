@@ -196,10 +196,29 @@ export type CatalogSnapshot = Readonly<{
 }>
 
 export type CatalogExecutor = {
+  /**
+   * Executes the compiled query through its owning session or executor.
+   *
+   * @param query - Compiled SQL and ordered parameter bindings for the current physical
+   *   call.
+   *
+   * @returns Query result rows, or the native write result for a statement without
+   *   returned rows.
+   */
   execute(query: { sql: string; params: unknown[] }): Promise<unknown[]>
 }
 
 export interface CatalogIntrospector {
+  /**
+   * Reads the requested native catalog scope and returns its portable evidence snapshot.
+   *
+   * @param executor - Executor that owns the physical session used for SQL calls.
+   * @param request - Requested relations, declared absences, and completely owned
+   *   namespaces.
+   *
+   * @returns A catalog snapshot with native identity, scope coverage, and member
+   *   evidence.
+   */
   introspectCatalog(
     executor: CatalogExecutor,
     request: CatalogRequest,

@@ -3,6 +3,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { waitForPostgres } from './postgres.setup'
 import { createAdminClient, withPostgresDatabase } from './postgresIntegration'
 
+/**
+ * Checks schemas absent in the current test scenario.
+ *
+ * @param schemas - Registered table handles defining the desired schema.
+ */
 async function expectSchemasAbsent(schemas: readonly string[]): Promise<void> {
   const admin = await createAdminClient()
 
@@ -22,6 +27,11 @@ type ObservedSession = Readonly<{
   physicalSession: string
 }>
 
+/**
+ * Checks backends absent in the current test scenario.
+ *
+ * @param sessions - Physical-session observations indexed by native session identity.
+ */
 async function expectBackendsAbsent(sessions: readonly ObservedSession[]): Promise<void> {
   const admin = await createAdminClient()
 
@@ -49,10 +59,44 @@ async function expectBackendsAbsent(sessions: readonly ObservedSession[]): Promi
 }
 
 describe('PostgreSQL integration harness', () => {
+  registerLifecycleIntegration()
+
+  it('retains callback and cleanup failures while still removing both schemas', async () => {
+    const primary = new Error('primary callback failure')
+    const cleanup = new Error('additional cleanup failure')
+    let schemas: readonly string[] = []
+
+    const failure = await withPostgresDatabase(
+      [] as const,
+      async ({ schema, alternateSchema }) => {
+        schemas = [schema, alternateSchema]
+        throw primary
+      },
+      {
+        /** Runs the extra cleanup action exercised by the integration failure scenario. */
+        async additionalCleanup() {
+          throw cleanup
+        },
+      },
+    ).catch((cause: unknown) => cause)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors[0]).toBe(primary)
+    expect((failure as AggregateError).errors).toContain(cleanup)
+    await expectSchemasAbsent(schemas)
+  })
+})
+
+/** Registers the scenario that closes every client and removes both isolated schemas. */
+function registerLifecycleIntegration() {
   beforeAll(waitForPostgres)
 
   it('closes every client and removes both isolated schemas', async () => {
     const sessions = new Map<string, ObservedSession>()
+    /**
+     * Creates a hook that records physical-session ownership for the selected client
+     * role.
+     */
     const observeSession = (role: string) => (event: { physicalSession: string }) => {
       sessions.set(event.physicalSession, {
         role,
@@ -85,28 +129,4 @@ describe('PostgreSQL integration harness', () => {
     await expectSchemasAbsent(schemas)
     await expectBackendsAbsent([...sessions.values()])
   })
-
-  it('retains callback and cleanup failures while still removing both schemas', async () => {
-    const primary = new Error('primary callback failure')
-    const cleanup = new Error('additional cleanup failure')
-    let schemas: readonly string[] = []
-
-    const failure = await withPostgresDatabase(
-      [] as const,
-      async ({ schema, alternateSchema }) => {
-        schemas = [schema, alternateSchema]
-        throw primary
-      },
-      {
-        async additionalCleanup() {
-          throw cleanup
-        },
-      },
-    ).catch((cause: unknown) => cause)
-
-    expect(failure).toBeInstanceOf(AggregateError)
-    expect((failure as AggregateError).errors[0]).toBe(primary)
-    expect((failure as AggregateError).errors).toContain(cleanup)
-    await expectSchemasAbsent(schemas)
-  })
-})
+}

@@ -6,6 +6,7 @@ import type {
   PostgresCreateTableColumnAst as CreateTableColumnAst,
 } from '@/dialects/postgres/migration/ast'
 
+/** Builds a fresh table handle for the schema scenario. */
 function createTable(...columns: CreateTableColumnAst[]): CreateTableAst {
   return {
     kind: 'create_table',
@@ -16,6 +17,7 @@ function createTable(...columns: CreateTableColumnAst[]): CreateTableAst {
   }
 }
 
+/** Builds a text column AST with optional storage and constraint overrides. */
 function col(
   name: string,
   overrides: Partial<CreateTableColumnAst> = {},
@@ -73,7 +75,11 @@ describe('PostgreSQL schema and SQL safety', () => {
         /unsupported/,
       )
     })
+  })
+})
 
+describe('PostgreSQL schema and SQL safety: ddl safety - type validation via compile: should reject via alter_column_type path', () => {
+  describe('ddl safety - type validation via compile: should reject via alter_column_type path', () => {
     it('should reject via alter_column_type path', () => {
       expect(() =>
         compile({
@@ -109,7 +115,9 @@ describe('PostgreSQL schema and SQL safety', () => {
       ).toThrow(/unsafe/)
     })
   })
+})
 
+describe('PostgreSQL schema and SQL safety: projection validation', () => {
   describe('projection validation', () => {
     it('should reject empty select and returning AST projections', () => {
       expect(() =>
@@ -127,7 +135,9 @@ describe('PostgreSQL schema and SQL safety', () => {
       ).toThrow(/returning columns must not be empty/)
     })
   })
+})
 
+describe('PostgreSQL schema and SQL safety: ddl safety - default value formatting via compile', () => {
   describe('ddl safety - default value formatting via compile', () => {
     it('should emit now() unquoted in default', () => {
       const sql = compile(
@@ -166,7 +176,11 @@ describe('PostgreSQL schema and SQL safety', () => {
 
       expect(sql).toContain('default now()')
     })
+  })
+})
 
+describe('PostgreSQL schema and SQL safety: ddl safety - default value formatting via compile: ddl safety - default value formatting via compile: should emit null, true, false as SQL literals', () => {
+  describe('ddl safety - default value formatting via compile: should emit null, true, false as SQL literals', () => {
     it('should emit null, true, false as SQL literals', () => {
       const sql = compile(
         createTable(
@@ -196,7 +210,11 @@ describe('PostgreSQL schema and SQL safety', () => {
 
       expect(sql).toContain("default 'O''Brien'")
     })
+  })
+})
 
+describe('PostgreSQL schema and SQL safety: ddl safety - default value formatting via compile: ddl safety - default value formatting via compile: should prefer pre-normalized database defaults during compilation', () => {
+  describe('ddl safety - default value formatting via compile: should prefer pre-normalized database defaults during compilation', () => {
     it('should prefer pre-normalized database defaults during compilation', () => {
       const sql = compile(
         createTable(
@@ -222,7 +240,11 @@ describe('PostgreSQL schema and SQL safety', () => {
 
       expect(sql).toContain("default 'drop table users'")
     })
+  })
+})
 
+describe('PostgreSQL schema and SQL safety: ddl safety - default value formatting via compile: ddl safety - default value formatting via compile: should quote strings that look like injection attempts', () => {
+  describe('ddl safety - default value formatting via compile: should quote strings that look like injection attempts', () => {
     it('should quote strings that look like injection attempts', () => {
       const sql = compile(
         createTable(col('n', { dataType: 'text', defaultValue: 'now(); select 1' })),

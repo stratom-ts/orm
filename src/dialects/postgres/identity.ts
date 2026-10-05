@@ -9,7 +9,16 @@ import { InvariantError } from '@/utils/error'
 const POSTGRES_IDENTITY = 'postgresql' as const
 const POSTGRES_POLICY: CanonicalRelationIdentityPolicy = {
   id: POSTGRES_IDENTITY,
+  /** Converts an identifier spelling into the selected policy's comparison key. */
   comparisonKey: (spelling) => spelling,
+  /**
+   * Resolves authored namespace segments using the configured writable defaults.
+   *
+   * @param selected - Authored namespace selected before applying writable defaults.
+   * @param writableDefault - Writable namespace supplied by the native session.
+   *
+   * @returns Authored namespace segments using the configured writable defaults.
+   */
   resolveNamespace(selected, writableDefault) {
     if (
       writableDefault.length !== 2 ||
@@ -48,6 +57,7 @@ const POSTGRES_POLICY: CanonicalRelationIdentityPolicy = {
 /** PostgreSQL identity semantics, bound to the selected dialect member. */
 export const postgresIdentity = {
   id: POSTGRES_IDENTITY,
+  /** Binds canonical relation identity operations to the configured namespace context. */
   create(options: {
     context: NamespaceContext
     registrationDefault?: readonly NamespaceIdentifierInput[]

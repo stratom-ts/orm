@@ -31,6 +31,160 @@ import { postgresIdentity } from './identity'
 import { normalizePostgresDataType } from './normalize'
 import { normalizePostgresDefaultExpression } from './validate'
 
+const createConstraintQueryData = `
+      select n.nspname as schema, tbl.relname as table_name, con.conname as constraint_name,
+             con.contype as constraint_type, con.convalidated as is_valid,
+             con.condeferrable as is_deferrable, con.condeferred as initially_deferred,
+             con.confmatchtype as match_type,
+             case
+               when jsonb_typeof(to_jsonb(con) -> 'confdelsetcols') = 'array'
+                 then jsonb_array_length(to_jsonb(con) -> 'confdelsetcols') > 0
+               else false
+             end as has_column_specific_delete_action,
+             (backing_index.indisvalid and backing_index.indisready) as backing_index_is_valid,
+             coalesce((to_jsonb(backing_index) ->> 'indnullsnotdistinct')::boolean, false) as backing_index_nulls_not_distinct,
+             (backing_am.amname = 'btree' and backing_index.indpred is null
+               and backing_index.indexprs is null
+               and backing_index.indnkeyatts = backing_index.indnatts
+               and not coalesce((to_jsonb(backing_index) ->> 'indnullsnotdistinct')::boolean, false)
+               and not exists (
+                 select 1 from unnest(backing_index.indoption) as option(value)
+                 where option.value <> 0
+               )
+               and not exists (
+                 select 1
+                 from unnest(backing_index.indclass) as opclass(oid)
+                 join pg_opclass opc on opc.oid = opclass.oid
+                 where not opc.opcdefault or opc.opcmethod <> backing_am.oid
+               )
+               and not exists (
+                 select 1
+                 from unnest(backing_index.indcollation, backing_index.indkey)
+                   as indexed(collation_oid, attnum)
+                 join pg_attribute a
+                   on a.attrelid = tbl.oid and a.attnum = indexed.attnum
+                 where indexed.collation_oid <> 0
+                   and indexed.collation_oid <> a.attcollation
+               )
+             ) as has_supported_backing_index_semantics,
+             (select coalesce(array_agg(a.attname order by x.ordinality), '{}')
+                from unnest(con.conkey) with ordinality as x(attnum, ordinality)
+                join pg_attribute a on a.attrelid = tbl.oid and a.attnum = x.attnum) as columns,
+             ref_n.nspname as referenced_schema, ref_tbl.relname as referenced_table,
+             (select coalesce(array_agg(a.attname order by x.ordinality), '{}')
+                from unnest(con.confkey) with ordinality as x(attnum, ordinality)
+                join pg_attribute a on a.attrelid = ref_tbl.oid and a.attnum = x.attnum) as referenced_columns,
+             case con.confdeltype when 'c' then 'cascade' when 'r' then 'restrict'
+               when 'n' then 'set null' when 'd' then 'set default' else 'no action' end as on_delete,
+             case con.confupdtype when 'c' then 'cascade' when 'r' then 'restrict'
+               when 'n' then 'set null' when 'd' then 'set default' else 'no action' end as on_update,
+             pg_get_constraintdef(con.oid, true) as native_definition
+      from pg_constraint con
+      join pg_class tbl on tbl.oid = con.conrelid
+      join pg_namespace n on n.oid = tbl.relnamespace
+      left join pg_class ref_tbl on ref_tbl.oid = con.confrelid
+      left join pg_namespace ref_n on ref_n.oid = ref_tbl.relnamespace
+      left join pg_index backing_index on backing_index.indexrelid = con.conindid
+      left join pg_class backing_class on backing_class.oid = con.conindid
+      left join pg_am backing_am on backing_am.oid = backing_class.relam
+      where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      order by n.nspname, tbl.relname, con.conname
+    `
+
+const createCatalogQueriesData = `
+      select n.nspname as schema, tbl.relname as table_name, idx.relname as index_name,
+             i.indisunique as is_unique, (i.indisvalid and i.indisready) as is_valid,
+             coalesce((to_jsonb(i) ->> 'indnullsnotdistinct')::boolean, false) as nulls_not_distinct,
+             (am.amname = 'btree' and i.indpred is null and i.indexprs is null
+               and i.indnkeyatts = i.indnatts
+               and not coalesce((to_jsonb(i) ->> 'indnullsnotdistinct')::boolean, false)
+               and not exists (
+                 select 1 from unnest(i.indoption) as option(value)
+                 where option.value <> 0
+               )
+               and not exists (
+                 select 1
+                 from unnest(i.indclass) as opclass(oid)
+                 join pg_opclass opc on opc.oid = opclass.oid
+                 where not opc.opcdefault or opc.opcmethod <> am.oid
+               )
+               and not exists (
+                 select 1
+                 from unnest(i.indcollation, i.indkey) as indexed(collation_oid, attnum)
+                 join pg_attribute a
+                   on a.attrelid = tbl.oid and a.attnum = indexed.attnum
+                 where indexed.collation_oid <> 0
+                   and indexed.collation_oid <> a.attcollation
+               )
+             ) as has_supported_semantics,
+             (select coalesce(array_agg(a.attname order by x.ordinality), '{}')
+                from unnest(i.indkey) with ordinality as x(attnum, ordinality)
+                join pg_attribute a on a.attrelid = tbl.oid and a.attnum = x.attnum) as columns,
+             pg_get_indexdef(i.indexrelid) as native_definition
+      from pg_index i
+      join pg_class idx on idx.oid = i.indexrelid
+      join pg_class tbl on tbl.oid = i.indrelid
+      join pg_namespace n on n.oid = tbl.relnamespace
+      join pg_am am on am.oid = idx.relam
+      where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+        and tbl.relkind in ('r', 'p') and not i.indisprimary
+        and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
+      order by n.nspname, tbl.relname, idx.relname
+    `
+
+const createCatalogQueriesData2 = `
+      select n.nspname as schema, c.relname as table_name, 'trigger' as object_kind,
+             t.tgname as object_name,
+             pg_get_triggerdef(t.oid, true) as native_definition
+      from pg_trigger t
+      join pg_class c on c.oid = t.tgrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where not t.tgisinternal and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      union all
+      select n.nspname, c.relname, 'policy', p.polname,
+             format(
+               'policy %I on %I.%I as %s for %s to %s using (%s) with check (%s)',
+               p.polname,
+               n.nspname,
+               c.relname,
+               case when p.polpermissive then 'permissive' else 'restrictive' end,
+               case p.polcmd
+                 when 'r' then 'select'
+                 when 'a' then 'insert'
+                 when 'w' then 'update'
+                 when 'd' then 'delete'
+                 else 'all'
+               end,
+               (
+                 select string_agg(
+                   case role when 0 then 'public' else quote_ident(pg_get_userbyid(role)) end,
+                   ', ' order by role
+                 )
+                 from unnest(p.polroles) as role
+               ),
+               coalesce(pg_get_expr(p.polqual, p.polrelid), ''),
+               coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '')
+             )
+      from pg_policy p
+      join pg_class c on c.oid = p.polrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      union all
+      select n.nspname, c.relname, 'other', r.rulename,
+             pg_get_ruledef(r.oid, true)
+      from pg_rewrite r
+      join pg_class c on c.oid = r.ev_class
+      join pg_namespace n on n.oid = c.relnamespace
+      where r.rulename <> '_RETURN'
+        and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      order by 1, 2, 3, 4
+    `
+
 type Row = Record<string, unknown>
 
 const complete = { state: 'complete' } as const
@@ -606,17 +760,8 @@ function mutableTableForRelation(
 ): MutableTable | undefined {
   if (kind !== 'table' && kind !== 'partitionedTable') return undefined
 
-  const partitionKey = nullableStringAt(row, 'partition_key', 'relation', index)
-  const accessMethod = nullableStringAt(row, 'access_method', 'relation', index)
-  const tablespace = nullableStringAt(row, 'tablespace', 'relation', index)
-  const isPartition = booleanAt(row, 'is_partition', 'relation', index)
-  const partitionBound = nullableStringAt(row, 'partition_bound', 'relation', index)
-
-  if (isPartition && partitionBound === null) {
-    throw new InvariantError(
-      `Malformed PostgreSQL relation row ${index}: partition is missing its bound`,
-    )
-  }
+  const { partitionKey, accessMethod, tablespace, partitionBound } =
+    readPostgresTableOptions(row, index)
 
   return {
     columns: [],
@@ -655,6 +800,31 @@ function mutableTableForRelation(
     ],
     opaqueObjects: [],
   }
+}
+
+/**
+ * Decodes native relation options that affect catalog management.
+ *
+ * @param row - Current native catalog row, insert row, or result object.
+ * @param index - Zero-based row, column, or graph position used for ordering and
+ *   diagnostics.
+ *
+ * @returns Native relation options that affect catalog management.
+ */
+function readPostgresTableOptions(row: Row, index: number) {
+  const partitionKey = nullableStringAt(row, 'partition_key', 'relation', index)
+  const accessMethod = nullableStringAt(row, 'access_method', 'relation', index)
+  const tablespace = nullableStringAt(row, 'tablespace', 'relation', index)
+  const isPartition = booleanAt(row, 'is_partition', 'relation', index)
+  const partitionBound = nullableStringAt(row, 'partition_bound', 'relation', index)
+
+  if (isPartition && partitionBound === null) {
+    throw new InvariantError(
+      `Malformed PostgreSQL relation row ${index}: partition is missing its bound`,
+    )
+  }
+
+  return { partitionKey, accessMethod, tablespace, partitionBound }
 }
 
 /** Creates the requested relation registry before member rows are attached. */
@@ -753,68 +923,88 @@ function appendConstraints(
 
     if (type === 'n' && booleanAt(row, 'is_valid', 'constraint', index)) continue
 
-    const nativeDefinition = stringAt(row, 'native_definition', 'constraint', index)
-    const supported = hasSupportedConstraintSemantics(row, type, index)
-    const valid = constraintIsValid(row, type, index)
-    const key: CatalogKeyConstraint = {
-      name: present(name),
-      columns: stringArrayAt(row, 'columns', 'constraint', index),
-      semantics: supported
-        ? present({ kind: 'simple' })
-        : unsupported('Constraint uses PostgreSQL-native semantics'),
-      validity: present(valid ? 'valid' : 'invalid'),
-      nativeDefinition: present(nativeDefinition),
-    }
-
-    if (type === 'p' && target.table.primaryKey.state !== 'absent') {
-      throw new InvariantError(
-        `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
-      )
-    }
-
-    if (
-      type === 'f' &&
-      (typeof row.referenced_schema !== 'string' ||
-        typeof row.referenced_table !== 'string')
-    ) {
-      throw new InvariantError(
-        `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
-      )
-    }
-
-    if (type === 'p') {
-      target.table.primaryKey = present(key)
-    } else if (type === 'u') {
-      target.table.uniqueConstraints.push(key)
-    } else if (type === 'f') {
-      const referencedSchema = stringAt(row, 'referenced_schema', 'constraint', index)
-      const referencedTable = stringAt(row, 'referenced_table', 'constraint', index)
-      target.table.foreignKeys.push({
-        ...key,
-        referencedRelation: identities.resolve(
-          relationInput(referencedSchema, referencedTable),
-        ),
-        referencedColumns: stringArrayAt(row, 'referenced_columns', 'constraint', index),
-        onDelete: referentialAction(
-          stringAt(row, 'on_delete', 'constraint', index),
-          'constraint',
-          index,
-        ),
-        onUpdate: referentialAction(
-          stringAt(row, 'on_update', 'constraint', index),
-          'constraint',
-          index,
-        ),
-      })
-    } else {
-      target.table.opaqueObjects.push({
-        kind: 'constraint',
-        name: present(name),
-        nativeDefinition: present(nativeDefinition),
-        reason: `PostgreSQL constraint type ${JSON.stringify(type)} is not portable`,
-      })
-    }
+    appendDecodedConstraint(row, index, type, name, target, identities)
   }
+}
+
+/**
+ * Attaches a decoded primary, unique, foreign, or opaque constraint to its table.
+ *
+ * @param row - Current native catalog row, insert row, or result object.
+ * @param index - Zero-based row, column, or graph position used for ordering and
+ *   diagnostics.
+ * @param type - Physical type spelling used to build storage evidence.
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param target - Identity or evidence required by the current reference or diagnostic.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ */
+function appendDecodedConstraint(
+  row: Row,
+  index: number,
+  type: string,
+  name: string,
+  target: Readonly<{ identity: CanonicalRelationIdentity; table: MutableTable }>,
+  identities: CanonicalRelationIdentityModule,
+) {
+  const { key, nativeDefinition } = decodeConstraintKey(row, index, type, name)
+
+  if (type === 'p' && target.table.primaryKey.state !== 'absent') {
+    throw new InvariantError(
+      `Duplicate PostgreSQL primary key for ${identities.format(target.identity)}`,
+    )
+  }
+
+  if (
+    type === 'f' &&
+    (typeof row.referenced_schema !== 'string' ||
+      typeof row.referenced_table !== 'string')
+  ) {
+    throw new InvariantError(
+      `PostgreSQL foreign key ${JSON.stringify(name)} on ${identities.format(target.identity)} is missing referenced relation metadata`,
+    )
+  }
+
+  if (type === 'p') {
+    target.table.primaryKey = present(key)
+  } else if (type === 'u') {
+    target.table.uniqueConstraints.push(key)
+  } else if (type === 'f') {
+    target.table.foreignKeys.push(decodePostgresForeignKey(row, index, identities, key))
+  } else {
+    target.table.opaqueObjects.push({
+      kind: 'constraint',
+      name: present(name),
+      nativeDefinition: present(nativeDefinition),
+      reason: `PostgreSQL constraint type ${JSON.stringify(type)} is not portable`,
+    })
+  }
+}
+
+/**
+ * Decodes ordered key columns, names, validity, and supported native semantics.
+ *
+ * @param row - Current native catalog row, insert row, or result object.
+ * @param index - Zero-based row, column, or graph position used for ordering and
+ *   diagnostics.
+ * @param type - Physical type spelling used to build storage evidence.
+ * @param name - Physical identifier or dialect label used by this operation.
+ *
+ * @returns Ordered key columns, names, validity, and supported native semantics.
+ */
+function decodeConstraintKey(row: Row, index: number, type: string, name: string) {
+  const nativeDefinition = stringAt(row, 'native_definition', 'constraint', index)
+  const supported = hasSupportedConstraintSemantics(row, type, index)
+  const valid = constraintIsValid(row, type, index)
+  const key: CatalogKeyConstraint = {
+    name: present(name),
+    columns: stringArrayAt(row, 'columns', 'constraint', index),
+    semantics: supported
+      ? present({ kind: 'simple' })
+      : unsupported('Constraint uses PostgreSQL-native semantics'),
+    validity: present(valid ? 'valid' : 'invalid'),
+    nativeDefinition: present(nativeDefinition),
+  }
+  return { key, nativeDefinition }
 }
 
 /** Attaches portable index observations to requested tables. */
@@ -906,110 +1096,61 @@ function appendColumns(
 
     if (!target) continue
 
-    const nativeType = formatPostgresCatalogDataType(row, 'column', index)
-    const columnDefault = nullableStringAt(row, 'column_default', 'column', index)
-    const isIdentity = booleanAt(row, 'is_identity', 'column', index)
-    const identityGeneration = nullableStringAt(
-      row,
-      'identity_generation',
-      'column',
-      index,
-    )
-    const generated = stringAt(row, 'is_generated', 'column', index)
-    const generationExpression = nullableStringAt(
-      row,
-      'generation_expression',
-      'column',
-      index,
-    )
-
-    if (
-      isIdentity &&
-      identityGeneration !== 'ALWAYS' &&
-      identityGeneration !== 'BY DEFAULT'
-    ) {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: identity_generation is invalid`,
-      )
-    }
-
-    if (generated !== 'NEVER' && generated !== 'ALWAYS') {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: is_generated is invalid`,
-      )
-    }
-
-    if (generated === 'ALWAYS' && generationExpression === null) {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: generated column is missing its expression`,
-      )
-    }
-
-    if (isIdentity && generated === 'ALWAYS') {
-      throw new InvariantError(
-        `Malformed PostgreSQL column row ${index}: column cannot be identity and computed`,
-      )
-    }
-
-    target.table.columns.push({
-      name: stringAt(row, 'column_name', 'column', index),
-      position: positiveIntegerAt(row, 'ordinal_position', 'column', index),
-      dataType: present({
-        native: nativeType,
-        comparisonKey: normalizePostgresDataType(nativeType),
-        family: normalizePostgresDataType(nativeType).replace(/\(.*/, ''),
-        parameters: [
-          row.character_maximum_length,
-          row.numeric_precision,
-          row.numeric_scale,
-        ].flatMap((value) => {
-          const number = toNumberOrNull(value)
-          return number === null ? [] : [number]
-        }),
-        userDefined: booleanAt(row, 'is_user_defined', 'column', index)
-          ? present(
-              identities.resolve(
-                relationInput(
-                  stringAt(row, 'udt_schema', 'column', index),
-                  stringAt(row, 'udt_name', 'column', index),
-                ),
-              ),
-            )
-          : absent,
-      }),
-      nullable: present(booleanAt(row, 'is_nullable', 'column', index)),
-      default:
-        columnDefault === null
-          ? absent
-          : present({
-              kind: 'nativeExpression',
-              native: columnDefault,
-              comparisonKey: present(normalizePostgresDefaultExpression(columnDefault)),
-            }),
-      generation: columnGeneration(
-        isIdentity,
-        identityGeneration,
-        generated,
-        generationExpression,
-      ),
-      nativeDefinition: present(nativeType),
-    })
+    target.table.columns.push(decodePostgresColumn(row, index, identities))
   }
 }
 
-/**
- * Strictly observes the exact migration ownership scope on one PostgreSQL session.
- *
- * @example
- *   const snapshot = await introspectPostgres(executor, request)
- *
- * @param executor - Session-bound catalog query executor.
- * @param request - Catalog ownership scope to observe.
- */
-export async function introspectPostgres(
-  executor: CatalogExecutor,
-  request: CatalogRequest,
-): Promise<CatalogSnapshot> {
+/** Builds the PostgreSQL constraint evidence query for the requested schemas. */
+function createConstraintQuery(scopeSchemas: readonly string[]) {
+  const constraintQuery = {
+    sql: createConstraintQueryData,
+    params: [scopeSchemas],
+  }
+  return constraintQuery
+}
+
+/** Builds the queries for the requested PostgreSQL schemas. */
+function createCatalogQueries(scopeSchemas: readonly string[]) {
+  const namespaceQuery = {
+    sql: POSTGRES_NAMESPACE_CATALOG_SQL,
+    params: [scopeSchemas],
+  }
+  const relationQuery = {
+    sql: POSTGRES_RELATION_CATALOG_SQL,
+    params: [scopeSchemas],
+  }
+  const columnQuery = {
+    sql: POSTGRES_COLUMN_CATALOG_SQL,
+    params: [scopeSchemas],
+  }
+  const constraintQuery = createConstraintQuery(scopeSchemas)
+
+  const indexQuery = {
+    sql: createCatalogQueriesData,
+    params: [scopeSchemas],
+  }
+  const opaqueQuery = {
+    sql: createCatalogQueriesData2,
+    params: [scopeSchemas],
+  }
+  const reservationQuery = {
+    sql: POSTGRES_RESERVATION_CATALOG_SQL,
+    params: [scopeSchemas],
+  }
+
+  return {
+    namespaceQuery,
+    relationQuery,
+    columnQuery,
+    constraintQuery,
+    indexQuery,
+    opaqueQuery,
+    reservationQuery,
+  }
+}
+
+/** Resolves the PostgreSQL session namespace, version, and catalog request. */
+async function readCatalogContext(executor: CatalogExecutor, request: CatalogRequest) {
   const contextRows = await executor.execute({
     sql: `
       select current_database() as database,
@@ -1050,455 +1191,136 @@ export async function introspectPostgres(
       : { registrationDefault: request.registrationDefault }),
   })
   const resolvedRequest = resolveRequest(request, identities)
-  const scopeNamespaces = requestedNamespaces(resolvedRequest)
-  const scopeSchemas = scopeNamespaces.map((namespace) => {
-    const segment = namespace.find(({ role }) => role === 'schema')
+  return { version, versionNumber, namespaceContext, identities, resolvedRequest }
+}
 
-    if (!segment) {
-      throw new InvariantError(
-        'PostgreSQL introspection scope is missing a schema namespace',
-      )
-    }
-
-    return segment.identifier.spelling
-  })
-  const requestedRelations = requestedRelationRegistry(resolvedRequest, identities)
-
-  /**
-   * Tests whether a relation belongs to the requested ownership scope.
-   *
-   * @param identity - Canonical relation identity.
-   */
-  const relationRequested = (identity: CanonicalRelationIdentity) =>
-    requestedRelations.has(identity) ||
-    resolvedRequest.completeNamespaces.some((namespace) =>
-      sameNamespace(namespace, identity.namespace),
-    )
-  const diagnostics: CatalogDiagnostic[] = []
-
-  if (versionNumber < 120000) {
-    const versionEvidence = {
-      state: 'unavailable' as const,
-      cause: 'version' as const,
-      actual: version,
-      requires: '120000',
-    }
-
-    diagnostics.push({
-      code: 'catalog.capability.version',
-      message: `PostgreSQL catalog introspection requires version 120000; observed ${version}`,
-    })
-
-    return {
-      source: { dialect: 'postgresql', version },
-      request: resolvedRequest,
-      capabilities: {
-        namespaces: versionEvidence,
-        relationOwner: versionEvidence,
-        identity: versionEvidence,
-        richObjects: versionEvidence,
-      },
-      namespaceContext,
-      namespaces: { items: [], coverage: versionEvidence },
-      nameReservations: { items: [], coverage: versionEvidence },
-      constraintNameReservations: { items: [], coverage: versionEvidence },
-      diagnostics,
-    }
-  }
-
-  const namespaceQuery = {
-    sql: `
-      -- catalog:namespace
-      select n.nspname as schema, pg_get_userbyid(n.nspowner) as owner
-      from pg_namespace n
-      where n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      order by n.nspname
-    `,
-    params: [scopeSchemas],
-  }
-  const namespaceRows = await executor.execute(namespaceQuery)
-  const relationQuery = {
-    sql: `
-      select c.oid::text as object_id,
-             n.nspname as schema, c.relname as name, c.relkind as relation_kind,
-             c.relpersistence as persistence, pg_get_userbyid(c.relowner) as owner,
-             case when c.relkind in ('v', 'm') then pg_get_viewdef(c.oid, true) else null end as native_definition,
-             to_jsonb(coalesce(c.reloptions, '{}'::text[])) as options,
-             pg_get_partkeydef(c.oid) as partition_key,
-             c.relrowsecurity as row_level_security,
-             c.relforcerowsecurity as force_row_level_security,
-             c.relreplident as replica_identity,
-             relation_am.amname as access_method,
-             tablespace.spcname as tablespace,
-             c.relispartition as is_partition,
-             pg_get_expr(c.relpartbound, c.oid) as partition_bound
-      from pg_class c
-      join pg_namespace n on n.oid = c.relnamespace
-      left join pg_am relation_am on relation_am.oid = c.relam
-      left join pg_tablespace tablespace on tablespace.oid = c.reltablespace
-      where c.relkind in ('r', 'p', 'v', 'm', 'f')
-        and n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      order by n.nspname, c.relname
-    `,
-    params: [scopeSchemas],
-  }
-  const relationRows = await executor.execute(relationQuery)
-  const columnQuery = {
-    sql: `
-      -- catalog:column
-      select n.nspname as schema, c.relname as table_name,
-             a.attname as column_name, a.attnum as ordinal_position,
-             format_type(a.atttypid, a.atttypmod) as formatted_type,
-             t.typname as data_type, tn.nspname as udt_schema, t.typname as udt_name,
-             not (tn.nspname = 'pg_catalog' and t.typtype = 'b') as is_user_defined,
-             null as character_maximum_length, null as numeric_precision,
-             null as numeric_scale,
-             case when a.attnotnull then 'NO' else 'YES' end as is_nullable,
-             case when a.attgenerated = '' then pg_get_expr(d.adbin, d.adrelid) else null end as column_default,
-             case when a.attidentity = '' then 'NO' else 'YES' end as is_identity,
-             case a.attidentity when 'a' then 'ALWAYS' when 'd' then 'BY DEFAULT' else null end as identity_generation,
-             case when a.attgenerated = '' then 'NEVER' else 'ALWAYS' end as is_generated,
-             case when a.attgenerated <> '' then pg_get_expr(d.adbin, d.adrelid) else null end as generation_expression
-      from pg_attribute a
-      join pg_class c on c.oid = a.attrelid
-      join pg_namespace n on n.oid = c.relnamespace
-      join pg_type t on t.oid = a.atttypid
-      join pg_namespace tn on tn.oid = t.typnamespace
-      left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
-      where c.relkind in ('r', 'p') and a.attnum > 0 and not a.attisdropped
-        and n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      order by n.nspname, c.relname, a.attnum
-    `,
-    params: [scopeSchemas],
-  }
-  const columnRows = await executor.execute(columnQuery)
-  const constraintQuery = {
-    sql: `
-      select n.nspname as schema, tbl.relname as table_name, con.conname as constraint_name,
-             con.contype as constraint_type, con.convalidated as is_valid,
-             con.condeferrable as is_deferrable, con.condeferred as initially_deferred,
-             con.confmatchtype as match_type,
-             case
-               when jsonb_typeof(to_jsonb(con) -> 'confdelsetcols') = 'array'
-                 then jsonb_array_length(to_jsonb(con) -> 'confdelsetcols') > 0
-               else false
-             end as has_column_specific_delete_action,
-             (backing_index.indisvalid and backing_index.indisready) as backing_index_is_valid,
-             coalesce((to_jsonb(backing_index) ->> 'indnullsnotdistinct')::boolean, false) as backing_index_nulls_not_distinct,
-             (backing_am.amname = 'btree' and backing_index.indpred is null
-               and backing_index.indexprs is null
-               and backing_index.indnkeyatts = backing_index.indnatts
-               and not coalesce((to_jsonb(backing_index) ->> 'indnullsnotdistinct')::boolean, false)
-               and not exists (
-                 select 1 from unnest(backing_index.indoption) as option(value)
-                 where option.value <> 0
-               )
-               and not exists (
-                 select 1
-                 from unnest(backing_index.indclass) as opclass(oid)
-                 join pg_opclass opc on opc.oid = opclass.oid
-                 where not opc.opcdefault or opc.opcmethod <> backing_am.oid
-               )
-               and not exists (
-                 select 1
-                 from unnest(backing_index.indcollation, backing_index.indkey)
-                   as indexed(collation_oid, attnum)
-                 join pg_attribute a
-                   on a.attrelid = tbl.oid and a.attnum = indexed.attnum
-                 where indexed.collation_oid <> 0
-                   and indexed.collation_oid <> a.attcollation
-               )
-             ) as has_supported_backing_index_semantics,
-             (select coalesce(array_agg(a.attname order by x.ordinality), '{}')
-                from unnest(con.conkey) with ordinality as x(attnum, ordinality)
-                join pg_attribute a on a.attrelid = tbl.oid and a.attnum = x.attnum) as columns,
-             ref_n.nspname as referenced_schema, ref_tbl.relname as referenced_table,
-             (select coalesce(array_agg(a.attname order by x.ordinality), '{}')
-                from unnest(con.confkey) with ordinality as x(attnum, ordinality)
-                join pg_attribute a on a.attrelid = ref_tbl.oid and a.attnum = x.attnum) as referenced_columns,
-             case con.confdeltype when 'c' then 'cascade' when 'r' then 'restrict'
-               when 'n' then 'set null' when 'd' then 'set default' else 'no action' end as on_delete,
-             case con.confupdtype when 'c' then 'cascade' when 'r' then 'restrict'
-               when 'n' then 'set null' when 'd' then 'set default' else 'no action' end as on_update,
-             pg_get_constraintdef(con.oid, true) as native_definition
-      from pg_constraint con
-      join pg_class tbl on tbl.oid = con.conrelid
-      join pg_namespace n on n.oid = tbl.relnamespace
-      left join pg_class ref_tbl on ref_tbl.oid = con.confrelid
-      left join pg_namespace ref_n on ref_n.oid = ref_tbl.relnamespace
-      left join pg_index backing_index on backing_index.indexrelid = con.conindid
-      left join pg_class backing_class on backing_class.oid = con.conindid
-      left join pg_am backing_am on backing_am.oid = backing_class.relam
-      where n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      order by n.nspname, tbl.relname, con.conname
-    `,
-    params: [scopeSchemas],
-  }
-  const constraintRows = await executor.execute(constraintQuery)
-  const indexQuery = {
-    sql: `
-      select n.nspname as schema, tbl.relname as table_name, idx.relname as index_name,
-             i.indisunique as is_unique, (i.indisvalid and i.indisready) as is_valid,
-             coalesce((to_jsonb(i) ->> 'indnullsnotdistinct')::boolean, false) as nulls_not_distinct,
-             (am.amname = 'btree' and i.indpred is null and i.indexprs is null
-               and i.indnkeyatts = i.indnatts
-               and not coalesce((to_jsonb(i) ->> 'indnullsnotdistinct')::boolean, false)
-               and not exists (
-                 select 1 from unnest(i.indoption) as option(value)
-                 where option.value <> 0
-               )
-               and not exists (
-                 select 1
-                 from unnest(i.indclass) as opclass(oid)
-                 join pg_opclass opc on opc.oid = opclass.oid
-                 where not opc.opcdefault or opc.opcmethod <> am.oid
-               )
-               and not exists (
-                 select 1
-                 from unnest(i.indcollation, i.indkey) as indexed(collation_oid, attnum)
-                 join pg_attribute a
-                   on a.attrelid = tbl.oid and a.attnum = indexed.attnum
-                 where indexed.collation_oid <> 0
-                   and indexed.collation_oid <> a.attcollation
-               )
-             ) as has_supported_semantics,
-             (select coalesce(array_agg(a.attname order by x.ordinality), '{}')
-                from unnest(i.indkey) with ordinality as x(attnum, ordinality)
-                join pg_attribute a on a.attrelid = tbl.oid and a.attnum = x.attnum) as columns,
-             pg_get_indexdef(i.indexrelid) as native_definition
-      from pg_index i
-      join pg_class idx on idx.oid = i.indexrelid
-      join pg_class tbl on tbl.oid = i.indrelid
-      join pg_namespace n on n.oid = tbl.relnamespace
-      join pg_am am on am.oid = idx.relam
-      where n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-        and tbl.relkind in ('r', 'p') and not i.indisprimary
-        and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
-      order by n.nspname, tbl.relname, idx.relname
-    `,
-    params: [scopeSchemas],
-  }
-  const indexRows = await executor.execute(indexQuery)
-  const opaqueQuery = {
-    sql: `
-      select n.nspname as schema, c.relname as table_name, 'trigger' as object_kind,
-             t.tgname as object_name,
-             pg_get_triggerdef(t.oid, true) as native_definition
-      from pg_trigger t
-      join pg_class c on c.oid = t.tgrelid
-      join pg_namespace n on n.oid = c.relnamespace
-      where not t.tgisinternal and n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      union all
-      select n.nspname, c.relname, 'policy', p.polname,
-             format(
-               'policy %I on %I.%I as %s for %s to %s using (%s) with check (%s)',
-               p.polname,
-               n.nspname,
-               c.relname,
-               case when p.polpermissive then 'permissive' else 'restrictive' end,
-               case p.polcmd
-                 when 'r' then 'select'
-                 when 'a' then 'insert'
-                 when 'w' then 'update'
-                 when 'd' then 'delete'
-                 else 'all'
-               end,
-               (
-                 select string_agg(
-                   case role when 0 then 'public' else quote_ident(pg_get_userbyid(role)) end,
-                   ', ' order by role
-                 )
-                 from unnest(p.polroles) as role
-               ),
-               coalesce(pg_get_expr(p.polqual, p.polrelid), ''),
-               coalesce(pg_get_expr(p.polwithcheck, p.polrelid), '')
-             )
-      from pg_policy p
-      join pg_class c on c.oid = p.polrelid
-      join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      union all
-      select n.nspname, c.relname, 'other', r.rulename,
-             pg_get_ruledef(r.oid, true)
-      from pg_rewrite r
-      join pg_class c on c.oid = r.ev_class
-      join pg_namespace n on n.oid = c.relnamespace
-      where r.rulename <> '_RETURN'
-        and n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      order by 1, 2, 3, 4
-    `,
-    params: [scopeSchemas],
-  }
-  const opaqueRows = await executor.execute(opaqueQuery)
-  const reservationQuery = {
-    sql: `
-      select n.nspname as schema, c.relname as object_name
-      from pg_class c join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname not in ('pg_catalog', 'information_schema')
-        and n.nspname = any($1::text[])
-      order by n.nspname, c.relname
-    `,
-    params: [scopeSchemas],
-  }
-  const reservationRows = await executor.execute(reservationQuery)
-
-  /**
-   * Filters rows to observations in requested namespaces.
-   *
-   * @param rows - Raw query rows.
-   * @param query - Query name for diagnostics.
-   */
-  const namespaceObservations = (rows: unknown[], query: string) =>
-    rows.filter((value, index) => {
-      const row = rowAt(value, `${query} consistency`, index)
-      const namespace = identities.resolveNamespace([
-        {
-          role: 'schema',
-          spelling: stringAt(row, 'schema', `${query} consistency`, index),
-        },
-      ])
-      return scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace))
-    })
-  /**
-   * Filters rows to observations for requested relations.
-   *
-   * @param rows - Raw query rows.
-   * @param query - Query name for diagnostics.
-   */
-  const relationObservations = (rows: unknown[], query: string) =>
-    rows.filter((value, index) => {
-      const row = rowAt(value, `${query} consistency`, index)
-      const identity = identities.resolve(
-        relationInput(
-          stringAt(row, 'schema', `${query} consistency`, index),
-          stringAt(row, 'table_name', `${query} consistency`, index),
-        ),
-      )
-      return relationRequested(identity)
-    })
-
-  assertObservationUnchanged(
-    'namespace',
-    namespaceObservations(namespaceRows, 'namespace'),
-    namespaceObservations(await executor.execute(namespaceQuery), 'namespace'),
-  )
-
-  assertObservationUnchanged(
-    'column',
-    relationObservations(columnRows, 'column'),
-    relationObservations(await executor.execute(columnQuery), 'column'),
-  )
-
-  assertObservationUnchanged(
-    'constraint',
-    relationObservations(constraintRows, 'constraint'),
-    relationObservations(await executor.execute(constraintQuery), 'constraint'),
-  )
-
-  assertObservationUnchanged(
-    'index',
-    relationObservations(indexRows, 'index'),
-    relationObservations(await executor.execute(indexQuery), 'index'),
-  )
-
-  assertObservationUnchanged(
-    'opaque object',
-    relationObservations(opaqueRows, 'opaque object'),
-    relationObservations(await executor.execute(opaqueQuery), 'opaque object'),
-  )
-
-  assertObservationUnchanged(
-    'name reservation',
-    namespaceObservations(reservationRows, 'name reservation'),
-    namespaceObservations(await executor.execute(reservationQuery), 'name reservation'),
-  )
-
-  const finalRelationRows = await executor.execute(relationQuery)
-
-  /**
-   * Builds stable requested-relation identity and object-ID fingerprints.
-   *
-   * @param rows - Raw relation rows.
-   */
-  const relationFingerprint = (rows: unknown[]) =>
-    rows
-      .flatMap((value, index) => {
-        const row = rowAt(value, 'relation consistency', index)
-        const identity = identities.resolve(
-          relationInput(
-            stringAt(row, 'schema', 'relation consistency', index),
-            stringAt(row, 'name', 'relation consistency', index),
-          ),
-        )
-        return relationRequested(identity)
-          ? [
-              `${identities.format(identity)}\0${stringAt(row, 'object_id', 'relation consistency', index)}`,
-            ]
-          : []
-      })
-      .sort(compareCodeUnits)
-
-  if (
-    JSON.stringify(relationFingerprint(relationRows)) !==
-    JSON.stringify(relationFingerprint(finalRelationRows))
-  ) {
-    throw new InvariantError(
-      'PostgreSQL catalog changed during introspection: requested relations were replaced, created, or removed',
-    )
-  }
-
-  const relationRegistry = createRelationRegistry(
-    relationRows,
-    relationRequested,
+/** Reads catalog evidence twice and rejects changes in the requested scope. */
+async function readCatalogEvidence(
+  executor: CatalogExecutor,
+  queries: ReturnType<typeof createCatalogQueries>,
+  scopeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[],
+  relationRequested: (identity: CanonicalRelationIdentity) => boolean,
+  identities: CanonicalRelationIdentityModule,
+) {
+  const rows = await readRawCatalogEvidence(executor, queries)
+  await verifyCatalogObservations({
+    executor,
+    queries,
+    rows,
     identities,
+    scopeNamespaces,
+    relationRequested,
+  })
+
+  await assertRelationIdentityUnchanged(
+    executor,
+    queries.relationQuery,
+    rows.relationRows,
+    identities,
+    relationRequested,
   )
 
-  /**
-   * Resolves a requested row to its mutable table entry.
-   *
-   * @param row - Catalog row referencing a table.
-   * @param query - Query name for diagnostics.
-   * @param index - Row index for diagnostics.
-   */
-  const requireTable = (row: Row, query: string, index: number) => {
-    const identity = identities.resolve(
-      relationInput(
-        stringAt(row, 'schema', query, index),
-        stringAt(row, 'table_name', query, index),
-      ),
+  return rows
+}
+
+/**
+ * Rejects changes in requested namespaces and relation-member evidence between reads.
+ *
+ * @param input - Catalog observation verification inputs and shared accumulators.
+ */
+async function verifyCatalogObservations(input: CatalogObservationVerification) {
+  const { executor, queries, rows, identities, scopeNamespaces, relationRequested } =
+    input
+  /** Filters and orders requested namespace observations for consistency comparison. */
+  const namespaceObservations = (rows: unknown[], query: string) =>
+    filterNamespaceObservations(rows, query, identities, scopeNamespaces)
+  /** Filters and orders requested relation observations for consistency comparison. */
+  const relationObservations = (rows: unknown[], query: string) =>
+    filterRelationObservations(rows, query, identities, relationRequested)
+  const checks: [
+    string,
+    unknown[],
+    ReturnType<typeof createCatalogQueries>['namespaceQuery'],
+    (rows: unknown[], query: string) => unknown[],
+  ][] = [
+    ['namespace', rows.namespaceRows, queries.namespaceQuery, namespaceObservations],
+    ['column', rows.columnRows, queries.columnQuery, relationObservations],
+    ['constraint', rows.constraintRows, queries.constraintQuery, relationObservations],
+    ['index', rows.indexRows, queries.indexQuery, relationObservations],
+    ['opaque object', rows.opaqueRows, queries.opaqueQuery, relationObservations],
+    [
+      'name reservation',
+      rows.reservationRows,
+      queries.reservationQuery,
+      namespaceObservations,
+    ],
+  ]
+  for (const [name, initial, query, filter] of checks)
+    assertObservationUnchanged(
+      name,
+      filter(initial, name),
+      filter(await executor.execute(query), name),
+    )
+}
+
+/** Builds ordered namespaces and relations from decoded catalog evidence. */
+function buildCatalogNamespaces(
+  namespaceRows: unknown[],
+  relationRows: unknown[],
+  relationRegistry: ReturnType<typeof createRelationRegistry>,
+  scopeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[],
+  resolvedRequest: ResolvedCatalogRequest,
+  identities: CanonicalRelationIdentityModule,
+): CatalogNamespace[] {
+  const namespaces: CatalogNamespace[] = decodeCatalogNamespaces(
+    namespaceRows,
+    identities,
+    scopeNamespaces,
+    resolvedRequest,
+  )
+
+  const relationEntries: CatalogRelation[] = buildCatalogRelations(
+    relationRows,
+    identities,
+    relationRegistry,
+  )
+
+  for (const relation of relationEntries) {
+    const namespace = namespaces.find((candidate) =>
+      sameNamespace(candidate.identity, relation.identity.namespace),
     )
 
-    if (!relationRequested(identity)) return undefined
-
-    const entry = relationRegistry.get(identity)
-
-    if (!entry) {
+    if (!namespace) {
       throw new InvariantError(
-        `PostgreSQL catalog changed during introspection: ${query} row references missing table ${identities.format(identity)}`,
+        `PostgreSQL catalog changed during introspection: relation ${identities.format(relation.identity)} references a missing namespace`,
       )
     }
 
-    if (!entry.table) return undefined
-
-    return { identity, table: entry.table }
+    ;(namespace.relations.items as CatalogRelation[]).push(relation)
   }
 
-  appendColumns(columnRows, requireTable, identities)
+  namespaces.sort((left, right) => compareNamespaces(left.identity, right.identity))
 
-  const constraintReservations: CatalogConstraintNameReservation[] = []
-  appendConstraints(constraintRows, requireTable, identities, constraintReservations)
+  return namespaces
+}
 
-  appendIndexes(indexRows, requireTable)
-  appendOpaqueObjects(opaqueRows, requireTable)
-
+/**
+ * Builds namespace facts and coverage from validated native rows.
+ *
+ * @param namespaceRows - Native namespace observations before catalog assembly.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param scopeNamespaces - Requested canonical namespaces covered by catalog queries.
+ * @param resolvedRequest - Requested scope after canonical identity and namespace
+ *   resolution.
+ *
+ * @returns Namespace facts and coverage from validated native rows.
+ */
+function decodeCatalogNamespaces(
+  namespaceRows: unknown[],
+  identities: CanonicalRelationIdentityModule,
+  scopeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[],
+  resolvedRequest: CatalogSnapshot['request'],
+) {
   const namespaces: CatalogNamespace[] = []
 
   for (let index = 0; index < namespaceRows.length; index++) {
@@ -1533,6 +1355,23 @@ export async function introspectPostgres(
     })
   }
 
+  return namespaces
+}
+
+/**
+ * Orders decoded relations by canonical identity before namespace assembly.
+ *
+ * @param relationRows - Native relation observations before catalog assembly.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param relationRegistry - Decoded relations indexed by canonical identity.
+ *
+ * @returns Decoded relations by canonical identity before namespace assembly.
+ */
+function buildCatalogRelations(
+  relationRows: unknown[],
+  identities: CanonicalRelationIdentityModule,
+  relationRegistry: CanonicalRelationRegistry<MutableRelation>,
+) {
   const relationEntries: CatalogRelation[] = []
 
   for (let index = 0; index < relationRows.length; index++) {
@@ -1550,45 +1389,7 @@ export async function introspectPostgres(
     let table: CatalogTable | undefined
 
     if (entry.table) {
-      /**
-       * Compares catalog objects by their required physical names.
-       *
-       * @param left - Left catalog object.
-       * @param right - Right catalog object.
-       */
-      const byName = <T extends { name: CatalogFact<string> }>(left: T, right: T) =>
-        compareCodeUnits(factName(left.name), factName(right.name))
-      table = {
-        columns: {
-          items: entry.table.columns.sort(
-            (left, right) =>
-              left.position - right.position || compareCodeUnits(left.name, right.name),
-          ),
-          coverage: complete,
-        },
-        primaryKey: entry.table.primaryKey,
-        uniqueConstraints: {
-          items: entry.table.uniqueConstraints.sort(byName),
-          coverage: complete,
-        },
-        foreignKeys: {
-          items: entry.table.foreignKeys.sort(byName),
-          coverage: complete,
-        },
-        indexes: { items: entry.table.indexes.sort(byName), coverage: complete },
-        options: {
-          items: entry.table.options.sort(
-            (left, right) =>
-              compareCodeUnits(left.name, right.name) ||
-              compareCodeUnits(left.value, right.value),
-          ),
-          coverage: complete,
-        },
-        opaqueObjects: {
-          items: entry.table.opaqueObjects.sort(byName),
-          coverage: complete,
-        },
-      }
+      table = orderedCatalogTable(entry.table)
     }
 
     relationEntries.push({
@@ -1598,23 +1399,15 @@ export async function introspectPostgres(
   }
 
   relationEntries.sort((left, right) => identities.compare(left.identity, right.identity))
+  return relationEntries
+}
 
-  for (const relation of relationEntries) {
-    const namespace = namespaces.find((candidate) =>
-      sameNamespace(candidate.identity, relation.identity.namespace),
-    )
-
-    if (!namespace) {
-      throw new InvariantError(
-        `PostgreSQL catalog changed during introspection: relation ${identities.format(relation.identity)} references a missing namespace`,
-      )
-    }
-
-    ;(namespace.relations.items as CatalogRelation[]).push(relation)
-  }
-
-  namespaces.sort((left, right) => compareNamespaces(left.identity, right.identity))
-
+/** Collects ordered physical names in the requested namespaces. */
+function catalogNameReservations(
+  reservationRows: unknown[],
+  scopeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[],
+  identities: CanonicalRelationIdentityModule,
+): CatalogNameReservation[] {
   const nameReservations: CatalogNameReservation[] = []
 
   for (let index = 0; index < reservationRows.length; index++) {
@@ -1641,12 +1434,734 @@ export async function introspectPostgres(
       compareCodeUnits(left.name, right.name),
   )
 
+  return nameReservations
+}
+
+/** Reports unavailable PostgreSQL catalog capabilities for old server versions. */
+function versionLimitedCatalog(
+  context: Awaited<ReturnType<typeof readCatalogContext>>,
+  diagnostics: CatalogDiagnostic[],
+): CatalogSnapshot {
+  const { version, namespaceContext, resolvedRequest } = context
+  const versionEvidence = {
+    state: 'unavailable' as const,
+    cause: 'version' as const,
+    actual: version,
+    requires: '120000',
+  }
+
+  diagnostics.push({
+    code: 'catalog.capability.version',
+    message: `PostgreSQL catalog introspection requires version 120000; observed ${version}`,
+  })
+
+  return {
+    source: { dialect: 'postgresql', version },
+    request: resolvedRequest,
+    capabilities: {
+      namespaces: versionEvidence,
+      relationOwner: versionEvidence,
+      identity: versionEvidence,
+      richObjects: versionEvidence,
+    },
+    namespaceContext,
+    namespaces: { items: [], coverage: versionEvidence },
+    nameReservations: { items: [], coverage: versionEvidence },
+    constraintNameReservations: { items: [], coverage: versionEvidence },
+    diagnostics,
+  }
+}
+
+/**
+ * Strictly observes the exact migration ownership scope on one PostgreSQL session.
+ *
+ * @example
+ *   const snapshot = await introspectPostgres(executor, request)
+ *
+ * @param executor - Session-bound catalog query executor.
+ * @param request - Catalog ownership scope to observe.
+ */
+export async function introspectPostgres(
+  executor: CatalogExecutor,
+  request: CatalogRequest,
+): Promise<CatalogSnapshot> {
+  const { version, versionNumber, namespaceContext, identities, resolvedRequest } =
+    await readCatalogContext(executor, request)
+  const { scopeSchemas, scopeNamespaces, relationRequested } = resolveCatalogScope(
+    resolvedRequest,
+    identities,
+  )
+  const diagnostics: CatalogDiagnostic[] = []
+
+  if (versionNumber < 120000)
+    return versionLimitedCatalog(
+      { version, versionNumber, namespaceContext, identities, resolvedRequest },
+      diagnostics,
+    )
+
+  const rows = await readCatalogEvidence(
+    executor,
+    createCatalogQueries(scopeSchemas),
+    scopeNamespaces,
+    relationRequested,
+    identities,
+  )
+
+  const { namespaces, nameReservations, constraintReservations } =
+    assemblePostgresCatalog(
+      rows,
+      { scopeNamespaces, relationRequested },
+      { resolvedRequest, identities },
+    )
+
+  return createPostgresSnapshot(
+    { version, namespaceContext, resolvedRequest },
+    { namespaces, nameReservations, constraintReservations },
+    diagnostics,
+  )
+}
+
+/**
+ * Resolves requested namespaces and binds relation membership checks.
+ *
+ * @param resolvedRequest - Requested scope after canonical identity and namespace
+ *   resolution.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ *
+ * @returns Requested namespaces and binds relation membership checks.
+ */
+function resolveCatalogScope(
+  resolvedRequest: ResolvedCatalogRequest,
+  identities: CanonicalRelationIdentityModule,
+) {
+  const scopeNamespaces = requestedNamespaces(resolvedRequest)
+  const scopeSchemas = scopeNamespaces.map((namespace) => {
+    const segment = namespace.find(({ role }) => role === 'schema')
+
+    if (!segment) {
+      throw new InvariantError(
+        'PostgreSQL introspection scope is missing a schema namespace',
+      )
+    }
+
+    return segment.identifier.spelling
+  })
+  const requestedRelations = requestedRelationRegistry(resolvedRequest, identities)
+
+  /**
+   * Tests whether a relation belongs to the requested ownership scope.
+   *
+   * @param identity - Canonical relation identity.
+   */
+  const relationRequested = (identity: CanonicalRelationIdentity) =>
+    requestedRelations.has(identity) ||
+    resolvedRequest.completeNamespaces.some((namespace) =>
+      sameNamespace(namespace, identity.namespace),
+    )
+  return { scopeSchemas, scopeNamespaces, relationRequested }
+}
+
+/**
+ * Attaches native columns, indexes, constraints, and opaque objects to registered
+ * relations.
+ *
+ * @param input - Catalog relation decoding inputs and shared accumulators.
+ *
+ * @returns Relations with decoded columns, keys, indexes, and opaque native evidence
+ *   attached.
+ */
+function decodeCatalogRelations(input: CatalogRelationDecoding) {
+  const {
+    relationRows,
+    relationRequested,
+    identities,
+    columnRows,
+    constraintRows,
+    indexRows,
+    opaqueRows,
+  } = input
+
+  const relationRegistry = createRelationRegistry(
+    relationRows,
+    relationRequested,
+    identities,
+  )
+  /** Requires a decoded table for a requested catalog member row. */
+  const requireTable = (row: Row, query: string, index: number) =>
+    resolveRequestedTable(
+      row,
+      query,
+      index,
+      identities,
+      relationRequested,
+      relationRegistry,
+    )
+
+  appendColumns(columnRows, requireTable, identities)
+
+  const constraintReservations: CatalogConstraintNameReservation[] = []
+  appendConstraints(constraintRows, requireTable, identities, constraintReservations)
+
+  appendIndexes(indexRows, requireTable)
+  appendOpaqueObjects(opaqueRows, requireTable)
+  return { relationRegistry, constraintReservations }
+}
+
+/**
+ * Rejects inconsistent native identity or generated-column evidence.
+ *
+ * @param isIdentity - Native flag indicating identity generation.
+ * @param identityGeneration - Native identity mode that must agree with the identity
+ *   flag.
+ * @param generated - Native generated-column classification.
+ * @param generationExpression - Native expression associated with a generated column.
+ * @param index - Zero-based row, column, or graph position used for ordering and
+ *   diagnostics.
+ */
+function assertColumnGeneration(
+  isIdentity: boolean,
+  identityGeneration: string | null,
+  generated: string,
+  generationExpression: string | null,
+  index: number,
+): void {
+  if (
+    isIdentity &&
+    identityGeneration !== 'ALWAYS' &&
+    identityGeneration !== 'BY DEFAULT'
+  ) {
+    throw new InvariantError(
+      `Malformed PostgreSQL column row ${index}: identity_generation is invalid`,
+    )
+  }
+
+  if (generated !== 'NEVER' && generated !== 'ALWAYS') {
+    throw new InvariantError(
+      `Malformed PostgreSQL column row ${index}: is_generated is invalid`,
+    )
+  }
+
+  if (generated === 'ALWAYS' && generationExpression === null) {
+    throw new InvariantError(
+      `Malformed PostgreSQL column row ${index}: generated column is missing its expression`,
+    )
+  }
+
+  if (isIdentity && generated === 'ALWAYS') {
+    throw new InvariantError(
+      `Malformed PostgreSQL column row ${index}: column cannot be identity and computed`,
+    )
+  }
+}
+
+type CatalogObservationVerification = {
+  executor: CatalogExecutor
+  queries: ReturnType<typeof createCatalogQueries>
+  rows: PostgresCatalogEvidence
+  identities: CanonicalRelationIdentityModule
+  scopeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[]
+  relationRequested: (identity: CanonicalRelationIdentity) => boolean
+}
+
+type CatalogRelationDecoding = {
+  relationRows: unknown[]
+  relationRequested: (identity: CanonicalRelationIdentity) => boolean
+  identities: CanonicalRelationIdentityModule
+  columnRows: unknown[]
+  constraintRows: unknown[]
+  indexRows: unknown[]
+  opaqueRows: unknown[]
+}
+
+const POSTGRES_NAMESPACE_CATALOG_SQL = `
+      -- catalog:namespace
+      select n.nspname as schema, pg_get_userbyid(n.nspowner) as owner
+      from pg_namespace n
+      where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      order by n.nspname
+    `
+
+const POSTGRES_RELATION_CATALOG_SQL = `
+      select c.oid::text as object_id,
+             n.nspname as schema, c.relname as name, c.relkind as relation_kind,
+             c.relpersistence as persistence, pg_get_userbyid(c.relowner) as owner,
+             case when c.relkind in ('v', 'm') then pg_get_viewdef(c.oid, true) else null end as native_definition,
+             to_jsonb(coalesce(c.reloptions, '{}'::text[])) as options,
+             pg_get_partkeydef(c.oid) as partition_key,
+             c.relrowsecurity as row_level_security,
+             c.relforcerowsecurity as force_row_level_security,
+             c.relreplident as replica_identity,
+             relation_am.amname as access_method,
+             tablespace.spcname as tablespace,
+             c.relispartition as is_partition,
+             pg_get_expr(c.relpartbound, c.oid) as partition_bound
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      left join pg_am relation_am on relation_am.oid = c.relam
+      left join pg_tablespace tablespace on tablespace.oid = c.reltablespace
+      where c.relkind in ('r', 'p', 'v', 'm', 'f')
+        and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      order by n.nspname, c.relname
+    `
+
+const POSTGRES_COLUMN_CATALOG_SQL = `
+      -- catalog:column
+      select n.nspname as schema, c.relname as table_name,
+             a.attname as column_name, a.attnum as ordinal_position,
+             format_type(a.atttypid, a.atttypmod) as formatted_type,
+             t.typname as data_type, tn.nspname as udt_schema, t.typname as udt_name,
+             not (tn.nspname = 'pg_catalog' and t.typtype = 'b') as is_user_defined,
+             null as character_maximum_length, null as numeric_precision,
+             null as numeric_scale,
+             case when a.attnotnull then 'NO' else 'YES' end as is_nullable,
+             case when a.attgenerated = '' then pg_get_expr(d.adbin, d.adrelid) else null end as column_default,
+             case when a.attidentity = '' then 'NO' else 'YES' end as is_identity,
+             case a.attidentity when 'a' then 'ALWAYS' when 'd' then 'BY DEFAULT' else null end as identity_generation,
+             case when a.attgenerated = '' then 'NEVER' else 'ALWAYS' end as is_generated,
+             case when a.attgenerated <> '' then pg_get_expr(d.adbin, d.adrelid) else null end as generation_expression
+      from pg_attribute a
+      join pg_class c on c.oid = a.attrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_type t on t.oid = a.atttypid
+      join pg_namespace tn on tn.oid = t.typnamespace
+      left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+      where c.relkind in ('r', 'p') and a.attnum > 0 and not a.attisdropped
+        and n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      order by n.nspname, c.relname, a.attnum
+    `
+
+const POSTGRES_RESERVATION_CATALOG_SQL = `
+      select n.nspname as schema, c.relname as object_name
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname not in ('pg_catalog', 'information_schema')
+        and n.nspname = any($1::text[])
+      order by n.nspname, c.relname
+    `
+
+type PostgresCatalogEvidence = Record<
+  | 'namespaceRows'
+  | 'relationRows'
+  | 'columnRows'
+  | 'constraintRows'
+  | 'indexRows'
+  | 'opaqueRows'
+  | 'reservationRows',
+  unknown[]
+>
+
+/**
+ * Reads native catalog queries in their required observation order.
+ *
+ * @param executor - Executor that owns the physical session used for SQL calls.
+ * @param queries - Native catalog queries or recorded executor calls in observation
+ *   order.
+ *
+ * @returns Native catalog queries in their required observation order.
+ */
+async function readRawCatalogEvidence(
+  executor: CatalogExecutor,
+  queries: ReturnType<typeof createCatalogQueries>,
+): Promise<PostgresCatalogEvidence> {
+  const {
+    namespaceQuery,
+    relationQuery,
+    columnQuery,
+    constraintQuery,
+    indexQuery,
+    opaqueQuery,
+    reservationQuery,
+  } = queries
+  const namespaceRows = await executor.execute(namespaceQuery)
+  const relationRows = await executor.execute(relationQuery)
+  const columnRows = await executor.execute(columnQuery)
+  const constraintRows = await executor.execute(constraintQuery)
+  const indexRows = await executor.execute(indexQuery)
+  const opaqueRows = await executor.execute(opaqueQuery)
+  const reservationRows = await executor.execute(reservationQuery)
+  return {
+    namespaceRows,
+    relationRows,
+    columnRows,
+    constraintRows,
+    indexRows,
+    opaqueRows,
+    reservationRows,
+  }
+}
+
+/**
+ * Rechecks requested relation identities and object IDs for catalog races.
+ *
+ * @param executor - Executor that owns the physical session used for SQL calls.
+ * @param relationQuery - Recorded relation query used to verify scoped native access.
+ * @param relationRows - Native relation observations before catalog assembly.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param relationRequested - Predicate that identifies relation rows within the requested
+ *   ownership scope.
+ */
+async function assertRelationIdentityUnchanged(
+  executor: CatalogExecutor,
+  relationQuery: ReturnType<typeof createCatalogQueries>['relationQuery'],
+  relationRows: unknown[],
+  identities: CanonicalRelationIdentityModule,
+  relationRequested: (identity: CanonicalRelationIdentity) => boolean,
+): Promise<void> {
+  const finalRelationRows = await executor.execute(relationQuery)
+
+  /**
+   * Builds stable requested-relation identity and object-ID fingerprints.
+   *
+   * @param rows - Raw relation rows.
+   */
+  const relationFingerprint = (rows: unknown[]) =>
+    rows
+      .flatMap((value, index) => {
+        const row = rowAt(value, 'relation consistency', index)
+        const identity = identities.resolve(
+          relationInput(
+            stringAt(row, 'schema', 'relation consistency', index),
+            stringAt(row, 'name', 'relation consistency', index),
+          ),
+        )
+        return relationRequested(identity)
+          ? [
+              `${identities.format(identity)}\0${stringAt(row, 'object_id', 'relation consistency', index)}`,
+            ]
+          : []
+      })
+      .sort(compareCodeUnits)
+
+  if (
+    JSON.stringify(relationFingerprint(relationRows)) !==
+    JSON.stringify(relationFingerprint(finalRelationRows))
+  ) {
+    throw new InvariantError(
+      'PostgreSQL catalog changed during introspection: requested relations were replaced, created, or removed',
+    )
+  }
+}
+
+/**
+ * Keeps requested namespace observations in deterministic comparison order.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ * @param query - Native query label used to identify malformed catalog evidence.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param scopeNamespaces - Requested canonical namespaces covered by catalog queries.
+ *
+ * @returns Requested namespace observations in deterministic comparison order.
+ */
+function filterNamespaceObservations(
+  rows: unknown[],
+  query: string,
+  identities: CanonicalRelationIdentityModule,
+  scopeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[],
+): unknown[] {
+  return rows.filter((value, index) => {
+    const row = rowAt(value, `${query} consistency`, index)
+    const namespace = identities.resolveNamespace([
+      {
+        role: 'schema',
+        spelling: stringAt(row, 'schema', `${query} consistency`, index),
+      },
+    ])
+    return scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace))
+  })
+}
+
+/**
+ * Keeps requested relation observations in deterministic comparison order.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ * @param query - Native query label used to identify malformed catalog evidence.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param relationRequested - Predicate that identifies relation rows within the requested
+ *   ownership scope.
+ *
+ * @returns Requested relation observations in deterministic comparison order.
+ */
+function filterRelationObservations(
+  rows: unknown[],
+  query: string,
+  identities: CanonicalRelationIdentityModule,
+  relationRequested: (identity: CanonicalRelationIdentity) => boolean,
+): unknown[] {
+  return rows.filter((value, index) => {
+    const row = rowAt(value, `${query} consistency`, index)
+    const identity = identities.resolve(
+      relationInput(
+        stringAt(row, 'schema', `${query} consistency`, index),
+        stringAt(row, 'table_name', `${query} consistency`, index),
+      ),
+    )
+    return relationRequested(identity)
+  })
+}
+
+/**
+ * Copies and canonically orders a relation's decoded member evidence.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ *
+ * @returns And canonically orders a relation's decoded member evidence.
+ */
+function orderedCatalogTable(table: NonNullable<MutableRelation['table']>): CatalogTable {
+  /**
+   * Compares catalog objects by their required physical names.
+   *
+   * @param left - Left catalog object.
+   * @param right - Right catalog object.
+   */
+  const byName = <T extends { name: CatalogFact<string> }>(left: T, right: T) =>
+    compareCodeUnits(factName(left.name), factName(right.name))
+
+  return {
+    columns: {
+      items: table.columns.sort(
+        (left, right) =>
+          left.position - right.position || compareCodeUnits(left.name, right.name),
+      ),
+      coverage: complete,
+    },
+    primaryKey: table.primaryKey,
+    uniqueConstraints: {
+      items: table.uniqueConstraints.sort(byName),
+      coverage: complete,
+    },
+    foreignKeys: {
+      items: table.foreignKeys.sort(byName),
+      coverage: complete,
+    },
+    indexes: { items: table.indexes.sort(byName), coverage: complete },
+    options: {
+      items: table.options.sort(
+        (left, right) =>
+          compareCodeUnits(left.name, right.name) ||
+          compareCodeUnits(left.value, right.value),
+      ),
+      coverage: complete,
+    },
+    opaqueObjects: {
+      items: table.opaqueObjects.sort(byName),
+      coverage: complete,
+    },
+  }
+}
+
+/**
+ * Builds physical type evidence from validated PostgreSQL column fields.
+ *
+ * @param row - Current native catalog row, insert row, or result object.
+ * @param index - Zero-based row, column, or graph position used for ordering and
+ *   diagnostics.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param nativeType - Native physical type spelling validated from PostgreSQL catalog
+ *   evidence.
+ *
+ * @returns Physical type evidence from validated PostgreSQL column fields.
+ */
+function decodePostgresColumnType(
+  row: Row,
+  index: number,
+  identities: CanonicalRelationIdentityModule,
+  nativeType: string,
+): CatalogColumn['dataType'] {
+  return present({
+    native: nativeType,
+    comparisonKey: normalizePostgresDataType(nativeType),
+    family: normalizePostgresDataType(nativeType).replace(/\(.*/, ''),
+    parameters: [
+      row.character_maximum_length,
+      row.numeric_precision,
+      row.numeric_scale,
+    ].flatMap((value) => {
+      const number = toNumberOrNull(value)
+      return number === null ? [] : [number]
+    }),
+    userDefined: booleanAt(row, 'is_user_defined', 'column', index)
+      ? present(
+          identities.resolve(
+            relationInput(
+              stringAt(row, 'udt_schema', 'column', index),
+              stringAt(row, 'udt_name', 'column', index),
+            ),
+          ),
+        )
+      : absent,
+  })
+}
+
+/**
+ * Decodes one PostgreSQL column's type, default, nullability, and generation evidence.
+ *
+ * @param row - Current native catalog row, insert row, or result object.
+ * @param index - Zero-based row, column, or graph position used for ordering and
+ *   diagnostics.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ *
+ * @returns One PostgreSQL column's type, default, nullability, and generation evidence.
+ */
+function decodePostgresColumn(
+  row: Row,
+  index: number,
+  identities: CanonicalRelationIdentityModule,
+): CatalogColumn {
+  const nativeType = formatPostgresCatalogDataType(row, 'column', index)
+  const columnDefault = nullableStringAt(row, 'column_default', 'column', index)
+  const isIdentity = booleanAt(row, 'is_identity', 'column', index)
+  const identityGeneration = nullableStringAt(row, 'identity_generation', 'column', index)
+  const generated = stringAt(row, 'is_generated', 'column', index)
+  const generationExpression = nullableStringAt(
+    row,
+    'generation_expression',
+    'column',
+    index,
+  )
+  assertColumnGeneration(
+    isIdentity,
+    identityGeneration,
+    generated,
+    generationExpression,
+    index,
+  )
+
+  return {
+    name: stringAt(row, 'column_name', 'column', index),
+    position: positiveIntegerAt(row, 'ordinal_position', 'column', index),
+    dataType: decodePostgresColumnType(row, index, identities, nativeType),
+    nullable: present(booleanAt(row, 'is_nullable', 'column', index)),
+    default:
+      columnDefault === null
+        ? absent
+        : present({
+            kind: 'nativeExpression',
+            native: columnDefault,
+            comparisonKey: present(normalizePostgresDefaultExpression(columnDefault)),
+          }),
+    generation: columnGeneration(
+      isIdentity,
+      identityGeneration,
+      generated,
+      generationExpression,
+    ),
+    nativeDefinition: present(nativeType),
+  }
+}
+
+/**
+ * Resolves a requested row to its mutable table entry.
+ *
+ * @param row - Catalog row referencing a table.
+ * @param query - Query name for diagnostics.
+ * @param index - Row index for diagnostics.
+ */
+function resolveRequestedTable(
+  row: Row,
+  query: string,
+  index: number,
+  identities: CanonicalRelationIdentityModule,
+  relationRequested: (identity: CanonicalRelationIdentity) => boolean,
+  relationRegistry: CanonicalRelationRegistry<MutableRelation>,
+) {
+  const identity = identities.resolve(
+    relationInput(
+      stringAt(row, 'schema', query, index),
+      stringAt(row, 'table_name', query, index),
+    ),
+  )
+
+  if (!relationRequested(identity)) return undefined
+
+  const entry = relationRegistry.get(identity)
+
+  if (!entry) {
+    throw new InvariantError(
+      `PostgreSQL catalog changed during introspection: ${query} row references missing table ${identities.format(identity)}`,
+    )
+  }
+
+  if (!entry.table) return undefined
+
+  return { identity, table: entry.table }
+}
+
+/**
+ * Builds requested namespaces and physical-name reservations from decoded catalog rows.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ * @param scope - Requested catalog or coordination scope for this scenario.
+ * @param context - Resolved namespace, client, or session dependencies used by this
+ *   operation.
+ *
+ * @returns Requested namespaces and physical-name reservations from decoded catalog rows.
+ */
+function assemblePostgresCatalog(
+  rows: PostgresCatalogEvidence,
+  scope: Pick<
+    ReturnType<typeof resolveCatalogScope>,
+    'scopeNamespaces' | 'relationRequested'
+  >,
+  context: Pick<
+    Awaited<ReturnType<typeof readCatalogContext>>,
+    'resolvedRequest' | 'identities'
+  >,
+) {
+  const { namespaceRows, relationRows, reservationRows } = rows
+  const { scopeNamespaces, relationRequested } = scope
+  const { resolvedRequest, identities } = context
+  const { relationRegistry, constraintReservations } = decodeCatalogRelations({
+    ...rows,
+    relationRequested,
+    identities,
+  })
+  const namespaces = buildCatalogNamespaces(
+    namespaceRows,
+    relationRows,
+    relationRegistry,
+    scopeNamespaces,
+    resolvedRequest,
+    identities,
+  )
+  const nameReservations = catalogNameReservations(
+    reservationRows,
+    scopeNamespaces,
+    identities,
+  )
+
   constraintReservations.sort(
     (left, right) =>
       identities.compare(left.relation, right.relation) ||
       compareCodeUnits(left.name, right.name),
   )
 
+  return { namespaces, nameReservations, constraintReservations }
+}
+
+/**
+ * Combines the resolved request, catalog objects, capabilities, and diagnostics into a
+ * snapshot.
+ *
+ * @param context - Resolved namespace, client, or session dependencies used by this
+ *   operation.
+ * @param objects - Native objects used to check catalog coverage and reservations.
+ * @param diagnostics - Mutable catalog diagnostics preserving unsupported or unmanaged
+ *   evidence.
+ *
+ * @returns A snapshot retaining resolved scope, catalog capabilities, and diagnostics.
+ */
+function createPostgresSnapshot(
+  context: Pick<
+    Awaited<ReturnType<typeof readCatalogContext>>,
+    'version' | 'namespaceContext' | 'resolvedRequest'
+  >,
+  objects: ReturnType<typeof assemblePostgresCatalog>,
+  diagnostics: CatalogDiagnostic[],
+): CatalogSnapshot {
+  const { version, namespaceContext, resolvedRequest } = context
+  const { namespaces, nameReservations, constraintReservations } = objects
   return {
     source: { dialect: 'postgresql', version },
     request: resolvedRequest,
@@ -1664,6 +2179,35 @@ export async function introspectPostgres(
       (left, right) =>
         compareCodeUnits(left.code, right.code) ||
         compareCodeUnits(left.message, right.message),
+    ),
+  }
+}
+
+/** Decodes a foreign key's ordered target columns, actions, and native semantics. */
+function decodePostgresForeignKey(
+  row: Row,
+  index: number,
+  identities: CanonicalRelationIdentityModule,
+  key: CatalogKeyConstraint,
+): CatalogForeignKey {
+  return {
+    ...key,
+    referencedRelation: identities.resolve(
+      relationInput(
+        stringAt(row, 'referenced_schema', 'constraint', index),
+        stringAt(row, 'referenced_table', 'constraint', index),
+      ),
+    ),
+    referencedColumns: stringArrayAt(row, 'referenced_columns', 'constraint', index),
+    onDelete: referentialAction(
+      stringAt(row, 'on_delete', 'constraint', index),
+      'constraint',
+      index,
+    ),
+    onUpdate: referentialAction(
+      stringAt(row, 'on_update', 'constraint', index),
+      'constraint',
+      index,
     ),
   }
 }

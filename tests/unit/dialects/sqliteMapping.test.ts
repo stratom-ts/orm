@@ -40,11 +40,16 @@ describe('SQLite value mapping', () => {
 
     expect(() => mapSqliteParamValue('REAL', Infinity)).toThrow(QueryError)
   })
+})
 
+describe('SQLite value mapping: rejects invalid Date and cyclic JSON parameter values with query diagnostics', () => {
   it('rejects invalid Date and cyclic JSON parameter values with query diagnostics', () => {
+    /** Maps an invalid date to exercise value-validation rejection. */
     const invalidDate = () => mapSqliteParamValue('DATETIME', new Date('invalid'))
     const cyclic: { self?: unknown } = {}
     cyclic.self = cyclic
+
+    /** Maps cyclic JSON to exercise serialization rejection. */
     const cyclicJson = () => mapSqliteParamValue('JSON', cyclic)
 
     expect(invalidDate).toThrow(QueryError)

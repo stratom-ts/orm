@@ -134,20 +134,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
       })
     }
 
-    for (const column of columns) assertNonEmptyString(column, 'index column')
-    const unknownColumn = columns.find((column) => !columnNames.includes(column))
-
-    if (unknownColumn !== undefined) {
-      throw new SchemaError({
-        message: `index column "${unknownColumn}" is not defined on table "${metadata.name}"`,
-      })
-    }
-
-    if (new Set(columns).size !== columns.length) {
-      throw new SchemaError({
-        message: `index on table "${metadata.name}" contains duplicate columns`,
-      })
-    }
+    assertIndexColumns(columns, columnNames, metadata)
 
     const definition = JSON.stringify([columns, index.unique ?? false])
 
@@ -168,6 +155,35 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
     }
 
     names.add(index.name)
+  }
+}
+
+/**
+ * Rejects empty, unknown, or repeated columns in a declared index.
+ *
+ * @param columns - Ordered column names, references, or observations used by this
+ *   operation.
+ * @param columnNames - Declared column spellings used to validate member references.
+ * @param metadata - Authored schema metadata used for validation and storage rules.
+ */
+function assertIndexColumns(
+  columns: readonly string[],
+  columnNames: string[],
+  metadata: TableMetadata,
+) {
+  for (const column of columns) assertNonEmptyString(column, 'index column')
+  const unknownColumn = columns.find((column) => !columnNames.includes(column))
+
+  if (unknownColumn !== undefined) {
+    throw new SchemaError({
+      message: `index column "${unknownColumn}" is not defined on table "${metadata.name}"`,
+    })
+  }
+
+  if (new Set(columns).size !== columns.length) {
+    throw new SchemaError({
+      message: `index on table "${metadata.name}" contains duplicate columns`,
+    })
   }
 }
 
@@ -431,23 +447,7 @@ function buildTableHandle<
 
   const columns = {} as Record<string, ColumnRef>
 
-  for (const columnName of columnNames) {
-    columns[columnName] = {
-      relation: metadata.relation,
-      column: columnName,
-      __type: undefined as never,
-    }
-  }
-
-  // Column refs first; reserved handle methods win if a column reuses those names.
-  const handle = {
-    ...(columns as ColumnRefsOf<S, TRelation>),
-    [TABLE_HANDLE]: true as const,
-    /** Returns the original table schema. */
-    getSchema: () => schema,
-    /** Returns the validated table metadata. */
-    getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
-  }
+  const handle = createColumnRefs<S, TRelation>(columnNames, columns, metadata, schema)
 
   definedTableHandles.set(handle, {
     getSchema: handle.getSchema,
@@ -465,6 +465,46 @@ type RelationForNamespace<
     ? Readonly<{ relation: TName }>
     : Readonly<{ namespace: TNamespace; relation: TName }>
   : Readonly<{ relation: TName }>
+
+/**
+ * Builds typed column references from the validated table metadata.
+ *
+ * @param columnNames - Declared column spellings used to validate member references.
+ * @param columns - Ordered column names, references, or observations used by this
+ *   operation.
+ * @param metadata - Authored schema metadata used for validation and storage rules.
+ * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+ *
+ * @returns Typed column references from the validated table metadata.
+ */
+function createColumnRefs<
+  S extends TableSchema,
+  TRelation extends RelationIdentityInput = RelationIdentityInput,
+>(
+  columnNames: string[],
+  columns: Record<string, ColumnRef>,
+  metadata: TableMetadata,
+  schema: S,
+) {
+  for (const columnName of columnNames) {
+    columns[columnName] = {
+      relation: metadata.relation,
+      column: columnName,
+      __type: undefined as never,
+    }
+  }
+
+  // Column refs first; reserved handle methods win if a column reuses those names.
+  const handle = {
+    ...(columns as ColumnRefsOf<S, TRelation>),
+    [TABLE_HANDLE]: true as const,
+    /** Returns the original table schema. */
+    getSchema: () => schema,
+    /** Returns the validated table metadata. */
+    getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
+  }
+  return handle
+}
 
 /**
  * Defines a table from a name, column map, and table options.

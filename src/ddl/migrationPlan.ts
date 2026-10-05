@@ -17,8 +17,12 @@ import type {
   NamespaceContext,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
-import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
+import type {
+  MigrationOwnershipDeclaration,
+  ResolvedMigrationOwnership,
+} from '@/migrations/migrationOwnership'
 import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
+import type { PhysicalNameRegistry, PhysicalNameSeed } from '@/migrations/physicalNaming'
 import { getReferenceMetadata } from '@/schemas/actions/reference'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
@@ -163,7 +167,24 @@ export type MigrationPlanningContext = Readonly<{
   identity: DialectIdentity
   naming: DialectNaming
   schema: Readonly<{
+    /**
+     * Resolves authored column storage into the selected dialect's desired-schema
+     * representation.
+     *
+     * @param graph - Registered authored tables and their resolved reference graph.
+     *
+     * @returns Desired tables with dialect-specific physical storage and resolved
+     *   references.
+     */
     lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+    /**
+     * Normalizes physical SQL type spelling for stable schema comparison.
+     *
+     * @param dataType - Physical SQL type used for validation, comparison, or value
+     *   mapping.
+     *
+     * @returns The normalized type spelling used for storage equality.
+     */
     normalizeDataType(dataType: string): string
     normalizeDefaultValue?: (value: string | number | boolean | null) => string
   }>
@@ -240,7 +261,7 @@ function compareCodeUnits(left: string, right: string): number {
  * Validates every physical identifier in a canonical namespace.
  *
  * @param namespace - Canonical namespace whose identifiers are validated.
- * @param profile - Dialect-specific physical naming profile.
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
  */
 function validateCanonicalNamespaceNames(
   namespace: CanonicalRelationIdentity['namespace'],
@@ -255,7 +276,7 @@ function validateCanonicalNamespaceNames(
  * Validates the namespace and relation identifiers of a canonical identity.
  *
  * @param identity - Canonical relation identity to validate.
- * @param profile - Dialect-specific physical naming profile.
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
  */
 function validateCanonicalRelationNames(
   identity: CanonicalRelationIdentity,
@@ -648,7 +669,8 @@ function canonicalCatalogForeignKey(
  * Normalizes a desired column reference for semantic comparison.
  *
  * @param column - Desired column containing a foreign-key reference.
- * @param identities - Identity module used to resolve its referenced relation.
+ *
+ * @returns Desired foreign-key semantics with canonical target and member identifiers.
  */
 function canonicalDesiredForeignKey(column: LoweredDesiredColumn): CanonicalForeignKey {
   const reference = column.reference!
@@ -725,6 +747,29 @@ function collectUniqueConstraintIssues({
   )
   const matched = new Set<CatalogKeyConstraint>()
 
+  matchDesiredUniqueConstraints({ expected, live, identities, issues, identity, matched })
+
+  if (
+    shape === 'complete' &&
+    live.uniqueConstraints.some((constraint) => !matched.has(constraint))
+  ) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'unique_constraint',
+      message: `Unsupported removal of extra unique constraints for '${identities.format(identity)}'`,
+    })
+  }
+}
+
+/**
+ * Matches desired unique keys and records unsupported changes to existing keys.
+ *
+ * @param input - Desired unique constraint matching inputs and shared accumulators.
+ */
+function matchDesiredUniqueConstraints(input: DesiredUniqueConstraintMatching) {
+  const { expected, live, identities, issues, identity, matched } = input
+
   for (const column of expected) {
     const matches = matchUniqueConstraints(
       live.uniqueConstraints,
@@ -761,18 +806,6 @@ function collectUniqueConstraintIssues({
       })
     }
   }
-
-  if (
-    shape === 'complete' &&
-    live.uniqueConstraints.some((constraint) => !matched.has(constraint))
-  ) {
-    issues.push({
-      identity,
-      target: '',
-      property: 'unique_constraint',
-      message: `Unsupported removal of extra unique constraints for '${identities.format(identity)}'`,
-    })
-  }
 }
 
 /** Collects unsupported foreign-key drift for one managed relation. */
@@ -798,6 +831,51 @@ function collectForeignKeyIssues({
 
   const matched = new Set<CatalogForeignKey>()
 
+  matchDesiredForeignKeys(
+    expected,
+    live,
+    identities,
+    issues,
+    identity,
+    tableName,
+    matched,
+  )
+
+  if (
+    shape === 'complete' &&
+    live.foreignKeys.some((foreignKey) => !matched.has(foreignKey))
+  ) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'foreign_key',
+      message: `Unsupported removal of extra foreign keys for '${tableName}'`,
+    })
+  }
+}
+
+/**
+ * Matches existing foreign keys and records ambiguous or unsupported reference changes.
+ *
+ * @param expected - Expected profile, evidence, or result used by the current check.
+ * @param live - Observed table or index definition to compare with desired metadata.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param tableName - Authored table spelling used in validation diagnostics.
+ * @param matched - Observed constraints already matched to desired semantics.
+ */
+function matchDesiredForeignKeys(
+  expected: CanonicalForeignKey[],
+  live: CatalogTable,
+  identities: CanonicalRelationIdentityModule,
+  issues: PlanningIssue[],
+  identity: CanonicalRelationIdentity,
+  tableName: string,
+  matched: Set<CatalogForeignKey>,
+) {
   for (const expectedForeignKey of expected) {
     const matches = matchForeignKeys(live.foreignKeys, expectedForeignKey, identities)
 
@@ -824,18 +902,6 @@ function collectForeignKeyIssues({
       })
     }
   }
-
-  if (
-    shape === 'complete' &&
-    live.foreignKeys.some((foreignKey) => !matched.has(foreignKey))
-  ) {
-    issues.push({
-      identity,
-      target: '',
-      property: 'foreign_key',
-      message: `Unsupported removal of extra foreign keys for '${tableName}'`,
-    })
-  }
 }
 
 /**
@@ -859,6 +925,41 @@ function collectManagedPropertyIssues(
 ): void {
   const identity = live.identity
   const tableName = identities.format(identity)
+  const liveColumns = collectLiveColumnNames(live, identity, identities, issues)
+
+  collectColumnPropertyIssues(
+    desired,
+    liveColumns,
+    identities,
+    identity,
+    planning,
+    issues,
+  )
+
+  collectPrimaryKeyIssues(live, identities, desired, issues, identity, tableName)
+
+  collectOwnedConstraintIssues(live, desired, shape, issues, identities, liveColumns)
+}
+
+/**
+ * Indexes observed columns by canonical identity and reports duplicate names.
+ *
+ * @param live - Observed table or index definition to compare with desired metadata.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ *
+ * @returns Observed columns indexed by canonical identity, with duplicate-name issues
+ *   retained.
+ */
+function collectLiveColumnNames(
+  live: CatalogTable,
+  identity: CanonicalRelationIdentity,
+  identities: CanonicalRelationIdentityModule,
+  issues: PlanningIssue[],
+) {
   const liveColumns = new Map<string, CatalogColumn>()
 
   const orderedLiveColumns = live.columns
@@ -892,38 +993,61 @@ function collectManagedPropertyIssues(
     liveColumns.set(key, column)
   }
 
-  for (const column of desired.columns) {
-    const current = liveColumns.get(column.identifier.comparisonKey)
+  return liveColumns
+}
 
-    if (!current) continue
-
-    const columnLabel = identities.format(identity, {
-      role: 'column',
-      spelling: column.identifier.spelling,
-    })
-    const defaultMessage = defaultMismatch(columnLabel, current, column, planning)
-
-    if (defaultMessage) {
-      issues.push({
-        identity,
-        target: column.identifier.comparisonKey,
-        property: 'default',
-        message: defaultMessage,
-      })
-    }
-
-    const identityMessage = identityMismatch(columnLabel, current, column)
-
-    if (identityMessage) {
-      issues.push({
-        identity,
-        target: column.identifier.comparisonKey,
-        property: 'identity',
-        message: identityMessage,
-      })
-    }
+/**
+ * Validates constraints according to the relation's complete or additive ownership shape.
+ *
+ * @param live - Observed table or index definition to compare with desired metadata.
+ * @param desired - Lowered desired table or schema metadata used for comparison.
+ * @param shape - Complete or additive relation ownership that controls removal of extra
+ *   catalog members.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param liveColumns - Observed columns indexed by canonical comparison key.
+ */
+function collectOwnedConstraintIssues(
+  live: CatalogTable,
+  desired: LoweredDesiredTable,
+  shape: 'complete' | 'additive',
+  issues: PlanningIssue[],
+  identities: CanonicalRelationIdentityModule,
+  liveColumns: Map<string, CatalogColumn>,
+) {
+  const constraintInput = {
+    live,
+    desired,
+    shape,
+    issues,
+    identities,
+    liveColumns,
   }
+  collectUniqueConstraintIssues(constraintInput)
+  collectForeignKeyIssues(constraintInput)
+}
 
+/**
+ * Reports unsupported changes to an observed primary key.
+ *
+ * @param live - Observed table or index definition to compare with desired metadata.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param desired - Lowered desired table or schema metadata used for comparison.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param tableName - Authored table spelling used in validation diagnostics.
+ */
+function collectPrimaryKeyIssues(
+  live: CatalogTable,
+  identities: CanonicalRelationIdentityModule,
+  desired: LoweredDesiredTable,
+  issues: PlanningIssue[],
+  identity: CanonicalRelationIdentity,
+  tableName: string,
+) {
   if (live.primaryKey !== null) {
     const current = live.primaryKey.columns
 
@@ -942,17 +1066,76 @@ function collectManagedPropertyIssues(
       })
     }
   }
+}
 
-  const constraintInput = {
-    live,
-    desired,
-    shape,
-    issues,
-    identities,
-    liveColumns,
+/**
+ * Checks managed column defaults, generation, and opaque properties for unsupported
+ * drift.
+ */
+function collectColumnPropertyIssues(
+  desired: LoweredDesiredTable,
+  liveColumns: Map<string, CatalogColumn>,
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  planning: MigrationPlanningContext,
+  issues: PlanningIssue[],
+) {
+  for (const column of desired.columns) {
+    const current = liveColumns.get(column.identifier.comparisonKey)
+
+    if (!current) continue
+
+    collectExistingColumnIssues(identities, identity, column, current, planning, issues)
   }
-  collectUniqueConstraintIssues(constraintInput)
-  collectForeignKeyIssues(constraintInput)
+}
+
+/**
+ * Adds deterministic issues for properties that the planner cannot change safely.
+ *
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param column - Authored or observed column metadata used for storage comparison.
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ * @param planning - Selected identity, naming, and schema semantics for Migration Plan
+ *   construction.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ */
+function collectExistingColumnIssues(
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  column: LoweredDesiredColumn,
+  current: CatalogColumn,
+  planning: MigrationPlanningContext,
+  issues: PlanningIssue[],
+) {
+  const columnLabel = identities.format(identity, {
+    role: 'column',
+    spelling: column.identifier.spelling,
+  })
+  const defaultMessage = defaultMismatch(columnLabel, current, column, planning)
+
+  if (defaultMessage) {
+    issues.push({
+      identity,
+      target: column.identifier.comparisonKey,
+      property: 'default',
+      message: defaultMessage,
+    })
+  }
+
+  const identityMessage = identityMismatch(columnLabel, current, column)
+
+  if (identityMessage) {
+    issues.push({
+      identity,
+      target: column.identifier.comparisonKey,
+      property: 'identity',
+      message: identityMessage,
+    })
+  }
 }
 
 /**
@@ -1036,7 +1219,6 @@ function indexTarget(
  * Resolves a desired foreign-key reference into its structured plan payload.
  *
  * @param reference - Desired foreign-key reference to resolve.
- * @param identities - Identity module used to resolve the referenced relation.
  */
 function structuredReference(
   reference: NonNullable<LoweredDesiredColumn['reference']>,
@@ -1213,6 +1395,28 @@ function collectLiveIndexes(
         compareCodeUnits(left.identifier.spelling, right.identifier.spelling),
     )
 
+  registerCatalogIndexes({
+    ordered,
+    indexes,
+    issues,
+    identity,
+    identities,
+    shape,
+    unsupportedNames,
+  })
+
+  return { indexes, unsupportedNames }
+}
+
+/**
+ * Reserves observed index names and reports duplicate or unsupported index definitions.
+ *
+ * @param input - Catalog index registration inputs and shared accumulators.
+ */
+function registerCatalogIndexes(input: CatalogIndexRegistration) {
+  const { ordered, indexes, issues, identity, identities, shape, unsupportedNames } =
+    input
+
   for (const { liveIndex, identifier } of ordered) {
     const key = identifier.comparisonKey
 
@@ -1246,8 +1450,6 @@ function collectLiveIndexes(
       })
     }
   }
-
-  return { indexes, unsupportedNames }
 }
 
 /**
@@ -1272,101 +1474,59 @@ function reconcileIndexes({
   const { indexes: liveIndexes, unsupportedNames: unsupportedLiveIndexNames } =
     collectLiveIndexes({ live, identity, shape, issues, identities })
 
-  function reconcileIndex(index: (typeof desired)[number]): void {
-    let current: CatalogIndex | undefined
-
-    if (index.origin === 'generated') {
-      const semanticMatches = [...liveIndexes.values()].filter(
-        (candidate) =>
-          candidate.unique === index.unique &&
-          arraysEqual(
-            memberKeys('column', candidate.columns, identities),
-            index.columns.map((column) => column.comparisonKey),
-          ),
-      )
-
-      if (semanticMatches.length > 1) {
-        issues.push({
-          identity,
-          target: index.name.comparisonKey,
-          property: 'ambiguous_semantic_match',
-          message: `Ambiguous index semantic match for ${identities.format(identity, {
-            role: 'index',
-            spelling: index.name.spelling,
-          })}`,
-        })
-
-        return
-      }
-
-      current = semanticMatches.at(0)
-
-      if (!current) current = liveIndexes.get(index.name.comparisonKey)
-    } else {
-      current = liveIndexes.get(index.name.comparisonKey)
-    }
-
-    if (!current) {
-      physicalNames.reserve({
-        kind: 'index',
-        owner: identity,
-        name: index.name.spelling,
-        token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
-        description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
-      })
-
-      steps.push({
-        kind: 'create_index',
-        target: { kind: 'index', relation: identity, index: index.name },
-        columns: index.columns,
-        unique: index.unique,
-      })
-
-      return
-    }
-
-    const currentKey = identities.member('index', current.name).comparisonKey
-    claimedLiveIndexNames.add(currentKey)
-
-    if (
-      !hasSupportedCatalogSemantics(current) &&
-      !unsupportedLiveIndexNames.has(currentKey)
-    ) {
-      unsupportedLiveIndexNames.add(currentKey)
-
-      issues.push({
-        identity,
-        target: currentKey,
-        property: 'unsupported_catalog_semantics',
-        message: `Unsupported index catalog semantics for ${identities.format(identity, {
-          role: 'index',
-          spelling: current.name,
-        })}`,
-      })
-    }
-
-    if (
-      hasSupportedCatalogSemantics(current) &&
-      (current.unique !== index.unique ||
-        !arraysEqual(
-          memberKeys('column', current.columns, identities),
-          index.columns.map((column) => column.comparisonKey),
-        ))
-    ) {
-      issues.push({
-        identity,
-        target: index.name.comparisonKey,
-        property: 'index_definition',
-        message: `Unsupported index definition change for ${identities.format(identity, {
-          role: 'index',
-          spelling: index.name.spelling,
-        })}`,
-      })
-    }
-  }
+  /** Compares one desired index and appends its required Migration Plan steps. */
+  const reconcileIndex = (index: (typeof desired)[number]) =>
+    reconcileDesiredIndex({
+      index,
+      liveIndexes,
+      identities,
+      issues,
+      identity,
+      physicalNames,
+      steps,
+      claimedLiveIndexNames,
+      unsupportedLiveIndexNames,
+    })
 
   for (const index of desired) reconcileIndex(index)
 
+  reconcileUnclaimedIndexes(
+    shape,
+    live,
+    claimedLiveIndexNames,
+    identities,
+    steps,
+    identity,
+    relationStepStart,
+    issues,
+  )
+}
+
+/**
+ * Drops unclaimed indexes only when complete ownership permits their removal.
+ *
+ * @param shape - Complete or additive relation ownership that controls removal of extra
+ *   catalog members.
+ * @param live - Observed table or index definition to compare with desired metadata.
+ * @param claimedLiveIndexNames - Observed index names already matched to desired indexes.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param steps - Mutable Migration Plan steps accumulated before canonical ordering.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param relationStepStart - First planned step index for the current relation.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ */
+function reconcileUnclaimedIndexes(
+  shape: string,
+  live: CatalogTable,
+  claimedLiveIndexNames: Set<string>,
+  identities: CanonicalRelationIdentityModule,
+  steps: MigrationStep[],
+  identity: CanonicalRelationIdentity,
+  relationStepStart: number,
+  issues: PlanningIssue[],
+) {
   if (shape === 'complete') {
     const unclaimedIndexes = live.indexes.filter(
       (liveIndex) =>
@@ -1409,6 +1569,11 @@ function validateDesiredNames(
   identities: CanonicalRelationIdentityModule,
   naming: DialectNaming,
 ): void {
+  /**
+   * Validates physical identifiers introduced by a foreign-key reference.
+   *
+   * @param value - Runtime value to validate, normalize, or map.
+   */
   function validateReferenceName(value: AnySchema | undefined): void {
     if (value?.kind !== 'schema') return
 
@@ -1475,17 +1640,52 @@ type ColumnConstraintReconciliation = Pick<
   Readonly<{ liveColumns: ReadonlyMap<string, CatalogColumn> }>
 
 /** Adds desired unique and foreign-key constraints missing from an existing relation. */
-function appendMissingColumnConstraints({
-  live,
-  desired,
-  identity,
-  steps,
-  deferredForeignKeys,
-  identities,
-  reserveForeignKey,
-  reserveUniqueConstraint,
-  liveColumns,
-}: ColumnConstraintReconciliation): void {
+function appendMissingColumnConstraints(input: ColumnConstraintReconciliation): void {
+  const {
+    live,
+    desired,
+    identity,
+    steps,
+    identities,
+    reserveUniqueConstraint,
+    liveColumns,
+  } = input
+
+  appendMissingUniqueConstraints(
+    desired,
+    liveColumns,
+    live,
+    identities,
+    reserveUniqueConstraint,
+    identity,
+    steps,
+  )
+
+  appendMissingForeignKeys(input)
+}
+
+/**
+ * Reserves and adds desired unique keys absent from existing columns.
+ *
+ * @param desired - Lowered desired table or schema metadata used for comparison.
+ * @param liveColumns - Observed columns indexed by canonical comparison key.
+ * @param live - Observed table or index definition to compare with desired metadata.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param reserveUniqueConstraint - Callback that reserves a desired unique-key physical
+ *   name.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param steps - Mutable Migration Plan steps accumulated before canonical ordering.
+ */
+function appendMissingUniqueConstraints(
+  desired: LoweredDesiredTable,
+  liveColumns: ReadonlyMap<string, CatalogColumn>,
+  live: CatalogTable,
+  identities: CanonicalRelationIdentityModule,
+  reserveUniqueConstraint: (owner: CanonicalRelationIdentity, column: string) => void,
+  identity: CanonicalRelationIdentity,
+  steps: MigrationStep[],
+) {
   const uniqueColumns = desired.columns
 
   for (const desiredColumn of uniqueColumns) {
@@ -1509,37 +1709,6 @@ function appendMissingColumnConstraints({
         relation: identity,
         column: desiredColumn.identifier,
       },
-    })
-  }
-
-  const foreignKeyColumns = desired.columns
-
-  for (const desiredColumn of foreignKeyColumns) {
-    if (
-      !desiredColumn.reference ||
-      !liveColumns.has(desiredColumn.identifier.comparisonKey)
-    )
-      continue
-
-    const expected = canonicalDesiredForeignKey(desiredColumn)
-    const matches = matchForeignKeys(live.foreignKeys, expected, identities)
-
-    if (matches.length !== 0) continue
-
-    reserveForeignKey(
-      identity,
-      desiredColumn.identifier.spelling,
-      desiredColumn.reference,
-    )
-
-    deferredForeignKeys.push({
-      kind: 'add_foreign_key',
-      target: {
-        kind: 'column',
-        relation: identity,
-        column: desiredColumn.identifier,
-      },
-      references: structuredReference(desiredColumn.reference),
     })
   }
 }
@@ -1572,18 +1741,9 @@ function appendDroppedColumns(
 }
 
 /** Reconciles columns and their column-owned constraints for one existing relation. */
-function reconcileExistingColumns({
-  live,
-  desired,
-  identity,
-  shape,
-  steps,
-  deferredForeignKeys,
-  planning,
-  identities,
-  reserveForeignKey,
-  reserveUniqueConstraint,
-}: ExistingColumnReconciliation): void {
+function reconcileExistingColumns(input: ExistingColumnReconciliation): void {
+  const { live, desired, identity, shape, steps, identities } = input
+
   const liveColumns = new Map(
     live.columns.map((column) => [
       identities.member('column', column.name).comparisonKey,
@@ -1591,123 +1751,16 @@ function reconcileExistingColumns({
     ]),
   )
 
+  /** Appends a column addition and defers its foreign key until relations exist. */
   function appendMissingColumn(desiredColumn: LoweredDesiredColumn): void {
-    if (desiredColumn.reference) {
-      reserveForeignKey(
-        identity,
-        desiredColumn.identifier.spelling,
-        desiredColumn.reference,
-      )
-
-      deferredForeignKeys.push({
-        kind: 'add_foreign_key',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-        references: structuredReference(desiredColumn.reference),
-      })
-    }
-
-    steps.push({
-      kind: 'add_column',
-      target: {
-        kind: 'column',
-        relation: identity,
-        column: desiredColumn.identifier,
-      },
-      dataType: desiredColumn.dataType,
-      notNull: desiredColumn.notNull,
-      ...(desiredColumn.unique ? { unique: true } : {}),
-      ...(desiredColumn.defaultValue !== undefined
-        ? { defaultValue: desiredColumn.defaultValue }
-        : {}),
-      ...(desiredColumn.databaseDefault !== undefined
-        ? { databaseDefault: desiredColumn.databaseDefault }
-        : {}),
-      ...(desiredColumn.generated ? { generated: desiredColumn.generated } : {}),
-      ...(desiredColumn.autoIncrement ? { autoIncrement: true } : {}),
-    })
-
-    if (desiredColumn.unique)
-      reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+    appendDesiredColumn({ ...input, desiredColumn })
   }
 
-  for (const desiredColumn of desired.columns) {
-    const current = liveColumns.get(desiredColumn.identifier.comparisonKey)
-
-    if (!current) {
-      appendMissingColumn(desiredColumn)
-      continue
-    }
-
-    const columnLabel = identities.format(identity, {
-      role: 'column',
-      spelling: desiredColumn.identifier.spelling,
-    })
-
-    if (current.dataType === undefined) {
-      throw new MigrationError({
-        message: `Cannot plan desired-table column ${columnLabel}: catalog data type is unresolved`,
-      })
-    }
-
-    if (current.isNullable === undefined) {
-      throw new MigrationError({
-        message: `Cannot plan desired-table column ${columnLabel}: catalog nullability is unresolved`,
-      })
-    }
-
-    const desiredType = planning.schema.normalizeDataType(desiredColumn.dataType)
-    const currentType = planning.schema.normalizeDataType(current.dataType)
-
-    if (desiredType !== currentType) {
-      steps.push({
-        kind: 'alter_column_type',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-        dataType: desiredColumn.dataType,
-      })
-    }
-
-    if (desiredColumn.notNull && current.isNullable) {
-      steps.push({
-        kind: 'set_not_null',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-      })
-    } else if (!desiredColumn.notNull && !current.isNullable) {
-      steps.push({
-        kind: 'drop_not_null',
-        target: {
-          kind: 'column',
-          relation: identity,
-          column: desiredColumn.identifier,
-        },
-      })
-    }
-  }
+  reconcileDesiredColumns({ ...input, liveColumns, appendMissingColumn })
 
   appendDroppedColumns(live, desired, shape, identity, steps, identities)
 
-  appendMissingColumnConstraints({
-    live,
-    desired,
-    identity,
-    steps,
-    deferredForeignKeys,
-    identities,
-    reserveForeignKey,
-    reserveUniqueConstraint,
-    liveColumns,
-  })
+  appendMissingColumnConstraints({ ...input, liveColumns })
 }
 
 type DroppedTablePlanning = Readonly<{
@@ -1718,6 +1771,45 @@ type DroppedTablePlanning = Readonly<{
   issues: PlanningIssue[]
   identities: CanonicalRelationIdentityModule
 }>
+
+/** Compares each desired column against the existing relation's canonical column map. */
+function reconcileDesiredColumns(input: DesiredColumnReconciliation) {
+  for (const column of input.desired.columns) reconcileDesiredColumn(input, column)
+}
+
+/**
+ * Adds a missing column and reserves its column-owned constraint names.
+ *
+ * @param input - Missing column planning inputs and shared accumulators.
+ */
+function appendDesiredColumn(input: MissingColumnPlanning) {
+  const { desiredColumn, identity, steps, reserveUniqueConstraint } = input
+
+  appendMissingForeignKey(input)
+
+  steps.push({
+    kind: 'add_column',
+    target: {
+      kind: 'column',
+      relation: identity,
+      column: desiredColumn.identifier,
+    },
+    dataType: desiredColumn.dataType,
+    notNull: desiredColumn.notNull,
+    ...(desiredColumn.unique ? { unique: true } : {}),
+    ...(desiredColumn.defaultValue !== undefined
+      ? { defaultValue: desiredColumn.defaultValue }
+      : {}),
+    ...(desiredColumn.databaseDefault !== undefined
+      ? { databaseDefault: desiredColumn.databaseDefault }
+      : {}),
+    ...(desiredColumn.generated ? { generated: desiredColumn.generated } : {}),
+    ...(desiredColumn.autoIncrement ? { autoIncrement: true } : {}),
+  })
+
+  if (desiredColumn.unique)
+    reserveUniqueConstraint(identity, desiredColumn.identifier.spelling)
+}
 
 /** Adds drops for owned catalog relations absent from the desired schema. */
 function appendDroppedTables({
@@ -1807,28 +1899,58 @@ function appendCreatedTable({
     description: `desired relation ${identities.format(identity)}`,
   })
 
-  const primaryKeyName = naming.generate({
-    kind: 'primaryKey',
-    owner: identity,
-    columns: desired.primaryKey.map((column) => column.spelling),
-  })
-  const primaryKeyToken = `generated-primary-key:${identities.format(identity)}:${JSON.stringify(desired.primaryKey.map((column) => column.comparisonKey))}`
-  const primaryKeyDescription = `generated primary key on ${identities.format(identity)}`
-  physicalNames.reserve({
-    kind: 'primaryKey',
-    owner: identity,
-    name: primaryKeyName,
-    token: primaryKeyToken,
-    description: primaryKeyDescription,
-  })
+  reserveCreatedPrimaryKey(naming, identity, desired, identities, physicalNames)
 
-  physicalNames.reserve({
-    kind: 'check',
-    owner: identity,
-    name: primaryKeyName,
-    token: primaryKeyToken,
-    description: primaryKeyDescription,
+  appendCreatedConstraintsAndIndexes({
+    desired,
+    reserveUniqueConstraint,
+    identity,
+    indexes,
+    physicalNames,
+    identities,
+    steps,
+    reserveForeignKey,
+    deferredForeignKeys,
   })
+}
+
+type DesiredTablePreparation = Readonly<{
+  handle: TableHandle
+  registered: CanonicalRelationRegistry<TableHandle>
+  existing: CanonicalRelationRegistry<CatalogTable>
+  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>
+  ownership: ReturnType<typeof resolveMigrationOwnership>
+  issues: PlanningIssue[]
+  naming: DialectNaming
+  identities: CanonicalRelationIdentityModule
+}>
+
+type PreparedDesiredTable = Readonly<{
+  info: ReturnType<TableHandle['getTableMetadata']>
+  identity: CanonicalRelationIdentity
+  live: CatalogTable | undefined
+  desired: LoweredDesiredTable
+  indexes: readonly DesiredIndex[]
+  shape: 'complete' | 'additive'
+}>
+
+/**
+ * Adds constraints and indexes after reserving a new relation's physical names.
+ *
+ * @param input - Created constraint planning inputs and shared accumulators.
+ */
+function appendCreatedConstraintsAndIndexes(input: CreatedConstraintPlanning) {
+  const {
+    desired,
+    reserveUniqueConstraint,
+    identity,
+    indexes,
+    physicalNames,
+    identities,
+    steps,
+    reserveForeignKey,
+    deferredForeignKeys,
+  } = input
 
   for (const column of desired.columns.filter((column) => column.unique)) {
     reserveUniqueConstraint(identity, column.identifier.spelling)
@@ -1864,25 +1986,51 @@ function appendCreatedTable({
   }
 }
 
-type DesiredTablePreparation = Readonly<{
-  handle: TableHandle
-  registered: CanonicalRelationRegistry<TableHandle>
-  existing: CanonicalRelationRegistry<CatalogTable>
-  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>
-  ownership: ReturnType<typeof resolveMigrationOwnership>
-  issues: PlanningIssue[]
-  naming: DialectNaming
-  identities: CanonicalRelationIdentityModule
-}>
+/**
+ * Reserves the generated primary-key name before creating a relation.
+ *
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param desired - Lowered desired table or schema metadata used for comparison.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ */
+function reserveCreatedPrimaryKey(
+  naming: Readonly<{
+    generate(seed: PhysicalNameSeed): string
+    validate(name: string, description: string): void
+    createRegistry(): PhysicalNameRegistry
+  }>,
+  identity: CanonicalRelationIdentity,
+  desired: LoweredDesiredTable,
+  identities: CanonicalRelationIdentityModule,
+  physicalNames: PhysicalNameRegistry,
+) {
+  const primaryKeyName = naming.generate({
+    kind: 'primaryKey',
+    owner: identity,
+    columns: desired.primaryKey.map((column) => column.spelling),
+  })
+  const primaryKeyToken = `generated-primary-key:${identities.format(identity)}:${JSON.stringify(desired.primaryKey.map((column) => column.comparisonKey))}`
+  const primaryKeyDescription = `generated primary key on ${identities.format(identity)}`
+  physicalNames.reserve({
+    kind: 'primaryKey',
+    owner: identity,
+    name: primaryKeyName,
+    token: primaryKeyToken,
+    description: primaryKeyDescription,
+  })
 
-type PreparedDesiredTable = Readonly<{
-  info: ReturnType<TableHandle['getTableMetadata']>
-  identity: CanonicalRelationIdentity
-  live: CatalogTable | undefined
-  desired: LoweredDesiredTable
-  indexes: readonly DesiredIndex[]
-  shape: 'complete' | 'additive'
-}>
+  physicalNames.reserve({
+    kind: 'check',
+    owner: identity,
+    name: primaryKeyName,
+    token: primaryKeyToken,
+    description: primaryKeyDescription,
+  })
+}
 
 /** Resolves and validates one desired relation before plan steps are produced. */
 function prepareDesiredTable({
@@ -1898,31 +2046,49 @@ function prepareDesiredTable({
   const info = handle.getTableMetadata()
   const identity = identities.resolve(info.relation)
 
-  if (registered.has(identity)) {
-    issues.push({
-      identity,
-      target: '',
-      property: 'duplicate_registered_table',
-      message: `Duplicate registered table ${identities.format(identity)}`,
-    })
-  }
+  const desired = requireRegisteredDesiredTable(
+    registered,
+    identity,
+    handle,
+    desiredTables,
+    identities,
+    issues,
+  )
 
-  registered.set(identity, handle)
-  const desired = desiredTables.get(identity)
-
-  if (!desired) {
-    issues.push({
-      identity,
-      target: '',
-      property: 'invalid_desired_table',
-      message: `Invalid desired table ${identities.format(identity)}`,
-    })
-
-    return undefined
-  }
+  if (!desired) return undefined
 
   validateCanonicalRelationNames(identity, naming)
 
+  validateDesiredColumnNames(desired, naming)
+
+  const indexes = desiredIndexes(info, identity, naming, identities)
+
+  validateDesiredIndexes(indexes, identities, identity, naming)
+
+  return {
+    info,
+    identity,
+    live: existing.get(identity),
+    desired,
+    indexes,
+    shape: ownership.relationShape(identity) ?? 'complete',
+  }
+}
+
+/**
+ * Validates desired column identifiers under the selected dialect's naming rules.
+ *
+ * @param desired - Lowered desired table or schema metadata used for comparison.
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
+ */
+function validateDesiredColumnNames(
+  desired: LoweredDesiredTable,
+  naming: Readonly<{
+    generate(seed: PhysicalNameSeed): string
+    validate(name: string, description: string): void
+    createRegistry(): PhysicalNameRegistry
+  }>,
+) {
   for (const column of desired.columns) {
     naming.validate(column.identifier.spelling, 'column name')
 
@@ -1931,9 +2097,32 @@ function prepareDesiredTable({
       naming.validate(column.reference.column.spelling, 'referenced column name')
     }
   }
+}
 
-  const indexes = desiredIndexes(info, identity, naming, identities)
-
+/**
+ * Checks canonical index names and their desired column references.
+ *
+ * @param indexes - Observed or desired indexes to validate, reserve, or reconcile.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
+ */
+function validateDesiredIndexes(
+  indexes: {
+    name: CanonicalIdentifier
+    columns: CanonicalIdentifier[]
+    unique: boolean
+    origin: 'explicit' | 'generated'
+  }[],
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  naming: Readonly<{
+    generate(seed: PhysicalNameSeed): string
+    validate(name: string, description: string): void
+    createRegistry(): PhysicalNameRegistry
+  }>,
+) {
   for (let index = 1; index < indexes.length; index++) {
     const previous = indexes[index - 1]!
     const current = indexes[index]!
@@ -1956,15 +2145,6 @@ function prepareDesiredTable({
       naming.validate(index.name.spelling, 'explicit index name')
     }
   }
-
-  return {
-    info,
-    identity,
-    live: existing.get(identity),
-    desired,
-    indexes,
-    shape: ownership.relationShape(identity) ?? 'complete',
-  }
 }
 
 /** Adds missing namespace steps for every completely owned namespace. */
@@ -1983,137 +2163,58 @@ function appendOwnedNamespaces(
   }
 }
 
-/**
- * Reconciles desired tables with an introspected catalog into one canonical plan.
- *
- * @param schemas - Registered desired table handles.
- * @param catalog - Introspected catalog snapshot and namespace context.
- * @param planning - Selected member's bound planning semantics.
- * @param registrationDefault - Optional namespace for registrations that omit one.
- * @param ownershipDeclarations - Explicit relation and namespace authority declarations.
- */
-function buildMigrationPlan(
-  schemas: readonly TableHandle[],
-  catalog: CatalogSnapshot,
-  planning: MigrationPlanningContext,
-  registrationDefault?: readonly NamespaceIdentifierInput[],
-  ownershipDeclarations: readonly MigrationOwnershipDeclaration[] = [],
-): PlannedMigration {
-  const identities = planning.identity.create({
-    context: catalog.namespaceContext,
-    ...(registrationDefault === undefined ? {} : { registrationDefault }),
-  })
-  const steps: MigrationStep[] = []
-  const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
-  const issues: PlanningIssue[] = []
-  const sortedSchemas = [...schemas].sort((left, right) =>
-    compareTableHandles(left, right, identities),
-  )
-  const naming = planning.naming
-
-  validateDesiredNames(sortedSchemas, identities, naming)
-
-  const lowered = lowerDesiredSchema(sortedSchemas, identities, planning.schema)
-  const desiredTables = identities.createRegistry<LoweredDesiredTable>()
-  for (const table of lowered.tables) desiredTables.set(table.identity, table)
-  const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
-  const planningCatalog = catalogForPlanning(
-    catalog,
-    identities,
-    desiredTables,
-    lowered.tables.map(({ identity }) => identity),
-    ownership,
-  )
-  const sortedCatalogTables = [...planningCatalog.tables].sort((left, right) =>
-    compareCatalogTables(left, right, identities),
-  )
-  const existing = catalogTableMap(sortedCatalogTables, issues, identities)
-  const ensuredSchemas = [...planningCatalog.namespaces]
-  const registered = identities.createRegistry<TableHandle>()
-  const physicalNames = naming.createRegistry()
+/** Reserves observed relation and constraint names before desired names are generated. */
+function reservePlanningCatalogNames(
+  planningCatalog: PlanningCatalog,
+  sortedCatalogTables: readonly CatalogTable[],
+  identities: CanonicalRelationIdentityModule,
+  physicalNames: ReturnType<MigrationPlanningContext['naming']['createRegistry']>,
+) {
   const representedCatalogNames = new Set<string>()
 
-  validateOwnershipNames(ownership, naming)
+  reserveCatalogTableNames(
+    sortedCatalogTables,
+    identities,
+    physicalNames,
+    representedCatalogNames,
+  )
 
-  for (const table of sortedCatalogTables) {
-    const identity = table.identity
-    const namespace = identity.namespace
-    const relationToken = `relation:${identities.format(identity)}`
+  reservePhysicalCatalogNames(
+    planningCatalog,
+    representedCatalogNames,
+    identities,
+    physicalNames,
+  )
+
+  for (const reservation of planningCatalog.constraintNameReservations) {
+    const owner = reservation.relation
     physicalNames.reserve({
-      kind: 'relation',
-      owner: identity,
-      name: identity.relation.spelling,
-      token: relationToken,
-      description: `catalog relation ${identities.format(identity)}`,
+      kind: 'check',
+      owner,
+      name: reservation.name,
+      token: `catalog-constraint:${identities.format(owner)}:${reservation.name}`,
+      description: `catalog constraint ${JSON.stringify(reservation.name)}`,
     })
-
-    representedCatalogNames.add(namespaceNameKey(namespace, identity.relation.spelling))
-
-    reserveCatalogIndexes(
-      table.indexes,
-      identity,
-      identities,
-      physicalNames,
-      representedCatalogNames,
-    )
-
-    if (table.primaryKey) {
-      const backingToken = `catalog:${namespaceNameKey(namespace, table.primaryKey.name)}`
-      const constraintToken = `catalog-constraint:${identities.format(identity)}:${table.primaryKey.name}`
-
-      physicalNames.reserve({
-        kind: 'primaryKey',
-        owner: identity,
-        name: table.primaryKey.name,
-        token: backingToken,
-        description: `catalog primary key ${JSON.stringify(table.primaryKey.name)}`,
-      })
-
-      physicalNames.reserve({
-        kind: 'check',
-        owner: identity,
-        name: table.primaryKey.name,
-        token: constraintToken,
-        description: `catalog primary key ${JSON.stringify(table.primaryKey.name)}`,
-      })
-
-      representedCatalogNames.add(namespaceNameKey(namespace, table.primaryKey.name))
-    }
-
-    for (const constraint of table.uniqueConstraints) {
-      const backingToken = `catalog:${namespaceNameKey(namespace, constraint.name)}`
-      const constraintToken = `catalog-constraint:${identities.format(identity)}:${constraint.name}`
-
-      physicalNames.reserve({
-        kind: 'unique',
-        owner: identity,
-        name: constraint.name,
-        token: backingToken,
-        description: `catalog unique constraint ${JSON.stringify(constraint.name)}`,
-      })
-
-      physicalNames.reserve({
-        kind: 'check',
-        owner: identity,
-        name: constraint.name,
-        token: constraintToken,
-        description: `catalog unique constraint ${JSON.stringify(constraint.name)}`,
-      })
-
-      representedCatalogNames.add(namespaceNameKey(namespace, constraint.name))
-    }
-
-    for (const constraint of table.foreignKeys) {
-      physicalNames.reserve({
-        kind: 'foreignKey',
-        owner: identity,
-        name: constraint.name,
-        token: `catalog-constraint:${identities.format(identity)}:${constraint.name}`,
-        description: `catalog foreign key ${JSON.stringify(constraint.name)}`,
-      })
-    }
   }
+}
 
+/**
+ * Reserves catalog names that are not already represented by decoded relations or
+ * indexes.
+ *
+ * @param planningCatalog - Validated catalog fields used by Migration Plan construction.
+ * @param representedCatalogNames - Observed names already represented by decoded catalog
+ *   objects.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ */
+function reservePhysicalCatalogNames(
+  planningCatalog: PlanningCatalog,
+  representedCatalogNames: Set<string>,
+  identities: CanonicalRelationIdentityModule,
+  physicalNames: PhysicalNameRegistry,
+) {
   for (const reservation of planningCatalog.nameReservations) {
     if (
       representedCatalogNames.has(
@@ -2145,166 +2246,361 @@ function buildMigrationPlan(
       description: `catalog object ${JSON.stringify(reservation.name)}`,
     })
   }
+}
 
-  for (const reservation of planningCatalog.constraintNameReservations) {
-    const owner = reservation.relation
-    physicalNames.reserve({
-      kind: 'check',
-      owner,
-      name: reservation.name,
-      token: `catalog-constraint:${identities.format(owner)}:${reservation.name}`,
-      description: `catalog constraint ${JSON.stringify(reservation.name)}`,
-    })
-  }
-
-  appendOwnedNamespaces(ownership, ensuredSchemas, steps)
-
-  /**
-   * Reserves the deterministic physical name for a desired foreign key.
-   *
-   * @param owner - Canonical identity of the referencing table.
-   * @param column - Referencing column name.
-   * @param reference - Desired foreign-key target and actions.
-   */
-  const reserveForeignKey = (
-    owner: CanonicalRelationIdentity,
-    column: string,
-    reference: NonNullable<LoweredDesiredColumn['reference']>,
-  ) => {
-    const referenced = reference.relation
-    const name = naming.generate({
-      kind: 'foreignKey',
-      owner,
-      columns: [column],
-      referencedRelation: referenced,
-      referencedColumns: [reference.column.spelling],
-      onDelete: normalizeAction(reference.onDelete),
-      onUpdate: normalizeAction(reference.onUpdate),
-    })
-    physicalNames.reserve({
-      kind: 'foreignKey',
-      owner,
-      name,
-      token: `generated-foreign-key:${identities.format(owner)}:${column}:${identities.format(referenced)}:${reference.column.comparisonKey}:${normalizeAction(reference.onDelete)}:${normalizeAction(reference.onUpdate)}`,
-      description: `generated foreign key on ${identities.format(owner, {
-        role: 'column',
-        spelling: column,
-      })}`,
-    })
-  }
-
-  /**
-   * Reserves the deterministic names used by a desired unique constraint.
-   *
-   * @param owner - Canonical identity of the constrained table.
-   * @param column - Unique column name.
-   */
-  const reserveUniqueConstraint = (owner: CanonicalRelationIdentity, column: string) => {
-    const name = naming.generate({ kind: 'unique', owner, columns: [column] })
-    const token = `generated-unique:${identities.format(owner)}:${column}`
-    const description = `generated unique constraint on ${identities.format(owner, {
-      role: 'column',
-      spelling: column,
-    })}`
-    physicalNames.reserve({
-      kind: 'unique',
-      owner,
-      name,
-      token,
-      description,
-    })
-
-    physicalNames.reserve({
-      kind: 'check',
-      owner,
-      name,
-      token,
-      description,
-    })
-  }
-
-  for (const handle of sortedSchemas) {
-    const prepared = prepareDesiredTable({
-      handle,
-      registered,
-      existing,
-      desiredTables,
-      ownership,
-      issues,
-      naming,
+/**
+ * Reserves observed relations and their index names before generating desired names.
+ *
+ * @param sortedCatalogTables - Catalog relations in the expected canonical fixture order.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ * @param representedCatalogNames - Observed names already represented by decoded catalog
+ *   objects.
+ */
+function reserveCatalogTableNames(
+  sortedCatalogTables: readonly CatalogTable[],
+  identities: CanonicalRelationIdentityModule,
+  physicalNames: PhysicalNameRegistry,
+  representedCatalogNames: Set<string>,
+) {
+  for (const table of sortedCatalogTables) {
+    const identity = table.identity
+    const namespace = identity.namespace
+    reserveCatalogConstraintNames(
       identities,
-    })
-
-    if (!prepared) continue
-
-    const { info, identity, live, desired: createAst, indexes, shape } = prepared
-
-    if (!live) {
-      appendCreatedTable({
-        name: info.name,
-        desired: createAst,
-        indexes,
-        identity,
-        ensuredNamespaces: ensuredSchemas,
-        steps,
-        deferredForeignKeys,
-        physicalNames,
-        naming,
-        identities,
-        reserveForeignKey,
-        reserveUniqueConstraint,
-      })
-
-      continue
-    }
-
-    // This window contains only this relation's steps; deferred foreign keys follow the loop.
-    const relationStepStart = steps.length
-    collectManagedPropertyIssues(live, createAst, shape, planning, issues, identities)
-
-    reconcileExistingColumns({
-      live,
-      desired: createAst,
       identity,
-      shape,
-      steps,
-      deferredForeignKeys,
-      planning,
-      identities,
-      reserveForeignKey,
-      reserveUniqueConstraint,
-    })
-
-    reconcileIndexes({
-      live,
-      desired: indexes,
-      identity,
-      shape,
-      relationStepStart,
-      steps,
-      issues,
-      identities,
       physicalNames,
-    })
+      representedCatalogNames,
+      namespace,
+      table,
+    )
   }
+}
 
-  steps.push(...deferredForeignKeys)
-
-  appendDroppedTables({
-    catalogTables: sortedCatalogTables,
-    registered,
-    ownership,
-    steps,
-    issues,
-    identities,
+/**
+ * Reserves catalog constraint names within their required dialect uniqueness scope.
+ *
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ * @param representedCatalogNames - Observed names already represented by decoded catalog
+ *   objects.
+ * @param namespace - Ordered role-tagged namespace segments used for identity resolution.
+ * @param table - Table metadata or evidence used to resolve its members.
+ */
+function reserveCatalogConstraintNames(
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  physicalNames: PhysicalNameRegistry,
+  representedCatalogNames: Set<string>,
+  namespace: readonly CanonicalNamespaceSegment[],
+  table: CatalogTable,
+) {
+  const relationToken = `relation:${identities.format(identity)}`
+  physicalNames.reserve({
+    kind: 'relation',
+    owner: identity,
+    name: identity.relation.spelling,
+    token: relationToken,
+    description: `catalog relation ${identities.format(identity)}`,
   })
 
+  representedCatalogNames.add(namespaceNameKey(namespace, identity.relation.spelling))
+
+  reserveCatalogIndexes(
+    table.indexes,
+    identity,
+    identities,
+    physicalNames,
+    representedCatalogNames,
+  )
+
+  reserveCatalogKeys(
+    table,
+    namespace,
+    identities,
+    identity,
+    physicalNames,
+    representedCatalogNames,
+  )
+}
+
+/**
+ * Reserves observed primary, unique, and foreign-key names.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ * @param namespace - Ordered role-tagged namespace segments used for identity resolution.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ * @param representedCatalogNames - Observed names already represented by decoded catalog
+ *   objects.
+ */
+function reserveCatalogKeys(
+  table: CatalogTable,
+  namespace: readonly CanonicalNamespaceSegment[],
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  physicalNames: PhysicalNameRegistry,
+  representedCatalogNames: Set<string>,
+) {
+  reserveCatalogPrimaryKey(
+    table,
+    namespace,
+    identities,
+    identity,
+    physicalNames,
+    representedCatalogNames,
+  )
+
+  reserveCatalogUniqueKeys(
+    table,
+    namespace,
+    identities,
+    identity,
+    physicalNames,
+    representedCatalogNames,
+  )
+
+  for (const constraint of table.foreignKeys) {
+    physicalNames.reserve({
+      kind: 'foreignKey',
+      owner: identity,
+      name: constraint.name,
+      token: `catalog-constraint:${identities.format(identity)}:${constraint.name}`,
+      description: `catalog foreign key ${JSON.stringify(constraint.name)}`,
+    })
+  }
+}
+
+/**
+ * Reserves physical names reported by observed unique constraints.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ * @param namespace - Ordered role-tagged namespace segments used for identity resolution.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ * @param representedCatalogNames - Observed names already represented by decoded catalog
+ *   objects.
+ */
+function reserveCatalogUniqueKeys(
+  table: CatalogTable,
+  namespace: readonly CanonicalNamespaceSegment[],
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  physicalNames: PhysicalNameRegistry,
+  representedCatalogNames: Set<string>,
+) {
+  for (const constraint of table.uniqueConstraints) {
+    const backingToken = `catalog:${namespaceNameKey(namespace, constraint.name)}`
+    const constraintToken = `catalog-constraint:${identities.format(identity)}:${constraint.name}`
+
+    physicalNames.reserve({
+      kind: 'unique',
+      owner: identity,
+      name: constraint.name,
+      token: backingToken,
+      description: `catalog unique constraint ${JSON.stringify(constraint.name)}`,
+    })
+
+    physicalNames.reserve({
+      kind: 'check',
+      owner: identity,
+      name: constraint.name,
+      token: constraintToken,
+      description: `catalog unique constraint ${JSON.stringify(constraint.name)}`,
+    })
+
+    representedCatalogNames.add(namespaceNameKey(namespace, constraint.name))
+  }
+}
+
+/**
+ * Reserves the observed primary-key name when one exists.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ * @param namespace - Ordered role-tagged namespace segments used for identity resolution.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ * @param representedCatalogNames - Observed names already represented by decoded catalog
+ *   objects.
+ */
+function reserveCatalogPrimaryKey(
+  table: CatalogTable,
+  namespace: readonly CanonicalNamespaceSegment[],
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  physicalNames: PhysicalNameRegistry,
+  representedCatalogNames: Set<string>,
+) {
+  if (table.primaryKey) {
+    const backingToken = `catalog:${namespaceNameKey(namespace, table.primaryKey.name)}`
+    const constraintToken = `catalog-constraint:${identities.format(identity)}:${table.primaryKey.name}`
+
+    physicalNames.reserve({
+      kind: 'primaryKey',
+      owner: identity,
+      name: table.primaryKey.name,
+      token: backingToken,
+      description: `catalog primary key ${JSON.stringify(table.primaryKey.name)}`,
+    })
+
+    physicalNames.reserve({
+      kind: 'check',
+      owner: identity,
+      name: table.primaryKey.name,
+      token: constraintToken,
+      description: `catalog primary key ${JSON.stringify(table.primaryKey.name)}`,
+    })
+
+    representedCatalogNames.add(namespaceNameKey(namespace, table.primaryKey.name))
+  }
+}
+
+/**
+ * Reserves the deterministic names used by a desired unique constraint.
+ *
+ * @param owner - Canonical identity of the constrained table.
+ * @param column - Unique column name.
+ */
+function reserveDesiredUniqueConstraint(
+  owner: CanonicalRelationIdentity,
+  column: string,
+  naming: MigrationPlanningContext['naming'],
+  physicalNames: ReturnType<MigrationPlanningContext['naming']['createRegistry']>,
+  identities: CanonicalRelationIdentityModule,
+): void {
+  const name = naming.generate({ kind: 'unique', owner, columns: [column] })
+  const token = `generated-unique:${identities.format(owner)}:${column}`
+  const description = `generated unique constraint on ${identities.format(owner, {
+    role: 'column',
+    spelling: column,
+  })}`
+  physicalNames.reserve({
+    kind: 'unique',
+    owner,
+    name,
+    token,
+    description,
+  })
+
+  physicalNames.reserve({
+    kind: 'check',
+    owner,
+    name,
+    token,
+    description,
+  })
+}
+
+/**
+ * Reserves the deterministic physical name for a desired foreign key.
+ *
+ * @param owner - Canonical identity of the referencing table.
+ * @param column - Referencing column name.
+ * @param reference - Desired foreign-key target and actions.
+ */
+function reserveDesiredForeignKey(
+  owner: CanonicalRelationIdentity,
+  column: string,
+  reference: NonNullable<LoweredDesiredColumn['reference']>,
+  naming: MigrationPlanningContext['naming'],
+  physicalNames: ReturnType<MigrationPlanningContext['naming']['createRegistry']>,
+  identities: CanonicalRelationIdentityModule,
+): void {
+  const referenced = reference.relation
+  const name = naming.generate({
+    kind: 'foreignKey',
+    owner,
+    columns: [column],
+    referencedRelation: referenced,
+    referencedColumns: [reference.column.spelling],
+    onDelete: normalizeAction(reference.onDelete),
+    onUpdate: normalizeAction(reference.onUpdate),
+  })
+  physicalNames.reserve({
+    kind: 'foreignKey',
+    owner,
+    name,
+    token: `generated-foreign-key:${identities.format(owner)}:${column}:${identities.format(referenced)}:${reference.column.comparisonKey}:${normalizeAction(reference.onDelete)}:${normalizeAction(reference.onUpdate)}`,
+    description: `generated foreign key on ${identities.format(owner, {
+      role: 'column',
+      spelling: column,
+    })}`,
+  })
+}
+
+/** Selects the first canonical planning issue before exposing a plan. */
+function assertPlanningIssues(
+  issues: PlanningIssue[],
+  identities: CanonicalRelationIdentityModule,
+): void {
   const issue = issues
     .sort((left, right) => comparePlanningIssues(left, right, identities))
     .at(0)
 
   if (issue) throw new MigrationError({ message: issue.message })
+}
 
+/**
+ * Reconciles desired tables with an introspected catalog into one canonical plan.
+ *
+ * @param schemas - Registered desired table handles.
+ * @param catalog - Introspected catalog snapshot and namespace context.
+ * @param planning - Selected member's bound planning semantics.
+ * @param registrationDefault - Optional namespace for registrations that omit one.
+ * @param ownershipDeclarations - Explicit relation and namespace authority declarations.
+ */
+function buildMigrationPlan(
+  schemas: readonly TableHandle[],
+  catalog: CatalogSnapshot,
+  planning: MigrationPlanningContext,
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+  ownershipDeclarations: readonly MigrationOwnershipDeclaration[] = [],
+): PlannedMigration {
+  const state = createPlanningState(
+    schemas,
+    catalog,
+    planning,
+    registrationDefault,
+    ownershipDeclarations,
+  )
+  reconcileDesiredTables(state)
+  state.steps.push(...state.deferredForeignKeys)
+  appendDroppedTables({ ...state, catalogTables: state.sortedCatalogTables })
+  assertPlanningIssues(state.issues, state.identities)
+  return completeMigrationPlan(
+    state.steps,
+    planning,
+    catalog,
+    registrationDefault,
+    state.identities,
+    state.desiredTables,
+    state.planningCatalog,
+  )
+}
+
+/** Sorts the completed Migration Plan and attaches its resolved Semantic Profile. */
+function completeMigrationPlan(
+  steps: MigrationStep[],
+  planning: MigrationPlanningContext,
+  catalog: CatalogSnapshot,
+  registrationDefault: readonly NamespaceIdentifierInput[] | undefined,
+  identities: CanonicalRelationIdentityModule,
+  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
+  planningCatalog: PlanningCatalog,
+): PlannedMigration {
   return {
     plan: { steps: steps.sort(compareMigrationSteps) },
     profile: {
@@ -2319,6 +2615,32 @@ function buildMigrationPlan(
 }
 
 /**
+ * Indexes lowered desired tables by canonical relation identity.
+ *
+ * @param sortedSchemas - Desired schema handles in the expected canonical order.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param planning - Selected identity, naming, and schema semantics for Migration Plan
+ *   construction.
+ *
+ * @returns Desired table registrations indexed under canonical relation identity.
+ */
+function registerLoweredTables(
+  sortedSchemas: TableHandle[],
+  identities: CanonicalRelationIdentityModule,
+  planning: MigrationPlanningContext,
+) {
+  const lowered = lowerDesiredSchema(sortedSchemas, identities, planning.schema)
+  const desiredTables = identities.createRegistry<LoweredDesiredTable>()
+  for (const table of lowered.tables) desiredTables.set(table.identity, table)
+  return { desiredTables, lowered }
+}
+
+/** Appends schema changes for each registered desired relation. */
+function reconcileDesiredTables(input: DesiredTableReconciliation) {
+  for (const handle of input.sortedSchemas) reconcileDesiredTable(handle, input)
+}
+
+/**
  * Constructs a Migration Plan from registered tables and a catalog snapshot.
  * This interface is synchronous and performs no database operations.
  *
@@ -2330,8 +2652,6 @@ function buildMigrationPlan(
  * @param catalog - Introspected catalog snapshot and namespace context.
  * @param planning - Selected member's bound planning semantics.
  * @param options - Migration registration options.
- * @param options.registrationDefault - Namespace for registrations that omit one.
- * @param options.migrationOwnership - Explicit relation/namespace authority declarations.
  *
  * @returns The semantic plan and its reusable identity and lowered-table registries.
  *
@@ -2363,4 +2683,759 @@ export function planMigration(
       ...(cause !== undefined ? { cause } : {}),
     })
   }
+}
+
+/**
+ * Matches an existing index and adds creation or replacement steps when supported.
+ *
+ * @param input - Desired index reconciliation inputs and shared accumulators.
+ */
+function reconcileDesiredIndex(input: DesiredIndexReconciliation): void {
+  const { index, identities, identity, physicalNames, steps, claimedLiveIndexNames } =
+    input
+
+  const matched = findDesiredIndex(input)
+
+  if (matched.ambiguous) return
+
+  const current = matched.current
+
+  if (!current) {
+    physicalNames.reserve({
+      kind: 'index',
+      owner: identity,
+      name: index.name.spelling,
+      token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
+      description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
+    })
+
+    steps.push({
+      kind: 'create_index',
+      target: { kind: 'index', relation: identity, index: index.name },
+      columns: index.columns,
+      unique: index.unique,
+    })
+
+    return
+  }
+
+  const currentKey = identities.member('index', current.name).comparisonKey
+  claimedLiveIndexNames.add(currentKey)
+
+  collectIndexDefinitionIssues({ ...input, current, currentKey })
+}
+
+/**
+ * Reports index differences that cannot be reconciled safely.
+ *
+ * @param input - Index definition validation inputs and shared accumulators.
+ */
+function collectIndexDefinitionIssues(input: IndexDefinitionValidation) {
+  const {
+    current,
+    unsupportedLiveIndexNames,
+    currentKey,
+    issues,
+    identity,
+    identities,
+    index,
+  } = input
+
+  if (
+    !hasSupportedCatalogSemantics(current) &&
+    !unsupportedLiveIndexNames.has(currentKey)
+  ) {
+    unsupportedLiveIndexNames.add(currentKey)
+
+    issues.push({
+      identity,
+      target: currentKey,
+      property: 'unsupported_catalog_semantics',
+      message: `Unsupported index catalog semantics for ${identities.format(identity, {
+        role: 'index',
+        spelling: current.name,
+      })}`,
+    })
+  }
+
+  if (
+    hasSupportedCatalogSemantics(current) &&
+    (current.unique !== index.unique ||
+      !arraysEqual(
+        memberKeys('column', current.columns, identities),
+        index.columns.map((column) => column.comparisonKey),
+      ))
+  ) {
+    issues.push({
+      identity,
+      target: index.name.comparisonKey,
+      property: 'index_definition',
+      message: `Unsupported index definition change for ${identities.format(identity, {
+        role: 'index',
+        spelling: index.name.spelling,
+      })}`,
+    })
+  }
+}
+
+/**
+ * Binds desired unique and foreign-key name reservations to the planning registries.
+ *
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
+ * @param physicalNames - Registry that detects physical-name collisions in the selected
+ *   dialect scopes.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ *
+ * @returns Foreign-key and unique-key reservation callbacks bound to the planning
+ *   registries.
+ */
+function createDesiredNameReservations(
+  naming: DialectNaming,
+  physicalNames: PhysicalNameRegistry,
+  identities: CanonicalRelationIdentityModule,
+) {
+  /**
+   * Reserves the generated foreign-key name using the planning state's identity and
+   * naming policies.
+   */
+  const reserveForeignKey = (
+    owner: CanonicalRelationIdentity,
+    column: string,
+    reference: NonNullable<LoweredDesiredColumn['reference']>,
+  ) =>
+    reserveDesiredForeignKey(owner, column, reference, naming, physicalNames, identities)
+  /** Reserves the generated unique-constraint name using the planning state's policies. */
+  const reserveUniqueConstraint = (owner: CanonicalRelationIdentity, column: string) =>
+    reserveDesiredUniqueConstraint(owner, column, naming, physicalNames, identities)
+  return { reserveForeignKey, reserveUniqueConstraint }
+}
+
+type DesiredTableReconciliation = {
+  sortedSchemas: TableHandle[]
+  registered: CanonicalRelationRegistry<TableHandle>
+  existing: CanonicalRelationRegistry<CatalogTable>
+  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>
+  ownership: ResolvedMigrationOwnership
+  issues: PlanningIssue[]
+  naming: DialectNaming
+  identities: CanonicalRelationIdentityModule
+  ensuredSchemas: CanonicalRelationIdentity['namespace'][]
+  steps: MigrationStep[]
+  deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[]
+  physicalNames: PhysicalNameRegistry
+  reserveForeignKey: (
+    owner: CanonicalRelationIdentity,
+    column: string,
+    reference: NonNullable<LoweredDesiredColumn['reference']>,
+  ) => void
+  reserveUniqueConstraint: (owner: CanonicalRelationIdentity, column: string) => void
+  planning: MigrationPlanningContext
+}
+
+type DesiredColumnReconciliation = {
+  desired: LoweredDesiredTable
+  liveColumns: Map<string, CatalogColumn>
+  appendMissingColumn: (desiredColumn: LoweredDesiredColumn) => void
+  identities: CanonicalRelationIdentityModule
+  identity: CanonicalRelationIdentity
+  planning: MigrationPlanningContext
+  steps: MigrationStep[]
+}
+
+type MissingColumnPlanning = {
+  desiredColumn: LoweredDesiredColumn
+  reserveForeignKey: (
+    owner: CanonicalRelationIdentity,
+    column: string,
+    reference: NonNullable<LoweredDesiredColumn['reference']>,
+  ) => void
+  identity: CanonicalRelationIdentity
+  deferredForeignKeys: Readonly<{
+    kind: 'add_foreign_key'
+    target: MigrationColumnTarget
+    references: MigrationColumnReference
+  }>[]
+  steps: MigrationStep[]
+  reserveUniqueConstraint: (owner: CanonicalRelationIdentity, column: string) => void
+}
+
+type DesiredIndexReconciliation = {
+  index: IndexReconciliation['desired'][number]
+  liveIndexes: ReadonlyMap<string, CatalogIndex>
+  identities: CanonicalRelationIdentityModule
+  issues: PlanningIssue[]
+  identity: CanonicalRelationIdentity
+  physicalNames: PhysicalNameRegistry
+  steps: MigrationStep[]
+  claimedLiveIndexNames: Set<string>
+  unsupportedLiveIndexNames: Set<string>
+}
+
+type IndexDefinitionValidation = {
+  current: CatalogIndex
+  unsupportedLiveIndexNames: Set<string>
+  currentKey: string
+  issues: PlanningIssue[]
+  identity: CanonicalRelationIdentity
+  identities: CanonicalRelationIdentityModule
+  index: {
+    name: CanonicalIdentifier
+    columns: CanonicalIdentifier[]
+    unique: boolean
+    origin: 'explicit' | 'generated'
+  }
+}
+
+type MigrationPlanningState = DesiredTableReconciliation & {
+  planningCatalog: PlanningCatalog
+  sortedCatalogTables: CatalogTable[]
+}
+
+/**
+ * Resolves desired schema, catalog evidence, ownership, and shared planning accumulators.
+ *
+ * @param schemas - Registered table handles defining the desired schema.
+ * @param catalog - Observed catalog evidence used for desired-schema comparison.
+ * @param planning - Selected identity, naming, and schema semantics for Migration Plan
+ *   construction.
+ * @param registrationDefault - Explicit namespace default used before the session's
+ *   writable default.
+ * @param ownershipDeclarations - Authored declarations of relation and namespace
+ *   migration authority.
+ *
+ * @returns Desired schema, catalog evidence, ownership, and shared planning accumulators.
+ */
+function createPlanningState(
+  schemas: readonly TableHandle[],
+  catalog: CatalogSnapshot,
+  planning: MigrationPlanningContext,
+  registrationDefault?: readonly NamespaceIdentifierInput[],
+  ownershipDeclarations: readonly MigrationOwnershipDeclaration[] = [],
+): MigrationPlanningState {
+  const { lowered, ...desiredState } = initializeDesiredPlanning(
+    schemas,
+    catalog,
+    planning,
+    registrationDefault,
+  )
+  const { identities, desiredTables, issues, naming, steps } = desiredState
+  const catalogState = resolvePlanningCatalog(
+    schemas,
+    ownershipDeclarations,
+    identities,
+    catalog,
+    desiredTables,
+    lowered,
+    issues,
+  )
+  const { planningCatalog, ownership, sortedCatalogTables } = catalogState
+  const reservations = createPlanningReservations(
+    planningCatalog,
+    naming,
+    identities,
+    ownership,
+    sortedCatalogTables,
+    steps,
+  )
+  return { ...desiredState, ...catalogState, ...reservations, planning }
+}
+
+/**
+ * Validates catalog coverage and ownership before schema comparisons start.
+ *
+ * @param schemas - Registered table handles defining the desired schema.
+ * @param ownershipDeclarations - Authored declarations of relation and namespace
+ *   migration authority.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param catalog - Observed catalog evidence used for desired-schema comparison.
+ * @param desiredTables - Desired tables indexed by canonical relation identity.
+ * @param lowered - Desired schema after dialect-specific storage resolution.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ *
+ * @returns Validated planning catalog and resolved migration ownership.
+ */
+function resolvePlanningCatalog(
+  schemas: readonly TableHandle[],
+  ownershipDeclarations: readonly MigrationOwnershipDeclaration[],
+  identities: CanonicalRelationIdentityModule,
+  catalog: CatalogSnapshot,
+  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
+  lowered: LoweredDesiredSchema,
+  issues: PlanningIssue[],
+) {
+  const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
+  const planningCatalog = catalogForPlanning(
+    catalog,
+    identities,
+    desiredTables,
+    lowered.tables.map(({ identity }) => identity),
+    ownership,
+  )
+  const sortedCatalogTables = [...planningCatalog.tables].sort((left, right) =>
+    compareCatalogTables(left, right, identities),
+  )
+  const existing = catalogTableMap(sortedCatalogTables, issues, identities)
+  return { planningCatalog, ownership, sortedCatalogTables, existing }
+}
+
+/**
+ * Validates one desired relation and plans its creation or reconciliation.
+ *
+ * @param handle - Table handle whose schema and relation metadata are required.
+ * @param input - Desired table reconciliation inputs and shared accumulators.
+ */
+function reconcileDesiredTable(
+  handle: TableHandle,
+  input: DesiredTableReconciliation,
+): void {
+  const { issues, identities, ensuredSchemas, steps, planning } = input
+  const prepared = prepareDesiredTable({ ...input, handle })
+
+  if (!prepared) return
+
+  const { info, identity, live, desired: createAst, indexes, shape } = prepared
+
+  if (!live) {
+    appendCreatedTable({
+      ...input,
+      name: info.name,
+      desired: createAst,
+      indexes,
+      identity,
+      ensuredNamespaces: ensuredSchemas,
+    })
+
+    return
+  }
+
+  const relationStepStart = steps.length
+  collectManagedPropertyIssues(live, createAst, shape, planning, issues, identities)
+  reconcileExistingColumns({ ...input, live, desired: createAst, identity, shape })
+
+  reconcileIndexes({
+    ...input,
+    live,
+    desired: indexes,
+    identity,
+    shape,
+    relationStepStart,
+  })
+}
+
+type DesiredUniqueConstraintMatching = {
+  expected: LoweredDesiredColumn[]
+  live: CatalogTable
+  identities: CanonicalRelationIdentityModule
+  issues: PlanningIssue[]
+  identity: CanonicalRelationIdentity
+  matched: Set<CatalogKeyConstraint>
+}
+
+type CreatedConstraintPlanning = {
+  desired: LoweredDesiredTable
+  reserveUniqueConstraint: (owner: CanonicalRelationIdentity, column: string) => void
+  identity: CanonicalRelationIdentity
+  indexes: readonly {
+    name: CanonicalIdentifier
+    columns: CanonicalIdentifier[]
+    unique: boolean
+    origin: 'explicit' | 'generated'
+  }[]
+  physicalNames: PhysicalNameRegistry
+  identities: CanonicalRelationIdentityModule
+  steps: MigrationStep[]
+  reserveForeignKey: (
+    owner: CanonicalRelationIdentity,
+    column: string,
+    reference: NonNullable<LoweredDesiredColumn['reference']>,
+  ) => void
+  deferredForeignKeys: Readonly<{
+    kind: 'add_foreign_key'
+    target: MigrationColumnTarget
+    references: MigrationColumnReference
+  }>[]
+}
+
+/**
+ * Requires observed type and nullability facts before planning a column change.
+ *
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ * @param columnLabel - Formatted column identity used in diagnostics.
+ *
+ * @returns Observed physical type and nullability facts; incomplete evidence throws.
+ */
+function requireColumnProperties(
+  current: CatalogColumn,
+  columnLabel: string,
+): { dataType: string; isNullable: boolean } {
+  if (current.dataType === undefined) {
+    throw new MigrationError({
+      message: `Cannot plan desired-table column ${columnLabel}: catalog data type is unresolved`,
+    })
+  }
+
+  if (current.isNullable === undefined) {
+    throw new MigrationError({
+      message: `Cannot plan desired-table column ${columnLabel}: catalog nullability is unresolved`,
+    })
+  }
+
+  return { dataType: current.dataType, isNullable: current.isNullable }
+}
+
+/**
+ * Adds supported physical-type and nullability changes for an existing column.
+ *
+ * @param input - Desired column reconciliation inputs and shared accumulators.
+ * @param desiredColumn - Lowered desired storage and reference metadata for one column.
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ */
+function appendColumnAlterations(
+  input: DesiredColumnReconciliation,
+  desiredColumn: LoweredDesiredColumn,
+  current: { dataType: string; isNullable: boolean },
+): void {
+  const { planning, steps, identity } = input
+  const desiredType = planning.schema.normalizeDataType(desiredColumn.dataType)
+  const currentType = planning.schema.normalizeDataType(current.dataType)
+
+  if (desiredType !== currentType) {
+    steps.push({
+      kind: 'alter_column_type',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
+      dataType: desiredColumn.dataType,
+    })
+  }
+
+  if (desiredColumn.notNull && current.isNullable) {
+    steps.push({
+      kind: 'set_not_null',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
+    })
+  } else if (!desiredColumn.notNull && !current.isNullable) {
+    steps.push({
+      kind: 'drop_not_null',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
+    })
+  }
+}
+
+/**
+ * Adds a missing column or compares its observed type and nullability.
+ *
+ * @param input - Desired column reconciliation inputs and shared accumulators.
+ * @param desiredColumn - Lowered desired storage and reference metadata for one column.
+ */
+function reconcileDesiredColumn(
+  input: DesiredColumnReconciliation,
+  desiredColumn: LoweredDesiredColumn,
+): void {
+  const { liveColumns, appendMissingColumn, identities, identity } = input
+  const current = liveColumns.get(desiredColumn.identifier.comparisonKey)
+
+  if (!current) {
+    appendMissingColumn(desiredColumn)
+    return
+  }
+
+  const columnLabel = identities.format(identity, {
+    role: 'column',
+    spelling: desiredColumn.identifier.spelling,
+  })
+  const properties = requireColumnProperties(current, columnLabel)
+  appendColumnAlterations(input, desiredColumn, properties)
+}
+
+/**
+ * Finds an index by authored name or unambiguous generated-index semantics.
+ *
+ * @param input - Desired index reconciliation inputs and shared accumulators.
+ *
+ * @returns The unique matching observed index, or undefined when no index matches.
+ */
+function findDesiredIndex(input: DesiredIndexReconciliation) {
+  const { index, liveIndexes, identities, issues, identity } = input
+  let current: CatalogIndex | undefined
+
+  if (index.origin === 'generated') {
+    const semanticMatches = [...liveIndexes.values()].filter(
+      (candidate) =>
+        candidate.unique === index.unique &&
+        arraysEqual(
+          memberKeys('column', candidate.columns, identities),
+          index.columns.map((column) => column.comparisonKey),
+        ),
+    )
+
+    if (semanticMatches.length > 1) {
+      issues.push({
+        identity,
+        target: index.name.comparisonKey,
+        property: 'ambiguous_semantic_match',
+        message: `Ambiguous index semantic match for ${identities.format(identity, {
+          role: 'index',
+          spelling: index.name.spelling,
+        })}`,
+      })
+
+      return { ambiguous: true as const }
+    }
+
+    current = semanticMatches.at(0)
+
+    if (!current) current = liveIndexes.get(index.name.comparisonKey)
+  } else {
+    current = liveIndexes.get(index.name.comparisonKey)
+  }
+
+  return { ambiguous: false as const, current }
+}
+
+/**
+ * Reserves and defers a new column's foreign key until its target relation exists.
+ *
+ * @param input - Missing column planning inputs and shared accumulators.
+ */
+function appendMissingForeignKey(input: MissingColumnPlanning) {
+  const { desiredColumn, reserveForeignKey, identity, deferredForeignKeys } = input
+
+  if (desiredColumn.reference) {
+    reserveForeignKey(
+      identity,
+      desiredColumn.identifier.spelling,
+      desiredColumn.reference,
+    )
+
+    deferredForeignKeys.push({
+      kind: 'add_foreign_key',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
+      references: structuredReference(desiredColumn.reference),
+    })
+  }
+}
+
+type CatalogIndexRegistration = {
+  ordered: {
+    liveIndex: CatalogIndex
+    identifier: Readonly<{ spelling: string; comparisonKey: string }>
+  }[]
+  indexes: Map<string, CatalogIndex>
+  issues: PlanningIssue[]
+  identity: CanonicalRelationIdentity
+  identities: CanonicalRelationIdentityModule
+  shape: string
+  unsupportedNames: Set<string>
+}
+
+/**
+ * Adds desired foreign keys that have no equivalent observed constraint.
+ *
+ * @param input - Column constraint reconciliation inputs and shared accumulators.
+ */
+function appendMissingForeignKeys(input: ColumnConstraintReconciliation) {
+  const {
+    live,
+    desired,
+    identity,
+    deferredForeignKeys,
+    identities,
+    reserveForeignKey,
+    liveColumns,
+  } = input
+  const foreignKeyColumns = desired.columns
+  for (const desiredColumn of foreignKeyColumns) {
+    if (
+      !desiredColumn.reference ||
+      !liveColumns.has(desiredColumn.identifier.comparisonKey)
+    )
+      continue
+
+    const expected = canonicalDesiredForeignKey(desiredColumn)
+    const matches = matchForeignKeys(live.foreignKeys, expected, identities)
+
+    if (matches.length !== 0) continue
+
+    reserveForeignKey(
+      identity,
+      desiredColumn.identifier.spelling,
+      desiredColumn.reference,
+    )
+
+    deferredForeignKeys.push({
+      kind: 'add_foreign_key',
+      target: {
+        kind: 'column',
+        relation: identity,
+        column: desiredColumn.identifier,
+      },
+      references: structuredReference(desiredColumn.reference),
+    })
+  }
+}
+
+/**
+ * Initializes physical-name reservations and namespace steps before desired relations are
+ * planned.
+ *
+ * @param planningCatalog - Validated catalog fields used by Migration Plan construction.
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param ownership - Resolved migration authority for relations, absences, and complete
+ *   namespaces.
+ * @param sortedCatalogTables - Catalog relations in the expected canonical fixture order.
+ * @param steps - Mutable Migration Plan steps accumulated before canonical ordering.
+ *
+ * @returns Physical-name reservations and namespace steps before desired relations are
+ *   planned.
+ */
+function createPlanningReservations(
+  planningCatalog: PlanningCatalog,
+  naming: DialectNaming,
+  identities: CanonicalRelationIdentityModule,
+  ownership: ResolvedMigrationOwnership,
+  sortedCatalogTables: CatalogTable[],
+  steps: MigrationStep[],
+) {
+  const ensuredSchemas = [...planningCatalog.namespaces]
+  const registered = identities.createRegistry<TableHandle>()
+  const physicalNames = naming.createRegistry()
+  validateOwnershipNames(ownership, naming)
+
+  reservePlanningCatalogNames(
+    planningCatalog,
+    sortedCatalogTables,
+    identities,
+    physicalNames,
+  )
+
+  appendOwnedNamespaces(ownership, ensuredSchemas, steps)
+  const { reserveForeignKey, reserveUniqueConstraint } = createDesiredNameReservations(
+    naming,
+    physicalNames,
+    identities,
+  )
+  return {
+    ensuredSchemas,
+    registered,
+    physicalNames,
+    reserveForeignKey,
+    reserveUniqueConstraint,
+  }
+}
+
+/**
+ * Resolves canonical identities and orders the authored schema for deterministic
+ * planning.
+ *
+ * @param schemas - Registered table handles defining the desired schema.
+ * @param catalog - Observed catalog evidence used for desired-schema comparison.
+ * @param planning - Selected identity, naming, and schema semantics for Migration Plan
+ *   construction.
+ * @param registrationDefault - Explicit namespace default used before the session's
+ *   writable default.
+ *
+ * @returns Canonical identities and orders the authored schema for deterministic
+ *   planning.
+ */
+function initializeDesiredPlanning(
+  schemas: readonly TableHandle[],
+  catalog: CatalogSnapshot,
+  planning: MigrationPlanningContext,
+  registrationDefault: readonly NamespaceIdentifierInput[] | undefined,
+) {
+  const identities = planning.identity.create({
+    context: catalog.namespaceContext,
+    ...(registrationDefault === undefined ? {} : { registrationDefault }),
+  })
+  const steps: MigrationStep[] = []
+  const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
+  const issues: PlanningIssue[] = []
+  const sortedSchemas = [...schemas].sort((left, right) =>
+    compareTableHandles(left, right, identities),
+  )
+  const naming = planning.naming
+  validateDesiredNames(sortedSchemas, identities, naming)
+  const { desiredTables, lowered } = registerLoweredTables(
+    sortedSchemas,
+    identities,
+    planning,
+  )
+  return {
+    identities,
+    steps,
+    deferredForeignKeys,
+    issues,
+    sortedSchemas,
+    naming,
+    desiredTables,
+    lowered,
+  }
+}
+
+/**
+ * Registers a relation and records duplicate handles or missing lowered schema evidence.
+ *
+ * @param registered - Registered table handles indexed by canonical relation identity.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param handle - Table handle whose schema and relation metadata are required.
+ * @param desiredTables - Desired tables indexed by canonical relation identity.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ *
+ * @returns The registered lowered desired table, or undefined after recording missing
+ *   evidence.
+ */
+function requireRegisteredDesiredTable(
+  registered: CanonicalRelationRegistry<TableHandle>,
+  identity: CanonicalRelationIdentity,
+  handle: TableHandle,
+  desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
+  identities: CanonicalRelationIdentityModule,
+  issues: PlanningIssue[],
+) {
+  if (registered.has(identity)) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'duplicate_registered_table',
+      message: `Duplicate registered table ${identities.format(identity)}`,
+    })
+  }
+
+  registered.set(identity, handle)
+  const desired = desiredTables.get(identity)
+
+  if (!desired) {
+    issues.push({
+      identity,
+      target: '',
+      property: 'invalid_desired_table',
+      message: `Invalid desired table ${identities.format(identity)}`,
+    })
+
+    return undefined
+  }
+
+  return desired
 }

@@ -16,18 +16,58 @@ export type DialectLifecycleContractRuntime = Readonly<{
   connector: Connector
   schemas: readonly TableHandle[]
   defaultNamespace?: readonly NamespaceIdentifierInput[]
+  /**
+   * Executes query for the current fixture scenario.
+   *
+   * @param database - Native database identity or spelling used to scope fixture
+   *   resources.
+   *
+   * @returns Rows produced by the representative public query operation.
+   */
   executeQuery(database: Db): Promise<readonly unknown[]>
   operationCommands: OperationCommand[]
+  /**
+   * Builds catalog evidence for schema reconciliation checks.
+   *
+   * @returns Catalog evidence for schema reconciliation checks.
+   */
   catalog?(): CatalogSnapshot | undefined
+  /**
+   * Returns the connector received by the selected dialect lifecycle facet.
+   *
+   * @returns The connector received by the selected dialect lifecycle facet.
+   */
   selectedConnector(): Connector | undefined
+  /**
+   * Reports whether the fixture connector has been disposed.
+   *
+   * @returns True when the fixture connector has been disposed.
+   */
   disposed(): boolean
+  /**
+   * Returns the recorded bindings of the representative fixture query.
+   *
+   * @returns The recorded bindings of the representative fixture query.
+   */
   queryParams(): readonly unknown[] | undefined
+  /**
+   * Tests whether selected-member SQL accidentally includes another dialect's physical
+   * policy.
+   *
+   * @returns True when selected-member SQL accidentally includes another dialect's
+   *   physical policy.
+   */
   foreignPolicyLeak(): boolean
   directConnectorMethods: readonly (() => unknown)[]
   expected: Readonly<{
     queryRows: readonly unknown[]
     queryParam: unknown
   }>
+  /**
+   * Returns recorded physical actions after the fixture migration completes.
+   *
+   * @returns Recorded physical actions after the fixture migration completes.
+   */
   postMigrationState(): unknown
   migration:
     | Readonly<{
@@ -49,6 +89,11 @@ export type DialectLifecycleContractRuntime = Readonly<{
 
 export type DialectLifecycleContractFactory = () => DialectLifecycleContractRuntime
 
+/**
+ * Requires explicit reasons for unsupported or unavailable catalog capabilities.
+ *
+ * @param catalog - Observed catalog evidence used for desired-schema comparison.
+ */
 function expectExplicitCapabilityEvidence(catalog: CatalogSnapshot): void {
   for (const capability of Object.values(catalog.capabilities)) {
     if (capability.state === 'supported') continue
@@ -92,53 +137,11 @@ export async function runDialectLifecycleContract(
     const plan = await database.migrate().plan()
     expect(plan).toEqual(runtime.migration.expectedPlan)
 
-    if (runtime.migration.state === 'supported') {
-      await database.migrate().execute()
-    } else {
-      const error = await database
-        .migrate()
-        .execute()
-        .catch((cause: unknown) => cause)
-      expect(error).toMatchObject({
-        _tag: 'MigrationError',
-        stage: 'lowering',
-        outcome: 'unchanged',
-        capabilityIssues: [
-          expect.objectContaining({ message: runtime.migration.reason }),
-        ],
-      })
-    }
-
-    const reportedOutcome =
-      runtime.migration.state === 'supported'
-        ? runtime.migration.reportedOutcome
-        : undefined
-
-    if (reportedOutcome) {
-      expect(reportedOutcome.observed).toEqual([reportedOutcome.expected])
-    }
-
-    expect(await runtime.postMigrationState()).toEqual(
-      runtime.migration.expectedPostMigrationState,
-    )
+    await assertLifecycleMigration(runtime, database)
 
     await database.close()
 
-    expect(runtime.selectedConnector()).toBe(runtime.connector)
-    const catalog = runtime.catalog?.()
-
-    if (catalog) expectExplicitCapabilityEvidence(catalog)
-
-    expect(runtime.operationCommands).toEqual(
-      expect.arrayContaining([{ kind: 'ping' }, { kind: 'begin' }, { kind: 'commit' }]),
-    )
-
-    expect(runtime.foreignPolicyLeak()).toBe(false)
-    expect(runtime.disposed()).toBe(true)
-
-    for (const method of runtime.directConnectorMethods) {
-      expect(method).not.toHaveBeenCalled()
-    }
+    assertLifecycleCleanup(runtime)
   } finally {
     try {
       await closeDatabase?.()
@@ -146,6 +149,70 @@ export async function runDialectLifecycleContract(
       unregister?.()
     }
   }
+}
+
+/**
+ * Checks connector ownership, capability evidence, and cleanup after the public lifecycle
+ * scenario.
+ *
+ * @param runtime - Active operation and interruption controls shared by this run.
+ */
+function assertLifecycleCleanup(runtime: DialectLifecycleContractRuntime) {
+  expect(runtime.selectedConnector()).toBe(runtime.connector)
+  const catalog = runtime.catalog?.()
+
+  if (catalog) expectExplicitCapabilityEvidence(catalog)
+
+  expect(runtime.operationCommands).toEqual(
+    expect.arrayContaining([{ kind: 'ping' }, { kind: 'begin' }, { kind: 'commit' }]),
+  )
+
+  expect(runtime.foreignPolicyLeak()).toBe(false)
+  expect(runtime.disposed()).toBe(true)
+
+  for (const method of runtime.directConnectorMethods) {
+    expect(method).not.toHaveBeenCalled()
+  }
+}
+
+/**
+ * Checks supported or unsupported migration behavior and the reported post-migration
+ * state.
+ *
+ * @param runtime - Active operation and interruption controls shared by this run.
+ * @param database - Native database identity or spelling used to scope fixture resources.
+ */
+async function assertLifecycleMigration(
+  runtime: DialectLifecycleContractRuntime,
+  database: Db,
+) {
+  if (runtime.migration.state === 'supported') {
+    await database.migrate().execute()
+  } else {
+    const error = await database
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'lowering',
+      outcome: 'unchanged',
+      capabilityIssues: [expect.objectContaining({ message: runtime.migration.reason })],
+    })
+  }
+
+  const reportedOutcome =
+    runtime.migration.state === 'supported'
+      ? runtime.migration.reportedOutcome
+      : undefined
+
+  if (reportedOutcome) {
+    expect(reportedOutcome.observed).toEqual([reportedOutcome.expected])
+  }
+
+  expect(await runtime.postMigrationState()).toEqual(
+    runtime.migration.expectedPostMigrationState,
+  )
 }
 
 /** Registers the single public connector-selected lifecycle smoke. */

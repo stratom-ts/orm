@@ -234,23 +234,80 @@ function dryRunProgram(program: MigrationProgram): MigrationDryRun {
 }
 
 /**
- * Desired-state migration orchestration. Planning and permissions remain generic;
- * lowering and all execution mechanics belong to the selected dialect migration facet.
+ * Introspects the operation session and creates its canonical semantic plan.
  *
- * @example
- *   const migrate = createMigrateBuilder({ schemas, migration, runOperation })
- *   await migrate.allow('dropColumn').execute()
- *
- * @param options - Migration schemas, selected member, operation runner, and policy.
- * @param options.schemas - Registered desired-state table handles.
- * @param options.migration - Connector-selected migration member.
- * @param options.runOperation - Runs migration work on one pinned operation session.
- * @param options.applicationId - Optional application identity for coordination.
- * @param options.defaultNamespace - Optional namespace for unqualified registrations.
- * @param options.migrationOwnership - Optional catalog ownership declarations.
- * @param options.assertCanExecute - Optional execution-policy assertion.
+ * @param executor - Executor bound to the operation session.
  */
-export function createMigrateBuilder(options: {
+async function observeMigrationPlan(
+  executor: Executor,
+  options: Pick<
+    Parameters<typeof createMigrateBuilder>[0],
+    'schemas' | 'migration' | 'migrationOwnership' | 'defaultNamespace'
+  >,
+) {
+  const { schemas, migration, migrationOwnership, defaultNamespace } = options
+  let request
+
+  try {
+    request = createCatalogRequest(schemas, migrationOwnership ?? [], defaultNamespace)
+  } catch (cause) {
+    throw phaseError(cause, 'planning')
+  }
+
+  let catalog
+
+  try {
+    catalog = await migration.catalog.introspectCatalog(executor, request)
+  } catch (cause) {
+    throw phaseError(cause, 'introspection')
+  }
+
+  let planned
+
+  try {
+    planned = planMigration(schemas, catalog, migration.planning, {
+      ...(defaultNamespace === undefined
+        ? {}
+        : { registrationDefault: defaultNamespace }),
+      ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
+    })
+  } catch (cause) {
+    throw phaseError(cause, 'planning')
+  }
+
+  const expected: MigrationSemanticProfile = {
+    identityAdapter: migration.planning.identity.id,
+    namespaceContext: catalog.namespaceContext,
+    ...(defaultNamespace === undefined ? {} : { registrationDefault: defaultNamespace }),
+  }
+  return { planned, expected }
+}
+
+/** Checks permissions before lowering the authoritative Migration Plan. */
+async function prepareMigration(
+  executor: Executor,
+  planningOptions: Parameters<typeof observeMigrationPlan>[1],
+  allowed: ReadonlySet<MigrationAllow>,
+) {
+  const { planned, expected } = await observeMigrationPlan(executor, planningOptions)
+
+  for (const step of planned.plan.steps) {
+    const permission = allowForStep(step)
+
+    if (permission && !allowed.has(permission)) {
+      throw new MigrationError({
+        message: `Destructive migration step '${step.kind}' requires allow('${permission}')`,
+        stage: 'permission',
+        outcome: 'unchanged',
+        retryable: false,
+      })
+    }
+  }
+
+  return lowerPlan(planningOptions.migration, planned, expected)
+}
+
+type MigrateBuilderOptions = {
   schemas: readonly TableHandle[]
   migration: DialectMigrationAdapter
   /**
@@ -280,62 +337,26 @@ export function createMigrateBuilder(options: {
 
   /** Verifies that the current client context permits migration execution. */
   assertCanExecute?: () => void
-}): MigrateBuilder {
-  const {
-    schemas,
-    migration,
-    runOperation,
-    applicationId,
-    defaultNamespace,
-    migrationOwnership,
-    assertCanExecute,
-  } = options
+}
+
+/**
+ * Desired-state migration orchestration. Planning and permissions remain generic;
+ * lowering and all execution mechanics belong to the selected dialect migration facet.
+ *
+ * @example
+ *   const migrate = createMigrateBuilder({ schemas, migration, runOperation })
+ *   await migrate.allow('dropColumn').execute()
+ *
+ * @param options - Migration schemas, selected member, operation runner, and policy.
+ *
+ * @returns A migration builder separating generic planning and permissions from dialect
+ *   execution.
+ */
+export function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
+  const { migration, runOperation, applicationId, assertCanExecute } = options
+  const { schemas, defaultNamespace, migrationOwnership } = options
+  const planningOptions = { schemas, migration, defaultNamespace, migrationOwnership }
   const allowed = new Set<MigrationAllow>()
-
-  /**
-   * Introspects the operation session and creates its canonical semantic plan.
-   *
-   * @param executor - Executor bound to the operation session.
-   */
-  const buildPlan = async (executor: Executor) => {
-    let request
-
-    try {
-      request = createCatalogRequest(schemas, migrationOwnership ?? [], defaultNamespace)
-    } catch (cause) {
-      throw phaseError(cause, 'planning')
-    }
-
-    let catalog
-
-    try {
-      catalog = await migration.catalog.introspectCatalog(executor, request)
-    } catch (cause) {
-      throw phaseError(cause, 'introspection')
-    }
-
-    let planned
-
-    try {
-      planned = planMigration(schemas, catalog, migration.planning, {
-        ...(defaultNamespace === undefined
-          ? {}
-          : { registrationDefault: defaultNamespace }),
-        ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
-      })
-    } catch (cause) {
-      throw phaseError(cause, 'planning')
-    }
-
-    const expected: MigrationSemanticProfile = {
-      identityAdapter: migration.planning.identity.id,
-      namespaceContext: catalog.namespaceContext,
-      ...(defaultNamespace === undefined
-        ? {}
-        : { registrationDefault: defaultNamespace }),
-    }
-    return { planned, expected }
-  }
 
   const builder: MigrateBuilder = {
     /**
@@ -347,145 +368,214 @@ export function createMigrateBuilder(options: {
       for (const op of ops) allowed.add(op)
       return builder
     },
-
-    /** Builds a semantic Migration Plan without lowering or executing it. */
-    async plan() {
-      try {
-        return await runOperation(
-          async (executor) => (await buildPlan(executor)).planned.plan,
-        )
-      } catch (cause) {
-        if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
-
-        const cleanupFailures = sessionCleanupFailures(cause)
-        throw new MigrationError({
-          message: cause instanceof Error ? cause.message : 'Migration planning failed',
-          ...(cause !== undefined ? { cause } : {}),
-          ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
-        })
-      }
-    },
-
-    /** Builds and lowers the plan without executing physical actions. */
-    async dryRun() {
-      try {
-        return await runOperation(async (executor) => {
-          const { planned, expected } = await buildPlan(executor)
-          return dryRunProgram(lowerPlan(migration, planned, expected))
-        })
-      } catch (cause) {
-        if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
-
-        const cleanupFailures = sessionCleanupFailures(cause)
-        throw new MigrationError({
-          message: cause instanceof Error ? cause.message : 'Migration dry-run failed',
-          ...(cause !== undefined ? { cause } : {}),
-          ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
-        })
-      }
-    },
+    ...createMigrationPreview({
+      ...planningOptions,
+      runOperation,
+      applicationId,
+      assertCanExecute,
+    }),
 
     /**
      * Plans and executes the migration through the selected dialect.
      *
      * @param executeOptions - Optional cancellation signal and lock deadline.
      */
-    async execute(executeOptions) {
-      const lockTimeoutMs = lockTimeout(executeOptions)
-
-      try {
-        assertCanExecute?.()
-      } catch (cause) {
-        throw phaseError(cause, 'permission')
-      }
-
-      const runtime = {
-        success: undefined as { outcome: 'applied' | 'unchanged' } | undefined,
-      }
-
-      try {
-        await runOperation(async (executor, databaseIdentity, discard, cancel) => {
-          const execution = await attempt(() =>
-            migration.execute({
-              executor,
-              databaseIdentity,
-              discard,
-              cancel,
-              ...(lockTimeoutMs === undefined ? {} : { lockTimeoutMs }),
-              ...(applicationId === undefined ? {} : { applicationId }),
-              ...(executeOptions?.signal === undefined
-                ? {}
-                : { signal: executeOptions.signal }),
-              /** Builds, validates, and lowers the plan inside the execution snapshot. */
-              prepare: async () => {
-                const { planned, expected } = await buildPlan(executor)
-
-                for (const step of planned.plan.steps) {
-                  const permission = allowForStep(step)
-
-                  if (permission && !allowed.has(permission)) {
-                    throw new MigrationError({
-                      message: `Destructive migration step '${step.kind}' requires allow('${permission}')`,
-                      stage: 'permission',
-                      outcome: 'unchanged',
-                      retryable: false,
-                    })
-                  }
-                }
-
-                return lowerPlan(migration, planned, expected)
-              },
-            }),
-          )
-
-          if (!execution.ok) {
-            if (execution.error instanceof MigrationError) throw execution.error
-
-            discard()
-            throw new MigrationError({
-              message:
-                execution.error instanceof Error
-                  ? execution.error.message
-                  : 'Migration adapter execution failed',
-              cause: execution.error,
-              stage: 'ddl',
-              outcome: 'unknown',
-              retryable: false,
-            })
-          }
-
-          runtime.success = execution.value
-          return runtime.success
-        })
-      } catch (cause) {
-        if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
-
-        const cleanupFailures = sessionCleanupFailures(cause)
-
-        if (runtime.success) {
-          throw new MigrationError({
-            message:
-              cause instanceof Error ? cause.message : 'Migration session cleanup failed',
-            cause,
-            stage: 'sessionCleanup',
-            outcome: runtime.success.outcome,
-            retryable: false,
-            cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
-          })
-        }
-
-        throw new MigrationError({
-          message:
-            cause instanceof Error ? cause.message : 'Migration operation session failed',
-          cause,
-          stage: 'sessionCleanup',
-          outcome: 'unchanged',
-          retryable: false,
-          cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
-        })
-      }
-    },
+    execute: (executeOptions) =>
+      executeMigration(
+        { ...planningOptions, runOperation, applicationId, assertCanExecute },
+        allowed,
+        executeOptions,
+      ),
   }
 
   return builder
+}
+
+/**
+ * Runs an authoritative migration and preserves its outcome through session cleanup
+ * failures.
+ *
+ * @param options - Configuration and dependencies for this operation.
+ * @param allowed - Destructive operations explicitly permitted for this migration
+ *   execution.
+ * @param executeOptions - Lock deadline and cancellation controls supplied by the caller.
+ */
+async function executeMigration(
+  options: MigrateBuilderOptions,
+  allowed: Set<MigrationAllow>,
+  executeOptions: Parameters<MigrateBuilder['execute']>[0],
+): Promise<void> {
+  const { migration, runOperation, applicationId, assertCanExecute } = options
+  const { schemas, defaultNamespace, migrationOwnership } = options
+  const planningOptions = { schemas, migration, defaultNamespace, migrationOwnership }
+  const lockTimeoutMs = lockTimeout(executeOptions)
+
+  assertMigrationPermission(assertCanExecute)
+
+  const runtime = {
+    success: undefined as { outcome: 'applied' | 'unchanged' } | undefined,
+  }
+
+  try {
+    await runOperation(async (executor, databaseIdentity, discard, cancel) => {
+      const execution = await attempt(() =>
+        migration.execute({
+          executor,
+          databaseIdentity,
+          discard,
+          cancel,
+          ...(lockTimeoutMs === undefined ? {} : { lockTimeoutMs }),
+          ...(applicationId === undefined ? {} : { applicationId }),
+          ...(executeOptions?.signal === undefined
+            ? {}
+            : { signal: executeOptions.signal }),
+          /** Builds, validates, and lowers the plan inside the execution snapshot. */
+          prepare: () => prepareMigration(executor, planningOptions, allowed),
+        }),
+      )
+
+      if (!execution.ok) throwAdapterExecutionError(execution.error, discard)
+
+      runtime.success = execution.value
+      return runtime.success
+    })
+  } catch (cause) {
+    throwExecutionCleanup(cause, runtime.success)
+  }
+}
+
+/**
+ * Reports session cleanup while preserving the acknowledged database outcome and primary
+ * failure.
+ *
+ * @param cause - Original rejection whose identity and failure details must be preserved.
+ * @param success - Acknowledged database outcome, if execution completed before cleanup
+ *   failed.
+ */
+function throwExecutionCleanup(
+  cause: unknown,
+  success: { outcome: 'applied' | 'unchanged' } | undefined,
+): never {
+  if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+
+  const cleanupFailures = sessionCleanupFailures(cause)
+
+  if (success) {
+    throw new MigrationError({
+      message:
+        cause instanceof Error ? cause.message : 'Migration session cleanup failed',
+      cause,
+      stage: 'sessionCleanup',
+      outcome: success.outcome,
+      retryable: false,
+      cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
+    })
+  }
+
+  throw new MigrationError({
+    message:
+      cause instanceof Error ? cause.message : 'Migration operation session failed',
+    cause,
+    stage: 'sessionCleanup',
+    outcome: 'unchanged',
+    retryable: false,
+    cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
+  })
+}
+
+/** Checks execution permission and preserves the permission failure's migration stage. */
+function assertMigrationPermission(assertCanExecute: (() => void) | undefined): void {
+  try {
+    assertCanExecute?.()
+  } catch (cause) {
+    throw phaseError(cause, 'permission')
+  }
+}
+
+/**
+ * Builds planning and SQL-preview entry points without executing migration actions.
+ *
+ * @param options - Configuration and dependencies for this operation.
+ *
+ * @returns Planning and SQL-preview entry points without executing migration actions.
+ */
+function createMigrationPreview(
+  options: MigrateBuilderOptions,
+): Pick<MigrateBuilder, 'plan' | 'dryRun'> {
+  const { migration, runOperation } = options
+  const planningOptions = options
+  return {
+    /** Builds a semantic Migration Plan without lowering or executing it. */
+    async plan() {
+      return runMigrationPreview(
+        () =>
+          runOperation(
+            async (executor) =>
+              (await observeMigrationPlan(executor, planningOptions)).planned.plan,
+          ),
+        'Migration planning failed',
+      )
+    },
+
+    /** Builds and lowers the plan without executing physical actions. */
+    async dryRun() {
+      return runMigrationPreview(
+        () =>
+          runOperation(async (executor) => {
+            const { planned, expected } = await observeMigrationPlan(
+              executor,
+              planningOptions,
+            )
+            return dryRunProgram(lowerPlan(migration, planned, expected))
+          }),
+        'Migration dry-run failed',
+      )
+    },
+  }
+}
+
+/**
+ * Preserves structured preview errors and includes retained session cleanup failures.
+ *
+ * @param operation - Work to run within the current session or error boundary.
+ * @param failureMessage - Fallback diagnostic when a rejection is not an Error instance.
+ *
+ * @returns The preview result after successful session cleanup.
+ */
+async function runMigrationPreview<T>(
+  operation: () => Promise<T>,
+  failureMessage: string,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (cause) {
+    if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+
+    const cleanupFailures = sessionCleanupFailures(cause)
+    throw new MigrationError({
+      message: cause instanceof Error ? cause.message : failureMessage,
+      ...(cause !== undefined ? { cause } : {}),
+      ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
+    })
+  }
+}
+
+/**
+ * Discards uncertain sessions when an adapter throws an unstructured execution failure.
+ *
+ * @param cause - Original rejection whose identity and failure details must be preserved.
+ * @param discard - Callback that prevents reuse of the current physical session.
+ */
+function throwAdapterExecutionError(cause: unknown, discard: () => void): never {
+  if (cause instanceof MigrationError) throw cause
+
+  discard()
+  throw new MigrationError({
+    message:
+      cause instanceof Error ? cause.message : 'Migration adapter execution failed',
+    cause: cause,
+    stage: 'ddl',
+    outcome: 'unknown',
+    retryable: false,
+  })
 }

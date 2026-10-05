@@ -11,10 +11,18 @@ import { createPostgresMigrationRuntime } from '../helpers/postgresMigrationRunt
 
 import type { CoordinationContractFactory } from './migrationCoordinationContract'
 
+/**
+ * Creates the postgres coordination runtime fixture used by the contract scenario.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns The postgres coordination runtime fixture used by the contract scenario.
+ */
 const createPostgresCoordinationRuntime: CoordinationContractFactory = (options = {}) => {
   const runtime = createPostgresMigrationRuntime(options)
   return {
     ...runtime,
+    /** Executes fixture SQL with the configured native observations. */
     execute: (runtimeOptions) => runtime.execute(undefined, runtimeOptions),
   }
 }
@@ -29,6 +37,7 @@ export const postgresOperationSessionContractShard = {
     common: {
       state: 'supported',
       input: {
+        /** Creates the runtime fixture used by the contract scenario. */
         createRuntime: () => createOperationSessionCommonRuntime().runtime,
       },
     },
@@ -38,6 +47,10 @@ export const postgresOperationSessionContractShard = {
         createProvider: createControllableProvider,
         migration: {
           connector: customConnector,
+          /**
+           * Returns table handles used to exercise successful migration through the
+           * provider.
+           */
           appliedSchemas: () => [
             defineTable(
               'provider_contract_events',
@@ -45,6 +58,7 @@ export const postgresOperationSessionContractShard = {
               { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
             ),
           ],
+          /** Returns table handles whose metadata forces a planning failure. */
           planningFailureSchemas: () => [
             defineTable(
               'provider_planning_events',

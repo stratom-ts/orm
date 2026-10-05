@@ -1,3 +1,4 @@
+import type { Connector } from 'db0'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -5,6 +6,7 @@ import {
   POSTGRES_OPERATION_ROLLBACK_SQL,
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
+import type { OperationSessionProvider } from '@/index'
 import { QueryError, createDb0PostgresqlOperationSessionProvider } from '@/index'
 import {
   OperationCoordinator,
@@ -46,20 +48,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
       { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
     ])
 
-    const beforeTransaction = connector.queryCalls.length
-    const transaction = await provider.open()
-    await transaction.run({ sql: 'begin', params: [] })
-    await transaction.run({ sql: 'commit', params: [] })
-    await transaction.release('reuse')
-
-    expect(connector.queryCalls.slice(beforeTransaction)).toEqual([
-      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
-      { text: 'begin', values: [] },
-      { text: 'commit', values: [] },
-      { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
-      { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
-      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
-    ])
+    await assertTransactionLeaseCleanup(connector, provider)
 
     const beforeAdvisory = connector.queryCalls.length
     const advisory = await provider.open()
@@ -76,10 +65,15 @@ describe('db0 PostgreSQL operation-session adapter', () => {
 
     await provider.close()
   })
+})
 
+describe('db0 PostgreSQL operation-session adapter: reads changed current_schema for a fresh physical-session lease', () => {
   it('reads changed current_schema for a fresh physical-session lease', async () => {
     let schema = 'public'
-    const connector = createNativeConnector({ currentSchema: () => schema })
+    const connector = createNativeConnector({
+      /** Returns the schema currently reported by the native-client fixture. */
+      currentSchema: () => schema,
+    })
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
 
     const first = await provider.open()
@@ -105,11 +99,15 @@ describe('db0 PostgreSQL operation-session adapter', () => {
 
     await provider.close()
   })
+})
 
+describe('db0 PostgreSQL operation-session adapter: discards a reused session when DDL changes current_schema during its lease', () => {
   it('discards a reused session when DDL changes current_schema during its lease', async () => {
     let schema = 'public'
     const connector = createNativeConnector({
+      /** Returns the schema currently reported by the native-client fixture. */
       currentSchema: () => schema,
+      /** Handles native query observations for the configured session scenario. */
       onQuery: async (text) => {
         if (/^create schema/i.test(text)) schema = 'tenant'
 
@@ -143,11 +141,14 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     expect(connector.disposeCount).toBe(1)
     await provider.close()
   })
+})
 
+describe('db0 PostgreSQL operation-session adapter: retains final namespace-evidence cleanup without replacing a primary operation failure', () => {
   it('retains final namespace-evidence cleanup without replacing a primary operation failure', async () => {
     const primary = new Error('primary native operation failure')
     const connector = createNativeConnector({
       identityFailureAt: 2,
+      /** Handles native query observations for the configured session scenario. */
       onQuery: async (text) => {
         if (text === 'select primary failure') throw primary
 
@@ -178,12 +179,15 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     expect(connector.disposeCount).toBe(1)
     await coordinator.close()
   })
+})
 
+describe('db0 PostgreSQL operation-session lifecycle', () => {
   it('proves stable identity and serializes native calls through reuse release', async () => {
     const gates = [deferred(), deferred()]
     const firstStarted = deferred()
     let call = 0
     const connector = createNativeConnector({
+      /** Handles native query observations for the configured session scenario. */
       onQuery: async () => {
         const index = call++
 
@@ -219,16 +223,20 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     await expect(session.release('reuse')).rejects.toThrow(/more than once/i)
     await provider.close()
   })
+})
 
+describe('db0 PostgreSQL operation-session lifecycle: cancels an active call and safely discards the uncertain client', () => {
   it('cancels an active call and safely discards the uncertain client', async () => {
     const started = deferred()
     const endStarted = deferred()
     const finishEnd = deferred()
     const connector = createNativeConnector({
+      /** Handles native query observations for the configured session scenario. */
       onQuery: () => {
         started.resolve()
         return new Promise(() => {})
       },
+      /** Holds native-client shutdown until the test releases its completion barrier. */
       beforeEnd: async () => {
         endStarted.resolve()
         await finishEnd.promise
@@ -262,7 +270,9 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     await replacement.release('reuse')
     await provider.close()
   })
+})
 
+describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that cannot prove native PostgreSQL pinning', () => {
   it('rejects connectors that cannot prove native PostgreSQL pinning', async () => {
     expect(() => createDb0PostgresqlOperationSessionProvider(customConnector())).toThrow(
       /automatic operation sessions/i,
@@ -271,23 +281,14 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     const connector = {
       ...customConnector(),
       name: 'postgresql',
+      /** Records disposal and closes owned fixture resources. */
       dispose: async () => {},
     }
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
-    await expect(provider.open()).rejects.toThrow(/exact native pg\.Client/i)
-
-    const missingReadiness = {
-      processID: 123,
-      database: 'test',
-      query: async () => ({
-        rows: [{ physicalSession: '123', database: 'test' }],
-      }),
-      async end() {},
-    }
-    const readinessProvider = createDb0PostgresqlOperationSessionProvider({
-      ...connector,
-      getInstance: () => missingReadiness,
-    })
+    const { readinessProvider, missingReadiness } = await assertMissingPostgresReadiness(
+      provider,
+      connector,
+    )
     await expect(readinessProvider.open()).rejects.toThrow(/readiness.*queue/i)
 
     const missingCancellation = {
@@ -299,6 +300,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     }
     const cancellationProvider = createDb0PostgresqlOperationSessionProvider({
       ...connector,
+      /** Returns the native client owned by the fixture connector. */
       getInstance: () => missingCancellation,
     })
     await expect(cancellationProvider.open()).rejects.toThrow(
@@ -307,6 +309,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
 
     const dirtyProvider = createDb0PostgresqlOperationSessionProvider({
       ...connector,
+      /** Returns the native client owned by the fixture connector. */
       getInstance: () => ({
         ...missingReadiness,
         readyForQuery: false,
@@ -316,7 +319,9 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     })
     await expect(dirtyProvider.open()).rejects.toThrow(/not clean for operation use/i)
   })
+})
 
+describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rejection from exact-provider release verification', () => {
   it('preserves an undefined rejection from exact-provider release verification', async () => {
     const connector = createNativeConnector({
       releaseFailure: { value: undefined },
@@ -349,7 +354,9 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     await expect(withDeadline(firstClose)).resolves.toBeUndefined()
     expect(connector.disposeCount).toBe(1)
   })
+})
 
+describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rejection from exact-provider release verification: allows provider close cleanup to retry after disposal fails', () => {
   it('allows provider close cleanup to retry after disposal fails', async () => {
     const connector = createNativeConnector({ disposeFailures: 1 })
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
@@ -362,3 +369,67 @@ describe('db0 PostgreSQL operation-session adapter', () => {
     expect(connector.disposeCount).toBe(2)
   })
 })
+
+/**
+ * Checks rejection of native clients that cannot prove query readiness.
+ *
+ * @param provider - Provider that owns exclusive session leases and shutdown.
+ * @param connector - Connector that owns native connection resources.
+ *
+ * @returns A provider and native-client fixture without query-readiness evidence.
+ */
+async function assertMissingPostgresReadiness(
+  provider: OperationSessionProvider,
+  connector: Connector,
+) {
+  await expect(provider.open()).rejects.toThrow(/exact native pg\.Client/i)
+
+  const missingReadiness = {
+    processID: 123,
+    database: 'test',
+    /** Runs fixture SQL and records physical-session ownership. */
+    query: async () => ({
+      rows: [{ physicalSession: '123', database: 'test' }],
+    }),
+    /** Closes the native PostgreSQL client and its physical connection. */
+    async end() {},
+  }
+  const readinessProvider = createDb0PostgresqlOperationSessionProvider({
+    ...connector,
+    /** Returns the native client owned by the fixture connector. */
+    getInstance: () => missingReadiness,
+  })
+  return { readinessProvider, missingReadiness }
+}
+
+/**
+ * Checks transaction cleanup, physical-session release, and provider shutdown
+ * observations.
+ *
+ * @param connector - Connector that owns native connection resources.
+ * @param provider - Provider that owns exclusive session leases and shutdown.
+ */
+async function assertTransactionLeaseCleanup(
+  connector: Connector & {
+    readonly disposeCount: number
+    readonly endCount: number
+    readonly maxActiveCalls: number
+    readonly queryCalls: readonly { text: string; values: unknown[] }[]
+  },
+  provider: OperationSessionProvider,
+) {
+  const beforeTransaction = connector.queryCalls.length
+  const transaction = await provider.open()
+  await transaction.run({ sql: 'begin', params: [] })
+  await transaction.run({ sql: 'commit', params: [] })
+  await transaction.release('reuse')
+
+  expect(connector.queryCalls.slice(beforeTransaction)).toEqual([
+    { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+    { text: 'begin', values: [] },
+    { text: 'commit', values: [] },
+    { text: POSTGRES_OPERATION_ROLLBACK_SQL, values: [] },
+    { text: POSTGRES_OPERATION_UNLOCK_SQL, values: [] },
+    { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+  ])
+}

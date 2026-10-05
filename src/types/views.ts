@@ -188,7 +188,14 @@ export type InferUpdateFromSchema<S extends TableSchema> = {
 }
 
 /** Resolve a table schema from a handle (`getSchema`) or raw Valibot table schema. */
-type SchemaOf<T> = T extends { getSchema(): infer D }
+type SchemaOf<T> = T extends {
+  /**
+   * Returns the table's original Valibot schema for validation and metadata lookup.
+   *
+   * @returns The table's original Valibot schema for validation and metadata lookup.
+   */
+  getSchema(): infer D
+}
   ? D extends TableSchema
     ? D
     : never
@@ -217,6 +224,13 @@ type SelectedColumnName<C> =
 
 /** Table name on a handle (`getTableMetadata().name`) when available. */
 export type TableNameOf<T> = T extends {
+  /**
+   * Returns the relation, primary-key, index, and ownership metadata attached to the
+   * table.
+   *
+   * @returns The relation, primary-key, index, and ownership metadata attached to the
+   *   table.
+   */
   getTableMetadata(): { name: infer N extends string }
 }
   ? N
@@ -224,6 +238,13 @@ export type TableNameOf<T> = T extends {
 
 /** Authored relation identity used to distinguish same-named relations. */
 export type TableIdentityOf<T> = T extends {
+  /**
+   * Returns the relation, primary-key, index, and ownership metadata attached to the
+   * table.
+   *
+   * @returns The relation, primary-key, index, and ownership metadata attached to the
+   *   table.
+   */
   getTableMetadata(): infer TMetadata
 }
   ? TMetadata extends { relation: infer TRelation }

@@ -1,6 +1,14 @@
+import type {
+  MetadataAction,
+  NumberSchema,
+  ObjectSchema,
+  SchemaWithPipe,
+  TitleAction,
+} from 'valibot'
 import { boolean, date, nullable, number, optional, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
+import type { Db, TableHandle, TableMetadata } from '@/index'
 import {
   QueryError,
   and,
@@ -146,7 +154,9 @@ describe('select compile', () => {
 
     await db.close()
   })
+})
 
+describe('select compile: should compile where with column ref and and/or/not', () => {
   it('should compile where with column ref and and/or/not', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -188,7 +198,9 @@ describe('select compile', () => {
 
     await db.close()
   })
+})
 
+describe('select compile: should compile multi-column orderBy and limit/offset', () => {
   it('should compile multi-column orderBy and limit/offset', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -210,7 +222,9 @@ describe('select compile', () => {
 
     await db.close()
   })
+})
 
+describe('select compile: should accumulate repeated predicates in one complete compiled query', () => {
   it('should accumulate repeated predicates in one complete compiled query', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -252,7 +266,9 @@ describe('select compile', () => {
 
     await db.close()
   })
+})
 
+describe('select expressions and aggregates', () => {
   it('should compile aggregates and groupBy/having', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -296,32 +312,15 @@ describe('select compile', () => {
 
     await db.close()
   })
+})
 
+describe('select expressions and aggregates: should compile public expression helpers and chained clauses', () => {
   it('should compile public expression helpers and chained clauses', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
     try {
-      const compiled = db
-        .from(Users)
-        .select((b) => [
-          b.as(lower(Users.email), 'normalizedEmail'),
-          b.as(length('email'), 'emailLength'),
-          b.as(now(), 'queriedAt'),
-          b.as(dateTrunc('day', Users.createdAt), 'day'),
-        ])
-        .where((b) =>
-          b.and(
-            neq('email', 'deleted@example.com'),
-            gte(Users.score, 10),
-            lt(Users.score, 100),
-            lte(Users.id, 99),
-          ),
-        )
-        .groupBy([Users.email, Users.score, Users.createdAt])
-        .having((b) => b.gte(Users.score, 1))
-        .orderBy(Users.email)
-        .compile()
+      const compiled = compilePublicExpressionQuery(db)
 
       expect(compiled.sql.toLowerCase()).toMatch(/lower\(/)
       expect(compiled.sql.toLowerCase()).toMatch(/length\(/)
@@ -347,25 +346,15 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select namespace resolution', () => {
   it('keeps omitted PostgreSQL relations unqualified for session namespace resolution', async () => {
-    const BareUsers = defineTable(
-      'users',
-      {
-        id: pipe(
-          number(),
-          column({
-            physicalType: { postgresql: 'integer' },
-            generation: { kind: 'identity', mode: 'byDefault' },
-          }),
-        ),
-        createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
-      },
-      { primaryKey: 'id' },
-    )
+    const BareUsers = createBareUsersTable()
     const when = new Date('2026-01-02T03:04:05.000Z')
     const relation = BareUsers.getTableMetadata().relation
     const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ createdAt: when.toISOString() }],
     })
     const db = createDatabase({ connector, schemas: [BareUsers] })
@@ -401,7 +390,9 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select namespace resolution: uses the registration default for omitted PostgreSQL relations over current_schema', () => {
   it('uses the registration default for omitted PostgreSQL relations over current_schema', async () => {
     const TenantUsers = defineTable(
       'tenant_users',
@@ -414,6 +405,7 @@ describe('select compile', () => {
     const when = new Date('2026-01-02T03:04:05.000Z')
     const connector = createMockConnector({
       currentSchema: 'public',
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ id: 1, createdAt: when.toISOString() }],
     })
     const db = createDatabase({
@@ -434,7 +426,9 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select namespace resolution: resolves reference column types through matching omitted relation intent', () => {
   it('resolves reference column types through matching omitted relation intent', () => {
     const BareUsers = defineTable(
       'users',
@@ -468,7 +462,9 @@ describe('select compile', () => {
 
     expect(mapper.columnTypes(Posts).userId).toBe('integer')
   })
+})
 
+describe('select namespace resolution: fails safely when omitted and explicit-schema handles may coincide by session', () => {
   it('fails safely when omitted and explicit-schema handles may coincide by session', async () => {
     const BareUsers = defineTable(
       'users',
@@ -506,9 +502,12 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select session identity and mapping', () => {
   it('aligns omitted query SQL with non-public and public session identity resolution', () => {
     const omitted = { relation: 'users' }
+    /** Compiles the current query or command into SQL and ordered bound parameters. */
     const compile = () =>
       postgresDialect.query.resolve([]).compile({
         kind: 'select',
@@ -549,7 +548,9 @@ describe('select compile', () => {
     expect(compile().sql).toContain('from "users" as "users"')
     expect(compile().sql).not.toContain('"public"')
   })
+})
 
+describe('select session identity and mapping: uses one non-public PostgreSQL session schema for migration identity and CRUD', () => {
   it('uses one non-public PostgreSQL session schema for migration identity and CRUD', async () => {
     const Items = defineTable(
       'items',
@@ -560,6 +561,7 @@ describe('select compile', () => {
     const crudPhysicalRelations: string[] = []
     const connector = createMockConnector({
       currentSchema,
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql(sql) {
         if (sql.includes('current_database() as database')) {
           return [{ database: 'test', schema: currentSchema, version: '160000' }]
@@ -595,7 +597,9 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select reference mapping and database guards', () => {
   it('conditionally reconciles omitted references with explicit public on a public session', async () => {
     const BareUsers = defineTable(
       'users',
@@ -622,6 +626,7 @@ describe('select compile', () => {
     const when = new Date('2026-04-05T06:07:08.000Z')
     const connector = createMockConnector({
       currentSchema: 'public',
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ userId: when.toISOString() }],
     })
     const db = createDatabase({ connector, schemas: [PublicUsers, Posts] })
@@ -634,7 +639,9 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select reference mapping and database guards: rejects omitted-to-public reference mapping on a tenant session before SQL', () => {
   it('rejects omitted-to-public reference mapping on a tenant session before SQL', async () => {
     const BareUsers = defineTable(
       'users',
@@ -667,7 +674,9 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select reference mapping and database guards: maps and executes database-plus-schema relations on the matching database', () => {
   it('maps and executes database-plus-schema relations on the matching database', async () => {
     const TenantOwners = defineTable(
       'owners',
@@ -680,24 +689,11 @@ describe('select compile', () => {
         ],
       },
     )
-    const TenantEvents = defineTable(
-      'events',
-      {
-        id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
-        ownerId: reference(TenantOwners, 'id'),
-        createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
-      },
-      {
-        primaryKey: 'id',
-        namespace: [
-          { role: 'database', spelling: 'appdb' },
-          { role: 'schema', spelling: 'tenant' },
-        ],
-      },
-    )
+    const TenantEvents = createTenantEventsTable(TenantOwners)
     const when = new Date('2026-03-04T05:06:07.000Z')
     const connector = createMockConnector({
       database: 'appdb',
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ createdAt: when.toISOString() }],
     })
     const mapper = createValueMapper(postgresDialect, undefined, [
@@ -722,7 +718,9 @@ describe('select compile', () => {
       await db.close()
     }
   })
+})
 
+describe('select reference mapping and database guards: rejects a mismatched authored PostgreSQL database before issuing query SQL', () => {
   it('rejects a mismatched authored PostgreSQL database before issuing query SQL', async () => {
     const TenantEvents = defineTable(
       'events',
@@ -755,7 +753,10 @@ describe('select compile', () => {
 describe('select execute terminals', () => {
   it('should return mock rows on execute / executeTakeFirst', async () => {
     const rows = [{ id: 1, email: 'a@b.com' }]
-    const connector = createMockConnector({ rowsBySql: () => rows })
+    const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
+      rowsBySql: () => rows,
+    })
 
     const db = createDatabase({ connector, schemas: [Users] })
 
@@ -772,7 +773,10 @@ describe('select execute terminals', () => {
 
   it('should allow executeTakeFirst and executeTakeFirstOrThrow on full-row select', async () => {
     const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
-    const connector = createMockConnector({ rowsBySql: () => rows })
+    const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
+      rowsBySql: () => rows,
+    })
 
     const db = createDatabase({ connector, schemas: [Users] })
     await expect(db.from(Users).executeTakeFirst()).resolves.toEqual(rows[0])
@@ -782,7 +786,10 @@ describe('select execute terminals', () => {
   })
 
   it('should throw QueryError on executeTakeFirstOrThrow when empty', async () => {
-    const connector = createMockConnector({ rowsBySql: () => [] })
+    const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
+      rowsBySql: () => [],
+    })
     const db = createDatabase({ connector, schemas: [Users] })
 
     await expect(db.from(Users).executeTakeFirstOrThrow()).rejects.toBeInstanceOf(
@@ -792,3 +799,110 @@ describe('select execute terminals', () => {
     await db.close()
   })
 })
+
+/**
+ * Compiles public expression query for the current fixture scenario.
+ *
+ * @param db - Database client exercised by this test scenario.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
+function compilePublicExpressionQuery(db: Db) {
+  return db
+    .from(Users)
+    .select((b) => [
+      b.as(lower(Users.email), 'normalizedEmail'),
+      b.as(length('email'), 'emailLength'),
+      b.as(now(), 'queriedAt'),
+      b.as(dateTrunc('day', Users.createdAt), 'day'),
+    ])
+    .where((b) =>
+      b.and(
+        neq('email', 'deleted@example.com'),
+        gte(Users.score, 10),
+        lt(Users.score, 100),
+        lte(Users.id, 99),
+      ),
+    )
+    .groupBy([Users.email, Users.score, Users.createdAt])
+    .having((b) => b.gte(Users.score, 1))
+    .orderBy(Users.email)
+    .compile()
+}
+
+/**
+ * Builds a fresh tenant events table handle for the schema scenario.
+ *
+ * @param TenantOwners - Table handle used to exercise tenant owners schema behavior.
+ *
+ * @returns A fresh tenant events table handle for the schema scenario.
+ */
+function createTenantEventsTable(
+  TenantOwners: TableHandle<
+    SchemaWithPipe<
+      readonly [
+        ObjectSchema<
+          {
+            id: SchemaWithPipe<
+              readonly [
+                NumberSchema<undefined>,
+                MetadataAction<
+                  number,
+                  { physicalType: { postgresql: string } } & { kind: 'column' }
+                >,
+              ]
+            >
+          },
+          undefined
+        >,
+        TitleAction<{ id: number }, 'owners'>,
+        MetadataAction<{ id: number }, TableMetadata<'owners'>>,
+      ]
+    >,
+    Readonly<{
+      namespace: readonly [
+        { readonly role: 'database'; readonly spelling: 'appdb' },
+        { readonly role: 'schema'; readonly spelling: 'tenant' },
+      ]
+      relation: 'owners'
+    }>
+  >,
+) {
+  return defineTable(
+    'events',
+    {
+      id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
+      ownerId: reference(TenantOwners, 'id'),
+      createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
+    },
+    {
+      primaryKey: 'id',
+      namespace: [
+        { role: 'database', spelling: 'appdb' },
+        { role: 'schema', spelling: 'tenant' },
+      ],
+    },
+  )
+}
+
+/**
+ * Builds a fresh bare users table handle for the schema scenario.
+ *
+ * @returns A fresh bare users table handle for the schema scenario.
+ */
+function createBareUsersTable() {
+  return defineTable(
+    'users',
+    {
+      id: pipe(
+        number(),
+        column({
+          physicalType: { postgresql: 'integer' },
+          generation: { kind: 'identity', mode: 'byDefault' },
+        }),
+      ),
+      createdAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
+    },
+    { primaryKey: 'id' },
+  )
+}

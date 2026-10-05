@@ -16,7 +16,10 @@ import type {
   DialectSchema,
   OperationCommand,
 } from '@/index'
-import type { NamespaceContext } from '@/migrations/canonicalRelationIdentity'
+import type {
+  CanonicalRelationIdentity,
+  NamespaceContext,
+} from '@/migrations/canonicalRelationIdentity'
 
 describe('public dialect member contract', () => {
   it('exposes every cohesive facet and keeps the database config connector-selected', () => {
@@ -57,7 +60,9 @@ describe('public dialect member contract', () => {
     expect(postgresDialect.migration.planning.schema).toBe(postgresDialect.schema)
     expect(postgresDialect.migration.catalog).toBe(postgresDialect.catalog)
   })
+})
 
+describe('public dialect member contract: binds PostgreSQL identity and naming semantics behind the facets', () => {
   it('binds PostgreSQL identity and naming semantics behind the facets', () => {
     const context: NamespaceContext = {
       writableDefault: [
@@ -89,27 +94,39 @@ describe('public dialect member contract', () => {
       /unpaired Unicode surrogates/,
     )
 
-    const registry = postgresDialect.naming.createRegistry()
-    registry.reserve({
-      kind: 'index',
-      owner: identity,
-      name: 'users_email_idx',
-      token: 'users-email',
-      description: 'users email index',
-    })
-
-    expect(() =>
-      registry.reserve({
-        kind: 'index',
-        owner: identity,
-        name: 'users_email_idx',
-        token: 'different-token',
-        description: 'another users email index',
-      }),
-    ).toThrow(/physical name collision/i)
+    assertPhysicalRegistryCollision(identity)
   })
+})
 
+describe('public dialect member contract: resolves the complete PostgreSQL dialect member', () => {
   it('resolves the complete PostgreSQL dialect member', () => {
     expect(resolveDialect('postgresql')).toBe(postgresDialect)
   })
 })
+
+/**
+ * Checks rejection when different owners claim the same physical index name.
+ *
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ */
+function assertPhysicalRegistryCollision(identity: CanonicalRelationIdentity) {
+  const registry = postgresDialect.naming.createRegistry()
+  registry.reserve({
+    kind: 'index',
+    owner: identity,
+    name: 'users_email_idx',
+    token: 'users-email',
+    description: 'users email index',
+  })
+
+  expect(() =>
+    registry.reserve({
+      kind: 'index',
+      owner: identity,
+      name: 'users_email_idx',
+      token: 'different-token',
+      description: 'another users email index',
+    }),
+  ).toThrow(/physical name collision/i)
+}

@@ -116,7 +116,9 @@ describe('public Migration Plan types', () => {
       Readonly<{ kind: 'create_table'; target: ExpectedRelationTarget }>
     >()
   })
+})
 
+describe('public Migration Plan types: keeps the preview grouped and non-executable', () => {
   it('keeps the preview grouped and non-executable', () => {
     expectTypeOf<MigrationDryRunStatement>().toEqualTypeOf<
       Readonly<{ sql: string; params: readonly '[REDACTED]'[] }>
@@ -146,7 +148,9 @@ describe('public Migration Plan types', () => {
     expectTypeOf<MigrationPlan>().not.toHaveProperty('sql')
     expectTypeOf<MigrationStep>().not.toHaveProperty('sql')
   })
+})
 
+describe('public Migration Plan types: addresses every step through one exact structured target union', () => {
   it('addresses every step through one exact structured target union', () => {
     expectTypeOf<MigrationNamespaceTarget>().toEqualTypeOf<ExpectedNamespaceTarget>()
     expectTypeOf<MigrationRelationTarget>().toEqualTypeOf<ExpectedRelationTarget>()
