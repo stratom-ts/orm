@@ -14,11 +14,25 @@
     "typescript/no-misused-promises": "error",
     "typescript/no-unnecessary-template-expression": "error",
     "typescript/no-unnecessary-type-arguments": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
     "typescript/no-unsafe-function-type": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
     "typescript/prefer-function-type": "error",
     "typescript/prefer-includes": "error",
     "typescript/prefer-reduce-type-parameter": "error",
+    "typescript/return-await": ["error", "error-handling-correctness-only"],
     "typescript/switch-exhaustiveness-check": "error",
     "typescript/use-unknown-in-catch-callback-variable": "error"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.ts"],
+      "rules": {
+        "typescript/explicit-module-boundary-types": "error"
+      }
+    }
+  ]
 }

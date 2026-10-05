@@ -44,13 +44,13 @@ afterEach(() => {
  */
 function createContractConnector() {
   let disposed = false
-  const getInstance = vi.fn(() => {
+  const getInstance = vi.fn<() => never>(() => {
     throw new Error('The selected member must not use connector.getInstance directly')
   })
-  const exec = vi.fn(() => {
+  const exec = vi.fn<() => never>(() => {
     throw new Error('The selected member must not use connector.exec directly')
   })
-  const prepare = vi.fn(() => {
+  const prepare = vi.fn<() => never>(() => {
     throw new Error('The selected member must not use connector.prepare directly')
   })
   const connector = {
@@ -851,7 +851,7 @@ it.each(['relations', 'absentRelations', 'completeNamespaces'] as const)(
         ...extensionCatalogContractInput,
         dialect: faultyDialect,
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/expected/i)
   },
 )
 
@@ -1158,7 +1158,7 @@ describe('dialect extension contract: rejects a compiler that disagrees with the
       expect(() => {
         expect(rows).toEqual(mismatched.expected.queryRows)
         expect(mismatched.queryParams()).toEqual([mismatched.expected.queryParam])
-      }).toThrow()
+      }).toThrow(/expected/i)
     } finally {
       await db.close()
     }

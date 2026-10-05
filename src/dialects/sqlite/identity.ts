@@ -1,5 +1,6 @@
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type {
+  CanonicalRelationIdentityModule,
   CanonicalRelationIdentityPolicy,
   NamespaceContext,
   NamespaceIdentifierInput,
@@ -49,7 +50,7 @@ export const sqliteIdentity = {
   create(options: {
     context: NamespaceContext
     registrationDefault?: readonly NamespaceIdentifierInput[]
-  }) {
+  }): CanonicalRelationIdentityModule {
     return createCanonicalRelationIdentityModule({
       policy: SQLITE_IDENTITY_POLICY,
       ...options,

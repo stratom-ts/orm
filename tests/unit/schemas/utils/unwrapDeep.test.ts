@@ -30,7 +30,7 @@ describe('unwrapDeep public contract', () => {
     expectTypeOf(unwrapped).toEqualTypeOf<typeof inner>()
     expect(unwrapped.pipe).toBe(inner.pipe)
     expect(parse(unwrapped, 'valid')).toBe('valid')
-    expect(() => parse(unwrapped, 'x'.repeat(41))).toThrow()
+    expect(() => parse(unwrapped, 'x'.repeat(41))).toThrow(/Invalid length/)
     expect(getColumnMetadata(unwrapped)).toMatchObject({ kind: 'column', unique: true })
   })
 })

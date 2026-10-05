@@ -163,7 +163,7 @@ describe('client query table handles: %s rejects a fully shaped forged handle be
       expect(() => startQuery(db, method, forgedHandle as never)).toThrow(
         expect.objectContaining({
           _tag: 'SchemaError',
-          message: expect.stringContaining(`db.${method}()`),
+          message: expect.stringContaining(`db.${method}()`) as unknown,
         }),
       )
 
@@ -185,7 +185,7 @@ describe('client query table handles: %s rejects a fully shaped forged handle be
         expect(() => startQuery(db, method, handle as never)).toThrow(
           expect.objectContaining({
             _tag: 'SchemaError',
-            message: expect.stringContaining(`db.${method}()`),
+            message: expect.stringContaining(`db.${method}()`) as unknown,
           }),
         )
       }
@@ -216,7 +216,7 @@ describe('client query table handles: %s rejects a non-handle with a tagged sche
       expect(() => startQuery(db, method, { relation: 'accounts' } as never)).toThrow(
         expect.objectContaining({
           _tag: 'SchemaError',
-          message: expect.stringContaining(`db.${method}()`),
+          message: expect.stringContaining(`db.${method}()`) as unknown,
         }),
       )
 
@@ -236,7 +236,7 @@ describe('client query table handles: %s rejects an unregistered handle with the
       expect(() => startQuery(db, method, AuditEvents as never)).toThrow(
         expect.objectContaining({
           _tag: 'SchemaError',
-          message: expect.stringMatching(/not registered/i),
+          message: expect.stringMatching(/not registered/i) as unknown,
         }),
       )
 

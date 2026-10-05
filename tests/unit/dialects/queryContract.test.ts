@@ -1,7 +1,7 @@
 import { number, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { Dialect, SelectAst } from '@/index'
+import type { CompiledQuery, Dialect, SelectAst } from '@/index'
 import { QueryError, column, defineTable, eq, postgresDialect, reference } from '@/index'
 import { createTableBuilder, createValueMapper } from '@/query'
 
@@ -10,25 +10,27 @@ import { exactQueryAddressing } from '../helpers/queryAddressing'
 describe('dialect query contract', () => {
   it('delivers authored relation intent to the selected query member', () => {
     const Events = createEventsTable()
-    const selectedCompile = vi.fn((node: SelectAst) => {
-      expect(node.relation).toEqual({
-        namespace: [{ role: 'database', spelling: 'analytics' }],
-        relation: 'events',
-      })
+    const selectedCompile = vi.fn<(node: SelectAst) => CompiledQuery>(
+      (node: SelectAst) => {
+        expect(node.relation).toEqual({
+          namespace: [{ role: 'database', spelling: 'analytics' }],
+          relation: 'events',
+        })
 
-      expect(node.selection).toEqual([
-        {
-          kind: 'column',
-          column: 'id',
-          relation: {
-            namespace: [{ role: 'database', spelling: 'analytics' }],
-            relation: 'events',
+        expect(node.selection).toEqual([
+          {
+            kind: 'column',
+            column: 'id',
+            relation: {
+              namespace: [{ role: 'database', spelling: 'analytics' }],
+              relation: 'events',
+            },
           },
-        },
-      ])
+        ])
 
-      return { sql: 'test member compiled query', params: [] }
-    })
+        return { sql: 'test member compiled query', params: [] }
+      },
+    )
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',
@@ -63,11 +65,13 @@ describe('dialect query contract: keeps omitted qualification omitted for the se
       { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
       { primaryKey: 'id' },
     )
-    const selectedCompile = vi.fn((node: SelectAst) => {
-      expect(node.relation).toEqual({ relation: 'events' })
-      expect(node.relation).not.toHaveProperty('namespace')
-      return { sql: 'unqualified test query', params: [] }
-    })
+    const selectedCompile = vi.fn<(node: SelectAst) => CompiledQuery>(
+      (node: SelectAst) => {
+        expect(node.relation).toEqual({ relation: 'events' })
+        expect(node.relation).not.toHaveProperty('namespace')
+        return { sql: 'unqualified test query', params: [] }
+      },
+    )
     const dialect: Dialect = {
       ...postgresDialect,
       id: 'sqlite',

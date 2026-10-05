@@ -1,0 +1,41 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "plugins": ["vitest"],
+  "rules": {
+    "vitest/no-focused-tests": "error",
+    "vitest/no-disabled-tests": "error",
+    "vitest/valid-expect": ["error", { "maxArgs": 2 }],
+    "vitest/valid-expect-in-promise": "error",
+    "vitest/expect-expect": [
+      "error",
+      {
+        "assertFunctionNames": [
+          "expect",
+          "expectTypeOf",
+          "assert*",
+          "runCatalogContract",
+          "runDialectLifecycleContract",
+          "runOperationSessionCommonContract"
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "tests/unit/dialects/dialectContractKit.ts",
+        "tests/unit/dialects/operationSessionProviderContract.ts"
+      ],
+      "rules": {
+        "vitest/no-conditional-tests": "off"
+      }
+    },
+    {
+      "files": ["tests/integration/support/dialectIntegrationContract.ts"],
+      "rules": {
+        "vitest/expect-expect": "off",
+        "vitest/valid-title": "off"
+      }
+    }
+  ]
+}

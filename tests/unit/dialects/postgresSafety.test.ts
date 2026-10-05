@@ -63,11 +63,13 @@ describe('PostgreSQL schema and SQL safety', () => {
     it('should reject semicolon-comment injection', () => {
       expect(() =>
         compile(createTable(col('x', { dataType: 'varchar(255);--' }))),
-      ).toThrow()
+      ).toThrow(/unsafe column data type/)
     })
 
     it('should reject empty data type', () => {
-      expect(() => compile(createTable(col('x', { dataType: '' })))).toThrow()
+      expect(() => compile(createTable(col('x', { dataType: '' })))).toThrow(
+        /non-empty string/,
+      )
     })
 
     it('should reject unknown data type', () => {

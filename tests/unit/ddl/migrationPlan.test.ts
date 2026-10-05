@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { PlannedMigration } from '@/ddl/migrationPlan'
 import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import type { AuthoredDesiredSchema, Dialect } from '@/dialects'
+import type { AuthoredDesiredSchema, CompiledQuery, Dialect } from '@/dialects'
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import type { TableHandle } from '@/index'
@@ -745,14 +745,14 @@ function createCustomPlanningDialect() {
  * @returns The planning dialect spies fixture used by the contract scenario.
  */
 function createPlanningDialectSpies() {
-  const introspect = vi.fn(async (_executor, request) =>
-    completePostgresCatalog(emptyCatalog(), request),
+  const introspect = vi.fn<Dialect['catalog']['introspectCatalog']>(
+    async (_executor, request) => completePostgresCatalog(emptyCatalog(), request),
   )
-  const compile = vi.fn(() => ({ sql: '', params: [] }))
+  const compile = vi.fn<() => CompiledQuery>(() => ({ sql: '', params: [] }))
   const identityModules: CanonicalRelationIdentityModule[] = []
   const identity = {
     id: 'custom-identity',
-    create: vi.fn(
+    create: vi.fn<Dialect['identity']['create']>(
       (options: {
         context: NamespaceContext
         registrationDefault?: readonly NamespaceIdentifierInput[]
@@ -767,13 +767,16 @@ function createPlanningDialectSpies() {
     ),
   }
   const naming = {
-    generate: vi.fn((seed: Parameters<typeof generatePhysicalName>[0]) =>
-      generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
+    generate: vi.fn<Dialect['naming']['generate']>(
+      (seed: Parameters<typeof generatePhysicalName>[0]) =>
+        generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
     ),
-    validate: vi.fn((name: string, description: string) =>
+    validate: vi.fn<Dialect['naming']['validate']>((name: string, description: string) =>
       validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
     ),
-    createRegistry: vi.fn(() => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING)),
+    createRegistry: vi.fn<Dialect['naming']['createRegistry']>(() =>
+      createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
+    ),
   }
   return { identity, naming, compile, introspect, identityModules }
 }

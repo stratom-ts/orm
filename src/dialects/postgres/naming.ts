@@ -3,7 +3,10 @@ import {
   generatePhysicalName,
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
-import type { PhysicalNamingProfile } from '@/migrations/physicalNaming'
+import type {
+  PhysicalNameRegistry,
+  PhysicalNamingProfile,
+} from '@/migrations/physicalNaming'
 
 /** PostgreSQL identifier length, comparison, and uniqueness scope. */
 export const POSTGRES_PHYSICAL_NAMING: PhysicalNamingProfile = {
@@ -22,14 +25,15 @@ export const POSTGRES_PHYSICAL_NAMING: PhysicalNamingProfile = {
 /** PostgreSQL physical naming semantics, bound to the selected dialect member. */
 export const postgresNaming = {
   /** Generates a deterministic physical name under the selected dialect's limits. */
-  generate: (seed: Parameters<typeof generatePhysicalName>[0]) =>
+  generate: (seed: Parameters<typeof generatePhysicalName>[0]): string =>
     generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
   /** Rejects physical identifiers that violate the selected dialect's naming rules. */
-  validate: (name: string, description: string) =>
+  validate: (name: string, description: string): void =>
     validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
   /**
    * Creates a registry that detects physical-name collisions in the selected uniqueness
    * scopes.
    */
-  createRegistry: () => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
+  createRegistry: (): PhysicalNameRegistry =>
+    createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING),
 }

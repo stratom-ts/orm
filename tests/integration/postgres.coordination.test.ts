@@ -368,7 +368,7 @@ async function assertLockContention(
 
   expect(rejected(await cancelledOutcome)).toMatchObject({
     _tag: 'MigrationError',
-    message: expect.stringMatching(/aborted/i),
+    message: expect.stringMatching(/aborted/i) as unknown,
     stage: 'lock',
     outcome: 'unchanged',
     retryable: true,
@@ -397,7 +397,9 @@ async function assertLockTimeout(observer: LockObserver, second: Db) {
 
   expect(rejected(await timedOut)).toMatchObject({
     _tag: 'MigrationError',
-    message: expect.stringContaining('Timed out acquiring the migration advisory lock'),
+    message: expect.stringContaining(
+      'Timed out acquiring the migration advisory lock',
+    ) as unknown,
     stage: 'lock',
     outcome: 'unchanged',
     retryable: true,

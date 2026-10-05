@@ -760,8 +760,8 @@ describe('PostgreSQL evidence-bearing catalog', () => {
     expect(catalog.constraintNameReservations.items).toContainEqual(
       expect.objectContaining({
         relation: expect.objectContaining({
-          relation: expect.objectContaining({ spelling: 'events' }),
-        }),
+          relation: expect.objectContaining({ spelling: 'events' }) as unknown,
+        }) as unknown,
         name: 'events_payload_not_null',
       }),
     )
@@ -801,7 +801,7 @@ describe('PostgreSQL evidence-bearing catalog: normalizes row-order permutations
 
     expect(relation.table.value.opaqueObjects.items[0]).toMatchObject({
       kind: 'trigger',
-      reason: expect.stringMatching(/not managed/i),
+      reason: expect.stringMatching(/not managed/i) as unknown,
     })
 
     expect(first.namespaces.items[0]!.relations.coverage).toMatchObject({

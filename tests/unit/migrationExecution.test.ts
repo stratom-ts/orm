@@ -424,7 +424,7 @@ function assertRollbackCancellationFailure(
         stage: 'rollback',
         cause: expect.objectContaining({
           message: 'Migration execution was aborted',
-        }),
+        }) as unknown,
       },
       { stage: 'sessionCleanup', cause: cancellationFailure },
     ],

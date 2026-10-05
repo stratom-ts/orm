@@ -328,10 +328,10 @@ describe('PostgreSQL whole-plan validation: rejects a mismatched $field before p
     'rejects a mismatched $field before physical step compilation',
     (testCase) => {
       const planned = plan()
-      const traversal = vi.fn(() => {
+      const traversal = vi.fn<() => never>(() => {
         throw new Error('step traversal started after a profile mismatch')
       })
-      const compilation = vi.fn(() => {
+      const compilation = vi.fn<() => never>(() => {
         throw new Error('physical step compilation started after a profile mismatch')
       })
       const guardedStep = createGuardedMigrationStep(planned, compilation)

@@ -311,7 +311,7 @@ describe('CRUD input validation: should reject empty where inputs synchronously 
 
     await expect(query.execute()).rejects.toMatchObject({
       _tag: 'QueryError',
-      message: expect.stringContaining('cannot combine where(...) and .all()'),
+      message: expect.stringContaining('cannot combine where(...) and .all()') as unknown,
     })
 
     expect(connector.prepared).toEqual([])
@@ -329,7 +329,7 @@ describe('CRUD input validation: should reject update all().where(...) before co
 
     await expect(query.execute()).rejects.toMatchObject({
       _tag: 'QueryError',
-      message: expect.stringContaining('cannot combine where(...) and .all()'),
+      message: expect.stringContaining('cannot combine where(...) and .all()') as unknown,
     })
 
     expect(connector.prepared).toEqual([])
@@ -346,7 +346,7 @@ describe('CRUD input validation: should reject an empty delete predicate with a 
     expect(() => db.delete(Users).where({} as never)).toThrow(
       expect.objectContaining({
         _tag: 'QueryError',
-        message: expect.stringMatching(/requires at least one key/i),
+        message: expect.stringMatching(/requires at least one key/i) as unknown,
       }),
     )
 
@@ -363,7 +363,7 @@ describe('CRUD input validation: should reject an empty delete predicate with a 
 
     await expect(query.execute()).rejects.toMatchObject({
       _tag: 'QueryError',
-      message: expect.stringContaining('cannot combine where(...) and .all()'),
+      message: expect.stringContaining('cannot combine where(...) and .all()') as unknown,
     })
 
     expect(connector.prepared).toEqual([])
@@ -381,7 +381,7 @@ describe('CRUD input validation: should reject an empty delete predicate with a 
 
     await expect(query.execute()).rejects.toMatchObject({
       _tag: 'QueryError',
-      message: expect.stringContaining('cannot combine where(...) and .all()'),
+      message: expect.stringContaining('cannot combine where(...) and .all()') as unknown,
     })
 
     expect(connector.prepared).toEqual([])

@@ -51,7 +51,7 @@ function assertMainNamespace(
     })
   }
 
-  const segment = value[0]
+  const segment: unknown = value[0]
 
   if (
     typeof segment !== 'object' ||
@@ -295,7 +295,7 @@ function compilePredicate(
     case 'cmp':
       return compileComparison(predicate, params, relations, resolveRelation)
     case 'and':
-      if (!Array.isArray(predicate.preds)) {
+      if (!Array.isArray(predicate.preds as unknown)) {
         throw new QueryError({ message: 'and predicate requires a predicate array' })
       }
 
@@ -310,7 +310,7 @@ function compilePredicate(
         .map((item) => compilePredicate(item, params, relations, resolveRelation))
         .join(' and ')})`
     case 'or':
-      if (!Array.isArray(predicate.preds)) {
+      if (!Array.isArray(predicate.preds as unknown)) {
         throw new QueryError({ message: 'or predicate requires a predicate array' })
       }
 
@@ -506,7 +506,7 @@ function compileSelect(
   node: SelectAst,
   resolveRelation: SqliteQueryRelationResolver,
 ): CompiledQuery {
-  if (!Array.isArray(node.selection)) {
+  if (!Array.isArray(node.selection as unknown)) {
     throw new QueryError({ message: 'select items must be an array' })
   }
 
@@ -600,7 +600,7 @@ function compileInsert(
 ): CompiledQuery {
   if (
     !Array.isArray(node.columns) ||
-    !Array.isArray(node.values) ||
+    !Array.isArray(node.values as unknown) ||
     node.values.length === 0
   ) {
     throw new QueryError({ message: 'insert requires at least one values row' })
@@ -676,7 +676,7 @@ function compileUpdate(
   node: UpdateAst,
   resolveRelation: SqliteQueryRelationResolver,
 ): CompiledQuery {
-  if (!Array.isArray(node.set) || node.set.length === 0) {
+  if (!Array.isArray(node.set as unknown) || node.set.length === 0) {
     throw new QueryError({ message: 'update requires at least one SET column' })
   }
 

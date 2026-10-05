@@ -2,7 +2,7 @@ import { nullable, pipe, string } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
-import type { AuthoredDesiredSchema, Dialect } from '@/dialects'
+import type { AuthoredDesiredSchema, CompiledQuery, Dialect } from '@/dialects'
 import { postgresDialect } from '@/dialects'
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import type { LoweredDesiredSchema } from '@/dialects/types'
@@ -430,8 +430,9 @@ describe('desired-schema reference metadata and value mapping: validates referen
       /not registered/i,
     )
 
-    const globalMap = vi.fn((_dataType: string, value: unknown) =>
-      typeof value === 'string' ? `global:${value}` : value,
+    const globalMap = vi.fn<(dataType: string, value: unknown) => unknown>(
+      (_dataType: string, value: unknown) =>
+        typeof value === 'string' ? `global:${value}` : value,
     )
     const globalMapper = createValueMapper(
       postgresDialect,
@@ -441,8 +442,9 @@ describe('desired-schema reference metadata and value mapping: validates referen
     expect(globalMapper.mapParam(Source, 'targetId', 'abc')).toBe('global:abc')
     expect(globalMap).toHaveBeenCalledWith('uuid', 'abc')
 
-    const dialectMap = vi.fn((_dataType: string, value: unknown) =>
-      typeof value === 'string' ? `dialect:${value}` : value,
+    const dialectMap = vi.fn<(dataType: string, value: unknown) => unknown>(
+      (_dataType: string, value: unknown) =>
+        typeof value === 'string' ? `dialect:${value}` : value,
     )
     const dialectMapper = createValueMapper(
       {
@@ -475,13 +477,13 @@ function createFakeSqliteFacets(identity: {
 
   const lowerDesiredSchema = lowerFakeSqliteDesiredSchema
 
-  const inferColumnType = vi.fn(() => {
+  const inferColumnType = vi.fn<() => never>(() => {
     throw new Error('fake adapter inference must not be used by this contract')
   })
-  const normalizeDataType = vi.fn((value: string) => value)
-  const compile = vi.fn(() => ({ sql: '', params: [] }))
+  const normalizeDataType = vi.fn<(value: string) => string>((value: string) => value)
+  const compile = vi.fn<() => CompiledQuery>(() => ({ sql: '', params: [] }))
   const catalog = {
-    introspectCatalog: vi.fn(async () => {
+    introspectCatalog: vi.fn<() => Promise<never>>(async () => {
       throw new Error('fake adapter introspection is outside this contract')
     }),
   }

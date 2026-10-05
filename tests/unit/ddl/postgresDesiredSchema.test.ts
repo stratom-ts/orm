@@ -17,6 +17,7 @@ import { MigrationError, column, defineTable, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { validateInsertRow } from '@/query'
 import type { TableHandle } from '@/types'
+import { attemptSync } from '@/utils/error'
 
 import { relation as canonicalRelation, identifier } from '../helpers/planTargets'
 
@@ -95,14 +96,14 @@ describe('PostgreSQL desired-schema validation', () => {
      * @returns The expected MigrationError; successful lowering fails the test.
      */
     const loweringError = (table: TableHandle): MigrationError => {
-      try {
-        lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema)
-      } catch (error) {
-        expect(error).toBeInstanceOf(MigrationError)
-        return error as MigrationError
-      }
+      const result = attemptSync(() =>
+        lowerDesiredSchema([table], postgresIdentities(), postgresDialect.schema),
+      )
 
-      throw new Error('Expected desired-schema lowering to fail')
+      if (result.ok) throw new Error('Expected desired-schema lowering to fail')
+
+      expect(result.error).toBeInstanceOf(MigrationError)
+      return result.error as MigrationError
     }
 
     const PhysicalForward = createPhysicalForwardTable()
