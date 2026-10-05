@@ -1037,6 +1037,7 @@ function relationNamed(snapshot: CatalogSnapshot, name: string): CatalogRelation
   const relation = snapshot.namespaces.items[0]?.relations.items.find(
     (entry) => entry.identity.relation.spelling === name,
   )
+
   expect(relation).toBeDefined()
 
   if (relation === undefined) throw new Error(`Missing SQLite relation ${name}`)
@@ -1175,6 +1176,7 @@ describe('SQLite catalog management and opaque evidence', () => {
       executeExternal(false),
       request,
     )
+
     const reversed = await sqliteCatalog.introspectCatalog(executeExternal(true), request)
     const parent = relationNamed(snapshot, 'parent')
 
@@ -1237,6 +1239,7 @@ describe('SQLite catalog management and opaque evidence: preserves CHECK, genera
       fixtureExecutor({ checkConstraint: true }),
       request,
     )
+
     const checkedParent = relationNamed(checked, 'parent')
 
     expect(checkedParent.management).toBe('unmanaged')
@@ -1255,6 +1258,7 @@ describe('SQLite catalog management and opaque evidence: preserves CHECK, genera
       fixtureExecutor({ namedConstraint: true, withoutOpaqueDependencies: true }),
       request,
     )
+
     const parent = relationNamed(snapshot, 'parent')
     const parentTable = tableOf(parent)
 
@@ -1307,6 +1311,7 @@ describe('SQLite catalog trigger names', () => {
       fixtureExecutor({ triggerNameCollision: true }),
       request,
     )
+
     expect(relationNamed(snapshot, 'parent')).toBeDefined()
 
     expect(
@@ -1325,6 +1330,7 @@ describe('SQLite catalog constraints and dependencies', () => {
       fixtureExecutor({ withoutOpaqueDependencies: true, simpleForeignKey: true }),
       request,
     )
+
     const simple = relationNamed(snapshot, 'simple')
     expect(simple.management).toBe('managed')
 
@@ -1348,6 +1354,7 @@ describe('SQLite catalog constraints and dependencies: keeps uncomparable native
       fixtureExecutor({ withoutOpaqueDependencies: true, opaqueDefault: true }),
       request,
     )
+
     const relation = relationNamed(snapshot, 'simple')
     const table = tableOf(relation)
 
@@ -1378,6 +1385,7 @@ describe('SQLite catalog constraints and dependencies: keeps rich auto-index UNI
       fixtureExecutor({ withoutOpaqueDependencies: true, richUniqueIndex: true }),
       request,
     )
+
     const relation = relationNamed(snapshot, 'simple')
     const table = tableOf(relation)
 
@@ -1402,6 +1410,7 @@ describe('SQLite catalog constraints and dependencies: treats authored MATCH cla
       }),
       request,
     )
+
     const child = relationNamed(snapshot, 'child')
 
     expect(child.management).toBe('unmanaged')
@@ -1445,6 +1454,7 @@ describe('SQLite catalog constraints and dependencies: reports SQLite owner fact
       fixtureExecutor({ withoutOpaqueDependencies: true, crossTableTrigger: true }),
       request,
     )
+
     const child = relationNamed(snapshot, 'child')
 
     expect(child.management).toBe('unmanaged')
@@ -1479,12 +1489,14 @@ describe('SQLite catalog table clauses and name reservations', () => {
         fixtureExecutor({ withoutOpaqueDependencies: true, richerClause }),
         request,
       )
+
       const relation = relationNamed(
         snapshot,
         richerClause === 'deferrable' || richerClause === 'initially'
           ? 'child'
           : 'simple',
       )
+
       const table = tableOf(relation)
 
       expect(relation.management).toBe('unmanaged')
@@ -1507,6 +1519,7 @@ describe('SQLite catalog table clauses and name reservations', () => {
       fixtureExecutor({ withoutOpaqueDependencies: true, scannerDecoys: true }),
       request,
     )
+
     expect(relationNamed(decoy, 'simple').management).toBe('managed')
 
     expect(
@@ -1523,6 +1536,7 @@ describe('SQLite catalog table clauses and name reservations: preserves the INTE
       fixtureExecutor({ withoutOpaqueDependencies: true }),
       request,
     )
+
     const relation = relationNamed(snapshot, 'pk_desc')
     const table = tableOf(relation)
 
@@ -1546,6 +1560,7 @@ describe('SQLite catalog table clauses and name reservations: blocks tables when
       fixtureExecutor({ viewTrigger: true }),
       request,
     )
+
     const parent = relationNamed(snapshot, 'parent')
     expect(parent.management).toBe('unmanaged')
 
@@ -1575,6 +1590,7 @@ describe('SQLite catalog table clauses and name reservations: reserves unrelated
       completeNamespaces: [],
       relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
     })
+
     expect(s.nameReservations.coverage.state).toBe('complete')
     expect(s.nameReservations.items.map((n) => n.name)).toContain('parent_n')
     expect(s.nameReservations.items.map((n) => n.name)).toContain('u_auto')
@@ -1597,6 +1613,7 @@ describe('SQLite catalog requests and validation', () => {
       absentRelations: [{ relation: 'missing' }],
       completeNamespaces: [],
     })
+
     expect(s.request.absentRelations).toHaveLength(1)
 
     expect(
@@ -1684,6 +1701,7 @@ describe('SQLite catalog requests and validation: gates versions before querying
       },
       request,
     )
+
     expect(calls).toHaveLength(1)
 
     expect(old.capabilities.identity).toEqual({
@@ -1741,6 +1759,7 @@ describe('SQLite catalog namespace and request resolution', () => {
       absentRelations: [],
       completeNamespaces: [],
     })
+
     expect(result.request.relations).toHaveLength(1)
   })
 })
@@ -1776,6 +1795,7 @@ describe('SQLite catalog namespace and request resolution: parameterizes and obs
         completeNamespaces: [],
       },
     )
+
     const table = tableOf(relationNamed(snapshot, tableName))
     expect(table.indexes.items.map((index) => index.name)).toContainEqual({
       state: 'present',
@@ -1815,6 +1835,7 @@ describe('SQLite catalog namespace and request resolution: reports unsupported o
       ...request,
       relations: [{ relation: { relation: 'x' }, shape: 'additive' }],
     })
+
     expect(result.request.relations[0]!.shape).toBe('additive')
   })
 })
@@ -1902,6 +1923,7 @@ describe('SQLite catalog foreign-key evidence and ordering', () => {
       completeNamespaces: [],
       relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
     })
+
     const child = result.namespaces.items[0]!.relations.items.find(
       (entry) => entry.identity.relation.spelling === 'child',
     )!
@@ -1938,6 +1960,7 @@ describe('SQLite catalog foreign-key evidence and ordering: matches explicit for
       },
       request,
     )
+
     const child = relationNamed(snapshot, 'child')
     expect(tableOf(child).foreignKeys.items[0]).toMatchObject({
       columns: ['pa'],
@@ -2025,6 +2048,7 @@ describe('SQLite catalog foreign-key evidence and ordering: orders unresolved FK
     const virtual = result.namespaces.items[0]!.relations.items.find(
       (entry) => entry.identity.relation.spelling === 'virt',
     )!
+
     expect(virtual.kind).toBe('virtualTable')
     expect(virtual.management).toBe('unmanaged')
     expect(virtual.nativeDefinition.state).toBe('present')

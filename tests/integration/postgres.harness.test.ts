@@ -16,6 +16,7 @@ async function expectSchemasAbsent(schemas: readonly string[]): Promise<void> {
       'select nspname from pg_namespace where nspname = any($1::text[]) order by nspname',
       [[...schemas]],
     )
+
     expect(remaining.rows).toEqual([])
   } finally {
     await admin.end()
@@ -40,9 +41,11 @@ async function expectBackendsAbsent(sessions: readonly ObservedSession[]): Promi
       'select pid::text as pid from pg_stat_activity where pid = any($1::int[]) order by pid',
       [sessions.map(({ physicalSession }) => Number(physicalSession))],
     )
+
     const rolesBySession = new Map(
       sessions.map(({ role, physicalSession }) => [physicalSession, role] as const),
     )
+
     expect(
       remaining.rows,
       `Open PostgreSQL backends: ${
@@ -110,11 +113,13 @@ function registerLifecycleIntegration() {
         const adminIdentity = await admin.query<{ physicalSession: string }>(
           'select pg_backend_pid()::text as "physicalSession"',
         )
+
         const physicalSession = adminIdentity.rows[0]!.physicalSession
         sessions.set(physicalSession, { role: 'admin', physicalSession })
         const additional = createDatabase([] as const, {
           hooks: { before: observeSession('additional') },
         })
+
         await db.ping()
         await additional.ping()
         return [schema, alternateSchema] as const

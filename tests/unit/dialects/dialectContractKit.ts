@@ -288,6 +288,7 @@ export async function runOperationSessionCommonContract(
     const release = session
       ? await attempt(() => session!.release(completed ? 'reuse' : 'discard'))
       : undefined
+
     const close = await attempt(() => provider.close())
 
     if (release && !release.ok) {
@@ -653,6 +654,7 @@ function registerDesiredSchema(
         ? {}
         : { registrationDefault: input.registrationDefault }),
     })
+
     const actual = lowerDesiredSchema(input.handles, identities, input.dialect.schema)
     expect(
       actual.tables.map((table) => ({
@@ -693,6 +695,7 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
           ? {}
           : { registrationDefault: input.registrationDefault }),
       })
+
       expect({
         relationMatches: resolved
           .findRelationMatches(input.relation)
@@ -826,6 +829,7 @@ export async function runCatalogContract(input: CatalogContractInput): Promise<v
     input.executor,
     input.request,
   )
+
   expect({
     sourceDialect: snapshot.source.dialect,
     writableDefault: snapshot.namespaceContext.writableDefault,
@@ -942,6 +946,7 @@ function registerMigration(name: string, support: ContractSupport<MigrationContr
           input.planned,
           mismatchCase.profile,
         )
+
         expect(mismatch.program, field).toBeUndefined()
         expect(mismatch.issues, field).toEqual(mismatchCase.issues)
       }

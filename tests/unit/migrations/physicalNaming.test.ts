@@ -32,24 +32,29 @@ const context = {
     { role: 'schema' as const, spelling: 'public' },
   ],
 }
+
 const identities = createCanonicalRelationIdentityModule({
   policy: POSTGRES_POLICY,
   context,
 })
+
 const sqliteIdentities = createCanonicalRelationIdentityModule({
   policy: SQLITE_IDENTITY_POLICY,
   context: {
     writableDefault: [{ role: 'database', spelling: 'main' }],
   },
 })
+
 const emptyReservations = {
   nameReservations: [],
   constraintNameReservations: [],
 }
+
 const supportedSimple = {
   semanticCompleteness: 'supportedSimple' as const,
   isValid: true,
 }
+
 const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 
 /** Resolves a PostgreSQL fixture relation for physical-name ownership checks. */
@@ -76,6 +81,7 @@ describe('generated physical naming', () => {
       columns: ['email'],
       unique: false,
     }
+
     expect(physicalNameDigest(seed)).toBe('5a64532c865bca5a')
 
     expect(
@@ -150,6 +156,7 @@ describe('generated physical naming: truncates only the readable UTF-8 prefix wi
       false,
       POSTGRES_PHYSICAL_NAMING,
     )
+
     expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(63)
     expect(name).toMatch(/__[0-9a-f]{16}_idx$/)
     expect(name).not.toMatch(/[\ud800-\udbff]$/)
@@ -320,6 +327,7 @@ describe('physical name validation and legacy adoption', () => {
         indexes: [{ name: 'x'.repeat(64), columns: ['email'] }],
       },
     )
+
     expect(() =>
       planMigration(
         [TooLong],
@@ -336,6 +344,7 @@ describe('physical name validation and legacy adoption', () => {
       },
       { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
     )
+
     const Second = defineTable(
       'second',
       {
@@ -344,6 +353,7 @@ describe('physical name validation and legacy adoption', () => {
       },
       { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
     )
+
     expect(() =>
       planMigration(
         [Second, First],
@@ -364,6 +374,7 @@ describe('physical name validation and legacy adoption: adopts one legacy genera
       },
       { primaryKey: 'id', indexes: [{ columns: ['createdAt'] }] },
     )
+
     const catalog: CatalogSnapshot = {
       namespaceContext: context,
       ...emptyReservations,
@@ -387,6 +398,7 @@ describe('physical name validation and legacy adoption: adopts one legacy genera
         },
       ],
     }
+
     expect(planMigration([Events], catalog, postgresDialect)).toEqual({ steps: [] })
 
     catalog.tables[0]!.indexes!.push({
@@ -412,12 +424,14 @@ describe('physical name validation and legacy adoption: checks generated names a
       },
       { primaryKey: 'id', indexes: [{ columns: ['payload'] }] },
     )
+
     const generated = generatedIndexName(
       owner('public', 'events'),
       ['payload'],
       false,
       POSTGRES_PHYSICAL_NAMING,
     )
+
     expect(() =>
       planMigration(
         [Events],
@@ -446,6 +460,7 @@ describe('physical name validation and legacy adoption: adopts legacy constraint
       },
       { primaryKey: 'id' },
     )
+
     const catalog: CatalogSnapshot = {
       namespaceContext: context,
       ...emptyReservations,
@@ -468,6 +483,7 @@ describe('physical name validation and legacy adoption: adopts legacy constraint
         },
       ],
     }
+
     expect(planMigration([Accounts], catalog, postgresDialect)).toEqual({ steps: [] })
 
     catalog.tables[0]!.uniqueConstraints!.push({

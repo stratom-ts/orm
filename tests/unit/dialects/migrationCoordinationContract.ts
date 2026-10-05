@@ -117,12 +117,14 @@ export function registerMigrationCoordinationContract(
       const owners = new Map<string, string>()
       const sharedLockManager: CoordinationContractLockManager =
         createCoordinationLockManager(owners)
+
       const first = createRuntime({
         applicationId: 'contract',
         clientId: 'first',
         holdAfterTransaction: true,
         sharedLockManager,
       })
+
       const second = createRuntime({
         applicationId: 'contract',
         clientId: 'second',
@@ -146,6 +148,7 @@ export function registerMigrationCoordinationContract(
         clientId: 'third',
         sharedLockManager,
       })
+
       await expect(afterRelease.execute()).resolves.toEqual({ outcome: 'applied' })
     })
 
@@ -258,6 +261,7 @@ function registerCoordinationFailureScenarios(
       applicationId: 'contract',
       releaseResults: [false],
     })
+
     await expect(applied.execute()).rejects.toMatchObject({
       stage: 'unlock',
       outcome: 'applied',
@@ -269,6 +273,7 @@ function registerCoordinationFailureScenarios(
       noWork: true,
       releaseResults: [false],
     })
+
     await expect(unchanged.execute()).rejects.toMatchObject({
       stage: 'unlock',
       outcome: 'unchanged',

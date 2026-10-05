@@ -249,9 +249,11 @@ describe('PostgreSQL whole-plan lowering: compiles a plan-atomic program with ca
     const postsCreate = statements.find((statement) =>
       /create table "public"\."posts"/i.test(statement.sql),
     )
+
     const usersCreateIndex = statements.findIndex((statement) =>
       /create table "public"\."users"/i.test(statement.sql),
     )
+
     const foreignKeyIndex = statements.findIndex((statement) =>
       /foreign key \("authorId"\)/i.test(statement.sql),
     )
@@ -331,9 +333,11 @@ describe('PostgreSQL whole-plan validation: rejects a mismatched $field before p
       const traversal = vi.fn<() => never>(() => {
         throw new Error('step traversal started after a profile mismatch')
       })
+
       const compilation = vi.fn<() => never>(() => {
         throw new Error('physical step compilation started after a profile mismatch')
       })
+
       const guardedStep = createGuardedMigrationStep(planned, compilation)
       const guardedPlan = {
         ...planned,
@@ -419,6 +423,7 @@ describe('PostgreSQL lowering dependencies and malformed steps', () => {
           : segment,
       ),
     }
+
     const malformed: PlannedMigration = {
       ...planned,
       plan: {
@@ -444,6 +449,7 @@ describe('PostgreSQL lowering dependencies and malformed steps', () => {
       },
       desiredTables: planned.identities.createRegistry(),
     }
+
     const result = postgresDialect.migration!.lower(malformed, expectedProfile)
 
     assertMalformedPlanIssues(result, malformed)
@@ -457,10 +463,12 @@ describe('PostgreSQL lowering dependencies and malformed steps: orders child tab
       namespace: [{ role: 'schema', spelling: 'public' }],
       relation: 'users',
     })
+
     const child = planned.identities.resolve({
       namespace: [{ role: 'schema', spelling: 'public' }],
       relation: 'posts',
     })
+
     const dropPlan: PlannedMigration = createDependentDropPlan(planned, parent, child)
 
     expect(lower(dropPlan).actions.map((action) => action.sourceStepIndexes)).toEqual([
@@ -489,12 +497,14 @@ describe('PostgreSQL lowering dependencies and malformed steps: reports unsuppor
       onDelete: 'no action' as const,
       onUpdate: 'no action' as const,
     })
+
     const cyclePlan: PlannedMigration = createCyclicDropPlan(
       planned,
       parent,
       child,
       foreignKey,
     )
+
     const result = postgresDialect.migration!.lower(cyclePlan, expectedProfile)
 
     expect(result.program).toBeUndefined()
@@ -565,6 +575,7 @@ describe('PostgreSQL lowering preconditions and target validation: rejects cross
         ],
       },
     }
+
     const result = postgresDialect.migration!.lower(crossDatabase, expectedProfile)
 
     expect(result.program).toBeUndefined()
@@ -631,6 +642,7 @@ describe('PostgreSQL lowering preconditions and target validation: rejects Postg
           ],
         },
       }
+
       const result = postgresDialect.migration!.lower(malformed, expectedProfile)
 
       expect(result.program).toBeUndefined()
@@ -676,6 +688,7 @@ function createGuardedMigrationStep(planned: PlannedMigration, compilation: () =
     },
     notNull: false,
   }
+
   return guardedStep
 }
 

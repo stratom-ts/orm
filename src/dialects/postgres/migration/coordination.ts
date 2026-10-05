@@ -191,6 +191,7 @@ export async function runCancellable<T>(options: {
     (value) => ({ kind: 'value' as const, value }),
     (cause: unknown) => ({ kind: 'error' as const, cause }),
   )
+
   const result = await Promise.race([settled, interrupted])
 
   if (timer) clearTimeout(timer)
@@ -273,6 +274,7 @@ function armOperationInterruption(
       runtime.signal.addEventListener('abort', abort, { once: true })
     }
   })
+
   return { interrupted, timer, abort }
 }
 
@@ -364,6 +366,7 @@ async function releaseCancelledLocks(
         /** Releases confirmed advisory locks with cancellation controls. */
         operation: () => releaseCoordinationFailures(options, [identity]),
       })
+
       cleanupFailures.push(...failures)
     } catch (cause) {
       cleanupFailures.push({ stage: 'unlock', cause })
@@ -702,6 +705,7 @@ export async function assertPrecondition(
     sql: `select count(*)::int as count from ${relation} where ${quoteIdent(precondition.column)} is null`,
     params: [],
   })
+
   const count = Number((row as { count?: unknown } | undefined)?.count ?? 0)
 
   if (count > 0) {

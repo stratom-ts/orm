@@ -56,6 +56,7 @@ export function inferSqliteColumnType(
         Literal,
         ErrorMessage<BaseIssue<unknown>>
       >
+
       return inferSqliteLiteralType(literalSchema.literal)
     }
     case 'bigint':

@@ -37,6 +37,7 @@ describe('client value mapping', () => {
       note: 'settled',
       source: 'api',
     }
+
     const connector = createMockPostgresConnector({
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
@@ -47,6 +48,7 @@ describe('client value mapping', () => {
         },
       ],
     })
+
     const db = createDatabase({
       connector,
       schemas: [LedgerEntries],
@@ -86,6 +88,7 @@ describe('client value mapping: uses dialect defaults when no client override ex
       note: 'settled',
       source: 'api',
     }
+
     const connector = createMockPostgresConnector({
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
@@ -96,6 +99,7 @@ describe('client value mapping: uses dialect defaults when no client override ex
         },
       ],
     })
+
     const db = createDatabase({ connector, schemas: [LedgerEntries] })
 
     const compiled = db.insert(LedgerEntries).values(entry).compile()
@@ -124,6 +128,7 @@ describe('client value mapping: uses dialect defaults when no client override ex
         },
       ],
     })
+
     const db = createDatabase({ connector, schemas: [LedgerEntries] })
 
     const [row] = await db.from(LedgerEntries).execute()
@@ -154,6 +159,7 @@ describe('client value mapping: returns invalid timestamp and JSON text unchange
         },
       ],
     })
+
     const db = createDatabase({ connector, schemas: [LedgerEntries] })
 
     const [row] = await db.from(LedgerEntries).execute()
@@ -168,6 +174,7 @@ describe('client value mapping: returns invalid timestamp and JSON text unchange
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => rows,
     })
+
     const db = createDatabase({ connector, schemas: [LedgerEntries] })
 
     await expect(db.from(LedgerEntries).execute()).resolves.toEqual(rows)

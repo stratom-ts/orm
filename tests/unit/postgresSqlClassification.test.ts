@@ -86,6 +86,7 @@ describe('PostgreSQL SQL lexical classification: rewrites only executable Postgr
         return undefined
       },
     }
+
     const client = createNativePostgresClient((sql) => {
       prepared.push(sql)
       return statement
@@ -94,6 +95,7 @@ describe('PostgreSQL SQL lexical classification: rewrites only executable Postgr
     const sql =
       `alter table test alter column value set default '$1';\n` +
       `select "$2", $body$ $3 $body$, /* $4 */ $2, -- $5\n$1, $2`
+
     await client.query({
       text: sql,
       values: ['first', 'second'],
@@ -144,6 +146,7 @@ describe('PostgreSQL SQL lexical classification: rewrites only executable Postgr
         return undefined
       },
     }
+
     const client = createNativePostgresClient(() => statement)
 
     for (const sql of [

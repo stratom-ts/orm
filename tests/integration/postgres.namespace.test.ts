@@ -75,6 +75,7 @@ describe('PostgreSQL namespace and value integration', () => {
         ).query<{
           current_schema: string
         }>('select current_schema()')
+
         expect(current.rows[0]?.current_schema).toBe(schema)
 
         await db.migrate().execute()
@@ -83,6 +84,7 @@ describe('PostgreSQL namespace and value integration', () => {
         const rows = await admin.query<{ value: string }>(
           `select value from ${quoteIdentifier(schema)}.${quoteIdentifier('omitted_items')}`,
         )
+
         expect(rows.rows).toEqual([{ value: 'isolated' }])
         await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
       },
@@ -101,6 +103,7 @@ describe('PostgreSQL namespace and value integration: lets an explicit registrat
         ).query<{
           current_schema: string
         }>('select current_schema()')
+
         expect(current.rows[0]?.current_schema).toBe(alternateSchema)
 
         await db.migrate().execute()
@@ -109,10 +112,12 @@ describe('PostgreSQL namespace and value integration: lets an explicit registrat
         const target = await admin.query<{ value: string }>(
           `select value from ${quoteIdentifier(schema)}.${quoteIdentifier('omitted_items')}`,
         )
+
         const alternate = await admin.query<{ exists: boolean }>(
           `select to_regclass($1) is not null as exists`,
           [`${alternateSchema}.omitted_items`],
         )
+
         expect(target.rows).toEqual([{ value: 'explicit' }])
         expect(alternate.rows).toEqual([{ exists: false }])
       },
@@ -201,6 +206,7 @@ async function assertDefaultedEvent(admin: Client, db: Db, accountId: string) {
   const beforeDefault = await admin.query<{ now: Date }>(
     'select clock_timestamp() as now',
   )
+
   const defaulted = await db
     .insert(Events)
     .values({
@@ -209,6 +215,7 @@ async function assertDefaultedEvent(admin: Client, db: Db, accountId: string) {
       tags: ['default'],
     })
     .executeTakeFirstOrThrow()
+
   const afterDefault = await admin.query<{ now: Date }>('select clock_timestamp() as now')
 
   expect(defaulted).toMatchObject({
@@ -290,6 +297,7 @@ async function assertPhysicalIndexes(admin: Client, schema: string) {
     'select indexname from pg_indexes where schemaname = $1 order by indexname',
     [schema],
   )
+
   expect(indexes.rows.map(({ indexname }) => indexname)).toEqual(
     expect.arrayContaining(['accounts_email_uidx', 'events_created_at_idx']),
   )
@@ -307,6 +315,7 @@ async function assertPhysicalIndexes(admin: Client, schema: string) {
            and idx.relname = 'events_created_at_idx'`,
     [schema],
   )
+
   expect(ordinaryIndex.rows).toEqual([
     { indexName: 'events_created_at_idx', isUnique: false },
   ])

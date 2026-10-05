@@ -28,14 +28,17 @@ const context = {
     { role: 'schema' as const, spelling: 'public' },
   ],
 }
+
 const emptyReservations = {
   nameReservations: [],
   constraintNameReservations: [],
 }
+
 const supportedSimple = {
   semanticCompleteness: 'supportedSimple' as const,
   isValid: true,
 }
+
 const catalogPrimaryKey = createCatalogPrimaryKey(supportedSimple)
 
 const Users = defineTable(
@@ -223,22 +226,26 @@ describe('migration ownership identities and validation', () => {
         },
       ],
     }
+
     assertDottedOwnershipDiagnostics(dottedCatalog)
 
     const declarations = [
       { kind: 'relation' as const, relation: Users, shape: 'additive' as const },
       { kind: 'relation' as const, relation: Users, shape: 'complete' as const },
     ]
+
     /** Plans ownership declarations in their original order for determinism checks. */
     const first = () =>
       planMigration([Users], catalog(), postgresDialect, {
         migrationOwnership: declarations,
       })
+
     /** Plans ownership declarations in reverse order for determinism checks. */
     const second = () =>
       planMigration([Users], catalog(), postgresDialect, {
         migrationOwnership: [...declarations].reverse(),
       })
+
     expect(first).toThrow(/duplicate migration ownership relation/i)
     expect(second).toThrow(/duplicate migration ownership relation/i)
     const firstAttempt = attemptSync(first)
@@ -278,6 +285,7 @@ describe('migration ownership identities and validation: validates identifiers r
       tables: [],
       ...emptyReservations,
     }
+
     expect(() =>
       planMigration([], emptyCatalog, postgresDialect, {
         migrationOwnership: [
@@ -309,6 +317,7 @@ describe('migration ownership identities and validation: validates identifiers r
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id' },
     )
+
     const Referencing = defineTable(
       'referencing',
       {
@@ -317,6 +326,7 @@ describe('migration ownership identities and validation: validates identifiers r
       },
       { primaryKey: 'id' },
     )
+
     expect(() =>
       planMigration(
         [Referencing],
@@ -334,6 +344,7 @@ describe('migration ownership identities and validation: stabilizes SQLite-equiv
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
       { primaryKey: 'id' },
     )
+
     const sqliteIdentities = createCanonicalRelationIdentityModule({
       policy: SQLITE_IDENTITY_POLICY,
       context: {
@@ -352,6 +363,7 @@ describe('migration ownership identities and validation: stabilizes SQLite-equiv
       duplicateRelations[0]!,
       { kind: 'absentRelation' as const, relation: { relation: 'users' } },
     ]
+
     expect(message(contradictory)).toBe(message([...contradictory].reverse()))
 
     const duplicateNamespaces = [
@@ -364,6 +376,7 @@ describe('migration ownership identities and validation: stabilizes SQLite-equiv
         namespace: [{ role: 'database' as const, spelling: 'main' }],
       },
     ]
+
     expect(message(duplicateNamespaces)).toBe(message([...duplicateNamespaces].reverse()))
   })
 })

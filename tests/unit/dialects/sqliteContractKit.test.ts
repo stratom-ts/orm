@@ -2,9 +2,11 @@ import { date, integer, number, pipe, string } from 'valibot'
 
 import type { Dialect, SqlAst } from '@/dialects'
 import {
+  executeSqliteMigration,
   sqliteCatalog,
   sqliteIdentity,
   sqliteNaming,
+  sqliteOperations,
   sqliteQuery,
   sqliteSchema,
 } from '@/dialects/sqlite'
@@ -15,10 +17,15 @@ import type {
   DialectContractMemberCapabilities,
   QueryCompilerScenarios,
 } from './dialectContractKit'
+import {
+  sqliteCoordinationContractShard,
+  sqliteOperationSessionContractShard,
+} from './sqliteSharedShards'
 
 const namespaceContext = {
   writableDefault: [{ role: 'database' as const, spelling: 'main' }],
 }
+
 const registrationDefault = namespaceContext.writableDefault
 
 const Records = defineTable(
@@ -33,6 +40,7 @@ const Records = defineTable(
   },
   { primaryKey: 'id' },
 )
+
 const Events = defineTable(
   'events',
   { id: string(), record_id: string(), label: string() },
@@ -55,12 +63,7 @@ const sqliteContractDialect: Dialect = {
   schema: sqliteSchema,
   query: sqliteQuery,
   catalog: sqliteCatalog,
-  operations: {
-    /** Creates the connector's provider for exclusive native operation sessions. */
-    createSessionProvider: () => unsupportedFacet('operation sessions'),
-    /** Compiles the current query or command into SQL and ordered bound parameters. */
-    compile: () => unsupportedFacet('operation commands'),
-  },
+  operations: sqliteOperations,
   migration: {
     planning: { identity: sqliteIdentity, naming: sqliteNaming, schema: sqliteSchema },
     catalog: {
@@ -72,8 +75,7 @@ const sqliteContractDialect: Dialect = {
     },
     /** Lowers for the current fixture scenario. */
     lower: () => unsupportedFacet('migration lowering'),
-    /** Executes fixture SQL with the configured native observations. */
-    execute: async () => unsupportedFacet('migration execution'),
+    execute: executeSqliteMigration,
   },
 }
 
@@ -84,14 +86,12 @@ const sqliteContractCapabilities = {
   query: { state: 'supported', shard: 'semantic' },
   catalog: { state: 'supported', shard: 'semantic' },
   operationSession: {
-    state: 'unsupported',
-    reason: 'SQLite operation-session adaptation is not part of the ready facet set',
-    shard: 'semantic',
+    state: 'supported',
+    shard: 'operationSession',
   },
   coordination: {
-    state: 'unsupported',
-    reason: 'SQLite migration coordination is not part of the ready facet set',
-    shard: 'semantic',
+    state: 'supported',
+    shard: 'coordination',
   },
   migration: {
     state: 'unsupported',
@@ -598,14 +598,6 @@ registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities,
         },
       },
     },
-    operationSession: {
-      state: 'unsupported',
-      reason: 'SQLite operation-session adaptation is not part of the ready facet set',
-    },
-    coordination: {
-      state: 'unsupported',
-      reason: 'SQLite migration coordination is not part of the ready facet set',
-    },
     migration: {
       state: 'unsupported',
       reason: 'SQLite migration lowering is not part of the ready facet set',
@@ -615,4 +607,6 @@ registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities,
       reason: 'SQLite lifecycle support requires complete member assembly',
     },
   },
+  operationSession: sqliteOperationSessionContractShard,
+  coordination: sqliteCoordinationContractShard,
 })

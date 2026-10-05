@@ -65,6 +65,7 @@ describe('ValidationError', () => {
       message: 'bad insert',
       issues: [{ message: 'required' }],
     })
+
     expect(error).toBeInstanceOf(Error)
     expect(error._tag).toBe('ValidationError')
     expect(error.message).toBe('bad insert')
@@ -119,6 +120,7 @@ describe('catchTags', () => {
        */
       MigrationError: (e: MyError) => `handled: ${e.message}`,
     } as never)
+
     expect(result).toBe('handled: custom error')
   })
 
@@ -128,6 +130,7 @@ describe('catchTags', () => {
       /** Handles the custom tagged-error branch for dispatch checks. */
       MyError: () => 'handled',
     } as never)
+
     expect(result).toBe(error)
   })
 
@@ -136,6 +139,7 @@ describe('catchTags', () => {
       /** Handles the custom tagged-error branch for dispatch checks. */
       MyError: () => 'handled',
     } as never)
+
     expect(result).toBe('hello')
   })
 })

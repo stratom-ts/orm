@@ -144,6 +144,7 @@ function expectedDatabaseIdentifier(
     const namespace = planned.identities.resolveNamespace(
       expectedProfile.namespaceContext.writableDefault,
     )
+
     const database = namespace.at(0)
 
     if (namespace.length === 2 && database?.role === 'database') {
@@ -218,6 +219,7 @@ export function lowerPostgresMigrationPlan(
     transaction: 'required',
     statements: [draft.statement],
   }))
+
   return {
     program: {
       atomicity: 'plan-atomic',

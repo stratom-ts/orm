@@ -41,6 +41,7 @@ export function normalizePostgresDataType(dataType: string): string {
     json: 'json',
     jsonb: 'jsonb',
   }
+
   const withoutLength = normalized.replace(/\(\d+\)/, '').trim()
   const lengthMatch = normalized.match(/\((\d+)\)/)
 

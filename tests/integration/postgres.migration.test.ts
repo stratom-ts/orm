@@ -102,6 +102,7 @@ describe('PostgreSQL migration runtime integration', () => {
            where n.nspname = $1 and tbl.relname = 'not_null_records' and con.contype = 'n'`,
           [schema],
         )
+
         expect(Number(nullConstraints.rows[0]!.count)).toBeGreaterThan(0)
 
         const destructive = createDatabase([NotNullWithoutIndex], {
@@ -109,6 +110,7 @@ describe('PostgreSQL migration runtime integration', () => {
             { kind: 'relation', relation: NotNullWithoutIndex, shape: 'complete' },
           ],
         })
+
         const plan = await destructive.migrate().plan()
         expect(plan.steps.map((step) => step.kind)).toEqual(['drop_index'])
         await destructive.migrate().allow('dropIndex').execute()
@@ -219,6 +221,7 @@ async function assertConstructiveRowsAndOrphanRemoval(admin: Client, schema: str
     `select id, payload, legacy, added
            from ${quoteIdentifier(schema)}.${quoteIdentifier('managed_records')}`,
   )
+
   expect(preserved.rows).toEqual([
     { id: 'kept', payload: 'payload', legacy: 'legacy', added: 'added' },
   ])
@@ -227,6 +230,7 @@ async function assertConstructiveRowsAndOrphanRemoval(admin: Client, schema: str
     'select to_regclass($1)::text as relation',
     [`${schema}.managed_orphan`],
   )
+
   expect(removed.rows).toEqual([{ relation: null }])
 }
 
@@ -260,6 +264,7 @@ async function assertMigrationRetry(
     `select id, payload, "addedOne", "addedTwo"
          from ${quoteIdentifier(schema)}.${quoteIdentifier('rollback_records')}`,
   )
+
   expect(afterRetry.rows).toEqual([
     { id: rowId, payload: 'retained', addedOne: 'one', addedTwo: 'two' },
   ])
@@ -324,6 +329,7 @@ function createFailingMigrationDatabase(
       },
     },
   })
+
   return { failing, statements }
 }
 
@@ -349,6 +355,7 @@ async function assertRollbackPreservesCatalogAndRows(
          order by ordinal_position`,
     [schema],
   )
+
   expect(columnsAfterFailure.rows.map(({ column_name }) => column_name)).toEqual([
     'id',
     'payload',
@@ -363,6 +370,7 @@ async function assertRollbackPreservesCatalogAndRows(
            order by indexname`,
     [schema],
   )
+
   expect(indexesAfterFailure.rows).toEqual(indexesBefore.rows)
 
   expect(indexesAfterFailure.rows.map(({ indexname }) => indexname)).toContain(
@@ -372,5 +380,6 @@ async function assertRollbackPreservesCatalogAndRows(
   const original = await admin.query<{ id: string; payload: string }>(
     `select id, payload from ${quoteIdentifier(schema)}.${quoteIdentifier('rollback_records')}`,
   )
+
   expect(original.rows).toEqual([{ id: rowId, payload: 'retained' }])
 }

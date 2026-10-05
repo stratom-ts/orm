@@ -177,6 +177,7 @@ describe('defineTable: should support composite primary keys and index configs',
         ],
       },
     )
+
     expect(Membership.getTableMetadata().primaryKey).toEqual(['orgId', 'userId'])
 
     expect(Membership.getTableMetadata().indexes).toEqual([
@@ -367,6 +368,7 @@ describe('defineTable structural validation: should accept database and Valibot 
       { id: optional(string(), 'new') },
       { primaryKey: 'id' },
     )
+
     expect(parse(SchemaDefault.getSchema(), {})).toEqual({ id: 'new' })
     expect(validateInsertRow(SchemaDefault, {})).toEqual({ id: 'new' })
   })

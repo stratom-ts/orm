@@ -131,6 +131,7 @@ function requireComplete<T>(set: CatalogSet<T>, target: string): readonly T[] {
 
   const evidence =
     set.coverage.state === 'partial' ? set.coverage.remainder : set.coverage
+
   throw new MigrationError({
     message: `Incomplete catalog coverage for ${target}: ${evidenceDescription(evidence)}`,
   })
@@ -237,6 +238,7 @@ function appendPlanningRelation(
 
   const { columns, table, indexes, uniqueConstraints, foreignKeys, opaqueObjects } =
     requirePlanningTableEvidence(relation, target)
+
   const desired = desiredTables.get(relation.identity)
 
   const projectedColumns: PlanningCatalogColumn[] = columns.map((column) =>
@@ -276,6 +278,7 @@ function requirePlanningTableEvidence(relation: CatalogRelation, target: string)
     table.uniqueConstraints,
     `${target} unique constraints`,
   )
+
   const foreignKeys = requireComplete(table.foreignKeys, `${target} foreign keys`)
   const indexes = requireComplete(table.indexes, `${target} indexes`)
   requireComplete(table.options, `${target} table options`)
@@ -415,9 +418,11 @@ function projectPlanningRelations(
         spelling: identifier.spelling,
       })),
     )}`
+
     const explicitlyComplete = snapshot.request.completeNamespaces.some((requested) =>
       sameNamespace(requested, namespace.identity),
     )
+
     const relations =
       !explicitlyComplete &&
       namespace.relations.coverage.state === 'partial' &&
@@ -513,10 +518,12 @@ function projectPlanningColumn(
     column.dataType,
     `${identities.format(relation.identity, { role: 'column', spelling: column.name })} type`,
   )
+
   const nullable = requireFact(
     column.nullable,
     `${identities.format(relation.identity, { role: 'column', spelling: column.name })} nullability`,
   )
+
   const defaultExpression =
     column.default.state === 'absent'
       ? null
@@ -525,6 +532,7 @@ function projectPlanningColumn(
             .comparisonKey,
           `${target} column ${column.name} default comparison key`,
         )
+
   const generation =
     column.generation.state === 'absent'
       ? null

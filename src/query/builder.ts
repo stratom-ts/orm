@@ -364,6 +364,7 @@ function formatRelationInput(relation: RelationIdentityInput): string {
     relation.namespace?.map(
       ({ role, spelling }) => `${role}:${JSON.stringify(spelling)}`,
     ) ?? []
+
   segments.push(`relation:${JSON.stringify(relation.relation)}`)
   return `[${segments.join(', ')}]`
 }
@@ -463,6 +464,7 @@ function resultColumnsForSelection(
       const selectedHandles = item.relation
         ? [findHandle(query, handles, item.relation)]
         : handles
+
       addHandles(selectedHandles)
     } else if (item.kind === 'column') {
       const handle = findHandle(query, handles, item.relation)
@@ -476,6 +478,7 @@ function resultColumnsForSelection(
         expression.kind === 'column'
           ? findHandle(query, handles, expression.relation)
           : undefined
+
       add(
         item.alias,
         handle && expression.kind === 'column'
@@ -1334,6 +1337,7 @@ function buildSelectQuery(options: {
   const handles = [handle, ...state.joinedHandles]
   const selection =
     state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
+
   const resultColumns = resultColumnsForSelection(query, handles, selection)
   const ast: SelectAst = {
     kind: 'select',
@@ -1353,6 +1357,7 @@ function buildSelectQuery(options: {
       ? { having: mapPredicateParams(query, handles, mapper, state.having) }
       : {}),
   }
+
   return { ast, resultColumns }
 }
 
@@ -1827,6 +1832,7 @@ function buildInsertAst<THandle extends TableHandle>(
   const rawValues = rows.map((row) =>
     columnSet.map((col) => (Object.hasOwn(row, col) ? row[col] : undefined)),
   )
+
   const values = mapWriteParams(handle, mapper, columnSet, rawValues)
   return {
     kind: 'insert',
@@ -1881,6 +1887,7 @@ function buildUpdateAst<THandle extends TableHandle>(
     mapper,
     Object.entries(patch).map(([column, value]) => ({ column, value })),
   )
+
   return {
     kind: 'update',
     relation: info.relation,
@@ -2014,6 +2021,7 @@ function createSelectSelection<THandle extends TableHandle>(
             relation: metadata.relation,
           }
         : { kind: 'all' }
+
       return next({ selection: [...state.selection, item] }) as never
     },
 
@@ -2306,6 +2314,7 @@ function createWriteFilters(
   /** Combines an additional write predicate with the current filter. */
   const withWhere = (input: WhereInput) =>
     next({ where: mergeWhere(where, normalizeWhere(input)) })
+
   return {
     /**
      * Returns a builder with an additional predicate.

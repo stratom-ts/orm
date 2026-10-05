@@ -17,6 +17,9 @@ export { mapSqliteParamValue, mapSqliteResultValue } from './mapping'
 export { SQLITE_PHYSICAL_NAMING, sqliteNaming } from './naming'
 export { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
 export { resolveSqliteQuery } from './queryAddressing'
+export { createDb0NodeSqliteOperationSessionProvider } from './operationSession'
+export { compileSqliteOperationCommand, sqliteOperations } from './operations'
+export { executeSqliteMigration } from './migration'
 export {
   assertSafeSqliteDataType,
   formatSqliteDefaultExpression,

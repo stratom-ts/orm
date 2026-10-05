@@ -439,6 +439,7 @@ function createPostgresCallbackContext<TSchemas extends readonly TableHandle[], 
     admin,
     cleanup,
   } = input
+
   databaseState.db = createPostgresDatabase(connector, schema, schemas, options)
   return {
     db: databaseState.db,
@@ -457,6 +458,7 @@ function createPostgresCallbackContext<TSchemas extends readonly TableHandle[], 
         additionalSchemas,
         additionalOptions,
       )
+
       cleanup.push(() => additional.close())
       return additional
     },

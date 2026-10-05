@@ -195,6 +195,7 @@ class PostgresSqlScanner {
       this.#index > 0 &&
       this.sql[this.#index - 1]!.toLowerCase() === 'e' &&
       (this.#index === 1 || !isWordPart(this.sql[this.#index - 2]!))
+
     this.#markExecutable()
     this.#index++
     let closed = false

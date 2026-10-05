@@ -13,6 +13,7 @@ const Records = defineTable(
   },
   { primaryKey: 'id' },
 )
+
 const Events = defineTable(
   'events',
   {
@@ -108,6 +109,7 @@ describe('SQLite query validation', () => {
         columns: ['id'],
         values: [[undefined]],
       })
+
     expect(insertDefault).toThrow(QueryError)
     expect(insertDefault).toThrow(/DEFAULT as an individual VALUES/i)
 
@@ -119,6 +121,7 @@ describe('SQLite query validation', () => {
       sqliteQuery.resolve([Records], {
         registrationDefault: [{ role: 'database', spelling: 'archive' }],
       })
+
     expect(invalidDefault).toThrow(QueryError)
     expect(invalidDefault).toThrow(/database:main/i)
 
@@ -132,6 +135,7 @@ describe('SQLite query validation', () => {
         },
         selection: [],
       })
+
     expect(attachedRelation).toThrow(QueryError)
     expect(attachedRelation).toThrow(/database:main/i)
   })
@@ -148,6 +152,7 @@ describe('SQLite query validation: requires an explicit full-table opt-in for em
         where: { kind: 'and', preds: [] },
         allowAll: false,
       })
+
     /** Compiles an empty nested delete predicate to exercise write-safety rejection. */
     const nestedDelete = () =>
       compileSqlite({
@@ -174,6 +179,7 @@ describe('SQLite query validation: requires allowAll for writes without a predic
         set: [{ column: 'label', value: 'updated' }],
         allowAll: false,
       })
+
     /** Compiles an unrestricted delete to exercise write-safety rejection. */
     const blockedDelete = () =>
       compileSqlite({ kind: 'delete', relation: records, allowAll: false })
@@ -218,6 +224,7 @@ function assertUnsupportedSqliteJoinAndDateFunctions() {
         },
       ],
     })
+
   expect(rightJoin).toThrow(QueryError)
   expect(rightJoin).toThrow(/right joins/i)
 
@@ -241,6 +248,7 @@ function assertUnsupportedSqliteJoinAndDateFunctions() {
         },
       ],
     })
+
   expect(dateTrunc).toThrow(QueryError)
   expect(dateTrunc).toThrow(/date_trunc/i)
 }

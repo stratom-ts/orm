@@ -226,6 +226,60 @@ describe('Oxlint whitespace rule: separates a related %s declaration from a sing
   )
 })
 
+describe('Oxlint whitespace declarations: pads a multiline const', () => {
+  it('puts exactly one blank line after a multiline const declaration', async () => {
+    const source = `export async function example() {
+  const state: State = {
+    ready: false,
+    failures: [],
+  }
+  await prepare(state)
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export async function example() {
+  const state: State = {
+    ready: false,
+    failures: [],
+  }
+
+  await prepare(state)
+}
+`)
+  })
+
+  it('does not mistake an ASI-protection semicolon for a multiline const', async () => {
+    const source = `export function example(connector: Connector) {
+  const getInstance = connector.getInstance
+  ;(connector as { name: string }).name = 'custom'
+}
+`
+
+    await expect(formatWhitespace(source)).resolves.toBe(source)
+  })
+
+  it('puts the blank line before an ASI-protection semicolon', async () => {
+    const source = `export function example(connector: Connector) {
+  const result = createResult(
+    connector,
+  )
+  ;(connector as { result: Result }).result = result
+}
+`
+
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(connector: Connector) {
+  const result = createResult(
+    connector,
+  )
+
+  ;(connector as { result: Result }).result = result
+}
+`)
+  })
+})
+
 describe('Oxlint whitespace declarations and calls', () => {
   it('separates a related declaration from a multiline if statement', async () => {
     const source = `export function example() {
@@ -476,8 +530,8 @@ describe('Oxlint whitespace types and function chains: puts exactly one blank li
   })
 })
 
-describe('Oxlint whitespace types and function chains: does not treat a multiline call initializer as a function chain', () => {
-  it('does not treat a multiline call initializer as a function chain', async () => {
+describe('Oxlint whitespace types and function chains: handles multiline call initializers', () => {
+  it('still pads a multiline const with a call initializer', async () => {
     const source = `export function example(value: string) {
   const result = createResult(
     value,
@@ -486,7 +540,15 @@ describe('Oxlint whitespace types and function chains: does not treat a multilin
 }
 `
 
-    await expect(formatWhitespace(source)).resolves.toBe(source)
+    await expect(formatWhitespace(source)).resolves
+      .toBe(`export function example(value: string) {
+  const result = createResult(
+    value,
+  )
+
+  return result
+}
+`)
   })
 
   it('does not treat an object property as a declaration use', async () => {

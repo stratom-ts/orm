@@ -230,6 +230,7 @@ function formatAuthoredRelation(relation: RelationIdentityInput): string {
     relation.namespace?.map(
       ({ role, spelling }) => `${role}:${JSON.stringify(spelling)}`,
     ) ?? []
+
   segments.push(`relation:${JSON.stringify(relation.relation)}`)
   return `[${segments.join(', ')}]`
 }
@@ -298,6 +299,7 @@ async function runRootTransaction<T>(
           fn(scope),
         ),
       )
+
       await drainTransactionScope(scope)
 
       if (!callback.ok) throw callback.error
@@ -338,6 +340,7 @@ async function runNestedTransaction<T>(
       parent: transactionScope,
       queue: Promise.resolve(),
     }
+
     let callbackFailed = false
     let callbackError: unknown
     let result: T | undefined
@@ -682,6 +685,7 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
   /** Creates migration operations for the registered desired schema. */
   const migrate = () =>
     createScopedMigration(context, clientExecutor, ensureClientOpen, transactionScope)
+
   /** Runs a transaction that commits on success and rolls back on failure. */
   const transaction = <T>(fn: (trx: Db<TSchemas>) => Promise<T>) =>
     runClientTransaction(fn, context, transactionScope, ensureClientOpen, createClient)
@@ -723,6 +727,7 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
   const operationSessionProvider =
     config.operationSessionProvider ??
     dialect.operations.createSessionProvider(config.connector)
+
   const coordinator = new OperationCoordinator(operationSessionProvider)
   const query = dialect.query.resolve(
     schemas,
@@ -730,6 +735,7 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
       ? undefined
       : { registrationDefault: config.defaultNamespace },
   )
+
   const mapper = createValueMapper(dialect, config.map, schemas, query)
   const { ensureOpen, rootExecutor, close } = createDatabaseLifecycle(coordinator)
   return {
@@ -811,6 +817,7 @@ function queryFrom<THandle extends TableHandle>(
     ensureClientOpen,
     isRegistered,
   } = context
+
   ensureClientOpen()
 
   if (!isTableHandle(handle)) {
@@ -858,6 +865,7 @@ function insertInto<THandle extends TableHandle>(
     ensureClientOpen,
     isRegistered,
   } = context
+
   ensureClientOpen()
 
   const info = assertRegisteredHandle(handle, 'insert', isRegistered)
@@ -949,6 +957,7 @@ function updateTable<THandle extends TableHandle>(
     ensureClientOpen,
     isRegistered,
   } = context
+
   ensureClientOpen()
   assertRegisteredHandle(handle, 'update', isRegistered)
   return {
@@ -997,6 +1006,7 @@ function deleteFrom<THandle extends TableHandle>(
     ensureClientOpen,
     isRegistered,
   } = context
+
   ensureClientOpen()
   assertRegisteredHandle(handle, 'delete', isRegistered)
   return createDeleteBuilder({

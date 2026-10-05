@@ -31,6 +31,7 @@ const Users = defineTable(
   },
   { primaryKey: 'id' },
 )
+
 const usersRequest = createCatalogRequest([Users], [])
 
 /**
@@ -129,6 +130,7 @@ describe('catalog evidence: requires complete empty coverage before creating a r
         },
       },
     }
+
     expect(() => planMigration([Users], incomplete, postgresDialect)).toThrow(
       /incomplete catalog coverage.*requested namespaces.*unknown/i,
     )
@@ -137,6 +139,7 @@ describe('catalog evidence: requires complete empty coverage before creating a r
       ...emptyCatalog(),
       request: { relations: [], absentRelations: [], completeNamespaces: [] },
     }
+
     expect(() => planMigration([Users], wrongScope, postgresDialect)).toThrow(
       /does not cover requested migration target/i,
     )
@@ -152,6 +155,7 @@ describe('catalog evidence: fails closed for every non-complete collection cover
         ...emptyCatalog(),
         namespaces: { items: [], coverage },
       }
+
       const original = structuredClone(catalog)
 
       expect(() => planMigration([Users], catalog, postgresDialect)).toThrow(
@@ -225,6 +229,7 @@ describe('catalog collection coverage states', () => {
       const email = relation.table.value.columns.items.find(
         (column) => column.name === 'email',
       )!
+
       ;(email as { dataType: typeof email.dataType }).dataType =
         testCase.fact as typeof email.dataType
       const original = structuredClone(catalog)
@@ -317,6 +322,7 @@ describe('catalog evidence management and ownership: rejects partial unmanaged r
         namespace: [{ role: 'schema' as const, spelling: 'public' }],
       },
     ]
+
     ;(catalog as { request: CatalogSnapshot['request'] }).request = {
       relations: [],
       absentRelations: [],
@@ -392,6 +398,7 @@ describe('catalog evidence management and ownership: preserves opaque objects an
         namespace: [{ role: 'schema' as const, spelling: 'empty_app' }],
       },
     ]
+
     const catalog = completePostgresCatalog(
       {
         namespaceContext: context,

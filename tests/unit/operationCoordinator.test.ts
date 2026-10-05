@@ -20,11 +20,13 @@ describe('OperationCoordinator', () => {
         { role: 'schema' as const, spelling: 'public' },
       ],
     }
+
     const dispositions: string[] = []
     const provider: OperationSessionProvider = createMutableNamespaceProvider(
       namespaceContext,
       dispositions,
     )
+
     const coordinator = new OperationCoordinator(provider)
     let capturedSchema: string | undefined
 
@@ -55,6 +57,7 @@ describe('OperationCoordinator: advances the queue and closes after an early pro
     const controls = createControllableProvider({
       openFailure: { session: 1, value: new Error('open failed') },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -88,6 +91,7 @@ describe('OperationCoordinator: rejects descendant root use across nested client
       operationSessionProvider: firstControls.provider,
       schemas: [],
     })
+
     const second = createDatabase({
       connector: customConnector(),
       operationSessionProvider: secondControls.provider,
@@ -97,6 +101,7 @@ describe('OperationCoordinator: rejects descendant root use across nested client
     const operation = first.transaction(async () =>
       second.transaction(async () => first.ping()),
     )
+
     await expect(withDeadline(operation)).rejects.toThrow(/root database client/i)
     expect(firstControls.openCount).toBe(1)
     expect(secondControls.openCount).toBe(1)
@@ -113,6 +118,7 @@ describe('OperationCoordinator: rejects descendant root use across nested client
       operationSessionProvider: firstControls.provider,
       schemas: [],
     })
+
     const second = createDatabase({
       connector: customConnector(),
       operationSessionProvider: secondControls.provider,
@@ -122,6 +128,7 @@ describe('OperationCoordinator: rejects descendant root use across nested client
     const invalid = first.transaction(async (firstTrx) =>
       firstTrx.transaction(async () => second.transaction(async () => firstTrx.ping())),
     )
+
     await expect(withDeadline(invalid)).rejects.toThrow(/use the nested callback client/i)
 
     await withDeadline(
@@ -153,6 +160,7 @@ describe('OperationCoordinator queue and shutdown', () => {
         return releaseFirst.promise
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -197,6 +205,7 @@ describe('OperationCoordinator queue and shutdown: rejects callback root reentra
       await expect(db.close()).rejects.toThrow(/active operation callback/i)
       await finishCallback.promise
     })
+
     await callbackStarted.promise
     const unrelated = db.ping()
     await Promise.resolve()
@@ -225,6 +234,7 @@ describe('OperationCoordinator queue and shutdown: lets an accepted transaction 
       await resumeCallback.promise
       await trx.ping()
     })
+
     await callbackStarted.promise
     const close = db.close()
     await expect(db.ping()).rejects.toThrow(/closed/i)

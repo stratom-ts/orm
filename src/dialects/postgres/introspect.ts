@@ -1004,6 +1004,7 @@ function decodeConstraintKey(row: Row, index: number, type: string, name: string
     validity: present(valid ? 'valid' : 'invalid'),
     nativeDefinition: present(nativeDefinition),
   }
+
   return { key, nativeDefinition }
 }
 
@@ -1018,6 +1019,7 @@ function appendIndexes(rows: unknown[], requireTable: RequireTable): void {
     const supported =
       booleanAt(row, 'has_supported_semantics', 'index', index) &&
       !booleanAt(row, 'nulls_not_distinct', 'index', index)
+
     target.table.indexes.push({
       name: present(stringAt(row, 'index_name', 'index', index)),
       origin: 'user',
@@ -1106,6 +1108,7 @@ function createConstraintQuery(scopeSchemas: readonly string[]) {
     sql: createConstraintQueryData,
     params: [scopeSchemas],
   }
+
   return constraintQuery
 }
 
@@ -1115,24 +1118,29 @@ function createCatalogQueries(scopeSchemas: readonly string[]) {
     sql: POSTGRES_NAMESPACE_CATALOG_SQL,
     params: [scopeSchemas],
   }
+
   const relationQuery = {
     sql: POSTGRES_RELATION_CATALOG_SQL,
     params: [scopeSchemas],
   }
+
   const columnQuery = {
     sql: POSTGRES_COLUMN_CATALOG_SQL,
     params: [scopeSchemas],
   }
+
   const constraintQuery = createConstraintQuery(scopeSchemas)
 
   const indexQuery = {
     sql: createCatalogQueriesData,
     params: [scopeSchemas],
   }
+
   const opaqueQuery = {
     sql: createCatalogQueriesData2,
     params: [scopeSchemas],
   }
+
   const reservationQuery = {
     sql: POSTGRES_RESERVATION_CATALOG_SQL,
     params: [scopeSchemas],
@@ -1184,12 +1192,14 @@ async function readCatalogContext(executor: CatalogExecutor, request: CatalogReq
       { role: 'schema' as const, spelling: schema },
     ],
   }
+
   const identities = postgresIdentity.create({
     context: namespaceContext,
     ...(request.registrationDefault === undefined
       ? {}
       : { registrationDefault: request.registrationDefault }),
   })
+
   const resolvedRequest = resolveRequest(request, identities)
   return { version, versionNumber, namespaceContext, identities, resolvedRequest }
 }
@@ -1231,12 +1241,15 @@ async function readCatalogEvidence(
 async function verifyCatalogObservations(input: CatalogObservationVerification) {
   const { executor, queries, rows, identities, scopeNamespaces, relationRequested } =
     input
+
   /** Filters and orders requested namespace observations for consistency comparison. */
   const namespaceObservations = (rows: unknown[], query: string) =>
     filterNamespaceObservations(rows, query, identities, scopeNamespaces)
+
   /** Filters and orders requested relation observations for consistency comparison. */
   const relationObservations = (rows: unknown[], query: string) =>
     filterRelationObservations(rows, query, identities, relationRequested)
+
   const checks: [
     string,
     unknown[],
@@ -1255,6 +1268,7 @@ async function verifyCatalogObservations(input: CatalogObservationVerification) 
       namespaceObservations,
     ],
   ]
+
   for (const [name, initial, query, filter] of checks)
     assertObservationUnchanged(
       name,
@@ -1382,6 +1396,7 @@ function buildCatalogRelations(
         stringAt(row, 'name', 'relation', index),
       ),
     )
+
     const entry = relationRegistry.get(identity)
 
     if (!entry) continue
@@ -1487,10 +1502,12 @@ export async function introspectPostgres(
 ): Promise<CatalogSnapshot> {
   const { version, versionNumber, namespaceContext, identities, resolvedRequest } =
     await readCatalogContext(executor, request)
+
   const { scopeSchemas, scopeNamespaces, relationRequested } = resolveCatalogScope(
     resolvedRequest,
     identities,
   )
+
   const diagnostics: CatalogDiagnostic[] = []
 
   if (versionNumber < 120000)
@@ -1546,6 +1563,7 @@ function resolveCatalogScope(
 
     return segment.identifier.spelling
   })
+
   const requestedRelations = requestedRelationRegistry(resolvedRequest, identities)
 
   /**
@@ -1558,6 +1576,7 @@ function resolveCatalogScope(
     resolvedRequest.completeNamespaces.some((namespace) =>
       sameNamespace(namespace, identity.namespace),
     )
+
   return { scopeSchemas, scopeNamespaces, relationRequested }
 }
 
@@ -1586,6 +1605,7 @@ function decodeCatalogRelations(input: CatalogRelationDecoding) {
     relationRequested,
     identities,
   )
+
   /** Requires a decoded table for a requested catalog member row. */
   const requireTable = (row: Row, query: string, index: number) =>
     resolveRequestedTable(
@@ -1774,6 +1794,7 @@ async function readRawCatalogEvidence(
     opaqueQuery,
     reservationQuery,
   } = queries
+
   const namespaceRows = await executor.execute(namespaceQuery)
   const relationRows = await executor.execute(relationQuery)
   const columnRows = await executor.execute(columnQuery)
@@ -1826,6 +1847,7 @@ async function assertRelationIdentityUnchanged(
             stringAt(row, 'name', 'relation consistency', index),
           ),
         )
+
         return relationRequested(identity)
           ? [
               `${identities.format(identity)}\0${stringAt(row, 'object_id', 'relation consistency', index)}`,
@@ -1868,6 +1890,7 @@ function filterNamespaceObservations(
         spelling: stringAt(row, 'schema', `${query} consistency`, index),
       },
     ])
+
     return scopeNamespaces.some((candidate) => sameNamespace(candidate, namespace))
   })
 }
@@ -1897,6 +1920,7 @@ function filterRelationObservations(
         stringAt(row, 'table_name', `${query} consistency`, index),
       ),
     )
+
     return relationRequested(identity)
   })
 }
@@ -2020,6 +2044,7 @@ function decodePostgresColumn(
     'column',
     index,
   )
+
   assertColumnGeneration(
     isIdentity,
     identityGeneration,
@@ -2117,6 +2142,7 @@ function assemblePostgresCatalog(
     relationRequested,
     identities,
   })
+
   const namespaces = buildCatalogNamespaces(
     namespaceRows,
     relationRows,
@@ -2125,6 +2151,7 @@ function assemblePostgresCatalog(
     resolvedRequest,
     identities,
   )
+
   const nameReservations = catalogNameReservations(
     reservationRows,
     scopeNamespaces,

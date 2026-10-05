@@ -128,6 +128,7 @@ describe('table action namespace intent: preserves namespace role, order, and sp
         { role: 'database', spelling: 'tenant' },
       ],
     })
+
     const databaseThenSchema = table({
       name: 'events',
       primaryKey: 'id',

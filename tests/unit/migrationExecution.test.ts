@@ -24,11 +24,13 @@ describe('public migration execution and session cleanup', () => {
         }
       },
     })
+
     const Events = defineTable(
       'operation_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -72,11 +74,13 @@ describe('public migration execution and session cleanup: discards a migration s
         if (/pg_advisory_unlock/i.test(sql)) throw unlockFailure
       },
     })
+
     const Events = defineTable(
       'cleanup_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -122,11 +126,13 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
         throw cancellationFailure
       },
     })
+
     const Events = defineTable(
       'cancellation_cleanup_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -157,11 +163,13 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
         value: releaseCause,
       },
     })
+
     const Events = defineTable(
       'primary_runtime_failure_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -172,6 +180,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'ddl',
@@ -192,6 +201,7 @@ describe('public migration coordination failures', () => {
     const controls = createControllableProvider({
       openFailure: { session: 1, value: openCause },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -202,6 +212,7 @@ describe('public migration coordination failures', () => {
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'sessionCleanup',
@@ -222,6 +233,7 @@ describe('public migration coordination failures: reports advisory unlock failur
         if (/pg_advisory_unlock/i.test(sql)) throw new Error('unlock cleanup failure')
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -232,6 +244,7 @@ describe('public migration coordination failures: reports advisory unlock failur
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'unlock',
@@ -258,6 +271,7 @@ describe('public migration coordination failures: reports an unverified advisory
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'unlock',
@@ -280,6 +294,7 @@ describe('public migration coordination failures: discards after migration lock 
         }
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -290,6 +305,7 @@ describe('public migration coordination failures: discards after migration lock 
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'lock',
@@ -315,6 +331,7 @@ describe('public migration coordination failures: cancels the physical session w
     const hangingLock = new Promise<void>((_, reject) => {
       rejectLock = reject
     })
+
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
@@ -328,6 +345,7 @@ describe('public migration coordination failures: cancels the physical session w
         rejectLock(new Error('cancelled hanging lock query'))
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -364,11 +382,13 @@ describe('public migration coordination failures: cancels the physical session w
         if (/^commit$/i.test(sql)) throw new Error('commit outcome unknown')
       },
     })
+
     const Events = defineTable(
       'ambiguous_commit_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -379,6 +399,7 @@ describe('public migration coordination failures: cancels the physical session w
       .migrate()
       .execute()
       .catch((cause: unknown) => cause)
+
     expect(error).toMatchObject({
       _tag: 'MigrationError',
       stage: 'commit',

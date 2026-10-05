@@ -46,6 +46,7 @@ describe('PostgreSQL migration runtime failures', () => {
     const statementIndex = runtime.queries.findIndex(
       (query) => query.sql === 'select begin',
     )
+
     expect(statementIndex).toBeGreaterThan(-1)
     expect(runtime.events()[statementIndex]).toBe('unclassified')
   })
@@ -267,6 +268,7 @@ describe('PostgreSQL migration coordination and cancellation: allows an asynchro
     const lockGate = new Promise<void>((resolve) => {
       release = resolve
     })
+
     const runtime = harness({ lockGate, lockResults: [true] })
     const pending = runtime.execute(program(), { lockTimeoutMs: 0 })
 
@@ -438,9 +440,11 @@ describe('PostgreSQL application-scoped migration coordination', () => {
     const locks = runtime.queries.filter((query) =>
       /pg_try_advisory_lock/i.test(query.sql),
     )
+
     const unlocks = runtime.queries.filter((query) =>
       /pg_advisory_unlock/i.test(query.sql),
     )
+
     expect(locks).toHaveLength(1)
     expect(unlocks).toHaveLength(1)
     expect(unlocks[0]!.params).toEqual(locks[0]!.params)
@@ -459,6 +463,7 @@ describe('PostgreSQL application-scoped migration coordination', () => {
           }),
         )[0]!,
       )
+
     expect(scoped('test', 'billing')).toEqual(scoped('test', 'billing'))
     expect(scoped('test', 'billing')).not.toEqual(scoped('other', 'billing'))
     expect(scoped('test', 'billing')).not.toEqual(scoped('test', 'orders'))
@@ -471,6 +476,7 @@ describe('PostgreSQL application-scoped migration coordination: performs one non
       applicationId: 'billing',
       lockResults: [false],
     })
+
     const error = await runtime
       .execute(program(), { lockTimeoutMs: 0 })
       .catch((cause: unknown) => cause)
@@ -574,6 +580,7 @@ describe('PostgreSQL application-scoped migration coordination: preserves the ap
       lockResults: [true],
       unlockResults: [false],
     })
+
     const error = await runtime.execute().catch((cause: unknown) => cause)
 
     expect(error).toMatchObject({

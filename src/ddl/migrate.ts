@@ -194,6 +194,7 @@ function lowerPlan(
     const sourceStepIndexes = [
       ...new Set(lowered.issues.flatMap((issue) => issue.sourceStepIndexes)),
     ].sort((left, right) => left - right)
+
     throw new MigrationError({
       message: lowered.issues.map((issue) => issue.message).join('\n'),
       stage: 'lowering',
@@ -280,6 +281,7 @@ async function observeMigrationPlan(
     namespaceContext: catalog.namespaceContext,
     ...(defaultNamespace === undefined ? {} : { registrationDefault: defaultNamespace }),
   }
+
   return { planned, expected }
 }
 
@@ -526,6 +528,7 @@ function createMigrationPreview(
               executor,
               planningOptions,
             )
+
             return dryRunProgram(lowerPlan(migration, planned, expected))
           }),
         'Migration dry-run failed',

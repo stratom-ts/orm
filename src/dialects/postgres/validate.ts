@@ -242,6 +242,7 @@ export function normalizePostgresDefaultExpression(expression: string): string {
     /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
     '',
   )
+
   const currentTimestampCandidate = stripAllEnclosingParens(withoutCasts.trim())
 
   return /^current_timestamp$/i.test(currentTimestampCandidate)

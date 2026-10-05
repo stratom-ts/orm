@@ -967,6 +967,7 @@ function assertUniqueSchemaNames(schemaRows: readonly SchemaRow[]) {
 
     const collisionDomain =
       row.type === 'trigger' ? 'trigger' : row.type === 'index' ? 'index' : 'relation'
+
     const key = `${collisionDomain}:${asciiFoldSqliteIdentifier(row.name)}`
 
     if (schemaNames.has(key))
@@ -1062,6 +1063,7 @@ function collectNameReservations(
         entry.sql !== null &&
         hasSqlToken(entry.sql, 'CONSTRAINT'),
     )
+
   const constraintNameCoverage = hasUnobservableConstraintNames
     ? unknown('SQLite authored constraint names are not fully observable')
     : complete
@@ -1379,15 +1381,18 @@ function sqliteColumnValueFacts(column: XInfoRow, schema: SchemaRow | undefined)
     parameters: [],
     userDefined: absent,
   })
+
   const columnNative = schema?.sql
     ? present(schema.sql)
     : unsupported('SQLite column definition is unavailable')
+
   const generated =
     column.hidden === 2 || column.hidden === 3
       ? unsupported('SQLite generated column expression is not independently available')
       : column.hidden === 1
         ? unsupported('SQLite hidden column is not managed')
         : absent
+
   return { type, generated, columnNative }
 }
 
@@ -1801,6 +1806,7 @@ function resolveForeignTarget(
       scopeIdentity(candidate.name).relation.comparisonKey ===
       scopeIdentity(first.table).relation.comparisonKey,
   )
+
   const targetIdentity = scopeIdentity(targetTable?.name ?? first.table)
   const requestedTargetColumns = group.map((entry) => entry.to)
   const targetInfo = targetTable
@@ -1815,6 +1821,7 @@ function resolveForeignTarget(
     requestedTargetColumns,
     identities,
   )
+
   return describeForeignKeyTarget(
     targetInfo,
     targetColumns,
@@ -1862,6 +1869,7 @@ function foreignTargetColumns(
         return parentColumn?.name ?? targetColumn
       })
     : parentPrimaryKey
+
   return { targetColumns, parentPrimaryKey }
 }
 
@@ -1971,6 +1979,7 @@ const byKey = (left: CatalogKeyConstraint, right: CatalogKeyConstraint) =>
   compare(JSON.stringify(left.semantics), JSON.stringify(right.semantics)) ||
   compare(JSON.stringify(left.validity), JSON.stringify(right.validity)) ||
   compare(JSON.stringify(left.nativeDefinition), JSON.stringify(right.nativeDefinition))
+
 /** Orders indexes deterministically by their names and evidence. */
 const byIndex = (left: CatalogIndex, right: CatalogIndex) =>
   compareFact(left.name, right.name) ||
@@ -1978,6 +1987,7 @@ const byIndex = (left: CatalogIndex, right: CatalogIndex) =>
   compare(String(left.unique), String(right.unique)) ||
   compare(JSON.stringify(left.semantics), JSON.stringify(right.semantics)) ||
   compare(JSON.stringify(left.nativeDefinition), JSON.stringify(right.nativeDefinition))
+
 /** Orders opaque catalog objects by stable native evidence. */
 const byOpaque = (left: OpaqueCatalogObject, right: OpaqueCatalogObject) =>
   compareFact(left.name, right.name) ||
@@ -2015,6 +2025,7 @@ async function readTableEvidence(
     const observed =
       indexLists.get(row.name) ??
       decodeIndexListRows(await executor.execute(queries.indexes(row.name)), row.name)
+
     reservationIndexLists.set(row.name, observed)
   }
 
@@ -2193,14 +2204,17 @@ async function assertSqliteTableEvidenceUnchanged(
       await executor.execute(queries.xinfo(row.name)),
       row.name,
     )
+
     const finalI = decodeIndexListRows(
       await executor.execute(queries.indexes(row.name)),
       row.name,
     )
+
     const finalF = decodeForeignKeyRows(
       await executor.execute(queries.foreignKeys(row.name)),
       row.name,
     )
+
     assertSame(`table_xinfo(${row.name})`, xinfo.get(row.name), finalX)
     assertSame(`index_list(${row.name})`, indexLists.get(row.name), finalI)
     assertSame(`foreign_key_list(${row.name})`, foreignKeys.get(row.name), finalF)
@@ -2307,6 +2321,7 @@ function createPrimaryKey(
             ? present(createSql)
             : unsupported('SQLite primary-key definition is unavailable'),
         })
+
   return { primaryKey, managed: pkSimple }
 }
 
@@ -2344,6 +2359,7 @@ function primaryKeyIndexSemantics(
             entry.desc === 0 &&
             entry.coll === 'BINARY',
         ))
+
   return pkSimple
 }
 
@@ -2455,6 +2471,7 @@ function decodeCatalogForeignKey(
     identities,
     first,
   )
+
   const foreignKey: CatalogForeignKey = {
     name: constraintName,
     columns: sourceColumns,
@@ -2519,20 +2536,24 @@ function resolveForeignKeySemantics(
     target.parentPrimaryKey,
     identities,
   )
+
   const targetKeyValid =
     target.targetColumnsObserved &&
     target.targetTable?.type === 'table' &&
     (matchesPrimaryKey || simpleUniqueKeys.length > 0)
+
   const targetKeyUnknown =
     target.targetTable === undefined ||
     (target.targetTable.type !== 'view' && target.targetInfo === undefined) ||
     (target.targetTable.type === 'table' && matchingRichUniqueKey)
+
   const fkSimple = isSimpleForeignKey(
     targetKeyValid,
     target.targetTable,
     target.targetColumnsObserved,
     first.match,
   )
+
   return { fkSimple, targetKeyValid, targetKeyUnknown }
 }
 
@@ -2583,6 +2604,7 @@ function decodeForeignKeySource(
 
     return source.name
   })
+
   return { first, sourceColumns, onDelete, onUpdate }
 }
 
@@ -2617,6 +2639,7 @@ function catalogTableOptions(row: TableRow) {
     { name: 'strict', value: row.strict ? 'true' : 'false' },
     { name: 'withoutRowid', value: row.wr ? 'true' : 'false' },
   ]
+
   return options
 }
 
@@ -2632,6 +2655,7 @@ function buildCatalogTable(input: SqliteTableAssembly) {
     managed: initial.managed,
     tableOpaque,
   })
+
   const { columns, decodedColumns, indexes, createSql, constraintName, pk } = structure
   const indexEvidence = decodeTableIndexes({
     ...input,
@@ -2642,6 +2666,7 @@ function buildCatalogTable(input: SqliteTableAssembly) {
     createSql,
     managed: structure.managed,
   })
+
   const { uniqueConstraints, catalogIndexes } = indexEvidence
   const foreignEvidence = decodeTableForeignKeys({
     ...input,
@@ -2651,11 +2676,13 @@ function buildCatalogTable(input: SqliteTableAssembly) {
     constraintName,
     managed: indexEvidence.managed,
   })
+
   const hasCheckConstraint = preserveCheckConstraint(
     createSql,
     constraintName,
     tableOpaque,
   )
+
   const managed = foreignEvidence.managed && !hasCheckConstraint
   const table = assembleCatalogTable(
     decodedColumns,
@@ -2668,6 +2695,7 @@ function buildCatalogTable(input: SqliteTableAssembly) {
     hasExternalNamespace,
     identities,
   )
+
   return { table, managed }
 }
 
@@ -2754,6 +2782,7 @@ function decodeTableForeignKeys(input: TableForeignKeyDecoding) {
       createSql,
       constraintName,
     )
+
     fks.push(decoded.foreignKey)
     managed = managed && decoded.managed
   }
@@ -2837,6 +2866,7 @@ function versionLimitedCatalog(
     actual: version,
     requires: '3.37.0',
   }
+
   return {
     source: { dialect: 'sqlite', version },
     request: resolvedRequest,
@@ -2950,6 +2980,7 @@ async function buildSqliteSnapshot(input: SqliteSnapshotAssembly) {
     identities,
     hasExternalNamespace,
   )
+
   const constraintReservations: CatalogConstraintNameReservation[] = []
   const namespace: CatalogNamespace = buildMainCatalogNamespace({ ...input })
   return {
@@ -2991,6 +3022,7 @@ async function readTableInventory(
   const mainTables = tableRows.filter(
     (row) => row.schema === 'main' && !row.name.startsWith('sqlite_'),
   )
+
   return { schemaRows, tableRows, mainTables }
 }
 
@@ -3083,6 +3115,7 @@ function buildMainCatalogNamespace(input: SqliteNamespaceAssembly) {
           },
     },
   }
+
   return namespace
 }
 
@@ -3132,6 +3165,7 @@ function appendDependencyDiagnostics(
         asciiFoldSqliteIdentifier(row.schema) !== 'main' &&
         !row.name.startsWith('sqlite_'),
     )
+
   for (const row of tableRows.filter(
     (entry) => entry.schema !== 'main' && !entry.name.startsWith('sqlite_'),
   ))
@@ -3186,6 +3220,7 @@ function decodeTablePrimaryKey(
     pks.length === 1 &&
     pks[0]!.type.toUpperCase() === 'INTEGER' &&
     pkIndex === undefined
+
   const sqlEvidence = tableSqlEvidence(schema, rowidAlias, nativeDefinition)
   const { createSql, constraintName, autoIncrement } = sqlEvidence
   managed = managed && sqlEvidence.managed
@@ -3202,6 +3237,7 @@ function decodeTablePrimaryKey(
     constraintName,
     autoIncrement,
   )
+
   managed = managed && pkEvidence.managed
   const pk = pkEvidence.primaryKey
   return { indexes, createSql, constraintName, pk, managed }
@@ -3307,6 +3343,7 @@ function decodeTableStructure(input: SqliteTableStructure) {
     nativeDefinition,
     identities,
   )
+
   const { columns, decodedColumns } = columnEvidence
   managed = managed && columnEvidence.managed
   tableOpaque.push(...columnEvidence.opaque)
@@ -3321,6 +3358,7 @@ function decodeTableStructure(input: SqliteTableStructure) {
     decodedColumns,
     managed,
   )
+
   const { indexes, createSql, constraintName, pk } = primaryKeyEvidence
   managed = primaryKeyEvidence.managed
   return { columns, decodedColumns, indexes, createSql, constraintName, pk, managed }
@@ -3393,11 +3431,13 @@ async function readSqliteInventory(
 ) {
   const { databases, databaseAliases, temporaryDatabase, attached, diagnostics } =
     await readDatabaseContext(executor)
+
   const { schemaRows, tableRows, mainTables } = await readTableInventory(
     executor,
     databaseAliases,
     identities,
   )
+
   const viewObjects = schemaRows.filter((row) => row.type === 'view')
   const triggerObjects = schemaRows.filter((row) => row.type === 'trigger')
   const hasExternalNamespace = appendDependencyDiagnostics(
@@ -3408,6 +3448,7 @@ async function readSqliteInventory(
     temporaryDatabase,
     tableRows,
   )
+
   return {
     databases,
     diagnostics,
@@ -3444,9 +3485,11 @@ async function prepareSqliteCatalogEvidence(
   const scopeRows = mainTables.filter((row) =>
     relationRequested(scopeIdentity(row.name), resolvedRequest, identities),
   )
+
   const completeMain = resolvedRequest.completeNamespaces.some((entry) =>
     sameNamespace(entry, identities.resolveNamespace(mainNamespace)),
   )
+
   validateSchemaRows(schemaRows, mainTables, resolvedRequest, identities)
   const tableEvidence = await readTableEvidence(executor, scopeRows, mainTables)
   const { indexLists, reservationIndexLists } = tableEvidence

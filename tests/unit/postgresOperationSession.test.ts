@@ -74,6 +74,7 @@ describe('db0 PostgreSQL operation-session adapter: reads changed current_schema
       /** Returns the schema currently reported by the native-client fixture. */
       currentSchema: () => schema,
     })
+
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
 
     const first = await provider.open()
@@ -114,6 +115,7 @@ describe('db0 PostgreSQL operation-session adapter: discards a reused session wh
         return []
       },
     })
+
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
     const session = await provider.open()
 
@@ -155,6 +157,7 @@ describe('db0 PostgreSQL operation-session adapter: retains final namespace-evid
         return []
       },
     })
+
     const coordinator = new OperationCoordinator(
       createDb0PostgresqlOperationSessionProvider(connector),
     )
@@ -198,6 +201,7 @@ describe('db0 PostgreSQL operation-session lifecycle', () => {
         return []
       },
     })
+
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
     const session = await provider.open()
     const identity = session.identity
@@ -242,6 +246,7 @@ describe('db0 PostgreSQL operation-session lifecycle: cancels an active call and
         await finishEnd.promise
       },
     })
+
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
     const session = await provider.open()
     const originalIdentity = session.identity
@@ -284,11 +289,13 @@ describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that ca
       /** Records disposal and closes owned fixture resources. */
       dispose: async () => {},
     }
+
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
     const { readinessProvider, missingReadiness } = await assertMissingPostgresReadiness(
       provider,
       connector,
     )
+
     await expect(readinessProvider.open()).rejects.toThrow(/readiness.*queue/i)
 
     const missingCancellation = {
@@ -298,11 +305,13 @@ describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that ca
       queryQueue: [],
       end: undefined,
     }
+
     const cancellationProvider = createDb0PostgresqlOperationSessionProvider({
       ...connector,
       /** Returns the native client owned by the fixture connector. */
       getInstance: () => missingCancellation,
     })
+
     await expect(cancellationProvider.open()).rejects.toThrow(
       /cancellation capabilities/i,
     )
@@ -317,6 +326,7 @@ describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that ca
         queryQueue: [],
       }),
     })
+
     await expect(dirtyProvider.open()).rejects.toThrow(/not clean for operation use/i)
   })
 })
@@ -326,6 +336,7 @@ describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rej
     const connector = createNativeConnector({
       releaseFailure: { value: undefined },
     })
+
     const provider = createDb0PostgresqlOperationSessionProvider(connector)
     const session = await provider.open()
 
@@ -394,11 +405,13 @@ async function assertMissingPostgresReadiness(
     /** Closes the native PostgreSQL client and its physical connection. */
     async end() {},
   }
+
   const readinessProvider = createDb0PostgresqlOperationSessionProvider({
     ...connector,
     /** Returns the native client owned by the fixture connector. */
     getInstance: () => missingReadiness,
   })
+
   return { readinessProvider, missingReadiness }
 }
 

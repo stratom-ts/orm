@@ -61,6 +61,7 @@ describe('SQLite schema facets: preserves explicit type spellings and uses by-de
       },
       { primaryKey: 'id' },
     )
+
     const Child = defineTable(
       'children',
       {
@@ -77,6 +78,7 @@ describe('SQLite schema facets: preserves explicit type spellings and uses by-de
     const parent = lowered.tables.find(
       (table) => table.identity.relation.spelling === 'parents',
     )!
+
     const child = lowered.tables.find(
       (table) => table.identity.relation.spelling === 'children',
     )!
@@ -100,6 +102,7 @@ describe('SQLite schema facets: rejects non-rowid identity and aliases outside m
       },
       { primaryKey: 'id' },
     )
+
     const Attached = defineTable(
       'attached',
       { id: pipe(number(), column({ physicalType: { sqlite: 'INTEGER' } })) },
@@ -116,6 +119,7 @@ describe('SQLite schema facets: rejects non-rowid identity and aliases outside m
     /** Attempts schema lowering for an attached SQLite database to exercise rejection. */
     const attachedDatabase = () =>
       lowerDesiredSchema([Attached], identities(), sqliteSchema)
+
     expect(attachedDatabase).toThrow(MigrationError)
     expect(attachedDatabase).toThrow(/database:main profile/i)
   })
@@ -129,6 +133,7 @@ describe('SQLite schema defaults and names', () => {
     const defaults = Object.fromEntries(
       table.columns.map((column) => [column.identifier.spelling, column.databaseDefault]),
     )
+
     expect(defaults.enabled).toEqual({ sql: '1', normalized: '1' })
 
     expect(defaults.createdAt).toEqual({
@@ -169,6 +174,7 @@ describe('SQLite schema defaults and names: allows long SQLite names and validat
       namespace: [{ role: 'database', spelling: 'archive' }],
       relation: 'events',
     })
+
     const registry = sqliteNaming.createRegistry()
 
     expect(() =>
@@ -183,6 +189,7 @@ describe('SQLite schema defaults and names: allows long SQLite names and validat
     /** Validates an identifier containing an unpaired surrogate to exercise rejection. */
     const unpairedSurrogate = () =>
       sqliteNaming.validate('has\ud800surrogate', 'surrogate SQLite name')
+
     expect(unpairedSurrogate).toThrow(InvariantError)
     expect(unpairedSurrogate).toThrow(/must not contain unpaired Unicode surrogates/i)
 

@@ -52,6 +52,7 @@ const definedTableHandles =
   existingTableHandles instanceof WeakMap
     ? existingTableHandles
     : new WeakMap<object, RegisteredTableHandleMethods>()
+
 globalWithTableHandleRegistry[TABLE_HANDLE_REGISTRY_KEY] = definedTableHandles
 
 type ReferenceMetadata = ReturnType<typeof getReferenceMetadata>
@@ -521,6 +522,7 @@ function createColumnRefs<
     /** Returns the validated table metadata. */
     getTableMetadata: () => metadata as TableMetadata<SchemaNameOf<S>>,
   }
+
   return handle
 }
 

@@ -67,6 +67,7 @@ function formatIdentity(identity: CanonicalRelationIdentity, column?: string): s
   const parts = identity.namespace.map(
     (segment) => `${segment.role}:${JSON.stringify(segment.identifier.spelling)}`,
   )
+
   parts.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
 
   if (column !== undefined) parts.push(`column:${JSON.stringify(column)}`)
@@ -169,6 +170,7 @@ function physicalType(column: AuthoredDesiredColumn, analysis: SchemaAnalysis): 
   const selected =
     column.metadata?.physicalType?.sqlite ??
     inferSqliteColumnType(column.schema, analysis)
+
   return assertSafeSqliteDataType(String(selected))
 }
 

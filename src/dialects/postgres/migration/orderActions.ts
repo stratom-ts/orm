@@ -155,9 +155,11 @@ function followsForeignKeyColumn(
   const addsSource =
     identities.equals(current.step.target.relation, other.step.target.relation) &&
     current.step.target.column.comparisonKey === addedColumn.comparisonKey
+
   const addsTarget =
     identities.equals(current.step.references.relation, other.step.target.relation) &&
     current.step.references.column.comparisonKey === addedColumn.comparisonKey
+
   return addsSource || addsTarget
 }
 
@@ -194,6 +196,7 @@ function followsDroppedIndex(
   const table = planned.planningCatalog.tables.find((entry) =>
     identities.equals(entry.identity, relation),
   )
+
   return (
     table?.indexes.some(
       (entry) => entry.name === indexName && entry.columns.includes(column),
@@ -228,6 +231,7 @@ function followsReferencingTable(
   const child = planned.planningCatalog.tables.find((entry) =>
     identities.equals(entry.identity, childRelation),
   )
+
   return (
     child?.foreignKeys.some((foreignKey) =>
       identities.equals(foreignKey.referencedRelation, parentRelation),

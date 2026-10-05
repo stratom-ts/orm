@@ -73,6 +73,7 @@ function executionError(options: {
     ...(structured?.cleanupFailures ?? []),
     ...(options.cleanupFailures ?? []),
   ]
+
   const retryable = executionRetryable(structured, options)
 
   return new MigrationError({
@@ -341,6 +342,7 @@ export async function executePostgresMigration(
     ...input,
     lockTimeoutMs: input.lockTimeoutMs ?? DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS,
   }
+
   const cancellation: CancellationState = { cancelled: false }
 
   const acquiredLocks = await acquireMigrationCoordination(options, cancellation)

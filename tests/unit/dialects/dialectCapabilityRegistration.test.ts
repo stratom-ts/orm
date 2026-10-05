@@ -75,6 +75,7 @@ describe('Dialect contract capability registration: rejects an omitted declared 
       migration: { state: 'supported', shard: 'semantic' },
       lifecycle: { state: 'supported', shard: 'semantic' },
     } as const
+
     expect(() =>
       registerDialectContractMember('incomplete member', capabilities, {
         semantic: {},
@@ -93,10 +94,12 @@ describe('Dialect contract capability registration: rejects a supported %s compo
         reason: 'Not supported by this fixture',
         shard: 'complete',
       } as const
+
       const unsupportedInput = {
         state: 'unsupported',
         reason: 'Not supported by this fixture',
       } as const
+
       const capabilities = {
         identity: unsupportedCapability,
         naming: unsupportedCapability,
@@ -108,6 +111,7 @@ describe('Dialect contract capability registration: rejects a supported %s compo
         migration: unsupportedCapability,
         lifecycle: unsupportedCapability,
       }
+
       const supportedComposite =
         facet === 'query'
           ? {

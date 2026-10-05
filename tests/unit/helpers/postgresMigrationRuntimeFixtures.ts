@@ -56,6 +56,7 @@ export function createPostgresMigrationRuntime(
   const prepare = vi.fn<(program: MigrationProgram) => Promise<MigrationProgram>>(
     async (migrationProgram: MigrationProgram) => migrationProgram,
   )
+
   var { held, releaseHold } = createRuntimeHold(options)
   const { hang, cancel } = createInFlightCancellation()
 
@@ -76,6 +77,7 @@ export function createPostgresMigrationRuntime(
     acquire,
     release,
   )
+
   const execute = createRuntimeFixtureRunner(options, executor, discard, cancel, prepare)
 
   const semanticEvent = classifyFixtureEvent
@@ -112,6 +114,7 @@ function createRuntimeHold(options: MigrationRuntimeFixtureOptions) {
         releaseHold = resolve
       })
     : undefined
+
   return { held, releaseHold }
 }
 
@@ -205,9 +208,11 @@ function createInFlightCancellation() {
     new Promise<never>((_, reject) => {
       rejectInFlight = reject
     })
+
   const cancel = vi.fn<() => Promise<void>>(async () => {
     rejectInFlight?.(new Error('physical session cancelled'))
   })
+
   return { hang, cancel }
 }
 

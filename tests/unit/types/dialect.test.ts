@@ -86,6 +86,7 @@ describe('public dialect member contract: binds PostgreSQL identity and naming s
       columns: ['email'],
       unique: false,
     }
+
     expect(postgresDialect.naming.generate(seed)).toBe(
       'users_email__75d8a7c1b67c60f1_idx',
     )

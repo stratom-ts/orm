@@ -23,6 +23,7 @@ describe('operation coordinator lifecycle', () => {
         }
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -57,6 +58,7 @@ describe('operation coordinator lifecycle: drains accepted operations and releas
         }
       },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -85,6 +87,7 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
     const controls = createControllableProvider({
       closeFailure: { value: closeError },
     })
+
     const db = createDatabase({
       connector: customConnector(),
       operationSessionProvider: controls.provider,
@@ -110,9 +113,11 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
       operationSessionProvider: callbackControls.provider,
       schemas: [],
     })
+
     const transaction = callbackDb.transaction(async () => {
       throw undefined
     })
+
     await expect(transaction).rejects.toBeUndefined()
 
     expect(callbackControls.calls.map((entry) => entry.sql)).toEqual([
@@ -125,11 +130,13 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
     const releaseControls = createControllableProvider({
       releaseFailure: { session: 1, value: undefined },
     })
+
     const releaseDb = createDatabase({
       connector: customConnector(),
       operationSessionProvider: releaseControls.provider,
       schemas: [],
     })
+
     await expect(releaseDb.ping()).rejects.toMatchObject({
       _tag: 'QueryError',
       cause: undefined,
