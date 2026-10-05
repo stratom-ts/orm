@@ -57,7 +57,9 @@ describe('getBaseSchema', () => {
     expect(getBaseSchema(nonNullable(nullable(base)))).toBe(base)
     expect(getBaseSchema(nonNullish(nullish(base)))).toBe(base)
   })
+})
 
+describe('getBaseSchema: should extract base schema from a pipe', () => {
   it('should extract base schema from a pipe', () => {
     const base = string()
     const schema = pipe(base, title('test'))

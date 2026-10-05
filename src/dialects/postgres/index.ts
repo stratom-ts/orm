@@ -15,6 +15,7 @@ import { formatPostgresDefault, normalizePostgresDefaultExpression } from './val
 
 export { createDb0PostgresqlOperationSessionProvider } from './operationSession'
 
+/** Formats and normalizes a primitive PostgreSQL column default. */
 const normalizePostgresDefaultValue = (value: string | number | boolean | null) =>
   normalizePostgresDefaultExpression(formatPostgresDefault(value))
 

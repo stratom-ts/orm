@@ -54,7 +54,9 @@ describe('reference action', () => {
       relation: 'raw_events',
     })
   })
+})
 
+describe('reference action: copies namespace segment spelling from a table handle', () => {
   it('copies namespace segment spelling from a table handle', () => {
     const handleSegment = { role: 'schema' as const, spelling: 'handle_audit' }
     const HandleTarget = defineTable(
@@ -93,7 +95,9 @@ describe('reference action', () => {
     expect(metadata).not.toHaveProperty('table')
     expect(metadata).not.toHaveProperty('key')
   })
+})
 
+describe('reference action: should retain a structured target without copying a physical type', () => {
   it('should retain a structured target without copying a physical type', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
@@ -126,7 +130,9 @@ describe('reference action', () => {
     expect(metadata).toBeDefined()
     expect(metadata).not.toHaveProperty('dataType')
   })
+})
 
+describe('reference action: should retain a structured target without copying a physical type: should attach onDelete and onUpdate options', () => {
   it('should attach onDelete and onUpdate options', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),
@@ -147,7 +153,9 @@ describe('reference action', () => {
       onUpdate: 'set null',
     })
   })
+})
 
+describe('reference action: should retain local column and nested reference metadata together', () => {
   it('should retain local column and nested reference metadata together', () => {
     const UserSchema = pipe(
       object({ id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) }),

@@ -53,6 +53,7 @@ const UniqueIndexedEvents = defineTable(
   { primaryKey: 'id', indexes: [{ columns: ['payload'], unique: true }] },
 )
 
+/** Builds indexed catalog evidence for schema reconciliation checks. */
 function indexedCatalog(
   overrides: Partial<NonNullable<CatalogSnapshot['tables'][number]['indexes']>[number]>,
 ): CatalogSnapshot {
@@ -98,6 +99,7 @@ const Children = defineTable(
   { primaryKey: 'id' },
 )
 
+/** Builds supported foreign-key evidence with configurable native differences. */
 function desiredForeignKey(
   overrides: Partial<CatalogForeignKey> = {},
 ): CatalogForeignKey {
@@ -114,6 +116,7 @@ function desiredForeignKey(
   }
 }
 
+/** Builds relation catalog evidence for schema reconciliation checks. */
 function relationCatalog(options?: {
   uniqueConstraints?: CatalogSnapshot['tables'][number]['uniqueConstraints']
   foreignKeys?: CatalogSnapshot['tables'][number]['foreignKeys']
@@ -176,7 +179,9 @@ describe('catalog semantic adoption', () => {
       ),
     ).toThrow(/unsupported index catalog semantics/i)
   })
+})
 
+describe('catalog semantic adoption: rejects unsupported standalone indexes and unique constraints', () => {
   it('rejects unsupported standalone indexes and unique constraints', () => {
     expect(() =>
       planMigration(
@@ -208,7 +213,9 @@ describe('catalog semantic adoption', () => {
       ),
     ).toThrow(/unsupported unique constraint catalog semantics/i)
   })
+})
 
+describe('catalog semantic adoption: fails closed for NOT VALID and deferrable foreign keys', () => {
   it('fails closed for NOT VALID and deferrable foreign keys', () => {
     for (const foreignKey of [
       desiredForeignKey({
@@ -238,7 +245,9 @@ describe('catalog semantic adoption', () => {
       ).toThrow(/unsupported foreign key catalog semantics/i)
     }
   })
+})
 
+describe('catalog semantic adoption: adds missing declared constraints in additive mode and replans cleanly', () => {
   it('adds missing declared constraints in additive mode and replans cleanly', () => {
     expect(
       planMigration([Parents, Children], relationCatalog(), postgresDialect, {
@@ -276,7 +285,9 @@ describe('catalog semantic adoption', () => {
       ),
     ).toEqual({ steps: [] })
   })
+})
 
+describe('catalog semantic adoption: adds missing declared constraints in additive mode and replans cleanly: preserves extra additive constraints and reports complete-mode removal limits', () => {
   it('preserves extra additive constraints and reports complete-mode removal limits', () => {
     const catalog = relationCatalog({
       extraColumns: true,
@@ -300,7 +311,9 @@ describe('catalog semantic adoption', () => {
       /unsupported removal of extra (unique constraints|foreign keys)/i,
     )
   })
+})
 
+describe('catalog semantic adoption: reserves check and exclusion constraint names against generated constraints', () => {
   it('reserves check and exclusion constraint names against generated constraints', () => {
     const identities = createCanonicalRelationIdentityModule({
       policy: POSTGRES_POLICY,

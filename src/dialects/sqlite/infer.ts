@@ -20,6 +20,13 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
   'tuple_with_rest',
 ])
 
+/**
+ * Maps supported literal values to SQLite logical storage types.
+ *
+ * @param literal - Literal schema value used to infer physical storage.
+ *
+ * @returns The SQLite storage type supported by the literal value.
+ */
 function inferSqliteLiteralType(literal: unknown): SqlDataType {
   if (typeof literal === 'string') return 'TEXT'
   if (typeof literal === 'number') return Number.isInteger(literal) ? 'INTEGER' : 'REAL'

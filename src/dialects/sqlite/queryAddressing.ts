@@ -19,9 +19,11 @@ export function resolveSqliteQuery(
   }))
 
   return Object.freeze({
+    /** Compiles the current query or command into SQL and ordered bound parameters. */
     compile(node: Parameters<typeof compileSqlite>[0]) {
       return compileSqlite(node, resolveRelation)
     },
+    /** Finds handles matching the authored relation under query rules. */
     findRelationMatches(
       relation: RelationIdentityInput,
       candidates?: readonly TableHandle[],
@@ -38,6 +40,7 @@ export function resolveSqliteQuery(
         .filter((candidate) => candidate.relation.tableKey === expected.tableKey)
         .map((candidate) => candidate.handle)
     },
+    /** Finds column names equal under the selected query rules. */
     findColumnMatches(handle: TableHandle, column: string): readonly string[] {
       if (typeof column !== 'string' || column.length === 0) {
         throw new QueryError({

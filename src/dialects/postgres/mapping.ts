@@ -1,5 +1,12 @@
 import { postgresBaseType } from './normalize'
 
+/**
+ * Normalizes supported UUID representations while preserving other result values.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns Supported UUID representations while preserving other result values.
+ */
 function mapUuidValue(value: unknown): unknown {
   if (
     typeof value === 'string' ||

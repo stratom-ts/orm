@@ -174,51 +174,15 @@ export function stepToAst(
     case 'add_column':
       return addColumnStepToAst(step)
     case 'alter_column_type':
-      return {
-        kind: 'alter_column_type',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-        dataType: step.dataType,
-      }
+      return columnAlterationStepToAst(step)
     case 'add_unique_constraint':
-      return {
-        kind: 'add_unique_constraint',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-        name: postgresNaming.generate({
-          kind: 'unique',
-          owner: step.target.relation,
-          columns: [step.target.column.spelling],
-        }),
-      }
+      return constraintStepToAst(step)
     case 'add_foreign_key':
-      return {
-        kind: 'add_foreign_key',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-        name: postgresNaming.generate({
-          kind: 'foreignKey',
-          owner: step.target.relation,
-          columns: [step.target.column.spelling],
-          referencedRelation: step.references.relation,
-          referencedColumns: [step.references.column.spelling],
-          onDelete: step.references.onDelete?.toLowerCase() ?? 'no action',
-          onUpdate: step.references.onUpdate?.toLowerCase() ?? 'no action',
-        }),
-        references: referenceFields(step.references),
-      }
+      return constraintStepToAst(step)
     case 'set_not_null':
-      return {
-        kind: 'set_not_null',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-      }
+      return columnAlterationStepToAst(step)
     case 'drop_not_null':
-      return {
-        kind: 'drop_not_null',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-      }
+      return columnAlterationStepToAst(step)
     case 'create_index':
       return {
         kind: 'create_index',
@@ -228,11 +192,7 @@ export function stepToAst(
         unique: step.unique,
       }
     case 'drop_column':
-      return {
-        kind: 'drop_column',
-        ...relationFields(step.target.relation),
-        column: step.target.column.spelling,
-      }
+      return columnAlterationStepToAst(step)
     case 'drop_table':
       return { kind: 'drop_table', ...relationFields(step.target.relation) }
     case 'drop_index':
@@ -364,4 +324,87 @@ export function stepTargetIssues(
   }
 
   return issues
+}
+
+/**
+ * Projects structured unique and foreign-key steps into PostgreSQL constraint AST forms.
+ *
+ * @param step - Semantic Migration Plan step whose structured target must be preserved.
+ *
+ * @returns Structured unique and foreign-key steps into PostgreSQL constraint AST forms.
+ */
+function constraintStepToAst(
+  step: Extract<MigrationStep, { kind: 'add_unique_constraint' | 'add_foreign_key' }>,
+): PostgresAst {
+  switch (step.kind) {
+    case 'add_unique_constraint':
+      return {
+        kind: 'add_unique_constraint',
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
+        name: postgresNaming.generate({
+          kind: 'unique',
+          owner: step.target.relation,
+          columns: [step.target.column.spelling],
+        }),
+      }
+    case 'add_foreign_key':
+      return {
+        kind: 'add_foreign_key',
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
+        name: postgresNaming.generate({
+          kind: 'foreignKey',
+          owner: step.target.relation,
+          columns: [step.target.column.spelling],
+          referencedRelation: step.references.relation,
+          referencedColumns: [step.references.column.spelling],
+          onDelete: step.references.onDelete?.toLowerCase() ?? 'no action',
+          onUpdate: step.references.onUpdate?.toLowerCase() ?? 'no action',
+        }),
+        references: referenceFields(step.references),
+      }
+  }
+}
+
+/**
+ * Projects structured column changes into PostgreSQL alteration AST forms.
+ *
+ * @param step - Semantic Migration Plan step whose structured target must be preserved.
+ *
+ * @returns Structured column changes into PostgreSQL alteration AST forms.
+ */
+function columnAlterationStepToAst(
+  step: Extract<
+    MigrationStep,
+    { kind: 'alter_column_type' | 'set_not_null' | 'drop_not_null' | 'drop_column' }
+  >,
+): PostgresAst {
+  switch (step.kind) {
+    case 'alter_column_type':
+      return {
+        kind: 'alter_column_type',
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
+        dataType: step.dataType,
+      }
+    case 'set_not_null':
+      return {
+        kind: 'set_not_null',
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
+      }
+    case 'drop_not_null':
+      return {
+        kind: 'drop_not_null',
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
+      }
+    case 'drop_column':
+      return {
+        kind: 'drop_column',
+        ...relationFields(step.target.relation),
+        column: step.target.column.spelling,
+      }
+  }
 }

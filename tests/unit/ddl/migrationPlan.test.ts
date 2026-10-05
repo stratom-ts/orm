@@ -1,10 +1,12 @@
 import { nullable, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
+import type { PlannedMigration } from '@/ddl/migrationPlan'
 import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { AuthoredDesiredSchema, Dialect } from '@/dialects'
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
+import type { TableHandle } from '@/index'
 import { column, defineTable, isSqlNullable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type {
@@ -35,6 +37,22 @@ import {
 } from '../helpers/planTargets'
 import { exactQueryAddressing } from '../helpers/queryAddressing'
 
+const usesTheSuppliedDialectWithoutIntrospectionOrCompilationData = [
+  { name: 'id', dataType: 'custom_string_alias', isNullable: false },
+  {
+    name: 'status',
+    dataType: 'custom_string_alias',
+    isNullable: false,
+    defaultExpression: 'custom_database:ready',
+  },
+  {
+    name: 'taggedStatus',
+    dataType: 'custom_string_alias',
+    isNullable: false,
+    defaultExpression: 'custom_database:ready',
+  },
+]
+
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
     { role: 'database' as const, spelling: 'test' },
@@ -42,6 +60,7 @@ const POSTGRES_NAMESPACE_CONTEXT = {
   ],
 }
 
+/** Builds empty catalog reservations evidence for schema reconciliation checks. */
 function emptyCatalogReservations() {
   return {
     nameReservations: [],
@@ -56,6 +75,7 @@ const SUPPORTED_CATALOG_SEMANTICS = {
 
 const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
 
+/** Builds empty catalog evidence for schema reconciliation checks. */
 function emptyCatalog(): CatalogSnapshot {
   return {
     tables: [],
@@ -117,10 +137,12 @@ const AuditEvents = defineTable(
   { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'audit' }] },
 )
 
+/** Returns a fresh cyclic permutation used to check input-order invariance. */
 function rotate<T>(values: readonly T[]): T[] {
   return values.length < 2 ? [...values] : [...values.slice(1), values[0]!]
 }
 
+/** Builds mixed catalog evidence for schema reconciliation checks. */
 function mixedCatalog(): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
@@ -135,36 +157,7 @@ function mixedCatalog(): CatalogSnapshot {
         ],
         primaryKey: catalogPrimaryKey('users'),
       },
-      {
-        schema: 'public',
-        name: 'accounts',
-        columns: [
-          { name: 'removedZ', dataType: 'text', isNullable: true },
-          { name: 'indexFirst', dataType: 'text', isNullable: false },
-          { name: 'madeRequired', dataType: 'text', isNullable: true },
-          { name: 'id', dataType: 'uuid', isNullable: false },
-          { name: 'changedType', dataType: 'integer', isNullable: false },
-          { name: 'madeNullable', dataType: 'text', isNullable: false },
-          { name: 'uniqueEmail', dataType: 'text', isNullable: false },
-          { name: 'indexSecond', dataType: 'text', isNullable: false },
-          { name: 'removedA', dataType: 'text', isNullable: true },
-        ],
-        indexes: [
-          {
-            name: 'stale_z_idx',
-            columns: ['removedZ'],
-            unique: false,
-            ...SUPPORTED_CATALOG_SEMANTICS,
-          },
-          {
-            name: 'stale_a_idx',
-            columns: ['removedA'],
-            unique: false,
-            ...SUPPORTED_CATALOG_SEMANTICS,
-          },
-        ],
-        primaryKey: catalogPrimaryKey('accounts'),
-      },
+      createMixedAccountsCatalog(),
       {
         schema: 'public',
         name: 'z_orphan',
@@ -213,134 +206,63 @@ describe('Migration Plan construction', () => {
       ],
     })
   })
+})
 
+/**
+ * Lowers custom desired schema for the current fixture scenario.
+ *
+ * @param graph - Registered authored tables and their resolved reference graph.
+ *
+ * @returns Desired tables using the fixture's custom storage types.
+ */
+const lowerCustomDesiredSchema = (graph: AuthoredDesiredSchema) => ({
+  tables: graph.tables.map((table) => ({
+    handle: table.handle,
+    identity: table.identity,
+    columns: table.columns.map((column) => ({
+      identifier: column.identifier,
+      dataType: 'custom_string',
+      notNull: !isSqlNullable(column.schema),
+      unique: column.metadata?.unique ?? false,
+      autoIncrement: false,
+      ...(column.metadata?.databaseDefault === undefined
+        ? {}
+        : {
+            databaseDefault: {
+              sql: `custom_database:${String(
+                column.metadata.databaseDefault.kind === 'literal'
+                  ? column.metadata.databaseDefault.value
+                  : column.metadata.databaseDefault.expression,
+              )}`,
+              normalized: `custom_database:${String(
+                column.metadata.databaseDefault.kind === 'literal'
+                  ? column.metadata.databaseDefault.value
+                  : column.metadata.databaseDefault.expression,
+              )}`,
+            },
+          }),
+      ...(column.name === 'taggedStatus'
+        ? {
+            defaultValue: 'legacy',
+            databaseDefault: {
+              sql: 'custom_database:ready',
+              normalized: 'custom_database:ready',
+            },
+          }
+        : {}),
+    })),
+    primaryKey: (Array.isArray(table.metadata.primaryKey)
+      ? table.metadata.primaryKey
+      : [table.metadata.primaryKey]
+    ).map((name) => table.columns.find((column) => column.name === name)!.identifier),
+  })),
+})
+
+describe('Migration Plan selected dialect semantics', () => {
   it('uses the supplied dialect without introspection or compilation', () => {
-    const PortableSettings = defineTable(
-      'portable_settings',
-      {
-        id: string(),
-        status: pipe(
-          string(),
-          column({ databaseDefault: { kind: 'literal', value: 'ready' } }),
-        ),
-        taggedStatus: string(),
-      },
-      { primaryKey: 'id' },
-    )
-    const introspect = vi.fn(async (_executor, request) =>
-      completePostgresCatalog(emptyCatalog(), request),
-    )
-    const compile = vi.fn(() => ({ sql: '', params: [] }))
-    const identityModules: CanonicalRelationIdentityModule[] = []
-    const identity = {
-      id: 'custom-identity',
-      create: vi.fn(
-        (options: {
-          context: NamespaceContext
-          registrationDefault?: readonly NamespaceIdentifierInput[]
-        }) => {
-          const identities = createCanonicalRelationIdentityModule({
-            policy: POSTGRES_POLICY,
-            ...options,
-          })
-          identityModules.push(identities)
-          return identities
-        },
-      ),
-    }
-    const naming = {
-      generate: vi.fn((seed: Parameters<typeof generatePhysicalName>[0]) =>
-        generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
-      ),
-      validate: vi.fn((name: string, description: string) =>
-        validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
-      ),
-      createRegistry: vi.fn(() => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING)),
-    }
-    const lowerDesiredSchema = (graph: AuthoredDesiredSchema) => ({
-      tables: graph.tables.map((table) => ({
-        handle: table.handle,
-        identity: table.identity,
-        columns: table.columns.map((column) => ({
-          identifier: column.identifier,
-          dataType: 'custom_string',
-          notNull: !isSqlNullable(column.schema),
-          unique: column.metadata?.unique ?? false,
-          autoIncrement: false,
-          ...(column.metadata?.databaseDefault === undefined
-            ? {}
-            : {
-                databaseDefault: {
-                  sql: `custom_database:${String(
-                    column.metadata.databaseDefault.kind === 'literal'
-                      ? column.metadata.databaseDefault.value
-                      : column.metadata.databaseDefault.expression,
-                  )}`,
-                  normalized: `custom_database:${String(
-                    column.metadata.databaseDefault.kind === 'literal'
-                      ? column.metadata.databaseDefault.value
-                      : column.metadata.databaseDefault.expression,
-                  )}`,
-                },
-              }),
-          ...(column.name === 'taggedStatus'
-            ? {
-                defaultValue: 'legacy',
-                databaseDefault: {
-                  sql: 'custom_database:ready',
-                  normalized: 'custom_database:ready',
-                },
-              }
-            : {}),
-        })),
-        primaryKey: (Array.isArray(table.metadata.primaryKey)
-          ? table.metadata.primaryKey
-          : [table.metadata.primaryKey]
-        ).map((name) => table.columns.find((column) => column.name === name)!.identifier),
-      })),
-    })
-    const inferColumnType = () => 'custom_string'
-    const normalizeDataType = (dataType: string) =>
-      dataType === 'custom_string_alias' ? 'custom_string' : dataType
-    const normalizeDefaultValue = (value: string | number | boolean | null) =>
-      `custom_default:${String(value)}`
-    const dialect: Dialect = {
-      id: 'mysql',
-      identity,
-      naming,
-      schema: {
-        lowerDesiredSchema,
-        inferColumnType,
-        normalizeDataType,
-        normalizeDefaultValue,
-      },
-      query: exactQueryAddressing(compile),
-      operations: {
-        createSessionProvider: () => {
-          throw new Error('fake migration-planning operations are outside this contract')
-        },
-        compile,
-      },
-      migration: {
-        planning: {
-          identity,
-          naming,
-          schema: {
-            lowerDesiredSchema,
-            normalizeDataType,
-            normalizeDefaultValue,
-          },
-        },
-        catalog: { introspectCatalog: introspect },
-        lower: () => {
-          throw new Error('fake migration lowering is outside this contract')
-        },
-        execute: async () => {
-          throw new Error('fake migration execution is outside this contract')
-        },
-      },
-      catalog: { introspectCatalog: introspect },
-    }
+    const PortableSettings = createPortableSettingsTable()
+    const { dialect, introspect, compile, identity, identityModules, naming } =
+      createCustomPlanningDialect()
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
@@ -348,21 +270,9 @@ describe('Migration Plan construction', () => {
         {
           schema: 'public',
           name: 'portable_settings',
-          columns: [
-            { name: 'id', dataType: 'custom_string_alias', isNullable: false },
-            {
-              name: 'status',
-              dataType: 'custom_string_alias',
-              isNullable: false,
-              defaultExpression: 'custom_database:ready',
-            },
-            {
-              name: 'taggedStatus',
-              dataType: 'custom_string_alias',
-              isNullable: false,
-              defaultExpression: 'custom_database:ready',
-            },
-          ],
+          columns: structuredClone(
+            usesTheSuppliedDialectWithoutIntrospectionOrCompilationData,
+          ),
           primaryKey: {
             name: 'portable_settings_pkey',
             columns: ['id'],
@@ -384,23 +294,11 @@ describe('Migration Plan construction', () => {
       ),
       dialect,
     )
-    expect(planned.profile.identityAdapter).toBe('custom-identity')
-    expect(identity.create).toHaveBeenCalled()
-
-    expect(
-      identityModules[0]!.resolve({ relation: 'portable_settings' }).namespace,
-    ).toEqual(
-      identityModules[0]!.resolve({
-        namespace: [{ role: 'schema', spelling: 'public' }],
-        relation: 'portable_settings',
-      }).namespace,
-    )
-
-    expect(naming.generate).toHaveBeenCalled()
-    expect(naming.validate).toHaveBeenCalled()
-    expect(naming.createRegistry).toHaveBeenCalled()
+    assertCustomPlanningFacets(planned, identity, identityModules, naming)
   })
+})
 
+describe('Migration Plan phase and target ordering', () => {
   it('covers every supported step kind in canonical phase and target order', () => {
     expect(
       planMigration(
@@ -417,71 +315,12 @@ describe('Migration Plan construction', () => {
         },
       ),
     ).toEqual({
-      steps: [
-        { kind: 'ensure_namespace', target: namespaceTarget('audit') },
-        { kind: 'create_table', target: relationTarget('audit', 'events') },
-        { kind: 'create_table', target: relationTarget('public', 'comments') },
-        {
-          kind: 'add_column',
-          target: columnTarget('public', 'accounts', 'addedReference'),
-          dataType: 'uuid',
-          notNull: true,
-        },
-        {
-          kind: 'add_column',
-          target: columnTarget('public', 'accounts', 'addedText'),
-          dataType: 'text',
-          notNull: true,
-        },
-        {
-          kind: 'alter_column_type',
-          target: columnTarget('public', 'accounts', 'changedType'),
-          dataType: 'text',
-        },
-        {
-          kind: 'drop_not_null',
-          target: columnTarget('public', 'accounts', 'madeNullable'),
-        },
-        {
-          kind: 'set_not_null',
-          target: columnTarget('public', 'accounts', 'madeRequired'),
-        },
-        {
-          kind: 'create_index',
-          target: indexTarget('public', 'accounts', 'accounts_ordered_idx'),
-          columns: columnIdentifiers('indexSecond', 'indexFirst'),
-          unique: false,
-        },
-        {
-          kind: 'add_unique_constraint',
-          target: columnTarget('public', 'accounts', 'uniqueEmail'),
-        },
-        {
-          kind: 'add_foreign_key',
-          target: columnTarget('public', 'accounts', 'addedReference'),
-          references: columnReference('public', 'users', 'id'),
-        },
-        {
-          kind: 'add_foreign_key',
-          target: columnTarget('public', 'comments', 'userId'),
-          references: columnReference('public', 'users', 'id'),
-        },
-        {
-          kind: 'drop_index',
-          target: indexTarget('public', 'accounts', 'stale_a_idx'),
-        },
-        {
-          kind: 'drop_index',
-          target: indexTarget('public', 'accounts', 'stale_z_idx'),
-        },
-        { kind: 'drop_column', target: columnTarget('public', 'accounts', 'removedA') },
-        { kind: 'drop_column', target: columnTarget('public', 'accounts', 'removedZ') },
-        { kind: 'drop_table', target: relationTarget('public', 'a_orphan') },
-        { kind: 'drop_table', target: relationTarget('public', 'z_orphan') },
-      ],
+      steps: expectedCanonicalMigrationSteps,
     })
   })
+})
 
+describe('Migration Plan ordering and semantic profiles', () => {
   it('uses locale-independent code-unit target ordering', () => {
     const Lowercase = defineTable(
       'alpha',
@@ -503,7 +342,9 @@ describe('Migration Plan construction', () => {
       ],
     })
   })
+})
 
+describe('Migration Plan ordering and semantic profiles: produces equal Migration Plans for omitted and explicit resolved defaults', () => {
   it('produces equal Migration Plans for omitted and explicit resolved defaults', () => {
     const Omitted = defineTable(
       'items',
@@ -520,17 +361,7 @@ describe('Migration Plan construction', () => {
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'tenant' }] },
     )
-    const FullyQualifiedTenant = defineTable(
-      'items',
-      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-      {
-        primaryKey: 'id',
-        namespace: [
-          { role: 'database', spelling: 'test' },
-          { role: 'schema', spelling: 'tenant' },
-        ],
-      },
-    )
+    const FullyQualifiedTenant = createFullyQualifiedTenantTable()
     const tenantCatalog: CatalogSnapshot = {
       tables: [],
       ...emptyCatalogReservations(),
@@ -542,20 +373,12 @@ describe('Migration Plan construction', () => {
       },
     }
 
-    expect(planMigration([Omitted], emptyCatalog(), postgresDialect)).toEqual(
-      planMigration([Public], emptyCatalog(), postgresDialect),
-    )
-
-    expect(planMigration([Omitted], tenantCatalog, postgresDialect)).toEqual(
-      planMigration([Tenant], tenantCatalog, postgresDialect),
-    )
-
-    expect(planMigration([FullyQualifiedTenant], tenantCatalog, postgresDialect)).toEqual(
-      planMigration([Tenant], tenantCatalog, postgresDialect),
-    )
-
-    expect(planMigration([Public], tenantCatalog, postgresDialect)).not.toEqual(
-      planMigration([Omitted], tenantCatalog, postgresDialect),
+    assertEquivalentRegistrationProfiles(
+      Omitted,
+      Public,
+      tenantCatalog,
+      Tenant,
+      FullyQualifiedTenant,
     )
 
     const omittedQuery = postgresDialect.query.resolve([Omitted]).compile({
@@ -568,7 +391,9 @@ describe('Migration Plan construction', () => {
     expect(omittedQuery.sql).not.toContain('"public"."items"')
     expect(omittedQuery.sql).not.toContain('"tenant"."items"')
   })
+})
 
+describe('Migration Plan ordering and semantic profiles: uses an explicit registration default before the session writable default', () => {
   it('uses an explicit registration default before the session writable default', () => {
     const Omitted = defineTable(
       'items',
@@ -587,7 +412,9 @@ describe('Migration Plan construction', () => {
       }),
     ).toEqual(planMigration([Tenant], emptyCatalog(), postgresDialect))
   })
+})
 
+describe('Migration Plan ordering and semantic profiles: uses an explicit registration default before the session writable default: applies the registration default to foreign-key targets', () => {
   it('applies the registration default to foreign-key targets', () => {
     const Parent = defineTable(
       'parents',
@@ -620,7 +447,9 @@ describe('Migration Plan construction', () => {
       ],
     })
   })
+})
 
+describe('Migration Plan ordering and semantic profiles: keeps structured migration registrations distinct without dotted keys', () => {
   it('keeps structured migration registrations distinct without dotted keys', () => {
     const definitions = [
       ['c', 'a.b'],
@@ -658,7 +487,9 @@ describe('Migration Plan construction', () => {
       ['a.b', 'c'],
     ])
   })
+})
 
+describe('Migration Plan determinism and semantic profiles', () => {
   it('is invariant to registered table and catalog collection order', () => {
     const handles = [Accounts, AuditEvents, Comments, Users]
     const catalog = mixedCatalog()
@@ -685,7 +516,9 @@ describe('Migration Plan construction', () => {
 
     expect(catalog).toEqual(originalCatalog)
   })
+})
 
+describe('Migration Plan determinism and semantic profiles: records the resolved semantic profile every step was built under', () => {
   it('records the resolved semantic profile every step was built under', () => {
     const schemas = [Users]
     const registrationDefault = [{ role: 'schema' as const, spelling: 'tenant' }]
@@ -706,7 +539,9 @@ describe('Migration Plan construction', () => {
       registrationDefault,
     })
   })
+})
 
+describe('Migration Plan determinism and semantic profiles: keeps step kinds and phase order stable while targets stay profile-local', () => {
   it('keeps step kinds and phase order stable while targets stay profile-local', () => {
     const Items = defineTable(
       'items',
@@ -741,3 +576,316 @@ describe('Migration Plan construction', () => {
     ])
   })
 })
+
+/**
+ * Builds a fresh fully qualified tenant table handle for the schema scenario.
+ *
+ * @returns A fresh fully qualified tenant table handle for the schema scenario.
+ */
+function createFullyQualifiedTenantTable() {
+  return defineTable(
+    'items',
+    { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+    {
+      primaryKey: 'id',
+      namespace: [
+        { role: 'database', spelling: 'test' },
+        { role: 'schema', spelling: 'tenant' },
+      ],
+    },
+  )
+}
+
+/**
+ * Builds a fresh portable settings table handle for the schema scenario.
+ *
+ * @returns A fresh portable settings table handle for the schema scenario.
+ */
+function createPortableSettingsTable() {
+  return defineTable(
+    'portable_settings',
+    {
+      id: string(),
+      status: pipe(
+        string(),
+        column({ databaseDefault: { kind: 'literal', value: 'ready' } }),
+      ),
+      taggedStatus: string(),
+    },
+    { primaryKey: 'id' },
+  )
+}
+
+/**
+ * Checks equal Migration Plans for omitted and explicitly resolved namespace defaults.
+ *
+ * @param Omitted - Table handle used to exercise omitted schema behavior.
+ * @param Public - Table handle used to exercise public schema behavior.
+ * @param tenantCatalog - Observed catalog evidence in the tenant namespace.
+ * @param Tenant - Table handle used to exercise tenant schema behavior.
+ * @param FullyQualifiedTenant - Table handle used to exercise fully qualified tenant
+ *   schema behavior.
+ */
+function assertEquivalentRegistrationProfiles(
+  Omitted: TableHandle,
+  Public: TableHandle,
+  tenantCatalog: CatalogSnapshot,
+  Tenant: TableHandle,
+  FullyQualifiedTenant: ReturnType<typeof createFullyQualifiedTenantTable>,
+) {
+  expect(planMigration([Omitted], emptyCatalog(), postgresDialect)).toEqual(
+    planMigration([Public], emptyCatalog(), postgresDialect),
+  )
+
+  expect(planMigration([Omitted], tenantCatalog, postgresDialect)).toEqual(
+    planMigration([Tenant], tenantCatalog, postgresDialect),
+  )
+
+  expect(planMigration([FullyQualifiedTenant], tenantCatalog, postgresDialect)).toEqual(
+    planMigration([Tenant], tenantCatalog, postgresDialect),
+  )
+
+  expect(planMigration([Public], tenantCatalog, postgresDialect)).not.toEqual(
+    planMigration([Omitted], tenantCatalog, postgresDialect),
+  )
+}
+
+/**
+ * Checks that Migration Plan construction uses the selected identity, naming, and schema
+ * facets.
+ *
+ * @param planned - Migration Plan with its resolved Semantic Profile and desired-schema
+ *   registrations.
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param identityModules - Identity modules whose policy differences are exercised.
+ * @param naming - Physical-name generation, validation, and uniqueness rules.
+ */
+function assertCustomPlanningFacets(
+  planned: PlannedMigration,
+  identity: ReturnType<typeof createPlanningDialectSpies>['identity'],
+  identityModules: CanonicalRelationIdentityModule[],
+  naming: ReturnType<typeof createPlanningDialectSpies>['naming'],
+) {
+  expect(planned.profile.identityAdapter).toBe('custom-identity')
+  expect(identity.create).toHaveBeenCalled()
+
+  expect(
+    identityModules[0]!.resolve({ relation: 'portable_settings' }).namespace,
+  ).toEqual(
+    identityModules[0]!.resolve({
+      namespace: [{ role: 'schema', spelling: 'public' }],
+      relation: 'portable_settings',
+    }).namespace,
+  )
+
+  expect(naming.generate).toHaveBeenCalled()
+  expect(naming.validate).toHaveBeenCalled()
+  expect(naming.createRegistry).toHaveBeenCalled()
+}
+
+/**
+ * Creates the custom planning dialect fixture used by the contract scenario.
+ *
+ * @returns The custom planning dialect fixture used by the contract scenario.
+ */
+function createCustomPlanningDialect() {
+  const { identity, naming, compile, introspect, identityModules } =
+    createPlanningDialectSpies()
+  const lowerDesiredSchema = lowerCustomDesiredSchema
+  const inferColumnType = inferCustomPlanningType
+  const normalizeDataType = normalizeCustomPlanningType
+  const normalizeDefaultValue = normalizeCustomPlanningDefault
+  const dialect: Dialect = {
+    id: 'mysql',
+    identity,
+    naming,
+    schema: {
+      lowerDesiredSchema,
+      inferColumnType,
+      normalizeDataType,
+      normalizeDefaultValue,
+    },
+    query: exactQueryAddressing(compile),
+    operations: {
+      /** Creates the connector's provider for exclusive native operation sessions. */
+      createSessionProvider: () => {
+        throw new Error('fake migration-planning operations are outside this contract')
+      },
+      compile,
+    },
+    migration: {
+      planning: {
+        identity,
+        naming,
+        schema: {
+          lowerDesiredSchema,
+          normalizeDataType,
+          normalizeDefaultValue,
+        },
+      },
+      catalog: { introspectCatalog: introspect },
+      /** Lowers for the current fixture scenario. */
+      lower: () => {
+        throw new Error('fake migration lowering is outside this contract')
+      },
+      /** Executes fixture SQL with the configured native observations. */
+      execute: async () => {
+        throw new Error('fake migration execution is outside this contract')
+      },
+    },
+    catalog: { introspectCatalog: introspect },
+  }
+  return { dialect, introspect, compile, identity, identityModules, naming }
+}
+
+/**
+ * Creates the planning dialect spies fixture used by the contract scenario.
+ *
+ * @returns The planning dialect spies fixture used by the contract scenario.
+ */
+function createPlanningDialectSpies() {
+  const introspect = vi.fn(async (_executor, request) =>
+    completePostgresCatalog(emptyCatalog(), request),
+  )
+  const compile = vi.fn(() => ({ sql: '', params: [] }))
+  const identityModules: CanonicalRelationIdentityModule[] = []
+  const identity = {
+    id: 'custom-identity',
+    create: vi.fn(
+      (options: {
+        context: NamespaceContext
+        registrationDefault?: readonly NamespaceIdentifierInput[]
+      }) => {
+        const identities = createCanonicalRelationIdentityModule({
+          policy: POSTGRES_POLICY,
+          ...options,
+        })
+        identityModules.push(identities)
+        return identities
+      },
+    ),
+  }
+  const naming = {
+    generate: vi.fn((seed: Parameters<typeof generatePhysicalName>[0]) =>
+      generatePhysicalName(seed, POSTGRES_PHYSICAL_NAMING),
+    ),
+    validate: vi.fn((name: string, description: string) =>
+      validatePhysicalName(name, description, POSTGRES_PHYSICAL_NAMING),
+    ),
+    createRegistry: vi.fn(() => createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING)),
+  }
+  return { identity, naming, compile, introspect, identityModules }
+}
+
+/** Creates the mixed accounts catalog fixture used by the contract scenario. */
+function createMixedAccountsCatalog(): CatalogSnapshot['tables'][number] {
+  return {
+    schema: 'public',
+    name: 'accounts',
+    columns: [
+      { name: 'removedZ', dataType: 'text', isNullable: true },
+      { name: 'indexFirst', dataType: 'text', isNullable: false },
+      { name: 'madeRequired', dataType: 'text', isNullable: true },
+      { name: 'id', dataType: 'uuid', isNullable: false },
+      { name: 'changedType', dataType: 'integer', isNullable: false },
+      { name: 'madeNullable', dataType: 'text', isNullable: false },
+      { name: 'uniqueEmail', dataType: 'text', isNullable: false },
+      { name: 'indexSecond', dataType: 'text', isNullable: false },
+      { name: 'removedA', dataType: 'text', isNullable: true },
+    ],
+    indexes: [
+      {
+        name: 'stale_z_idx',
+        columns: ['removedZ'],
+        unique: false,
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+      {
+        name: 'stale_a_idx',
+        columns: ['removedA'],
+        unique: false,
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+    ],
+    primaryKey: catalogPrimaryKey('accounts'),
+  }
+}
+
+const expectedCanonicalMigrationSteps = [
+  { kind: 'ensure_namespace', target: namespaceTarget('audit') },
+  { kind: 'create_table', target: relationTarget('audit', 'events') },
+  { kind: 'create_table', target: relationTarget('public', 'comments') },
+  {
+    kind: 'add_column',
+    target: columnTarget('public', 'accounts', 'addedReference'),
+    dataType: 'uuid',
+    notNull: true,
+  },
+  {
+    kind: 'add_column',
+    target: columnTarget('public', 'accounts', 'addedText'),
+    dataType: 'text',
+    notNull: true,
+  },
+  {
+    kind: 'alter_column_type',
+    target: columnTarget('public', 'accounts', 'changedType'),
+    dataType: 'text',
+  },
+  {
+    kind: 'drop_not_null',
+    target: columnTarget('public', 'accounts', 'madeNullable'),
+  },
+  {
+    kind: 'set_not_null',
+    target: columnTarget('public', 'accounts', 'madeRequired'),
+  },
+  {
+    kind: 'create_index',
+    target: indexTarget('public', 'accounts', 'accounts_ordered_idx'),
+    columns: columnIdentifiers('indexSecond', 'indexFirst'),
+    unique: false,
+  },
+  {
+    kind: 'add_unique_constraint',
+    target: columnTarget('public', 'accounts', 'uniqueEmail'),
+  },
+  {
+    kind: 'add_foreign_key',
+    target: columnTarget('public', 'accounts', 'addedReference'),
+    references: columnReference('public', 'users', 'id'),
+  },
+  {
+    kind: 'add_foreign_key',
+    target: columnTarget('public', 'comments', 'userId'),
+    references: columnReference('public', 'users', 'id'),
+  },
+  {
+    kind: 'drop_index',
+    target: indexTarget('public', 'accounts', 'stale_a_idx'),
+  },
+  {
+    kind: 'drop_index',
+    target: indexTarget('public', 'accounts', 'stale_z_idx'),
+  },
+  { kind: 'drop_column', target: columnTarget('public', 'accounts', 'removedA') },
+  { kind: 'drop_column', target: columnTarget('public', 'accounts', 'removedZ') },
+  { kind: 'drop_table', target: relationTarget('public', 'a_orphan') },
+  { kind: 'drop_table', target: relationTarget('public', 'z_orphan') },
+]
+
+/** Infers a supported physical SQL type from Valibot schema facts. */
+function inferCustomPlanningType() {
+  return 'custom_string'
+}
+
+/** Normalizes physical SQL type spelling for stable schema comparison. */
+function normalizeCustomPlanningType(dataType: string) {
+  return dataType === 'custom_string_alias' ? 'custom_string' : dataType
+}
+
+/** Normalizes the fixture default into its comparison spelling. */
+function normalizeCustomPlanningDefault(value: string | number | boolean | null) {
+  return `custom_default:${String(value)}`
+}

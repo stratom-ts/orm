@@ -8,6 +8,411 @@ import type {
   CatalogTable,
 } from '@/dialects'
 import { sqliteCatalog } from '@/dialects'
+import type { CatalogColumn } from '@/dialects/catalog'
+
+const rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData = [
+  ['index-invalid-origin', 'Malformed SQLite index_list row 0: invalid origin'],
+  ['index-invalid-flags', 'SQLite UNIQUE index "u_auto" has invalid flags'],
+  ['index-wrong-shape', 'Malformed SQLite index_list row 0: "unique" must be an integer'],
+  ['index-xinfo-wrong-flag', 'Malformed SQLite index_xinfo row 0: "desc" must be 0 or 1'],
+  ['index-xinfo-expression', 'SQLite index "parent_n" has a malformed expression term'],
+  [
+    'index-xinfo-auxiliary',
+    'SQLite index "parent_n" has malformed auxiliary index_xinfo row',
+  ],
+  [
+    'missing-index-schema',
+    'SQLite user index "missing_schema_idx" has missing or mismatched sqlite_schema evidence',
+  ],
+  [
+    'schema-index-missing-list',
+    'SQLite sqlite_schema index "missing_list_idx" is missing from index_list',
+  ],
+]
+
+const ordersUnresolvedFKTargetsWithASCIICaseEquivalentIdentitiesDeterministicallyRows = [
+  {
+    id: 0,
+    seq: 0,
+    table: 'Missing',
+    from: 'pa',
+    to: 'id',
+    on_update: 'NO ACTION',
+    on_delete: 'CASCADE',
+    match: 'NONE',
+  },
+  {
+    id: 1,
+    seq: 0,
+    table: 'missing',
+    from: 'pa',
+    to: 'id',
+    on_update: 'NO ACTION',
+    on_delete: 'CASCADE',
+    match: 'NONE',
+  },
+] as const
+
+const assertBlocksMainManagementWhenAttachedOrTemporaryObjectsAreData = [
+  [
+    'catalog.sqlite.attached',
+    'SQLite attached database "aux" is observed but its schema dependencies are not managed',
+  ],
+  [
+    'catalog.sqlite.temporary',
+    'SQLite temporary schema is observed but its dependencies are not managed',
+  ],
+  [
+    'catalog.sqlite.trigger-dependency',
+    'SQLite trigger dependencies are not resolved and may affect other tables',
+  ],
+  [
+    'catalog.sqlite.unmanaged-relation',
+    'SQLite attached relation "attached_item" is observed but its schema dependencies are not managed',
+  ],
+  [
+    'catalog.sqlite.unmanaged-relation',
+    'SQLite temporary relation "temporary_item" is observed but its schema dependencies are not managed',
+  ],
+  [
+    'catalog.sqlite.view-dependency',
+    'SQLite view dependencies are not resolved and may affect ordinary tables',
+  ],
+]
+
+const executeSqliteCatalogFixtureRows = [
+  {
+    id: 0,
+    seq: 0,
+    table: 'PARENT',
+    from: 'PA',
+    to: 'ID',
+    on_update: 'NO ACTION',
+    on_delete: 'CASCADE',
+    match: 'NONE',
+  },
+  {
+    id: 1,
+    seq: 0,
+    table: 'parent',
+    from: 'pa',
+    to: 'V',
+    on_update: 'RESTRICT',
+    on_delete: 'SET NULL',
+    match: 'NONE',
+  },
+]
+
+const executeSqliteFixtureData = [
+  {
+    id: 0,
+    seq: 0,
+    table: 'parent',
+    from: 'pa',
+    to: 'id',
+    on_update: 'CASCADE',
+    on_delete: 'SET NULL',
+    match: 'NONE',
+  },
+  {
+    id: 0,
+    seq: 1,
+    table: 'parent',
+    from: 'pb',
+    to: 'v',
+    on_update: 'CASCADE',
+    on_delete: 'SET NULL',
+    match: 'NONE',
+  },
+]
+
+const fixtureIndexListData = [
+  {
+    seq: 0,
+    name: 'parent_n',
+    unique: 0,
+    origin: 'c',
+    partial: 0,
+  },
+  { seq: 1, name: 'u_auto', unique: 1, origin: 'u', partial: 0 },
+  { seq: 2, name: 'u_auto2', unique: 1, origin: 'u', partial: 0 },
+  {
+    seq: 3,
+    name: 'rich_desc',
+    unique: 0,
+    origin: 'c',
+    partial: 0,
+  },
+  {
+    seq: 4,
+    name: 'rich_partial',
+    unique: 0,
+    origin: 'c',
+    partial: 1,
+  },
+  {
+    seq: 5,
+    name: 'rich_expr',
+    unique: 0,
+    origin: 'c',
+    partial: 0,
+  },
+  {
+    seq: 6,
+    name: 'rich_coll',
+    unique: 0,
+    origin: 'c',
+    partial: 0,
+  },
+]
+
+const fixtureSchemaRowsSchema = [
+  {
+    type: 'table',
+    name: 'parent',
+    tbl_name: 'parent',
+    sql: "CREATE TABLE parent(id INTEGER PRIMARY KEY AUTOINCREMENT, v VARCHAR(12) DEFAULT 'safe', b BLOB DEFAULT TRUE, r DOUBLE, d DECIMAL(10,2) DEFAULT (lower('x')))",
+  },
+  {
+    type: 'table',
+    name: 'child',
+    tbl_name: 'child',
+    sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa,pb) REFERENCES parent(id,v) ON UPDATE CASCADE ON DELETE SET NULL)',
+  },
+  {
+    type: 'table',
+    name: 'wr',
+    tbl_name: 'wr',
+    sql: 'CREATE TABLE wr(id TEXT PRIMARY KEY) WITHOUT ROWID',
+  },
+  {
+    type: 'table',
+    name: 'wr_auto',
+    tbl_name: 'wr_auto',
+    sql: 'CREATE TABLE wr_auto(a TEXT, b TEXT, PRIMARY KEY(a,b)) WITHOUT ROWID',
+  },
+  {
+    type: 'table',
+    name: 'pk_desc',
+    tbl_name: 'pk_desc',
+    sql: 'CREATE TABLE pk_desc(id INTEGER PRIMARY KEY DESC)',
+  },
+  {
+    type: 'table',
+    name: 'strict_t',
+    tbl_name: 'strict_t',
+    sql: 'CREATE TABLE strict_t(id INTEGER) STRICT',
+  },
+  {
+    type: 'table',
+    name: 'generated_t',
+    tbl_name: 'generated_t',
+    sql: 'CREATE TABLE generated_t(base INTEGER, derived INTEGER GENERATED ALWAYS AS (base * 2) VIRTUAL)',
+  },
+  { type: 'view', name: 'v', tbl_name: 'v', sql: 'CREATE VIEW v AS SELECT 1' },
+  {
+    type: 'table',
+    name: 'simple',
+    tbl_name: 'simple',
+    sql: 'CREATE TABLE simple(id INTEGER PRIMARY KEY)',
+  },
+  {
+    type: 'table',
+    name: 'virt',
+    tbl_name: 'virt',
+    sql: 'CREATE VIRTUAL TABLE virt USING fts5(body)',
+  },
+  { type: 'table', name: 'virt_shadow', tbl_name: 'virt_shadow', sql: null },
+  {
+    type: 'index',
+    name: 'parent_n',
+    tbl_name: 'parent',
+    sql: 'CREATE INDEX parent_n ON parent(v)',
+  },
+  {
+    type: 'index',
+    name: 'rich_desc',
+    tbl_name: 'parent',
+    sql: 'CREATE INDEX rich_desc ON parent(v DESC)',
+  },
+  {
+    type: 'index',
+    name: 'rich_partial',
+    tbl_name: 'parent',
+    sql: 'CREATE INDEX rich_partial ON parent(v) WHERE v IS NOT NULL',
+  },
+  {
+    type: 'index',
+    name: 'rich_expr',
+    tbl_name: 'parent',
+    sql: 'CREATE INDEX rich_expr ON parent(lower(v))',
+  },
+  {
+    type: 'index',
+    name: 'rich_coll',
+    tbl_name: 'parent',
+    sql: 'CREATE INDEX rich_coll ON parent(v COLLATE NOCASE)',
+  },
+  {
+    type: 'trigger',
+    name: 'parent_trg',
+    tbl_name: 'parent',
+    sql: 'CREATE TRIGGER parent_trg AFTER INSERT ON parent BEGIN SELECT 1; END',
+  },
+]
+
+const fixtureColumnRowsXinfo = {
+  parent: [
+    {
+      cid: 0,
+      name: 'id',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 1,
+      hidden: 0,
+    },
+    {
+      cid: 1,
+      name: 'v',
+      type: 'VARCHAR(12)',
+      notnull: 0,
+      dflt_value: "'safe'",
+      pk: 0,
+      hidden: 0,
+    },
+    {
+      cid: 2,
+      name: 'b',
+      type: '',
+      notnull: 0,
+      dflt_value: 'TRUE',
+      pk: 0,
+      hidden: 0,
+    },
+    {
+      cid: 3,
+      name: 'r',
+      type: 'DOUBLE',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+      hidden: 0,
+    },
+    {
+      cid: 4,
+      name: 'd',
+      type: 'DECIMAL(10,2)',
+      notnull: 0,
+      dflt_value: "(lower('x'))",
+      pk: 0,
+      hidden: 0,
+    },
+  ],
+  simple: [
+    {
+      cid: 0,
+      name: 'id',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 1,
+      hidden: 0,
+    },
+  ],
+  child: [
+    {
+      cid: 0,
+      name: 'id',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 1,
+      hidden: 0,
+    },
+    {
+      cid: 1,
+      name: 'pa',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+      hidden: 0,
+    },
+    {
+      cid: 2,
+      name: 'pb',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+      hidden: 0,
+    },
+  ],
+  wr: [
+    {
+      cid: 0,
+      name: 'id',
+      type: 'TEXT',
+      notnull: 0,
+      dflt_value: null,
+      pk: 1,
+      hidden: 0,
+    },
+  ],
+  wr_auto: [
+    { cid: 0, name: 'a', type: 'TEXT', notnull: 0, dflt_value: null, pk: 1, hidden: 0 },
+    { cid: 1, name: 'b', type: 'TEXT', notnull: 0, dflt_value: null, pk: 2, hidden: 0 },
+  ],
+  pk_desc: [
+    {
+      cid: 0,
+      name: 'id',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 1,
+      hidden: 0,
+    },
+  ],
+  strict_t: [
+    {
+      cid: 0,
+      name: 'id',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+      hidden: 0,
+    },
+  ],
+  generated_t: [
+    {
+      cid: 0,
+      name: 'base',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+      hidden: 0,
+    },
+    {
+      cid: 1,
+      name: 'derived',
+      type: 'INTEGER',
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+      hidden: 2,
+    },
+  ],
+  virt: [
+    { cid: 0, name: 'body', type: '', notnull: 0, dflt_value: null, pk: 0, hidden: 1 },
+  ],
+  virt_shadow: [
+    { cid: 0, name: 'body', type: '', notnull: 0, dflt_value: null, pk: 0, hidden: 2 },
+  ],
+}
 
 const request: CatalogRequest = {
   relations: [],
@@ -36,161 +441,17 @@ type FixtureOptions = {
   matchClause?: boolean
 }
 
-// oxlint-disable-next-line complexity
-function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
-  let tables = [
-    { schema: 'main', name: 'parent', type: 'table', ncol: 5, wr: 0, strict: 0 },
-    { schema: 'main', name: 'child', type: 'table', ncol: 3, wr: 0, strict: 0 },
-    { schema: 'main', name: 'wr', type: 'table', ncol: 1, wr: 1, strict: 0 },
-    { schema: 'main', name: 'wr_auto', type: 'table', ncol: 2, wr: 1, strict: 0 },
-    { schema: 'main', name: 'pk_desc', type: 'table', ncol: 1, wr: 0, strict: 0 },
-    { schema: 'main', name: 'strict_t', type: 'table', ncol: 1, wr: 0, strict: 1 },
-    { schema: 'main', name: 'generated_t', type: 'table', ncol: 2, wr: 0, strict: 0 },
-    { schema: 'main', name: 'v', type: 'view', ncol: 1, wr: 0, strict: 0 },
-    { schema: 'main', name: 'virt', type: 'virtual', ncol: 1, wr: 0, strict: 0 },
-    { schema: 'main', name: 'virt_shadow', type: 'shadow', ncol: 1, wr: 0, strict: 0 },
-    {
-      schema: 'main',
-      name: 'simple',
-      type: 'table',
-      ncol: options.opaqueDefault || options.richUniqueIndex ? 2 : 1,
-      wr: 0,
-      strict: 0,
-    },
-  ]
-
-  if (options.withoutOpaqueDependencies)
-    tables = tables.filter((table) => table.type !== 'view')
-
-  if (options.quotedName !== undefined)
-    tables.push({
-      schema: 'main',
-      name: options.quotedName,
-      type: 'table',
-      ncol: 1,
-      wr: 0,
-      strict: 0,
-    })
-
-  let schema = [
-    {
-      type: 'table',
-      name: 'parent',
-      tbl_name: 'parent',
-      sql: "CREATE TABLE parent(id INTEGER PRIMARY KEY AUTOINCREMENT, v VARCHAR(12) DEFAULT 'safe', b BLOB DEFAULT TRUE, r DOUBLE, d DECIMAL(10,2) DEFAULT (lower('x')))",
-    },
-    {
-      type: 'table',
-      name: 'child',
-      tbl_name: 'child',
-      sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa,pb) REFERENCES parent(id,v) ON UPDATE CASCADE ON DELETE SET NULL)',
-    },
-    {
-      type: 'table',
-      name: 'wr',
-      tbl_name: 'wr',
-      sql: 'CREATE TABLE wr(id TEXT PRIMARY KEY) WITHOUT ROWID',
-    },
-    {
-      type: 'table',
-      name: 'wr_auto',
-      tbl_name: 'wr_auto',
-      sql: 'CREATE TABLE wr_auto(a TEXT, b TEXT, PRIMARY KEY(a,b)) WITHOUT ROWID',
-    },
-    {
-      type: 'table',
-      name: 'pk_desc',
-      tbl_name: 'pk_desc',
-      sql: 'CREATE TABLE pk_desc(id INTEGER PRIMARY KEY DESC)',
-    },
-    {
-      type: 'table',
-      name: 'strict_t',
-      tbl_name: 'strict_t',
-      sql: 'CREATE TABLE strict_t(id INTEGER) STRICT',
-    },
-    {
-      type: 'table',
-      name: 'generated_t',
-      tbl_name: 'generated_t',
-      sql: 'CREATE TABLE generated_t(base INTEGER, derived INTEGER GENERATED ALWAYS AS (base * 2) VIRTUAL)',
-    },
-    { type: 'view', name: 'v', tbl_name: 'v', sql: 'CREATE VIEW v AS SELECT 1' },
-    {
-      type: 'table',
-      name: 'simple',
-      tbl_name: 'simple',
-      sql: 'CREATE TABLE simple(id INTEGER PRIMARY KEY)',
-    },
-    {
-      type: 'table',
-      name: 'virt',
-      tbl_name: 'virt',
-      sql: 'CREATE VIRTUAL TABLE virt USING fts5(body)',
-    },
-    { type: 'table', name: 'virt_shadow', tbl_name: 'virt_shadow', sql: null },
-    {
-      type: 'index',
-      name: 'parent_n',
-      tbl_name: 'parent',
-      sql: 'CREATE INDEX parent_n ON parent(v)',
-    },
-    {
-      type: 'index',
-      name: 'rich_desc',
-      tbl_name: 'parent',
-      sql: 'CREATE INDEX rich_desc ON parent(v DESC)',
-    },
-    {
-      type: 'index',
-      name: 'rich_partial',
-      tbl_name: 'parent',
-      sql: 'CREATE INDEX rich_partial ON parent(v) WHERE v IS NOT NULL',
-    },
-    {
-      type: 'index',
-      name: 'rich_expr',
-      tbl_name: 'parent',
-      sql: 'CREATE INDEX rich_expr ON parent(lower(v))',
-    },
-    {
-      type: 'index',
-      name: 'rich_coll',
-      tbl_name: 'parent',
-      sql: 'CREATE INDEX rich_coll ON parent(v COLLATE NOCASE)',
-    },
-    {
-      type: 'trigger',
-      name: 'parent_trg',
-      tbl_name: 'parent',
-      sql: 'CREATE TRIGGER parent_trg AFTER INSERT ON parent BEGIN SELECT 1; END',
-    },
-  ]
-
-  if (options.namedConstraint)
-    schema[0]!.sql =
-      'CREATE TABLE parent(id INTEGER, v TEXT, CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v))'
-
-  if (options.namedConstraint)
-    schema[1]!.sql =
-      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, CONSTRAINT named_fk FOREIGN KEY(pa,pb) REFERENCES parent(id,v))'
-
-  if (options.simpleForeignKey)
-    schema[1]!.sql =
-      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(id))'
-
-  if (options.matchClause) schema[1]!.sql = `${schema[1]!.sql!.slice(0, -1)} MATCH FULL)`
-
-  if (options.richUniqueIndex)
-    schema.find((entry) => entry.name === 'simple')!.sql =
-      'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT UNIQUE)'
-
-  if (options.opaqueDefault)
-    schema.find((entry) => entry.name === 'simple')!.sql =
-      'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT DEFAULT (random()))'
-
-  if (options.checkConstraint)
-    schema[0]!.sql = `${schema[0]!.sql!.slice(0, -1)}, CHECK (b IS NULL OR b = 1))`
+/**
+ * Builds native sqlite_schema rows with the requested table, index, and dependency
+ * variations.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native sqlite_schema rows with the requested table, index, and dependency
+ *   variations.
+ */
+function fixtureSchemaRows(options: FixtureOptions) {
+  let schema = createSqliteConstraintRows(options)
 
   if (options.triggerNameCollision)
     schema.push({
@@ -219,6 +480,65 @@ function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
       sql: 'CREATE TRIGGER cross_table_trigger AFTER UPDATE ON parent BEGIN UPDATE child SET pa = new.id; END',
     })
 
+  applySqliteSchemaClauses(options, schema)
+
+  return schema
+}
+
+/**
+ * Builds SQLite constraint definitions and applies requested reference and default
+ * variations.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns SQLite constraint definitions and applies requested reference and default
+ *   variations.
+ */
+function createSqliteConstraintRows(options: FixtureOptions) {
+  let schema = structuredClone(fixtureSchemaRowsSchema)
+
+  if (options.namedConstraint)
+    schema[0]!.sql =
+      'CREATE TABLE parent(id INTEGER, v TEXT, CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v))'
+
+  if (options.namedConstraint)
+    schema[1]!.sql =
+      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, CONSTRAINT named_fk FOREIGN KEY(pa,pb) REFERENCES parent(id,v))'
+
+  if (options.simpleForeignKey)
+    schema[1]!.sql =
+      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(id))'
+
+  if (options.matchClause) schema[1]!.sql = `${schema[1]!.sql!.slice(0, -1)} MATCH FULL)`
+
+  if (options.richUniqueIndex)
+    schema.find((entry) => entry.name === 'simple')!.sql =
+      'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT UNIQUE)'
+
+  if (options.opaqueDefault)
+    schema.find((entry) => entry.name === 'simple')!.sql =
+      'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT DEFAULT (random()))'
+
+  if (options.checkConstraint)
+    schema[0]!.sql = `${schema[0]!.sql!.slice(0, -1)}, CHECK (b IS NULL OR b = 1))`
+
+  return schema
+}
+
+/**
+ * Applies quoted names and richer native clauses used to check unsupported catalog
+ * semantics.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+ */
+function applySqliteSchemaClauses(
+  options: FixtureOptions,
+  schema: (
+    | { type: string; name: string; tbl_name: string; sql: string }
+    | { type: string; name: string; tbl_name: string; sql: null }
+  )[],
+) {
   if (options.richerClause === 'collate')
     schema.find((entry) => entry.name === 'simple')!.sql =
       'CREATE TABLE simple(id INTEGER COLLATE NOCASE PRIMARY KEY)'
@@ -253,159 +573,17 @@ function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
       tbl_name: options.quotedName,
       sql: `CREATE INDEX "${options.quotedIndexName.replaceAll('"', '""')}" ON "${options.quotedName.replaceAll('"', '""')}" ("value")`,
     })
+}
 
-  const xinfo: Record<string, unknown[]> = {
-    parent: [
-      {
-        cid: 0,
-        name: 'id',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 1,
-        hidden: 0,
-      },
-      {
-        cid: 1,
-        name: 'v',
-        type: 'VARCHAR(12)',
-        notnull: 0,
-        dflt_value: "'safe'",
-        pk: 0,
-        hidden: 0,
-      },
-      {
-        cid: 2,
-        name: 'b',
-        type: '',
-        notnull: 0,
-        dflt_value: 'TRUE',
-        pk: 0,
-        hidden: 0,
-      },
-      {
-        cid: 3,
-        name: 'r',
-        type: 'DOUBLE',
-        notnull: 0,
-        dflt_value: null,
-        pk: 0,
-        hidden: 0,
-      },
-      {
-        cid: 4,
-        name: 'd',
-        type: 'DECIMAL(10,2)',
-        notnull: 0,
-        dflt_value: "(lower('x'))",
-        pk: 0,
-        hidden: 0,
-      },
-    ],
-    simple: [
-      {
-        cid: 0,
-        name: 'id',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 1,
-        hidden: 0,
-      },
-    ],
-    child: [
-      {
-        cid: 0,
-        name: 'id',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 1,
-        hidden: 0,
-      },
-      {
-        cid: 1,
-        name: 'pa',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 0,
-        hidden: 0,
-      },
-      {
-        cid: 2,
-        name: 'pb',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 0,
-        hidden: 0,
-      },
-    ],
-    wr: [
-      {
-        cid: 0,
-        name: 'id',
-        type: 'TEXT',
-        notnull: 0,
-        dflt_value: null,
-        pk: 1,
-        hidden: 0,
-      },
-    ],
-    wr_auto: [
-      { cid: 0, name: 'a', type: 'TEXT', notnull: 0, dflt_value: null, pk: 1, hidden: 0 },
-      { cid: 1, name: 'b', type: 'TEXT', notnull: 0, dflt_value: null, pk: 2, hidden: 0 },
-    ],
-    pk_desc: [
-      {
-        cid: 0,
-        name: 'id',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 1,
-        hidden: 0,
-      },
-    ],
-    strict_t: [
-      {
-        cid: 0,
-        name: 'id',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 0,
-        hidden: 0,
-      },
-    ],
-    generated_t: [
-      {
-        cid: 0,
-        name: 'base',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 0,
-        hidden: 0,
-      },
-      {
-        cid: 1,
-        name: 'derived',
-        type: 'INTEGER',
-        notnull: 0,
-        dflt_value: null,
-        pk: 0,
-        hidden: 2,
-      },
-    ],
-    virt: [
-      { cid: 0, name: 'body', type: '', notnull: 0, dflt_value: null, pk: 0, hidden: 1 },
-    ],
-    virt_shadow: [
-      { cid: 0, name: 'body', type: '', notnull: 0, dflt_value: null, pk: 0, hidden: 2 },
-    ],
-  }
+/**
+ * Builds native column observations with the selected schema variations.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native column observations with the selected schema variations.
+ */
+function fixtureColumnRows(options: FixtureOptions): Record<string, unknown[]> {
+  const xinfo: Record<string, unknown[]> = structuredClone(fixtureColumnRowsXinfo)
 
   if (options.quotedName !== undefined)
     xinfo[options.quotedName] = [
@@ -436,475 +614,425 @@ function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
     simpleColumn.dflt_value = "'COLLATE ON CONFLICT DEFERRABLE INITIALLY'"
   }
 
+  return xinfo
+}
+
+/**
+ * Builds SQLite table-list observations with the requested native options.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns SQLite table-list observations with the requested native options.
+ */
+function fixtureTableRows(options: FixtureOptions) {
+  let tables = [
+    { schema: 'main', name: 'parent', type: 'table', ncol: 5, wr: 0, strict: 0 },
+    { schema: 'main', name: 'child', type: 'table', ncol: 3, wr: 0, strict: 0 },
+    { schema: 'main', name: 'wr', type: 'table', ncol: 1, wr: 1, strict: 0 },
+    { schema: 'main', name: 'wr_auto', type: 'table', ncol: 2, wr: 1, strict: 0 },
+    { schema: 'main', name: 'pk_desc', type: 'table', ncol: 1, wr: 0, strict: 0 },
+    { schema: 'main', name: 'strict_t', type: 'table', ncol: 1, wr: 0, strict: 1 },
+    { schema: 'main', name: 'generated_t', type: 'table', ncol: 2, wr: 0, strict: 0 },
+    { schema: 'main', name: 'v', type: 'view', ncol: 1, wr: 0, strict: 0 },
+    { schema: 'main', name: 'virt', type: 'virtual', ncol: 1, wr: 0, strict: 0 },
+    { schema: 'main', name: 'virt_shadow', type: 'shadow', ncol: 1, wr: 0, strict: 0 },
+    {
+      schema: 'main',
+      name: 'simple',
+      type: 'table',
+      ncol: options.opaqueDefault || options.richUniqueIndex ? 2 : 1,
+      wr: 0,
+      strict: 0,
+    },
+  ]
+
+  if (options.withoutOpaqueDependencies)
+    tables = tables.filter((table) => table.type !== 'view')
+
+  if (options.quotedName !== undefined)
+    tables.push({
+      schema: 'main',
+      name: options.quotedName,
+      type: 'table',
+      ncol: 1,
+      wr: 0,
+      strict: 0,
+    })
+
+  return tables
+}
+
+/**
+ * Builds native index-list rows for the requested table and test variation.
+ *
+ * @param p - Parameters supplied to the native fixture SQL call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native index-list rows for the requested table and test variation.
+ */
+function fixtureIndexList(p: readonly unknown[], options: FixtureOptions): unknown[] {
+  return p[0] === options.quotedName && options.quotedIndexName !== undefined
+    ? [
+        {
+          seq: 0,
+          name: options.quotedIndexName,
+          unique: 0,
+          origin: 'c',
+          partial: 0,
+        },
+      ]
+    : p[0] === 'parent'
+      ? structuredClone(fixtureIndexListData)
+      : p[0] === 'pk_desc'
+        ? [
+            {
+              seq: 0,
+              name: 'pk_desc_auto',
+              unique: 1,
+              origin: 'pk',
+              partial: 0,
+            },
+          ]
+        : p[0] === 'wr' || p[0] === 'wr_auto'
+          ? [
+              {
+                seq: 0,
+                name: `${p[0]}_auto`,
+                unique: 1,
+                origin: 'pk',
+                partial: 0,
+              },
+            ]
+          : []
+}
+
+/**
+ * Builds native index-member rows for the requested index and test variation.
+ *
+ * @param p - Parameters supplied to the native fixture SQL call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native index-member rows for the requested index and test variation.
+ */
+function fixtureIndexInfo(p: readonly unknown[], options: FixtureOptions): unknown[] {
+  const name = p[0]
+
+  if (name === options.quotedIndexName) return structuredClone(quotedIndexInfoRows)
+
+  return structuredClone(
+    typeof name === 'string'
+      ? ((Object.hasOwn(indexInfoRows, name) ? indexInfoRows[name] : undefined) ??
+          defaultIndexInfoRows)
+      : defaultIndexInfoRows,
+  )
+}
+
+/**
+ * Injects malformed column and foreign-key fields into otherwise valid native
+ * observations.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native rows after injecting the requested malformed member fields.
+ */
+function malformedMemberRows(
+  rows: unknown[],
+  query: Parameters<CatalogExecutor['execute']>[0],
+  options: FixtureOptions,
+): unknown[] {
+  if (options.malformed === 'xinfo-missing-name' && query.sql.includes('table_xinfo'))
+    rows = rows.map((row) => {
+      const { name: _name, ...rest } = row as Record<string, unknown>
+
+      return rest
+    })
+
+  if (options.malformed === 'fk-wrong-target' && query.sql.includes('foreign_key_list'))
+    rows = rows.map((row) => ({ ...(row as Record<string, unknown>), to: 42 }))
+
+  if (options.malformed === 'xinfo-gap' && query.sql.includes('table_xinfo'))
+    rows = rows.map((row) => ({ ...(row as Record<string, unknown>), cid: 1 }))
+
+  if (options.malformed === 'ncol' && query.sql.includes('table_list'))
+    rows = rows.map((row) => ({ ...(row as Record<string, unknown>), ncol: 99 }))
+
+  if (options.malformed === 'fk-duplicate' && query.sql.includes('foreign_key_list'))
+    rows = [
+      ...rows,
+      ...(rows as Record<string, unknown>[]).map((row) => ({ ...row, seq: 0 })),
+    ]
+
+  if (options.malformed === 'fk-source' && query.sql.includes('foreign_key_list'))
+    rows = rows.map((row) => ({
+      ...(row as Record<string, unknown>),
+      from: 'missing_source',
+    }))
+
+  return rows
+}
+
+/**
+ * Injects malformed database, relation, or member evidence for fail-closed catalog tests.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native rows after injecting the requested invalid catalog evidence.
+ */
+function malformedFixtureRows(
+  rows: unknown[],
+  query: Parameters<CatalogExecutor['execute']>[0],
+  options: FixtureOptions,
+): unknown[] {
+  if (options.malformed === 'duplicate' && query.sql.includes('database_list'))
+    rows = [...rows, ...rows]
+
+  rows = malformedSchemaRows(options, query, rows)
+
+  if (options.malformed === 'table-case-duplicate' && query.sql.includes('table_list'))
+    rows = [
+      ...rows,
+      { schema: 'MAIN', name: 'PARENT', type: 'table', ncol: 5, wr: 0, strict: 0 },
+    ]
+
+  if (options.malformed === 'table-unlisted-database' && query.sql.includes('table_list'))
+    rows = [
+      ...rows,
+      { schema: 'ghost', name: 'outside', type: 'table', ncol: 1, wr: 0, strict: 0 },
+    ]
+
+  if (options.malformed === 'database-wrong-type' && query.sql.includes('database_list'))
+    rows = rows.map((row) => ({ ...(row as Record<string, unknown>), name: 42 }))
+
+  return malformedMemberRows(rows, query, options)
+}
+
+/**
+ * Injects conflicting relation names, kinds, and definitions into native schema
+ * observations.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param rows - Ordered native observations or result rows to process.
+ *
+ * @returns Native rows after injecting schema inventory conflicts.
+ */
+function malformedSchemaRows(
+  options: FixtureOptions,
+  query: { sql: string; params: unknown[] },
+  rows: unknown[],
+) {
+  if (
+    options.malformed === 'schema-case-duplicate' &&
+    query.sql.includes('sqlite_schema')
+  )
+    rows = [
+      ...rows,
+      {
+        type: 'table',
+        name: 'PARENT',
+        tbl_name: 'PARENT',
+        sql: 'CREATE TABLE PARENT(id INTEGER)',
+      },
+    ]
+
+  if (options.malformed === 'schema-unknown-type' && query.sql.includes('sqlite_schema'))
+    rows = rows.map((row, index) =>
+      index === 0 ? { ...(row as Record<string, unknown>), type: 'mystery' } : row,
+    )
+
+  if (
+    options.malformed === 'schema-relation-name-mismatch' &&
+    query.sql.includes('sqlite_schema')
+  )
+    rows = rows.map((row) =>
+      (row as Record<string, unknown>).name === 'parent'
+        ? { ...(row as Record<string, unknown>), tbl_name: 'other' }
+        : row,
+    )
+
+  if (
+    options.malformed === 'schema-view-type-mismatch' &&
+    query.sql.includes('sqlite_schema')
+  )
+    rows = rows.map((row) =>
+      (row as Record<string, unknown>).name === 'v'
+        ? { ...(row as Record<string, unknown>), type: 'table' }
+        : row,
+    )
+
+  return rows
+}
+
+/**
+ * Injects invalid native index-member and inventory evidence.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native rows after injecting invalid index-member evidence.
+ */
+function malformedIndexDetails(
+  rows: unknown[],
+  query: Parameters<CatalogExecutor['execute']>[0],
+  options: FixtureOptions,
+): unknown[] {
+  const p = query.params
+
+  if (
+    options.malformed === 'index-xinfo-wrong-flag' &&
+    query.sql.includes('index_xinfo') &&
+    p[0] === 'parent_n'
+  )
+    rows = rows.map((row) => ({ ...(row as Record<string, unknown>), desc: 2 }))
+
+  if (
+    options.malformed === 'index-xinfo-expression' &&
+    query.sql.includes('index_xinfo') &&
+    p[0] === 'parent_n'
+  )
+    rows = rows.map((row) => ({
+      ...(row as Record<string, unknown>),
+      cid: -2,
+      name: 'not-null-for-expression',
+    }))
+
+  if (
+    options.malformed === 'index-xinfo-auxiliary' &&
+    query.sql.includes('index_xinfo') &&
+    p[0] === 'parent_n'
+  )
+    rows = [...rows, { seqno: 1, cid: -2, name: null, desc: 0, coll: null, key: 0 }]
+
+  rows = malformedIndexInventory(options, query, p, rows)
+
+  return rows
+}
+
+/**
+ * Injects schema and index-list disagreements into native index inventory.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param p - Parameters supplied to the native fixture SQL call.
+ * @param rows - Ordered native observations or result rows to process.
+ *
+ * @returns Native rows after injecting index inventory disagreements.
+ */
+function malformedIndexInventory(
+  options: FixtureOptions,
+  query: { sql: string; params: unknown[] },
+  p: unknown[],
+  rows: unknown[],
+) {
+  if (
+    options.malformed === 'missing-index-schema' &&
+    query.sql.includes('index_list') &&
+    p[0] === 'parent'
+  )
+    rows = [
+      ...rows,
+      { seq: 7, name: 'missing_schema_idx', unique: 0, origin: 'c', partial: 0 },
+    ]
+
+  if (
+    options.malformed === 'schema-index-missing-list' &&
+    query.sql.includes('sqlite_schema')
+  )
+    rows = [
+      ...rows,
+      {
+        type: 'index',
+        name: 'missing_list_idx',
+        tbl_name: 'parent',
+        sql: 'CREATE INDEX missing_list_idx ON parent(v)',
+      },
+    ]
+
+  return rows
+}
+
+/**
+ * Injects invalid index flags, origins, or member fields into native observations.
+ *
+ * @param rows - Ordered native observations or result rows to process.
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns Native rows after injecting invalid index metadata.
+ */
+function malformedIndexRows(
+  rows: unknown[],
+  query: Parameters<CatalogExecutor['execute']>[0],
+  options: FixtureOptions,
+): unknown[] {
+  if (options.malformed === 'index-invalid-origin' && query.sql.includes('index_list'))
+    rows = rows.map((row) =>
+      (row as Record<string, unknown>).name === 'parent_n'
+        ? { ...(row as Record<string, unknown>), origin: 'unknown' }
+        : row,
+    )
+
+  if (options.malformed === 'index-invalid-flags' && query.sql.includes('index_list'))
+    rows = rows.map((row) =>
+      (row as Record<string, unknown>).name === 'u_auto'
+        ? { ...(row as Record<string, unknown>), unique: 0 }
+        : row,
+    )
+
+  if (options.malformed === 'index-wrong-shape' && query.sql.includes('index_list'))
+    rows = rows.map((row) =>
+      (row as Record<string, unknown>).name === 'parent_n'
+        ? { ...(row as Record<string, unknown>), unique: 'true' }
+        : row,
+    )
+
+  return malformedIndexDetails(rows, query, options)
+}
+
+/**
+ * Creates a catalog executor with controlled native rows, ordering, malformed evidence,
+ * and race behavior.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns A catalog executor with controlled native rows, ordering, malformed evidence,
+ *   and race behavior.
+ */
+function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
+  const tables = fixtureTableRows(options)
+
+  const schema = fixtureSchemaRows(options)
+
+  const xinfo = fixtureColumnRows(options)
+
   const calls = new Map<string, number>()
   return {
     // oxlint-disable-next-line complexity
-    execute: async (query) => {
-      const p = query.params
-      let rows: unknown[] = query.sql.includes('sqlite_version')
-        ? [{ version: options.version ?? '3.37.0' }]
-        : query.sql.includes('database_list')
-          ? [{ seq: 0, name: 'main', file: '' }]
-          : query.sql.includes('table_list')
-            ? tables
-            : query.sql.includes('sqlite_schema')
-              ? schema
-              : query.sql.includes('table_xinfo')
-                ? (xinfo[String(p[0])] ?? []).map((row) => ({
-                    ...(row as Record<string, unknown>),
-                    column_notnull: (row as Record<string, unknown>).notnull,
-                  }))
-                : query.sql.includes('index_list')
-                  ? p[0] === options.quotedName && options.quotedIndexName !== undefined
-                    ? [
-                        {
-                          seq: 0,
-                          name: options.quotedIndexName,
-                          unique: 0,
-                          origin: 'c',
-                          partial: 0,
-                        },
-                      ]
-                    : p[0] === 'parent'
-                      ? [
-                          {
-                            seq: 0,
-                            name: 'parent_n',
-                            unique: 0,
-                            origin: 'c',
-                            partial: 0,
-                          },
-                          { seq: 1, name: 'u_auto', unique: 1, origin: 'u', partial: 0 },
-                          { seq: 2, name: 'u_auto2', unique: 1, origin: 'u', partial: 0 },
-                          {
-                            seq: 3,
-                            name: 'rich_desc',
-                            unique: 0,
-                            origin: 'c',
-                            partial: 0,
-                          },
-                          {
-                            seq: 4,
-                            name: 'rich_partial',
-                            unique: 0,
-                            origin: 'c',
-                            partial: 1,
-                          },
-                          {
-                            seq: 5,
-                            name: 'rich_expr',
-                            unique: 0,
-                            origin: 'c',
-                            partial: 0,
-                          },
-                          {
-                            seq: 6,
-                            name: 'rich_coll',
-                            unique: 0,
-                            origin: 'c',
-                            partial: 0,
-                          },
-                        ]
-                      : p[0] === 'pk_desc'
-                        ? [
-                            {
-                              seq: 0,
-                              name: 'pk_desc_auto',
-                              unique: 1,
-                              origin: 'pk',
-                              partial: 0,
-                            },
-                          ]
-                        : p[0] === 'wr' || p[0] === 'wr_auto'
-                          ? [
-                              {
-                                seq: 0,
-                                name: `${p[0]}_auto`,
-                                unique: 1,
-                                origin: 'pk',
-                                partial: 0,
-                              },
-                            ]
-                          : []
-                  : query.sql.includes('index_xinfo')
-                    ? p[0] === options.quotedIndexName
-                      ? [
-                          {
-                            seqno: 0,
-                            cid: 0,
-                            name: 'value',
-                            desc: 0,
-                            coll: 'BINARY',
-                            key: 1,
-                          },
-                        ]
-                      : p[0] === 'parent_n'
-                        ? [
-                            {
-                              seqno: 0,
-                              cid: 1,
-                              name: 'v',
-                              desc: 0,
-                              coll: 'BINARY',
-                              key: 1,
-                            },
-                          ]
-                        : p[0] === 'rich_desc'
-                          ? [
-                              {
-                                seqno: 0,
-                                cid: 1,
-                                name: 'v',
-                                desc: 1,
-                                coll: 'BINARY',
-                                key: 1,
-                              },
-                            ]
-                          : p[0] === 'rich_partial'
-                            ? [
-                                {
-                                  seqno: 0,
-                                  cid: 1,
-                                  name: 'v',
-                                  desc: 0,
-                                  coll: 'BINARY',
-                                  key: 1,
-                                },
-                              ]
-                            : p[0] === 'rich_expr'
-                              ? [
-                                  {
-                                    seqno: 0,
-                                    cid: -2,
-                                    name: null,
-                                    desc: 0,
-                                    coll: 'BINARY',
-                                    key: 1,
-                                  },
-                                ]
-                              : p[0] === 'rich_coll'
-                                ? [
-                                    {
-                                      seqno: 0,
-                                      cid: 1,
-                                      name: 'v',
-                                      desc: 0,
-                                      coll: 'NOCASE',
-                                      key: 1,
-                                    },
-                                  ]
-                                : p[0] === 'u_auto'
-                                  ? [
-                                      {
-                                        seqno: 0,
-                                        cid: 1,
-                                        name: 'v',
-                                        desc: 0,
-                                        coll: 'BINARY',
-                                        key: 1,
-                                      },
-                                    ]
-                                  : p[0] === 'u_auto2'
-                                    ? [
-                                        {
-                                          seqno: 0,
-                                          cid: 2,
-                                          name: 'b',
-                                          desc: 0,
-                                          coll: 'BINARY',
-                                          key: 1,
-                                        },
-                                      ]
-                                    : p[0] === 'wr_auto_auto'
-                                      ? [
-                                          {
-                                            seqno: 0,
-                                            cid: 0,
-                                            name: 'a',
-                                            desc: 0,
-                                            coll: 'BINARY',
-                                            key: 1,
-                                          },
-                                          {
-                                            seqno: 1,
-                                            cid: 1,
-                                            name: 'b',
-                                            desc: 0,
-                                            coll: 'BINARY',
-                                            key: 1,
-                                          },
-                                        ]
-                                      : p[0] === 'wr_auto'
-                                        ? [
-                                            {
-                                              seqno: 0,
-                                              cid: 0,
-                                              name: 'id',
-                                              desc: 0,
-                                              coll: 'BINARY',
-                                              key: 1,
-                                            },
-                                          ]
-                                        : [
-                                            {
-                                              seqno: 0,
-                                              cid: 0,
-                                              name: 'id',
-                                              desc: 1,
-                                              coll: 'NOCASE',
-                                              key: 1,
-                                            },
-                                          ]
-                    : query.sql.includes('foreign_key_list')
-                      ? p[0] === 'child'
-                        ? [
-                            {
-                              id: 0,
-                              seq: 0,
-                              table: 'parent',
-                              from: 'pa',
-                              to: 'id',
-                              on_update: 'CASCADE',
-                              on_delete: 'SET NULL',
-                              match: 'NONE',
-                            },
-                            {
-                              id: 0,
-                              seq: 1,
-                              table: 'parent',
-                              from: 'pb',
-                              to: 'v',
-                              on_update: 'CASCADE',
-                              on_delete: 'SET NULL',
-                              match: 'NONE',
-                            },
-                          ]
-                        : []
-                      : []
-
-      if (options.simpleForeignKey && query.sql.includes('foreign_key_list'))
-        rows =
-          p[0] === 'child'
-            ? [
-                {
-                  id: 0,
-                  seq: 0,
-                  table: 'parent',
-                  from: 'pa',
-                  to: 'id',
-                  on_update: 'CASCADE',
-                  on_delete: 'SET NULL',
-                  match: 'NONE',
-                },
-              ]
-            : []
-
-      const key = query.sql + JSON.stringify(query.params)
-      const count = (calls.get(key) ?? 0) + 1
-      calls.set(key, count)
-
-      if (
-        options.richUniqueIndex &&
-        query.sql.includes('index_list') &&
-        p[0] === 'simple'
-      )
-        rows = [{ seq: 0, name: 'simple_unique', unique: 1, origin: 'u', partial: 0 }]
-
-      if (
-        options.richUniqueIndex &&
-        query.sql.includes('index_xinfo') &&
-        p[0] === 'simple_unique'
-      )
-        rows = [{ seqno: 0, cid: 1, name: 'value', desc: 1, coll: 'BINARY', key: 1 }]
-
-      if (
-        options.malformed === 'index-invalid-origin' &&
-        query.sql.includes('index_list')
-      )
-        rows = rows.map((row) =>
-          (row as Record<string, unknown>).name === 'parent_n'
-            ? { ...(row as Record<string, unknown>), origin: 'unknown' }
-            : row,
-        )
-
-      if (options.malformed === 'index-invalid-flags' && query.sql.includes('index_list'))
-        rows = rows.map((row) =>
-          (row as Record<string, unknown>).name === 'u_auto'
-            ? { ...(row as Record<string, unknown>), unique: 0 }
-            : row,
-        )
-
-      if (options.malformed === 'index-wrong-shape' && query.sql.includes('index_list'))
-        rows = rows.map((row) =>
-          (row as Record<string, unknown>).name === 'parent_n'
-            ? { ...(row as Record<string, unknown>), unique: 'true' }
-            : row,
-        )
-
-      if (
-        options.malformed === 'index-xinfo-wrong-flag' &&
-        query.sql.includes('index_xinfo') &&
-        p[0] === 'parent_n'
-      )
-        rows = rows.map((row) => ({ ...(row as Record<string, unknown>), desc: 2 }))
-
-      if (
-        options.malformed === 'index-xinfo-expression' &&
-        query.sql.includes('index_xinfo') &&
-        p[0] === 'parent_n'
-      )
-        rows = rows.map((row) => ({
-          ...(row as Record<string, unknown>),
-          cid: -2,
-          name: 'not-null-for-expression',
-        }))
-
-      if (
-        options.malformed === 'index-xinfo-auxiliary' &&
-        query.sql.includes('index_xinfo') &&
-        p[0] === 'parent_n'
-      )
-        rows = [...rows, { seqno: 1, cid: -2, name: null, desc: 0, coll: null, key: 0 }]
-
-      if (
-        options.malformed === 'missing-index-schema' &&
-        query.sql.includes('index_list') &&
-        p[0] === 'parent'
-      )
-        rows = [
-          ...rows,
-          { seq: 7, name: 'missing_schema_idx', unique: 0, origin: 'c', partial: 0 },
-        ]
-
-      if (
-        options.malformed === 'schema-index-missing-list' &&
-        query.sql.includes('sqlite_schema')
-      )
-        rows = [
-          ...rows,
-          {
-            type: 'index',
-            name: 'missing_list_idx',
-            tbl_name: 'parent',
-            sql: 'CREATE INDEX missing_list_idx ON parent(v)',
-          },
-        ]
-
-      if (options.race && count > 1 && query.sql.includes(options.race))
-        rows = [
-          ...rows,
-          ...(rows[0]
-            ? [{ ...(rows[0] as Record<string, unknown>), name: 'race_added' }]
-            : []),
-        ]
-
-      if (options.malformed === 'duplicate' && query.sql.includes('database_list'))
-        rows = [...rows, ...rows]
-
-      if (
-        options.malformed === 'schema-case-duplicate' &&
-        query.sql.includes('sqlite_schema')
-      )
-        rows = [
-          ...rows,
-          {
-            type: 'table',
-            name: 'PARENT',
-            tbl_name: 'PARENT',
-            sql: 'CREATE TABLE PARENT(id INTEGER)',
-          },
-        ]
-
-      if (
-        options.malformed === 'schema-unknown-type' &&
-        query.sql.includes('sqlite_schema')
-      )
-        rows = rows.map((row, index) =>
-          index === 0 ? { ...(row as Record<string, unknown>), type: 'mystery' } : row,
-        )
-
-      if (
-        options.malformed === 'schema-relation-name-mismatch' &&
-        query.sql.includes('sqlite_schema')
-      )
-        rows = rows.map((row) =>
-          (row as Record<string, unknown>).name === 'parent'
-            ? { ...(row as Record<string, unknown>), tbl_name: 'other' }
-            : row,
-        )
-
-      if (
-        options.malformed === 'schema-view-type-mismatch' &&
-        query.sql.includes('sqlite_schema')
-      )
-        rows = rows.map((row) =>
-          (row as Record<string, unknown>).name === 'v'
-            ? { ...(row as Record<string, unknown>), type: 'table' }
-            : row,
-        )
-
-      if (
-        options.malformed === 'table-case-duplicate' &&
-        query.sql.includes('table_list')
-      )
-        rows = [
-          ...rows,
-          { schema: 'MAIN', name: 'PARENT', type: 'table', ncol: 5, wr: 0, strict: 0 },
-        ]
-
-      if (
-        options.malformed === 'table-unlisted-database' &&
-        query.sql.includes('table_list')
-      )
-        rows = [
-          ...rows,
-          { schema: 'ghost', name: 'outside', type: 'table', ncol: 1, wr: 0, strict: 0 },
-        ]
-
-      if (
-        options.malformed === 'database-wrong-type' &&
-        query.sql.includes('database_list')
-      )
-        rows = rows.map((row) => ({ ...(row as Record<string, unknown>), name: 42 }))
-
-      if (options.malformed === 'xinfo-missing-name' && query.sql.includes('table_xinfo'))
-        rows = rows.map((row) => {
-          const { name: _name, ...rest } = row as Record<string, unknown>
-
-          return rest
-        })
-
-      if (
-        options.malformed === 'fk-wrong-target' &&
-        query.sql.includes('foreign_key_list')
-      )
-        rows = rows.map((row) => ({ ...(row as Record<string, unknown>), to: 42 }))
-
-      if (options.malformed === 'xinfo-gap' && query.sql.includes('table_xinfo'))
-        rows = rows.map((row) => ({ ...(row as Record<string, unknown>), cid: 1 }))
-
-      if (options.malformed === 'ncol' && query.sql.includes('table_list'))
-        rows = rows.map((row) => ({ ...(row as Record<string, unknown>), ncol: 99 }))
-
-      if (options.malformed === 'fk-duplicate' && query.sql.includes('foreign_key_list'))
-        rows = [
-          ...rows,
-          ...(rows as Record<string, unknown>[]).map((row) => ({ ...row, seq: 0 })),
-        ]
-
-      if (options.malformed === 'fk-source' && query.sql.includes('foreign_key_list'))
-        rows = rows.map((row) => ({
-          ...(row as Record<string, unknown>),
-          from: 'missing_source',
-        }))
-
-      if (options.reverse) rows = rows.slice().reverse()
-
-      return rows
-    },
+    /** Executes fixture SQL with the configured native observations. */
+    execute: (query) =>
+      executeSqliteFixture(query, options, tables, schema, xinfo, calls),
   }
 }
 
+/**
+ * Finds the named relation in the observed SQLite catalog or fails the fixture check.
+ *
+ * @param snapshot - Observed catalog snapshot whose evidence is checked or projected.
+ * @param name - Physical identifier or dialect label used by this operation.
+ *
+ * @returns The named relation in the observed SQLite catalog or fails the fixture check.
+ */
 function relationNamed(snapshot: CatalogSnapshot, name: string): CatalogRelation {
   const relation = snapshot.namespaces.items[0]?.relations.items.find(
     (entry) => entry.identity.relation.spelling === name,
@@ -916,6 +1044,14 @@ function relationNamed(snapshot: CatalogSnapshot, name: string): CatalogRelation
   return relation
 }
 
+/**
+ * Requires present table evidence before an integration assertion reads its members.
+ *
+ * @param relation - Authored or canonical relation addressed by this operation.
+ *
+ * @returns Present table evidence; absent or unsupported table evidence fails the
+ *   assertion.
+ */
 function tableOf(relation: CatalogRelation): CatalogTable {
   expect(relation.table.state).toBe('present')
 
@@ -927,20 +1063,28 @@ function tableOf(relation: CatalogRelation): CatalogTable {
   return relation.table.value
 }
 
-describe('SQLite evidence-bearing catalog', () => {
-  const emptyFixture = (version = '3.37.0'): CatalogExecutor => ({
-    execute: async (query) =>
-      query.sql.includes('sqlite_version')
-        ? [{ version }]
-        : query.sql.includes('database_list')
-          ? [{ seq: 0, name: 'main', file: '' }]
-          : query.sql.includes('table_list')
+/**
+ * Creates an empty SQLite catalog executor with the selected native version.
+ *
+ * @param version - Native server-version spelling used to choose catalog capabilities.
+ *
+ * @returns An empty SQLite catalog executor with the selected native version.
+ */
+const emptyFixture = (version = '3.37.0'): CatalogExecutor => ({
+  /** Executes fixture SQL with the configured native observations. */
+  execute: async (query) =>
+    query.sql.includes('sqlite_version')
+      ? [{ version }]
+      : query.sql.includes('database_list')
+        ? [{ seq: 0, name: 'main', file: '' }]
+        : query.sql.includes('table_list')
+          ? []
+          : query.sql.includes('sqlite_schema')
             ? []
-            : query.sql.includes('sqlite_schema')
-              ? []
-              : [],
-  })
+            : [],
+})
 
+describe('SQLite evidence-bearing catalog', () => {
   it('fixture decodes all affinity families and native spelling', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const parent = relationNamed(s, 'parent')
@@ -957,88 +1101,15 @@ describe('SQLite evidence-bearing catalog', () => {
       value: { native: 'VARCHAR(12)', comparisonKey: 'text' },
     })
   })
+})
 
+describe('SQLite evidence-bearing catalog: fixture preserves defaults and rowid generation', () => {
   it('fixture preserves defaults and rowid generation', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const columns = tableOf(relationNamed(s, 'parent')).columns.items
-    expect(columns[1]!.default).toMatchObject({
-      state: 'present',
-      value: {
-        kind: 'literal',
-        native: "'safe'",
-        comparisonKey: { state: 'present', value: "'safe'" },
-      },
-    })
+    assertSqliteColumnEvidence(columns)
 
-    expect(columns[4]!.default).toMatchObject({
-      state: 'present',
-      value: {
-        kind: 'portableExpression',
-        native: "(lower('x'))",
-        comparisonKey: { state: 'present', value: "lower('x')" },
-      },
-    })
-
-    expect(columns[2]!.default).toMatchObject({
-      state: 'present',
-      value: {
-        kind: 'literal',
-        native: 'TRUE',
-        comparisonKey: { state: 'present', value: '1' },
-      },
-    })
-
-    expect(columns[0]!.generation).toMatchObject({
-      state: 'present',
-      value: { kind: 'rowidAlias', autoIncrement: true },
-    })
-
-    const parentTable = tableOf(relationNamed(s, 'parent'))
-    expect(parentTable.primaryKey).toMatchObject({
-      state: 'present',
-      value: { columns: ['id'], name: { state: 'absent' } },
-    })
-
-    expect(
-      parentTable.uniqueConstraints.items.map(({ columns: names }) => names),
-    ).toEqual([['b'], ['v']])
-
-    expect(parentTable.uniqueConstraints.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          columns: ['b'],
-          semantics: { state: 'present', value: { kind: 'simple' } },
-          validity: { state: 'present', value: 'valid' },
-          name: { state: 'absent' },
-        }),
-      ]),
-    )
-
-    expect(parentTable.indexes.items.map((index) => index.name)).toContainEqual({
-      state: 'present',
-      value: 'parent_n',
-    })
-
-    expect(parentTable.indexes.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: { state: 'present', value: 'parent_n' },
-          origin: 'user',
-          unique: false,
-          semantics: { state: 'present', value: { kind: 'simple' } },
-          validity: { state: 'present', value: 'valid' },
-          nativeDefinition: {
-            state: 'present',
-            value: 'CREATE INDEX parent_n ON parent(v)',
-          },
-        }),
-      ]),
-    )
-
-    expect(parentTable.options.items).toEqual([
-      { name: 'strict', value: 'false' },
-      { name: 'withoutRowid', value: 'false' },
-    ])
+    assertParentKeysAndIndexes(s)
 
     expect(relationNamed(s, 'parent').management).toBe('unmanaged')
 
@@ -1057,7 +1128,9 @@ describe('SQLite evidence-bearing catalog', () => {
       { name: 'withoutRowid', value: 'false' },
     ])
   })
+})
 
+describe('SQLite evidence-bearing catalog: fixture retains composite FK ordering and actions', () => {
   it('fixture retains composite FK ordering and actions', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const child = relationNamed(s, 'child')
@@ -1075,7 +1148,9 @@ describe('SQLite evidence-bearing catalog', () => {
       await sqliteCatalog.introspectCatalog(fixtureExecutor({ reverse: true }), request),
     ).toEqual(await sqliteCatalog.introspectCatalog(fixtureExecutor(), request))
   })
+})
 
+describe('SQLite evidence-bearing catalog: fixture marks strict and without-rowid unmanaged', () => {
   it('fixture marks strict and without-rowid unmanaged', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     expect(
@@ -1090,53 +1165,11 @@ describe('SQLite evidence-bearing catalog', () => {
       )!.management,
     ).toBe('unmanaged')
   })
+})
 
+describe('SQLite catalog management and opaque evidence', () => {
   it('blocks main management when attached or temporary objects are present', async () => {
-    const executeExternal = (reverse: boolean): CatalogExecutor => {
-      const fixture = fixtureExecutor({ reverse })
-
-      return {
-        execute: async (query) => {
-          const rows = await fixture.execute(query)
-
-          if (query.sql.includes('database_list')) {
-            const databases = [
-              { seq: 0, name: 'main', file: '' },
-              { seq: 1, name: 'aux', file: 'aux.db' },
-              { seq: 2, name: 'temp', file: '' },
-            ]
-
-            return reverse ? databases.reverse() : databases
-          }
-
-          if (query.sql.includes('table_list')) {
-            const relations = [
-              ...rows,
-              {
-                schema: 'aux',
-                name: 'attached_item',
-                type: 'table',
-                ncol: 1,
-                wr: 0,
-                strict: 0,
-              },
-              {
-                schema: 'temp',
-                name: 'temporary_item',
-                type: 'table',
-                ncol: 1,
-                wr: 0,
-                strict: 0,
-              },
-            ]
-
-            return reverse ? relations.reverse() : relations
-          }
-
-          return rows
-        },
-      }
-    }
+    const executeExternal = createExternalSqliteExecutor
 
     const snapshot = await sqliteCatalog.introspectCatalog(
       executeExternal(false),
@@ -1145,47 +1178,11 @@ describe('SQLite evidence-bearing catalog', () => {
     const reversed = await sqliteCatalog.introspectCatalog(executeExternal(true), request)
     const parent = relationNamed(snapshot, 'parent')
 
-    expect(reversed).toEqual(snapshot)
-    expect(parent.management).toBe('unmanaged')
-
-    expect(
-      tableOf(parent).opaqueObjects.items.some((object) =>
-        object.reason.includes('Attached or temporary'),
-      ),
-    ).toBe(true)
-
-    expect(snapshot.diagnostics.map(({ code, message }) => [code, message])).toEqual([
-      [
-        'catalog.sqlite.attached',
-        'SQLite attached database "aux" is observed but its schema dependencies are not managed',
-      ],
-      [
-        'catalog.sqlite.temporary',
-        'SQLite temporary schema is observed but its dependencies are not managed',
-      ],
-      [
-        'catalog.sqlite.trigger-dependency',
-        'SQLite trigger dependencies are not resolved and may affect other tables',
-      ],
-      [
-        'catalog.sqlite.unmanaged-relation',
-        'SQLite attached relation "attached_item" is observed but its schema dependencies are not managed',
-      ],
-      [
-        'catalog.sqlite.unmanaged-relation',
-        'SQLite temporary relation "temporary_item" is observed but its schema dependencies are not managed',
-      ],
-      [
-        'catalog.sqlite.view-dependency',
-        'SQLite view dependencies are not resolved and may affect ordinary tables',
-      ],
-    ])
-
-    expect(snapshot.constraintNameReservations.coverage).toMatchObject({
-      state: 'unknown',
-    })
+    assertExternalNamespaceDiagnostics(reversed, snapshot, parent)
   })
+})
 
+describe('SQLite catalog management and opaque evidence: fixture emits view virtual and shadow kinds', () => {
   it('fixture emits view virtual and shadow kinds', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const rs = snapshot.namespaces.items[0]!.relations.items
@@ -1207,7 +1204,9 @@ describe('SQLite evidence-bearing catalog', () => {
       tableOf(relationNamed(snapshot, 'virt_shadow')).columns.items[0]!.generation.state,
     ).toBe('unsupported')
   })
+})
 
+describe('SQLite catalog management and opaque evidence: preserves CHECK, generated-column, and rich-index evidence', () => {
   it('preserves CHECK, generated-column, and rich-index evidence', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const generated = relationNamed(snapshot, 'generated_t')
@@ -1248,7 +1247,9 @@ describe('SQLite evidence-bearing catalog', () => {
       ),
     ).toBe(true)
   })
+})
 
+describe('SQLite catalog management and opaque evidence: preserves CHECK, generated-column, and rich-index evidence: does not claim unknown constraint names or rowid planning support', () => {
   it('does not claim unknown constraint names or rowid planning support', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ namedConstraint: true, withoutOpaqueDependencies: true }),
@@ -1288,7 +1289,9 @@ describe('SQLite evidence-bearing catalog', () => {
 
     expect(relationNamed(snapshot, 'simple').management).toBe('managed')
   })
+})
 
+describe('SQLite catalog trigger names', () => {
   it('fixture preserves trigger opaque evidence', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const parent = relationNamed(s, 'parent')
@@ -1312,7 +1315,9 @@ describe('SQLite evidence-bearing catalog', () => {
       expect.objectContaining({ name: 'parent_trg' }),
     )
   })
+})
 
+describe('SQLite catalog constraints and dependencies', () => {
   it('keeps rowid aliases and unnamed simple constraints in the managed profile', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true, simpleForeignKey: true }),
@@ -1333,7 +1338,9 @@ describe('SQLite evidence-bearing catalog', () => {
 
     expect(relationNamed(snapshot, 'child').management).toBe('managed')
   })
+})
 
+describe('SQLite catalog constraints and dependencies: keeps uncomparable native defaults opaque and unmanaged', () => {
   it('keeps uncomparable native defaults opaque and unmanaged', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true, opaqueDefault: true }),
@@ -1361,7 +1368,9 @@ describe('SQLite evidence-bearing catalog', () => {
       }),
     )
   })
+})
 
+describe('SQLite catalog constraints and dependencies: keeps rich auto-index UNIQUE constraints unmanaged', () => {
   it('keeps rich auto-index UNIQUE constraints unmanaged', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true, richUniqueIndex: true }),
@@ -1379,7 +1388,9 @@ describe('SQLite evidence-bearing catalog', () => {
       },
     ])
   })
+})
 
+describe('SQLite catalog constraints and dependencies: treats authored MATCH clauses as opaque despite PRAGMA match NONE', () => {
   it('treats authored MATCH clauses as opaque despite PRAGMA match NONE', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({
@@ -1408,7 +1419,9 @@ describe('SQLite evidence-bearing catalog', () => {
       state: 'present',
     })
   })
+})
 
+describe('SQLite catalog constraints and dependencies: reports SQLite owner facts as unsupported by the engine', () => {
   it('reports SQLite owner facts as unsupported by the engine', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
 
@@ -1450,7 +1463,9 @@ describe('SQLite evidence-bearing catalog', () => {
       'catalog.sqlite.trigger-dependency',
     )
   })
+})
 
+describe('SQLite catalog table clauses and name reservations', () => {
   it('marks unrepresented table clauses opaque without false positives in literals or comments', async () => {
     for (const richerClause of [
       'collate',
@@ -1498,7 +1513,9 @@ describe('SQLite evidence-bearing catalog', () => {
       ),
     ).toBe(false)
   })
+})
 
+describe('SQLite catalog table clauses and name reservations: preserves the INTEGER PRIMARY KEY DESC exception', () => {
   it('preserves the INTEGER PRIMARY KEY DESC exception', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true }),
@@ -1519,7 +1536,9 @@ describe('SQLite evidence-bearing catalog', () => {
 
     expect(relation.management).toBe('unmanaged')
   })
+})
 
+describe('SQLite catalog table clauses and name reservations: blocks tables when view dependencies are unknown and preserves view triggers', () => {
   it('blocks tables when view dependencies are unknown and preserves view triggers', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ viewTrigger: true }),
@@ -1545,7 +1564,9 @@ describe('SQLite evidence-bearing catalog', () => {
       'catalog.sqlite.view-dependency',
     )
   })
+})
 
+describe('SQLite catalog table clauses and name reservations: reserves unrelated indexes and auto-indexes outside relation scope', () => {
   it('reserves unrelated indexes and auto-indexes outside relation scope', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
       ...request,
@@ -1565,7 +1586,9 @@ describe('SQLite evidence-bearing catalog', () => {
       ),
     ).rejects.toMatchObject({ _tag: 'InvariantError' })
   })
+})
 
+describe('SQLite catalog requests and validation', () => {
   it('observes requested absence without claiming complete namespace coverage', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
       relations: [],
@@ -1594,7 +1617,9 @@ describe('SQLite evidence-bearing catalog', () => {
     expect(relationNamed(s, 'child').table.state).toBe('present')
     expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
   })
+})
 
+describe('SQLite catalog requests and validation: fixture rejects attached relation scopes', () => {
   it('fixture rejects attached relation scopes', async () => {
     await expect(
       sqliteCatalog.introspectCatalog(fixtureExecutor(), {
@@ -1611,12 +1636,15 @@ describe('SQLite evidence-bearing catalog', () => {
       }),
     ).rejects.toMatchObject({ _tag: 'InvariantError' })
   })
+})
 
+describe('SQLite catalog requests and validation: fixture gates exact minimum version', () => {
   it('fixture gates exact minimum version', async () => {
     const executed: string[] = []
     const fixture = fixtureExecutor({ version: '3.37.0' })
     const snapshot = await sqliteCatalog.introspectCatalog(
       {
+        /** Executes fixture SQL with the configured native observations. */
         execute: async (query) => {
           executed.push(query.sql)
           return fixture.execute(query)
@@ -1639,11 +1667,14 @@ describe('SQLite evidence-bearing catalog', () => {
 
     expect(executed.some((sql) => sql.includes('pragma_table_list'))).toBe(true)
   })
+})
 
+describe('SQLite catalog requests and validation: gates versions before querying any PRAGMA', () => {
   it('gates versions before querying any PRAGMA', async () => {
     const calls: string[] = []
     const old = await sqliteCatalog.introspectCatalog(
       {
+        /** Executes fixture SQL with the configured native observations. */
         execute: async (query) => {
           calls.push(query.sql)
           return [{ version: '3.36.0' }]
@@ -1665,7 +1696,9 @@ describe('SQLite evidence-bearing catalog', () => {
       cause: 'version',
     })
   })
+})
 
+describe('SQLite catalog namespace and request resolution', () => {
   it('resolves omitted namespace to main', async () => {
     expect(
       (
@@ -1708,7 +1741,9 @@ describe('SQLite evidence-bearing catalog', () => {
     })
     expect(result.request.relations).toHaveLength(1)
   })
+})
 
+describe('SQLite catalog namespace and request resolution: rejects attached registration defaults', () => {
   it('rejects attached registration defaults', async () => {
     await expect(
       sqliteCatalog.introspectCatalog(emptyFixture(), {
@@ -1717,7 +1752,9 @@ describe('SQLite evidence-bearing catalog', () => {
       }),
     ).rejects.toMatchObject({ _tag: 'InvariantError' })
   })
+})
 
+describe('SQLite catalog namespace and request resolution: parameterizes and observes quoted table and index names', () => {
   it('parameterizes and observes quoted table and index names', async () => {
     const calls: { sql: string; params: unknown[] }[] = []
     const tableName = 'odd"table'
@@ -1725,6 +1762,7 @@ describe('SQLite evidence-bearing catalog', () => {
     const fixture = fixtureExecutor({ quotedName: tableName, quotedIndexName: indexName })
     const snapshot = await sqliteCatalog.introspectCatalog(
       {
+        /** Executes fixture SQL with the configured native observations. */
         execute: async (query) => {
           calls.push(query)
           return fixture.execute(query)
@@ -1760,7 +1798,9 @@ describe('SQLite evidence-bearing catalog', () => {
       ),
     ).toBe(true)
   })
+})
 
+describe('SQLite catalog namespace and request resolution: reports unsupported old versions deterministically', () => {
   it('reports unsupported old versions deterministically', async () => {
     expect(
       (await sqliteCatalog.introspectCatalog(emptyFixture('3.36.9'), request))
@@ -1775,7 +1815,9 @@ describe('SQLite evidence-bearing catalog', () => {
     })
     expect(result.request.relations[0]!.shape).toBe('additive')
   })
+})
 
+describe('SQLite catalog consistency and foreign keys', () => {
   it('rejects malformed cross-PRAGMA observations', async () => {
     for (const [malformed, message] of [
       ['xinfo-gap', 'SQLite table "parent" table_xinfo cids must be contiguous'],
@@ -1787,84 +1829,24 @@ describe('SQLite evidence-bearing catalog', () => {
         sqliteCatalog.introspectCatalog(fixtureExecutor({ malformed }), request),
       ).rejects.toThrow(message)
   })
+})
 
+describe('SQLite catalog consistency and foreign keys: rejects malformed and inconsistent index observations with stable messages', () => {
   it('rejects malformed and inconsistent index observations with stable messages', async () => {
-    const cases = [
-      ['index-invalid-origin', 'Malformed SQLite index_list row 0: invalid origin'],
-      ['index-invalid-flags', 'SQLite UNIQUE index "u_auto" has invalid flags'],
-      [
-        'index-wrong-shape',
-        'Malformed SQLite index_list row 0: "unique" must be an integer',
-      ],
-      [
-        'index-xinfo-wrong-flag',
-        'Malformed SQLite index_xinfo row 0: "desc" must be 0 or 1',
-      ],
-      [
-        'index-xinfo-expression',
-        'SQLite index "parent_n" has a malformed expression term',
-      ],
-      [
-        'index-xinfo-auxiliary',
-        'SQLite index "parent_n" has malformed auxiliary index_xinfo row',
-      ],
-      [
-        'missing-index-schema',
-        'SQLite user index "missing_schema_idx" has missing or mismatched sqlite_schema evidence',
-      ],
-      [
-        'schema-index-missing-list',
-        'SQLite sqlite_schema index "missing_list_idx" is missing from index_list',
-      ],
-    ] as const
+    const cases = structuredClone(
+      rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData,
+    )
 
     for (const [malformed, message] of cases)
       await expect(
         sqliteCatalog.introspectCatalog(fixtureExecutor({ malformed }), request),
       ).rejects.toThrow(message)
   })
+})
 
+describe('SQLite catalog consistency and foreign keys: rejects malformed and ASCII-equivalent schema rows with stable errors', () => {
   it('rejects malformed and ASCII-equivalent schema rows with stable errors', async () => {
-    await expect(
-      sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'database-wrong-type' }),
-        request,
-      ),
-    ).rejects.toThrow(
-      'Malformed SQLite database_list row 0: "name" must be a non-empty string',
-    )
-
-    await expect(
-      sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'xinfo-missing-name' }),
-        request,
-      ),
-    ).rejects.toThrow(
-      'Malformed SQLite table_xinfo row 0: "name" must be a non-empty string',
-    )
-
-    await expect(
-      sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'fk-wrong-target' }),
-        request,
-      ),
-    ).rejects.toThrow(
-      'Malformed SQLite foreign_key_list row 0: "to" must be a string or null',
-    )
-
-    await expect(
-      sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'schema-case-duplicate' }),
-        request,
-      ),
-    ).rejects.toThrow('Duplicate SQLite sqlite_schema relation name "PARENT"')
-
-    await expect(
-      sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'table-case-duplicate' }),
-        request,
-      ),
-    ).rejects.toThrow('Duplicate SQLite table_list relation "MAIN"."PARENT"')
+    await assertMalformedSqliteIdentityRows()
 
     await expect(
       sqliteCatalog.introspectCatalog(
@@ -1900,14 +1882,18 @@ describe('SQLite evidence-bearing catalog', () => {
       'SQLite table_list relation "v" type "view" disagrees with sqlite_schema type "table"',
     )
   })
+})
 
+describe('SQLite catalog consistency and foreign keys: rejects malformed and ASCII-equivalent schema rows with stable errors: rejects catalog races including reservation-only indexes', () => {
   it('rejects catalog races including reservation-only indexes', async () => {
     for (const race of ['table_list', 'table_xinfo', 'sqlite_schema', 'index_list'])
       await expect(
         sqliteCatalog.introspectCatalog(fixtureExecutor({ race }), request),
       ).rejects.toThrow(/catalog changed during introspection/i)
   })
+})
 
+describe('SQLite catalog foreign-key evidence and ordering', () => {
   it('keeps unresolved foreign keys fail-closed', async () => {
     const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
       ...request,
@@ -1920,11 +1906,14 @@ describe('SQLite evidence-bearing catalog', () => {
 
     expect(tableOf(child).foreignKeys.items[0]!.validity.state).toBe('unknown')
   })
+})
 
+describe('SQLite catalog foreign-key evidence and ordering: matches explicit foreign-key targets by canonical column identity', () => {
   it('matches explicit foreign-key targets by canonical column identity', async () => {
     const fixture = fixtureExecutor()
     const snapshot = await sqliteCatalog.introspectCatalog(
       {
+        /** Executes fixture SQL with the configured native observations. */
         execute: async (query) => {
           const rows = await fixture.execute(query)
 
@@ -1954,44 +1943,11 @@ describe('SQLite evidence-bearing catalog', () => {
       validity: { state: 'present', value: 'valid' },
     })
   })
+})
 
+describe('SQLite catalog foreign-key evidence and ordering: totally orders tied foreign keys regardless of native row order', () => {
   it('totally orders tied foreign keys regardless of native row order', async () => {
-    const execute = (reverse: boolean): CatalogExecutor => {
-      const fixture = fixtureExecutor({ reverse })
-
-      return {
-        execute: async (query) => {
-          if (query.sql.includes('foreign_key_list') && query.params[0] === 'child') {
-            const rows = [
-              {
-                id: 0,
-                seq: 0,
-                table: 'PARENT',
-                from: 'PA',
-                to: 'ID',
-                on_update: 'NO ACTION',
-                on_delete: 'CASCADE',
-                match: 'NONE',
-              },
-              {
-                id: 1,
-                seq: 0,
-                table: 'parent',
-                from: 'pa',
-                to: 'V',
-                on_update: 'RESTRICT',
-                on_delete: 'SET NULL',
-                match: 'NONE',
-              },
-            ]
-
-            return reverse ? rows.reverse() : rows
-          }
-
-          return fixture.execute(query)
-        },
-      }
-    }
+    const execute = executeSqliteCatalogFixture
 
     const snapshot = await sqliteCatalog.introspectCatalog(execute(false), request)
     const reversed = await sqliteCatalog.introspectCatalog(execute(true), request)
@@ -2016,34 +1972,30 @@ describe('SQLite evidence-bearing catalog', () => {
       },
     ])
   })
+})
 
+describe('SQLite catalog foreign-key evidence and ordering: orders unresolved FK targets with ASCII-case-equivalent identities deterministically', () => {
   it('orders unresolved FK targets with ASCII-case-equivalent identities deterministically', async () => {
+    /**
+     * Creates a catalog executor with configurable native observations and query-order
+     * tracking.
+     *
+     * @param reverse - Whether fixture rows should reverse their order to test canonical
+     *   normalization.
+     *
+     * @returns A catalog executor with configurable native observations and query-order
+     *   tracking.
+     */
     const executor = (reverse: boolean): CatalogExecutor => {
       const fixture = fixtureExecutor({ reverse })
       const rows = [
-        {
-          id: 0,
-          seq: 0,
-          table: 'Missing',
-          from: 'pa',
-          to: 'id',
-          on_update: 'NO ACTION',
-          on_delete: 'CASCADE',
-          match: 'NONE',
-        },
-        {
-          id: 1,
-          seq: 0,
-          table: 'missing',
-          from: 'pa',
-          to: 'id',
-          on_update: 'NO ACTION',
-          on_delete: 'CASCADE',
-          match: 'NONE',
-        },
+        ...structuredClone(
+          ordersUnresolvedFKTargetsWithASCIICaseEquivalentIdentitiesDeterministicallyRows,
+        ),
       ]
 
       return {
+        /** Executes fixture SQL with the configured native observations. */
         execute: async (query) =>
           query.sql.includes('pragma_foreign_key_list') && query.params[0] === 'child'
             ? reverse
@@ -2063,7 +2015,9 @@ describe('SQLite evidence-bearing catalog', () => {
       foreignKeys.map(({ referencedRelation }) => referencedRelation.relation.spelling),
     ).toEqual(['Missing', 'missing'])
   })
+})
 
+describe('SQLite catalog foreign-key evidence and ordering: orders unresolved FK targets with ASCII-case-equivalent identities deterministically: preserves unsupported native evidence for rich objects', () => {
   it('preserves unsupported native evidence for rich objects', async () => {
     const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const virtual = result.namespaces.items[0]!.relations.items.find(
@@ -2103,3 +2057,519 @@ describe('SQLite evidence-bearing catalog', () => {
       ).rejects.toMatchObject({ _tag: 'InvariantError' })
   })
 })
+
+const quotedIndexInfoRows = [
+  {
+    seqno: 0,
+    cid: 0,
+    name: 'value',
+    desc: 0,
+    coll: 'BINARY',
+    key: 1,
+  },
+]
+
+const indexInfoRows: Record<string, unknown[]> = {
+  parent_n: [
+    {
+      seqno: 0,
+      cid: 1,
+      name: 'v',
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+  rich_desc: [
+    {
+      seqno: 0,
+      cid: 1,
+      name: 'v',
+      desc: 1,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+  rich_partial: [
+    {
+      seqno: 0,
+      cid: 1,
+      name: 'v',
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+  rich_expr: [
+    {
+      seqno: 0,
+      cid: -2,
+      name: null,
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+  rich_coll: [
+    {
+      seqno: 0,
+      cid: 1,
+      name: 'v',
+      desc: 0,
+      coll: 'NOCASE',
+      key: 1,
+    },
+  ],
+  u_auto: [
+    {
+      seqno: 0,
+      cid: 1,
+      name: 'v',
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+  u_auto2: [
+    {
+      seqno: 0,
+      cid: 2,
+      name: 'b',
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+  wr_auto_auto: [
+    {
+      seqno: 0,
+      cid: 0,
+      name: 'a',
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+    {
+      seqno: 1,
+      cid: 1,
+      name: 'b',
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+  wr_auto: [
+    {
+      seqno: 0,
+      cid: 0,
+      name: 'id',
+      desc: 0,
+      coll: 'BINARY',
+      key: 1,
+    },
+  ],
+}
+
+const defaultIndexInfoRows = [
+  {
+    seqno: 0,
+    cid: 0,
+    name: 'id',
+    desc: 1,
+    coll: 'NOCASE',
+    key: 1,
+  },
+]
+
+/** Checks stable errors for malformed native rows and duplicate SQLite identity keys. */
+async function assertMalformedSqliteIdentityRows() {
+  await expect(
+    sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'database-wrong-type' }),
+      request,
+    ),
+  ).rejects.toThrow(
+    'Malformed SQLite database_list row 0: "name" must be a non-empty string',
+  )
+
+  await expect(
+    sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'xinfo-missing-name' }),
+      request,
+    ),
+  ).rejects.toThrow(
+    'Malformed SQLite table_xinfo row 0: "name" must be a non-empty string',
+  )
+
+  await expect(
+    sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'fk-wrong-target' }),
+      request,
+    ),
+  ).rejects.toThrow(
+    'Malformed SQLite foreign_key_list row 0: "to" must be a string or null',
+  )
+
+  await expect(
+    sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'schema-case-duplicate' }),
+      request,
+    ),
+  ).rejects.toThrow('Duplicate SQLite sqlite_schema relation name "PARENT"')
+
+  await expect(
+    sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'table-case-duplicate' }),
+      request,
+    ),
+  ).rejects.toThrow('Duplicate SQLite table_list relation "MAIN"."PARENT"')
+}
+
+/**
+ * Checks that attached and temporary objects prevent complete main-database management.
+ *
+ * @param reversed - Whether native observation order is reversed for determinism checks.
+ * @param snapshot - Observed catalog snapshot whose evidence is checked or projected.
+ * @param parent - Parent relation or syntax node used by the fixture scenario.
+ */
+function assertExternalNamespaceDiagnostics(
+  reversed: CatalogSnapshot,
+  snapshot: CatalogSnapshot,
+  parent: CatalogRelation,
+) {
+  expect(reversed).toEqual(snapshot)
+  expect(parent.management).toBe('unmanaged')
+
+  expect(
+    tableOf(parent).opaqueObjects.items.some((object) =>
+      object.reason.includes('Attached or temporary'),
+    ),
+  ).toBe(true)
+
+  expect(snapshot.diagnostics.map(({ code, message }) => [code, message])).toEqual(
+    structuredClone(assertBlocksMainManagementWhenAttachedOrTemporaryObjectsAreData),
+  )
+
+  expect(snapshot.constraintNameReservations.coverage).toMatchObject({
+    state: 'unknown',
+  })
+}
+
+/**
+ * Checks decoded defaults, nullability, and rowid generation without inventing
+ * unsupported facts.
+ *
+ * @param columns - Ordered column names, references, or observations used by this
+ *   operation.
+ */
+function assertSqliteColumnEvidence(columns: readonly CatalogColumn[]) {
+  expect(columns[1]!.default).toMatchObject({
+    state: 'present',
+    value: {
+      kind: 'literal',
+      native: "'safe'",
+      comparisonKey: { state: 'present', value: "'safe'" },
+    },
+  })
+
+  expect(columns[4]!.default).toMatchObject({
+    state: 'present',
+    value: {
+      kind: 'portableExpression',
+      native: "(lower('x'))",
+      comparisonKey: { state: 'present', value: "lower('x')" },
+    },
+  })
+
+  expect(columns[2]!.default).toMatchObject({
+    state: 'present',
+    value: {
+      kind: 'literal',
+      native: 'TRUE',
+      comparisonKey: { state: 'present', value: '1' },
+    },
+  })
+
+  expect(columns[0]!.generation).toMatchObject({
+    state: 'present',
+    value: { kind: 'rowidAlias', autoIncrement: true },
+  })
+}
+
+/**
+ * Checks primary, unique, and index evidence decoded for the parent relation.
+ *
+ * @param s - Catalog snapshot being projected into the fixture assertion shape.
+ */
+function assertParentKeysAndIndexes(s: CatalogSnapshot) {
+  const parentTable = tableOf(relationNamed(s, 'parent'))
+  expect(parentTable.primaryKey).toMatchObject({
+    state: 'present',
+    value: { columns: ['id'], name: { state: 'absent' } },
+  })
+
+  expect(parentTable.uniqueConstraints.items.map(({ columns: names }) => names)).toEqual([
+    ['b'],
+    ['v'],
+  ])
+
+  expect(parentTable.uniqueConstraints.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        columns: ['b'],
+        semantics: { state: 'present', value: { kind: 'simple' } },
+        validity: { state: 'present', value: 'valid' },
+        name: { state: 'absent' },
+      }),
+    ]),
+  )
+
+  expect(parentTable.indexes.items.map((index) => index.name)).toContainEqual({
+    state: 'present',
+    value: 'parent_n',
+  })
+
+  expect(parentTable.indexes.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        name: { state: 'present', value: 'parent_n' },
+        origin: 'user',
+        unique: false,
+        semantics: { state: 'present', value: { kind: 'simple' } },
+        validity: { state: 'present', value: 'valid' },
+        nativeDefinition: {
+          state: 'present',
+          value: 'CREATE INDEX parent_n ON parent(v)',
+        },
+      }),
+    ]),
+  )
+
+  expect(parentTable.options.items).toEqual([
+    { name: 'strict', value: 'false' },
+    { name: 'withoutRowid', value: 'false' },
+  ])
+}
+
+/**
+ * Creates catalog observations whose requested row order can be reversed.
+ *
+ * @param reverse - Whether fixture rows should reverse their order to test canonical
+ *   normalization.
+ *
+ * @returns Catalog observations whose requested row order can be reversed.
+ */
+function executeSqliteCatalogFixture(reverse: boolean): CatalogExecutor {
+  const fixture = fixtureExecutor({ reverse })
+
+  return {
+    /** Executes fixture SQL with the configured native observations. */
+    execute: async (query) => {
+      if (query.sql.includes('foreign_key_list') && query.params[0] === 'child') {
+        const rows = structuredClone(executeSqliteCatalogFixtureRows)
+
+        return reverse ? rows.reverse() : rows
+      }
+
+      return fixture.execute(query)
+    },
+  }
+}
+
+// oxlint-disable-next-line complexity
+/**
+ * Dispatches native SQLite catalog queries and applies configured races or malformed-row
+ * variations.
+ *
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param tables - Observed table definitions used to build fixture catalog evidence.
+ * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+ * @param xinfo - Native table-column observations indexed by table name.
+ * @param calls - Recorded SQL, lifecycle, or hook calls used by the test assertions.
+ *
+ * @returns Native catalog rows with configured races and malformed observations.
+ */
+async function executeSqliteFixture(
+  query: Parameters<CatalogExecutor['execute']>[0],
+  options: FixtureOptions,
+  tables: unknown[],
+  schema: unknown[],
+  xinfo: ReturnType<typeof fixtureColumnRows>,
+  calls: Map<string, number>,
+): Promise<unknown[]> {
+  const p = query.params
+  let rows: unknown[] = readSqliteFixtureRows(query, options, tables, schema, xinfo, p)
+
+  if (options.simpleForeignKey && query.sql.includes('foreign_key_list'))
+    rows =
+      p[0] === 'child'
+        ? [
+            {
+              id: 0,
+              seq: 0,
+              table: 'parent',
+              from: 'pa',
+              to: 'id',
+              on_update: 'CASCADE',
+              on_delete: 'SET NULL',
+              match: 'NONE',
+            },
+          ]
+        : []
+
+  const key = query.sql + JSON.stringify(query.params)
+  const count = (calls.get(key) ?? 0) + 1
+  calls.set(key, count)
+
+  rows = applyRichUniqueIndexRows(options, query, p, rows)
+
+  rows = malformedIndexRows(rows, query, options)
+
+  if (options.race && count > 1 && query.sql.includes(options.race))
+    rows = [
+      ...rows,
+      ...(rows[0]
+        ? [{ ...(rows[0] as Record<string, unknown>), name: 'race_added' }]
+        : []),
+    ]
+
+  rows = malformedFixtureRows(rows, query, options)
+
+  if (options.reverse) rows = rows.slice().reverse()
+
+  return rows
+}
+
+/**
+ * Injects richer native unique-index semantics into the selected fixture query result.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param p - Parameters supplied to the native fixture SQL call.
+ * @param rows - Ordered native observations or result rows to process.
+ *
+ * @returns Native rows with richer unique-index semantics injected into the selected
+ *   query.
+ */
+function applyRichUniqueIndexRows(
+  options: FixtureOptions,
+  query: { sql: string; params: unknown[] },
+  p: unknown[],
+  rows: unknown[],
+) {
+  if (options.richUniqueIndex && query.sql.includes('index_list') && p[0] === 'simple')
+    rows = [{ seq: 0, name: 'simple_unique', unique: 1, origin: 'u', partial: 0 }]
+
+  if (
+    options.richUniqueIndex &&
+    query.sql.includes('index_xinfo') &&
+    p[0] === 'simple_unique'
+  )
+    rows = [{ seqno: 0, cid: 1, name: 'value', desc: 1, coll: 'BINARY', key: 1 }]
+
+  return rows
+}
+
+/**
+ * Selects native SQLite fixture rows for the requested PRAGMA or inventory query.
+ *
+ * @param query - Compiled SQL and ordered parameter bindings for the current physical
+ *   call.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param tables - Observed table definitions used to build fixture catalog evidence.
+ * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+ * @param xinfo - Native table-column observations indexed by table name.
+ * @param p - Parameters supplied to the native fixture SQL call.
+ *
+ * @returns The configured native observations for the requested SQLite catalog query.
+ */
+function readSqliteFixtureRows(
+  query: { sql: string; params: unknown[] },
+  options: FixtureOptions,
+  tables: unknown[],
+  schema: unknown[],
+  xinfo: Record<string, unknown[]>,
+  p: unknown[],
+): unknown[] {
+  return query.sql.includes('sqlite_version')
+    ? [{ version: options.version ?? '3.37.0' }]
+    : query.sql.includes('database_list')
+      ? [{ seq: 0, name: 'main', file: '' }]
+      : query.sql.includes('table_list')
+        ? tables
+        : query.sql.includes('sqlite_schema')
+          ? schema
+          : query.sql.includes('table_xinfo')
+            ? (xinfo[String(p[0])] ?? []).map((row) => ({
+                ...(row as Record<string, unknown>),
+                column_notnull: (row as Record<string, unknown>).notnull,
+              }))
+            : query.sql.includes('index_list')
+              ? fixtureIndexList(p, options)
+              : query.sql.includes('index_xinfo')
+                ? fixtureIndexInfo(p, options)
+                : query.sql.includes('foreign_key_list')
+                  ? p[0] === 'child'
+                    ? structuredClone(executeSqliteFixtureData)
+                    : []
+                  : []
+}
+
+/**
+ * Adds attached and temporary database observations to the ordinary SQLite catalog
+ * fixture.
+ *
+ * @param reverse - Whether fixture rows should reverse their order to test canonical
+ *   normalization.
+ *
+ * @returns A catalog executor adding attached and temporary namespace observations.
+ */
+function createExternalSqliteExecutor(reverse: boolean): CatalogExecutor {
+  const fixture = fixtureExecutor({ reverse })
+
+  return {
+    /** Executes fixture SQL with the configured native observations. */
+    execute: async (query) => {
+      const rows = await fixture.execute(query)
+
+      if (query.sql.includes('database_list')) {
+        const databases = [
+          { seq: 0, name: 'main', file: '' },
+          { seq: 1, name: 'aux', file: 'aux.db' },
+          { seq: 2, name: 'temp', file: '' },
+        ]
+
+        return reverse ? databases.reverse() : databases
+      }
+
+      if (query.sql.includes('table_list')) {
+        const relations = [
+          ...rows,
+          {
+            schema: 'aux',
+            name: 'attached_item',
+            type: 'table',
+            ncol: 1,
+            wr: 0,
+            strict: 0,
+          },
+          {
+            schema: 'temp',
+            name: 'temporary_item',
+            type: 'table',
+            ncol: 1,
+            wr: 0,
+            strict: 0,
+          },
+        ]
+
+        return reverse ? relations.reverse() : relations
+      }
+
+      return rows
+    },
+  }
+}

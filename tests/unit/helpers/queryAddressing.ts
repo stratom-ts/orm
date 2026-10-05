@@ -15,9 +15,11 @@ export function exactQueryAddressing(
   > = postgresDialect.query.resolve([]).compile,
 ): Dialect['query'] {
   return {
+    /** Binds query compilation and matching to the registered table handles. */
     resolve(registered) {
       return {
         compile,
+        /** Finds handles matching the authored relation under query rules. */
         findRelationMatches(relation, handles = registered) {
           return handles.filter((handle) => {
             const candidate = handle.getTableMetadata().relation
@@ -35,6 +37,7 @@ export function exactQueryAddressing(
             )
           })
         },
+        /** Finds column names equal under the selected query rules. */
         findColumnMatches(handle, column) {
           return Object.keys(handle.getSchema().entries).filter(
             (candidate) => candidate === column,

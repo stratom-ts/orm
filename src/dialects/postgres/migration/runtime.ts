@@ -50,14 +50,9 @@ function executionRetryable(
  * Creates a structured execution failure while preserving the primary cause.
  *
  * @param options - Failure stage, outcome, provenance, and cleanup details.
- * @param options.cause - Primary or already structured failure.
- * @param options.stage - Fallback stage that observed the failure.
- * @param options.outcome - Known database effect after the failure.
- * @param options.retryable - Whether a safe retry is permitted.
- * @param options.actionIndex - Optional physical action index that failed.
- * @param options.sourceStepIndexes - Optional semantic steps that produced the action.
- * @param options.capabilityIssues - Deterministic whole-plan lowering evidence to retain.
- * @param options.cleanupFailures - Secondary cleanup failures to retain.
+ *
+ * @returns A structured migration error retaining the primary cause and known execution
+ *   outcome.
  */
 function executionError(options: {
   cause: unknown
@@ -124,6 +119,7 @@ function reportedStage(
   return fallback
 }
 
+/** Appends cancellation cleanup evidence without replacing the primary migration failure. */
 function retainCancellationFailures(
   failures: MigrationCleanupFailure[],
   cause: unknown,
@@ -133,6 +129,12 @@ function retainCancellationFailures(
   }
 }
 
+/**
+ * Rejects migration programs that cannot run atomically in one transaction.
+ *
+ * @param program - Lowered physical actions, preconditions, and transaction atomicity
+ *   requirements.
+ */
 function assertPlanAtomicProgram(program: MigrationProgram): void {
   if (program.atomicity !== 'plan-atomic') {
     throw new MigrationError({
@@ -189,6 +191,139 @@ function successfulOutcome(
   return committed && ddlStarted ? 'applied' : 'unchanged'
 }
 
+/** Releases the confirmed locks after the caller verifies session safety. */
+async function releaseConfirmedLocks(
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  acquiredLocks: readonly PostgresAdvisoryLockIdentity[],
+  cleanupFailures: MigrationCleanupFailure[],
+): Promise<void> {
+  try {
+    const failures = await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'unlock',
+      timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
+      timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
+      /** Releases confirmed advisory locks with cancellation controls. */
+      operation: () => releaseCoordinationFailures(options, acquiredLocks),
+    })
+
+    if (failures.length > 0) {
+      options.discard()
+      cleanupFailures.push(...failures)
+    }
+  } catch (cause) {
+    options.discard()
+    cleanupFailures.push({ stage: 'unlock', cause })
+    retainCancellationFailures(cleanupFailures, cause)
+  }
+}
+
+type MigrationExecutionFailure = {
+  cause: unknown
+  stage: MigrationExecutionStage
+  actionIndex?: number
+  sourceStepIndexes?: readonly number[]
+}
+
+/** Verifies every program precondition in the authoritative transaction. */
+async function executePreconditions(
+  program: MigrationProgram,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: MigrationCleanupFailure[],
+): Promise<MigrationExecutionFailure | undefined> {
+  for (const precondition of program.preconditions) {
+    try {
+      await runCancellable({
+        runtime: options,
+        state: cancellation,
+        stage: 'precondition',
+        /** Checks the migration precondition with cancellation controls. */
+        operation: () => assertPrecondition(options, precondition),
+      })
+    } catch (cause) {
+      const primary: MigrationExecutionFailure = {
+        cause,
+        stage: cancellationStage(cause, 'precondition'),
+        sourceStepIndexes: precondition.sourceStepIndexes,
+      }
+
+      retainCancellationFailures(cleanupFailures, cause)
+
+      return primary
+    }
+  }
+
+  return undefined
+}
+
+/** Acquires coordination and reports acquisition failures with their known outcome. */
+async function acquireMigrationCoordination(
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+): Promise<readonly PostgresAdvisoryLockIdentity[]> {
+  try {
+    return await acquireCoordination(options, cancellation)
+  } catch (cause) {
+    const knownSafeFailure =
+      cause instanceof MigrationLockTimeoutError ||
+      cause instanceof MigrationSignalAbortedError
+
+    if (!knownSafeFailure) options.discard()
+
+    throw executionError({
+      cause,
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: knownSafeFailure,
+      cleanupFailures:
+        cause instanceof MigrationCancellationError ? cause.cleanupFailures : [],
+    })
+  }
+}
+
+/** Executes each statement for one physical migration action. */
+async function executeActionStatements(
+  action: MigrationProgram['actions'][number],
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+): Promise<void> {
+  for (const statement of action.statements) {
+    await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'ddl',
+      /** Executes the current physical migration statement with cancellation controls. */
+      operation: () => options.executor.run(statement),
+    })
+  }
+}
+
+/** Executes the authoritative transaction and retains its acknowledged outcome. */
+async function executeMigrationTransaction(
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: MigrationCleanupFailure[],
+) {
+  const state: MigrationTransactionState = {
+    transactionOpen: false,
+    ddlStarted: false,
+    rollbackAcknowledged: false,
+    committed: false,
+    primary: undefined,
+  }
+
+  await executeTransaction(state, options, cancellation, cleanupFailures)
+  return {
+    ddlStarted: state.ddlStarted,
+    rollbackAcknowledged: state.rollbackAcknowledged,
+    committed: state.committed,
+    primary: state.primary,
+  }
+}
+
 /**
  * Runs one PostgreSQL migration under coordination and an authoritative repeatable-read
  * transaction. Commit acknowledgement is a hard uncertainty boundary: it is never
@@ -206,197 +341,12 @@ export async function executePostgresMigration(
     ...input,
     lockTimeoutMs: input.lockTimeoutMs ?? DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS,
   }
-  let acquiredLocks: readonly PostgresAdvisoryLockIdentity[] = []
   const cancellation: CancellationState = { cancelled: false }
 
-  try {
-    acquiredLocks = await acquireCoordination(options, cancellation)
-  } catch (cause) {
-    const knownSafeFailure =
-      cause instanceof MigrationLockTimeoutError ||
-      cause instanceof MigrationSignalAbortedError
+  const acquiredLocks = await acquireMigrationCoordination(options, cancellation)
 
-    if (!knownSafeFailure) options.discard()
-
-    throw executionError({
-      cause,
-      stage: 'lock',
-      outcome: 'unchanged',
-      retryable: knownSafeFailure,
-      cleanupFailures:
-        cause instanceof MigrationCancellationError ? cause.cleanupFailures : [],
-    })
-  }
-
-  let transactionOpen = false
-  let ddlStarted = false
-  let rollbackAcknowledged = false
-  let committed = false
-  let primary:
-    | {
-        cause: unknown
-        stage: MigrationExecutionStage
-        actionIndex?: number
-        sourceStepIndexes?: readonly number[]
-      }
-    | undefined
   const cleanupFailures: MigrationCleanupFailure[] = []
-
-  /** Verifies every program precondition in the authoritative transaction. */
-  async function executePreconditions(program: MigrationProgram): Promise<void> {
-    if (primary) return
-
-    for (const precondition of program.preconditions) {
-      try {
-        await runCancellable({
-          runtime: options,
-          state: cancellation,
-          stage: 'precondition',
-          operation: () => assertPrecondition(options, precondition),
-        })
-      } catch (cause) {
-        primary = {
-          cause,
-          stage: cancellationStage(cause, 'precondition'),
-          sourceStepIndexes: precondition.sourceStepIndexes,
-        }
-
-        retainCancellationFailures(cleanupFailures, cause)
-
-        break
-      }
-    }
-  }
-
-  /** Executes each statement for one physical migration action. */
-  async function executeActionStatements(
-    action: MigrationProgram['actions'][number],
-  ): Promise<void> {
-    for (const statement of action.statements) {
-      await runCancellable({
-        runtime: options,
-        state: cancellation,
-        stage: 'ddl',
-        operation: () => options.executor.run(statement),
-      })
-    }
-  }
-
-  /** Executes every physical program action in source order. */
-  async function executeActions(program: MigrationProgram): Promise<void> {
-    if (primary) return
-
-    for (let actionIndex = 0; actionIndex < program.actions.length; actionIndex++) {
-      const action = program.actions[actionIndex]!
-
-      try {
-        ddlStarted = true
-        await executeActionStatements(action)
-      } catch (cause) {
-        primary = {
-          cause,
-          stage: 'ddl',
-          actionIndex,
-          sourceStepIndexes: action.sourceStepIndexes,
-        }
-
-        retainCancellationFailures(cleanupFailures, cause)
-
-        break
-      }
-    }
-  }
-
-  /** Executes the authoritative migration transaction after coordination succeeds. */
-  async function executeTransaction(): Promise<void> {
-    try {
-      await runCancellable({
-        runtime: options,
-        state: cancellation,
-        stage: 'transaction',
-        operation: () =>
-          options.executor.run({
-            sql: 'begin isolation level repeatable read',
-            params: [],
-          }),
-      })
-
-      transactionOpen = true
-    } catch (cause) {
-      options.discard()
-      primary = {
-        cause,
-        stage: cancellationStage(cause, 'transaction'),
-      }
-
-      retainCancellationFailures(cleanupFailures, cause)
-    }
-
-    let program
-
-    if (!primary) {
-      try {
-        program = await runCancellable({
-          runtime: options,
-          state: cancellation,
-          stage: 'introspection',
-          operation: options.prepare,
-        })
-        assertPlanAtomicProgram(program)
-      } catch (cause) {
-        primary = {
-          cause,
-          stage: reportedStage(cause, 'lowering'),
-        }
-
-        retainCancellationFailures(cleanupFailures, cause)
-      }
-    }
-
-    if (program) await executePreconditions(program)
-    if (program) await executeActions(program)
-
-    if (!primary) {
-      try {
-        await runCancellable({
-          runtime: options,
-          state: cancellation,
-          stage: 'commit',
-          operation: () => options.executor.run({ sql: 'commit', params: [] }),
-        })
-
-        transactionOpen = false
-        committed = true
-      } catch (cause) {
-        transactionOpen = false
-        options.discard()
-        primary = {
-          cause,
-          stage: cancellationStage(cause, 'commit'),
-        }
-
-        retainCancellationFailures(cleanupFailures, cause)
-      }
-    } else if (transactionOpen && !cancellation.cancelled) {
-      try {
-        await runCancellable({
-          runtime: options,
-          state: cancellation,
-          stage: 'rollback',
-          operation: () => options.executor.run({ sql: 'rollback', params: [] }),
-        })
-
-        transactionOpen = false
-        rollbackAcknowledged = true
-      } catch (cause) {
-        transactionOpen = false
-        options.discard()
-        cleanupFailures.push({ stage: 'rollback', cause })
-
-        retainCancellationFailures(cleanupFailures, cause)
-      }
-    }
-  }
+  let result: Awaited<ReturnType<typeof executeMigrationTransaction>>
 
   /** Releases every confirmed coordination lock and retains cleanup evidence. */
   async function releaseLock(): Promise<void> {
@@ -405,38 +355,50 @@ export async function executePostgresMigration(
       !cancellation.cancelled &&
       !cancellation.sessionUncertain
     ) {
-      return releaseConfirmedLocks()
-    }
-  }
-
-  /** Releases the confirmed locks after the caller verifies session safety. */
-  async function releaseConfirmedLocks(): Promise<void> {
-    try {
-      const failures = await runCancellable({
-        runtime: options,
-        state: cancellation,
-        stage: 'unlock',
-        timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
-        timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
-        operation: () => releaseCoordinationFailures(options, acquiredLocks),
-      })
-
-      if (failures.length > 0) {
-        options.discard()
-        cleanupFailures.push(...failures)
-      }
-    } catch (cause) {
-      options.discard()
-      cleanupFailures.push({ stage: 'unlock', cause })
-      retainCancellationFailures(cleanupFailures, cause)
+      return releaseConfirmedLocks(options, cancellation, acquiredLocks, cleanupFailures)
     }
   }
 
   try {
-    await executeTransaction()
+    result = await executeMigrationTransaction(options, cancellation, cleanupFailures)
   } finally {
     await releaseLock()
   }
+
+  return migrationExecutionOutcome(result, cleanupFailures)
+}
+
+type MigrationTransactionState = {
+  transactionOpen: boolean
+  ddlStarted: boolean
+  rollbackAcknowledged: boolean
+  committed: boolean
+  primary: MigrationExecutionFailure | undefined
+}
+
+/**
+ * Preserves acknowledged migration outcomes while reporting transaction cleanup failures.
+ *
+ * @param result - Captured execution result or validated input whose outcome is being
+ *   interpreted.
+ * @param cleanupFailures - Mutable cleanup evidence accumulated without replacing the
+ *   primary rejection.
+ *
+ * @returns The acknowledged outcome combined with retained transaction-cleanup evidence.
+ */
+function migrationExecutionOutcome(
+  result: {
+    ddlStarted: boolean
+    rollbackAcknowledged: boolean
+    committed: boolean
+    primary: MigrationExecutionFailure | undefined
+  },
+  cleanupFailures: Readonly<{
+    stage: 'rollback' | 'unlock' | 'sessionCleanup'
+    cause: unknown
+  }>[],
+) {
+  const { primary, ddlStarted, rollbackAcknowledged, committed } = result
 
   if (primary) {
     const outcome = failureOutcome(primary.stage, ddlStarted, rollbackAcknowledged)
@@ -461,4 +423,260 @@ export async function executePostgresMigration(
   }
 
   return { outcome: successfulOutcome(committed, ddlStarted) }
+}
+
+/**
+ * Verifies preconditions and executes physical actions inside the authoritative
+ * transaction.
+ *
+ * @param program - Lowered physical actions, preconditions, and transaction atomicity
+ *   requirements.
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param options - Configuration and dependencies for this operation.
+ * @param cancellation - Shared cancellation state used across migration phases.
+ * @param cleanupFailures - Mutable cleanup evidence accumulated without replacing the
+ *   primary rejection.
+ */
+async function executeProgramActions(
+  program: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: MigrationCleanupFailure[],
+): Promise<void> {
+  if (state.primary) return
+
+  for (let actionIndex = 0; actionIndex < program.actions.length; actionIndex++) {
+    const action = program.actions[actionIndex]!
+
+    try {
+      state.ddlStarted = true
+      await executeActionStatements(action, options, cancellation)
+    } catch (cause) {
+      state.primary = {
+        cause,
+        stage: 'ddl',
+        actionIndex,
+        sourceStepIndexes: action.sourceStepIndexes,
+      }
+
+      retainCancellationFailures(cleanupFailures, cause)
+
+      break
+    }
+  }
+}
+
+/**
+ * Prepares and executes the migration, then commits or rolls back its authoritative
+ * transaction.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param options - Configuration and dependencies for this operation.
+ * @param cancellation - Shared cancellation state used across migration phases.
+ * @param cleanupFailures - Mutable cleanup evidence accumulated without replacing the
+ *   primary rejection.
+ */
+async function executeTransaction(
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: MigrationCleanupFailure[],
+): Promise<void> {
+  await beginMigrationTransaction(options, cancellation, state, cleanupFailures)
+
+  let program = await prepareMigrationProgram(
+    state,
+    options,
+    cancellation,
+    cleanupFailures,
+  )
+
+  if (program && !state.primary)
+    state.primary = await executePreconditions(
+      program,
+      options,
+      cancellation,
+      cleanupFailures,
+    )
+
+  if (program)
+    await executeProgramActions(program, state, options, cancellation, cleanupFailures)
+
+  await completeMigrationTransaction(state, options, cancellation, cleanupFailures)
+}
+
+/**
+ * Commits successful work or rolls back failures while retaining cleanup evidence.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param options - Configuration and dependencies for this operation.
+ * @param cancellation - Shared cancellation state used across migration phases.
+ * @param cleanupFailures - Mutable cleanup evidence accumulated without replacing the
+ *   primary rejection.
+ */
+async function completeMigrationTransaction(
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: Readonly<{
+    stage: 'rollback' | 'unlock' | 'sessionCleanup'
+    cause: unknown
+  }>[],
+) {
+  if (!state.primary) {
+    await commitMigrationTransaction(options, cancellation, state, cleanupFailures)
+  } else if (state.transactionOpen && !cancellation.cancelled) {
+    try {
+      await runCancellable({
+        runtime: options,
+        state: cancellation,
+        stage: 'rollback',
+        /** Rolls back within the migration cancellation boundary. */
+        operation: () => options.executor.run({ sql: 'rollback', params: [] }),
+      })
+
+      state.transactionOpen = false
+      state.rollbackAcknowledged = true
+    } catch (cause) {
+      state.transactionOpen = false
+      options.discard()
+      cleanupFailures.push({ stage: 'rollback', cause })
+
+      retainCancellationFailures(cleanupFailures, cause)
+    }
+  }
+}
+
+/**
+ * Commits the authoritative transaction and retains cancellation or commit failures.
+ *
+ * @param options - Native executor and session interruption controls.
+ * @param cancellation - Shared cancellation state for this migration.
+ * @param state - Mutable transaction outcome and primary failure evidence.
+ * @param cleanupFailures - Cleanup evidence retained after interruption.
+ */
+async function commitMigrationTransaction(
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  state: MigrationTransactionState,
+  cleanupFailures: Readonly<{
+    stage: 'rollback' | 'unlock' | 'sessionCleanup'
+    cause: unknown
+  }>[],
+) {
+  try {
+    await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'commit',
+      /** Commits within the migration cancellation boundary. */
+      operation: () => options.executor.run({ sql: 'commit', params: [] }),
+    })
+
+    state.transactionOpen = false
+    state.committed = true
+  } catch (cause) {
+    state.transactionOpen = false
+    options.discard()
+    state.primary = {
+      cause,
+      stage: cancellationStage(cause, 'commit'),
+    }
+
+    retainCancellationFailures(cleanupFailures, cause)
+  }
+}
+
+/**
+ * Builds and validates the authoritative migration program inside the current snapshot.
+ *
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param options - Configuration and dependencies for this operation.
+ * @param cancellation - Shared cancellation state used across migration phases.
+ * @param cleanupFailures - Mutable cleanup evidence accumulated without replacing the
+ *   primary rejection.
+ *
+ * @returns The validated authoritative physical program built inside the transaction
+ *   snapshot.
+ */
+async function prepareMigrationProgram(
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: Readonly<{
+    stage: 'rollback' | 'unlock' | 'sessionCleanup'
+    cause: unknown
+  }>[],
+) {
+  let program
+
+  if (!state.primary) {
+    try {
+      program = await runCancellable({
+        runtime: options,
+        state: cancellation,
+        stage: 'introspection',
+        operation: options.prepare,
+      })
+      assertPlanAtomicProgram(program)
+    } catch (cause) {
+      state.primary = {
+        cause,
+        stage: reportedStage(cause, 'lowering'),
+      }
+
+      retainCancellationFailures(cleanupFailures, cause)
+    }
+  }
+
+  return program
+}
+
+/**
+ * Starts the repeatable-read transaction before authoritative migration preparation.
+ *
+ * @param options - Configuration and dependencies for this operation.
+ * @param cancellation - Shared cancellation state used across migration phases.
+ * @param state - Shared mutable state that preserves progress and cleanup outcomes across
+ *   calls.
+ * @param cleanupFailures - Mutable cleanup evidence accumulated without replacing the
+ *   primary rejection.
+ */
+async function beginMigrationTransaction(
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  state: MigrationTransactionState,
+  cleanupFailures: Readonly<{
+    stage: 'rollback' | 'unlock' | 'sessionCleanup'
+    cause: unknown
+  }>[],
+) {
+  try {
+    await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'transaction',
+      /** Starts repeatable-read transaction with cancellation controls. */
+      operation: () =>
+        options.executor.run({
+          sql: 'begin isolation level repeatable read',
+          params: [],
+        }),
+    })
+
+    state.transactionOpen = true
+  } catch (cause) {
+    options.discard()
+    state.primary = {
+      cause,
+      stage: cancellationStage(cause, 'transaction'),
+    }
+
+    retainCancellationFailures(cleanupFailures, cause)
+  }
 }

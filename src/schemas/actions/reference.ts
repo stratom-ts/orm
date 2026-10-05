@@ -17,6 +17,11 @@ import type { ReferenceMetadata, ReferentialAction } from './types'
 
 /** Minimal table-handle shape accepted by `reference()` (avoids circular imports). */
 type ReferenceTargetHandle = {
+  /**
+   * Returns the table's original Valibot schema for validation and metadata lookup.
+   *
+   * @returns The table's original Valibot schema for validation and metadata lookup.
+   */
   getSchema(): SchemaWithPipe<
     readonly [
       ObjectSchema<ObjectEntries, undefined>,
@@ -24,6 +29,13 @@ type ReferenceTargetHandle = {
       MetadataAction<unknown, Record<string, unknown>>,
     ]
   >
+  /**
+   * Returns the relation, primary-key, index, and ownership metadata attached to the
+   * table.
+   *
+   * @returns The relation, primary-key, index, and ownership metadata attached to the
+   *   table.
+   */
   getTableMetadata(): {
     relation: ReferenceMetadata['target']['relation']
   }
@@ -88,36 +100,11 @@ type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
  *
  * @returns Piped schema for the FK column with reference metadata
  */
-export function reference<
-  T extends ReferenceTarget,
-  K extends (T extends ReferenceTargetHandle
-    ? keyof ReferenceHandleSchemaEntries<T>
-    : T extends ReferenceTargetSchema
-      ? keyof T['entries']
-      : never),
->(
+export function reference<T extends ReferenceTarget, K extends ReferenceColumnKey<T>>(
   tableOrSchema: T,
   key: K,
   options?: ReferenceOptions,
-): SchemaWithPipe<
-  readonly [
-    T extends ReferenceTargetHandle
-      ? ReferenceHandleSchemaEntries<T>[K & keyof ReferenceHandleSchemaEntries<T>]
-      : T extends ReferenceTargetSchema
-        ? T['entries'][K & keyof T['entries']]
-        : never,
-    MetadataAction<
-      InferOutput<
-        T extends ReferenceTargetHandle
-          ? ReferenceHandleSchemaEntries<T>[K & keyof ReferenceHandleSchemaEntries<T>]
-          : T extends ReferenceTargetSchema
-            ? T['entries'][K & keyof T['entries']]
-            : never
-      >,
-      ReferenceMetadata
-    >,
-  ]
-> {
+): ReferenceSchema<T, K> {
   const schema: ReferenceTargetSchema = isReferenceTargetHandle(tableOrSchema)
     ? tableOrSchema.getSchema()
     : tableOrSchema
@@ -181,3 +168,34 @@ export function isReferenceMetadata(
 export function getReferenceMetadata(schema: AnySchema): ReferenceMetadata | undefined {
   return findSchemaMetadata<ReferenceMetadata>(schema, 'reference')
 }
+
+type ReferenceColumnKey<T extends ReferenceTarget> = T extends ReferenceTargetHandle
+  ? keyof ReferenceHandleSchemaEntries<T>
+  : T extends ReferenceTargetSchema
+    ? keyof T['entries']
+    : never
+
+type ReferencedColumn<
+  T extends ReferenceTarget,
+  K extends PropertyKey,
+> = T extends ReferenceTargetHandle
+  ? ReferenceHandleSchemaEntries<T>[K & keyof ReferenceHandleSchemaEntries<T>]
+  : T extends ReferenceTargetSchema
+    ? T['entries'][K & keyof T['entries']]
+    : never
+
+type ReferenceSchema<T extends ReferenceTarget, K extends PropertyKey> = SchemaWithPipe<
+  readonly [
+    ReferencedColumn<T, K>,
+    MetadataAction<
+      InferOutput<
+        T extends ReferenceTargetHandle
+          ? ReferenceHandleSchemaEntries<T>[K & keyof ReferenceHandleSchemaEntries<T>]
+          : T extends ReferenceTargetSchema
+            ? T['entries'][K & keyof T['entries']]
+            : never
+      >,
+      ReferenceMetadata
+    >,
+  ]
+>

@@ -54,7 +54,9 @@ describe('db.transaction', () => {
 
     await db.close()
   })
+})
 
+describe('db.transaction: should use savepoints for nested transactions', () => {
   it('should use savepoints for nested transactions', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -82,7 +84,9 @@ describe('db.transaction', () => {
 
     await db.close()
   })
+})
 
+describe('db.transaction: should release savepoint when nested transaction succeeds', () => {
   it('should release savepoint when nested transaction succeeds', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -105,7 +109,9 @@ describe('db.transaction', () => {
 
     await db.close()
   })
+})
 
+describe('db.transaction: should serialize concurrent top-level transactions', () => {
   it('should serialize concurrent top-level transactions', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -147,7 +153,9 @@ describe('db.transaction', () => {
     expect(transactionSql).toEqual(['begin', 'rollback', 'begin', 'commit'])
     await db.close()
   })
+})
 
+describe('db.transaction: should reject migrations inside a transaction before acquiring a lock', () => {
   it('should reject migrations inside a transaction before acquiring a lock', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })

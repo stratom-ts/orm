@@ -28,7 +28,16 @@ export interface DialectIntegrationAdapter {
   readonly capabilities: Readonly<
     Record<IntegrationCapabilityName, IntegrationCapability>
   >
+  /** Checks that the integration database is available before contract scenarios run. */
   readiness(): Promise<void>
+  /**
+   * Runs the shared integration scenario with the adapter's isolated database client.
+   *
+   * @param schemas - Registered table handles defining the desired schema.
+   * @param callback - Work to run within the owned client or session scope.
+   *
+   * @returns The callback value after the operation and required cleanup complete.
+   */
   withDatabase<const TSchemas extends readonly TableHandle[], TResult>(
     schemas: TSchemas,
     callback: (context: Readonly<{ db: Db<TSchemas> }>) => Promise<TResult>,
@@ -79,6 +88,7 @@ export function shouldRegisterDialectIntegrationScenario(
   return !required.some((capability) => capabilities[capability].state === 'unsupported')
 }
 
+/** Registers dialect integration scenario checks against the selected dialect contract. */
 export function registerDialectIntegrationScenario(
   adapter: Pick<DialectIntegrationAdapter, 'capabilities'>,
   capabilities: readonly IntegrationCapabilityName[],
@@ -103,98 +113,9 @@ export function registerDialectIntegrationScenarios(
   validateDialectIntegrationCapabilities(adapter.capabilities)
 
   describe(`${adapter.name} shared integration scenarios`, () => {
-    beforeAll(() => adapter.readiness())
-
-    registerDialectIntegrationScenario(
-      adapter,
-      ['lifecycle'],
-      'connects and closes idempotently',
-      async () => {
-        await adapter.withDatabase([ContractRecords], async ({ db }) => {
-          await expect(db.ping()).resolves.toBeUndefined()
-          await db.close()
-          await expect(db.close()).resolves.toBeUndefined()
-        })
-      },
-    )
-
-    registerDialectIntegrationScenario(
-      adapter,
-      ['query', 'migration'],
-      'round-trips representative CRUD',
-      async () => {
-        await adapter.withDatabase([ContractRecords], async ({ db }) => {
-          await db.migrate().execute()
-          const inserted = await db
-            .insert(ContractRecords)
-            .values({ label: 'shared query' })
-            .executeTakeFirstOrThrow()
-          expect(inserted).toMatchObject({ label: 'shared query', active: true })
-
-          await expect(
-            db
-              .from(ContractRecords)
-              .where(ContractRecords.id, 'eq', inserted.id)
-              .execute(),
-          ).resolves.toEqual([inserted])
-
-          await expect(
-            db
-              .update(ContractRecords)
-              .set({ active: false })
-              .where(ContractRecords.id, 'eq', inserted.id)
-              .execute(),
-          ).resolves.toMatchObject([{ active: false }])
-
-          await expect(
-            db
-              .from(ContractRecords)
-              .where(ContractRecords.id, 'eq', inserted.id)
-              .execute(),
-          ).resolves.toMatchObject([{ active: false }])
-
-          await expect(
-            db
-              .delete(ContractRecords)
-              .where(ContractRecords.id, 'eq', inserted.id)
-              .execute(),
-          ).resolves.toHaveLength(1)
-
-          await expect(
-            db
-              .from(ContractRecords)
-              .where(ContractRecords.id, 'eq', inserted.id)
-              .execute(),
-          ).resolves.toEqual([])
-        })
-      },
-    )
-
-    registerDialectIntegrationScenario(
-      adapter,
-      ['transaction', 'migration', 'query'],
-      'commits and rolls back root transactions',
-      async () => {
-        await adapter.withDatabase([ContractRecords], async ({ db }) => {
-          await db.migrate().execute()
-
-          await db.transaction(async (trx) => {
-            await trx.insert(ContractRecords).values({ label: 'committed' }).execute()
-          })
-
-          await expect(
-            db.transaction(async (trx) => {
-              await trx.insert(ContractRecords).values({ label: 'rolled back' }).execute()
-              throw new Error('rollback requested')
-            }),
-          ).rejects.toThrow('rollback requested')
-
-          await expect(db.from(ContractRecords).execute()).resolves.toMatchObject([
-            { label: 'committed' },
-          ])
-        })
-      },
-    )
+    registerLifecycleIntegration(adapter)
+    registerCrudIntegration(adapter)
+    registerTransactionIntegration(adapter)
 
     registerDialectIntegrationScenario(
       adapter,
@@ -233,4 +154,112 @@ export function registerDialectIntegrationScenarios(
       },
     )
   })
+}
+
+/**
+ * Registers the scenario that commits and rolls back root transactions.
+ *
+ * @param adapter - Adapter supplying the dialect behavior exercised by shared contract
+ *   scenarios.
+ */
+function registerTransactionIntegration(adapter: DialectIntegrationAdapter) {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['transaction', 'migration', 'query'],
+    'commits and rolls back root transactions',
+    async () => {
+      await adapter.withDatabase([ContractRecords], async ({ db }) => {
+        await db.migrate().execute()
+
+        await db.transaction(async (trx) => {
+          await trx.insert(ContractRecords).values({ label: 'committed' }).execute()
+        })
+
+        await expect(
+          db.transaction(async (trx) => {
+            await trx.insert(ContractRecords).values({ label: 'rolled back' }).execute()
+            throw new Error('rollback requested')
+          }),
+        ).rejects.toThrow('rollback requested')
+
+        await expect(db.from(ContractRecords).execute()).resolves.toMatchObject([
+          { label: 'committed' },
+        ])
+      })
+    },
+  )
+}
+
+/**
+ * Registers the scenario that round-trips representative CRUD.
+ *
+ * @param adapter - Adapter supplying the dialect behavior exercised by shared contract
+ *   scenarios.
+ */
+function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration'],
+    'round-trips representative CRUD',
+    async () => {
+      await adapter.withDatabase([ContractRecords], async ({ db }) => {
+        await db.migrate().execute()
+        const inserted = await db
+          .insert(ContractRecords)
+          .values({ label: 'shared query' })
+          .executeTakeFirstOrThrow()
+        expect(inserted).toMatchObject({ label: 'shared query', active: true })
+
+        await expect(
+          db.from(ContractRecords).where(ContractRecords.id, 'eq', inserted.id).execute(),
+        ).resolves.toEqual([inserted])
+
+        await expect(
+          db
+            .update(ContractRecords)
+            .set({ active: false })
+            .where(ContractRecords.id, 'eq', inserted.id)
+            .execute(),
+        ).resolves.toMatchObject([{ active: false }])
+
+        await expect(
+          db.from(ContractRecords).where(ContractRecords.id, 'eq', inserted.id).execute(),
+        ).resolves.toMatchObject([{ active: false }])
+
+        await expect(
+          db
+            .delete(ContractRecords)
+            .where(ContractRecords.id, 'eq', inserted.id)
+            .execute(),
+        ).resolves.toHaveLength(1)
+
+        await expect(
+          db.from(ContractRecords).where(ContractRecords.id, 'eq', inserted.id).execute(),
+        ).resolves.toEqual([])
+      })
+    },
+  )
+}
+
+/**
+ * Registers the scenario that connects and closes idempotently.
+ *
+ * @param adapter - Adapter supplying the dialect behavior exercised by shared contract
+ *   scenarios.
+ */
+function registerLifecycleIntegration(adapter: DialectIntegrationAdapter) {
+  beforeAll(() => adapter.readiness())
+
+  registerDialectIntegrationScenario(
+    adapter,
+    ['lifecycle'],
+    'connects and closes idempotently',
+    async () => {
+      await adapter.withDatabase([ContractRecords], async ({ db }) => {
+        await expect(db.ping()).resolves.toBeUndefined()
+        await db.close()
+        await expect(db.close()).resolves.toBeUndefined()
+      })
+    },
+  )
 }

@@ -20,10 +20,12 @@ import type {
 
 import { asciiFoldSqliteIdentifier } from './identity'
 
+/** Quotes an SQL identifier and escapes embedded double quotes. */
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
 }
 
+/** Rejects values that cannot serve as nonempty SQL identifiers. */
 function assertNonEmptyString(
   value: unknown,
   description: string,
@@ -33,6 +35,12 @@ function assertNonEmptyString(
   }
 }
 
+/**
+ * Rejects query namespaces outside SQLite's supported main database.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ * @param description - Diagnostic label that identifies invalid input.
+ */
 function assertMainNamespace(
   value: unknown,
   description: string,
@@ -61,6 +69,13 @@ function assertMainNamespace(
   }
 }
 
+/**
+ * Validates authored SQLite query namespaces and applies the registration default.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ * @param registrationDefault - Explicit namespace default used before the session's
+ *   writable default.
+ */
 function resolveSqliteQueryNamespace(
   value: unknown,
   registrationDefault?: readonly NamespaceIdentifierInput[],
@@ -118,6 +133,7 @@ export function resolveSqliteQueryRelation(
   }
 }
 
+/** Quotes the resolved SQLite database and relation names for a query. */
 function qualifySqliteQueryRelation(
   relation: RelationIdentityInput,
   resolveRelation: SqliteQueryRelationResolver,
@@ -128,6 +144,15 @@ function qualifySqliteQueryRelation(
 
 type SqliteRelation = SqliteQueryRelation & Readonly<{ alias: string }>
 
+/**
+ * Resolves query relations and assigns unambiguous aliases.
+ *
+ * @param inputs - Contract inputs keyed by the facets exercised by this shard.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns Query relations and assigns unambiguous aliases.
+ */
 function createRelationContext(
   inputs: readonly RelationIdentityInput[],
   resolveRelation: SqliteQueryRelationResolver,
@@ -151,6 +176,16 @@ function createRelationContext(
   })
 }
 
+/**
+ * Requires exactly one query alias for an authored relation reference.
+ *
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param target - Identity or evidence required by the current reference or diagnostic.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The unique relation alias; absent or ambiguous matches throw.
+ */
 function resolveRelationAlias(
   relations: readonly SqliteRelation[],
   target: RelationIdentityInput,
@@ -170,6 +205,13 @@ function resolveRelationAlias(
   throw new QueryError({ message: `relation reference "${resolved.table}" is ambiguous` })
 }
 
+/**
+ * Maps a portable comparison operator to its SQL spelling.
+ *
+ * @param op - SQL operator used by the fixture expression.
+ *
+ * @returns The SQL comparison fragment with parameters added in emitted order.
+ */
 function comparisonSql(op: ComparisonOp): string {
   switch (op) {
     case 'eq':
@@ -189,6 +231,14 @@ function comparisonSql(op: ComparisonOp): string {
   }
 }
 
+/**
+ * Compiles an optional returning clause and validates explicitly selected columns.
+ *
+ * @param returning - Requested returning columns, or undefined when the write returns no
+ *   rows.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
 function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
@@ -210,6 +260,7 @@ function compileReturning(returning: ReturningAst | undefined): string {
     .join(', ')}`
 }
 
+/** Quotes a column and resolves its relation alias when one is supplied. */
 function qualifyColumn(
   column: string,
   relations: readonly SqliteRelation[],
@@ -223,6 +274,17 @@ function qualifyColumn(
     : quoted
 }
 
+/**
+ * Compiles comparison and logical predicates while appending bound values in SQL order.
+ *
+ * @param predicate - Predicate or predicate factory used to filter query results.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
 function compilePredicate(
   predicate: PredicateAst,
   params: unknown[],
@@ -230,43 +292,8 @@ function compilePredicate(
   resolveRelation: SqliteQueryRelationResolver,
 ): string {
   switch (predicate.kind) {
-    case 'cmp': {
-      const left = qualifyColumn(
-        predicate.column,
-        relations,
-        predicate.relation,
-        resolveRelation,
-      )
-      const op = comparisonSql(predicate.op)
-
-      if (predicate.right !== undefined && Object.hasOwn(predicate, 'value')) {
-        throw new QueryError({
-          message: 'comparison cannot contain both right and value',
-        })
-      }
-
-      if (predicate.right !== undefined) {
-        return `${left} ${op} ${qualifyColumn(predicate.right.column, relations, predicate.right.relation, resolveRelation)}`
-      }
-
-      if (predicate.value !== null) {
-        params.push(predicate.value)
-        return `${left} ${op} ?`
-      }
-
-      const nullComparison =
-        predicate.op === 'eq'
-          ? `${left} is null`
-          : predicate.op === 'neq'
-            ? `${left} is not null`
-            : undefined
-
-      if (nullComparison) return nullComparison
-
-      throw new QueryError({
-        message: `comparison '${predicate.op}' does not accept null`,
-      })
-    }
+    case 'cmp':
+      return compileComparison(predicate, params, relations, resolveRelation)
     case 'and':
       if (!Array.isArray(predicate.preds)) {
         throw new QueryError({ message: 'and predicate requires a predicate array' })
@@ -304,6 +331,7 @@ function compilePredicate(
   }
 }
 
+/** Compiles an optional WHERE clause and preserves its parameter order. */
 function compileWhereClause(
   where: PredicateAst | undefined,
   params: unknown[],
@@ -315,6 +343,17 @@ function compileWhereClause(
     : ''
 }
 
+/**
+ * Compiles supported scalar expressions and rejects unsupported dialect functions.
+ *
+ * @param expression - Scalar SQL expression or default expression being processed.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
 function compileExpression(
   expression: SqlExprAst,
   params: unknown[],
@@ -348,6 +387,17 @@ function compileExpression(
   }
 }
 
+/**
+ * Compiles a selected column, expression, or all-columns item with its alias.
+ *
+ * @param item - Current member or pending reference under evaluation.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
 function compileSelectItem(
   item: SelectItemAst,
   params: unknown[],
@@ -375,6 +425,16 @@ function compileSelectItem(
   }
 }
 
+/**
+ * Compiles ordered columns after validating their sort directions.
+ *
+ * @param orderBy - Ordered sort expressions used by the compilation scenario.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
 function compileOrderBy(
   orderBy: readonly OrderByAst[] | undefined,
   relations: readonly SqliteRelation[],
@@ -395,6 +455,18 @@ function compileOrderBy(
     .join(', ')}`
 }
 
+/**
+ * Compiles a supported join and its ON predicate using resolved relation aliases.
+ *
+ * @param join - Join kind, relation, and ON predicate to compile.
+ * @param relation - Authored or canonical relation addressed by this operation.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
 function compileJoin(
   join: JoinAst,
   relation: SqliteRelation,
@@ -412,6 +484,7 @@ function compileJoin(
   return ` ${type} ${qualifySqliteQueryRelation(join.relation, resolveRelation)} as ${quoteIdentifier(relation.alias)} on ${compilePredicate(join.on, params, relations, resolveRelation)}`
 }
 
+/** Rejects row limits or offsets that are negative or unsafe integers. */
 function assertPagination(value: number, description: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new QueryError({
@@ -420,6 +493,15 @@ function assertPagination(value: number, description: string): void {
   }
 }
 
+/**
+ * Compiles a select AST with resolved aliases and ordered bound parameters.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
 function compileSelect(
   node: SelectAst,
   resolveRelation: SqliteQueryRelationResolver,
@@ -447,6 +529,30 @@ function compileSelect(
 
   sql += compileWhereClause(node.where, params, relations, resolveRelation)
 
+  sql = compileSelectTail(node, sql, relations, resolveRelation, params)
+
+  return { sql, params }
+}
+
+/**
+ * Adds grouping, HAVING, ordering, and pagination to a compiled select prefix.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param sql - Native SQL text being scanned, compiled, or observed.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
+function compileSelectTail(
+  node: SelectAst,
+  sql: string,
+  relations: readonly SqliteRelation[],
+  resolveRelation: SqliteQueryRelationResolver,
+  params: unknown[],
+) {
   if (node.groupBy && node.groupBy.length > 0) {
     sql += ` group by ${node.groupBy
       .map((column) =>
@@ -476,9 +582,18 @@ function compileSelect(
     sql += ' offset ?'
   }
 
-  return { sql, params }
+  return sql
 }
 
+/**
+ * Compiles insert rows and an optional returning clause with ordered parameters.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
 function compileInsert(
   node: InsertAst,
   resolveRelation: SqliteQueryRelationResolver,
@@ -511,7 +626,24 @@ function compileInsert(
     return quoteIdentifier(column)
   })
   const params: unknown[] = []
-  const values = node.values.map((row) => {
+  const values = compileInsertValues(node, params)
+
+  return {
+    sql: `insert into ${table} (${columns.join(', ')}) values ${values.join(', ')}${compileReturning(node.returning)}`,
+    params,
+  }
+}
+
+/**
+ * Validates insert row widths and emits parameter placeholders in row order.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
+function compileInsertValues(node: InsertAst, params: unknown[]) {
+  return node.values.map((row) => {
     if (!Array.isArray(row) || row.length !== node.columns.length) {
       throw new QueryError({ message: 'insert row width must match its columns' })
     }
@@ -529,13 +661,17 @@ function compileInsert(
       })
       .join(', ')})`
   })
-
-  return {
-    sql: `insert into ${table} (${columns.join(', ')}) values ${values.join(', ')}${compileReturning(node.returning)}`,
-    params,
-  }
 }
 
+/**
+ * Compiles assignments and enforces a filter or explicit full-table permission.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
 function compileUpdate(
   node: UpdateAst,
   resolveRelation: SqliteQueryRelationResolver,
@@ -567,6 +703,15 @@ function compileUpdate(
   }
 }
 
+/**
+ * Compiles deletion and enforces a filter or explicit full-table permission.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
 function compileDelete(
   node: DeleteAst,
   resolveRelation: SqliteQueryRelationResolver,
@@ -602,4 +747,58 @@ export function compileSqlite(
     default:
       throw new QueryError({ message: 'unsupported SQLite query AST' })
   }
+}
+
+/**
+ * Compiles column or value comparisons, including SQL's special null predicates.
+ *
+ * @param predicate - Predicate or predicate factory used to filter query results.
+ * @param params - Mutable bound-value list extended in emitted SQL order.
+ * @param relations - Resolved query relations or requested catalog relations.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns The SQL fragment with bindings appended in emitted order.
+ */
+function compileComparison(
+  predicate: Extract<PredicateAst, { kind: 'cmp' }>,
+  params: unknown[],
+  relations: readonly SqliteRelation[],
+  resolveRelation: SqliteQueryRelationResolver,
+): string {
+  const left = qualifyColumn(
+    predicate.column,
+    relations,
+    predicate.relation,
+    resolveRelation,
+  )
+  const op = comparisonSql(predicate.op)
+
+  if (predicate.right !== undefined && Object.hasOwn(predicate, 'value')) {
+    throw new QueryError({
+      message: 'comparison cannot contain both right and value',
+    })
+  }
+
+  if (predicate.right !== undefined) {
+    return `${left} ${op} ${qualifyColumn(predicate.right.column, relations, predicate.right.relation, resolveRelation)}`
+  }
+
+  if (predicate.value !== null) {
+    params.push(predicate.value)
+    return `${left} ${op} ?`
+  }
+
+  const nullComparison =
+    predicate.op === 'eq'
+      ? `${left} is null`
+      : predicate.op === 'neq'
+        ? `${left} is not null`
+        : undefined
+
+  if (nullComparison) return nullComparison
+
+  throw new QueryError({
+    message: `comparison '${predicate.op}' does not accept null`,
+  })
 }

@@ -2,6 +2,7 @@ import { date, pipe, string, unknown } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { column, createDatabase, defineTable } from '@/index'
+import type { CompiledQuery } from '@/query/builder'
 
 import { createMockPostgresConnector } from './helpers/nativePostgresClient'
 
@@ -15,7 +16,9 @@ const LedgerEntries = defineTable(
       string(),
       column({
         physicalType: { postgresql: 'text' },
+        /** Applies the column parameter override before client mapping. */
         mapParam: (value) => `column-write:${String(value)}`,
+        /** Applies the column result override before client mapping. */
         mapResult: (value) => `column-read:${String(value)}`,
       }),
     ),
@@ -35,6 +38,7 @@ describe('client value mapping', () => {
       source: 'api',
     }
     const connector = createMockPostgresConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
         {
           ...entry,
@@ -47,11 +51,13 @@ describe('client value mapping', () => {
       connector,
       schemas: [LedgerEntries],
       map: {
+        /** Maps an authored value to its physical SQL parameter representation. */
         mapParamValue: (dataType, value) => ({
           mappedBy: 'client-param',
           dataType,
           value,
         }),
+        /** Decodes a native result value using the selected mapping rules. */
         mapResultValue: (dataType, value) => ({
           mappedBy: 'client-result',
           dataType,
@@ -61,50 +67,16 @@ describe('client value mapping', () => {
     })
 
     const compiled = db.insert(LedgerEntries).values(entry).compile()
-    expect(compiled.params).toContain('column-write:settled')
-
-    expect(compiled.params).toContainEqual({
-      mappedBy: 'client-param',
-      dataType: 'timestamptz',
-      value: recordedAt,
-    })
-
-    expect(compiled.params).toContainEqual({
-      mappedBy: 'client-param',
-      dataType: 'jsonb',
-      value: { invoice: 42 },
-    })
-
-    expect(compiled.params).toContainEqual({
-      mappedBy: 'client-param',
-      dataType: 'text',
-      value: 'api',
-    })
+    assertMappedParameters(compiled, recordedAt)
 
     const [row] = await db.from(LedgerEntries).execute()
-    expect(row!.note).toBe('column-read:settled')
-
-    expect(row!.recordedAt).toEqual({
-      mappedBy: 'client-result',
-      dataType: 'timestamptz',
-      value: recordedAt.toISOString(),
-    })
-
-    expect(row!.payload).toEqual({
-      mappedBy: 'client-result',
-      dataType: 'jsonb',
-      value: '{"invoice":42}',
-    })
-
-    expect(row!.source).toEqual({
-      mappedBy: 'client-result',
-      dataType: 'text',
-      value: 'api',
-    })
+    assertMappedResults(row, recordedAt)
 
     await db.close()
   })
+})
 
+describe('client value mapping: uses dialect defaults when no client override exists', () => {
   it('uses dialect defaults when no client override exists', async () => {
     const recordedAt = new Date('2026-09-10T01:02:03.000Z')
     const entry = {
@@ -115,6 +87,7 @@ describe('client value mapping', () => {
       source: 'api',
     }
     const connector = createMockPostgresConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
         {
           ...entry,
@@ -134,9 +107,12 @@ describe('client value mapping', () => {
     expect(row!.payload).toEqual({ invoice: 42 })
     await db.close()
   })
+})
 
+describe('client value mapping: uses dialect defaults when no client override exists: passes through unmapped values and preserves nulls', () => {
   it('passes through unmapped values and preserves nulls', async () => {
     const connector = createMockPostgresConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
         {
           id: null,
@@ -162,9 +138,12 @@ describe('client value mapping', () => {
 
     await db.close()
   })
+})
 
+describe('client value mapping: returns invalid timestamp and JSON text unchanged instead of inventing values', () => {
   it('returns invalid timestamp and JSON text unchanged instead of inventing values', async () => {
     const connector = createMockPostgresConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
         {
           id: '550e8400-e29b-41d4-a716-446655440000',
@@ -185,10 +164,73 @@ describe('client value mapping', () => {
 
   it('preserves non-object driver rows instead of coercing them into records', async () => {
     const rows = [null, 'count', 7, ['tuple']]
-    const connector = createMockPostgresConnector({ rowsBySql: () => rows })
+    const connector = createMockPostgresConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
+      rowsBySql: () => rows,
+    })
     const db = createDatabase({ connector, schemas: [LedgerEntries] })
 
     await expect(db.from(LedgerEntries).execute()).resolves.toEqual(rows)
     await db.close()
   })
 })
+
+/**
+ * Checks column override precedence and client result mappings across physical SQL types.
+ *
+ * @param row - Current native catalog row, insert row, or result object.
+ * @param recordedAt - Authored timestamp used to compare mapped query results.
+ */
+function assertMappedResults(
+  row: { id: string; recordedAt: Date; payload: unknown; note: string; source: string },
+  recordedAt: Date,
+) {
+  expect(row!.note).toBe('column-read:settled')
+
+  expect(row!.recordedAt).toEqual({
+    mappedBy: 'client-result',
+    dataType: 'timestamptz',
+    value: recordedAt.toISOString(),
+  })
+
+  expect(row!.payload).toEqual({
+    mappedBy: 'client-result',
+    dataType: 'jsonb',
+    value: '{"invoice":42}',
+  })
+
+  expect(row!.source).toEqual({
+    mappedBy: 'client-result',
+    dataType: 'text',
+    value: 'api',
+  })
+}
+
+/**
+ * Checks column override precedence and client parameter mappings before query
+ * compilation.
+ *
+ * @param compiled - Compiled SQL, bound parameters, and optional session preconditions.
+ * @param recordedAt - Authored timestamp used to compare mapped query results.
+ */
+function assertMappedParameters(compiled: CompiledQuery, recordedAt: Date) {
+  expect(compiled.params).toContain('column-write:settled')
+
+  expect(compiled.params).toContainEqual({
+    mappedBy: 'client-param',
+    dataType: 'timestamptz',
+    value: recordedAt,
+  })
+
+  expect(compiled.params).toContainEqual({
+    mappedBy: 'client-param',
+    dataType: 'jsonb',
+    value: { invoice: 42 },
+  })
+
+  expect(compiled.params).toContainEqual({
+    mappedBy: 'client-param',
+    dataType: 'text',
+    value: 'api',
+  })
+}

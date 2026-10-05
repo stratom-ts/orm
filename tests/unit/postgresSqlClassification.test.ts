@@ -19,6 +19,13 @@ describe('PostgreSQL SQL lexical classification', () => {
     const warm = await provider.open()
     await warm.release('reuse')
 
+    /**
+     * Simulates statement execution with the fixture's configured outcomes.
+     *
+     * @param sql - Native SQL text being scanned, compiled, or observed.
+     *
+     * @returns The run observations in their required order.
+     */
     const run = async (sql: string) => {
       const offset = connector.queryCalls.length
       const session = await provider.open()
@@ -27,25 +34,7 @@ describe('PostgreSQL SQL lexical classification', () => {
       return connector.queryCalls.slice(offset)
     }
 
-    for (const sql of [
-      `select 'begin; pg_advisory_lock(1)' as value`,
-      `select 1 as "abort", '?' as "begin"`,
-      `select $body$ begin; pg_advisory_lock(1) $body$ as body`,
-      `select 1 /* begin /* rollback */ end */`,
-      `select 1 -- begin\n`,
-      `select 1 as pg_advisory_lock`,
-      `select "PG_ADVISORY_LOCK"(1)`,
-      `select "pg_advisory_""lock"(1)`,
-      `select "pg_catalog"."not_advisory"(1)`,
-      'merge into target using source on false when not matched then insert default values',
-      'table users',
-    ]) {
-      expect(await run(sql)).toEqual([
-        { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
-        { text: sql, values: [] },
-        { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
-      ])
-    }
+    await assertStatelessSqlAvoidsCleanup(run)
 
     for (const sql of [
       '/* trace */ begin',
@@ -72,21 +61,27 @@ describe('PostgreSQL SQL lexical classification', () => {
 
     await provider.close()
   })
+})
 
+describe('PostgreSQL SQL lexical classification: rewrites only executable PostgreSQL parameters in the test adapter', () => {
   it('rewrites only executable PostgreSQL parameters in the test adapter', async () => {
     const prepared: string[] = []
     const binds: unknown[][] = []
     const statement: Statement = {
+      /** Binds fixture parameter values and returns the statement for execution. */
       bind(...params) {
         binds.push(params)
         return statement
       },
+      /** Returns the fixture statement rows or its configured rejection. */
       async all() {
         return []
       },
+      /** Runs a fixture statement with configured outcomes. */
       async run() {
         return { success: true }
       },
+      /** Returns the first fixture row, or undefined when no rows exist. */
       async get() {
         return undefined
       },
@@ -111,7 +106,9 @@ describe('PostgreSQL SQL lexical classification', () => {
 
     expect(binds).toEqual([['second', 'first', 'second']])
   })
+})
 
+describe('PostgreSQL SQL lexical classification: rewrites only executable PostgreSQL parameters in the test adapter: distinguishes standard strings from PostgreSQL escape strings', () => {
   it('distinguishes standard strings from PostgreSQL escape strings', () => {
     const standard = scanPostgresSql(String.raw`select 'a\' || $1`)
     const escaped = scanPostgresSql(String.raw`select E'a\'' || $1`)
@@ -121,22 +118,28 @@ describe('PostgreSQL SQL lexical classification', () => {
     expect(escaped.malformed).toBe(false)
     expect(escaped.parameters.map((parameter) => parameter.index)).toEqual([0])
   })
+})
 
+describe('PostgreSQL SQL lexical classification: rewrites only executable PostgreSQL parameters in the test adapter: uses row execution for commented and parenthesized result queries', () => {
   it('uses row execution for commented and parenthesized result queries', async () => {
     let allCalls = 0
     let runCalls = 0
     const statement: Statement = {
+      /** Binds fixture parameter values and returns the statement for execution. */
       bind() {
         return statement
       },
+      /** Returns the fixture statement rows or its configured rejection. */
       async all() {
         allCalls++
         return []
       },
+      /** Runs a fixture statement with configured outcomes. */
       async run() {
         runCalls++
         return { success: true }
       },
+      /** Returns the first fixture row, or undefined when no rows exist. */
       async get() {
         return undefined
       },
@@ -159,3 +162,32 @@ describe('PostgreSQL SQL lexical classification', () => {
     expect(runCalls).toBe(1)
   })
 })
+
+/**
+ * Checks stateless sql avoids cleanup in the current test scenario.
+ *
+ * @param run - Scenario callback executed with the fixture's isolated client.
+ */
+async function assertStatelessSqlAvoidsCleanup(
+  run: (sql: string) => Promise<{ text: string; values: unknown[] }[]>,
+) {
+  for (const sql of [
+    `select 'begin; pg_advisory_lock(1)' as value`,
+    `select 1 as "abort", '?' as "begin"`,
+    `select $body$ begin; pg_advisory_lock(1) $body$ as body`,
+    `select 1 /* begin /* rollback */ end */`,
+    `select 1 -- begin\n`,
+    `select 1 as pg_advisory_lock`,
+    `select "PG_ADVISORY_LOCK"(1)`,
+    `select "pg_advisory_""lock"(1)`,
+    `select "pg_catalog"."not_advisory"(1)`,
+    'merge into target using source on false when not matched then insert default values',
+    'table users',
+  ]) {
+    expect(await run(sql)).toEqual([
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+      { text: sql, values: [] },
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+    ])
+  }
+}

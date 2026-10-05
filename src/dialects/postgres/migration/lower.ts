@@ -205,74 +205,7 @@ export function lowerPostgresMigrationPlan(
   const preconditions: MigrationPrecondition[] = []
   const expectedDatabase = expectedDatabaseIdentifier(planned, expectedProfile)
 
-  for (const [sourceStepIndex, step] of planned.plan.steps.entries()) {
-    const invalidTargets = stepTargetIssues(step, expectedDatabase)
-
-    for (const message of invalidTargets) {
-      issues.push({
-        code: 'invalid_target',
-        message,
-        sourceStepIndexes: [sourceStepIndex],
-      })
-    }
-
-    const missingDesiredTable =
-      step.kind === 'create_table' && !planned.desiredTables.has(step.target.relation)
-
-    if (missingDesiredTable) {
-      issues.push({
-        code: 'missing_desired_table',
-        message: `Cannot create table ${planned.identities.format(step.target.relation)}: lowered desired table not found`,
-        sourceStepIndexes: [sourceStepIndex],
-      })
-    }
-
-    if (invalidTargets.length > 0 || missingDesiredTable) continue
-
-    const compiled = attemptSync(() => {
-      const ast = stepToAst(step, planned)
-
-      if (!ast) return undefined
-
-      return compilePostgres(ast)
-    })
-
-    if (!compiled.ok) {
-      const cause = compiled.error
-      issues.push({
-        code: 'compile_failure',
-        message:
-          cause instanceof Error
-            ? `Cannot compile migration step ${sourceStepIndex}: ${cause.message}`
-            : `Cannot compile migration step ${sourceStepIndex}`,
-        sourceStepIndexes: [sourceStepIndex],
-      })
-
-      continue
-    }
-
-    if (!compiled.value) {
-      const relation = step.target.kind === 'namespace' ? undefined : step.target.relation
-      issues.push({
-        code: 'missing_desired_table',
-        message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered desired table not found`,
-        sourceStepIndexes: [sourceStepIndex],
-      })
-
-      continue
-    }
-
-    drafts.push({ step, sourceStepIndex, statement: compiled.value })
-
-    if (step.kind === 'set_not_null') {
-      preconditions.push({
-        kind: 'column_has_no_nulls',
-        relation: step.target.relation,
-        column: step.target.column.spelling,
-        sourceStepIndexes: [sourceStepIndex],
-      })
-    }
-  }
+  compileMigrationSteps(planned, expectedDatabase, issues, drafts, preconditions)
 
   const ordered = orderActions(drafts, planned)
   issues.push(...ordered.issues)
@@ -292,4 +225,171 @@ export function lowerPostgresMigrationPlan(
       actions,
     },
   }
+}
+
+/** Compiles supported steps while collecting every deterministic issue and precondition. */
+function compileMigrationSteps(
+  planned: PlannedMigration,
+  expectedDatabase: Readonly<{ spelling: string; comparisonKey: string }> | undefined,
+  issues: MigrationCapabilityIssue[],
+  drafts: ActionDraft[],
+  preconditions: MigrationPrecondition[],
+) {
+  for (const [sourceStepIndex, step] of planned.plan.steps.entries()) {
+    compileMigrationStep(
+      { planned, expectedDatabase, issues, drafts, preconditions },
+      step,
+      sourceStepIndex,
+    )
+  }
+}
+
+type MigrationStepCompilation = {
+  planned: PlannedMigration
+  expectedDatabase: Readonly<{ spelling: string; comparisonKey: string }> | undefined
+  issues: Readonly<{
+    code:
+      | 'profile_mismatch'
+      | 'missing_desired_table'
+      | 'invalid_target'
+      | 'compile_failure'
+      | 'unsupported_dependency_cycle'
+    message: string
+    sourceStepIndexes: readonly number[]
+  }>[]
+  drafts: ActionDraft[]
+  preconditions: Readonly<{
+    kind: 'column_has_no_nulls'
+    relation: CanonicalRelationIdentity
+    column: string
+    sourceStepIndexes: readonly number[]
+  }>[]
+}
+
+/**
+ * Validates one Migration Target and records its physical statement or compilation issue.
+ *
+ * @param input - Migration step compilation inputs and shared accumulators.
+ * @param step - Semantic Migration Plan step whose structured target must be preserved.
+ * @param sourceStepIndex - Original semantic step index retained in physical actions and
+ *   diagnostics.
+ */
+function compileMigrationStep(
+  input: MigrationStepCompilation,
+  step: PlannedMigration['plan']['steps'][number],
+  sourceStepIndex: number,
+) {
+  const { planned, issues, drafts, preconditions } = input
+
+  if (collectStepTargetIssues(input, step, sourceStepIndex)) return
+
+  const compiled = attemptSync(() => {
+    const ast = stepToAst(step, planned)
+
+    if (!ast) return undefined
+
+    return compilePostgres(ast)
+  })
+
+  if (!compiled.ok) {
+    appendMigrationCompilationIssue(compiled, issues, sourceStepIndex)
+
+    return
+  }
+
+  if (!compiled.value) {
+    const relation = step.target.kind === 'namespace' ? undefined : step.target.relation
+    issues.push({
+      code: 'missing_desired_table',
+      message: `Cannot create table ${relation ? planned.identities.format(relation) : 'unknown target'}: lowered desired table not found`,
+      sourceStepIndexes: [sourceStepIndex],
+    })
+
+    return
+  }
+
+  drafts.push({ step, sourceStepIndex, statement: compiled.value })
+
+  if (step.kind === 'set_not_null') {
+    preconditions.push({
+      kind: 'column_has_no_nulls',
+      relation: step.target.relation,
+      column: step.target.column.spelling,
+      sourceStepIndexes: [sourceStepIndex],
+    })
+  }
+}
+
+/**
+ * Adds a compilation failure with its original source-step index.
+ *
+ * @param compiled - Compiled SQL, bound parameters, and optional session preconditions.
+ * @param issues - Mutable validation or capability issues collected before exposing a
+ *   plan.
+ * @param sourceStepIndex - Original semantic step index retained in physical actions and
+ *   diagnostics.
+ */
+function appendMigrationCompilationIssue(
+  compiled: Readonly<{ ok: false; error: unknown }>,
+  issues: Readonly<{
+    code:
+      | 'profile_mismatch'
+      | 'missing_desired_table'
+      | 'invalid_target'
+      | 'compile_failure'
+      | 'unsupported_dependency_cycle'
+    message: string
+    sourceStepIndexes: readonly number[]
+  }>[],
+  sourceStepIndex: number,
+) {
+  const cause = compiled.error
+  issues.push({
+    code: 'compile_failure',
+    message:
+      cause instanceof Error
+        ? `Cannot compile migration step ${sourceStepIndex}: ${cause.message}`
+        : `Cannot compile migration step ${sourceStepIndex}`,
+    sourceStepIndexes: [sourceStepIndex],
+  })
+}
+
+/**
+ * Collects every target-validation issue before attempting physical statement
+ * compilation.
+ *
+ * @param input - Migration step compilation inputs and shared accumulators.
+ * @param step - Semantic Migration Plan step whose structured target must be preserved.
+ * @param sourceStepIndex - Original semantic step index retained in physical actions and
+ *   diagnostics.
+ *
+ * @returns True when collect step target issues applies to the supplied input.
+ */
+function collectStepTargetIssues(
+  input: MigrationStepCompilation,
+  step: PlannedMigration['plan']['steps'][number],
+  sourceStepIndex: number,
+) {
+  const { planned, expectedDatabase, issues } = input
+  const invalidTargets = stepTargetIssues(step, expectedDatabase)
+  for (const message of invalidTargets) {
+    issues.push({
+      code: 'invalid_target',
+      message,
+      sourceStepIndexes: [sourceStepIndex],
+    })
+  }
+
+  const missingDesiredTable =
+    step.kind === 'create_table' && !planned.desiredTables.has(step.target.relation)
+
+  if (missingDesiredTable) {
+    issues.push({
+      code: 'missing_desired_table',
+      message: `Cannot create table ${planned.identities.format(step.target.relation)}: lowered desired table not found`,
+      sourceStepIndexes: [sourceStepIndex],
+    })
+  }
+
+  return invalidTargets.length > 0 || missingDesiredTable
 }

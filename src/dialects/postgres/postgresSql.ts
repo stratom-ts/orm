@@ -105,8 +105,16 @@ class PostgresSqlScanner {
   #malformed = false
   #index = 0
 
+  /** Initializes the PostgreSQL scanner with its original SQL text. */
   constructor(readonly sql: string) {}
 
+  /**
+   * Scans SQL into parameter positions, statement boundaries, and session cleanup
+   * requirements.
+   *
+   * @returns Parameter positions, statement ranges, malformed-input evidence, and cleanup
+   *   requirements.
+   */
   scan(): PostgresSqlScan {
     while (this.#index < this.sql.length && !this.#malformed) {
       const character = this.sql[this.#index]!
@@ -147,6 +155,7 @@ class PostgresSqlScanner {
     })
   }
 
+  /** Records the completed SQL statement and resets its classification state. */
   #finishStatement(): void {
     if (this.#statement.executable) this.#statements.push(this.#statement)
 
@@ -154,11 +163,13 @@ class PostgresSqlScanner {
     this.#pendingAdvisoryCall = false
   }
 
+  /** Skips SQL text through the end of a line comment. */
   #readLineComment(): void {
     const newline = this.sql.indexOf('\n', this.#index + 2)
     this.#index = newline === -1 ? this.sql.length : newline + 1
   }
 
+  /** Skips nested PostgreSQL block comments and reports unterminated comments. */
   #readBlockComment(): void {
     let depth = 1
     this.#index += 2
@@ -178,6 +189,7 @@ class PostgresSqlScanner {
     if (depth > 0) this.#malformed = true
   }
 
+  /** Skips quoted string contents while honoring PostgreSQL escape rules. */
   #readString(): void {
     const escapeString =
       this.#index > 0 &&
@@ -208,6 +220,7 @@ class PostgresSqlScanner {
     if (!closed) this.#malformed = true
   }
 
+  /** Skips a quoted identifier and its doubled quote escapes. */
   #readQuotedIdentifier(): void {
     this.#markExecutable()
     this.#index++
@@ -233,6 +246,11 @@ class PostgresSqlScanner {
     this.#pendingAdvisoryCall = closed && ADVISORY_FUNCTION_RE.test(identifier)
   }
 
+  /**
+   * Distinguishes bound parameter positions from dollar-quoted SQL bodies.
+   *
+   * @returns True when read dollar token applies to the supplied input.
+   */
   #readDollarToken(): boolean {
     const delimiter = dollarQuoteDelimiter(this.sql, this.#index)
 
@@ -272,6 +290,7 @@ class PostgresSqlScanner {
     return true
   }
 
+  /** Reads an unquoted SQL keyword and updates the statement's classification. */
   #readWord(): void {
     const start = this.#index++
 
@@ -285,6 +304,11 @@ class PostgresSqlScanner {
     this.#pendingAdvisoryCall = ADVISORY_FUNCTION_RE.test(word)
   }
 
+  /**
+   * Updates statement boundaries and parenthesis state for SQL punctuation.
+   *
+   * @param character - Current SQL character processed by the scanner.
+   */
   #readSymbol(character: string): void {
     this.#statement.executable = true
 
@@ -296,6 +320,7 @@ class PostgresSqlScanner {
     this.#index++
   }
 
+  /** Marks the current statement as executable rather than comment-only text. */
   #markExecutable(): void {
     this.#statement.executable = true
     this.#pendingAdvisoryCall = false

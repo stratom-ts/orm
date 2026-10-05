@@ -16,6 +16,30 @@ import {
   relationTarget,
 } from '../helpers/planTargets'
 
+const managedCatalogData: CatalogSnapshot['tables'][number]['columns'] = [
+  {
+    name: 'id',
+    dataType: 'integer',
+    isNullable: false,
+    defaultExpression: null,
+    identityGeneration: 'byDefault',
+  },
+  {
+    name: 'email',
+    dataType: 'text',
+    isNullable: false,
+    defaultExpression: null,
+    identityGeneration: null,
+  },
+  {
+    name: 'status',
+    dataType: 'text',
+    isNullable: false,
+    defaultExpression: "'pending'",
+    identityGeneration: null,
+  },
+]
+
 const POSTGRES_NAMESPACE_CONTEXT = {
   writableDefault: [
     { role: 'database' as const, spelling: 'test' },
@@ -23,6 +47,7 @@ const POSTGRES_NAMESPACE_CONTEXT = {
   ],
 }
 
+/** Builds empty catalog reservations evidence for schema reconciliation checks. */
 function emptyCatalogReservations() {
   return {
     nameReservations: [],
@@ -37,6 +62,7 @@ const SUPPORTED_CATALOG_SEMANTICS = {
 
 const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
 
+/** Builds empty catalog evidence for schema reconciliation checks. */
 function emptyCatalog(): CatalogSnapshot {
   return {
     tables: [],
@@ -105,6 +131,7 @@ const ManagedPosts = defineTable(
   { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
 
+/** Builds users catalog evidence for schema reconciliation checks. */
 function usersCatalog(
   columns: CatalogSnapshot['tables'][number]['columns'],
 ): CatalogSnapshot {
@@ -126,59 +153,13 @@ function usersCatalog(
   }
 }
 
+/** Builds managed catalog evidence for schema reconciliation checks. */
 function managedCatalog(): CatalogSnapshot {
   return {
     namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
     ...emptyCatalogReservations(),
     tables: [
-      {
-        schema: 'public',
-        name: 'managed_users',
-        columns: [
-          {
-            name: 'id',
-            dataType: 'integer',
-            isNullable: false,
-            defaultExpression: null,
-            identityGeneration: 'byDefault',
-          },
-          {
-            name: 'email',
-            dataType: 'text',
-            isNullable: false,
-            defaultExpression: null,
-            identityGeneration: null,
-          },
-          {
-            name: 'status',
-            dataType: 'text',
-            isNullable: false,
-            defaultExpression: "'pending'",
-            identityGeneration: null,
-          },
-        ],
-        indexes: [
-          {
-            name: 'managed_users_status_idx',
-            columns: ['status'],
-            unique: false,
-            ...SUPPORTED_CATALOG_SEMANTICS,
-          },
-        ],
-        primaryKey: {
-          name: 'managed_users_pkey',
-          columns: ['id'],
-          ...SUPPORTED_CATALOG_SEMANTICS,
-        },
-        uniqueConstraints: [
-          {
-            name: 'managed_users_email_key',
-            columns: ['email'],
-            ...SUPPORTED_CATALOG_SEMANTICS,
-          },
-        ],
-        foreignKeys: [],
-      },
+      createManagedUsersCatalog(),
       {
         schema: 'public',
         name: 'managed_posts',
@@ -209,6 +190,14 @@ function managedCatalog(): CatalogSnapshot {
   }
 }
 
+/**
+ * Captures the expected migration-planning error and fails if planning succeeds.
+ *
+ * @param schemas - Registered table handles defining the desired schema.
+ * @param catalog - Observed catalog evidence used for desired-schema comparison.
+ *
+ * @returns The expected MigrationError; unexpected planning success fails the test.
+ */
 function planningError(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
@@ -223,9 +212,21 @@ function planningError(
   throw new Error('Expected migration planning to fail')
 }
 
+/**
+ * Builds a table handle with deliberately invalid schema metadata.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ *
+ * @returns A table handle with deliberately invalid schema metadata.
+ */
 function invalidTableHandle(name: string): TableHandle {
   return {
+    /**
+     * Returns the relation, primary-key, index, and ownership metadata attached to the
+     * table.
+     */
     getTableMetadata: () => ({ name, relation: { relation: name }, primaryKey: 'id' }),
+    /** Returns the table's original Valibot schema for validation and metadata lookup. */
     getSchema: () => ({ entries: {} }),
   } as unknown as TableHandle
 }
@@ -265,7 +266,9 @@ describe('Migration reconciliation', () => {
 
     expect(planMigration([Settings], catalog, postgresDialect)).toEqual({ steps: [] })
   })
+})
 
+describe('Migration reconciliation: matches a tagged literal that looks like a PostgreSQL expression', () => {
   it('matches a tagged literal that looks like a PostgreSQL expression', () => {
     const LiteralDefault = defineTable(
       'literal_defaults',
@@ -303,7 +306,9 @@ describe('Migration reconciliation', () => {
       steps: [],
     })
   })
+})
 
+describe('Migration reconciliation: returns a constructive step for a missing column', () => {
   it('returns a constructive step for a missing column', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
 
@@ -318,7 +323,9 @@ describe('Migration reconciliation', () => {
       ],
     })
   })
+})
 
+describe('Migration reconciliation: returns every exact-relation destructive step without permission input', () => {
   it('returns every exact-relation destructive step without permission input', () => {
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
@@ -358,7 +365,9 @@ describe('Migration reconciliation', () => {
       ],
     })
   })
+})
 
+describe('Migration reconciliation identities and constraint order', () => {
   it('matches omitted and explicit relations against non-default catalog namespaces', () => {
     const Omitted = defineTable(
       'items',
@@ -397,7 +406,9 @@ describe('Migration reconciliation', () => {
     expect(planMigration([Omitted], catalog, postgresDialect)).toEqual({ steps: [] })
     expect(planMigration([Public], catalog, postgresDialect)).toEqual({ steps: [] })
   })
+})
 
+describe('Migration reconciliation identities and constraint order: matches dotted desired and catalog tuples without collisions', () => {
   it('matches dotted desired and catalog tuples without collisions', () => {
     const DottedSchema = defineTable(
       'c',
@@ -409,24 +420,7 @@ describe('Migration reconciliation', () => {
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'a' }] },
     )
-    const catalog: CatalogSnapshot = {
-      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...emptyCatalogReservations(),
-      tables: [
-        {
-          schema: 'a.b',
-          name: 'c',
-          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
-          primaryKey: catalogPrimaryKey('c'),
-        },
-        {
-          schema: 'a',
-          name: 'b.c',
-          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
-          primaryKey: catalogPrimaryKey('b.c'),
-        },
-      ],
-    }
+    const catalog: CatalogSnapshot = createDottedCatalog()
 
     expect(
       planMigration([DottedSchema, DottedRelation], catalog, postgresDialect),
@@ -462,7 +456,9 @@ describe('Migration reconciliation', () => {
       ],
     })
   })
+})
 
+describe('Migration reconciliation identities and constraint order: matches dotted desired and catalog tuples without collisions: formats relation members structurally in planning diagnostics', () => {
   it('formats relation members structurally in planning diagnostics', () => {
     const Dotted = defineTable(
       'c',
@@ -490,22 +486,11 @@ describe('Migration reconciliation', () => {
       'Duplicate catalog column [database:"test", schema:"a.b", relation:"c", column:"x.y"]',
     )
   })
+})
 
+describe('Migration reconciliation constraint ordering', () => {
   it('ignores non-semantic constraint order but preserves ordered key sequences', () => {
-    const Teams = defineTable(
-      'teams',
-      {
-        tenantId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-        teamId: pipe(
-          string(),
-          column({ physicalType: { postgresql: 'uuid' }, unique: true }),
-        ),
-      },
-      {
-        primaryKey: ['tenantId', 'teamId'],
-        namespace: [{ role: 'schema', spelling: 'public' }],
-      },
-    )
+    const Teams = createTeamsTable()
     const Memberships = defineTable(
       'memberships',
       {
@@ -523,78 +508,7 @@ describe('Migration reconciliation', () => {
       },
       { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
     )
-    const catalog: CatalogSnapshot = {
-      namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
-      ...emptyCatalogReservations(),
-      tables: [
-        {
-          schema: 'public',
-          name: 'teams',
-          columns: [
-            { name: 'teamId', dataType: 'uuid', isNullable: false },
-            { name: 'tenantId', dataType: 'uuid', isNullable: false },
-          ],
-          primaryKey: {
-            name: 'teams_pkey',
-            columns: ['tenantId', 'teamId'],
-            ...SUPPORTED_CATALOG_SEMANTICS,
-          },
-          uniqueConstraints: [
-            {
-              name: 'teams_team_id_key',
-              columns: ['teamId'],
-              ...SUPPORTED_CATALOG_SEMANTICS,
-            },
-          ],
-        },
-        {
-          schema: 'public',
-          name: 'memberships',
-          columns: [
-            { name: 'secondaryEmail', dataType: 'text', isNullable: false },
-            { name: 'primaryTeamId', dataType: 'uuid', isNullable: false },
-            { name: 'id', dataType: 'uuid', isNullable: false },
-            { name: 'secondaryTeamId', dataType: 'uuid', isNullable: false },
-            { name: 'primaryEmail', dataType: 'text', isNullable: false },
-          ],
-          primaryKey: catalogPrimaryKey('memberships'),
-          uniqueConstraints: [
-            {
-              name: 'memberships_secondary_email_key',
-              columns: ['secondaryEmail'],
-              ...SUPPORTED_CATALOG_SEMANTICS,
-            },
-            {
-              name: 'memberships_primary_email_key',
-              columns: ['primaryEmail'],
-              ...SUPPORTED_CATALOG_SEMANTICS,
-            },
-          ],
-          foreignKeys: [
-            {
-              name: 'memberships_secondary_team_fkey',
-              columns: ['secondaryTeamId'],
-              referencedSchema: 'public',
-              referencedTable: 'teams',
-              referencedColumns: ['teamId'],
-              onDelete: 'no action',
-              onUpdate: 'no action',
-              ...SUPPORTED_CATALOG_SEMANTICS,
-            },
-            {
-              name: 'memberships_primary_team_fkey',
-              columns: ['primaryTeamId'],
-              referencedSchema: 'public',
-              referencedTable: 'teams',
-              referencedColumns: ['teamId'],
-              onDelete: 'no action',
-              onUpdate: 'no action',
-              ...SUPPORTED_CATALOG_SEMANTICS,
-            },
-          ],
-        },
-      ],
-    }
+    const catalog: CatalogSnapshot = createOrderingCatalog()
     const permuted = structuredClone(catalog)
     permuted.tables.reverse()
     permuted.tables[0]!.columns.reverse()
@@ -616,7 +530,9 @@ describe('Migration reconciliation', () => {
       planMigration([Memberships, Teams], reversedKey, postgresDialect),
     ).toThrow(/primary key change/i)
   })
+})
 
+describe('Migration reconciliation diagnostics', () => {
   it('throws for unsupported drift', () => {
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
@@ -634,7 +550,9 @@ describe('Migration reconciliation', () => {
       /unsupported primary key change/i,
     )
   })
+})
 
+describe('Migration reconciliation diagnostics: directly rejects unsupported %s drift', () => {
   it.each([
     [
       'default',
@@ -683,7 +601,9 @@ describe('Migration reconciliation', () => {
     const error = planningError([ManagedUsers, ManagedPosts], catalog)
     expect(error.message).toMatch(new RegExp(property, 'i'))
   })
+})
 
+describe('Migration reconciliation diagnostics: selects issues by canonical target before property', () => {
   it('selects issues by canonical target before property', () => {
     const catalog = managedCatalog()
     catalog.tables[0]!.primaryKey!.columns = ['email']
@@ -705,7 +625,9 @@ describe('Migration reconciliation', () => {
     expect(first.message).toBe(second.message)
     expect(first.message).toMatch(/foreign key.*managed_posts/i)
   })
+})
 
+describe('Migration reconciliation diagnostics: uses fixed property order for issues on the same target', () => {
   it('uses fixed property order for issues on the same target', () => {
     const catalog = managedCatalog()
     const users = catalog.tables[0]!
@@ -727,50 +649,12 @@ describe('Migration reconciliation', () => {
     const error = planningError([ManagedUsers], catalog)
     expect(error.message).toMatch(/primary key.*managed_users/i)
   })
+})
 
+describe('Migration reconciliation diagnostics: selects the same column issue across desired-property and catalog permutations', () => {
   it('selects the same column issue across desired-property and catalog permutations', () => {
-    const Forward = defineTable(
-      'ordered_settings',
-      {
-        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-        alpha: pipe(
-          string(),
-          column({
-            physicalType: { postgresql: 'text' },
-            databaseDefault: { kind: 'literal', value: 'alpha' },
-          }),
-        ),
-        zeta: pipe(
-          string(),
-          column({
-            physicalType: { postgresql: 'text' },
-            databaseDefault: { kind: 'literal', value: 'zeta' },
-          }),
-        ),
-      },
-      { primaryKey: 'id' },
-    )
-    const Reversed = defineTable(
-      'ordered_settings',
-      {
-        zeta: pipe(
-          string(),
-          column({
-            physicalType: { postgresql: 'text' },
-            databaseDefault: { kind: 'literal', value: 'zeta' },
-          }),
-        ),
-        alpha: pipe(
-          string(),
-          column({
-            physicalType: { postgresql: 'text' },
-            databaseDefault: { kind: 'literal', value: 'alpha' },
-          }),
-        ),
-        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-      },
-      { primaryKey: 'id' },
-    )
+    const Forward = createForwardTable()
+    const Reversed = createReversedTable()
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
@@ -806,7 +690,9 @@ describe('Migration reconciliation', () => {
     expect(first.message).toBe(second.message)
     expect(first.message).toMatch(/alpha/i)
   })
+})
 
+describe('Migration reconciliation invalid inputs and ownership', () => {
   it('rejects invalid desired and catalog inputs deterministically', () => {
     const alpha = invalidTableHandle('alpha')
     const zeta = invalidTableHandle('zeta')
@@ -839,14 +725,21 @@ describe('Migration reconciliation', () => {
     expect(validFirst.message).toBe(invalidFirst.message)
     expect(validFirst.message).toMatch(/no columns/i)
   })
+})
 
+describe('Migration reconciliation invalid inputs and ownership: breaks otherwise identical issue ties deterministically', () => {
   it('breaks otherwise identical issue ties deterministically', () => {
     const missingPrimaryKey = {
+      /**
+       * Returns the relation, primary-key, index, and ownership metadata attached to the
+       * table.
+       */
       getTableMetadata: () => ({
         name: 'users',
         relation: { relation: 'users' },
         primaryKey: '',
       }),
+      /** Returns the table's original Valibot schema for validation and metadata lookup. */
       getSchema: () => ({ entries: {} }),
     } as unknown as TableHandle
     const noColumns = invalidTableHandle('users')
@@ -880,7 +773,9 @@ describe('Migration reconciliation', () => {
       /Cannot address column "" of \[database:"test", schema:"public", relation:"users"\]/,
     )
   })
+})
 
+describe('Migration reconciliation invalid inputs and ownership: accepts one physical name reported under several catalog relations', () => {
   it('accepts one physical name reported under several catalog relations', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
     catalog.tables[0]!.indexes = [
@@ -919,7 +814,9 @@ describe('Migration reconciliation', () => {
       ],
     })
   })
+})
 
+describe('Migration reconciliation invalid inputs and ownership: accepts one physical name reported under several catalog relations: scopes reserved catalog names to their own namespace', () => {
   it('scopes reserved catalog names to their own namespace', () => {
     const TenantUsers = defineTable(
       'users',
@@ -939,7 +836,9 @@ describe('Migration reconciliation', () => {
       /physical name collision for "users"/i,
     )
   })
+})
 
+describe('Migration reconciliation invalid inputs and ownership: does not infer namespace ownership from registered handles', () => {
   it('does not infer namespace ownership from registered handles', () => {
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
@@ -963,3 +862,216 @@ describe('Migration reconciliation', () => {
     expect(planMigration([Users], catalog, postgresDialect)).toEqual({ steps: [] })
   })
 })
+
+/** Creates the dotted catalog fixture used by the contract scenario. */
+function createDottedCatalog(): CatalogSnapshot {
+  return {
+    namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+    ...emptyCatalogReservations(),
+    tables: [
+      {
+        schema: 'a.b',
+        name: 'c',
+        columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('c'),
+      },
+      {
+        schema: 'a',
+        name: 'b.c',
+        columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+        primaryKey: catalogPrimaryKey('b.c'),
+      },
+    ],
+  }
+}
+
+/**
+ * Builds a fresh reversed table handle for the schema scenario.
+ *
+ * @returns A fresh reversed table handle for the schema scenario.
+ */
+function createReversedTable() {
+  return defineTable(
+    'ordered_settings',
+    {
+      zeta: pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: 'zeta' },
+        }),
+      ),
+      alpha: pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: 'alpha' },
+        }),
+      ),
+      id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+    },
+    { primaryKey: 'id' },
+  )
+}
+
+/**
+ * Builds a fresh forward table handle for the schema scenario.
+ *
+ * @returns A fresh forward table handle for the schema scenario.
+ */
+function createForwardTable() {
+  return defineTable(
+    'ordered_settings',
+    {
+      id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+      alpha: pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: 'alpha' },
+        }),
+      ),
+      zeta: pipe(
+        string(),
+        column({
+          physicalType: { postgresql: 'text' },
+          databaseDefault: { kind: 'literal', value: 'zeta' },
+        }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+}
+
+/**
+ * Builds a fresh teams table handle for the schema scenario.
+ *
+ * @returns A fresh teams table handle for the schema scenario.
+ */
+function createTeamsTable() {
+  return defineTable(
+    'teams',
+    {
+      tenantId: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+      teamId: pipe(
+        string(),
+        column({ physicalType: { postgresql: 'uuid' }, unique: true }),
+      ),
+    },
+    {
+      primaryKey: ['tenantId', 'teamId'],
+      namespace: [{ role: 'schema', spelling: 'public' }],
+    },
+  )
+}
+
+/** Creates the ordering catalog fixture used by the contract scenario. */
+function createOrderingCatalog(): CatalogSnapshot {
+  return {
+    namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
+    ...emptyCatalogReservations(),
+    tables: [
+      {
+        schema: 'public',
+        name: 'teams',
+        columns: [
+          { name: 'teamId', dataType: 'uuid', isNullable: false },
+          { name: 'tenantId', dataType: 'uuid', isNullable: false },
+        ],
+        primaryKey: {
+          name: 'teams_pkey',
+          columns: ['tenantId', 'teamId'],
+          ...SUPPORTED_CATALOG_SEMANTICS,
+        },
+        uniqueConstraints: [
+          {
+            name: 'teams_team_id_key',
+            columns: ['teamId'],
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
+        ],
+      },
+      createMembershipsCatalog(),
+    ],
+  }
+}
+
+/** Creates the managed users catalog fixture used by the contract scenario. */
+function createManagedUsersCatalog(): CatalogSnapshot['tables'][number] {
+  return {
+    schema: 'public',
+    name: 'managed_users',
+    columns: structuredClone(managedCatalogData),
+    indexes: [
+      {
+        name: 'managed_users_status_idx',
+        columns: ['status'],
+        unique: false,
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+    ],
+    primaryKey: {
+      name: 'managed_users_pkey',
+      columns: ['id'],
+      ...SUPPORTED_CATALOG_SEMANTICS,
+    },
+    uniqueConstraints: [
+      {
+        name: 'managed_users_email_key',
+        columns: ['email'],
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+    ],
+    foreignKeys: [],
+  }
+}
+
+/** Creates the memberships catalog fixture used by the contract scenario. */
+function createMembershipsCatalog(): CatalogSnapshot['tables'][number] {
+  return {
+    schema: 'public',
+    name: 'memberships',
+    columns: [
+      { name: 'secondaryEmail', dataType: 'text', isNullable: false },
+      { name: 'primaryTeamId', dataType: 'uuid', isNullable: false },
+      { name: 'id', dataType: 'uuid', isNullable: false },
+      { name: 'secondaryTeamId', dataType: 'uuid', isNullable: false },
+      { name: 'primaryEmail', dataType: 'text', isNullable: false },
+    ],
+    primaryKey: catalogPrimaryKey('memberships'),
+    uniqueConstraints: [
+      {
+        name: 'memberships_secondary_email_key',
+        columns: ['secondaryEmail'],
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+      {
+        name: 'memberships_primary_email_key',
+        columns: ['primaryEmail'],
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+    ],
+    foreignKeys: [
+      {
+        name: 'memberships_secondary_team_fkey',
+        columns: ['secondaryTeamId'],
+        referencedSchema: 'public',
+        referencedTable: 'teams',
+        referencedColumns: ['teamId'],
+        onDelete: 'no action',
+        onUpdate: 'no action',
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+      {
+        name: 'memberships_primary_team_fkey',
+        columns: ['primaryTeamId'],
+        referencedSchema: 'public',
+        referencedTable: 'teams',
+        referencedColumns: ['teamId'],
+        onDelete: 'no action',
+        onUpdate: 'no action',
+        ...SUPPORTED_CATALOG_SEMANTICS,
+      },
+    ],
+  }
+}

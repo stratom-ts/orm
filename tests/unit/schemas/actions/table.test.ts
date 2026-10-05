@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { SchemaError, getTableMetadata, isTableMetadata, table } from '@/index'
 
+/** Finds relation option type coverage evidence in the source syntax tree. */
 export const relationOptionTypeCoverage = () => {
   table({
     name: 'events',
@@ -54,7 +55,9 @@ describe('table action', () => {
     expect(metadata.schema).toBeUndefined()
     expect(metadata.relation).toEqual({ relation: 'tags' })
   })
+})
 
+describe('table action namespace intent', () => {
   it('retains ordered portable namespace intent', () => {
     const action = table({
       name: 'events',
@@ -87,7 +90,9 @@ describe('table action', () => {
       relation: 'events',
     })
   })
+})
 
+describe('table action namespace intent: copies the authored namespace list so later list edits cannot retarget a table', () => {
   it('copies the authored namespace list so later list edits cannot retarget a table', () => {
     const namespace = [{ role: 'schema' as const, spelling: 'audit' }]
     const action = table({ name: 'events', primaryKey: 'id', namespace })
@@ -111,7 +116,9 @@ describe('table action', () => {
       relation: 'events',
     })
   })
+})
 
+describe('table action namespace intent: preserves namespace role, order, and spelling as distinct authored intent', () => {
   it('preserves namespace role, order, and spelling as distinct authored intent', () => {
     const schemaThenDatabase = table({
       name: 'events',
@@ -139,7 +146,9 @@ describe('table action', () => {
       { role: 'database', spelling: 'tenant' },
     ])
   })
+})
 
+describe('table action namespace intent: rejects malformed namespace intent', () => {
   it('rejects malformed namespace intent', () => {
     expect(() =>
       table({
@@ -184,7 +193,9 @@ describe('table action', () => {
       } as never),
     ).toThrow(/unsupported namespace role tenant/i)
   })
+})
 
+describe('table action namespace intent: should accept composite primary keys and index configs', () => {
   it('should accept composite primary keys and index configs', () => {
     const action = table({
       name: 'memberships',

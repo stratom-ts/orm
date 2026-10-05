@@ -50,10 +50,12 @@ export interface SchemaAnalysis {
   outputKind: SchemaOutputKind | undefined
 }
 
+/** Checks whether a runtime value exposes the Valibot schema contract. */
 function isSchema(value: unknown): value is AnySchema {
   return typeof value === 'object' && value !== null && 'kind' in value
 }
 
+/** Reads an optional or nullable wrapper's inner schema. */
 function wrappedSchema(schema: TraversableSchema): AnySchema | undefined {
   return WRAPPER_TYPES.has(schema.type) && isSchema(schema.wrapped)
     ? schema.wrapped
@@ -78,6 +80,13 @@ const OUTPUT_KINDS: Readonly<Partial<Record<string, SchemaOutputKind>>> = {
   tuple_with_rest: 'json',
 }
 
+/**
+ * Classifies a literal output as a supported SQL primitive.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns The primitive output kind, or undefined when the value has no supported kind.
+ */
 function primitiveOutputKind(value: unknown): SchemaOutputKind | undefined {
   if (typeof value === 'string') return 'string'
   if (typeof value === 'number') return 'number'
@@ -87,6 +96,14 @@ function primitiveOutputKind(value: unknown): SchemaOutputKind | undefined {
   return undefined
 }
 
+/**
+ * Finds the shared primitive kind of a union's alternatives.
+ *
+ * @param options - Configuration and dependencies for this operation.
+ *
+ * @returns The shared output kind, or undefined when branches disagree or are
+ *   unsupported.
+ */
 function homogeneousOutputKind(
   options: unknown[] | undefined,
 ): SchemaOutputKind | undefined {
@@ -100,6 +117,13 @@ function homogeneousOutputKind(
   return kind
 }
 
+/**
+ * Resolves the primitive output kind through schema wrappers and unions.
+ *
+ * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+ *
+ * @returns The schema's supported output kind, or undefined when it cannot be determined.
+ */
 function outputKind(schema: AnySchema): SchemaOutputKind | undefined {
   const direct = OUTPUT_KINDS[schema.type]
 
@@ -124,6 +148,13 @@ type RecursiveAnalysis = Omit<
   numberConstraints: NumberConstraints
 }
 
+/**
+ * Updates nullability, omission, and default facts for one schema wrapper.
+ *
+ * @param result - Captured execution result or validated input whose outcome is being
+ *   interpreted.
+ * @param type - Physical type spelling used to build storage evidence.
+ */
 function applyWrapperSemantics(result: RecursiveAnalysis, type: string): void {
   switch (type) {
     case 'optional':
@@ -159,6 +190,13 @@ function applyWrapperSemantics(result: RecursiveAnalysis, type: string): void {
   }
 }
 
+/**
+ * Adds numeric, string, and metadata facts from a schema's pipe actions.
+ *
+ * @param result - Captured execution result or validated input whose outcome is being
+ *   interpreted.
+ * @param actions - Physical migration actions in their execution order.
+ */
 function applyPipeActions(result: RecursiveAnalysis, actions: readonly unknown[]): void {
   for (const item of actions) {
     if (!item || typeof item !== 'object' || !('type' in item)) continue
@@ -201,6 +239,13 @@ function applyPipeActions(result: RecursiveAnalysis, actions: readonly unknown[]
   }
 }
 
+/**
+ * Collects storage and validation facts without losing wrapper semantics.
+ *
+ * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+ *
+ * @returns Storage and insert-omission facts derived from this schema node.
+ */
 function analyzeNode(schema: AnySchema): RecursiveAnalysis {
   const traversable = schema as TraversableSchema
   const wrapped = wrappedSchema(traversable)

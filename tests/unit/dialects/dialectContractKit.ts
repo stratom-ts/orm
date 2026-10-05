@@ -155,6 +155,7 @@ export type QueryCompilerScenarios = Readonly<
   Record<QueryCompilerScenarioId, QueryCompilerScenario>
 >
 
+/** Resolves compiler for the current fixture scenario. */
 function resolveCompiler(
   input: Pick<QueryCompilerScenarioInput, 'dialect' | 'handles' | 'registrationDefault'>,
 ) {
@@ -173,6 +174,14 @@ type QueryCoreContractInput = Readonly<{
   relation: RelationIdentityInput
   column: string
   node: SqlAst
+  /**
+   * Projects compiled SQL and bindings into the contract's assertion shape.
+   *
+   * @param query - Compiled SQL and ordered parameter bindings for the current physical
+   *   call.
+   *
+   * @returns Compiled SQL and bindings into the contract's assertion shape.
+   */
   inspectCompiled(query: CompiledQuery): ContractValue
   expected: Readonly<{
     relationMatches: readonly string[]
@@ -249,6 +258,11 @@ type OperationSessionContractEvent =
 
 type OperationSessionCommonRuntime = Readonly<{
   provider: OperationSessionProvider
+  /**
+   * Returns semantic operation events recorded by the fixture.
+   *
+   * @returns Semantic operation events recorded by the fixture.
+   */
   events(): readonly OperationSessionContractEvent[]
 }>
 
@@ -292,7 +306,16 @@ export async function runOperationSessionCommonContract(
 
 type OperationSessionContract = Readonly<{
   state: 'supported'
-  common: ContractSupport<Readonly<{ createRuntime(): OperationSessionCommonRuntime }>>
+  common: ContractSupport<
+    Readonly<{
+      /**
+       * Creates the runtime fixture used by the contract scenario.
+       *
+       * @returns The runtime fixture used by the contract scenario.
+       */
+      createRuntime(): OperationSessionCommonRuntime
+    }>
+  >
   controlled: ContractSupport<
     Readonly<{
       createProvider: ProviderContractFactory
@@ -301,7 +324,7 @@ type OperationSessionContract = Readonly<{
   >
 }>
 
-type MigrationContractCase = Readonly<{
+export type MigrationContractCase = Readonly<{
   dialect: Dialect
   planned: PlannedMigration
   profile: MigrationSemanticProfile
@@ -318,6 +341,11 @@ type MigrationContractCase = Readonly<{
 }>
 
 type MigrationContractInput = Readonly<{
+  /**
+   * Creates the case fixture used by the contract scenario.
+   *
+   * @returns The case fixture used by the contract scenario.
+   */
   createCase(): MigrationContractCase | Promise<MigrationContractCase>
 }>
 
@@ -333,6 +361,11 @@ type UnsupportedMigrationContractCase = Readonly<{
 }>
 
 type UnsupportedMigrationContractInput = Readonly<{
+  /**
+   * Creates the case fixture used by the contract scenario.
+   *
+   * @returns The case fixture used by the contract scenario.
+   */
   createCase():
     | UnsupportedMigrationContractCase
     | Promise<UnsupportedMigrationContractCase>
@@ -503,6 +536,13 @@ function validateDialectContractShard(
   }
 }
 
+/**
+ * Registers unsupported checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param facet - Dialect facet whose capability or invocation is inspected.
+ * @param support - Explicit support evidence used to select a contract scenario.
+ */
 function registerUnsupported(
   name: string,
   facet: DialectContractFacet,
@@ -515,6 +555,12 @@ function registerUnsupported(
   })
 }
 
+/**
+ * Registers identity checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param support - Explicit support evidence used to select a contract scenario.
+ */
 function registerIdentity(name: string, support: ContractSupport<IdentityContractInput>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'identity', support)
@@ -537,6 +583,12 @@ function registerIdentity(name: string, support: ContractSupport<IdentityContrac
   })
 }
 
+/**
+ * Registers naming checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param support - Explicit support evidence used to select a contract scenario.
+ */
 function registerNaming(name: string, support: ContractSupport<NamingContractInput>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'naming', support)
@@ -578,6 +630,12 @@ function registerNaming(name: string, support: ContractSupport<NamingContractInp
   })
 }
 
+/**
+ * Registers desired schema checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param support - Explicit support evidence used to select a contract scenario.
+ */
 function registerDesiredSchema(
   name: string,
   support: ContractSupport<DesiredSchemaContractInput>,
@@ -613,6 +671,12 @@ function registerDesiredSchema(
   })
 }
 
+/**
+ * Registers query checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param contract - Capability declarations, test inputs, and expected adapter behavior.
+ */
 function registerQuery(name: string, contract: QueryContract | UnsupportedContract) {
   if (contract.state === 'unsupported') {
     registerUnsupported(name, 'query', contract)
@@ -639,36 +703,26 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
     })
   }
 
-  for (const scenarioId of queryCompilerScenarioIds) {
-    const scenario = contract.scenarios[scenarioId]
-    const support = scenario.support
+  registerCompilerScenarios(contract, name)
 
-    if (support.state === 'unsupported') {
-      it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
-        expect(support.reason.trim().length).toBeGreaterThan(0)
-        expect(support.expectedMessage.trim().length).toBeGreaterThan(0)
-        // Resolve the compiler directly. No connector or executor is involved
-        // in this contract, so unsupported AST forms fail before database work.
+  registerValueMappingScenario(contract, name)
+}
 
-        const input = support.input
-        expect(() => resolveCompiler(input).compile(input.node)).toThrow(
-          support.expectedMessage,
-        )
-      })
-
-      continue
-    }
-
-    const input = support.input
-    it(`${name} [query/compiler] scenario [${scenarioId}]`, () => {
-      const compiled = resolveCompiler(input).compile(input.node)
-      expect({ sql: compiled.sql, params: compiled.params }).toEqual({
-        sql: input.expected.sql,
-        params: input.expected.params,
-      })
-    })
-  }
-
+/**
+ * Registers value mapping scenario checks against the selected dialect contract.
+ *
+ * @param contract - Capability declarations, test inputs, and expected adapter behavior.
+ * @param name - Physical identifier or dialect label used by this operation.
+ */
+function registerValueMappingScenario(
+  contract: Readonly<{
+    state: 'supported'
+    core: ContractSupport<QueryCoreContractInput>
+    scenarios: QueryCompilerScenarios
+    valueMapping: ContractSupport<QueryValueMappingContractInput>
+  }>,
+  name: string,
+) {
   if (contract.valueMapping.state === 'unsupported') {
     registerUnsupported(name, 'query/value-mapping', contract.valueMapping)
   } else {
@@ -693,6 +747,59 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
   }
 }
 
+/**
+ * Registers compiler scenarios checks against the selected dialect contract.
+ *
+ * @param contract - Capability declarations, test inputs, and expected adapter behavior.
+ * @param name - Physical identifier or dialect label used by this operation.
+ */
+function registerCompilerScenarios(
+  contract: Readonly<{
+    state: 'supported'
+    core: ContractSupport<QueryCoreContractInput>
+    scenarios: QueryCompilerScenarios
+    valueMapping: ContractSupport<QueryValueMappingContractInput>
+  }>,
+  name: string,
+) {
+  for (const scenarioId of queryCompilerScenarioIds) {
+    const scenario = contract.scenarios[scenarioId]
+    const support = scenario.support
+
+    if (support.state === 'unsupported') {
+      it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
+        expect(support.reason.trim().length).toBeGreaterThan(0)
+        expect(support.expectedMessage.trim().length).toBeGreaterThan(0)
+
+        // Resolve the compiler directly. No connector or executor is involved
+        // in this contract, so unsupported AST forms fail before database work.
+        const input = support.input
+        expect(() => resolveCompiler(input).compile(input.node)).toThrow(
+          support.expectedMessage,
+        )
+      })
+
+      continue
+    }
+
+    const input = support.input
+    it(`${name} [query/compiler] scenario [${scenarioId}]`, () => {
+      const compiled = resolveCompiler(input).compile(input.node)
+      expect({ sql: compiled.sql, params: compiled.params }).toEqual({
+        sql: input.expected.sql,
+        params: input.expected.params,
+      })
+    })
+  }
+}
+
+/**
+ * Projects namespace roles and spellings into stable contract evidence.
+ *
+ * @param namespace - Ordered role-tagged namespace segments used for identity resolution.
+ *
+ * @returns Namespace roles and spellings into stable contract evidence.
+ */
 function namespaceEvidence(
   namespace: readonly Readonly<{
     role: NamespaceRole
@@ -705,6 +812,7 @@ function namespaceEvidence(
   }))
 }
 
+/** Projects canonical relation identity into stable contract evidence. */
 function relationEvidence(identity: CanonicalRelationIdentity): CatalogRelationEvidence {
   return {
     namespace: namespaceEvidence(identity.namespace),
@@ -746,6 +854,12 @@ export async function runCatalogContract(input: CatalogContractInput): Promise<v
   }).toEqual(input.expected)
 }
 
+/**
+ * Registers catalog checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param support - Explicit support evidence used to select a contract scenario.
+ */
 function registerCatalog(name: string, support: ContractSupport<CatalogContractInput>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'catalog', support)
@@ -757,6 +871,12 @@ function registerCatalog(name: string, support: ContractSupport<CatalogContractI
   })
 }
 
+/**
+ * Registers operation session checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param contract - Capability declarations, test inputs, and expected adapter behavior.
+ */
 function registerOperationSession(
   name: string,
   contract: OperationSessionContract | UnsupportedContract,
@@ -786,6 +906,7 @@ function registerOperationSession(
   }
 }
 
+/** Registers coordination checks against the selected dialect contract. */
 function registerCoordination(
   name: string,
   support: ContractSupport<CoordinationContractFactory>,
@@ -798,6 +919,12 @@ function registerCoordination(
   registerMigrationCoordinationContract(name, support.input)
 }
 
+/**
+ * Registers migration checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param support - Explicit support evidence used to select a contract scenario.
+ */
 function registerMigration(name: string, support: ContractSupport<MigrationContract>) {
   if (support.state === 'unsupported') {
     registerUnsupported(name, 'migration', support)
@@ -838,6 +965,7 @@ function registerMigration(name: string, support: ContractSupport<MigrationContr
   })
 }
 
+/** Registers lifecycle checks against the selected dialect contract. */
 function registerLifecycle(
   name: string,
   support: ContractSupport<DialectLifecycleContractFactory>,
@@ -850,6 +978,15 @@ function registerLifecycle(
   registerDialectLifecycleContract(name, support.input)
 }
 
+/**
+ * Registers dialect contract shard checks against the selected dialect contract.
+ *
+ * @param name - Physical identifier or dialect label used by this operation.
+ * @param capabilities - Explicit supported, unsupported, or unavailable evidence for each
+ *   contract capability.
+ * @param shard - Contract shard responsible for the declared dialect facets.
+ * @param registration - Desired table registration with its resolved namespace default.
+ */
 function registerDialectContractShard(
   name: string,
   capabilities: DialectContractMemberCapabilities,

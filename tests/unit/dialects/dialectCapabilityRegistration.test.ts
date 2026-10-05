@@ -7,6 +7,7 @@ import {
 } from '../../integration/support/dialectIntegrationContract'
 import type { DialectIntegrationAdapter } from '../../integration/support/dialectIntegrationContract'
 
+import type { DialectContractMemberCapabilities } from './dialectContractKit'
 import { registerDialectContractMember } from './dialectContractKit'
 
 describe('Dialect contract capability registration', () => {
@@ -28,7 +29,9 @@ describe('Dialect contract capability registration', () => {
       ),
     ).toThrow(/omits lifecycle/i)
   })
+})
 
+describe('Dialect contract capability registration: rejects a supported shard whose lifecycle input is omitted', () => {
   it('rejects a supported shard whose lifecycle input is omitted', () => {
     const capabilities = {
       identity: { state: 'supported', shard: 'complete' },
@@ -57,7 +60,9 @@ describe('Dialect contract capability registration', () => {
       } as never),
     ).toThrow(/complete.*omits.*lifecycle input/i)
   })
+})
 
+describe('Dialect contract capability registration: rejects an omitted declared shard', () => {
   it('rejects an omitted declared shard', () => {
     const capabilities = {
       identity: { state: 'supported', shard: 'semantic' },
@@ -77,7 +82,9 @@ describe('Dialect contract capability registration', () => {
       } as never),
     ).toThrow(/omits declared shard coordination/i)
   })
+})
 
+describe('Dialect contract capability registration: rejects a supported %s composite when the manifest declares it unsupported', () => {
   it.each(['query', 'operationSession'] as const)(
     'rejects a supported %s composite when the manifest declares it unsupported',
     (facet) => {
@@ -115,25 +122,17 @@ describe('Dialect contract capability registration', () => {
               controlled: unsupportedInput,
             }
 
-      expect(() =>
-        registerDialectContractMember('mismatched member', capabilities, {
-          complete: {
-            identity: unsupportedInput,
-            naming: unsupportedInput,
-            desiredSchema: unsupportedInput,
-            query: unsupportedInput,
-            catalog: unsupportedInput,
-            operationSession: unsupportedInput,
-            coordination: unsupportedInput,
-            migration: unsupportedInput,
-            lifecycle: unsupportedInput,
-            [facet]: supportedComposite,
-          },
-        } as never),
-      ).toThrow(new RegExp(`shard complete disagrees about ${facet}`, 'i'))
+      assertUnsupportedCapabilityRegistration(
+        capabilities,
+        unsupportedInput,
+        facet,
+        supportedComposite,
+      )
     },
   )
+})
 
+describe('Dialect contract capability registration: rejects a supported %s composite when the manifest declares it unsupported: rejects blank unsupported integration capability reasons', () => {
   it('rejects blank unsupported integration capability reasons', () => {
     expect(() =>
       validateDialectIntegrationCapabilities({
@@ -145,7 +144,9 @@ describe('Dialect contract capability registration', () => {
       }),
     ).toThrow(/transaction.*non-empty/i)
   })
+})
 
+describe('Dialect contract capability registration: does not register a scenario requiring an unsupported integration capability', () => {
   it('does not register a scenario requiring an unsupported integration capability', () => {
     expect(
       shouldRegisterDialectIntegrationScenario(
@@ -183,7 +184,9 @@ describe('Dialect contract capability registration', () => {
 
     expect(registered).toEqual(['supported scenario'])
   })
+})
 
+describe('Dialect contract capability registration: does not register a scenario requiring an unsupported integration capability: does not register unsupported scenarios through the actual integration seam', () => {
   it('does not register unsupported scenarios through the actual integration seam', () => {
     const registered: string[] = []
     const adapter = {
@@ -207,3 +210,38 @@ describe('Dialect contract capability registration', () => {
     expect(registered).toEqual([])
   })
 })
+
+/**
+ * Checks unsupported capability registration in the current test scenario.
+ *
+ * @param capabilities - Explicit supported, unsupported, or unavailable evidence for each
+ *   contract capability.
+ * @param unsupportedInput - Input used to verify explicit unsupported-capability
+ *   behavior.
+ * @param facet - Dialect facet whose capability or invocation is inspected.
+ * @param supportedComposite - Composite fixture capabilities expected to remain
+ *   supported.
+ */
+function assertUnsupportedCapabilityRegistration(
+  capabilities: DialectContractMemberCapabilities,
+  unsupportedInput: { state: 'unsupported'; reason: string },
+  facet: 'query' | 'operationSession',
+  supportedComposite: unknown,
+) {
+  expect(() =>
+    registerDialectContractMember('mismatched member', capabilities, {
+      complete: {
+        identity: unsupportedInput,
+        naming: unsupportedInput,
+        desiredSchema: unsupportedInput,
+        query: unsupportedInput,
+        catalog: unsupportedInput,
+        operationSession: unsupportedInput,
+        coordination: unsupportedInput,
+        migration: unsupportedInput,
+        lifecycle: unsupportedInput,
+        [facet]: supportedComposite,
+      },
+    } as never),
+  ).toThrow(new RegExp(`shard complete disagrees about ${facet}`, 'i'))
+}

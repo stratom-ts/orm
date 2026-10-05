@@ -34,7 +34,9 @@ describe('portable migration coordination scope', () => {
     expect(acquire.map((identity) => identity.kind)).toEqual(['scoped'])
     expect(migrationLockReleaseOrder(scope)).toEqual([...acquire].reverse())
   })
+})
 
+describe('portable migration coordination scope: separates dialect, database, and application tuples', () => {
   it('separates dialect, database, and application tuples', () => {
     const left = migrationLockAcquisitionOrder(
       createMigrationCoordinationScope({
@@ -60,7 +62,9 @@ describe('portable migration coordination scope', () => {
     expect(left).not.toEqual(right)
     expect(left).not.toEqual(otherDialect)
   })
+})
 
+describe('portable migration coordination scope: validates each stable identity', () => {
   it('validates each stable identity', () => {
     expect(() =>
       createMigrationCoordinationScope({ dialect: '', database: 'db' }),

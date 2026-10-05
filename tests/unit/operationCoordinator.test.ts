@@ -21,27 +21,10 @@ describe('OperationCoordinator', () => {
       ],
     }
     const dispositions: string[] = []
-    const provider: OperationSessionProvider = {
-      nativeTransactions: true,
-      async open() {
-        return {
-          identity: {
-            database: 'coordinator_test',
-            physicalSession: 'physical-namespace',
-            namespaceContext,
-          },
-          async query() {
-            return []
-          },
-          async run() {},
-          async cancel() {},
-          async release(disposition) {
-            dispositions.push(disposition)
-          },
-        }
-      },
-      async close() {},
-    }
+    const provider: OperationSessionProvider = createMutableNamespaceProvider(
+      namespaceContext,
+      dispositions,
+    )
     const coordinator = new OperationCoordinator(provider)
     let capturedSchema: string | undefined
 
@@ -61,7 +44,9 @@ describe('OperationCoordinator', () => {
       await coordinator.close()
     }
   })
+})
 
+describe('OperationCoordinator: advances the queue and closes after an early provider-open failure', () => {
   it('advances the queue and closes after an early provider-open failure', async () => {
     const controls = createControllableProvider({
       openFailure: { session: 1, value: new Error('open failed') },
@@ -88,7 +73,9 @@ describe('OperationCoordinator', () => {
       'provider-closed',
     ])
   })
+})
 
+describe('OperationCoordinator: rejects descendant root use across nested clients without deadlocking', () => {
   it('rejects descendant root use across nested clients without deadlocking', async () => {
     const firstControls = createControllableProvider()
     const secondControls = createControllableProvider()
@@ -111,7 +98,9 @@ describe('OperationCoordinator', () => {
     expect(secondControls.openCount).toBe(1)
     await Promise.all([first.close(), second.close()])
   })
+})
 
+describe('OperationCoordinator: rejects descendant root use across nested clients without deadlocking: retains savepoint ancestry across another client coordinator', () => {
   it('retains savepoint ancestry across another client coordinator', async () => {
     const firstControls = createControllableProvider()
     const secondControls = createControllableProvider()
@@ -144,12 +133,15 @@ describe('OperationCoordinator', () => {
     expect(secondControls.openCount).toBe(2)
     await Promise.all([first.close(), second.close()])
   })
+})
 
+describe('OperationCoordinator queue and shutdown', () => {
   it('keeps FIFO order across failures and release cleanup', async () => {
     const releaseFirst = deferred()
     const releaseStarted = deferred()
     const controls = createControllableProvider({
       failSession: 1,
+      /** Signals or holds release to expose the requested cleanup scenario. */
       beforeRelease: (session) => {
         if (session !== 1) return Promise.resolve()
 
@@ -182,7 +174,9 @@ describe('OperationCoordinator', () => {
 
     await db.close()
   })
+})
 
+describe('OperationCoordinator queue and shutdown: rejects callback root reentrancy while unrelated roots wait FIFO', () => {
   it('rejects callback root reentrancy while unrelated roots wait FIFO', async () => {
     const callbackStarted = deferred()
     const finishCallback = deferred()
@@ -209,7 +203,9 @@ describe('OperationCoordinator', () => {
     expect(controls.openCount).toBe(2)
     await db.close()
   })
+})
 
+describe('OperationCoordinator queue and shutdown: lets an accepted transaction keep using its scoped client while close drains', () => {
   it('lets an accepted transaction keep using its scoped client while close drains', async () => {
     const callbackStarted = deferred()
     const resumeCallback = deferred()
@@ -241,14 +237,61 @@ describe('OperationCoordinator', () => {
 
     expect(controls.events.at(-1)).toBe('provider-closed')
   })
+})
 
+describe('OperationCoordinator queue and shutdown: rejects providers without mandatory native transaction semantics', () => {
   it('rejects providers without mandatory native transaction semantics', () => {
     expect(
       () =>
         new OperationCoordinator({
+          /** Opens an exclusive fixture session with lifecycle controls. */
           open() {},
+          /** Closes the fixture provider after its leases settle. */
           close() {},
         } as never),
     ).toThrow(/native transaction semantics/i)
   })
 })
+
+/**
+ * Exposes mutable native namespace evidence to verify coordinator snapshots.
+ *
+ * @param namespaceContext - Live writable namespace mutated by the scenario.
+ * @param dispositions - Release dispositions observed after identity verification.
+ *
+ * @returns A provider retaining the supplied live namespace object.
+ */
+function createMutableNamespaceProvider(
+  namespaceContext: NonNullable<
+    Awaited<ReturnType<OperationSessionProvider['open']>>['identity']['namespaceContext']
+  >,
+  dispositions: string[],
+): OperationSessionProvider {
+  return {
+    nativeTransactions: true,
+    /** Opens an exclusive fixture session with lifecycle controls. */
+    async open() {
+      return {
+        identity: {
+          database: 'coordinator_test',
+          physicalSession: 'physical-namespace',
+          namespaceContext,
+        },
+        /** Runs fixture SQL and records physical-session ownership. */
+        async query() {
+          return []
+        },
+        /** Runs a fixture statement with configured outcomes. */
+        async run() {},
+        /** Cancels the active physical-session operation. */
+        async cancel() {},
+        /** Releases the fixture lease with configured cleanup behavior. */
+        async release(disposition) {
+          dispositions.push(disposition)
+        },
+      }
+    },
+    /** Closes the fixture provider after its leases settle. */
+    async close() {},
+  }
+}

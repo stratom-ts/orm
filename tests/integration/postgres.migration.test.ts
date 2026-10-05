@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
+import type { Client, QueryResult } from 'pg'
 import { pipe, string } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { column, defineTable } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
-import type { SessionEvent } from './postgresIntegration'
+import type { PostgresDatabaseContext, SessionEvent } from './postgresIntegration'
 import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
 
 const RollbackBefore = defineTable(
@@ -75,9 +76,9 @@ const NotNullWithoutIndex = defineTable(
   { primaryKey: 'id' },
 )
 
-describe('PostgreSQL migration runtime integration', () => {
-  beforeAll(waitForPostgres)
+beforeAll(waitForPostgres)
 
+describe('PostgreSQL migration runtime integration', () => {
   it('drops an ordinary index from a PostgreSQL 18 table with NOT NULL constraints', async ({
     skip,
   }) => {
@@ -115,7 +116,9 @@ describe('PostgreSQL migration runtime integration', () => {
       },
     )
   })
+})
 
+describe('PostgreSQL migration runtime integration: rolls back a partial DDL attempt and converges on retry without data loss', () => {
   it('rolls back a partial DDL attempt and converges on retry without data loss', async () => {
     await withPostgresDatabase(
       [RollbackBefore],
@@ -138,20 +141,7 @@ describe('PostgreSQL migration runtime integration', () => {
           [schema],
         )
 
-        let ddlCount = 0
-        const statements: SessionEvent[] = []
-        const failing = createDatabase([RollbackAfter], {
-          hooks: {
-            before(event) {
-              if (!/^(?:create|alter|drop)\s/i.test(event.sql)) return
-
-              statements.push(event)
-              ddlCount++
-
-              if (ddlCount === 2) throw new Error('injected second DDL failure')
-            },
-          },
-        })
+        const { failing, statements } = createFailingMigrationDatabase(createDatabase)
 
         const plan = await failing.migrate().plan()
         expect(plan.steps.filter((step) => step.kind === 'add_column')).toHaveLength(2)
@@ -163,57 +153,15 @@ describe('PostgreSQL migration runtime integration', () => {
         })
 
         expect(statements).toHaveLength(2)
-        const columnsAfterFailure = await admin.query<{ column_name: string }>(
-          `select column_name from information_schema.columns
-         where table_schema = $1 and table_name = 'rollback_records'
-         order by ordinal_position`,
-          [schema],
-        )
-        expect(columnsAfterFailure.rows.map(({ column_name }) => column_name)).toEqual([
-          'id',
-          'payload',
-        ])
+        await assertRollbackPreservesCatalogAndRows(admin, schema, indexesBefore, rowId)
 
-        const indexesAfterFailure = await admin.query<{
-          indexdef: string
-          indexname: string
-        }>(
-          `select indexname, indexdef from pg_indexes
-           where schemaname = $1 and tablename = 'rollback_records'
-           order by indexname`,
-          [schema],
-        )
-        expect(indexesAfterFailure.rows).toEqual(indexesBefore.rows)
-
-        expect(indexesAfterFailure.rows.map(({ indexname }) => indexname)).toContain(
-          'rollback_payload_idx',
-        )
-
-        const original = await admin.query<{ id: string; payload: string }>(
-          `select id, payload from ${quoteIdentifier(schema)}.${quoteIdentifier('rollback_records')}`,
-        )
-        expect(original.rows).toEqual([{ id: rowId, payload: 'retained' }])
-
-        const retry = createDatabase([RollbackAfter])
-        await retry.migrate().execute()
-        await expect(retry.migrate().plan()).resolves.toEqual({ steps: [] })
-
-        const afterRetry = await admin.query<{
-          id: string
-          payload: string
-          addedOne: string
-          addedTwo: string
-        }>(
-          `select id, payload, "addedOne", "addedTwo"
-         from ${quoteIdentifier(schema)}.${quoteIdentifier('rollback_records')}`,
-        )
-        expect(afterRetry.rows).toEqual([
-          { id: rowId, payload: 'retained', addedOne: 'one', addedTwo: 'two' },
-        ])
+        await assertMigrationRetry(createDatabase, admin, schema, rowId)
       },
     )
   })
+})
 
+describe('PostgreSQL constructive migration integration', () => {
   it('executes constructive and an explicitly permitted absent-relation plan', async () => {
     await withPostgresDatabase(
       [ManagedBaseline],
@@ -244,42 +192,185 @@ describe('PostgreSQL migration runtime integration', () => {
         await constructive.migrate().execute()
         await expect(constructive.migrate().plan()).resolves.toEqual({ steps: [] })
 
-        const destructive = createDatabase([] as const, {
-          migrationOwnership: [
-            {
-              kind: 'absentRelation',
-              relation: {
-                namespace: [{ role: 'schema', spelling: schema }],
-                relation: 'managed_orphan',
-              },
-            },
-          ],
-        })
+        await assertAbsentRelationMigration(createDatabase, schema)
 
-        const destructivePlan = await destructive.migrate().plan()
-        expect(destructivePlan.steps.map((step) => step.kind)).toEqual(['drop_table'])
-        await destructive.migrate().allow('dropTable').execute()
-        await expect(destructive.migrate().plan()).resolves.toEqual({ steps: [] })
-
-        const preserved = await admin.query<{
-          id: string
-          payload: string
-          legacy: string
-          added: string
-        }>(
-          `select id, payload, legacy, added
-           from ${quoteIdentifier(schema)}.${quoteIdentifier('managed_records')}`,
-        )
-        expect(preserved.rows).toEqual([
-          { id: 'kept', payload: 'payload', legacy: 'legacy', added: 'added' },
-        ])
-
-        const removed = await admin.query<{ relation: string | null }>(
-          'select to_regclass($1)::text as relation',
-          [`${schema}.managed_orphan`],
-        )
-        expect(removed.rows).toEqual([{ relation: null }])
+        await assertConstructiveRowsAndOrphanRemoval(admin, schema)
       },
     )
   })
 })
+
+/**
+ * Checks preserved row values after constructive migration and confirms the
+ * declared-absent relation was removed.
+ *
+ * @param admin - Administrative PostgreSQL client that owns isolated namespace setup and
+ *   cleanup.
+ * @param schema - Isolated or resolved SQL schema spelling used for physical relation
+ *   access.
+ */
+async function assertConstructiveRowsAndOrphanRemoval(admin: Client, schema: string) {
+  const preserved = await admin.query<{
+    id: string
+    payload: string
+    legacy: string
+    added: string
+  }>(
+    `select id, payload, legacy, added
+           from ${quoteIdentifier(schema)}.${quoteIdentifier('managed_records')}`,
+  )
+  expect(preserved.rows).toEqual([
+    { id: 'kept', payload: 'payload', legacy: 'legacy', added: 'added' },
+  ])
+
+  const removed = await admin.query<{ relation: string | null }>(
+    'select to_regclass($1)::text as relation',
+    [`${schema}.managed_orphan`],
+  )
+  expect(removed.rows).toEqual([{ relation: null }])
+}
+
+/**
+ * Retries the permitted migration and checks data retention and second-plan convergence.
+ *
+ * @param createDatabase - Factory for an additional database client in the test
+ *   namespace.
+ * @param admin - Administrative PostgreSQL client that owns isolated namespace setup and
+ *   cleanup.
+ * @param schema - Isolated or resolved SQL schema spelling used for physical relation
+ *   access.
+ * @param rowId - Native row identifier supplied by the schema fixture.
+ */
+async function assertMigrationRetry(
+  createDatabase: PostgresDatabaseContext<readonly []>['createDatabase'],
+  admin: Client,
+  schema: string,
+  rowId: string,
+) {
+  const retry = createDatabase([RollbackAfter])
+  await retry.migrate().execute()
+  await expect(retry.migrate().plan()).resolves.toEqual({ steps: [] })
+
+  const afterRetry = await admin.query<{
+    id: string
+    payload: string
+    addedOne: string
+    addedTwo: string
+  }>(
+    `select id, payload, "addedOne", "addedTwo"
+         from ${quoteIdentifier(schema)}.${quoteIdentifier('rollback_records')}`,
+  )
+  expect(afterRetry.rows).toEqual([
+    { id: rowId, payload: 'retained', addedOne: 'one', addedTwo: 'two' },
+  ])
+}
+
+/**
+ * Executes an explicitly permitted absent-relation plan and checks second-plan
+ * convergence.
+ *
+ * @param createDatabase - Factory for an additional database client in the test
+ *   namespace.
+ * @param schema - Isolated or resolved SQL schema spelling used for physical relation
+ *   access.
+ */
+async function assertAbsentRelationMigration(
+  createDatabase: PostgresDatabaseContext<readonly []>['createDatabase'],
+  schema: string,
+) {
+  const destructive = createDatabase([] as const, {
+    migrationOwnership: [
+      {
+        kind: 'absentRelation',
+        relation: {
+          namespace: [{ role: 'schema', spelling: schema }],
+          relation: 'managed_orphan',
+        },
+      },
+    ],
+  })
+
+  const destructivePlan = await destructive.migrate().plan()
+  expect(destructivePlan.steps.map((step) => step.kind)).toEqual(['drop_table'])
+  await destructive.migrate().allow('dropTable').execute()
+  await expect(destructive.migrate().plan()).resolves.toEqual({ steps: [] })
+}
+
+/**
+ * Creates a client whose selected DDL statement fails inside the real migration
+ * transaction.
+ *
+ * @param createDatabase - Factory for an additional database client in the test
+ *   namespace.
+ *
+ * @returns A client whose selected DDL statement fails inside the real migration
+ *   transaction.
+ */
+function createFailingMigrationDatabase(
+  createDatabase: PostgresDatabaseContext<readonly []>['createDatabase'],
+) {
+  let ddlCount = 0
+  const statements: SessionEvent[] = []
+  const failing = createDatabase([RollbackAfter], {
+    hooks: {
+      /** Observes a physical SQL call before native execution. */
+      before(event) {
+        if (!/^(?:create|alter|drop)\s/i.test(event.sql)) return
+
+        statements.push(event)
+        ddlCount++
+
+        if (ddlCount === 2) throw new Error('injected second DDL failure')
+      },
+    },
+  })
+  return { failing, statements }
+}
+
+/**
+ * Checks original columns, indexes, and row data after migration transaction rollback.
+ *
+ * @param admin - Administrative PostgreSQL client that owns isolated namespace setup and
+ *   cleanup.
+ * @param schema - Isolated or resolved SQL schema spelling used for physical relation
+ *   access.
+ * @param indexesBefore - Observed index definitions captured before the migration.
+ * @param rowId - Native row identifier supplied by the schema fixture.
+ */
+async function assertRollbackPreservesCatalogAndRows(
+  admin: Client,
+  schema: string,
+  indexesBefore: QueryResult<{ indexdef: string; indexname: string }>,
+  rowId: string,
+) {
+  const columnsAfterFailure = await admin.query<{ column_name: string }>(
+    `select column_name from information_schema.columns
+         where table_schema = $1 and table_name = 'rollback_records'
+         order by ordinal_position`,
+    [schema],
+  )
+  expect(columnsAfterFailure.rows.map(({ column_name }) => column_name)).toEqual([
+    'id',
+    'payload',
+  ])
+
+  const indexesAfterFailure = await admin.query<{
+    indexdef: string
+    indexname: string
+  }>(
+    `select indexname, indexdef from pg_indexes
+           where schemaname = $1 and tablename = 'rollback_records'
+           order by indexname`,
+    [schema],
+  )
+  expect(indexesAfterFailure.rows).toEqual(indexesBefore.rows)
+
+  expect(indexesAfterFailure.rows.map(({ indexname }) => indexname)).toContain(
+    'rollback_payload_idx',
+  )
+
+  const original = await admin.query<{ id: string; payload: string }>(
+    `select id, payload from ${quoteIdentifier(schema)}.${quoteIdentifier('rollback_records')}`,
+  )
+  expect(original.rows).toEqual([{ id: rowId, payload: 'retained' }])
+}

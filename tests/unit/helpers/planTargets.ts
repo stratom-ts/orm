@@ -16,6 +16,7 @@ export function identifier(spelling: string): CanonicalIdentifier {
   return { spelling, comparisonKey: spelling }
 }
 
+/** Builds structured PostgreSQL namespace segments for the fixture database and schema. */
 export function namespace(
   schema: string,
   database = DEFAULT_DATABASE,
@@ -26,6 +27,7 @@ export function namespace(
   ]
 }
 
+/** Builds a structured canonical relation identity for the fixture. */
 export function relation(
   schema: string,
   table: string,
@@ -34,6 +36,7 @@ export function relation(
   return { namespace: namespace(schema, database), relation: identifier(table) }
 }
 
+/** Builds a namespace Migration Target with structured identity segments. */
 export function namespaceTarget(
   schema: string,
   database = DEFAULT_DATABASE,
@@ -41,6 +44,7 @@ export function namespaceTarget(
   return { kind: 'namespace', namespace: namespace(schema, database) }
 }
 
+/** Builds a relation Migration Target with structured identity segments. */
 export function relationTarget(
   schema: string,
   table: string,
@@ -49,6 +53,7 @@ export function relationTarget(
   return { kind: 'relation', relation: relation(schema, table, database) }
 }
 
+/** Builds a column Migration Target with its owning relation identity. */
 export function columnTarget(
   schema: string,
   table: string,
@@ -62,6 +67,7 @@ export function columnTarget(
   }
 }
 
+/** Builds an index Migration Target with its owning relation identity. */
 export function indexTarget(
   schema: string,
   table: string,
@@ -75,6 +81,7 @@ export function indexTarget(
   }
 }
 
+/** Finds column reference evidence in the source syntax tree. */
 export function columnReference(
   schema: string,
   table: string,
@@ -89,6 +96,7 @@ export function columnReference(
   }
 }
 
+/** Converts authored column spellings into ordered fixture identifiers. */
 export function columnIdentifiers(
   ...columns: readonly string[]
 ): readonly CanonicalIdentifier[] {

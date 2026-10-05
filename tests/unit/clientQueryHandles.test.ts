@@ -22,7 +22,12 @@ type QueryRoot = 'from' | 'insert' | 'update' | 'delete'
 const tableHandleBrand = Symbol.for('stratom.TableHandle')
 const forgedHandle = {
   [tableHandleBrand]: true,
+  /** Returns the table's original Valibot schema for validation and metadata lookup. */
   getSchema: () => undefined,
+  /**
+   * Returns the relation, primary-key, index, and ownership metadata attached to the
+   * table.
+   */
   getTableMetadata: () => undefined,
 }
 
@@ -39,6 +44,13 @@ const malformedHandleMutations = [
 
 type MalformedHandleMutation = (typeof malformedHandleMutations)[number][1]
 
+/**
+ * Creates the malformed defined handle fixture used by the contract scenario.
+ *
+ * @param mutation - Variation applied to otherwise valid native observations.
+ *
+ * @returns The malformed defined handle fixture used by the contract scenario.
+ */
 function createMalformedDefinedHandle(mutation: MalformedHandleMutation) {
   const handle = defineTable(
     'malformed',
@@ -72,6 +84,7 @@ function createMalformedDefinedHandle(mutation: MalformedHandleMutation) {
     case 'throwingMetadataGetter':
       Object.defineProperty(mutableHandle, 'getTableMetadata', {
         configurable: true,
+        /** Returns the first fixture row, or undefined when no rows exist. */
         get() {
           throw new Error('unexpected metadata access')
         },
@@ -83,6 +96,15 @@ function createMalformedDefinedHandle(mutation: MalformedHandleMutation) {
   return handle
 }
 
+/**
+ * Invokes the selected query entry point with the supplied table candidate.
+ *
+ * @param db - Database client exercised by this test scenario.
+ * @param method - Public query entry point whose table-handle validation is exercised.
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns The selected table query or write entry point; invalid handles throw.
+ */
 function startQuery(
   db: ReturnType<typeof createDatabase>,
   method: QueryRoot,
@@ -128,7 +150,9 @@ describe('client query table handles', () => {
       expect(connector.prepared).toEqual([])
     },
   )
+})
 
+describe('client query table handles: %s rejects a fully shaped forged handle before database work', () => {
   it.each<QueryRoot>(['from', 'insert', 'update', 'delete'])(
     '%s rejects a fully shaped forged handle before database work',
     async (method) => {
@@ -171,14 +195,18 @@ describe('client query table handles', () => {
       await db.close()
     },
   )
+})
 
+describe('client query table handles: recognizes handles created by a reloaded package module', () => {
   it('recognizes handles created by a reloaded package module', async () => {
     vi.resetModules()
     const { isTableHandle } = await import('@/defineTable')
 
     expect(isTableHandle(Accounts)).toBe(true)
   })
+})
 
+describe('client query table handles: %s rejects a non-handle with a tagged schema error before database work', () => {
   it.each<QueryRoot>(['from', 'insert', 'update', 'delete'])(
     '%s rejects a non-handle with a tagged schema error before database work',
     async (method) => {
@@ -196,7 +224,9 @@ describe('client query table handles', () => {
       await db.close()
     },
   )
+})
 
+describe('client query table handles: %s rejects an unregistered handle with the same tagged error contract before database work', () => {
   it.each<QueryRoot>(['from', 'insert', 'update', 'delete'])(
     '%s rejects an unregistered handle with the same tagged error contract before database work',
     async (method) => {

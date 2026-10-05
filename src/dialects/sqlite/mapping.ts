@@ -1,5 +1,6 @@
 import { QueryError } from '@/utils/error'
 
+/** Removes type parameters and normalizes a SQLite logical type for value mapping. */
 function declaredType(dataType: string): string {
   return dataType
     .trim()
@@ -9,10 +10,12 @@ function declaredType(dataType: string): string {
     .trim()
 }
 
+/** Throws a query error that identifies the SQLite logical type and invalid value. */
 function mappingError(dataType: string, message: string): never {
   throw new QueryError({ message: `SQLite ${declaredType(dataType)} ${message}` })
 }
 
+/** Rejects numbers outside JavaScript's safe integer range. */
 function safeInteger(dataType: string, value: number): number {
   if (!Number.isSafeInteger(value)) {
     return mappingError(dataType, 'values must be safe integers')
@@ -21,17 +24,27 @@ function safeInteger(dataType: string, value: number): number {
   return value
 }
 
+/** Rejects non-finite numeric values before SQL parameter mapping. */
 function finiteNumber(dataType: string, value: number): number {
   if (!Number.isFinite(value)) return mappingError(dataType, 'values must be finite')
 
   return value
 }
 
+/** Converts a bigint only when its value remains a safe JavaScript integer. */
 function numberFromBigInt(dataType: string, value: bigint): number {
   const number = Number(value)
   return safeInteger(dataType, number)
 }
 
+/**
+ * Converts supported integer inputs to bigint and rejects invalid numeric values.
+ *
+ * @param dataType - Physical SQL type used for validation, comparison, or value mapping.
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns The parsed bigint, or undefined for unsupported input representations.
+ */
 function bigintValue(dataType: string, value: unknown): bigint | undefined {
   if (typeof value === 'bigint') return value
   if (typeof value === 'number') return BigInt(safeInteger(dataType, value))
@@ -50,6 +63,7 @@ function bigintValue(dataType: string, value: unknown): bigint | undefined {
 const BOOLEAN_TYPES = new Set(['BOOLEAN', 'BOOL'])
 const DATE_TYPES = new Set(['DATETIME', 'DATE'])
 
+/** Serializes valid Date parameters and preserves values that are not dates. */
 function mapDateParamValue(dataType: string, value: unknown): unknown {
   if (!(value instanceof Date)) return value
 
@@ -60,6 +74,15 @@ function mapDateParamValue(dataType: string, value: unknown): unknown {
   return value.toISOString()
 }
 
+/**
+ * Decodes supported SQLite timestamps while preserving unrecognized or invalid date
+ * values.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns Supported SQLite timestamps while preserving unrecognized or invalid date
+ *   values.
+ */
 function mapDateResultValue(value: unknown): unknown {
   if (value instanceof Date) return value
   if (typeof value !== 'string' && typeof value !== 'number') return value
@@ -91,6 +114,13 @@ function mapDateResultValue(value: unknown): unknown {
   return Number.isNaN(date.getTime()) ? value : date
 }
 
+/**
+ * Serializes JSON parameters while preserving strings already supplied by the caller.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns Serialized JSON parameters with already serialized strings preserved.
+ */
 function mapJsonParamValue(value: unknown): unknown {
   if (typeof value === 'string') return value
 
@@ -104,6 +134,7 @@ function mapJsonParamValue(value: unknown): unknown {
   }
 }
 
+/** Parses JSON result strings and preserves values that cannot be decoded. */
 function mapJsonResultValue(value: unknown): unknown {
   if (typeof value !== 'string') return value
 
@@ -114,6 +145,7 @@ function mapJsonResultValue(value: unknown): unknown {
   }
 }
 
+/** Checks integer precision before mapping SQLite integer parameters or results. */
 function mapIntegerValue(dataType: string, value: unknown): unknown {
   if (typeof value === 'number') return safeInteger(dataType, value)
   if (typeof value === 'bigint') return numberFromBigInt(dataType, value)
@@ -121,6 +153,7 @@ function mapIntegerValue(dataType: string, value: unknown): unknown {
   return value
 }
 
+/** Rejects non-finite numbers while preserving nonnumeric SQLite REAL values. */
 function mapRealValue(dataType: string, value: unknown): unknown {
   return typeof value === 'number' ? finiteNumber(dataType, value) : value
 }

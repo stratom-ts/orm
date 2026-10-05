@@ -161,7 +161,9 @@ describe('InferSelectedColumns', () => {
     type Row = InferSelectedColumns<typeof User, readonly [typeof User.id, 'missing']>
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; missing: unknown }>()
   })
+})
 
+describe('InferSelectedColumns: should resolve cross-table ColumnRefs from the ref payload', () => {
   it('should resolve cross-table ColumnRefs from the ref payload', () => {
     const Post = defineTable(
       'posts',
@@ -190,7 +192,9 @@ describe('InferSelectedColumns', () => {
       age: number | null
     }>()
   })
+})
 
+describe('InferSelectedColumns: should widen outer-join nullable tables with | null', () => {
   it('should widen outer-join nullable tables with | null', () => {
     const Post = defineTable(
       'posts',
@@ -218,7 +222,9 @@ describe('InferSelectedColumns', () => {
       email: string | null
     }>()
   })
+})
 
+describe('InferSelectedColumns: should distinguish same-named tables by ordered namespace intent', () => {
   it('should distinguish same-named tables by ordered namespace intent', () => {
     const NumericItem = defineTable(
       'items',
@@ -279,7 +285,9 @@ describe('InferInsert', () => {
     expectTypeOf<Insert['bio']>().toEqualTypeOf<string | undefined>()
     expectTypeOf<Insert['active']>().toEqualTypeOf<boolean | undefined>()
   })
+})
 
+describe('InferInsert: should only make defined database defaults optional', () => {
   it('should only make defined database defaults optional', () => {
     const Tagged = defineTable(
       'tagged_defaults',
@@ -292,6 +300,7 @@ describe('InferInsert', () => {
       },
       { primaryKey: 'id' },
     )
+    /** Defines a table whose value column has the supplied optional database default. */
     const withMaybeDefault = (databaseDefault: DatabaseDefault | undefined) =>
       defineTable(
         'maybe_defaults',
@@ -307,7 +316,9 @@ describe('InferInsert', () => {
     expectTypeOf<TaggedInsert['value']>().toEqualTypeOf<string | undefined>()
     expectTypeOf<MaybeInsert['value']>().toEqualTypeOf<string>()
   })
+})
 
+describe('InferInsert: should omit generated always columns', () => {
   it('should omit generated always columns', () => {
     const Schema = pipe(
       object({
@@ -329,7 +340,9 @@ describe('InferInsert', () => {
     expectTypeOf<Insert>().toExtend<{ label: string }>()
     expectTypeOf<Insert>().not.toHaveProperty('id')
   })
+})
 
+describe('InferInsert: should model identity and computed generation', () => {
   it('should model identity and computed generation', () => {
     const Generated = defineTable(
       'tagged_generated',

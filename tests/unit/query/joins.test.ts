@@ -89,7 +89,9 @@ describe('joins compile', () => {
 
     await db.close()
   })
+})
 
+describe('joins compile: should compile leftJoin and rightJoin with on callback', () => {
   it('should compile leftJoin and rightJoin with on callback', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })
@@ -114,7 +116,9 @@ describe('joins compile', () => {
 
     await db.close()
   })
+})
 
+describe('joins compile: should compile joins with where/order/limit', () => {
   it('should compile joins with where/order/limit', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })
@@ -142,7 +146,10 @@ describe('joins compile', () => {
 
   it('should return flat mock rows after join on execute', async () => {
     const rows = [{ title: 'Hello', email: 'a@b.com' }]
-    const connector = createMockConnector({ rowsBySql: () => rows })
+    const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
+      rowsBySql: () => rows,
+    })
     const db = createDatabase({ connector, schemas: [Users, Posts] })
 
     await expect(
@@ -155,10 +162,13 @@ describe('joins compile', () => {
 
     await db.close()
   })
+})
 
+describe('joins compile: should map joined-table parameters and results with the owning schema', () => {
   it('should map joined-table parameters and results with the owning schema', async () => {
     const when = new Date('2026-01-02T03:04:05.000Z')
     const connector = createMockConnector({
+      /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [{ title: 'Hello', createdAt: when.toISOString() }],
     })
     const db = createDatabase({ connector, schemas: [Users, Posts] })
@@ -196,7 +206,9 @@ describe('joins compile', () => {
 
     await db.close()
   })
+})
 
+describe('joins namespace resolution', () => {
   it('should resolve structured AST references against a custom-schema query', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [AppUsers] })
@@ -231,7 +243,9 @@ describe('joins compile', () => {
 
     await db.close()
   })
+})
 
+describe('joins namespace resolution: should generate distinct aliases when schema-table concatenations collide', () => {
   it('should generate distinct aliases when schema-table concatenations collide', () => {
     const schemaRelation = {
       namespace: [{ role: 'schema', spelling: 'a.b' }] as const,
@@ -278,7 +292,9 @@ describe('joins compile', () => {
     expect(compiled.sql).toContain('"a"."b.c" as "__stratom_1"')
     expect(compiled.sql).toContain('"__stratom_0"."id" = "__stratom_1"."id"')
   })
+})
 
+describe('joins namespace resolution: should keep aliases within the PostgreSQL identifier length limit', () => {
   it('should keep aliases within the PostgreSQL identifier length limit', async () => {
     const longSchema = `schema_${'x'.repeat(64)}`
     const LongSchemaTable = defineTable(
@@ -314,7 +330,9 @@ describe('joins compile', () => {
     expect(() => compiled.assertSession?.({ database: 'analytics' })).not.toThrow()
     expect(() => compiled.assertSession?.({ database: 'other' })).toThrow(QueryError)
   })
+})
 
+describe('joins namespace resolution: guards conditionally matched omitted and explicit-schema relation references', () => {
   it('guards conditionally matched omitted and explicit-schema relation references', () => {
     const compiled = postgresDialect.query.resolve([]).compile({
       kind: 'select',
@@ -331,6 +349,7 @@ describe('joins compile', () => {
       ],
     })
 
+    /** Builds native session identity evidence for the requested PostgreSQL schema. */
     const session = (schema: string) => ({
       database: 'analytics',
       namespaceContext: {
@@ -347,8 +366,11 @@ describe('joins compile', () => {
       /schema "tenant" does not match executing current schema "public"/i,
     )
   })
+})
 
+describe('joins namespace and projection validation', () => {
   it('should reject namespace shapes unsupported by PostgreSQL queries', () => {
+    /** Compiles the current query or command into SQL and ordered bound parameters. */
     const compile = (namespace: never) =>
       postgresDialect.query.resolve([]).compile({
         kind: 'select',
@@ -378,8 +400,11 @@ describe('joins compile', () => {
       ] as never),
     ).toThrow(/namespace must be omitted, schema-only, or database plus schema/)
   })
+})
 
+describe('joins namespace and projection validation: should reject malformed PostgreSQL query relation namespaces', () => {
   it('should reject malformed PostgreSQL query relation namespaces', () => {
+    /** Compiles the current query or command into SQL and ordered bound parameters. */
     const compile = (namespace: never) =>
       postgresDialect.query.resolve([]).compile({
         kind: 'select',
@@ -407,7 +432,9 @@ describe('joins compile', () => {
 
     await db.close()
   })
+})
 
+describe('joins projection types and nullability', () => {
   it('should type cross-table selected columns from the ColumnRef', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })
@@ -437,7 +464,9 @@ describe('joins compile', () => {
       email: string | null
     }>()
   })
+})
 
+describe('joins projection types and nullability: should distinguish outer-join nullability for same-named cross-schema tables', () => {
   it('should distinguish outer-join nullability for same-named cross-schema tables', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, AppUsers] })
@@ -475,7 +504,9 @@ describe('joins compile', () => {
       email: string
     }>()
   })
+})
 
+describe('joins projection types and nullability: should merge chained selectAll(side) with a later column select', () => {
   it('should merge chained selectAll(side) with a later column select', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })
@@ -492,7 +523,9 @@ describe('joins compile', () => {
       Prettify<InferSelect<typeof Posts> & { email: string }>
     >()
   })
+})
 
+describe('joins projection types and nullability: should nullify left-joined selectAll(side) fields', () => {
   it('should nullify left-joined selectAll(side) fields', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })
@@ -515,7 +548,9 @@ describe('joins compile', () => {
       >
     >()
   })
+})
 
+describe('joins projection types and nullability: should nullify left-joined selectAll(side) fields: should merge all joined table columns for implicit select *', () => {
   it('should merge all joined table columns for implicit select *', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users, Posts] })

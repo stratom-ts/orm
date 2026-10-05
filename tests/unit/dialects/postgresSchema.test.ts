@@ -46,7 +46,9 @@ describe('@/dialects/postgres', () => {
       expect(postgresDialect.schema.normalizeDefaultValue?.('pending')).toBe("'pending'")
     })
   })
+})
 
+describe('@/dialects/postgres: inferColumnType - string schemas', () => {
   describe('inferColumnType - string schemas', () => {
     it('should return text for string schema without constraints', () => {
       expect(inferColumnType(string())).toBe('text')
@@ -82,7 +84,9 @@ describe('@/dialects/postgres', () => {
       for (const schema of schemas) expect(inferColumnType(schema)).toBe('varchar(40)')
     })
   })
+})
 
+describe('@/dialects/postgres: inferColumnType - number schemas', () => {
   describe('inferColumnType - number schemas', () => {
     it('should return double precision for a plain number (JS numbers are doubles)', () => {
       expect(inferColumnType(number())).toBe('double precision')
@@ -119,7 +123,9 @@ describe('@/dialects/postgres', () => {
       ).toBe('bigint')
     })
   })
+})
 
+describe('@/dialects/postgres: inferColumnType - literal schemas', () => {
   describe('inferColumnType - literal schemas', () => {
     it('should return text for string literal', () => {
       expect(inferColumnType(literal('active'))).toBe('text')
@@ -137,7 +143,9 @@ describe('@/dialects/postgres', () => {
       expect(inferColumnType(literal(true))).toBe('boolean')
     })
   })
+})
 
+describe('@/dialects/postgres: inferColumnType - literal schemas: inferColumnType - other types', () => {
   describe('inferColumnType - other types', () => {
     it('should return timestamptz for date schema', () => {
       expect(inferColumnType(date())).toBe('timestamptz')

@@ -10,6 +10,7 @@ import type { Dialect, SqlAst } from '@/dialects/types'
 import { column, createDatabase, defineTable } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
+import type { ExtensionContractCalls } from '../helpers/extensionContractDialect'
 import {
   EXTENSION_CONTRACT_DIALECT_ID,
   EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
@@ -17,12 +18,13 @@ import {
   createExtensionContractDialect,
 } from '../helpers/extensionContractDialect'
 
-import { registerDialectContractMember, runCatalogContract } from './dialectContractKit'
 import type {
   CatalogContractInput,
   DialectContractMemberCapabilities,
+  MigrationContractCase,
   QueryCompilerScenarios,
 } from './dialectContractKit'
+import { registerDialectContractMember, runCatalogContract } from './dialectContractKit'
 import {
   registerDialectLifecycleContract,
   runDialectLifecycleContract,
@@ -35,6 +37,11 @@ afterEach(() => {
   unregister = undefined
 })
 
+/**
+ * Creates the contract connector fixture used by the contract scenario.
+ *
+ * @returns The contract connector fixture used by the contract scenario.
+ */
 function createContractConnector() {
   let disposed = false
   const getInstance = vi.fn(() => {
@@ -52,6 +59,7 @@ function createContractConnector() {
     getInstance,
     exec,
     prepare,
+    /** Records disposal and closes owned fixture resources. */
     async dispose() {
       disposed = true
     },
@@ -59,10 +67,16 @@ function createContractConnector() {
   return {
     connector,
     directMethods: { getInstance, exec, prepare },
+    /** Reports whether the fixture connector has been disposed. */
     disposed: () => disposed,
   }
 }
 
+/**
+ * Creates the contract records fixture used by the contract scenario.
+ *
+ * @returns The contract records fixture used by the contract scenario.
+ */
 function createContractRecords() {
   return defineTable(
     'records',
@@ -77,6 +91,11 @@ function createContractRecords() {
   )
 }
 
+/**
+ * Creates the contract query records fixture used by the contract scenario.
+ *
+ * @returns The contract query records fixture used by the contract scenario.
+ */
 function createContractQueryRecords() {
   return defineTable(
     'records',
@@ -97,6 +116,11 @@ function createContractQueryRecords() {
   )
 }
 
+/**
+ * Creates the contract events fixture used by the contract scenario.
+ *
+ * @returns The contract events fixture used by the contract scenario.
+ */
 function createContractEvents() {
   return defineTable(
     'events',
@@ -150,47 +174,23 @@ const expectedExtensionMigrationPlan = {
   ],
 } satisfies MigrationPlan
 
+/**
+ * Creates the contract runtime fixture used by the contract scenario.
+ *
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns The contract runtime fixture used by the contract scenario.
+ */
 function createContractRuntime(
-  options?: Readonly<{
-    migration?: 'supported' | 'unsupported'
-    emptyPlanReportsApplied?: Readonly<{
-      executionReported: { value: boolean }
-      postMigrationStateObserved: { value: boolean }
-    }>
-  }>,
+  options?: ContractRuntimeOptions,
 ): import('./dialectMemberContract').DialectLifecycleContractRuntime {
   const calls = createExtensionContractCalls()
   const unsupportedMigration = options?.migration === 'unsupported'
-  const baseDialect = createExtensionContractDialect(
+  const { dialect, faultyLifecycle } = createLifecycleDialect(
     calls,
-    unsupportedMigration ? { migration: 'unsupported' } : undefined,
+    unsupportedMigration,
+    options,
   )
-  const faultyLifecycle = options?.emptyPlanReportsApplied
-  const dialect: Dialect = faultyLifecycle
-    ? {
-        ...baseDialect,
-        migration: {
-          ...baseDialect.migration,
-          lower() {
-            return {
-              program: {
-                atomicity: 'statement-atomic' as const,
-                preconditions: [],
-                actions: [],
-              },
-            }
-          },
-          async execute(
-            migrationOptions: Parameters<typeof baseDialect.migration.execute>[0],
-          ) {
-            await migrationOptions.prepare()
-            calls.migrationOutcomes.push('applied')
-            faultyLifecycle.executionReported.value = true
-            return { outcome: 'applied' as const }
-          },
-        },
-      }
-    : baseDialect
   const { connector, directMethods, disposed } = createContractConnector()
   const Records = createContractRecords()
   return {
@@ -198,27 +198,24 @@ function createContractRuntime(
     connector,
     schemas: [Records],
     defaultNamespace: [{ role: 'database' as const, spelling: 'fixture_tenant' }],
+    /** Executes query for the current fixture scenario. */
     executeQuery: (database: Db) =>
       database.from(Records).where(Records.label, 'eq', 'authored-value').execute(),
     operationCommands: calls.operationCommands,
+    /** Builds catalog evidence for schema reconciliation checks. */
     catalog: () => calls.catalog,
+    /** Returns the connector received by the selected dialect lifecycle facet. */
     selectedConnector: () => calls.connector,
     disposed,
+    /** Returns bindings recorded for the representative query. */
     queryParams: () =>
       calls.statements.find(({ sql }) => sql.startsWith('fixture query:'))?.params,
+    /** Detects another dialect's physical policy in fixture SQL. */
     foreignPolicyLeak: () =>
       calls.statements.some(({ sql }) => /postgres|pg_|public/i.test(sql)),
     directConnectorMethods: Object.values(directMethods),
-    expected: {
-      queryRows: [
-        {
-          id: 'fixture-result:fixture_tenant.records.id:row-1',
-          label:
-            'fixture-result:fixture_tenant.records.label:fixture-param:authored-value',
-        },
-      ],
-      queryParam: 'fixture-param:authored-value',
-    },
+    expected: createExtensionLifecycleExpectation(),
+    /** Returns physical actions recorded after fixture migration. */
     postMigrationState: () => {
       if (faultyLifecycle) faultyLifecycle.postMigrationStateObserved.value = true
 
@@ -226,25 +223,7 @@ function createContractRuntime(
         .filter(({ sql }) => sql.startsWith('fixture migration '))
         .map(({ sql }) => sql)
     },
-    migration: unsupportedMigration
-      ? {
-          state: 'unsupported' as const,
-          reason: EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
-          expectedPlan: expectedExtensionMigrationPlan,
-          expectedPostMigrationState: [],
-        }
-      : {
-          state: 'supported' as const,
-          expectedPlan: expectedExtensionMigrationPlan,
-          expectedPostMigrationState: [
-            'fixture migration ensure_namespace 0',
-            'fixture migration create_table 1',
-          ],
-          reportedOutcome: {
-            expected: 'applied' as const,
-            observed: calls.migrationOutcomes,
-          },
-        },
+    migration: createContractMigrationExpectation(unsupportedMigration, calls),
   }
 }
 
@@ -264,12 +243,14 @@ const semanticQuery: SqlAst = {
 
 const contractRelation = { relation: 'records' } as const
 const contractJoinedRelation = { relation: 'events' } as const
+/** Builds extension compilation input with the selected semantic facets and table handles. */
 const contractInput = (node: SqlAst) => ({
   dialect: semanticDialect,
   handles: [SemanticQueryRecords, SemanticEvents],
   registrationDefault: semanticContext.writableDefault,
   node,
 })
+/** Records adapter-level unsupported catalog evidence with its reason. */
 const unsupported = (expectedMessage: string) => (node: SqlAst) => ({
   support: {
     state: 'unsupported' as const,
@@ -526,10 +507,123 @@ const extensionCompilerScenarios = {
   }),
 } satisfies QueryCompilerScenarios
 
+/**
+ * Creates the contract migration expectation fixture used by the contract scenario.
+ *
+ * @param unsupportedMigration - Migration input expected to report unsupported behavior.
+ * @param calls - Recorded SQL, lifecycle, or hook calls used by the test assertions.
+ *
+ * @returns The contract migration expectation fixture used by the contract scenario.
+ */
+function createContractMigrationExpectation(
+  unsupportedMigration: boolean,
+  calls: ExtensionContractCalls,
+):
+  | Readonly<{
+      state: 'supported'
+      expectedPlan: MigrationPlan
+      expectedPostMigrationState: unknown
+      reportedOutcome?: Readonly<{
+        expected: 'applied' | 'unchanged'
+        observed: readonly ('applied' | 'unchanged')[]
+      }>
+    }>
+  | Readonly<{
+      state: 'unsupported'
+      reason: string
+      expectedPlan: MigrationPlan
+      expectedPostMigrationState: unknown
+    }> {
+  return unsupportedMigration
+    ? {
+        state: 'unsupported' as const,
+        reason: EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
+        expectedPlan: expectedExtensionMigrationPlan,
+        expectedPostMigrationState: [],
+      }
+    : {
+        state: 'supported' as const,
+        expectedPlan: expectedExtensionMigrationPlan,
+        expectedPostMigrationState: [
+          'fixture migration ensure_namespace 0',
+          'fixture migration create_table 1',
+        ],
+        reportedOutcome: {
+          expected: 'applied' as const,
+          observed: calls.migrationOutcomes,
+        },
+      }
+}
+
+/**
+ * Creates the lifecycle dialect fixture used by the contract scenario.
+ *
+ * @param calls - Recorded SQL, lifecycle, or hook calls used by the test assertions.
+ * @param unsupportedMigration - Migration input expected to report unsupported behavior.
+ * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ *
+ * @returns The lifecycle dialect fixture used by the contract scenario.
+ */
+function createLifecycleDialect(
+  calls: ExtensionContractCalls,
+  unsupportedMigration: boolean,
+  options:
+    | Readonly<{
+        migration?: 'supported' | 'unsupported'
+        emptyPlanReportsApplied?: Readonly<{
+          executionReported: { value: boolean }
+          postMigrationStateObserved: { value: boolean }
+        }>
+      }>
+    | undefined,
+) {
+  const baseDialect = createExtensionContractDialect(
+    calls,
+    unsupportedMigration ? { migration: 'unsupported' } : undefined,
+  )
+  const faultyLifecycle = options?.emptyPlanReportsApplied
+  const dialect: Dialect = faultyLifecycle
+    ? {
+        ...baseDialect,
+        migration: {
+          ...baseDialect.migration,
+          /** Lowers for the current fixture scenario. */
+          lower() {
+            return {
+              program: {
+                atomicity: 'statement-atomic' as const,
+                preconditions: [],
+                actions: [],
+              },
+            }
+          },
+          /** Executes fixture SQL with the configured native observations. */
+          async execute(
+            migrationOptions: Parameters<typeof baseDialect.migration.execute>[0],
+          ) {
+            await migrationOptions.prepare()
+            calls.migrationOutcomes.push('applied')
+            faultyLifecycle.executionReported.value = true
+            return { outcome: 'applied' as const }
+          },
+        },
+      }
+    : baseDialect
+  return { dialect, faultyLifecycle }
+}
+
+/**
+ * Creates the semantic planned migration fixture used by the contract scenario.
+ *
+ * @returns The semantic planned migration fixture used by the contract scenario.
+ */
 async function createSemanticPlannedMigration() {
   const request = createCatalogRequest([SemanticRecords], [])
   const catalog = await semanticDialect.catalog.introspectCatalog(
-    { execute: async () => [] },
+    {
+      /** Executes fixture SQL with the configured native observations. */
+      execute: async () => [],
+    },
     request,
   )
   const planned = planMigration(
@@ -559,6 +653,7 @@ const extensionContractCapabilities = {
 const extensionCatalogContractInput = {
   dialect: semanticDialect,
   executor: {
+    /** Executes fixture SQL with the configured native observations. */
     execute: async () => [
       {
         kind: 'namespace' as const,
@@ -726,6 +821,10 @@ it.each(['relations', 'absentRelations', 'completeNamespaces'] as const)(
     const faultyDialect: Dialect = {
       ...semanticDialect,
       catalog: {
+        /**
+         * Reads the requested native catalog scope and returns its portable evidence
+         * snapshot.
+         */
         async introspectCatalog(executor, request) {
           const ignoredRequest = { ...request, [field]: [] }
           const snapshot = await semanticDialect.catalog.introspectCatalog(
@@ -733,7 +832,10 @@ it.each(['relations', 'absentRelations', 'completeNamespaces'] as const)(
             ignoredRequest,
           )
           const reportedRequest = await semanticDialect.catalog.introspectCatalog(
-            { execute: async () => [] },
+            {
+              /** Executes fixture SQL with the configured native observations. */
+              execute: async () => [],
+            },
             request,
           )
           return {
@@ -814,6 +916,7 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
           relation: { relation: 'records' },
           column: 'label',
           node: semanticQuery,
+          /** Projects compiled SQL and bindings into the contract's assertion shape. */
           inspectCompiled: (query) => ({
             parameterCount: query.params.length,
             foreignPolicyLeak: /postgres|pg_|public/i.test(query.sql),
@@ -849,6 +952,11 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
       common: {
         state: 'supported',
         input: {
+          /**
+           * Creates the runtime fixture used by the contract scenario.
+           *
+           * @returns The runtime fixture used by the contract scenario.
+           */
           createRuntime() {
             const calls = createExtensionContractCalls()
             const dialect = createExtensionContractDialect(calls)
@@ -856,6 +964,7 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
               provider: dialect.operations.createSessionProvider(
                 createContractConnector().connector,
               ),
+              /** Returns semantic operation events recorded by the fixture. */
               events: () =>
                 calls.events.flatMap((event) => {
                   if (event === 'session.query') return ['query' as const]
@@ -887,6 +996,11 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
       state: 'supported',
       input: {
         lowering: {
+          /**
+           * Creates the case fixture used by the contract scenario.
+           *
+           * @returns The case fixture used by the contract scenario.
+           */
           async createCase() {
             const { planned, profile } = await createSemanticPlannedMigration()
             return {
@@ -894,57 +1008,9 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
               planned,
               profile,
               mismatchedProfiles: {
-                identityAdapter: {
-                  profile: {
-                    ...profile,
-                    identityAdapter: 'contract-other-identity',
-                  },
-                  issues: [
-                    {
-                      code: 'profile_mismatch',
-                      message:
-                        'Contract fixture identity adapter does not match the executing profile',
-                      sourceStepIndexes: [],
-                    },
-                    {
-                      code: 'profile_mismatch',
-                      message:
-                        'Executing identity adapter does not select the contract fixture',
-                      sourceStepIndexes: [],
-                    },
-                  ],
-                },
-                namespaceContext: {
-                  profile: {
-                    ...profile,
-                    namespaceContext: {
-                      writableDefault: [{ role: 'database', spelling: 'other_database' }],
-                    },
-                  },
-                  issues: [
-                    {
-                      code: 'profile_mismatch',
-                      message:
-                        'Contract fixture writable namespace context does not match',
-                      sourceStepIndexes: [],
-                    },
-                  ],
-                },
-                registrationDefault: {
-                  profile: {
-                    ...profile,
-                    registrationDefault: [
-                      { role: 'database', spelling: 'other_registration' },
-                    ],
-                  },
-                  issues: [
-                    {
-                      code: 'profile_mismatch',
-                      message: 'Contract fixture registration default does not match',
-                      sourceStepIndexes: [],
-                    },
-                  ],
-                },
+                identityAdapter: createIdentityAdapterMismatch(profile),
+                namespaceContext: createNamespaceContextMismatch(profile),
+                registrationDefault: createRegistrationDefaultMismatch(profile),
               },
               expectedProgram: {
                 atomicity: 'statement-atomic',
@@ -970,6 +1036,11 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
         unsupportedLowering: {
           state: 'supported',
           input: {
+            /**
+             * Creates the case fixture used by the contract scenario.
+             *
+             * @returns The case fixture used by the contract scenario.
+             */
             async createCase() {
               const { planned, profile } = await createSemanticPlannedMigration()
               return {
@@ -1028,12 +1099,15 @@ describe('dialect extension contract', () => {
       /deeply equal/i,
     )
   })
+})
 
+describe('dialect extension contract: rejects an unsupported lifecycle that mutates observable state', () => {
   it('rejects an unsupported lifecycle that mutates observable state', async () => {
     const runtime = createContractRuntime({ migration: 'unsupported' })
     const postMigrationStateObserved = { value: false }
     const faultyRuntime = {
       ...runtime,
+      /** Returns physical actions recorded after fixture migration. */
       postMigrationState: () => {
         postMigrationStateObserved.value = true
         return ['unexpected migration statement']
@@ -1046,7 +1120,9 @@ describe('dialect extension contract', () => {
 
     expect(postMigrationStateObserved.value).toBe(true)
   })
+})
 
+describe('dialect extension contract: rejects a compiler that disagrees with the reusable Query agreement case', () => {
   it('rejects a compiler that disagrees with the reusable Query agreement case', async () => {
     const runtime = createContractRuntime()
     const matching = runtime.dialect.query
@@ -1056,26 +1132,21 @@ describe('dialect extension contract', () => {
         ...runtime.dialect,
         query: {
           ...matching,
+          /** Resolves authored relation intent into role-tagged canonical identity. */
           resolve(handles: Parameters<typeof matching.resolve>[0]) {
             return {
               ...matching.resolve(handles),
+              /**
+               * Compiles the current query or command into SQL and ordered bound
+               * parameters.
+               */
               compile: () => ({ sql: 'mismatched query', params: [] }),
             }
           },
         },
       },
     }
-    const Records = defineTable(
-      'records',
-      {
-        id: pipe(
-          string(),
-          column({ physicalType: { [runtime.dialect.id]: 'fixture_id' } }),
-        ),
-        label: string(),
-      },
-      { primaryKey: 'id' },
-    )
+    const Records = createMismatchedQueryRecords(runtime.dialect)
     unregister = registerDialectForTest(mismatched.dialect)
     const db = createDatabase({ connector: mismatched.connector, schemas: [Records] })
 
@@ -1092,7 +1163,9 @@ describe('dialect extension contract', () => {
       await db.close()
     }
   })
+})
 
+describe('dialect extension contract: keeps contract registration isolated and rejects duplicate members', () => {
   it('keeps contract registration isolated and rejects duplicate members', () => {
     const member = createExtensionContractDialect(createExtensionContractCalls())
     unregister = registerDialectForTest(member)
@@ -1120,3 +1193,110 @@ describe('dialect extension contract', () => {
     )
   })
 })
+
+/** Creates the identity adapter mismatch fixture used by the contract scenario. */
+function createIdentityAdapterMismatch(
+  profile: MigrationContractCase['profile'],
+): MigrationContractCase['mismatchedProfiles']['identityAdapter'] {
+  return {
+    profile: {
+      ...profile,
+      identityAdapter: 'contract-other-identity',
+    },
+    issues: [
+      {
+        code: 'profile_mismatch',
+        message: 'Contract fixture identity adapter does not match the executing profile',
+        sourceStepIndexes: [],
+      },
+      {
+        code: 'profile_mismatch',
+        message: 'Executing identity adapter does not select the contract fixture',
+        sourceStepIndexes: [],
+      },
+    ],
+  }
+}
+
+/** Creates the namespace context mismatch fixture used by the contract scenario. */
+function createNamespaceContextMismatch(
+  profile: MigrationContractCase['profile'],
+): MigrationContractCase['mismatchedProfiles']['namespaceContext'] {
+  return {
+    profile: {
+      ...profile,
+      namespaceContext: {
+        writableDefault: [{ role: 'database', spelling: 'other_database' }],
+      },
+    },
+    issues: [
+      {
+        code: 'profile_mismatch',
+        message: 'Contract fixture writable namespace context does not match',
+        sourceStepIndexes: [],
+      },
+    ],
+  }
+}
+
+/** Creates the registration default mismatch fixture used by the contract scenario. */
+function createRegistrationDefaultMismatch(
+  profile: MigrationContractCase['profile'],
+): MigrationContractCase['mismatchedProfiles']['registrationDefault'] {
+  return {
+    profile: {
+      ...profile,
+      registrationDefault: [{ role: 'database', spelling: 'other_registration' }],
+    },
+    issues: [
+      {
+        code: 'profile_mismatch',
+        message: 'Contract fixture registration default does not match',
+        sourceStepIndexes: [],
+      },
+    ],
+  }
+}
+
+type ContractRuntimeOptions = Readonly<{
+  migration?: 'supported' | 'unsupported'
+  emptyPlanReportsApplied?: Readonly<{
+    executionReported: { value: boolean }
+    postMigrationStateObserved: { value: boolean }
+  }>
+}>
+
+/**
+ * Builds expected mapped rows and parameter evidence for the lifecycle query.
+ *
+ * @returns Expected lifecycle query results and bindings.
+ */
+function createExtensionLifecycleExpectation() {
+  return {
+    queryRows: [
+      {
+        id: 'fixture-result:fixture_tenant.records.id:row-1',
+        label: 'fixture-result:fixture_tenant.records.label:fixture-param:authored-value',
+      },
+    ],
+    queryParam: 'fixture-param:authored-value',
+  }
+}
+
+/**
+ * Builds the registered records handle for the mismatched-compiler scenario.
+ *
+ * @param dialect - Fixture dialect whose physical type tag is required.
+ *
+ * @returns The records table with fixture ID storage metadata.
+ */
+function createMismatchedQueryRecords(dialect: Dialect) {
+  return defineTable(
+    'records',
+    {
+      id: pipe(string(), column({ physicalType: { [dialect.id]: 'fixture_id' } })),
+      label: string(),
+    },
+    { primaryKey: 'id' },
+  )
+}

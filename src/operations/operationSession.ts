@@ -12,15 +12,41 @@ export type OperationSessionIdentity = QuerySessionIdentity &
 /** An exclusive physical database session used for one root operation. */
 export type OperationSession = {
   readonly identity: OperationSessionIdentity
+  /**
+   * Executes a row-returning query on the pinned physical session.
+   *
+   * @param query - Compiled SQL and ordered parameter bindings for the current physical
+   *   call.
+   *
+   * @returns Native result rows from the session-bound physical SQL call.
+   */
   query(query: CompiledQuery): Promise<unknown[]>
+  /**
+   * Executes a statement without requiring result rows.
+   *
+   * @param query - Compiled SQL and ordered parameter bindings for the current physical
+   *   call.
+   */
   run(query: CompiledQuery): Promise<void>
+  /** Cancels the active physical-session operation. */
   cancel(): Promise<void>
+  /**
+   * Settles queued work and releases the lease for reuse or discard.
+   *
+   * @param disposition - Whether release may reuse the session or must discard it.
+   */
   release(disposition: OperationSessionDisposition): Promise<void>
 }
 
 /** Opens exclusive physical sessions with native transaction affinity. */
 export type OperationSessionProvider = {
   readonly nativeTransactions: true
+  /**
+   * Opens an exclusive physical-session lease.
+   *
+   * @returns An exclusive session lease whose identity remains stable until release.
+   */
   open(): Promise<OperationSession>
+  /** Closes owned resources after active work has settled. */
   close(): Promise<void>
 }

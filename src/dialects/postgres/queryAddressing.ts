@@ -56,6 +56,18 @@ function postgresRelationSessionRequirement(
   }
 }
 
+/**
+ * Finds handles compatible with an authored relation and the required PostgreSQL session
+ * evidence.
+ *
+ * @param handles - Registered handles used for relation and column resolution.
+ * @param relation - Authored or canonical relation addressed by this operation.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ *
+ * @returns Handles compatible with an authored relation and the required PostgreSQL
+ *   session evidence.
+ */
 function findPostgresQueryRelationMatches(
   handles: readonly TableHandle[],
   relation: RelationIdentityInput,
@@ -100,39 +112,10 @@ export function resolvePostgresQuery(
   )
 
   return Object.freeze({
-    compile(node: Parameters<typeof compilePostgres>[0]) {
-      const compiled = compilePostgres(node, resolveRelation)
-
-      if (requirements.size === 0) return compiled
-
-      return {
-        ...compiled,
-        assertSession(
-          identity: Parameters<NonNullable<typeof compiled.assertSession>>[0],
-        ) {
-          compiled.assertSession?.(identity)
-          const namespace = identity.namespaceContext?.writableDefault
-          const database =
-            namespace?.find((segment) => segment.role === 'database')?.spelling ??
-            identity.database
-          const schema = namespace?.find((segment) => segment.role === 'schema')?.spelling
-
-          for (const requirement of requirements.values()) {
-            if (requirement.database !== undefined && requirement.database !== database) {
-              throw new QueryError({
-                message: `PostgreSQL query database ${JSON.stringify(requirement.database)} does not match executing database ${JSON.stringify(database)}`,
-              })
-            }
-
-            if (requirement.schema !== undefined && requirement.schema !== schema) {
-              throw new QueryError({
-                message: `PostgreSQL query schema ${JSON.stringify(requirement.schema)} does not match executing current schema ${JSON.stringify(schema)}`,
-              })
-            }
-          }
-        },
-      }
-    },
+    /** Compiles the current query or command into SQL and ordered bound parameters. */
+    compile: (node: Parameters<typeof compilePostgres>[0]) =>
+      compileResolvedPostgresQuery(node, resolveRelation, requirements),
+    /** Finds handles matching the authored relation under query rules. */
     findRelationMatches(
       relation: RelationIdentityInput,
       candidates?: readonly TableHandle[],
@@ -154,4 +137,55 @@ export function resolvePostgresQuery(
     },
     findColumnMatches: findPostgresQueryColumnMatches,
   })
+}
+
+/**
+ * Compiles a query and attaches identity requirements collected during relation
+ * resolution.
+ *
+ * @param node - AST node or dependency-graph node being processed.
+ * @param resolveRelation - Resolves authored relation intent under the selected query
+ *   namespace rules.
+ * @param requirements - Physical-session requirements attached to compiled SQL.
+ *
+ * @returns Compiled SQL and bound values in emitted order.
+ */
+function compileResolvedPostgresQuery(
+  node: Parameters<typeof compilePostgres>[0],
+  resolveRelation: ReturnType<typeof createPostgresQueryRelationResolver>,
+  requirements: Map<string, Readonly<{ database?: string; schema?: string }>>,
+) {
+  const compiled = compilePostgres(node, resolveRelation)
+
+  if (requirements.size === 0) return compiled
+
+  return {
+    ...compiled,
+    /**
+     * Rejects execution on a session that does not satisfy the compiled query's identity
+     * requirements.
+     */
+    assertSession(identity: Parameters<NonNullable<typeof compiled.assertSession>>[0]) {
+      compiled.assertSession?.(identity)
+      const namespace = identity.namespaceContext?.writableDefault
+      const database =
+        namespace?.find((segment) => segment.role === 'database')?.spelling ??
+        identity.database
+      const schema = namespace?.find((segment) => segment.role === 'schema')?.spelling
+
+      for (const requirement of requirements.values()) {
+        if (requirement.database !== undefined && requirement.database !== database) {
+          throw new QueryError({
+            message: `PostgreSQL query database ${JSON.stringify(requirement.database)} does not match executing database ${JSON.stringify(database)}`,
+          })
+        }
+
+        if (requirement.schema !== undefined && requirement.schema !== schema) {
+          throw new QueryError({
+            message: `PostgreSQL query schema ${JSON.stringify(requirement.schema)} does not match executing current schema ${JSON.stringify(schema)}`,
+          })
+        }
+      }
+    },
+  }
 }

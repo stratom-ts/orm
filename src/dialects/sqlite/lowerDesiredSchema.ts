@@ -6,10 +6,19 @@ import type {
   LoweredDesiredColumn,
   LoweredDesiredSchema,
 } from '@/dialects/types'
-import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
-import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
+import type {
+  CanonicalIdentifier,
+  CanonicalRelationIdentity,
+} from '@/migrations/canonicalRelationIdentity'
+import type {
+  ColumnGeneration,
+  ColumnMetadata,
+  DatabaseDefault,
+  ReferenceMetadata,
+} from '@/schemas'
 import { analyzeSchema } from '@/schemas'
 import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
+import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
 
 import { inferSqliteColumnType } from './infer'
@@ -20,6 +29,14 @@ import {
   formatSqliteLiteral,
 } from './validate'
 
+/**
+ * Compares ordered namespace roles and canonical identifier keys.
+ *
+ * @param left - Left operand or identity in the comparison.
+ * @param right - Right operand or identity in the comparison.
+ *
+ * @returns True when both identities have equal canonical namespace and relation keys.
+ */
 function sameIdentity(
   left: CanonicalRelationIdentity,
   right: CanonicalRelationIdentity,
@@ -36,6 +53,16 @@ function sameIdentity(
   )
 }
 
+/**
+ * Formats canonical namespace, relation, and optional member spellings for diagnostics.
+ *
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ * @param column - Authored column spelling to resolve, map, or compile.
+ *
+ * @returns A diagnostic identity spelling that keeps namespace and relation components
+ *   distinct.
+ */
 function formatIdentity(identity: CanonicalRelationIdentity, column?: string): string {
   const parts = identity.namespace.map(
     (segment) => `${segment.role}:${JSON.stringify(segment.identifier.spelling)}`,
@@ -47,6 +74,13 @@ function formatIdentity(identity: CanonicalRelationIdentity, column?: string): s
   return `[${parts.join(', ')}]`
 }
 
+/**
+ * Copies and sorts desired columns by canonical key, then authored spelling.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ *
+ * @returns And sorts desired columns by canonical key, then authored spelling.
+ */
 function orderedColumns(table: AuthoredDesiredTable): AuthoredDesiredColumn[] {
   return [...table.columns].sort(
     (left, right) =>
@@ -58,6 +92,12 @@ function orderedColumns(table: AuthoredDesiredTable): AuthoredDesiredColumn[] {
   )
 }
 
+/**
+ * Rejects SQLite desired relations outside the supported main database.
+ *
+ * @param identity - Canonical relation or physical-session identity used by this
+ *   operation.
+ */
 function assertMainIdentity(identity: CanonicalRelationIdentity): void {
   if (
     identity.namespace.length !== 1 ||
@@ -70,6 +110,13 @@ function assertMainIdentity(identity: CanonicalRelationIdentity): void {
   }
 }
 
+/**
+ * Lowers supported portable date and time defaults into dialect SQL.
+ *
+ * @param expression - Scalar SQL expression or default expression being processed.
+ *
+ * @returns A validated default expression within the portable supported grammar.
+ */
 function portableExpression(expression: string): string {
   switch (expression) {
     case 'currentTimestamp':
@@ -85,6 +132,14 @@ function portableExpression(expression: string): string {
   }
 }
 
+/**
+ * Validates and lowers a tagged database default into comparable SQL.
+ *
+ * @param value - Runtime value to validate, normalize, or map.
+ *
+ * @returns The dialect's lowered database default, or undefined when no default is
+ *   declared.
+ */
 function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
   let sql: string
 
@@ -109,6 +164,7 @@ function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
   return { sql, normalized: normalizeSqliteDefaultExpression(sql) }
 }
 
+/** Selects the explicit physical type or infers one from the column schema. */
 function physicalType(column: AuthoredDesiredColumn, analysis: SchemaAnalysis): string {
   const selected =
     column.metadata?.physicalType?.sqlite ??
@@ -116,6 +172,15 @@ function physicalType(column: AuthoredDesiredColumn, analysis: SchemaAnalysis): 
   return assertSafeSqliteDataType(String(selected))
 }
 
+/**
+ * Rejects a local reference type that conflicts with its inherited target type.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ * @param column - Authored or observed column metadata used for storage comparison.
+ * @param inheritedType - Physical SQL type resolved from the reference target.
+ *
+ * @returns The compatible reference storage type; conflicting local overrides throw.
+ */
 function validateReferencePhysicalType(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
@@ -136,16 +201,27 @@ function validateReferencePhysicalType(
   return localType
 }
 
+/** Normalizes single-column and composite primary-key declarations into a column list. */
 function primaryKeyNames(table: AuthoredDesiredTable): readonly string[] {
   return Array.isArray(table.metadata.primaryKey)
     ? table.metadata.primaryKey
     : [table.metadata.primaryKey]
 }
 
+/** Tests the exact INTEGER spelling required for SQLite rowid generation. */
 function isExactInteger(dataType: string): boolean {
   return dataType.trim().replace(/\s+/g, ' ').toUpperCase() === 'INTEGER'
 }
 
+/**
+ * Validates generation metadata against the column's supported physical storage.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ * @param column - Authored or observed column metadata used for storage comparison.
+ * @param dataType - Physical SQL type used for validation, comparison, or value mapping.
+ *
+ * @returns Portable desired generation metadata supported by the selected dialect.
+ */
 function lowerGeneration(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
@@ -183,6 +259,17 @@ function lowerGeneration(
   return true
 }
 
+/**
+ * Builds immutable column storage metadata after dialect validation.
+ *
+ * @param table - Table metadata or evidence used to resolve its members.
+ * @param column - Authored or observed column metadata used for storage comparison.
+ * @param dataType - Physical SQL type used for validation, comparison, or value mapping.
+ * @param analysis - Resolved schema facts for physical type selection and validation.
+ *
+ * @returns The desired column's validated physical storage, generation, and default
+ *   metadata.
+ */
 function lowerColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
@@ -240,6 +327,7 @@ export function lowerSqliteDesiredSchema(
   const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
   const analyses = new Map<AuthoredDesiredColumn, SchemaAnalysis>()
 
+  /** Caches schema facts and resolves physical types for columns without references. */
   function registerColumnAnalysis(column: AuthoredDesiredColumn): void {
     const analysis = analyzeSchema(column.schema)
     analyses.set(column, analysis)
@@ -259,71 +347,7 @@ export function lowerSqliteDesiredSchema(
     for (const column of orderedColumns(table)) registerColumnAnalysis(column)
   }
 
-  let pending = graph.tables.flatMap((table) =>
-    orderedColumns(table)
-      .filter((column) => column.reference !== undefined)
-      .map((column) => ({ table, column })),
-  )
-
-  function resolvePendingType(
-    item: (typeof pending)[number],
-    unresolved: typeof pending,
-  ): boolean {
-    const reference = item.column.reference!
-    assertMainIdentity(reference.targetRelation)
-    const targetTable = graph.tables.find((table) =>
-      sameIdentity(table.identity, reference.targetRelation),
-    )
-
-    if (!targetTable) {
-      throw new MigrationError({
-        message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets unregistered relation ${formatIdentity(reference.targetRelation)}`,
-      })
-    }
-
-    const targetColumn = targetTable.columns.find(
-      (column) =>
-        column.identifier.comparisonKey === reference.targetColumn.comparisonKey,
-    )
-
-    if (!targetColumn) {
-      throw new MigrationError({
-        message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn.spelling)}`,
-      })
-    }
-
-    const inheritedType = resolvedTypes.get(targetColumn)
-
-    if (inheritedType === undefined) {
-      unresolved.push(item)
-      return false
-    }
-
-    resolvedTypes.set(
-      item.column,
-      validateReferencePhysicalType(item.table, item.column, inheritedType) ??
-        inheritedType,
-    )
-
-    return true
-  }
-
-  while (pending.length > 0) {
-    const unresolved: typeof pending = []
-    let progress = false
-
-    for (const item of pending)
-      progress = resolvePendingType(item, unresolved) || progress
-
-    if (!progress) {
-      const first = unresolved[0]!
-      throw new MigrationError({
-        message: `Cannot resolve reference-only physical type cycle at ${formatIdentity(first.table.identity, first.column.name)}`,
-      })
-    }
-
-    pending = unresolved
-  }
+  resolveReferenceTypes(graph, resolvedTypes)
 
   const loweredColumns = new Map<AuthoredDesiredColumn, LoweredDesiredColumn>()
 
@@ -336,6 +360,23 @@ export function lowerSqliteDesiredSchema(
     }
   }
 
+  return freezeLoweredSchema(graph, loweredColumns)
+}
+
+type PendingReference = { table: AuthoredDesiredTable; column: AuthoredDesiredColumn }
+
+/**
+ * Freezes resolved tables, columns, and primary-key identifiers into a desired schema.
+ *
+ * @param graph - Registered authored tables and their resolved reference graph.
+ * @param loweredColumns - Desired columns after dialect-specific storage resolution.
+ *
+ * @returns An immutable desired schema with frozen table, column, and key metadata.
+ */
+function freezeLoweredSchema(
+  graph: AuthoredDesiredSchema,
+  loweredColumns: ReadonlyMap<AuthoredDesiredColumn, LoweredDesiredColumn>,
+): LoweredDesiredSchema {
   return Object.freeze({
     tables: Object.freeze(
       graph.tables.map((table) => {
@@ -364,4 +405,107 @@ export function lowerSqliteDesiredSchema(
       }),
     ),
   })
+}
+
+/**
+ * Resolves reference types in dependency order and rejects cycles without progress.
+ *
+ * @param graph - Registered authored tables and their resolved reference graph.
+ * @param resolvedTypes - Mutable cache of physical types already resolved for authored
+ *   columns.
+ */
+function resolveReferenceTypes(
+  graph: AuthoredDesiredSchema,
+  resolvedTypes: Map<
+    Readonly<{
+      name: string
+      identifier: CanonicalIdentifier
+      schema: AnySchema
+      metadata?: ColumnMetadata
+      reference?: Readonly<{
+        metadata: ReferenceMetadata
+        targetRelation: CanonicalRelationIdentity
+        targetColumn: CanonicalIdentifier
+      }>
+    }>,
+    string
+  >,
+) {
+  let pending = graph.tables.flatMap((table) =>
+    orderedColumns(table)
+      .filter((column) => column.reference !== undefined)
+      .map((column) => ({ table, column })),
+  )
+
+  while (pending.length > 0) {
+    const unresolved: typeof pending = []
+    let progress = false
+
+    for (const item of pending)
+      progress = resolvePendingType(item, unresolved, graph, resolvedTypes) || progress
+
+    if (!progress) {
+      const first = unresolved[0]!
+      throw new MigrationError({
+        message: `Cannot resolve reference-only physical type cycle at ${formatIdentity(first.table.identity, first.column.name)}`,
+      })
+    }
+
+    pending = unresolved
+  }
+}
+
+/**
+ * Resolves one reference type or defers it until the target's type is known.
+ *
+ * @param item - Current member or pending reference under evaluation.
+ * @param unresolved - Pending references whose target types are not yet available.
+ * @param graph - Registered authored tables and their resolved reference graph.
+ * @param resolvedTypes - Mutable cache of physical types already resolved for authored
+ *   columns.
+ *
+ * @returns Whether the target type was available and this reference was resolved.
+ */
+function resolvePendingType(
+  item: PendingReference,
+  unresolved: PendingReference[],
+  graph: AuthoredDesiredSchema,
+  resolvedTypes: Map<AuthoredDesiredColumn, string>,
+): boolean {
+  const reference = item.column.reference!
+  assertMainIdentity(reference.targetRelation)
+  const targetTable = graph.tables.find((table) =>
+    sameIdentity(table.identity, reference.targetRelation),
+  )
+
+  if (!targetTable) {
+    throw new MigrationError({
+      message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets unregistered relation ${formatIdentity(reference.targetRelation)}`,
+    })
+  }
+
+  const targetColumn = targetTable.columns.find(
+    (column) => column.identifier.comparisonKey === reference.targetColumn.comparisonKey,
+  )
+
+  if (!targetColumn) {
+    throw new MigrationError({
+      message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn.spelling)}`,
+    })
+  }
+
+  const inheritedType = resolvedTypes.get(targetColumn)
+
+  if (inheritedType === undefined) {
+    unresolved.push(item)
+    return false
+  }
+
+  resolvedTypes.set(
+    item.column,
+    validateReferencePhysicalType(item.table, item.column, inheritedType) ??
+      inheritedType,
+  )
+
+  return true
 }

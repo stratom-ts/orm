@@ -43,6 +43,7 @@ function sameNamespace(
   )
 }
 
+/** Tests whether a relation action depends on creating its namespace. */
 function followsNamespace(
   other: ActionDraft,
   relation: CanonicalRelationIdentity | undefined,
@@ -54,6 +55,7 @@ function followsNamespace(
   )
 }
 
+/** Tests whether an action requires another action's newly created relation. */
 function followsCreatedRelation(
   current: ActionDraft,
   other: ActionDraft,
@@ -69,6 +71,18 @@ function followsCreatedRelation(
   )
 }
 
+/**
+ * Tests whether a foreign key depends on creating its referenced relation.
+ *
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ * @param other - Candidate prerequisite action whose target may affect the current
+ *   action.
+ * @param planned - Migration Plan with its resolved Semantic Profile and desired-schema
+ *   registrations.
+ *
+ * @returns True when a foreign key depends on creating its referenced relation.
+ */
 function followsReferencedRelation(
   current: ActionDraft,
   other: ActionDraft,
@@ -84,6 +98,18 @@ function followsReferencedRelation(
   )
 }
 
+/**
+ * Tests whether index creation depends on adding one of its columns.
+ *
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ * @param other - Candidate prerequisite action whose target may affect the current
+ *   action.
+ * @param planned - Migration Plan with its resolved Semantic Profile and desired-schema
+ *   registrations.
+ *
+ * @returns True when index creation depends on adding one of its columns.
+ */
 function followsIndexedColumn(
   current: ActionDraft,
   other: ActionDraft,
@@ -103,6 +129,18 @@ function followsIndexedColumn(
   return current.step.columns.some((column) => column.comparisonKey === addedColumn)
 }
 
+/**
+ * Tests whether a foreign key depends on adding its source or target column.
+ *
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ * @param other - Candidate prerequisite action whose target may affect the current
+ *   action.
+ * @param planned - Migration Plan with its resolved Semantic Profile and desired-schema
+ *   registrations.
+ *
+ * @returns True when a foreign key depends on adding its source or target column.
+ */
 function followsForeignKeyColumn(
   current: ActionDraft,
   other: ActionDraft,
@@ -123,6 +161,18 @@ function followsForeignKeyColumn(
   return addsSource || addsTarget
 }
 
+/**
+ * Tests whether a column drop must follow removal of an index that uses it.
+ *
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ * @param other - Candidate prerequisite action whose target may affect the current
+ *   action.
+ * @param planned - Migration Plan with its resolved Semantic Profile and desired-schema
+ *   registrations.
+ *
+ * @returns True when a column drop must follow removal of an index that uses it.
+ */
 function followsDroppedIndex(
   current: ActionDraft,
   other: ActionDraft,
@@ -151,6 +201,18 @@ function followsDroppedIndex(
   )
 }
 
+/**
+ * Tests whether a relation drop must follow removal of a referencing relation.
+ *
+ * @param current - Existing definition or resolved properties being compared with desired
+ *   metadata.
+ * @param other - Candidate prerequisite action whose target may affect the current
+ *   action.
+ * @param planned - Migration Plan with its resolved Semantic Profile and desired-schema
+ *   registrations.
+ *
+ * @returns True when a relation drop must follow removal of a referencing relation.
+ */
 function followsReferencingTable(
   current: ActionDraft,
   other: ActionDraft,
@@ -198,6 +260,7 @@ function actionDependencies(
 ): Set<number>[] {
   const dependencies = drafts.map(() => new Set<number>())
 
+  /** Records an action prerequisite when the candidate action must run first. */
   function addDependency(action: number, candidate: number, draft: ActionDraft): void {
     if (action !== candidate && actionDependsOn(drafts[action]!, draft, planned)) {
       dependencies[action]!.add(candidate)
@@ -226,6 +289,7 @@ function topologicalOrder(
 
   const ordered: ActionDraft[] = []
 
+  /** Queues graph nodes whose prerequisites have all completed. */
   function makeAvailable(edges: Set<number>, index: number, completed: number): void {
     if (!edges.delete(completed) || edges.size !== 0) return
     if (!ordered.includes(drafts[index]!)) available.push(index)
@@ -256,6 +320,11 @@ function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
   const onStack = new Set<number>()
   const cycles: number[][] = []
 
+  /**
+   * Finds strongly connected action components during dependency-cycle detection.
+   *
+   * @param node - AST node or dependency-graph node being processed.
+   */
   function visit(node: number): void {
     indexes[node] = nextIndex
     lowLinks[node] = nextIndex++
@@ -273,21 +342,7 @@ function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
 
     if (lowLinks[node] !== indexes[node]) return
 
-    const component: number[] = []
-    let member: number
-
-    do {
-      member = stack.pop()!
-      onStack.delete(member)
-      component.push(member)
-    } while (member !== node)
-
-    if (
-      component.length > 1 ||
-      (component.length === 1 && dependencies[node]!.has(node))
-    ) {
-      cycles.push(component)
-    }
+    collectDependencyCycle(node, dependencies, stack, onStack, cycles)
   }
 
   for (let node = 0; node < dependencies.length; node++) {
@@ -334,4 +389,33 @@ export function orderActions(
   if (ordered.length === drafts.length) return { ordered, issues: [] }
 
   return { ordered: [], issues: cycleIssues(drafts, dependencies) }
+}
+
+/**
+ * Pops one strongly connected component and retains cycles, including self-edges.
+ *
+ * @param node - Root node of the completed component.
+ * @param dependencies - Action prerequisites indexed by node.
+ * @param stack - Active depth-first traversal stack.
+ * @param onStack - Nodes still on the traversal stack.
+ * @param cycles - Mutable cycle components collected so far.
+ */
+function collectDependencyCycle(
+  node: number,
+  dependencies: readonly Set<number>[],
+  stack: number[],
+  onStack: Set<number>,
+  cycles: number[][],
+) {
+  const component: number[] = []
+  let member: number
+  do {
+    member = stack.pop()!
+    onStack.delete(member)
+    component.push(member)
+  } while (member !== node)
+
+  if (component.length > 1 || (component.length === 1 && dependencies[node]!.has(node))) {
+    cycles.push(component)
+  }
 }

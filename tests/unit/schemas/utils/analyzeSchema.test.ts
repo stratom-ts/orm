@@ -65,7 +65,9 @@ describe('analyzeSchema', () => {
     expect(analyzeSchema(picklist(['a', 1])).outputKind).toBeUndefined()
     expect(analyzeSchema(enumSchema({ A: 'a', B: 1 })).outputKind).toBeUndefined()
   })
+})
 
+describe('analyzeSchema: reports every supported scalar and JSON-shaped output family', () => {
   it('reports every supported scalar and JSON-shaped output family', () => {
     expect(analyzeSchema(string()).outputKind).toBe('string')
     expect(analyzeSchema(number()).outputKind).toBe('number')

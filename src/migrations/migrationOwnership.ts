@@ -7,6 +7,7 @@ import type {
   CanonicalNamespaceSegment,
   CanonicalRelationIdentity,
   CanonicalRelationIdentityModule,
+  CanonicalRelationRegistry,
   NamespaceIdentifierInput,
   RelationIdentityInput,
 } from './canonicalRelationIdentity'
@@ -31,8 +32,32 @@ export type MigrationOwnershipDeclaration =
     }>
 
 export type ResolvedMigrationOwnership = {
+  /**
+   * Reads a relation's resolved complete or additive migration authority.
+   *
+   * @param identity - Canonical relation or physical-session identity used by this
+   *   operation.
+   *
+   * @returns The relation's complete or additive migration authority, when declared.
+   */
   relationShape(identity: CanonicalRelationIdentity): MigrationRelationShape | undefined
+  /**
+   * Tests whether ownership explicitly declares a relation absent.
+   *
+   * @param identity - Canonical relation or physical-session identity used by this
+   *   operation.
+   *
+   * @returns True when ownership explicitly declares a relation absent.
+   */
   isAbsent(identity: CanonicalRelationIdentity): boolean
+  /**
+   * Tests whether ownership authorizes complete management of a canonical namespace.
+   *
+   * @param namespace - Ordered role-tagged namespace segments used for identity
+   *   resolution.
+   *
+   * @returns True when ownership authorizes complete management of a canonical namespace.
+   */
   ownsNamespace(namespace: readonly CanonicalNamespaceSegment[]): boolean
   readonly completeNamespaces: readonly (readonly CanonicalNamespaceSegment[])[]
   readonly explicitRelations: readonly CanonicalRelationIdentity[]
@@ -189,32 +214,11 @@ function formatNamespace(namespace: readonly CanonicalNamespaceSegment[]): strin
     .join(', ')}]`
 }
 
-/**
- * Resolves migration authority once against canonical relation identities.
- *
- * @example
- *   const ownership = resolveMigrationOwnership(schemas, declarations, identities)
- *
- * @param schemas - Registered table handles.
- * @param declarations - Explicit migration ownership declarations.
- * @param identities - Canonical relation identity module.
- */
-export function resolveMigrationOwnership(
-  schemas: readonly TableHandle[],
+/** Resolves and orders authored relation ownership declarations. */
+function resolveRelationDeclarations(
   declarations: readonly MigrationOwnershipDeclaration[],
   identities: CanonicalRelationIdentityModule,
-): ResolvedMigrationOwnership {
-  const registered = identities.createRegistry<TableHandle>()
-  const shapes = identities.createRegistry<MigrationRelationShape>()
-  const explicitlyShaped = identities.createRegistry<true>()
-  const absent = identities.createRegistry<true>()
-
-  for (const handle of schemas) {
-    const identity = identities.resolve(relationInput(handle))
-    registered.set(identity, handle)
-    shapes.set(identity, 'complete')
-  }
-
+) {
   const resolvedRelations = declarations
     .filter(
       (
@@ -244,6 +248,119 @@ export function resolveMigrationOwnership(
             : 0),
     )
 
+  return resolvedRelations
+}
+
+/**
+ * Resolves migration authority once against canonical relation identities.
+ *
+ * @example
+ *   const ownership = resolveMigrationOwnership(schemas, declarations, identities)
+ *
+ * @param schemas - Registered table handles.
+ * @param declarations - Explicit migration ownership declarations.
+ * @param identities - Canonical relation identity module.
+ */
+export function resolveMigrationOwnership(
+  schemas: readonly TableHandle[],
+  declarations: readonly MigrationOwnershipDeclaration[],
+  identities: CanonicalRelationIdentityModule,
+): ResolvedMigrationOwnership {
+  const registered = identities.createRegistry<TableHandle>()
+  const shapes = identities.createRegistry<MigrationRelationShape>()
+  const explicitlyShaped = identities.createRegistry<true>()
+  const absent = identities.createRegistry<true>()
+
+  for (const handle of schemas) {
+    const identity = identities.resolve(relationInput(handle))
+    registered.set(identity, handle)
+    shapes.set(identity, 'complete')
+  }
+
+  const resolvedRelations = resolveRelationDeclarations(declarations, identities)
+
+  applyRelationDeclarations(
+    resolvedRelations,
+    registered,
+    identities,
+    explicitlyShaped,
+    absent,
+    shapes,
+  )
+
+  const completeNamespaces = resolveCompleteNamespaces(declarations, identities)
+
+  return createOwnershipView(shapes, absent, completeNamespaces, resolvedRelations)
+}
+
+/**
+ * Exposes resolved relation shapes, absence declarations, and complete namespace
+ * ownership.
+ *
+ * @param shapes - Registry of resolved complete or additive relation authority.
+ * @param absent - Registry of relations explicitly declared absent.
+ * @param completeNamespaces - Canonical namespaces covered by complete migration
+ *   authority.
+ * @param resolvedRelations - Resolved relation ownership declarations in canonical order.
+ *
+ * @returns Read operations over resolved relation shapes and namespace authority.
+ */
+function createOwnershipView(
+  shapes: CanonicalRelationRegistry<MigrationRelationShape>,
+  absent: CanonicalRelationRegistry<true>,
+  completeNamespaces: (readonly CanonicalNamespaceSegment[])[],
+  resolvedRelations: ResolvedRelationDeclarations,
+): ResolvedMigrationOwnership {
+  return {
+    /** Reads a relation's resolved complete or additive migration authority. */
+    relationShape: (identity) => shapes.get(identity),
+    /**
+     * Tests whether a relation is declared absent.
+     *
+     * @example
+     *   ownership.isAbsent(identity)
+     *
+     * @param identity - Canonical relation identity.
+     */
+    isAbsent: (identity) => absent.has(identity),
+    /**
+     * Tests whether a namespace is completely managed.
+     *
+     * @example
+     *   ownership.ownsNamespace(identity.namespace)
+     *
+     * @param namespace - Canonical namespace segments.
+     */
+    ownsNamespace: (namespace) =>
+      completeNamespaces.some((owned) => sameNamespace(owned, namespace)),
+    completeNamespaces,
+    explicitRelations: resolvedRelations
+      .filter(({ declaration }) => declaration.kind === 'relation')
+      .map(({ identity }) => identity),
+    absentRelations: resolvedRelations
+      .filter(({ declaration }) => declaration.kind === 'absentRelation')
+      .map(({ identity }) => identity),
+  }
+}
+
+/**
+ * Validates ownership conflicts and records each relation's resolved migration authority.
+ *
+ * @param resolvedRelations - Resolved relation ownership declarations in canonical order.
+ * @param registered - Registered table handles indexed by canonical relation identity.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ * @param explicitlyShaped - Registry used to detect repeated relation-shape declarations.
+ * @param absent - Registry of relations explicitly declared absent.
+ * @param shapes - Registry of resolved complete or additive relation authority.
+ */
+function applyRelationDeclarations(
+  resolvedRelations: ResolvedRelationDeclarations,
+  registered: CanonicalRelationRegistry<TableHandle>,
+  identities: CanonicalRelationIdentityModule,
+  explicitlyShaped: CanonicalRelationRegistry<true>,
+  absent: CanonicalRelationRegistry<true>,
+  shapes: CanonicalRelationRegistry<MigrationRelationShape>,
+) {
   for (const { declaration, identity } of resolvedRelations) {
     if (declaration.kind === 'relation' && !registered.has(identity)) {
       throw new InvariantError(
@@ -283,7 +400,20 @@ export function resolveMigrationOwnership(
 
     absent.set(identity, true)
   }
+}
 
+/**
+ * Resolves and deterministically orders complete namespace ownership declarations.
+ *
+ * @param declarations - Authored ownership declarations to resolve and validate.
+ * @param identities - Canonical identity operations for the resolved namespace context.
+ *
+ * @returns And deterministically orders complete namespace ownership declarations.
+ */
+function resolveCompleteNamespaces(
+  declarations: readonly MigrationOwnershipDeclaration[],
+  identities: CanonicalRelationIdentityModule,
+) {
   const completeNamespaces = declarations
     .filter(
       (
@@ -317,41 +447,16 @@ export function resolveMigrationOwnership(
     }
   }
 
-  return {
-    /**
-     * Returns the managed shape for a relation, if present.
-     *
-     * @example
-     *   ownership.relationShape(identity)
-     *
-     * @param identity - Canonical relation identity.
-     */
-    relationShape: (identity) => shapes.get(identity),
-    /**
-     * Tests whether a relation is declared absent.
-     *
-     * @example
-     *   ownership.isAbsent(identity)
-     *
-     * @param identity - Canonical relation identity.
-     */
-    isAbsent: (identity) => absent.has(identity),
-    /**
-     * Tests whether a namespace is completely managed.
-     *
-     * @example
-     *   ownership.ownsNamespace(identity.namespace)
-     *
-     * @param namespace - Canonical namespace segments.
-     */
-    ownsNamespace: (namespace) =>
-      completeNamespaces.some((owned) => sameNamespace(owned, namespace)),
-    completeNamespaces,
-    explicitRelations: resolvedRelations
-      .filter(({ declaration }) => declaration.kind === 'relation')
-      .map(({ identity }) => identity),
-    absentRelations: resolvedRelations
-      .filter(({ declaration }) => declaration.kind === 'absentRelation')
-      .map(({ identity }) => identity),
-  }
+  return completeNamespaces
 }
+
+type ResolvedRelationDeclarations = {
+  declaration:
+    | Readonly<{
+        kind: 'relation'
+        relation: MigrationOwnershipRelation
+        shape: MigrationRelationShape
+      }>
+    | Readonly<{ kind: 'absentRelation'; relation: RelationIdentityInput }>
+  identity: CanonicalRelationIdentity
+}[]

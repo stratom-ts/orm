@@ -50,7 +50,9 @@ describe('client lifecycle', () => {
     expect(connector.disposed).toBe(true)
     expect(dispose).toHaveBeenCalledOnce()
   })
+})
 
+describe('client lifecycle: closes the client through asynchronous disposal', () => {
   it('closes the client through asynchronous disposal', async () => {
     const connector = createMockPostgresConnector()
 
@@ -80,7 +82,9 @@ describe('client lifecycle', () => {
 
     expect(connector.prepared).toEqual([])
   })
+})
 
+describe('client lifecycle: rejects root and scoped close calls during active transaction work', () => {
   it('rejects root and scoped close calls during active transaction work', async () => {
     const connector = createMockPostgresConnector()
     const db = createDatabase({ connector, schemas: [Accounts] })

@@ -58,7 +58,9 @@ describe('isNullable', () => {
     const schema = pipe(string(), nullish(string()) as never)
     expect(isNullable(schema)).toBe(true)
   })
+})
 
+describe('isNullable: should return false for object schema', () => {
   it('should return false for object schema', () => {
     const schema = object({ name: string() })
     expect(isNullable(schema)).toBe(false)

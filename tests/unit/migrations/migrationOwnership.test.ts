@@ -47,6 +47,7 @@ const Users = defineTable(
   { namespace: [{ role: 'schema', spelling: 'public' }], primaryKey: 'id' },
 )
 
+/** Builds catalog evidence for schema reconciliation checks. */
 function catalog(): CatalogSnapshot {
   return {
     namespaceContext: context,
@@ -121,7 +122,9 @@ describe('migration ownership', () => {
       ],
     })
   })
+})
 
+describe('migration ownership: additive relations create declared members and preserve undeclared members', () => {
   it('additive relations create declared members and preserve undeclared members', () => {
     expect(
       planMigration([Users], catalog(), postgresDialect, {
@@ -156,7 +159,9 @@ describe('migration ownership', () => {
       steps: [{ kind: 'drop_table', target: relationTarget('public', 'billing') }],
     })
   })
+})
 
+describe('migration ownership: supports an empty complete namespace over observed relations', () => {
   it('supports an empty complete namespace over observed relations', () => {
     expect(
       planMigration([], catalog(), postgresDialect, {
@@ -174,7 +179,9 @@ describe('migration ownership', () => {
       ],
     })
   })
+})
 
+describe('migration ownership: ensures an explicitly complete namespace even with no handles or observed tables', () => {
   it('ensures an explicitly complete namespace even with no handles or observed tables', () => {
     expect(
       planMigration(
@@ -194,7 +201,9 @@ describe('migration ownership', () => {
       steps: [{ kind: 'ensure_namespace', target: namespaceTarget('empty_app') }],
     })
   })
+})
 
+describe('migration ownership identities and validation', () => {
   it('uses canonical identities for dotted tombstones and deterministic conflicts', () => {
     const dottedCatalog: CatalogSnapshot = {
       namespaceContext: context,
@@ -214,28 +223,18 @@ describe('migration ownership', () => {
         },
       ],
     }
-    expect(
-      planMigration([], dottedCatalog, postgresDialect, {
-        migrationOwnership: [
-          {
-            kind: 'absentRelation',
-            relation: {
-              namespace: [{ role: 'schema', spelling: 'a.b' }],
-              relation: 'c',
-            },
-          },
-        ],
-      }),
-    ).toEqual({ steps: [{ kind: 'drop_table', target: relationTarget('a.b', 'c') }] })
+    assertDottedOwnershipDiagnostics(dottedCatalog)
 
     const declarations = [
       { kind: 'relation' as const, relation: Users, shape: 'additive' as const },
       { kind: 'relation' as const, relation: Users, shape: 'complete' as const },
     ]
+    /** Plans ownership declarations in their original order for determinism checks. */
     const first = () =>
       planMigration([Users], catalog(), postgresDialect, {
         migrationOwnership: declarations,
       })
+    /** Plans ownership declarations in reverse order for determinism checks. */
     const second = () =>
       planMigration([Users], catalog(), postgresDialect, {
         migrationOwnership: [...declarations].reverse(),
@@ -253,7 +252,9 @@ describe('migration ownership', () => {
       )
     }
   })
+})
 
+describe('migration ownership identities and validation: rejects a tombstone that contradicts a registered handle', () => {
   it('rejects a tombstone that contradicts a registered handle', () => {
     expect(() =>
       planMigration([Users], catalog(), postgresDialect, {
@@ -269,7 +270,9 @@ describe('migration ownership', () => {
       }),
     ).toThrow(/contradictory present and absent/i)
   })
+})
 
+describe('migration ownership identities and validation: validates identifiers reachable only through ownership declarations', () => {
   it('validates identifiers reachable only through ownership declarations', () => {
     const emptyCatalog: CatalogSnapshot = {
       namespaceContext: context,
@@ -298,7 +301,9 @@ describe('migration ownership', () => {
       }),
     ).toThrow(/identifier limit of 63 UTF-8 bytes/i)
   })
+})
 
+describe('migration ownership identities and validation: validates identifiers reachable only through ownership declarations: validates referenced identities even when their handles are not registered', () => {
   it('validates referenced identities even when their handles are not registered', () => {
     const LongTarget = defineTable(
       'x'.repeat(64),
@@ -321,7 +326,9 @@ describe('migration ownership', () => {
       ),
     ).toThrow(/identifier limit of 63 UTF-8 bytes/i)
   })
+})
 
+describe('migration ownership identities and validation: stabilizes SQLite-equivalent relation and namespace diagnostics', () => {
   it('stabilizes SQLite-equivalent relation and namespace diagnostics', () => {
     const SqliteUsers = defineTable(
       'Users',
@@ -335,28 +342,11 @@ describe('migration ownership', () => {
       },
     })
 
-    const message = (declarations: Parameters<typeof resolveMigrationOwnership>[1]) => {
-      const resolution = attemptSync(() =>
-        resolveMigrationOwnership([SqliteUsers], declarations, sqliteIdentities),
-      )
+    /** Reads the expected ownership failure for these declarations. */
+    const message = (declarations: Parameters<typeof resolveMigrationOwnership>[1]) =>
+      ownershipFailureMessage(declarations, SqliteUsers, sqliteIdentities)
 
-      if (!resolution.ok) return (resolution.error as Error).message
-
-      throw new InvariantError('Expected ownership resolution to fail')
-    }
-
-    const duplicateRelations = [
-      {
-        kind: 'relation' as const,
-        relation: { relation: 'Users' },
-        shape: 'complete' as const,
-      },
-      {
-        kind: 'relation' as const,
-        relation: { relation: 'users' },
-        shape: 'additive' as const,
-      },
-    ]
+    const duplicateRelations = createDuplicateSqliteOwnership()
     expect(message(duplicateRelations)).toBe(message([...duplicateRelations].reverse()))
 
     const contradictory = [
@@ -378,3 +368,68 @@ describe('migration ownership', () => {
     expect(message(duplicateNamespaces)).toBe(message([...duplicateNamespaces].reverse()))
   })
 })
+
+/**
+ * Creates the duplicate sqlite ownership fixture used by the contract scenario.
+ *
+ * @returns The duplicate sqlite ownership fixture used by the contract scenario.
+ */
+function createDuplicateSqliteOwnership() {
+  return [
+    {
+      kind: 'relation' as const,
+      relation: { relation: 'Users' },
+      shape: 'complete' as const,
+    },
+    {
+      kind: 'relation' as const,
+      relation: { relation: 'users' },
+      shape: 'additive' as const,
+    },
+  ]
+}
+
+/**
+ * Checks structured dotted identifiers and deterministic ownership-conflict diagnostics.
+ *
+ * @param dottedCatalog - Catalog fixture with dots inside structured identifier
+ *   spellings.
+ */
+function assertDottedOwnershipDiagnostics(dottedCatalog: CatalogSnapshot) {
+  expect(
+    planMigration([], dottedCatalog, postgresDialect, {
+      migrationOwnership: [
+        {
+          kind: 'absentRelation',
+          relation: {
+            namespace: [{ role: 'schema', spelling: 'a.b' }],
+            relation: 'c',
+          },
+        },
+      ],
+    }),
+  ).toEqual({ steps: [{ kind: 'drop_table', target: relationTarget('a.b', 'c') }] })
+}
+
+/**
+ * Captures an ownership failure and rejects unexpected resolution success.
+ *
+ * @param declarations - Ownership declarations under test.
+ * @param SqliteUsers - Registered SQLite users handle.
+ * @param sqliteIdentities - Canonical SQLite identity policy and namespace defaults.
+ *
+ * @returns The ownership validation failure message.
+ */
+function ownershipFailureMessage(
+  declarations: Parameters<typeof resolveMigrationOwnership>[1],
+  SqliteUsers: Parameters<typeof resolveMigrationOwnership>[0][number],
+  sqliteIdentities: Parameters<typeof resolveMigrationOwnership>[2],
+): string {
+  const resolution = attemptSync(() =>
+    resolveMigrationOwnership([SqliteUsers], declarations, sqliteIdentities),
+  )
+
+  if (!resolution.ok) return (resolution.error as Error).message
+
+  throw new InvariantError('Expected ownership resolution to fail')
+}

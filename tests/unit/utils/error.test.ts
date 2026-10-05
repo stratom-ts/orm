@@ -113,6 +113,10 @@ describe('catchTags', () => {
     }> {}
     const error = new MyError({ message: 'custom error' })
     const result = catchTags(error, {
+      /**
+       * Handles the tagged migration-error branch and exposes its message to the
+       * assertion.
+       */
       MigrationError: (e: MyError) => `handled: ${e.message}`,
     } as never)
     expect(result).toBe('handled: custom error')
@@ -121,6 +125,7 @@ describe('catchTags', () => {
   it('should pass through a non-matching error', () => {
     const error = new Error('generic')
     const result = catchTags(error, {
+      /** Handles the custom tagged-error branch for dispatch checks. */
       MyError: () => 'handled',
     } as never)
     expect(result).toBe(error)
@@ -128,6 +133,7 @@ describe('catchTags', () => {
 
   it('should pass through a non-error value', () => {
     const result = catchTags('hello', {
+      /** Handles the custom tagged-error branch for dispatch checks. */
       MyError: () => 'handled',
     } as never)
     expect(result).toBe('hello')

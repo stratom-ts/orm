@@ -42,6 +42,7 @@ function isInsertOptional(schema: AnySchema): boolean {
   return false
 }
 
+/** Rejects undefined values for columns whose schema requires an insert value. */
 function assertDefinedInsertValue(
   tableName: string,
   columnName: string,
@@ -214,6 +215,19 @@ export function validateInsertRow(
   }
 
   // Include parsed defaults from optional schemas that produced values
+  return includeParsedDefaults(result, cleaned)
+}
+
+/** Adds parsed schema defaults without replacing explicitly supplied insert values. */
+function includeParsedDefaults(
+  result: {
+    readonly typed: true
+    readonly success: true
+    readonly output: { [x: string]: unknown; [x: number]: unknown }
+    readonly issues: undefined
+  },
+  cleaned: Record<string, unknown>,
+) {
   for (const [key, value] of Object.entries(result.output as object)) {
     if (value !== undefined && !(key in cleaned)) {
       cleaned[key] = value

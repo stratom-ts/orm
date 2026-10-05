@@ -20,6 +20,7 @@ export function asciiFoldSqliteIdentifier(spelling: string): string {
   return key
 }
 
+/** Rejects namespaces that do not contain exactly one database role. */
 function requireDatabaseNamespace(
   namespace: readonly NamespaceIdentifierInput[],
   description: string,
@@ -33,6 +34,7 @@ function requireDatabaseNamespace(
 export const SQLITE_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
   id: SQLITE_IDENTITY,
   comparisonKey: asciiFoldSqliteIdentifier,
+  /** Resolves authored namespace segments using the configured writable defaults. */
   resolveNamespace(selected, writableDefault) {
     requireDatabaseNamespace(writableDefault, 'SQLite writable default')
     requireDatabaseNamespace(selected, 'SQLite relation namespace')
@@ -43,6 +45,7 @@ export const SQLITE_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
 /** SQLite identity semantics, including attached-alias canonicalization. */
 export const sqliteIdentity = {
   id: SQLITE_IDENTITY,
+  /** Binds canonical relation identity operations to the configured namespace context. */
   create(options: {
     context: NamespaceContext
     registrationDefault?: readonly NamespaceIdentifierInput[]

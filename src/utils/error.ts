@@ -204,6 +204,7 @@ export class ValidationError extends TaggedError('ValidationError')<{
 export class InvariantError extends TaggedError('InvariantError')<{
   message: string
 }> {
+  /** Creates a structured invariant error with its diagnostic message. */
   constructor(message: string) {
     super({ message })
   }
