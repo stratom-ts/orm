@@ -21,6 +21,16 @@ export function assertSafeSqliteDataType(dataType: string): string {
     })
   }
 
+  if (
+    /\b(?:CONSTRAINT|PRIMARY\s+KEY|NOT\s+NULL|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|AS|AUTOINCREMENT)\b/i.test(
+      value,
+    )
+  ) {
+    throw new MigrationError({
+      message: `SQLite column data type contains constraint syntax: ${JSON.stringify(dataType)}`,
+    })
+  }
+
   return value
 }
 
