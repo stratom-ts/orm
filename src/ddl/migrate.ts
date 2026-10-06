@@ -433,6 +433,20 @@ async function executeMigration(
             : { signal: executeOptions.signal }),
           /** Builds, validates, and lowers the plan inside the execution snapshot. */
           prepare: () => prepareMigration(executor, planningOptions, allowed),
+          /** Checks the same desired schema against the final authoritative catalog. */
+          validate: async () => {
+            const { planned, expected } = await observeMigrationPlan(
+              executor,
+              planningOptions,
+            )
+
+            const final = lowerPlan(migration, planned, expected)
+
+            if (planned.plan.steps.length || final.actions.length)
+              throw new MigrationError({
+                message: 'Migration did not converge to the desired schema',
+              })
+          },
         }),
       )
 

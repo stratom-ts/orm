@@ -88,7 +88,7 @@ function scanSqliteDefaultExpression(value: string) {
   let quoted = false
   let depth = 0
   let unquoted = ''
-  let unsafe = !value || /;|--|\/\*|\*\/|\$|::/.test(value)
+  let unsafe = !value
 
   for (let index = 0; index < value.length && !unsafe; index++) {
     const character = value[index]!
@@ -107,7 +107,7 @@ function scanSqliteDefaultExpression(value: string) {
     unquoted += quoted ? ' ' : character
   }
 
-  if (quoted || depth !== 0) unsafe = true
+  if (quoted || depth !== 0 || /;|--|\/\*|\*\/|\$|::/.test(unquoted)) unsafe = true
 
   return { unquoted, unsafe }
 }

@@ -256,7 +256,7 @@ function compileReturning(returning: ReturningAst | undefined): string {
   return ` returning ${candidate.columns
     .map((column) => {
       assertNonEmptyString(column, 'returning column')
-      return quoteIdentifier(column)
+      return `${quoteIdentifier(column)} as ${quoteIdentifier(column)}`
     })
     .join(', ')}`
 }
@@ -413,10 +413,9 @@ function compileSelectItem(
     case 'column': {
       const column = qualifyColumn(item.column, relations, item.relation, resolveRelation)
 
-      if (item.alias === undefined) return column
-
-      assertNonEmptyString(item.alias, 'select alias')
-      return `${column} as ${quoteIdentifier(item.alias)}`
+      const alias = item.alias ?? item.column
+      assertNonEmptyString(alias, 'select alias')
+      return `${column} as ${quoteIdentifier(alias)}`
     }
     case 'expr':
       assertNonEmptyString(item.alias, 'select alias')

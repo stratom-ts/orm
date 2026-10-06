@@ -56,5 +56,27 @@ export function normalizeSqliteDefaultExpression(expression: string): string {
 
   if (/^current_(timestamp|date|time)$/i.test(result)) return result.toLowerCase()
 
-  return result.replace(/\s+/g, ' ')
+  return collapseUnquotedWhitespace(result)
+}
+
+/** Collapses spacing outside SQL string literals while preserving doubled quotes. */
+function collapseUnquotedWhitespace(expression: string): string {
+  let quoted = false
+  let result = ''
+  for (let index = 0; index < expression.length; index++) {
+    const character = expression[index]!
+
+    if (character === "'" && quoted && expression[index + 1] === "'") {
+      result += "''"
+      index++
+      continue
+    }
+
+    if (character === "'") quoted = !quoted
+
+    result +=
+      !quoted && /\s/.test(character) ? (result.endsWith(' ') ? '' : ' ') : character
+  }
+
+  return result
 }

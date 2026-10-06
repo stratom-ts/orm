@@ -125,12 +125,17 @@ function coordinationExecutor(
     /** Reads SQLite's current busy policy for the actual migration runtime. */
     async execute(query) {
       if (query.sql === 'pragma busy_timeout') return [{ timeout: 125 }]
+      if (query.sql === 'pragma foreign_keys') return [{ foreign_keys: 0 }]
+      if (query.sql === 'pragma main.foreign_key_check') return []
+      if (query.sql === 'pragma main.integrity_check') return [{ integrity_check: 'ok' }]
 
       emit('introspection')
       return []
     },
     /** Executes the actual runtime's physical command sequence against writer controls. */
     async run(query) {
+      if (query.sql.startsWith('pragma foreign_keys=')) return
+
       if (query.sql === 'begin immediate') {
         emit('acquire')
 

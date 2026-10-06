@@ -225,14 +225,13 @@ function nullableStringAt(
  * @param query - Native query label used to identify malformed catalog evidence.
  * @param index - Zero-based row, column, or graph position used for ordering and
  *   diagnostics.
- * @param min - Lowest permitted integer value.
  *
  * @returns The validated integer field; malformed or unsafe values throw.
  */
-function integerAt(row: Row, key: string, query: string, index: number, min = 0): number {
+function integerAt(row: Row, key: string, query: string, index: number): number {
   const value = row[key]
 
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     throw new InvariantError(
       `Malformed SQLite ${query} row ${index}: ${JSON.stringify(key)} must be an integer`,
     )
@@ -619,25 +618,31 @@ function action(value: string, query: string, index: number): ReferentialAction 
 }
 
 /**
- * Compares ordered column names under the selected canonical identity policy.
+ * Compares candidate-key membership while rejecting repeated canonical columns.
  *
  * @param left - Left operand or identity in the comparison.
  * @param right - Right operand or identity in the comparison.
  * @param identities - Canonical identity operations for the resolved namespace context.
  *
- * @returns True when same column identities applies to the supplied input.
+ * @returns True for the same unique columns regardless of FK target order.
  */
-function sameColumnIdentities(
+function sameCandidateKeyColumns(
   left: readonly string[],
   right: readonly string[],
   identities: ReturnType<typeof sqliteIdentity.create>,
 ): boolean {
+  const leftKeys = left
+    .map((column) => identities.member('column', column).comparisonKey)
+    .sort()
+
+  const rightKeys = right
+    .map((column) => identities.member('column', column).comparisonKey)
+    .sort()
+
   return (
-    left.length === right.length &&
-    left.every(
-      (column, index) =>
-        identities.member('column', column).comparisonKey ===
-        identities.member('column', right[index]!).comparisonKey,
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (column, index) => column === rightKeys[index] && column !== leftKeys[index - 1],
     )
   )
 }
@@ -1479,9 +1484,14 @@ async function readDatabaseContext(executor: CatalogExecutor) {
     databases.map((entry) => asciiFoldSqliteIdentifier(entry.name)),
   )
 
-  const temporaryDatabase = databases.some(
-    (entry) => asciiFoldSqliteIdentifier(entry.name) === 'temp',
-  )
+  const temporaryDatabase =
+    databases.some((entry) => asciiFoldSqliteIdentifier(entry.name) === 'temp') &&
+    decodeSchemaRows(
+      await executor.execute({
+        sql: 'select type, name, tbl_name, sql from "temp".sqlite_schema order by type, name',
+        params: [],
+      }),
+    ).length > 0
 
   const attached = databases
     .filter(
@@ -1766,21 +1776,6 @@ function foreignGroupIsConsistent(group: ForeignKeyRow[], first: ForeignKeyRow):
   )
 }
 
-/** Tests whether target-key and MATCH evidence supports portable foreign-key semantics. */
-function isSimpleForeignKey(
-  targetKeyValid: boolean,
-  targetTable: TableRow | undefined,
-  targetColumnsObserved: boolean,
-  match: string,
-): boolean {
-  return (
-    targetKeyValid &&
-    targetTable?.type === 'table' &&
-    match.toLowerCase() === 'none' &&
-    targetColumnsObserved
-  )
-}
-
 /**
  * Resolves a foreign-key target against the observed main-database catalog.
  *
@@ -1957,7 +1952,7 @@ function uniqueKeyEvidence(
       entry.cid >= 0 && entry.name !== null ? [entry.name] : [],
     )
 
-    if (!sameColumnIdentities(targetColumns, keyColumns, identities)) continue
+    if (!sameCandidateKeyColumns(targetColumns, keyColumns, identities)) continue
 
     if (
       keyColumns.length === keyInfo.length &&
@@ -2531,7 +2526,7 @@ function resolveForeignKeySemantics(
     identities,
   )
 
-  const matchesPrimaryKey = sameColumnIdentities(
+  const matchesPrimaryKey = sameCandidateKeyColumns(
     target.targetColumns,
     target.parentPrimaryKey,
     identities,
@@ -2547,12 +2542,7 @@ function resolveForeignKeySemantics(
     (target.targetTable.type !== 'view' && target.targetInfo === undefined) ||
     (target.targetTable.type === 'table' && matchingRichUniqueKey)
 
-  const fkSimple = isSimpleForeignKey(
-    targetKeyValid,
-    target.targetTable,
-    target.targetColumnsObserved,
-    first.match,
-  )
+  const fkSimple = targetKeyValid && first.match.toLowerCase() === 'none'
 
   return { fkSimple, targetKeyValid, targetKeyUnknown }
 }

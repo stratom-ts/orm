@@ -311,7 +311,7 @@ describe('client registration: does not call the dialect provider when an explic
   it('should reject unsupported connector dialects', () => {
     const connector = createMockConnector()
     const getInstance = vi.spyOn(connector, 'getInstance')
-    ;(connector as { dialect: string }).dialect = 'sqlite'
+    ;(connector as { dialect: string }).dialect = 'mysql'
 
     expect(() => createDatabase({ connector, schemas: [] })).toThrow(
       expect.objectContaining({

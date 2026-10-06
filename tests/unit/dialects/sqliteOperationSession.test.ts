@@ -3,7 +3,7 @@ import nodeSqliteConnector from 'db0/connectors/node-sqlite'
 import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 
 import type { OperationCommand } from '@/dialects'
 import {
@@ -16,6 +16,119 @@ import type {
 } from '@/operations/operationSession'
 
 const directories: string[] = []
+
+/** Hides newer properties while retaining the real DatabaseSync methods and state. */
+async function baselineFixture() {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  const legacy = new Proxy(native, {
+    /** Models the Node 22.5 surface with methods bound to the actual native instance. */
+    get(target, key): unknown {
+      if (key === 'isOpen' || key === 'isTransaction') return undefined
+
+      const value: unknown = Reflect.get(target, key, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+
+  return { native, connector: { ...connector, getInstance: () => legacy } }
+}
+
+it('proves reuse and rolls back external native transactions when modern flags are absent', async () => {
+  const { connector, native } = await baselineFixture()
+
+  const provider = createDb0NodeSqliteOperationSessionProvider(connector)
+  const session = await provider.open()
+  let active: OperationSession | undefined = session
+  let primary: unknown
+  try {
+    await session.run({ sql: 'create table records(id INTEGER)', params: [] })
+    native.exec('begin; insert into records values(1)')
+
+    await session.release('reuse').finally(() => {
+      active = undefined
+    })
+
+    const next = await provider.open()
+    active = next
+    expect(next.identity).toEqual(session.identity)
+    expect(await next.query({ sql: 'select id from records', params: [] })).toEqual([])
+
+    await next.release('reuse').finally(() => {
+      active = undefined
+    })
+
+    native.prepare('begin').run()
+    native.prepare('rollback').run()
+  } catch (cause) {
+    primary = cause
+  } finally {
+    await closeBaseline(provider, active, primary)
+  }
+})
+
+/**
+ * Closes unreleased baseline work while preserving the first assertion or cleanup
+ * failure.
+ */
+async function closeBaseline(
+  provider: OperationSessionProvider,
+  active: OperationSession | undefined,
+  primary: unknown,
+): Promise<void> {
+  if (active)
+    await active.release('discard').catch((cause: unknown) => {
+      primary ??= cause
+    })
+
+  await provider.close().catch((cause: unknown) => {
+    primary ??= cause
+  })
+
+  if (primary !== undefined) throw primary
+}
+
+it('rejects a caller transaction when modern flags are absent and discards the instance', async () => {
+  const { connector, native } = await baselineFixture()
+
+  native.exec('begin')
+  const provider = createDb0NodeSqliteOperationSessionProvider(connector)
+  try {
+    await expect(provider.open()).rejects.toMatchObject({
+      _tag: 'QueryError',
+      cause: { message: 'cannot start a transaction within a transaction' },
+    })
+
+    expect(() => native.prepare('select 1')).toThrow(/not open/)
+  } finally {
+    await provider.close()
+  }
+})
+
+it('discards a baseline session when native rollback cannot prove cleanliness', async () => {
+  const { connector, native } = await baselineFixture()
+
+  const provider = createDb0NodeSqliteOperationSessionProvider(connector)
+  const session = await provider.open()
+  const prepare = native.prepare.bind(native)
+
+  const injected = vi.spyOn(native, 'prepare').mockImplementation((sql) => {
+    if (sql === 'rollback') throw new Error('rollback acknowledgement failed')
+
+    return prepare(sql)
+  })
+
+  try {
+    await expect(session.release('reuse')).rejects.toMatchObject({
+      cause: { message: 'rollback acknowledgement failed' },
+    })
+
+    expect(() => prepare('select 1')).toThrow(/not open/)
+  } finally {
+    injected.mockRestore()
+    await provider.close()
+  }
+})
 
 /** Creates a disposable native file path for one test. */
 function filePath(): string {

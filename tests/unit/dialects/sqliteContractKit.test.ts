@@ -1,15 +1,8 @@
 import { date, integer, number, pipe, string } from 'valibot'
+import { afterEach, vi } from 'vitest'
 
-import type { Dialect, SqlAst } from '@/dialects'
-import {
-  executeSqliteMigration,
-  sqliteCatalog,
-  sqliteIdentity,
-  sqliteNaming,
-  sqliteOperations,
-  sqliteQuery,
-  sqliteSchema,
-} from '@/dialects/sqlite'
+import type { SqlAst } from '@/dialects'
+import { sqliteDialect as sqliteContractDialect } from '@/dialects/sqlite'
 import { defineTable } from '@/index'
 
 import { registerDialectContractMember } from './dialectContractKit'
@@ -18,9 +11,18 @@ import type {
   QueryCompilerScenarios,
 } from './dialectContractKit'
 import {
+  createSqliteLifecycleRuntime,
+  createSqliteMigrationCase,
+  createSqliteUnsupportedCase,
+} from './sqliteProductionShards'
+import {
   sqliteCoordinationContractShard,
   sqliteOperationSessionContractShard,
 } from './sqliteSharedShards'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const namespaceContext = {
   writableDefault: [{ role: 'database' as const, spelling: 'main' }],
@@ -50,35 +52,6 @@ const Events = defineTable(
 const records = { relation: 'records' } as const
 const events = { relation: 'events' } as const
 
-/** Rejects accidental use of a facet outside the declared SQLite contract capability. */
-function unsupportedFacet(facet: string): never {
-  throw new Error(`SQLite contract fixture does not exercise ${facet}`)
-}
-
-/** Test-only complete shape used solely to drive the reusable facet contracts. */
-const sqliteContractDialect: Dialect = {
-  id: 'sqlite',
-  identity: sqliteIdentity,
-  naming: sqliteNaming,
-  schema: sqliteSchema,
-  query: sqliteQuery,
-  catalog: sqliteCatalog,
-  operations: sqliteOperations,
-  migration: {
-    planning: { identity: sqliteIdentity, naming: sqliteNaming, schema: sqliteSchema },
-    catalog: {
-      /**
-       * Reads the requested native catalog scope and returns its portable evidence
-       * snapshot.
-       */
-      introspectCatalog: async () => unsupportedFacet('catalog'),
-    },
-    /** Lowers for the current fixture scenario. */
-    lower: () => unsupportedFacet('migration lowering'),
-    execute: executeSqliteMigration,
-  },
-}
-
 const sqliteContractCapabilities = {
   identity: { state: 'supported', shard: 'semantic' },
   naming: { state: 'supported', shard: 'semantic' },
@@ -94,13 +67,11 @@ const sqliteContractCapabilities = {
     shard: 'coordination',
   },
   migration: {
-    state: 'unsupported',
-    reason: 'SQLite migration lowering is not part of the ready facet set',
+    state: 'supported',
     shard: 'semantic',
   },
   lifecycle: {
-    state: 'unsupported',
-    reason: 'SQLite lifecycle support requires complete member assembly',
+    state: 'supported',
     shard: 'semantic',
   },
 } as const satisfies DialectContractMemberCapabilities
@@ -157,7 +128,7 @@ const queryCompilerScenarios = {
       ],
     },
     {
-      sql: 'select "label" as "labelText", "id" from "main"."records" as "main.records"',
+      sql: 'select "label" as "labelText", "id" as "id" from "main"."records" as "main.records"',
       params: [],
     },
   ),
@@ -198,7 +169,7 @@ const queryCompilerScenarios = {
       ],
     },
     {
-      sql: 'select "main.records"."id", "main.events"."label" from "main"."records" as "main.records" inner join "main"."events" as "main.events" on "main.records"."id" = "main.events"."record_id"',
+      sql: 'select "main.records"."id" as "id", "main.events"."label" as "label" from "main"."records" as "main.records" inner join "main"."events" as "main.events" on "main.records"."id" = "main.events"."record_id"',
       params: [],
     },
   ),
@@ -206,7 +177,10 @@ const queryCompilerScenarios = {
     {
       kind: 'select',
       relation: records,
-      selection: [{ kind: 'all' }],
+      selection: [
+        { kind: 'column', relation: records, column: 'id', alias: 'recordId' },
+        { kind: 'column', relation: events, column: 'id', alias: 'eventId' },
+      ],
       joins: [
         {
           type: 'left',
@@ -222,7 +196,7 @@ const queryCompilerScenarios = {
       ],
     },
     {
-      sql: 'select * from "main"."records" as "main.records" left join "main"."events" as "main.events" on "main.records"."id" = "main.events"."record_id"',
+      sql: 'select "main.records"."id" as "recordId", "main.events"."id" as "eventId" from "main"."records" as "main.records" left join "main"."events" as "main.events" on "main.records"."id" = "main.events"."record_id"',
       params: [],
     },
   ),
@@ -230,7 +204,7 @@ const queryCompilerScenarios = {
     {
       kind: 'select',
       relation: records,
-      selection: [{ kind: 'all' }],
+      selection: [{ kind: 'column', relation: records, column: 'id' }],
       joins: [
         {
           type: 'right',
@@ -265,7 +239,7 @@ const queryCompilerScenarios = {
       },
     },
     {
-      sql: 'select * from "main"."records" as "main.records" where ("id" = ? and "id" <> ? and "id" > ? and "id" >= ? and "id" < ? and "id" <= ?)',
+      sql: 'select "main.records"."id" as "id", "main.records"."label" as "label", "main.records"."active" as "active", "main.records"."amount" as "amount", "main.records"."deleted_at" as "deleted_at", "main.records"."created_at" as "created_at" from "main"."records" as "main.records" where ("id" = ? and "id" <> ? and "id" > ? and "id" >= ? and "id" < ? and "id" <= ?)',
       params: [1, 2, 3, 4, 5, 6],
     },
   ),
@@ -292,7 +266,7 @@ const queryCompilerScenarios = {
       },
     },
     {
-      sql: 'select * from "main"."records" as "main.records" where (not ("id" = ? or ("id" > ? and "id" < ?)))',
+      sql: 'select "main.records"."id" as "id", "main.records"."label" as "label", "main.records"."active" as "active", "main.records"."amount" as "amount", "main.records"."deleted_at" as "deleted_at", "main.records"."created_at" as "created_at" from "main"."records" as "main.records" where (not ("id" = ? or ("id" > ? and "id" < ?)))',
       params: [1, 2, 9],
     },
   ),
@@ -310,7 +284,7 @@ const queryCompilerScenarios = {
       },
     },
     {
-      sql: 'select * from "main"."records" as "main.records" where ("deleted_at" is null or "deleted_at" is not null)',
+      sql: 'select "main.records"."id" as "id", "main.records"."label" as "label", "main.records"."active" as "active", "main.records"."amount" as "amount", "main.records"."deleted_at" as "deleted_at", "main.records"."created_at" as "created_at" from "main"."records" as "main.records" where ("deleted_at" is null or "deleted_at" is not null)',
       params: [],
     },
   ),
@@ -378,7 +352,7 @@ const queryCompilerScenarios = {
       ],
     },
     {
-      sql: 'select "active" from "main"."records" as "main.records" group by "active", "amount", "label" having "active" = ? order by "amount" desc, "label" asc',
+      sql: 'select "active" as "active" from "main"."records" as "main.records" group by "active", "amount", "label" having "active" = ? order by "amount" desc, "label" asc',
       params: ['yes'],
     },
   ),
@@ -391,7 +365,7 @@ const queryCompilerScenarios = {
       offset: 20,
     },
     {
-      sql: 'select * from "main"."records" as "main.records" limit ? offset ?',
+      sql: 'select "main.records"."id" as "id", "main.records"."label" as "label", "main.records"."active" as "active", "main.records"."amount" as "amount", "main.records"."deleted_at" as "deleted_at", "main.records"."created_at" as "created_at" from "main"."records" as "main.records" limit ? offset ?',
       params: [10, 20],
     },
   ),
@@ -421,7 +395,7 @@ const queryCompilerScenarios = {
       returning: { kind: 'all' },
     },
     {
-      sql: 'update "main"."records" as "main.records" set "label" = ?, "amount" = ? where "id" = ? returning *',
+      sql: 'update "main"."records" as "main.records" set "label" = ?, "amount" = ? where "id" = ? returning "id" as "id", "label" as "label", "active" as "active", "amount" as "amount", "deleted_at" as "deleted_at", "created_at" as "created_at"',
       params: ['updated', 7, 1],
     },
   ),
@@ -434,13 +408,13 @@ const queryCompilerScenarios = {
       returning: { kind: 'columns', columns: ['id'] },
     },
     {
-      sql: 'delete from "main"."records" as "main.records" where "id" = ? returning "id"',
+      sql: 'delete from "main"."records" as "main.records" where "id" = ? returning "id" as "id"',
       params: [1],
     },
   ),
 } satisfies QueryCompilerScenarios
 
-registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities, {
+registerDialectContractMember('SQLite', sqliteContractCapabilities, {
   semantic: {
     identity: {
       state: 'supported',
@@ -599,12 +573,18 @@ registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities,
       },
     },
     migration: {
-      state: 'unsupported',
-      reason: 'SQLite migration lowering is not part of the ready facet set',
+      state: 'supported',
+      input: {
+        lowering: { createCase: createSqliteMigrationCase },
+        unsupportedLowering: {
+          state: 'supported',
+          input: { createCase: createSqliteUnsupportedCase },
+        },
+      },
     },
     lifecycle: {
-      state: 'unsupported',
-      reason: 'SQLite lifecycle support requires complete member assembly',
+      state: 'supported',
+      input: createSqliteLifecycleRuntime,
     },
   },
   operationSession: sqliteOperationSessionContractShard,

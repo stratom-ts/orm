@@ -3,15 +3,19 @@ import type { SQLDialect } from 'db0'
 import { SchemaError } from '@/utils/error'
 
 import { postgresDialect } from './postgres'
+import { sqliteDialect } from './sqlite'
 import type { Dialect } from './types'
 
-const DIALECTS = new Map<string, Dialect>([[postgresDialect.id, postgresDialect]])
+const DIALECTS = new Map<string, Dialect>([
+  [postgresDialect.id, postgresDialect],
+  [sqliteDialect.id, sqliteDialect],
+])
 
 /**
  * Registers an isolated contract-test dialect and returns exact cleanup.
  *
  * This seam intentionally is not exported by the dialect barrel: production support
- * remains the static PostgreSQL registration above.
+ * remains the static registration above.
  */
 export function registerDialectForTest(dialect: Dialect): () => void {
   if (

@@ -6,6 +6,7 @@ import type { DialectQueryResolution, DialectQueryResolveOptions } from '../type
 
 import { compileSqlite, createSqliteQueryRelationResolver } from './compile'
 import { asciiFoldSqliteIdentifier } from './identity'
+import { projectSqliteQuery } from './queryProjection'
 
 /** Resolves one client registry under SQLite's database:main profile. */
 export function resolveSqliteQuery(
@@ -18,10 +19,10 @@ export function resolveSqliteQuery(
     relation: resolveRelation(handle.getTableMetadata().relation),
   }))
 
-  return Object.freeze({
+  const query: DialectQueryResolution = Object.freeze({
     /** Compiles the current query or command into SQL and ordered bound parameters. */
     compile(node: Parameters<typeof compileSqlite>[0]) {
-      return compileSqlite(node, resolveRelation)
+      return compileSqlite(projectSqliteQuery(query, node), resolveRelation)
     },
     /** Finds handles matching the authored relation under query rules. */
     findRelationMatches(
@@ -54,4 +55,6 @@ export function resolveSqliteQuery(
       )
     },
   })
+
+  return query
 }

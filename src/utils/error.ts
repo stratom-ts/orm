@@ -148,6 +148,7 @@ export type MigrationExecutionStage =
   | 'lowering'
   | 'precondition'
   | 'ddl'
+  | 'validation'
   | 'commit'
   | 'rollback'
   | 'unlock'

@@ -71,6 +71,9 @@ export type MigrationRuntimeOptions = Readonly<{
 
   /** Builds and lowers the plan inside the authoritative execution snapshot. */
   prepare(): Promise<MigrationProgram>
+
+  /** Verifies desired-state convergence inside the transaction before commit. */
+  validate?(): Promise<void>
 }>
 
 /** Effect acknowledged by a dialect migration runtime after successful cleanup. */

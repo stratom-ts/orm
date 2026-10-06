@@ -288,8 +288,8 @@ describe('catalog semantic adoption: adds missing declared constraints in additi
   })
 })
 
-describe('catalog semantic adoption: adds missing declared constraints in additive mode and replans cleanly: preserves extra additive constraints and reports complete-mode removal limits', () => {
-  it('preserves extra additive constraints and reports complete-mode removal limits', () => {
+describe('catalog semantic adoption: preserves additive constraints and removes authorized source columns', () => {
+  it('preserves additive constraints and removes constraints with their authorized source columns', () => {
     const catalog = relationCatalog({
       extraColumns: true,
       uniqueConstraints: [
@@ -308,9 +308,11 @@ describe('catalog semantic adoption: adds missing declared constraints in additi
       }),
     ).toEqual({ steps: [] })
 
-    expect(() => planMigration([Parents, Children], catalog, postgresDialect)).toThrow(
-      /unsupported removal of extra (unique constraints|foreign keys)/i,
-    )
+    expect(planMigration([Parents, Children], catalog, postgresDialect)).toEqual({
+      steps: [
+        { kind: 'drop_column', target: columnTarget('public', 'children', 'legacy') },
+      ],
+    })
   })
 })
 
