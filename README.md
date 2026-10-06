@@ -267,8 +267,9 @@ the structured unsupported/unavailable states instead of falling back to Postgre
 Adding package-supported database behavior is therefore local to one complete member and
 one dispatcher registration. PostgreSQL and SQLite are production members.
 
-SQLite uses the exact db0 0.4.0 `node-sqlite` connector on Node >=22.13 and SQLite
-version 3.37 or later. It manages ordinary permanent non-STRICT rowid tables in `main`,
+SQLite uses the exact db0 0.4.0 `node-sqlite` connector on Node >=22.5 and SQLite
+version 3.37 or later. Node 22.5 through 22.12 needs `--experimental-sqlite`.
+SQLite manages ordinary permanent non-STRICT rowid tables in `main`,
 with simple PK/unique/FK constraints, column indexes, portable defaults and AUTOINCREMENT.
 Migrations use legal direct operations or atomic table rebuilds that preserve retained
 data, rowids and sequence state. Unproven conversions, required-column backfills,

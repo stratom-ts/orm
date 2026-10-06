@@ -224,8 +224,8 @@ DDL.
 
 ## SQLite production profile
 
-SQLite requires the exact db0 0.4.0 `node-sqlite` connector, Node >=22.13 (including
-`DatabaseSync.isTransaction`) and SQLite >=3.37. The package's PostgreSQL Node baseline
+SQLite requires the exact db0 0.4.0 `node-sqlite` connector, Node >=22.5 and SQLite >=3.37.
+Node 22.5 through 22.12 requires the `--experimental-sqlite` flag. The package's PostgreSQL Node baseline
 does not change. SQLite manages ordinary permanent non-STRICT rowid tables in `main`.
 Queries use the same ASCII identifier folding and main-database addressing as planning.
 

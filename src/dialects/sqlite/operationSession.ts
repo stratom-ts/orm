@@ -10,13 +10,14 @@ import type {
 import { QueryError } from '@/utils/error'
 
 type NativeStatement = {
-  all(...params: SqliteBinding[]): unknown[]
+  all(...params: SqliteBinding[]): Record<string, unknown>[]
+  setReadBigInts(enabled: boolean): void
   run(...params: SqliteBinding[]): unknown
 }
 
 type NativeDatabase = {
-  readonly isOpen: boolean
-  readonly isTransaction: boolean
+  readonly isOpen?: boolean
+  readonly isTransaction?: boolean
   prepare(sql: string): NativeStatement
 }
 
@@ -31,13 +32,62 @@ const memoryDatabaseIds = new WeakMap<object, string>()
 function nativeDatabase(value: unknown): NativeDatabase {
   const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
 
-  if (!(value instanceof DatabaseSync) || !value.isOpen) {
+  if (!(value instanceof DatabaseSync) || value.isOpen === false) {
     throw new QueryError({
       message: 'db0 node-sqlite did not expose an open DatabaseSync',
     })
   }
 
+  value.prepare('select 1')
   return value
+}
+
+/** Proves transaction cleanliness without requiring properties absent on Node 22.5. */
+function assertCleanTransaction(database: NativeDatabase): void {
+  if (database.isTransaction === true)
+    throw new QueryError({ message: 'SQLite session has an open transaction' })
+
+  if (database.isTransaction === false) return
+
+  database.prepare('begin').run()
+  database.prepare('rollback').run()
+}
+
+/** Rolls back pending work and accepts only SQLite's native no-transaction error. */
+function rollbackNative(database: NativeDatabase): void {
+  try {
+    database.prepare('rollback').run()
+  } catch (cause) {
+    if (
+      !(cause instanceof Error) ||
+      !('code' in cause) ||
+      cause.code !== 'ERR_SQLITE_ERROR' ||
+      cause.message !== 'cannot rollback - no transaction is active'
+    )
+      throw cause
+  }
+
+  assertCleanTransaction(database)
+}
+
+/**
+ * Preserves large signed integers while returning safe native catalog integers as
+ * numbers.
+ */
+function readRows(statement: NativeStatement, params: SqliteBinding[]): unknown[] {
+  statement.setReadBigInts(true)
+  return statement
+    .all(...params)
+    .map((row) =>
+      Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [
+          key,
+          typeof value === 'bigint' && Number.isSafeInteger(Number(value))
+            ? Number(value)
+            : value,
+        ]),
+      ),
+    )
 }
 
 /** Reads complete native identity from the main database and DatabaseSync instance. */
@@ -139,7 +189,7 @@ async function verifyNative(
   database: NativeDatabase,
   identity: OperationSessionIdentity,
 ): Promise<void> {
-  if (!database.isOpen || nativeDatabase(await connector.getInstance!()) !== database) {
+  if (nativeDatabase(await connector.getInstance!()) !== database) {
     throw new QueryError({ message: 'SQLite native session changed during operation' })
   }
 
@@ -199,10 +249,7 @@ async function releaseLease(
       return
     }
 
-    if (database.isTransaction) database.prepare('rollback').run()
-
-    if (database.isTransaction)
-      throw new QueryError({ message: 'SQLite transaction remained open after rollback' })
+    rollbackNative(database)
 
     await verifyNative(connector, database, identity)
   } catch (cause) {
@@ -266,7 +313,7 @@ function createLease(
     /** Reads rows with StatementSync.all. */
     query: (query) =>
       enqueue(connector, database, identity, state, query, (statement, params) =>
-        statement.all(...params),
+        readRows(statement, params),
       ),
     /** Executes a statement with StatementSync.run. */
     run: (query) =>
@@ -315,8 +362,7 @@ async function openLease(
   try {
     const database = nativeDatabase(await connector.getInstance!())
 
-    if (database.isTransaction)
-      throw new QueryError({ message: 'SQLite session has an open transaction' })
+    assertCleanTransaction(database)
 
     return createLease(connector, state, database, readIdentity(database), finishLease)
   } catch (cause) {

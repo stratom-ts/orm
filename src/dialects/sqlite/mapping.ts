@@ -1,4 +1,21 @@
-import { QueryError } from '@/utils/error'
+import { QueryError, SchemaError } from '@/utils/error'
+
+import type { DialectValueMappingContext } from '../types'
+
+import { inferSqliteColumnType } from './infer'
+
+/** Resolves logical value semantics independently of physical storage overrides. */
+function mappingType(dataType: string, context?: DialectValueMappingContext): string {
+  if (!context) return declaredType(dataType)
+
+  try {
+    return declaredType(String(inferSqliteColumnType(context.schema)))
+  } catch (cause) {
+    if (!(cause instanceof SchemaError)) throw cause
+
+    return declaredType(dataType)
+  }
+}
 
 /** Removes type parameters and normalizes a SQLite logical type for value mapping. */
 function declaredType(dataType: string): string {
@@ -159,10 +176,14 @@ function mapRealValue(dataType: string, value: unknown): unknown {
 }
 
 /** Maps a JavaScript parameter value to SQLite's declared logical type. */
-export function mapSqliteParamValue(dataType: string, value: unknown): unknown {
+export function mapSqliteParamValue(
+  dataType: string,
+  value: unknown,
+  context?: DialectValueMappingContext,
+): unknown {
   if (value === null || value === undefined) return value
 
-  const type = declaredType(dataType)
+  const type = mappingType(dataType, context)
 
   if (BOOLEAN_TYPES.has(type)) return typeof value === 'boolean' ? (value ? 1 : 0) : value
   if (DATE_TYPES.has(type)) return mapDateParamValue(dataType, value)
@@ -175,10 +196,14 @@ export function mapSqliteParamValue(dataType: string, value: unknown): unknown {
 }
 
 /** Maps a SQLite result value to the declared logical JavaScript type. */
-export function mapSqliteResultValue(dataType: string, value: unknown): unknown {
+export function mapSqliteResultValue(
+  dataType: string,
+  value: unknown,
+  context?: DialectValueMappingContext,
+): unknown {
   if (value === null || value === undefined) return value
 
-  const type = declaredType(dataType)
+  const type = mappingType(dataType, context)
 
   if (BOOLEAN_TYPES.has(type)) {
     if (value === 0 || value === 0n) return false

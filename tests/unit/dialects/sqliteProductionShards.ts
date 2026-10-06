@@ -198,6 +198,7 @@ export function createSqliteLifecycleRuntime(): DialectLifecycleContractRuntime 
     executeQuery: (database) =>
       database
         .from(Lifecycle)
+        .select([Lifecycle.id, Lifecycle.label])
         .where(Lifecycle.label, 'eq', 'connector-selected')
         .execute(),
     operationCommands: commands,

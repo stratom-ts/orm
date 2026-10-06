@@ -367,7 +367,7 @@ export class OperationCoordinator {
   /**
    * Opens, executes, verifies, and releases one exclusive operation session.
    *
-   * @param previous - Earlier native observation used to detect a catalog race.
+   * @param previous - Queue promise for the preceding root operation.
    * @param parent - Parent relation or syntax node used by the fixture scenario.
    * @param operation - Work to run within the current session or error boundary.
    *
@@ -412,7 +412,7 @@ export class OperationCoordinator {
    *
    * @param state - Shared mutable state that preserves progress and cleanup outcomes
    *   across calls.
-   * @param previous - Earlier native observation used to detect a catalog race.
+   * @param previous - Queue promise for the preceding root operation.
    * @param parent - Parent relation or syntax node used by the fixture scenario.
    * @param operation - Work to run within the current session or error boundary.
    */

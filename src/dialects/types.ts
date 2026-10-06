@@ -237,6 +237,15 @@ export type DialectQueryResolveOptions = Readonly<{
   registrationDefault?: readonly NamespaceIdentifierInput[]
 }>
 
+/** Logical column semantics supplied independently of the selected physical SQL type. */
+export type DialectValueMappingContext = Readonly<{
+  /**
+   * Logical schema, resolved through reference targets independently of physical
+   * overrides.
+   */
+  schema: AnySchema
+}>
+
 /** SQL resolution, compilation, and optional dialect value conversion behavior. */
 export type DialectQuery = Readonly<{
   /**
@@ -251,8 +260,21 @@ export type DialectQuery = Readonly<{
     handles: readonly TableHandle[],
     options?: DialectQueryResolveOptions,
   ): DialectQueryResolution
-  mapResultValue?: (dataType: string, value: unknown) => unknown
-  mapParamValue?: (dataType: string, value: unknown) => unknown
+  /**
+   * Maps driver values with optional logical schema context; physical type stays
+   * unchanged.
+   */
+  mapResultValue?: (
+    dataType: string,
+    value: unknown,
+    context?: DialectValueMappingContext,
+  ) => unknown
+  /** Maps parameters with optional logical schema context; physical type stays unchanged. */
+  mapParamValue?: (
+    dataType: string,
+    value: unknown,
+    context?: DialectValueMappingContext,
+  ) => unknown
 }>
 
 /** Structured operation lifecycle command compiled by the selected dialect. */

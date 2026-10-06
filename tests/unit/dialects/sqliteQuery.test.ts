@@ -27,6 +27,60 @@ const main = [{ role: 'database' as const, spelling: 'main' }]
 const records = { relation: 'records' } as const
 const events = { relation: 'events' } as const
 
+it('rejects registered wildcard joins whose output names collide', () => {
+  const resolved = sqliteQuery.resolve([Records, Events])
+  expect(() =>
+    resolved.compile({
+      kind: 'select',
+      relation: records,
+      selection: [{ kind: 'all' }],
+      joins: [
+        {
+          type: 'left',
+          relation: events,
+          on: {
+            kind: 'cmp',
+            relation: records,
+            column: 'id',
+            op: 'eq',
+            right: { relation: events, column: 'recordId' },
+          },
+        },
+      ],
+    }),
+  ).toThrow('SQLite query output columns are ambiguous')
+})
+
+it('expands a relation-scoped wildcard join using authored names and preserves output aliases', () => {
+  const resolved = sqliteQuery.resolve([Records, Events])
+  expect(
+    resolved.compile({
+      kind: 'select',
+      relation: records,
+      selection: [
+        { kind: 'all', relation: records },
+        { kind: 'column', relation: events, column: 'id', alias: 'eventId' },
+      ],
+      joins: [
+        {
+          type: 'left',
+          relation: events,
+          on: {
+            kind: 'cmp',
+            relation: records,
+            column: 'id',
+            op: 'eq',
+            right: { relation: events, column: 'recordId' },
+          },
+        },
+      ],
+    }),
+  ).toEqual({
+    sql: 'select "main.records"."id" as "id", "main.records"."label" as "label", "main.events"."id" as "eventId" from "main"."records" as "main.records" left join "main"."events" as "main.events" on "main.records"."id" = "main.events"."recordId"',
+    params: [],
+  })
+})
+
 describe('SQLite query facet', () => {
   it('shares main-defaulted ASCII-insensitive relation and member lookup with compilation', () => {
     const resolved = sqliteQuery.resolve([Records, Events], { registrationDefault: main })
@@ -43,7 +97,7 @@ describe('SQLite query facet', () => {
         offset: 3,
       }),
     ).toEqual({
-      sql: 'select "main.records"."id" from "main"."records" as "main.records" where "main.records"."id" = ? limit -1 offset ?',
+      sql: 'select "main.records"."id" as "id" from "main"."records" as "main.records" where "main.records"."id" = ? limit -1 offset ?',
       params: [7, 3],
     })
   })
@@ -88,7 +142,7 @@ describe('SQLite query facet: compiles supported joins and write forms with anon
         returning: { kind: 'columns', columns: ['id'] },
       }),
     ).toEqual({
-      sql: 'delete from "main"."records" as "main.records" where "id" = ? returning "id"',
+      sql: 'delete from "main"."records" as "main.records" where "id" = ? returning "id" as "id"',
       params: [1],
     })
   })
@@ -270,7 +324,7 @@ function assertSqliteInserts() {
       returning: { kind: 'columns', columns: ['id'] },
     }),
   ).toEqual({
-    sql: 'insert into "main"."records" ("id", "label") values (?, ?), (?, ?) returning "id"',
+    sql: 'insert into "main"."records" ("id", "label") values (?, ?), (?, ?) returning "id" as "id"',
     params: [1, 'first', 2, 'second'],
   })
 
@@ -309,7 +363,7 @@ function assertSqliteJoin() {
       ],
     }),
   ).toEqual({
-    sql: 'select "main.records"."id", "main.events"."id" as "eventId" from "main"."records" as "main.records" left join "main"."events" as "main.events" on "main.records"."id" = "main.events"."recordId"',
+    sql: 'select "main.records"."id" as "id", "main.events"."id" as "eventId" from "main"."records" as "main.records" left join "main"."events" as "main.events" on "main.records"."id" = "main.events"."recordId"',
     params: [],
   })
 }

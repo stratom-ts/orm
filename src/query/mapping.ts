@@ -1,9 +1,18 @@
-import type { CompiledQuery, Dialect, DialectQueryResolution, SqlAst } from '@/dialects'
+import type {
+  CompiledQuery,
+  Dialect,
+  DialectQueryResolution,
+  DialectValueMappingContext,
+  SqlAst,
+} from '@/dialects'
 import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { RelationIdentityInput } from '@/schemas/actions/relation'
 import type { TableHandle } from '@/types'
 import { SchemaError } from '@/utils/error'
+
+type ColumnValueMapping = { dataType: string; context: DialectValueMappingContext }
+type MappingContexts = WeakMap<TableHandle, Record<string, DialectValueMappingContext>>
 
 /** CreateDatabase-level value mapping overrides. */
 export type ValueMapConfig = {
@@ -148,7 +157,7 @@ function resolveColumnName(
 }
 
 /**
- * Resolves a column's physical SQL data type, following references as needed.
+ * Resolves physical storage and logical schema context, following references as needed.
  *
  * @param handle - Table containing the column.
  * @param columnName - Column name to resolve.
@@ -163,7 +172,7 @@ function resolveColumnDataType(
   query: DialectQueryResolution,
   registered: readonly TableHandle[],
   resolving: readonly { handle: TableHandle; column: string }[],
-): string | undefined {
+): ColumnValueMapping | undefined {
   const entries = handle.getSchema().entries as Record<
     string,
     { kind?: string } | undefined
@@ -191,9 +200,13 @@ function resolveColumnDataType(
 
   const selected = columnMetadata?.physicalType?.[dialect.id]
 
-  if (selected !== undefined) return String(selected)
-
-  return String(dialect.schema.inferColumnType(schema))
+  return {
+    dataType:
+      selected === undefined
+        ? String(dialect.schema.inferColumnType(schema))
+        : String(selected),
+    context: { schema },
+  }
 }
 
 /**
@@ -207,7 +220,8 @@ function resolveColumnDataType(
  * @param dialect - Selected dialect's schema, query, and lifecycle operations.
  * @param registered - Registered table handles indexed by canonical relation identity.
  *
- * @returns The referenced column's physical SQL type; unresolved or cyclic chains throw.
+ * @returns Referenced physical type and logical context; unresolved or cyclic chains
+ *   throw.
  */
 function resolveReferenceDataType(
   query: Readonly<{
@@ -296,9 +310,10 @@ export function createValueMapper(
   query: DialectQueryResolution = dialect.query.resolve(registered),
 ): ValueMapper {
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
+  const contexts: MappingContexts = new WeakMap()
   /** Returns physical SQL types keyed by the table's authored column names. */
   const columnTypes = (handle: TableHandle) =>
-    cachedColumnTypes(handle, typeCache, dialect, query, registered)
+    cachedColumnTypes(handle, typeCache, dialect, query, registered, contexts)
 
   /**
    * Maps a JavaScript parameter value for a table column.
@@ -308,7 +323,7 @@ export function createValueMapper(
    * @param value - JavaScript value to map.
    */
   const mapParamForColumn = (handle: TableHandle, column: string, value: unknown) =>
-    mapParam(handle, column, value, dialect, map, columnTypes)
+    mapParam(handle, column, value, dialect, map, columnTypes, contexts)
 
   /**
    * Maps a SQL result value for a table column.
@@ -318,7 +333,7 @@ export function createValueMapper(
    * @param value - SQL result value to map.
    */
   const mapResultValueForColumn = (handle: TableHandle, column: string, value: unknown) =>
-    mapResultValue(handle, column, value, dialect, map, columnTypes)
+    mapResultValue(handle, column, value, dialect, map, columnTypes, contexts)
 
   /** Maps recognized result-column values while preserving the row's other fields. */
   const mapResultRow = (handle: TableHandle, row: Record<string, unknown>) =>
@@ -359,6 +374,7 @@ function mapParam(
   dialect: Dialect,
   map: ValueMapConfig | undefined,
   columnTypes: ValueMapper['columnTypes'],
+  contexts: MappingContexts,
 ): unknown {
   if (value === undefined) return value
 
@@ -375,7 +391,7 @@ function mapParam(
   if (map?.mapParamValue) return map.mapParamValue(dataType, value)
 
   if (dialect.query.mapParamValue) {
-    return dialect.query.mapParamValue(dataType, value)
+    return dialect.query.mapParamValue(dataType, value, contexts.get(handle)?.[column])
   }
 
   return value
@@ -401,6 +417,7 @@ function mapResultValue(
   dialect: Dialect,
   map: ValueMapConfig | undefined,
   columnTypes: ValueMapper['columnTypes'],
+  contexts: MappingContexts,
 ): unknown {
   const meta = columnMeta(handle, column)
 
@@ -415,7 +432,7 @@ function mapResultValue(
   if (map?.mapResultValue) return map.mapResultValue(dataType, value)
 
   if (dialect.query.mapResultValue) {
-    return dialect.query.mapResultValue(dataType, value)
+    return dialect.query.mapResultValue(dataType, value, contexts.get(handle)?.[column])
   }
 
   return value
@@ -432,20 +449,26 @@ function cachedColumnTypes(
   dialect: Dialect,
   query: DialectQueryResolution,
   registered: readonly TableHandle[],
+  contexts: MappingContexts,
 ): Record<string, string> {
   const cached = typeCache.get(handle)
 
   if (cached) return cached
 
   const types: Record<string, string> = {}
+  const logical: Record<string, DialectValueMappingContext> = {}
 
   for (const name of Object.keys(handle.getSchema().entries)) {
     const dt = resolveColumnDataType(handle, name, dialect, query, registered, [])
 
-    if (dt !== undefined) types[name] = dt
+    if (dt !== undefined) {
+      types[name] = dt.dataType
+      logical[name] = dt.context
+    }
   }
 
   typeCache.set(handle, types)
+  contexts.set(handle, logical)
   return types
 }
 

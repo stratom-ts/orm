@@ -476,7 +476,10 @@ describe('desired-schema reference metadata and value mapping: validates referen
     )
 
     expect(dialectMapper.mapParam(Source, 'targetId', 'abc')).toBe('dialect:abc')
-    expect(dialectMap).toHaveBeenCalledWith('uuid', 'abc')
+
+    expect(dialectMap).toHaveBeenCalledWith('uuid', 'abc', {
+      schema: Target.getSchema().entries.id,
+    })
   })
 })
 
