@@ -1,15 +1,8 @@
 import { date, integer, number, pipe, string } from 'valibot'
+import { afterEach, vi } from 'vitest'
 
-import type { Dialect, SqlAst } from '@/dialects'
-import {
-  executeSqliteMigration,
-  sqliteCatalog,
-  sqliteIdentity,
-  sqliteNaming,
-  sqliteOperations,
-  sqliteQuery,
-  sqliteSchema,
-} from '@/dialects/sqlite'
+import type { SqlAst } from '@/dialects'
+import { sqliteDialect as sqliteContractDialect } from '@/dialects/sqlite'
 import { defineTable } from '@/index'
 
 import { registerDialectContractMember } from './dialectContractKit'
@@ -18,9 +11,18 @@ import type {
   QueryCompilerScenarios,
 } from './dialectContractKit'
 import {
+  createSqliteLifecycleRuntime,
+  createSqliteMigrationCase,
+  createSqliteUnsupportedCase,
+} from './sqliteProductionShards'
+import {
   sqliteCoordinationContractShard,
   sqliteOperationSessionContractShard,
 } from './sqliteSharedShards'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const namespaceContext = {
   writableDefault: [{ role: 'database' as const, spelling: 'main' }],
@@ -50,35 +52,6 @@ const Events = defineTable(
 const records = { relation: 'records' } as const
 const events = { relation: 'events' } as const
 
-/** Rejects accidental use of a facet outside the declared SQLite contract capability. */
-function unsupportedFacet(facet: string): never {
-  throw new Error(`SQLite contract fixture does not exercise ${facet}`)
-}
-
-/** Test-only complete shape used solely to drive the reusable facet contracts. */
-const sqliteContractDialect: Dialect = {
-  id: 'sqlite',
-  identity: sqliteIdentity,
-  naming: sqliteNaming,
-  schema: sqliteSchema,
-  query: sqliteQuery,
-  catalog: sqliteCatalog,
-  operations: sqliteOperations,
-  migration: {
-    planning: { identity: sqliteIdentity, naming: sqliteNaming, schema: sqliteSchema },
-    catalog: {
-      /**
-       * Reads the requested native catalog scope and returns its portable evidence
-       * snapshot.
-       */
-      introspectCatalog: async () => unsupportedFacet('catalog'),
-    },
-    /** Lowers for the current fixture scenario. */
-    lower: () => unsupportedFacet('migration lowering'),
-    execute: executeSqliteMigration,
-  },
-}
-
 const sqliteContractCapabilities = {
   identity: { state: 'supported', shard: 'semantic' },
   naming: { state: 'supported', shard: 'semantic' },
@@ -94,13 +67,11 @@ const sqliteContractCapabilities = {
     shard: 'coordination',
   },
   migration: {
-    state: 'unsupported',
-    reason: 'SQLite migration lowering is not part of the ready facet set',
+    state: 'supported',
     shard: 'semantic',
   },
   lifecycle: {
-    state: 'unsupported',
-    reason: 'SQLite lifecycle support requires complete member assembly',
+    state: 'supported',
     shard: 'semantic',
   },
 } as const satisfies DialectContractMemberCapabilities
@@ -440,7 +411,7 @@ const queryCompilerScenarios = {
   ),
 } satisfies QueryCompilerScenarios
 
-registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities, {
+registerDialectContractMember('SQLite', sqliteContractCapabilities, {
   semantic: {
     identity: {
       state: 'supported',
@@ -599,12 +570,18 @@ registerDialectContractMember('SQLite ready facets', sqliteContractCapabilities,
       },
     },
     migration: {
-      state: 'unsupported',
-      reason: 'SQLite migration lowering is not part of the ready facet set',
+      state: 'supported',
+      input: {
+        lowering: { createCase: createSqliteMigrationCase },
+        unsupportedLowering: {
+          state: 'supported',
+          input: { createCase: createSqliteUnsupportedCase },
+        },
+      },
     },
     lifecycle: {
-      state: 'unsupported',
-      reason: 'SQLite lifecycle support requires complete member assembly',
+      state: 'supported',
+      input: createSqliteLifecycleRuntime,
     },
   },
   operationSession: sqliteOperationSessionContractShard,

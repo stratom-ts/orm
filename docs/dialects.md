@@ -1,11 +1,9 @@
 # Dialect members
 
 Stratom treats a dialect as one complete module of database semantics. PostgreSQL,
-future SQLite and MySQL implementations, and custom implementations are all members of
-the same `Dialect` interface. PostgreSQL is currently the only production-supported
-member. The SQLite-shaped member in the test suite is a contract fixture. SQLite schema,
-naming, query, and value-mapping facets also exist for the ordinary `main` database
-profile, but they are not assembled into or registered as a complete dialect member.
+SQLite, future MySQL implementations, and custom implementations are all members of
+the same `Dialect` interface. PostgreSQL and SQLite are statically registered production
+members. Both exercise the reusable member, migration, lifecycle and integration contracts.
 
 Applications always select a member with the db0 connector:
 
@@ -223,6 +221,47 @@ copies SQL and parameter counts, and replaces every bound parameter with
 SQL literals embedded by an adapter are verbatim and are outside parameter redaction.
 `dryRun()` resolves and validates the same Semantic Profile as execution and performs no
 DDL.
+
+## SQLite production profile
+
+SQLite requires the exact db0 0.4.0 `node-sqlite` connector, Node >=22.13 (including
+`DatabaseSync.isTransaction`) and SQLite >=3.37. The package's PostgreSQL Node baseline
+does not change. SQLite manages ordinary permanent non-STRICT rowid tables in `main`.
+Queries use the same ASCII identifier folding and main-database addressing as planning.
+
+Whole-plan lowering emits legal direct CREATE/DROP TABLE, CREATE/DROP INDEX, safe
+ADD COLUMN and unconstrained DROP COLUMN operations. Changes to types, nullability,
+foreign keys, unique constraints and restricted column drops coalesce with every
+touching change into one rebuild action per existing table. The action retains all
+observed columns, defaults, PK/unique/FK constraints and simple indexes unless the plan
+explicitly authorizes their removal. Additive ownership retains objects absent from the
+desired handle. Replacement names are deterministic and reserved against live and
+planned names; data copies use explicit projections and preserve hidden rowids, exact
+INTEGER PRIMARY KEY aliases and AUTOINCREMENT high-water marks.
+
+Conversions are accepted only when SQLite affinity rules prove them lossless for every
+stored value: unchanged affinity, INTEGER/NUMERIC interchange, or a change to no-affinity
+BLOB storage. Rowid alias conversions are rejected. New required columns need a proven
+non-NULL constant default; required-column backfill expressions and lossy conversions
+remain unsupported. Existing NULL values prevent SET NOT NULL before any DDL.
+Destructive table/column drops and unique-index drops that remove a candidate key
+require complete main-namespace dependency evidence,
+provided by explicit `completeNamespace` migration ownership. Retained incoming FKs
+prevent the drop; an FK whose source column is itself dropped does not. A unique-index
+drop can use scoped evidence when the same candidate key remains in the final table.
+Nonunique index drops do not require complete namespace coverage.
+
+Execution records the current FK policy, disables it before BEGIN IMMEDIATE, and
+prepares inside the writer transaction. This prevents DROP TABLE from cascading into
+retained children during a rebuild. FK and integrity checks and desired-state convergence
+run before commit. Rollback restores schema, data and sequence state; known commit or
+rollback outcomes restore the prior FK and busy-timeout policies. Uncertain outcomes
+discard the session and retain primary and cleanup failures separately.
+
+STRICT, WITHOUT ROWID, attached databases, temporary objects, virtual/shadow tables,
+generated columns, cross-database FKs, checks, triggers, views, rich constraint clauses,
+partial/expression indexes and incomplete preservation evidence are unsupported. An
+initialized empty temp schema is accepted only after its object inventory is proven empty.
 
 ## Registering and testing a member
 

@@ -67,13 +67,14 @@ export default defineConfig({
       formats: ['es', 'umd'],
     },
     rollupOptions: {
-      external: ['valibot', 'db0', 'node:async_hooks', 'node:crypto'],
+      external: ['valibot', 'db0', 'node:async_hooks', 'node:crypto', 'node:fs'],
       output: {
         globals: {
           valibot: 'valibot',
           db0: 'db0',
           'node:async_hooks': 'async_hooks',
           'node:crypto': 'crypto',
+          'node:fs': 'fs',
         },
       },
     },

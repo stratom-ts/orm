@@ -35,6 +35,8 @@ type FixtureOptions = {
   busy?: boolean
   nullCount?: number
   prepareFailure?: MigrationError
+  integrityFailure?: boolean
+  validationFailure?: Error
 }
 
 /** Drives the production runtime with controlled native command acknowledgements. */
@@ -48,6 +50,11 @@ function fixture(options: FixtureOptions = {}) {
       calls.push(query.sql)
 
       if (query.sql === 'pragma busy_timeout') return [{ timeout: 250 }]
+      if (query.sql === 'pragma foreign_keys') return [{ foreign_keys: 0 }]
+      if (query.sql === 'pragma main.foreign_key_check') return []
+
+      if (query.sql === 'pragma main.integrity_check')
+        return [{ integrity_check: options.integrityFailure ? 'corrupt' : 'ok' }]
 
       return [{ count: options.nullCount ?? 0 }]
     },
@@ -86,6 +93,9 @@ function fixture(options: FixtureOptions = {}) {
 
         return migrationProgram
       },
+      validate: async () => {
+        if (options.validationFailure) throw options.validationFailure
+      },
     })
 
   return { calls, discard, prepare, execute }
@@ -103,6 +113,35 @@ it('does not prepare or run DDL after a nonblocking BUSY coordination attempt', 
   expect(test.calls).not.toContain(statement.sql)
   expect(test.calls).toContain('pragma busy_timeout=250')
 })
+
+it.each(['integrity', 'convergence'] as const)(
+  'rolls back %s validation failure with provenance and cleanup evidence',
+  async (kind) => {
+    const primary = new MigrationError({
+      message: 'convergence failed',
+      stage: 'lowering',
+    })
+
+    const test = fixture({
+      integrityFailure: kind === 'integrity',
+      validationFailure: kind === 'convergence' ? primary : undefined,
+      fail: 'restore',
+    })
+
+    await expect(test.execute()).rejects.toMatchObject({
+      stage: 'validation',
+      outcome: 'rolledBack',
+      message: kind === 'integrity' ? 'SQLite integrity_check failed' : primary.message,
+      sourceStepIndexes: [7],
+      cleanupFailures: [{ stage: 'sessionCleanup', cause: new Error('restore failed') }],
+    })
+
+    expect(test.calls).toContain(statement.sql)
+    expect(test.calls).toContain('rollback')
+    expect(test.calls).not.toContain('commit')
+    expect(test.discard).toHaveBeenCalled()
+  },
+)
 
 it('retries BUSY only before one monotonic lock deadline', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })

@@ -1,6 +1,6 @@
 # stratom
 
-A schema-first ORM with dialect-neutral authoring and PostgreSQL lowering:
+A schema-first ORM with dialect-neutral authoring and PostgreSQL and SQLite lowering:
 [Valibot](https://valibot.dev/) schemas, desired-state migrations, and a typed
 query builder. Transport is [db0](https://db0.unjs.io/); app code uses stratom
 only.
@@ -265,7 +265,18 @@ its physical DDL AST. Unsupported type mappings and
 migration capabilities fail explicitly with `MigrationError`; catalog capabilities use
 the structured unsupported/unavailable states instead of falling back to PostgreSQL.
 Adding package-supported database behavior is therefore local to one complete member and
-one dispatcher registration. PostgreSQL is currently the only production member.
+one dispatcher registration. PostgreSQL and SQLite are production members.
+
+SQLite uses the exact db0 0.4.0 `node-sqlite` connector on Node >=22.13 and SQLite
+version 3.37 or later. It manages ordinary permanent non-STRICT rowid tables in `main`,
+with simple PK/unique/FK constraints, column indexes, portable defaults and AUTOINCREMENT.
+Migrations use legal direct operations or atomic table rebuilds that preserve retained
+data, rowids and sequence state. Unproven conversions, required-column backfills,
+opaque dependencies, attached databases and unsupported table/index forms fail closed.
+Destructive table/column drops and unique-index drops that remove a candidate key need
+complete incoming dependency evidence through explicit `completeNamespace` migration
+ownership. See the [SQLite profile](docs/dialects.md#sqlite-production-profile) for the
+supported limits.
 
 The Query facet first creates one client-scoped resolution of registered relations and
 members. `createDatabase({ defaultNamespace })` is supplied to that resolution and to

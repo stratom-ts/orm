@@ -1479,9 +1479,14 @@ async function readDatabaseContext(executor: CatalogExecutor) {
     databases.map((entry) => asciiFoldSqliteIdentifier(entry.name)),
   )
 
-  const temporaryDatabase = databases.some(
-    (entry) => asciiFoldSqliteIdentifier(entry.name) === 'temp',
-  )
+  const temporaryDatabase =
+    databases.some((entry) => asciiFoldSqliteIdentifier(entry.name) === 'temp') &&
+    decodeSchemaRows(
+      await executor.execute({
+        sql: 'select type, name, tbl_name, sql from "temp".sqlite_schema order by type, name',
+        params: [],
+      }),
+    ).length > 0
 
   const attached = databases
     .filter(

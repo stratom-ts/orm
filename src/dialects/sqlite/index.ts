@@ -1,7 +1,14 @@
+import type { Dialect } from '../types'
+
+import { sqliteCatalog } from './catalog'
+import { sqliteIdentity } from './identity'
 import { inferSqliteColumnType } from './infer'
 import { lowerSqliteDesiredSchema } from './lowerDesiredSchema'
 import { mapSqliteParamValue, mapSqliteResultValue } from './mapping'
+import { executeSqliteMigration, lowerSqliteMigrationPlan } from './migration'
+import { sqliteNaming } from './naming'
 import { normalizeSqliteDataType } from './normalize'
+import { sqliteOperations } from './operations'
 import { resolveSqliteQuery } from './queryAddressing'
 import { normalizeSqliteDefaultValue } from './validate'
 
@@ -19,7 +26,7 @@ export { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './nor
 export { resolveSqliteQuery } from './queryAddressing'
 export { createDb0NodeSqliteOperationSessionProvider } from './operationSession'
 export { compileSqliteOperationCommand, sqliteOperations } from './operations'
-export { executeSqliteMigration } from './migration'
+export { executeSqliteMigration, lowerSqliteMigrationPlan } from './migration'
 export {
   assertSafeSqliteDataType,
   formatSqliteDefaultExpression,
@@ -32,7 +39,7 @@ export {
   resolveSqliteQueryRelation,
 } from './compile'
 
-/** Ready SQLite schema facet; it is not a complete registered dialect member. */
+/** SQLite physical desired-schema and comparison policies. */
 export const sqliteSchema = {
   lowerDesiredSchema: lowerSqliteDesiredSchema,
   inferColumnType: inferSqliteColumnType,
@@ -40,9 +47,26 @@ export const sqliteSchema = {
   normalizeDefaultValue: normalizeSqliteDefaultValue,
 }
 
-/** Ready SQLite query facet; it is not a complete registered dialect member. */
+/** SQLite query addressing and value mapping. */
 export const sqliteQuery = {
   resolve: resolveSqliteQuery,
   mapParamValue: mapSqliteParamValue,
   mapResultValue: mapSqliteResultValue,
+}
+
+/** Complete SQLite >=3.37 member for the exact db0 0.4.0 node-sqlite connector. */
+export const sqliteDialect: Dialect = {
+  id: 'sqlite',
+  identity: sqliteIdentity,
+  naming: sqliteNaming,
+  schema: sqliteSchema,
+  query: sqliteQuery,
+  catalog: sqliteCatalog,
+  operations: sqliteOperations,
+  migration: {
+    planning: { identity: sqliteIdentity, naming: sqliteNaming, schema: sqliteSchema },
+    catalog: sqliteCatalog,
+    lower: lowerSqliteMigrationPlan,
+    execute: executeSqliteMigration,
+  },
 }

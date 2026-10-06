@@ -73,6 +73,75 @@ const SUPPORTED_CATALOG_SEMANTICS = {
   isValid: true,
 }
 
+it('authorizes local unique and foreign-key removal only through explicit source-column drops', () => {
+  const Keep = defineTable('keep', { id: string() }, { primaryKey: 'id' })
+  const Retain = defineTable(
+    'keep',
+    { id: string(), removed: nullable(string()) },
+    { primaryKey: 'id' },
+  )
+
+  const catalog = droppedConstraintCatalog()
+
+  expect(planMigration([Keep], catalog, postgresDialect)).toEqual({
+    steps: [{ kind: 'drop_column', target: columnTarget('public', 'keep', 'removed') }],
+  })
+
+  expect(() => planMigration([Retain], catalog, postgresDialect)).toThrow(
+    'Unsupported removal of extra unique constraints',
+  )
+
+  const onlyForeign = {
+    ...catalog,
+    tables: catalog.tables.map((table) => ({ ...table, uniqueConstraints: [] })),
+  }
+
+  expect(() => planMigration([Retain], onlyForeign, postgresDialect)).toThrow(
+    'Unsupported removal of extra foreign keys',
+  )
+})
+
+/** Builds local constraints whose source column can be explicitly dropped. */
+function droppedConstraintCatalog(): CatalogSnapshot {
+  return {
+    ...emptyCatalog(),
+    tables: [
+      {
+        schema: 'public',
+        name: 'keep',
+        columns: [
+          { name: 'id', dataType: 'text', isNullable: false },
+          { name: 'removed', dataType: 'text', isNullable: true },
+        ],
+        primaryKey: {
+          name: 'keep_pkey',
+          columns: ['id'],
+          ...SUPPORTED_CATALOG_SEMANTICS,
+        },
+        uniqueConstraints: [
+          {
+            name: 'keep_removed_key',
+            columns: ['removed'],
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
+        ],
+        foreignKeys: [
+          {
+            name: 'keep_removed_fk',
+            columns: ['removed'],
+            referencedSchema: 'public',
+            referencedTable: 'parent',
+            referencedColumns: ['id'],
+            onDelete: 'no action',
+            onUpdate: 'no action',
+            ...SUPPORTED_CATALOG_SEMANTICS,
+          },
+        ],
+      },
+    ],
+  }
+}
+
 const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
 
 /** Builds empty catalog evidence for schema reconciliation checks. */

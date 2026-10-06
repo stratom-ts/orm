@@ -752,7 +752,11 @@ function collectUniqueConstraintIssues({
 
   if (
     shape === 'complete' &&
-    live.uniqueConstraints.some((constraint) => !matched.has(constraint))
+    live.uniqueConstraints.some(
+      (constraint) =>
+        !matched.has(constraint) &&
+        constraintColumnsRetained(constraint, desired, identities),
+    )
   ) {
     issues.push({
       identity,
@@ -844,7 +848,11 @@ function collectForeignKeyIssues({
 
   if (
     shape === 'complete' &&
-    live.foreignKeys.some((foreignKey) => !matched.has(foreignKey))
+    live.foreignKeys.some(
+      (foreignKey) =>
+        !matched.has(foreignKey) &&
+        constraintColumnsRetained(foreignKey, desired, identities),
+    )
   ) {
     issues.push({
       identity,
@@ -853,6 +861,21 @@ function collectForeignKeyIssues({
       message: `Unsupported removal of extra foreign keys for '${tableName}'`,
     })
   }
+}
+
+/** Tests whether a constraint survives the column drops of a complete desired shape. */
+function constraintColumnsRetained(
+  constraint: CatalogKeyConstraint,
+  desired: LoweredDesiredTable,
+  identities: CanonicalRelationIdentityModule,
+): boolean {
+  return constraint.columns.every((name) =>
+    desired.columns.some(
+      (column) =>
+        column.identifier.comparisonKey ===
+        identities.member('column', name).comparisonKey,
+    ),
+  )
 }
 
 /**
@@ -1339,6 +1362,8 @@ export type PlannedMigration = {
   identities: CanonicalRelationIdentityModule
   desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>
   planningCatalog: PlanningCatalog
+  /** Full observed facts retained for dialect lowering and preservation checks. */
+  catalogSnapshot: CatalogSnapshot
 }
 
 /**
@@ -2373,6 +2398,8 @@ function reserveCatalogKeys(
   )
 
   for (const constraint of table.foreignKeys) {
+    if (constraint.name === undefined) continue
+
     physicalNames.reserve({
       kind: 'foreignKey',
       owner: identity,
@@ -2405,6 +2432,8 @@ function reserveCatalogUniqueKeys(
   representedCatalogNames: Set<string>,
 ) {
   for (const constraint of table.uniqueConstraints) {
+    if (constraint.name === undefined) continue
+
     const backingToken = `catalog:${namespaceNameKey(namespace, constraint.name)}`
     const constraintToken = `catalog-constraint:${identities.format(identity)}:${constraint.name}`
 
@@ -2449,7 +2478,7 @@ function reserveCatalogPrimaryKey(
   physicalNames: PhysicalNameRegistry,
   representedCatalogNames: Set<string>,
 ) {
-  if (table.primaryKey) {
+  if (table.primaryKey?.name !== undefined) {
     const backingToken = `catalog:${namespaceNameKey(namespace, table.primaryKey.name)}`
     const constraintToken = `catalog-constraint:${identities.format(identity)}:${table.primaryKey.name}`
 
@@ -2619,6 +2648,7 @@ function completeMigrationPlan(
     identities,
     desiredTables,
     planningCatalog,
+    catalogSnapshot: catalog,
   }
 }
 

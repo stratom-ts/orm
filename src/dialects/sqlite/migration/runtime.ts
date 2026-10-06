@@ -26,6 +26,7 @@ type State = {
   rollbackAcknowledged: boolean
   uncertain: boolean
   busyTimeout?: number
+  foreignKeys?: number
   primary?: Failure
   cleanupFailures: MigrationCleanupFailure[]
 }
@@ -44,7 +45,8 @@ function failure(
     message:
       error.cause instanceof Error ? error.cause.message : 'SQLite migration failed',
     cause: structured?.cause ?? error.cause,
-    stage: structured?.stage ?? error.stage,
+    stage:
+      error.stage === 'validation' ? 'validation' : (structured?.stage ?? error.stage),
     outcome,
     retryable: outcome === 'unknown' ? false : (structured?.retryable ?? retryable),
     actionIndex: error.actionIndex ?? structured?.actionIndex,
@@ -184,6 +186,12 @@ async function acquire(options: MigrationRuntimeOptions, state: State): Promise<
   try {
     assertNotAborted(options, 'lock')
     state.busyTimeout = await readBusyTimeout(options)
+    state.foreignKeys = await readForeignKeys(options)
+    await run(options, 'pragma foreign_keys=off')
+
+    if ((await readForeignKeys(options)) !== 0)
+      throw new Error('SQLite FK enforcement could not be disabled before BEGIN')
+
     await run(options, 'pragma busy_timeout=0')
     await attemptBegin(options, deadline)
     state.transactionOpen = true
@@ -335,11 +343,66 @@ async function prepareAndExecute(
     assertNotAborted(options, 'introspection')
     validateProgram(program)
     await executeProgram(options, state, program)
+    await validateFinalState(options, state, program)
   } catch (cause) {
     state.primary = {
       cause,
       stage:
         cause instanceof MigrationError && cause.stage ? cause.stage : 'introspection',
+    }
+  }
+}
+
+/** Reads the native FK policy before following SQLite's documented rebuild sequence. */
+async function readForeignKeys(options: MigrationRuntimeOptions): Promise<number> {
+  const rows = await options.executor.execute({ sql: 'pragma foreign_keys', params: [] })
+  const value = (rows[0] as { foreign_keys?: unknown } | undefined)?.foreign_keys
+
+  if (value !== 0 && value !== 1)
+    throw new Error('SQLite did not report a valid foreign_keys policy')
+
+  return value
+}
+
+/**
+ * Checks referential integrity, storage integrity and desired-state convergence before
+ * commit.
+ */
+async function validateFinalState(
+  options: MigrationRuntimeOptions,
+  state: State,
+  program: MigrationProgram,
+): Promise<void> {
+  if (state.primary) return
+
+  try {
+    assertNotAborted(options, 'validation')
+    const foreign = await options.executor.execute({
+      sql: 'pragma main.foreign_key_check',
+      params: [],
+    })
+
+    if (foreign.length) throw new Error('SQLite foreign_key_check failed')
+
+    const integrity = await options.executor.execute({
+      sql: 'pragma main.integrity_check',
+      params: [],
+    })
+
+    if (
+      integrity.length !== 1 ||
+      (integrity[0] as { integrity_check?: unknown }).integrity_check !== 'ok'
+    )
+      throw new Error('SQLite integrity_check failed')
+
+    await options.validate?.()
+  } catch (cause) {
+    state.primary = {
+      cause,
+      stage: 'validation',
+      sourceStepIndexes: [
+        ...new Set(program.actions.flatMap((action) => action.sourceStepIndexes)),
+      ].sort((left, right) => left - right),
     }
   }
 }
@@ -408,6 +471,30 @@ async function restoreBusyTimeout(
   }
 }
 
+/** Restores the original FK policy only after a known commit or rollback acknowledgement. */
+async function restoreForeignKeys(
+  options: MigrationRuntimeOptions,
+  state: State,
+): Promise<void> {
+  if (
+    state.foreignKeys === undefined ||
+    state.uncertain ||
+    options.signal?.aborted ||
+    state.transactionOpen
+  )
+    return
+
+  try {
+    await run(options, `pragma foreign_keys=${state.foreignKeys}`)
+
+    if ((await readForeignKeys(options)) !== state.foreignKeys)
+      throw new Error('SQLite FK policy restoration failed')
+  } catch (cause) {
+    state.cleanupFailures.push({ stage: 'sessionCleanup', cause })
+    options.discard()
+  }
+}
+
 /** Classifies the known effect and preserves primary and cleanup evidence. */
 function outcome(state: State): { outcome: 'applied' | 'unchanged' } {
   const success = state.committed && state.ddlStarted ? 'applied' : 'unchanged'
@@ -462,5 +549,6 @@ export async function executeSqliteMigration(
   }
 
   await restoreBusyTimeout(options, state)
+  await restoreForeignKeys(options, state)
   return outcome(state)
 }

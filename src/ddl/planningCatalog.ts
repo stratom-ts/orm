@@ -27,7 +27,7 @@ export type PlanningCatalogColumn = {
 }
 
 export type PlanningCatalogKeyConstraint = {
-  name: string
+  name?: string
   columns: string[]
   semanticCompleteness: 'supportedSimple' | 'unsupported'
   isValid: boolean
@@ -172,7 +172,9 @@ function keyConstraint(
   target: string,
 ): PlanningCatalogKeyConstraint {
   return {
-    name: nameOf(constraint.name, target),
+    ...(constraint.name.state === 'absent'
+      ? {}
+      : { name: nameOf(constraint.name, target) }),
     columns: [...constraint.columns],
     ...simpleSemantics(constraint),
   }
@@ -538,7 +540,10 @@ function projectPlanningColumn(
       ? null
       : requireFact(column.generation, `${target} column ${column.name} generation`)
 
-  if (generation && generation.kind !== 'identity') {
+  if (
+    generation &&
+    !['identity', 'rowidAlias', 'autoIncrement'].includes(generation.kind)
+  ) {
     throw new MigrationError({
       message: `Unsupported catalog generation for ${target} column ${JSON.stringify(column.name)}`,
     })
@@ -549,8 +554,26 @@ function projectPlanningColumn(
     dataType: dataType.comparisonKey,
     isNullable: nullable,
     defaultExpression,
-    identityGeneration: generation?.mode ?? null,
+    identityGeneration: generationMode(generation),
   }
+}
+
+/**
+ * Projects explicit generation while leaving implicit rowid allocation outside identity
+ * drift.
+ */
+function generationMode(
+  generation: import('@/dialects/catalog').CatalogValueGeneration | null,
+): 'always' | 'byDefault' | null {
+  if (generation?.kind === 'identity') return generation.mode
+
+  if (
+    generation?.kind === 'autoIncrement' ||
+    (generation?.kind === 'rowidAlias' && generation.autoIncrement)
+  )
+    return 'byDefault'
+
+  return null
 }
 
 type PlanningTableProjection = {

@@ -44,7 +44,7 @@ import type { TableHandle } from '@/types'
 import { InvariantError } from '@/utils/error'
 
 /** Real db0 selector used only to prove the test member contract; not production support. */
-export const EXTENSION_CONTRACT_DIALECT_ID = 'sqlite'
+export const EXTENSION_CONTRACT_DIALECT_ID = 'mysql'
 export const EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON =
   'The contract fixture deliberately does not support migration execution'
 
