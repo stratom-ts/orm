@@ -141,6 +141,137 @@ it('resolves the production member and creates a desired FK graph through Client
   }
 })
 
+const SeedWithData = defineTable(
+  'seed',
+  { id: pipe(number(), integer()) },
+  { primaryKey: 'id' },
+)
+
+const ValidBeforeBad = defineTable(
+  'aaa_valid',
+  { id: pipe(number(), integer()) },
+  { primaryKey: 'id' },
+)
+
+it.each([
+  'tExT  nOt nUlL',
+  'INTEGER PRIMARY KEY',
+  'TEXT DEFAULT CURRENT_TIMESTAMP',
+  'TEXT COLLATE NOCASE',
+  'TEXT UNIQUE',
+  'TEXT REFERENCES seed',
+  'TEXT NULL',
+  'TEXT CHECK (1)',
+  'TEXT CONSTRAINT named UNIQUE',
+  'TEXT GENERATED ALWAYS AS (1)',
+  'TEXT AS (1)',
+])(
+  'rejects constraint syntax in the SQLite physical type before DDL: %s',
+  async (dataType) => {
+    const Bad = defineTable(
+      'zzz_invalid',
+      {
+        id: pipe(number(), integer()),
+        value: pipe(nullable(string()), column({ physicalType: { sqlite: dataType } })),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const native = await connector.getInstance!()
+
+    native.exec(
+      'create table seed(id INTEGER primary key not null); insert into seed values(7)',
+    )
+
+    const db = createDatabase({ connector, schemas: [ValidBeforeBad, Bad, SeedWithData] })
+    const message = `SQLite column data type contains constraint syntax: ${JSON.stringify(dataType)}`
+
+    try {
+      const before = native
+        .prepare('select name,sql from sqlite_schema order by name')
+        .all()
+
+      await expect(db.migrate().plan()).rejects.toMatchObject({
+        stage: 'planning',
+        outcome: 'unchanged',
+        message,
+      })
+
+      await expect(db.migrate().dryRun()).rejects.toMatchObject({
+        stage: 'planning',
+        outcome: 'unchanged',
+        message,
+      })
+
+      await expect(db.migrate().execute()).rejects.toMatchObject({
+        stage: 'planning',
+        outcome: 'unchanged',
+      })
+
+      expect(
+        native.prepare('select name,sql from sqlite_schema order by name').all(),
+      ).toEqual(before)
+
+      expect(native.prepare('select * from seed').all()).toEqual([{ id: 7 }])
+    } finally {
+      await db.close()
+    }
+  },
+)
+
+const LegalPhysicalTypes = defineTable(
+  'types',
+  {
+    id: pipe(number(), integer()),
+    realValue: pipe(number(), column({ physicalType: { sqlite: 'DOUBLE PRECISION' } })),
+    textValue: pipe(
+      string(),
+      column({ physicalType: { sqlite: 'CHARACTER VARYING(32)' } }),
+    ),
+    numericValue: pipe(number(), column({ physicalType: { sqlite: 'DECIMAL(10, 2)' } })),
+    integerValue: pipe(
+      number(),
+      column({ physicalType: { sqlite: 'UNSIGNED BIG INT' } }),
+    ),
+    customValue: pipe(string(), column({ physicalType: { sqlite: 'CONSTRAINT_NAME' } })),
+  },
+  { primaryKey: 'id' },
+)
+
+it('preserves legal multiword and parameterized SQLite types through execution', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  const db = createDatabase({ connector, schemas: [LegalPhysicalTypes] })
+
+  try {
+    await db.migrate().execute()
+
+    expect(
+      native
+        .prepare('pragma table_info(types)')
+        .all()
+        .map((row) => [row.name, row.type]),
+    ).toEqual([
+      ['id', 'INTEGER'],
+      ['realValue', 'DOUBLE PRECISION'],
+      ['textValue', 'CHARACTER VARYING(32)'],
+      ['numericValue', 'DECIMAL(10, 2)'],
+      ['integerValue', 'UNSIGNED BIG INT'],
+      ['customValue', 'CONSTRAINT_NAME'],
+    ])
+
+    expect(sqliteDialect.schema.normalizeDataType('DOUBLE PRECISION')).toBe('real')
+    expect(sqliteDialect.schema.normalizeDataType('CHARACTER VARYING(32)')).toBe('text')
+    expect(sqliteDialect.schema.normalizeDataType('DECIMAL(10, 2)')).toBe('numeric')
+    expect(sqliteDialect.schema.normalizeDataType('UNSIGNED BIG INT')).toBe('integer')
+    expect(sqliteDialect.schema.normalizeDataType('CONSTRAINT_NAME')).toBe('integer')
+    expect((await db.migrate().dryRun()).actions).toEqual([])
+  } finally {
+    await db.close()
+  }
+})
+
 it('rejects an implicit rowid alias conversion even when the semantic plan is empty', async () => {
   const Records = defineTable(
     'records',
