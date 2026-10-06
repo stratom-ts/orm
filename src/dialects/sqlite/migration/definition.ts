@@ -3,6 +3,7 @@ import type { CatalogFact, CatalogSet, CatalogTable } from '@/dialects/catalog'
 import type { LoweredDesiredColumn, LoweredDesiredTable } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 
+import { isSqliteDefaultLiteral } from '../defaults'
 import { asciiFoldSqliteIdentifier } from '../identity'
 import {
   assertSafeSqliteDataType,
@@ -229,10 +230,5 @@ export function sameName(left: string, right: string): boolean {
 
 /** Proves a constant default rather than permitting executable expressions as a backfill. */
 export function literalDefault(value: string | undefined): boolean {
-  return (
-    value === undefined ||
-    /^(?:null|true|false|[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?|'(?:[^']|'')*')$/i.test(
-      value.trim(),
-    )
-  )
+  return value === undefined || isSqliteDefaultLiteral(value)
 }

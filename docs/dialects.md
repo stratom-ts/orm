@@ -227,6 +227,20 @@ DDL.
 SQLite requires the exact db0 0.4.0 `node-sqlite` connector, Node >=22.5 and SQLite >=3.37.
 Node 22.5 through 22.12 requires the `--experimental-sqlite` flag. The package's PostgreSQL Node baseline
 does not change. SQLite manages ordinary permanent non-STRICT rowid tables in `main`.
+
+SQLite defaults support native literals, portable date/time defaults, and a constant
+expression subset with scalar core/date functions, arithmetic, parentheses and CAST to
+`INTEGER`, `REAL`, `NUMERIC`, `TEXT` or `BLOB`. Validation checks syntax and function
+argument counts before DDL, with a limit of 256 tokens and 24 parser levels. SQL
+whitespace is space, tab, carriage return, line feed or form feed. `format()` and
+`unixepoch()` are excluded because they require SQLite 3.38.
+
+`abs()` operands must be proven safe from minimum-integer overflow. Supported operands
+include literals, integer addition/subtraction whose summed literal magnitudes are below
+2^63, and complete calls returning text, blobs, real numbers or bounded/nonnegative
+integers, such as `lower()`, `round()`, `length()` and validated `abs()` calls. CAST to
+`REAL`, `TEXT` or `BLOB` is allowed inside `abs()`. Other arithmetic and unproven
+`INTEGER`/`NUMERIC` casts or `min()`/`max()`/`coalesce()` operands fail before DDL.
 Queries use the same ASCII identifier folding and main-database addressing as planning.
 
 Whole-plan lowering emits legal direct CREATE/DROP TABLE, CREATE/DROP INDEX, safe

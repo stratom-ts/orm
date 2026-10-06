@@ -1,3 +1,5 @@
+import { trimSqliteWhitespace } from './defaults'
+
 /** Returns SQLite's stable affinity key for a declared type spelling. */
 export function normalizeSqliteDataType(dataType: string): string {
   const type = dataType.trim().toUpperCase()
@@ -41,12 +43,14 @@ function stripEnclosingParens(expression: string): string {
     if (depth === 0 && index < expression.length - 1) return expression
   }
 
-  return !quoted && depth === 0 ? expression.slice(1, -1).trim() : expression
+  return !quoted && depth === 0
+    ? trimSqliteWhitespace(expression.slice(1, -1))
+    : expression
 }
 
 /** Canonicalizes SQLite defaults for stable catalog comparison. */
 export function normalizeSqliteDefaultExpression(expression: string): string {
-  let result = expression.trim()
+  let result = trimSqliteWhitespace(expression)
   let previous: string
 
   do {
@@ -55,6 +59,16 @@ export function normalizeSqliteDefaultExpression(expression: string): string {
   } while (result !== previous)
 
   if (/^current_(timestamp|date|time)$/i.test(result)) return result.toLowerCase()
+
+  if (/^(?:null|true|false)$/i.test(result)) {
+    return result.toLowerCase() === 'null'
+      ? 'null'
+      : result.toLowerCase() === 'true'
+        ? '1'
+        : '0'
+  }
+
+  if (/^x'(?:[\da-f]{2})*'$/i.test(result)) return result.toLowerCase()
 
   return collapseUnquotedWhitespace(result)
 }
@@ -75,7 +89,11 @@ function collapseUnquotedWhitespace(expression: string): string {
     if (character === "'") quoted = !quoted
 
     result +=
-      !quoted && /\s/.test(character) ? (result.endsWith(' ') ? '' : ' ') : character
+      !quoted && /[ \t\r\n\f]/.test(character)
+        ? result.endsWith(' ')
+          ? ''
+          : ' '
+        : character
   }
 
   return result
