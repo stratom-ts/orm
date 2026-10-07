@@ -9,7 +9,7 @@ import { normalizeSqliteDefaultExpression } from './normalize'
 
 /** Validates a SQLite declared type while preserving its authored spelling. */
 export function assertSafeSqliteDataType(dataType: string): string {
-  const value = dataType.trim()
+  const value = trimSqliteWhitespace(dataType)
 
   if (!value)
     throw new MigrationError({ message: 'column data type must be a non-empty string' })
@@ -20,19 +20,47 @@ export function assertSafeSqliteDataType(dataType: string): string {
     })
   }
 
-  if (!/^[A-Za-z][A-Za-z0-9_ ]*(?:\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?$/.test(value)) {
+  if (
+    !/^[A-Za-z][A-Za-z0-9_]*(?:[ \t\r\n\f]+[A-Za-z_][A-Za-z0-9_]*)*(?:[ \t\r\n\f]*\([ \t\r\n\f]*\d+(?:[ \t\r\n\f]*,[ \t\r\n\f]*\d+)?[ \t\r\n\f]*\))?$/.test(
+      value,
+    )
+  ) {
     throw new MigrationError({
       message: `unsupported SQLite column data type: ${JSON.stringify(dataType)}`,
     })
   }
 
   if (
-    /\b(?:CONSTRAINT|PRIMARY\s+KEY|NOT\s+NULL|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|AS|AUTOINCREMENT)\b/i.test(
+    /\b(?:CONSTRAINT|PRIMARY|NOT|FOREIGN|NULL|UNIQUE|CHECK|DEFAULT|COLLATE|REFERENCES|AS|AUTOINCREMENT|ON|DEFERRABLE)\b/i.test(
       value,
     )
   ) {
     throw new MigrationError({
       message: `SQLite column data type contains constraint syntax: ${JSON.stringify(dataType)}`,
+    })
+  }
+
+  // SQLite build.c strips ALWAYS at 16 bytes; this grammar is ASCII, so JS length matches.
+  if (value.length >= 16 && /ALWAYS$/i.test(value)) {
+    const generatedConstraint = /\bGENERATED[ \t\r\n\f]+ALWAYS$/i.test(value)
+    const reason = generatedConstraint
+      ? 'SQLite column data type contains constraint syntax'
+      : 'unsupported SQLite column data type'
+
+    throw new MigrationError({
+      message: `${reason}: ${JSON.stringify(dataType)}`,
+    })
+  }
+
+  // SQLite's typename accepts ids, including only its parser's ID-fallback keywords.
+  // These reserved tokens cannot occur in a declared type without changing the grammar.
+  if (
+    /\b(?:ADD|ALL|ALTER|AND|BETWEEN|CASE|COMMIT|CREATE|CROSS|DELETE|DISTINCT|DROP|ELSE|ESCAPE|EXCEPT|EXISTS|FROM|FULL|GROUP|HAVING|IN|INDEX|INDEXED|INNER|INSERT|INTERSECT|INTO|IS|ISNULL|JOIN|LEFT|LIMIT|NATURAL|NOTHING|NOTNULL|OR|ORDER|OUTER|RETURNING|RIGHT|SELECT|SET|TABLE|THEN|TO|TRANSACTION|UNION|UPDATE|USING|VALUES|WHEN|WHERE)\b/i.test(
+      value,
+    )
+  ) {
+    throw new MigrationError({
+      message: `unsupported SQLite column data type: ${JSON.stringify(dataType)}`,
     })
   }
 

@@ -1,4 +1,5 @@
 import nodeSqliteConnector from 'db0/connectors/node-sqlite'
+import type { DatabaseSync } from 'node:sqlite'
 import { integer, nullable, number, pipe, string } from 'valibot'
 import { expect, it, vi } from 'vitest'
 
@@ -21,6 +22,37 @@ const main = [{ role: 'database' as const, spelling: 'main' }]
 const completeMain: MigrationOwnershipDeclaration[] = [
   { kind: 'completeNamespace', namespace: main },
 ]
+
+/** Records DDL and data mutation attempts while forwarding native database calls. */
+function trackNativeMutations(native: DatabaseSync): string[] {
+  const attempts: string[] = []
+  const nativeExec = native.exec.bind(native)
+  const nativePrepare = native.prepare.bind(native)
+  const isMutation = /^\s*(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/i
+
+  vi.spyOn(native, 'exec').mockImplementation((sql) => {
+    if (isMutation.test(sql)) attempts.push(sql)
+
+    return nativeExec(sql)
+  })
+
+  vi.spyOn(native, 'prepare').mockImplementation((sql, options) => {
+    if (isMutation.test(sql)) attempts.push(sql)
+
+    return nativePrepare(sql, options)
+  })
+
+  return attempts
+}
+
+/** Asserts planning rejects before migration execution can begin. */
+async function expectPlanningFailure(run: () => Promise<unknown>, message?: string) {
+  await expect(run()).rejects.toMatchObject({
+    stage: 'planning',
+    outcome: 'unchanged',
+    ...(message ? { message } : {}),
+  })
+}
 
 const additive: MigrationOwnershipDeclaration[] = [
   { kind: 'relation', relation: { relation: 'parent' }, shape: 'additive' },
@@ -377,26 +409,57 @@ it.each([
 )
 
 it.each([
-  'tExT  nOt nUlL',
-  'TEXT PRIMARY KEY',
-  'TEXT DEFAULT CURRENT_TIMESTAMP',
-  'TEXT COLLATE NOCASE',
-  'TEXT UNIQUE',
-  'TEXT REFERENCES seed',
-  'TEXT NULL',
-  'TEXT CHECK (1)',
-  'TEXT CONSTRAINT named UNIQUE',
-  'TEXT GENERATED ALWAYS AS (1)',
-  'TEXT AS (1)',
+  ['tExT  nOt nUlL', 'SQLite column data type contains constraint syntax'],
+  ['TEXT PRIMARY KEY', 'SQLite column data type contains constraint syntax'],
+  ['TEXT PRIMARY', 'SQLite column data type contains constraint syntax'],
+  ['tExT  pRiMaRy', 'SQLite column data type contains constraint syntax'],
+  ['TEXT NOT', 'SQLite column data type contains constraint syntax'],
+  ['TEXT FOREIGN', 'SQLite column data type contains constraint syntax'],
+  ['TEXT FOREIGN KEY', 'SQLite column data type contains constraint syntax'],
+  ['TEXT ON', 'SQLite column data type contains constraint syntax'],
+  ['TEXT DEFERRABLE', 'SQLite column data type contains constraint syntax'],
+  ['tExT  dEfErRaBlE', 'SQLite column data type contains constraint syntax'],
+  [
+    'TEXT DEFAULT CURRENT_TIMESTAMP',
+    'SQLite column data type contains constraint syntax',
+  ],
+  ['TEXT COLLATE NOCASE', 'SQLite column data type contains constraint syntax'],
+  ['TEXT UNIQUE', 'SQLite column data type contains constraint syntax'],
+  ['TEXT REFERENCES seed', 'SQLite column data type contains constraint syntax'],
+  ['TEXT NULL', 'SQLite column data type contains constraint syntax'],
+  ['TEXT CHECK (1)', 'SQLite column data type contains constraint syntax'],
+  ['TEXT CONSTRAINT named UNIQUE', 'SQLite column data type contains constraint syntax'],
+  ['TEXT GENERATED ALWAYS', 'SQLite column data type contains constraint syntax'],
+  ['TEXT GENERATED ALWAYS AS (1)', 'SQLite column data type contains constraint syntax'],
+  ['TEXT SOMETHING ALWAYS', 'unsupported SQLite column data type'],
+  ['TEXT ABCD ALWAYS', 'unsupported SQLite column data type'],
+  ['TEXT LONGTYPEALWAYS', 'unsupported SQLite column data type'],
+  ['TEXT FOO_GENERATED ALWAYS', 'unsupported SQLite column data type'],
+  ['TEXT AS (1)', 'SQLite column data type contains constraint syntax'],
+  ['TEXT SELECT', 'unsupported SQLite column data type'],
+  ['TEXT INDEXED', 'unsupported SQLite column data type'],
+  ['TEXT JOIN', 'unsupported SQLite column data type'],
+  ['TEXT ORDER', 'unsupported SQLite column data type'],
+  ['TEXT 123', 'unsupported SQLite column data type'],
+  ['TEXT 123abc', 'unsupported SQLite column data type'],
+  ['TEXT\u000bINTEGER', 'unsupported SQLite column data type'],
+  ['TEXT\u00a0INTEGER', 'unsupported SQLite column data type'],
+  ['DECIMAL(\u000b10, 2)', 'unsupported SQLite column data type'],
 ])(
-  'rejects constraint syntax in the SQLite physical type before DDL: %s',
-  async (dataType) => {
+  'rejects unsupported SQLite physical type grammar before DDL: %s',
+  async (dataType, reason) => {
     const Bad = defineTable(
       'zzz_invalid',
       {
         id: pipe(number(), integer()),
         value: pipe(
-          nullable(dataType.includes('CONSTRAINT') ? number() : string()),
+          nullable(
+            dataType.includes('CONSTRAINT') ||
+              dataType.includes('\u000b') ||
+              dataType.includes('\u00a0')
+              ? number()
+              : string(),
+          ),
           column({ physicalType: { sqlite: dataType } }),
         ),
       },
@@ -411,29 +474,19 @@ it.each([
     )
 
     const db = createDatabase({ connector, schemas: [ValidBeforeBad, Bad, SeedWithData] })
-    const message = `SQLite column data type contains constraint syntax: ${JSON.stringify(dataType)}`
+    const message = `${reason}: ${JSON.stringify(dataType)}`
+    const ddlAttempts = trackNativeMutations(native)
 
     try {
       const before = native
         .prepare('select name,sql from sqlite_schema order by name')
         .all()
 
-      await expect(db.migrate().plan()).rejects.toMatchObject({
-        stage: 'planning',
-        outcome: 'unchanged',
-        message,
-      })
+      await expectPlanningFailure(() => db.migrate().plan(), message)
+      await expectPlanningFailure(() => db.migrate().dryRun(), message)
+      await expectPlanningFailure(() => db.migrate().execute())
 
-      await expect(db.migrate().dryRun()).rejects.toMatchObject({
-        stage: 'planning',
-        outcome: 'unchanged',
-        message,
-      })
-
-      await expect(db.migrate().execute()).rejects.toMatchObject({
-        stage: 'planning',
-        outcome: 'unchanged',
-      })
+      expect(ddlAttempts).toEqual([])
 
       expect(
         native.prepare('select name,sql from sqlite_schema order by name').all(),
@@ -450,7 +503,7 @@ const LegalPhysicalTypes = defineTable(
   'types',
   {
     id: pipe(number(), integer()),
-    realValue: pipe(number(), column({ physicalType: { sqlite: 'DOUBLE PRECISION' } })),
+    realValue: pipe(number(), column({ physicalType: { sqlite: 'dOuBlE   pReCiSiOn' } })),
     textValue: pipe(
       string(),
       column({ physicalType: { sqlite: 'CHARACTER VARYING(32)' } }),
@@ -461,6 +514,24 @@ const LegalPhysicalTypes = defineTable(
       column({ physicalType: { sqlite: 'UNSIGNED BIG INT' } }),
     ),
     customValue: pipe(number(), column({ physicalType: { sqlite: 'CONSTRAINT_NAME' } })),
+    generatedValue: pipe(
+      string(),
+      column({ physicalType: { sqlite: 'TEXT GENERATED ALWAYS foo' } }),
+    ),
+    generatedType: pipe(string(), column({ physicalType: { sqlite: 'TEXT GENERATED' } })),
+    shortAlways: pipe(string(), column({ physicalType: { sqlite: 'TEXT abc ALWAYS' } })),
+    parameterizedAlways: pipe(
+      string(),
+      column({ physicalType: { sqlite: 'TEXT SOMETHING ALWAYS(10)' } }),
+    ),
+    parameterizedGeneratedAlways: pipe(
+      string(),
+      column({ physicalType: { sqlite: 'TEXT GENERATED ALWAYS(10,2)' } }),
+    ),
+    keywordValue: pipe(
+      string(),
+      column({ physicalType: { sqlite: 'TEXT KEY WINDOW FILTER OVER' } }),
+    ),
   },
   { primaryKey: 'id' },
 )
@@ -480,18 +551,29 @@ it('preserves legal multiword and parameterized SQLite types through execution',
         .map((row) => [row.name, row.type]),
     ).toEqual([
       ['id', 'INTEGER'],
-      ['realValue', 'DOUBLE PRECISION'],
+      ['realValue', 'dOuBlE   pReCiSiOn'],
       ['textValue', 'CHARACTER VARYING(32)'],
       ['numericValue', 'DECIMAL(10, 2)'],
       ['integerValue', 'UNSIGNED BIG INT'],
       ['customValue', 'CONSTRAINT_NAME'],
+      ['generatedValue', 'TEXT GENERATED ALWAYS foo'],
+      ['generatedType', 'TEXT GENERATED'],
+      ['shortAlways', 'TEXT abc ALWAYS'],
+      ['parameterizedAlways', 'TEXT SOMETHING ALWAYS(10)'],
+      ['parameterizedGeneratedAlways', 'TEXT GENERATED ALWAYS(10,2)'],
+      ['keywordValue', 'TEXT KEY WINDOW FILTER OVER'],
     ])
 
-    expect(sqliteDialect.schema.normalizeDataType('DOUBLE PRECISION')).toBe('real')
+    expect(sqliteDialect.schema.normalizeDataType('dOuBlE   pReCiSiOn')).toBe('real')
     expect(sqliteDialect.schema.normalizeDataType('CHARACTER VARYING(32)')).toBe('text')
     expect(sqliteDialect.schema.normalizeDataType('DECIMAL(10, 2)')).toBe('numeric')
     expect(sqliteDialect.schema.normalizeDataType('UNSIGNED BIG INT')).toBe('integer')
     expect(sqliteDialect.schema.normalizeDataType('CONSTRAINT_NAME')).toBe('integer')
+
+    expect(sqliteDialect.schema.normalizeDataType('TEXT KEY WINDOW FILTER OVER')).toBe(
+      'text',
+    )
+
     expect((await db.migrate().dryRun()).actions).toEqual([])
   } finally {
     await db.close()
@@ -925,6 +1007,66 @@ it('rejects unproven conversion without exposing a partial program or changing d
     expect(test.native.prepare('select * from records').all()).toEqual([
       { id: 1, value: '001' },
     ])
+  } finally {
+    await test.close()
+  }
+})
+
+it('suppresses the whole SQLite program when a later declared type fails lowering', async () => {
+  const Valid = defineTable(
+    'aaa_valid',
+    { id: pipe(number(), integer()) },
+    { primaryKey: 'id' },
+  )
+
+  const Invalid = defineTable(
+    'zzz_invalid',
+    {
+      id: pipe(number(), integer()),
+      value: pipe(nullable(string()), column({ physicalType: { sqlite: 'TEXT' } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const test = await fixture(
+    'create table zzz_invalid(id INTEGER primary key); insert into zzz_invalid values(7)',
+  )
+
+  try {
+    const snapshot = await sqliteDialect.catalog.introspectCatalog(
+      test.executor,
+      createCatalogRequest([Valid, Invalid], []),
+    )
+
+    const migration = planMigration(
+      [Valid, Invalid],
+      snapshot,
+      sqliteDialect.migration.planning,
+    )
+
+    const steps = migration.plan.steps.map((step) =>
+      step.kind === 'add_column' ? { ...step, dataType: 'TEXT DEFERRABLE' } : step,
+    )
+
+    expect(steps.map((step) => step.kind)).toEqual(['create_table', 'add_column'])
+
+    const result = sqliteDialect.migration.lower(
+      { ...migration, plan: { ...migration.plan, steps } },
+      migration.profile,
+    )
+
+    expect(result).toEqual({
+      issues: [
+        expect.objectContaining({
+          code: 'invalid_target',
+          message:
+            'SQLite column data type contains constraint syntax: "TEXT DEFERRABLE"',
+          sourceStepIndexes: [1],
+        }),
+      ],
+    })
+
+    expect(test.native.prepare('select * from zzz_invalid').all()).toEqual([{ id: 7 }])
   } finally {
     await test.close()
   }
