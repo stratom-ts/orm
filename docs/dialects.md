@@ -228,6 +228,42 @@ SQLite requires the exact db0 0.4.0 `node-sqlite` connector, Node >=22.5 and SQL
 Node 22.5 through 22.12 requires the `--experimental-sqlite` flag. The package's PostgreSQL Node baseline
 does not change. SQLite manages ordinary permanent non-STRICT rowid tables in `main`.
 
+SQLite validates built-in value mappings when a client is created, before it opens a
+session or issues SQL. Compatibility follows SQLite affinity rules, including `INT`
+precedence over `TEXT` or `REAL` in unusual declared type names.
+
+| Logical schema output                | Supported physical affinities with built-in mapping |
+| ------------------------------------ | --------------------------------------------------- |
+| String                               | TEXT, BLOB                                          |
+| Number, boolean                      | INTEGER, REAL, NUMERIC, BLOB                        |
+| Bigint                               | INTEGER, NUMERIC, BLOB                              |
+| Date, JSON object/array/tuple/record | All affinities                                      |
+
+Numbers must be finite, and integral numbers must be safe JavaScript integers.
+Bigints use SQLite's signed 64-bit integer range. Boolean values use `0` and `1`.
+Dates use ISO text, and JSON-shaped schemas use bracketed JSON text. These text forms
+remain text even with numeric affinity. Nullable wrappers preserve SQL NULL.
+Homogeneous enum and picklist outputs follow their primitive output kind.
+
+Built-in mapping rejects numeric or boolean schemas with TEXT affinity, strings with
+numeric affinity, bigint with REAL or TEXT affinity, unknown or mixed output kinds,
+and output-changing pipeline actions. This prevents type changes and loss of string
+spelling such as leading zeros. An explicit physical type alone does not prove a
+mapping contract.
+
+For an unsupported combination, both effective mapping directions must come from
+existing column hooks (`mapParam`, `mapResult`) or client hooks (`mapParamValue`,
+`mapResultValue`). Column hooks take precedence independently in each direction.
+The application owns the type and value preservation contract for these overrides.
+One custom direction still requires a compatible built-in mapping in the other.
+Reference columns retain their target's logical schema and validate their selected
+physical storage under the same policy.
+Validation also checks wrappers and pipeline actions on the authored reference schema.
+
+Mapper construction owns this check because client mapping hooks are available there.
+Pure desired-schema lowering validates physical SQL type syntax and reference storage
+compatibility. It does not establish a built-in value mapping contract.
+
 SQLite defaults support native literals, portable date/time defaults, and a constant
 expression subset with scalar core/date functions, arithmetic, parentheses and CAST to
 `INTEGER`, `REAL`, `NUMERIC`, `TEXT` or `BLOB`. Validation checks syntax and function

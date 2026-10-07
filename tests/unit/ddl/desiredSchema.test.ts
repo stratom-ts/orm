@@ -479,6 +479,7 @@ describe('desired-schema reference metadata and value mapping: validates referen
 
     expect(dialectMap).toHaveBeenCalledWith('uuid', 'abc', {
       schema: Target.getSchema().entries.id,
+      authoredSchema: Source.getSchema().entries.targetId,
     })
   })
 })

@@ -244,10 +244,14 @@ export type DialectValueMappingContext = Readonly<{
    * overrides.
    */
   schema: AnySchema
+  /** Local reference schema, including wrappers and actions applied at the source. */
+  authoredSchema?: AnySchema
 }>
 
 /** SQL resolution, compilation, and optional dialect value conversion behavior. */
 export type DialectQuery = Readonly<{
+  /** Rejects unproven built-in mappings during client construction, before SQL. */
+  validateValueMapping?: (dataType: string, context: DialectValueMappingContext) => void
   /**
    * Binds query compilation and matching to the registered table handles.
    *

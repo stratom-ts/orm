@@ -1,19 +1,70 @@
+import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
 import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
-import { inferSqliteColumnType } from './infer'
+import { normalizeSqliteDataType } from './normalize'
+
+/** Finds output-changing actions beneath pipes and schema wrappers. */
+function hasTransformation(schema: unknown): boolean {
+  if (!schema || typeof schema !== 'object') return false
+
+  const node = schema as { kind?: string; wrapped?: unknown; pipe?: readonly unknown[] }
+  return (
+    node.kind === 'transformation' ||
+    hasTransformation(node.wrapped) ||
+    (node.pipe?.some(hasTransformation) ?? false)
+  )
+}
+
+/** Rejects affinities that cannot preserve the schema's values with built-in mapping. */
+export function validateSqliteValueMapping(
+  dataType: string,
+  context: DialectValueMappingContext,
+): void {
+  const analysis = analyzeSchema(context.schema)
+  const affinity = normalizeSqliteDataType(dataType)
+  const kind = analysis.outputKind
+  const supported =
+    kind === 'date' ||
+    kind === 'json' ||
+    (kind === 'string' && (affinity === 'text' || affinity === 'blob')) ||
+    ((kind === 'number' || kind === 'boolean') && affinity !== 'text') ||
+    (kind === 'bigint' &&
+      (affinity === 'integer' || affinity === 'numeric' || affinity === 'blob'))
+
+  if (
+    !supported ||
+    hasTransformation(context.schema) ||
+    hasTransformation(context.authoredSchema)
+  ) {
+    throw new SchemaError({
+      message: `SQLite ${kind ?? analysis.baseSchema.type} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
+    })
+  }
+}
 
 /** Resolves logical value semantics independently of physical storage overrides. */
 function mappingType(dataType: string, context?: DialectValueMappingContext): string {
   if (!context) return declaredType(dataType)
 
-  try {
-    return declaredType(String(inferSqliteColumnType(context.schema)))
-  } catch (cause) {
-    if (!(cause instanceof SchemaError)) throw cause
-
-    return declaredType(dataType)
+  validateSqliteValueMapping(dataType, context)
+  const analysis = analyzeSchema(context.schema)
+  switch (analysis.outputKind) {
+    case 'string':
+      return 'TEXT'
+    case 'number':
+      return analysis.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
+    case 'bigint':
+      return 'BIGINT'
+    case 'boolean':
+      return 'BOOLEAN'
+    case 'date':
+      return 'DATETIME'
+    case 'json':
+      return 'JSON'
+    case undefined:
+      return 'NULL'
   }
 }
 
@@ -44,6 +95,7 @@ function safeInteger(dataType: string, value: number): number {
 /** Rejects non-finite numeric values before SQL parameter mapping. */
 function finiteNumber(dataType: string, value: number): number {
   if (!Number.isFinite(value)) return mappingError(dataType, 'values must be finite')
+  if (Number.isInteger(value)) return safeInteger(dataType, value)
 
   return value
 }
@@ -172,6 +224,8 @@ function mapIntegerValue(dataType: string, value: unknown): unknown {
 
 /** Rejects non-finite numbers while preserving nonnumeric SQLite REAL values. */
 function mapRealValue(dataType: string, value: unknown): unknown {
+  if (typeof value === 'bigint') return numberFromBigInt(dataType, value)
+
   return typeof value === 'number' ? finiteNumber(dataType, value) : value
 }
 
