@@ -153,6 +153,229 @@ const ValidBeforeBad = defineTable(
   { primaryKey: 'id' },
 )
 
+const retainedDefaults = `disabled BLOB DEFAULT false, enabled BLOB DEFAULT TRUE,
+scientific BLOB DEFAULT 1e20, binary BLOB DEFAULT X'ff', fraction BLOB DEFAULT -.5,
+trailing BLOB DEFAULT +1., empty BLOB DEFAULT NULL, text BLOB DEFAULT 'a'';--b',
+parenthesized BLOB DEFAULT (false)`
+
+const retainedValues = `select id, disabled, typeof(disabled) as disabledType,
+enabled, typeof(enabled) as enabledType, scientific, typeof(scientific) as scientificType,
+hex(binary) as binary, typeof(binary) as binaryType, fraction, typeof(fraction) as fractionType,
+trailing, typeof(trailing) as trailingType, empty, typeof(empty) as emptyType,
+text, typeof(text) as textType, parenthesized, typeof(parenthesized) as parenthesizedType
+from records order by id`
+
+const insertedLiteralDefaults = {
+  id: 2,
+  disabled: 0,
+  disabledType: 'integer',
+  enabled: 1,
+  enabledType: 'integer',
+  scientific: 1e20,
+  scientificType: 'real',
+  binary: 'FF',
+  binaryType: 'blob',
+  fraction: -0.5,
+  fractionType: 'real',
+  trailing: 1,
+  trailingType: 'real',
+  empty: null,
+  emptyType: 'null',
+  text: "a';--b",
+  textType: 'text',
+  parenthesized: 0,
+  parenthesizedType: 'integer',
+}
+
+it.each([false, true])(
+  'preserves native literal defaults and storage through migration (rebuild: %s)',
+  async (rebuild) => {
+    const Records = defineTable(
+      'records',
+      {
+        id: pipe(number(), integer()),
+        note: pipe(nullable(string()), column({ unique: rebuild })),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const native = await connector.getInstance!()
+    native.exec(`create table records(id INTEGER PRIMARY KEY NOT NULL, ${retainedDefaults});
+      insert into records(id,text) values(1,'existing')`)
+
+    const db = createDatabase({
+      connector,
+      schemas: [Records],
+      migrationOwnership: [
+        ...completeMain,
+        { kind: 'relation', relation: Records, shape: 'additive' },
+      ],
+    })
+
+    try {
+      const before = native.prepare(retainedValues).all()
+
+      const defaults = native.prepare('pragma table_info(records)').all()
+
+      expect((await db.migrate().plan()).steps.map((step) => step.kind)).toEqual([
+        'add_column',
+      ])
+
+      const preview = await db.migrate().dryRun()
+      expect(preview.actions).toHaveLength(1)
+
+      expect(preview.actions[0]!.statements[0]!.sql).toMatch(
+        rebuild ? /^create table/ : /^alter table/,
+      )
+
+      await db.migrate().execute()
+      expect(native.prepare(retainedValues).all()).toEqual(before)
+
+      expect(native.prepare('pragma table_info(records)').all().slice(0, -1)).toEqual(
+        defaults,
+      )
+
+      native.prepare('insert into records(id) values(2)').run()
+      expect(native.prepare(retainedValues).all()[1]).toEqual(insertedLiteralDefaults)
+      expect(await db.migrate().plan()).toEqual({ steps: [] })
+      expect((await db.migrate().dryRun()).actions).toEqual([])
+    } finally {
+      await db.close()
+    }
+  },
+)
+
+it.each([
+  'abs()',
+  'abs(1,)',
+  'coalesce(1)',
+  'min(1)',
+  "lower('x'); DROP TABLE seed",
+  'cast(1as integer)',
+  'abs(\u00a01)',
+  '\u00a01',
+  '1\u00a0',
+  'abs(\v1)',
+  "abs(cast('-9223372036854775808' as integer))",
+  'abs(-2147483648 * 4294967296)',
+])(
+  'rejects invalid default %s before exposing a program or executing DDL',
+  async (expression) => {
+    const Bad = defineTable(
+      'zzz_invalid',
+      {
+        id: pipe(number(), integer()),
+        value: pipe(
+          nullable(string()),
+          column({
+            databaseDefault: {
+              kind: 'dialectExpression',
+              dialect: 'sqlite',
+              expression,
+            },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const native = await connector.getInstance!()
+    native.exec(
+      'create table seed(id INTEGER primary key not null); insert into seed values(7)',
+    )
+
+    const db = createDatabase({ connector, schemas: [ValidBeforeBad, Bad, SeedWithData] })
+
+    try {
+      const before = native
+        .prepare('select name,sql from sqlite_schema order by name')
+        .all()
+
+      const error = {
+        stage: 'planning',
+        outcome: 'unchanged',
+        message: `Unsafe SQLite database expression ${JSON.stringify(expression)}`,
+      }
+
+      await expect(db.migrate().plan()).rejects.toMatchObject(error)
+      await expect(db.migrate().dryRun()).rejects.toMatchObject(error)
+      await expect(db.migrate().execute()).rejects.toMatchObject(error)
+
+      expect(
+        native.prepare('select name,sql from sqlite_schema order by name').all(),
+      ).toEqual(before)
+
+      expect(native.prepare('select * from seed').all()).toEqual([{ id: 7 }])
+    } finally {
+      await db.close()
+    }
+  },
+)
+
+it.each([
+  ['abs(-12)', '12', 'integer'],
+  ["lower(trim(' A '))", 'a', 'text'],
+  ["hex(X'ff')", 'FF', 'text'],
+  ['min(1,2)', '1', 'integer'],
+  ['sign(-1)', '-1', 'integer'],
+  ["cast('12' as INTEGER) + 3 * 2", '18', 'integer'],
+  ["strftime('%s','2026-01-01')", '1767225600', 'text'],
+  ['abs(-922337203685477580+8)', '922337203685477572', 'integer'],
+  ["abs(length('value'))", '5', 'integer'],
+  ["abs(cast('-12' as REAL))", '12.0', 'real'],
+  ['abs(\t\r\n\f 1)', '1', 'integer'],
+  ['false', '0', 'integer'],
+  ['(false)', '0', 'integer'],
+  ['TRUE', '1', 'integer'],
+  ['((true))', '1', 'integer'],
+  ["X'FF'", 'FF', 'blob'],
+  ["(x'ff')", 'FF', 'blob'],
+  ['NULL', null, 'null'],
+  ['(null)', null, 'null'],
+])(
+  'migrates, converges and evaluates expression default %s on a native insert',
+  async (expression, value, storage) => {
+    const Records = defineTable(
+      'records',
+      {
+        id: pipe(number(), integer()),
+        value: pipe(
+          nullable(string()),
+          column({
+            physicalType: { sqlite: 'BLOB' },
+            databaseDefault: { kind: 'dialectExpression', dialect: 'sqlite', expression },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const native = await connector.getInstance!()
+    const db = createDatabase({ connector, schemas: [Records] })
+
+    try {
+      await db.migrate().execute()
+      native.prepare('insert into records(id) values(1)').run()
+
+      expect(
+        native
+          .prepare(
+            "select case when typeof(value)='blob' then hex(value) else cast(value as text) end as value,typeof(value) as storage from records",
+          )
+          .all(),
+      ).toEqual([{ value, storage }])
+
+      expect(await db.migrate().plan()).toEqual({ steps: [] })
+      expect((await db.migrate().dryRun()).actions).toEqual([])
+    } finally {
+      await db.close()
+    }
+  },
+)
+
 it.each([
   'tExT  nOt nUlL',
   'INTEGER PRIMARY KEY',

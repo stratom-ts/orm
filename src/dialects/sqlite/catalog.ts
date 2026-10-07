@@ -26,12 +26,10 @@ import type {
 import type { ReferentialAction } from '@/schemas/actions/types'
 import { InvariantError } from '@/utils/error'
 
+import { isSqliteDefaultLiteral, trimSqliteWhitespace } from './defaults'
 import { asciiFoldSqliteIdentifier, sqliteIdentity } from './identity'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
-import {
-  assertSafeSqliteDefaultExpression,
-  normalizeSqliteDefaultValue,
-} from './validate'
+import { assertSafeSqliteDefaultExpression } from './validate'
 
 type Row = Record<string, unknown>
 
@@ -443,22 +441,13 @@ function parseDefault(
 ): CatalogFact<
   NonNullable<CatalogColumn['default'] extends CatalogFact<infer T> ? T : never>
 > {
-  const value = raw.trim()
-  let comparisonKey: string | undefined
+  const value = trimSqliteWhitespace(raw)
 
-  if (/^null$/i.test(value)) comparisonKey = 'null'
-  else if (/^(true|false)$/i.test(value))
-    comparisonKey = normalizeSqliteDefaultValue(value.toLowerCase() === 'true')
-  else if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value))
-    comparisonKey = value
-  else if (/^[xX]'(?:[0-9a-fA-F]{2})*'$/.test(value)) comparisonKey = value.toLowerCase()
-  else if (/^'(?:[^']|'')*'$/.test(value)) comparisonKey = value
-
-  if (comparisonKey !== undefined)
+  if (isSqliteDefaultLiteral(value))
     return present({
       kind: 'literal',
       native: raw,
-      comparisonKey: present(comparisonKey),
+      comparisonKey: present(normalizeSqliteDefaultExpression(value)),
     })
 
   try {
