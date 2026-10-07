@@ -378,7 +378,7 @@ it.each([
 
 it.each([
   'tExT  nOt nUlL',
-  'INTEGER PRIMARY KEY',
+  'TEXT PRIMARY KEY',
   'TEXT DEFAULT CURRENT_TIMESTAMP',
   'TEXT COLLATE NOCASE',
   'TEXT UNIQUE',
@@ -395,7 +395,10 @@ it.each([
       'zzz_invalid',
       {
         id: pipe(number(), integer()),
-        value: pipe(nullable(string()), column({ physicalType: { sqlite: dataType } })),
+        value: pipe(
+          nullable(dataType.includes('CONSTRAINT') ? number() : string()),
+          column({ physicalType: { sqlite: dataType } }),
+        ),
       },
       { primaryKey: 'id' },
     )
@@ -457,7 +460,7 @@ const LegalPhysicalTypes = defineTable(
       number(),
       column({ physicalType: { sqlite: 'UNSIGNED BIG INT' } }),
     ),
-    customValue: pipe(string(), column({ physicalType: { sqlite: 'CONSTRAINT_NAME' } })),
+    customValue: pipe(number(), column({ physicalType: { sqlite: 'CONSTRAINT_NAME' } })),
   },
   { primaryKey: 'id' },
 )

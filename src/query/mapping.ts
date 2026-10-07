@@ -195,7 +195,11 @@ function resolveColumnDataType(
       registered,
     )
 
-    return result
+    const selected = columnMetadata?.physicalType?.[dialect.id]
+    return {
+      dataType: selected === undefined ? result.dataType : String(selected),
+      context: { ...result.context, authoredSchema: schema },
+    }
   }
 
   const selected = columnMetadata?.physicalType?.[dialect.id]
@@ -313,7 +317,7 @@ export function createValueMapper(
   const contexts: MappingContexts = new WeakMap()
   /** Returns physical SQL types keyed by the table's authored column names. */
   const columnTypes = (handle: TableHandle) =>
-    cachedColumnTypes(handle, typeCache, dialect, query, registered, contexts)
+    cachedColumnTypes(handle, typeCache, dialect, query, registered, contexts, map)
 
   /**
    * Maps a JavaScript parameter value for a table column.
@@ -450,6 +454,7 @@ function cachedColumnTypes(
   query: DialectQueryResolution,
   registered: readonly TableHandle[],
   contexts: MappingContexts,
+  map: ValueMapConfig | undefined,
 ): Record<string, string> {
   const cached = typeCache.get(handle)
 
@@ -461,10 +466,24 @@ function cachedColumnTypes(
   for (const name of Object.keys(handle.getSchema().entries)) {
     const dt = resolveColumnDataType(handle, name, dialect, query, registered, [])
 
-    if (dt !== undefined) {
-      types[name] = dt.dataType
-      logical[name] = dt.context
+    if (dt === undefined) continue
+
+    const meta = columnMeta(handle, name)
+
+    // Global overrides exist only here. Both effective directions must supply a
+    // contract before an unsupported built-in mapping can be bypassed.
+    const customParam =
+      typeof meta?.mapParam === 'function' || typeof map?.mapParamValue === 'function'
+
+    const customResult =
+      typeof meta?.mapResult === 'function' || typeof map?.mapResultValue === 'function'
+
+    if (!customParam || !customResult) {
+      dialect.query.validateValueMapping?.(dt.dataType, dt.context)
     }
+
+    types[name] = dt.dataType
+    logical[name] = dt.context
   }
 
   typeCache.set(handle, types)

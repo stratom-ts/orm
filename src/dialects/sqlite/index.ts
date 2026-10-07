@@ -4,7 +4,11 @@ import { sqliteCatalog } from './catalog'
 import { sqliteIdentity } from './identity'
 import { inferSqliteColumnType } from './infer'
 import { lowerSqliteDesiredSchema } from './lowerDesiredSchema'
-import { mapSqliteParamValue, mapSqliteResultValue } from './mapping'
+import {
+  mapSqliteParamValue,
+  mapSqliteResultValue,
+  validateSqliteValueMapping,
+} from './mapping'
 import { executeSqliteMigration, lowerSqliteMigrationPlan } from './migration'
 import { sqliteNaming } from './naming'
 import { normalizeSqliteDataType } from './normalize'
@@ -49,6 +53,7 @@ export const sqliteSchema = {
 
 /** SQLite query addressing and value mapping. */
 export const sqliteQuery = {
+  validateValueMapping: validateSqliteValueMapping,
   resolve: resolveSqliteQuery,
   mapParamValue: mapSqliteParamValue,
   mapResultValue: mapSqliteResultValue,
