@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { planMigration } from '@/ddl/migrationPlan'
 import type {
   CatalogExecutor,
   CatalogRelation,
@@ -9,6 +10,8 @@ import type {
 } from '@/dialects'
 import { sqliteCatalog } from '@/dialects'
 import type { CatalogColumn } from '@/dialects/catalog'
+import { sqliteDialect } from '@/dialects/sqlite'
+import { InvariantError } from '@/utils/error'
 
 const rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData = [
   ['index-invalid-origin', 'Malformed SQLite index_list row 0: invalid origin'],
@@ -29,6 +32,12 @@ const rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData = [
     'SQLite sqlite_schema index "missing_list_idx" is missing from index_list',
   ],
 ]
+
+/** Checks that invalid successful metadata has a diagnostic and cannot prove names. */
+function expectUnknownMetadata(snapshot: CatalogSnapshot, message: string): void {
+  expect(snapshot.diagnostics.some((entry) => entry.message.includes(message))).toBe(true)
+  expect(snapshot.nameReservations.coverage.state).toBe('unknown')
+}
 
 const ordersUnresolvedFKTargetsWithASCIICaseEquivalentIdentitiesDeterministicallyRows = [
   {
@@ -1596,13 +1605,14 @@ describe('SQLite catalog table clauses and name reservations: reserves unrelated
     expect(s.nameReservations.items.map((n) => n.name)).toContain('u_auto')
   })
 
-  it('fixture malformed database rows are tagged invariants', async () => {
-    await expect(
-      sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'duplicate' }),
-        request,
-      ),
-    ).rejects.toMatchObject({ _tag: 'InvariantError' })
+  it('marks duplicate database rows as unknown inventory', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'duplicate' }),
+      request,
+    )
+
+    expectUnknownMetadata(snapshot, 'database_list sequence values must be unique')
+    expect(snapshot.namespaces.coverage.state).toBe('unknown')
   })
 })
 
@@ -1841,78 +1851,321 @@ describe('SQLite catalog namespace and request resolution: reports unsupported o
 })
 
 describe('SQLite catalog consistency and foreign keys', () => {
-  it('rejects malformed cross-PRAGMA observations', async () => {
+  it('returns unknown evidence for malformed cross-PRAGMA observations', async () => {
     for (const [malformed, message] of [
       ['xinfo-gap', 'SQLite table "parent" table_xinfo cids must be contiguous'],
       ['ncol', 'SQLite table "parent" table_list ncol does not match table_xinfo'],
       ['fk-duplicate', 'SQLite foreign-key group on "child" has non-contiguous sequence'],
       ['fk-source', 'SQLite foreign key on "child" references a missing source column'],
-    ])
-      await expect(
-        sqliteCatalog.introspectCatalog(fixtureExecutor({ malformed }), request),
-      ).rejects.toThrow(message)
+    ]) {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed }),
+        request,
+      )
+
+      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
+      expectUnknownMetadata(snapshot, message)
+    }
   })
 })
 
-describe('SQLite catalog consistency and foreign keys: rejects malformed and inconsistent index observations with stable messages', () => {
-  it('rejects malformed and inconsistent index observations with stable messages', async () => {
+describe('SQLite catalog consistency and foreign keys: invalid index observations', () => {
+  it('returns unknown evidence and stable diagnostics', async () => {
     const cases = structuredClone(
       rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData,
     )
 
-    for (const [malformed, message] of cases)
-      await expect(
-        sqliteCatalog.introspectCatalog(fixtureExecutor({ malformed }), request),
-      ).rejects.toThrow(message)
+    for (const [malformed, message] of cases) {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed }),
+        request,
+      )
+
+      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
+      expectUnknownMetadata(snapshot, message)
+    }
   })
 })
 
-describe('SQLite catalog consistency and foreign keys: rejects malformed and ASCII-equivalent schema rows with stable errors', () => {
-  it('rejects malformed and ASCII-equivalent schema rows with stable errors', async () => {
+describe('SQLite catalog consistency and foreign keys: invalid schema rows', () => {
+  it('returns unknown evidence for malformed schema rows', async () => {
     await assertMalformedSqliteIdentityRows()
 
-    await expect(
-      sqliteCatalog.introspectCatalog(
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
         fixtureExecutor({ malformed: 'table-unlisted-database' }),
         request,
       ),
-    ).rejects.toThrow(
-      'SQLite table_list row "outside" references an unlisted database alias "ghost"',
+      'references an unlisted database alias "ghost"',
     )
 
-    await expect(
-      sqliteCatalog.introspectCatalog(
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
         fixtureExecutor({ malformed: 'schema-unknown-type' }),
         request,
       ),
-    ).rejects.toThrow('Malformed SQLite sqlite_schema row: invalid type "mystery"')
+      'invalid type "mystery"',
+    )
 
-    await expect(
-      sqliteCatalog.introspectCatalog(
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
         fixtureExecutor({ malformed: 'schema-relation-name-mismatch' }),
         request,
       ),
-    ).rejects.toThrow(
-      'SQLite sqlite_schema table row "parent" has mismatched tbl_name "other"',
+      'has mismatched tbl_name "other"',
     )
 
-    await expect(
-      sqliteCatalog.introspectCatalog(
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
         fixtureExecutor({ malformed: 'schema-view-type-mismatch' }),
         request,
       ),
-    ).rejects.toThrow(
-      'SQLite table_list relation "v" type "view" disagrees with sqlite_schema type "table"',
+      'disagrees with sqlite_schema type "table"',
     )
   })
 })
 
-describe('SQLite catalog consistency and foreign keys: rejects malformed and ASCII-equivalent schema rows with stable errors: rejects catalog races including reservation-only indexes', () => {
-  it('rejects catalog races including reservation-only indexes', async () => {
-    for (const race of ['table_list', 'table_xinfo', 'sqlite_schema', 'index_list'])
+describe('SQLite catalog consistency and foreign keys: catalog races', () => {
+  it('returns unknown evidence for catalog races including reservation-only indexes', async () => {
+    for (const race of ['table_list', 'table_xinfo', 'sqlite_schema', 'index_list']) {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ race }),
+        request,
+      )
+
+      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
+      expectUnknownMetadata(snapshot, 'catalog changed during introspection')
+    }
+  })
+})
+
+describe('SQLite invalid metadata evidence', () => {
+  it('keeps a sound relation and column facts alongside a damaged index', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({
+        malformed: 'index-xinfo-wrong-flag',
+        withoutOpaqueDependencies: true,
+      }),
+      request,
+    )
+
+    const parent = relationNamed(snapshot, 'parent')
+    const child = relationNamed(snapshot, 'child')
+    const simple = relationNamed(snapshot, 'simple')
+    expect(parent.management).toBe('unmanaged')
+    expect(parent.nativeDefinition.state).toBe('present')
+    expect(tableOf(parent).columns.coverage.state).toBe('complete')
+    expect(tableOf(parent).primaryKey.state).toBe('unknown')
+    expect(tableOf(parent).indexes.coverage.state).toBe('unknown')
+    const id = tableOf(parent).columns.items.find((column) => column.name === 'id')!
+    expect(id.nullable).toEqual({ state: 'present', value: false })
+
+    expect(id.generation).toEqual({
+      state: 'present',
+      value: { kind: 'rowidAlias', autoIncrement: true },
+    })
+
+    expect(child.management).toBe('unmanaged')
+    expect(tableOf(child).columns.coverage.state).toBe('complete')
+    expect(tableOf(child).foreignKeys.coverage.state).toBe('unknown')
+    const childDiagnostic = snapshot.diagnostics.find(
+      (entry) =>
+        entry.target?.relation.comparisonKey === child.identity.relation.comparisonKey,
+    )
+
+    expect(childDiagnostic?.message).toContain('references invalid parent metadata')
+    expect(simple.management).toBe('managed')
+    expect(tableOf(simple).columns.coverage.state).toBe('complete')
+    expect(snapshot.namespaces.items[0]!.relations.coverage.state).toBe('partial')
+    expect(snapshot.nameReservations.coverage.state).toBe('unknown')
+  })
+})
+
+describe('SQLite invalid schema evidence', () => {
+  it('keeps unrelated relations when one schema definition disagrees', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({
+        malformed: 'schema-relation-name-mismatch',
+        withoutOpaqueDependencies: true,
+      }),
+      request,
+    )
+
+    expect(relationNamed(snapshot, 'parent').nativeDefinition.state).toBe('unknown')
+
+    expect(tableOf(relationNamed(snapshot, 'parent')).columns.coverage.state).toBe(
+      'unknown',
+    )
+
+    expect(relationNamed(snapshot, 'simple').management).toBe('managed')
+    expect(snapshot.nameReservations.coverage.state).toBe('unknown')
+  })
+})
+
+it('marks possible rowid facts unknown when index inventory is malformed', async () => {
+  const snapshot = await sqliteCatalog.introspectCatalog(
+    fixtureExecutor({ malformed: 'index-wrong-shape', withoutOpaqueDependencies: true }),
+    request,
+  )
+
+  const id = tableOf(relationNamed(snapshot, 'parent')).columns.items.find(
+    (column) => column.name === 'id',
+  )!
+
+  expect(id.nullable.state).toBe('unknown')
+  expect(id.generation.state).toBe('unknown')
+})
+
+describe('SQLite invalid metadata ordering', () => {
+  it('returns the same invalid evidence when native rows are reversed', async () => {
+    for (const malformed of [
+      'schema-case-duplicate',
+      'index-xinfo-wrong-flag',
+      'fk-duplicate',
+    ]) {
+      const forward = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed }),
+        request,
+      )
+
+      const reversed = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed, reverse: true }),
+        request,
+      )
+
+      expect(reversed).toEqual(forward)
+    }
+  })
+})
+
+describe('SQLite invalid version and executor evidence', () => {
+  it('treats successful malformed version rows as unknown catalog evidence', async () => {
+    for (const rows of [[], [{ version: 42 }], [{ version: '3.bad.0' }]]) {
+      const executor = emptyFixture()
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        {
+          execute: (query) =>
+            query.sql.includes('sqlite_version')
+              ? Promise.resolve(rows)
+              : executor.execute(query),
+        },
+        request,
+      )
+
+      expect(snapshot.source.version).toBe('unknown')
+      expect(snapshot.namespaces.coverage.state).toBe('unknown')
+
+      expect(snapshot.diagnostics).toEqual([
+        expect.objectContaining({ code: 'catalog.sqlite.metadata' }),
+      ])
+    }
+  })
+
+  it('does not infer a main namespace when database_list omits it', async () => {
+    const executor = fixtureExecutor()
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      {
+        async execute(query) {
+          const rows = await executor.execute(query)
+          return query.sql.includes('database_list')
+            ? rows.filter((row) => (row as { name: string }).name !== 'main')
+            : rows
+        },
+      },
+      request,
+    )
+
+    expect(snapshot.namespaces.items).toEqual([])
+    expect(snapshot.namespaces.coverage.state).toBe('unknown')
+    expectUnknownMetadata(snapshot, 'must contain exactly one main database')
+  })
+})
+
+it('reports malformed reservation-only metadata for a narrow relation request', async () => {
+  const snapshot = await sqliteCatalog.introspectCatalog(
+    fixtureExecutor({ malformed: 'index-wrong-shape', withoutOpaqueDependencies: true }),
+    {
+      ...request,
+      completeNamespaces: [],
+      relations: [{ relation: { relation: 'simple' }, shape: 'complete' }],
+    },
+  )
+
+  expect(relationNamed(snapshot, 'simple').management).toBe('managed')
+  expect(snapshot.nameReservations.coverage.state).toBe('unknown')
+  const diagnostic = snapshot.diagnostics.find(
+    (entry) => entry.target?.relation.spelling === 'parent',
+  )
+
+  expect(diagnostic?.code).toBe('catalog.sqlite.metadata')
+  expect(diagnostic?.message).toContain('index_list')
+
+  expect(
+    snapshot.diagnostics.filter((entry) => entry.target?.relation.spelling === 'parent'),
+  ).toHaveLength(1)
+})
+
+it('gives final database-list decoding the same diagnostic in either row order', async () => {
+  const observe = (reverse: boolean) => {
+    const executor = fixtureExecutor()
+    let reads = 0
+    return sqliteCatalog.introspectCatalog(
+      {
+        async execute(query) {
+          if (!query.sql.includes('database_list')) return executor.execute(query)
+
+          const rows = await executor.execute(query)
+          reads++
+
+          if (reads === 1) return rows
+
+          const malformed = [...rows, { seq: 1, name: 42, file: '' }]
+          return reverse ? malformed.reverse() : malformed
+        },
+      },
+      request,
+    )
+  }
+
+  const forward = await observe(false)
+  const reversed = await observe(true)
+  expect(reversed).toEqual(forward)
+  expectUnknownMetadata(forward, '"name" must be a non-empty string')
+  expect(forward.namespaces.coverage.state).toBe('unknown')
+})
+
+describe('SQLite fail-closed metadata handling', () => {
+  it('preserves the exact executor failure, including an invariant error', async () => {
+    for (const queryPart of ['sqlite_version', 'table_xinfo']) {
+      const failure = new InvariantError(`query failed: ${queryPart}`)
+      const executor = fixtureExecutor()
       await expect(
-        sqliteCatalog.introspectCatalog(fixtureExecutor({ race }), request),
-      ).rejects.toThrow(/catalog changed during introspection/i)
+        sqliteCatalog.introspectCatalog(
+          {
+            execute: (query) =>
+              query.sql.includes(queryPart)
+                ? Promise.reject(failure)
+                : executor.execute(query),
+          },
+          request,
+        ),
+      ).rejects.toBe(failure)
+    }
+  })
+
+  it('rejects planning with damaged relation evidence before a plan exists', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'index-xinfo-wrong-flag' }),
+      request,
+    )
+
+    expect(() =>
+      planMigration([], snapshot, sqliteDialect.migration.planning, {
+        migrationOwnership: [
+          { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
+        ],
+      }),
+    ).toThrow(/catalog|unknown|incomplete/i)
   })
 })
 
@@ -2209,46 +2462,45 @@ const defaultIndexInfoRows = [
 
 /** Checks stable errors for malformed native rows and duplicate SQLite identity keys. */
 async function assertMalformedSqliteIdentityRows() {
-  await expect(
-    sqliteCatalog.introspectCatalog(
+  expectUnknownMetadata(
+    await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed: 'database-wrong-type' }),
       request,
     ),
-  ).rejects.toThrow(
-    'Malformed SQLite database_list row 0: "name" must be a non-empty string',
+    '"name" must be a non-empty string',
   )
 
-  await expect(
-    sqliteCatalog.introspectCatalog(
+  expectUnknownMetadata(
+    await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed: 'xinfo-missing-name' }),
       request,
     ),
-  ).rejects.toThrow(
-    'Malformed SQLite table_xinfo row 0: "name" must be a non-empty string',
+    '"name" must be a non-empty string',
   )
 
-  await expect(
-    sqliteCatalog.introspectCatalog(
+  expectUnknownMetadata(
+    await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed: 'fk-wrong-target' }),
       request,
     ),
-  ).rejects.toThrow(
-    'Malformed SQLite foreign_key_list row 0: "to" must be a string or null',
+    '"to" must be a string or null',
   )
 
-  await expect(
-    sqliteCatalog.introspectCatalog(
+  expectUnknownMetadata(
+    await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed: 'schema-case-duplicate' }),
       request,
     ),
-  ).rejects.toThrow('Duplicate SQLite sqlite_schema relation name "PARENT"')
+    'Duplicate SQLite sqlite_schema relation name',
+  )
 
-  await expect(
-    sqliteCatalog.introspectCatalog(
+  expectUnknownMetadata(
+    await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed: 'table-case-duplicate' }),
       request,
     ),
-  ).rejects.toThrow('Duplicate SQLite table_list relation "MAIN"."PARENT"')
+    'Duplicate SQLite table_list relation',
+  )
 }
 
 /**

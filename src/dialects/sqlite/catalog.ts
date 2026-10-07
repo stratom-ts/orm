@@ -150,7 +150,12 @@ function stable(value: unknown): string {
       .join(',')}}`
   }
 
-  return JSON.stringify(typeof value === 'bigint' ? value.toString() : value)
+  return String(JSON.stringify(typeof value === 'bigint' ? value.toString() : value))
+}
+
+/** Gives malformed native rows a stable position before decoding diagnostics. */
+function stableRows(rows: unknown[]): unknown[] {
+  return [...rows].sort((left, right) => compare(stable(left), stable(right)))
 }
 
 /** Validates the shape of one native catalog query row. */
@@ -644,7 +649,7 @@ function sameCandidateKeyColumns(
  * @returns Validated SQLite table-list observations with canonical native identities.
  */
 function decodeTableRows(rows: unknown[]): TableRow[] {
-  return rows.map((value, index) => {
+  return stableRows(rows).map((value, index) => {
     const row = rowAt(value, 'table_list', index)
     const type = stringAt(row, 'type', 'table_list', index)
 
@@ -670,7 +675,7 @@ function decodeTableRows(rows: unknown[]): TableRow[] {
  * @returns Validated native SQLite schema definitions and object identities.
  */
 function decodeSchemaRows(rows: unknown[]): SchemaRow[] {
-  return rows.map((value, index) => {
+  return stableRows(rows).map((value, index) => {
     const row = rowAt(value, 'sqlite_schema', index)
     return {
       type: stringAt(row, 'type', 'sqlite_schema', index),
@@ -690,7 +695,7 @@ function decodeSchemaRows(rows: unknown[]): SchemaRow[] {
  * @returns Table_xinfo rows into validated column observations.
  */
 function decodeXInfoRows(rows: unknown[], table: string): XInfoRow[] {
-  return rows.map((value, index) => {
+  return stableRows(rows).map((value, index) => {
     const row = rowAt(value, `table_xinfo(${table})`, index)
     const hidden = integerAt(row, 'hidden', 'table_xinfo', index)
 
@@ -727,7 +732,7 @@ function decodeXInfoRows(rows: unknown[], table: string): XInfoRow[] {
  * @returns A table's index-list rows into validated index observations.
  */
 function decodeIndexListRows(rows: unknown[], table: string): IndexListRow[] {
-  return rows.map((value, index) => {
+  return stableRows(rows).map((value, index) => {
     const row = rowAt(value, `index_list(${table})`, index)
     const origin = stringAt(row, 'origin', 'index_list', index).toLowerCase()
 
@@ -758,7 +763,7 @@ function decodeIndexInfoRows(
   table: string,
   indexName: string,
 ): IndexInfoRow[] {
-  return rows.map((value, index) => {
+  return stableRows(rows).map((value, index) => {
     const row = rowAt(value, `index_xinfo(${table},${indexName})`, index)
     return {
       seqno: integerAt(row, 'seqno', 'index_xinfo', index),
@@ -787,7 +792,7 @@ function decodeIndexInfoRows(
  * @returns Foreign-key PRAGMA rows without losing composite-key order.
  */
 function decodeForeignKeyRows(rows: unknown[], table: string): ForeignKeyRow[] {
-  return rows.map((value, index) => {
+  return stableRows(rows).map((value, index) => {
     const row = rowAt(value, `foreign_key_list(${table})`, index)
     return {
       id: integerAt(row, 'id', 'foreign_key_list', index),
@@ -873,6 +878,7 @@ function validateSchemaRelations(
   mainTables: readonly TableRow[],
   resolvedRequest: ResolvedCatalogRequest,
   identities: ReturnType<typeof sqliteIdentity.create>,
+  errors: Map<string, string>,
 ): void {
   /** Resolves a native relation name under the current catalog namespace. */
   const scopeIdentity = (name: string) => identities.resolve(relationInput('main', name))
@@ -895,7 +901,25 @@ function validateSchemaRelations(
 
     if (!relevant || schemaRow.name.startsWith('sqlite_')) continue
 
-    assertSqliteSchemaRelation(schemaRow, mainTables, scopeIdentity)
+    const owner =
+      schemaRow.type === 'table' || schemaRow.type === 'view'
+        ? schemaRow.name
+        : schemaRow.tbl_name
+
+    const observedOwner = mainTables.find(
+      (table) =>
+        scopeIdentity(table.name).relation.comparisonKey ===
+        scopeIdentity(owner).relation.comparisonKey,
+    )
+
+    if (!observedOwner) {
+      assertSqliteSchemaRelation(schemaRow, mainTables, scopeIdentity)
+      continue
+    }
+
+    decodeTableObservation(observedOwner.name, errors, () =>
+      assertSqliteSchemaRelation(schemaRow, mainTables, scopeIdentity),
+    )
   }
 }
 
@@ -905,6 +929,7 @@ function validateSchemaRows(
   mainTables: readonly TableRow[],
   resolvedRequest: ResolvedCatalogRequest,
   identities: ReturnType<typeof sqliteIdentity.create>,
+  errors: Map<string, string>,
 ): void {
   /** Resolves a native relation name under the current catalog namespace. */
   const scopeIdentity = (name: string) => identities.resolve(relationInput('main', name))
@@ -914,7 +939,7 @@ function validateSchemaRows(
 
   assertUniqueSchemaNames(schemaRows)
 
-  validateSchemaRelations(schemaRows, mainTables, resolvedRequest, identities)
+  validateSchemaRelations(schemaRows, mainTables, resolvedRequest, identities, errors)
 
   for (const tableRow of mainTables) {
     if (
@@ -926,15 +951,20 @@ function validateSchemaRows(
 
     const schemaRow = schemaForTable(schemaRows, tableRow.name)
 
-    if (schemaRow === undefined)
-      throw new InvariantError(
+    if (schemaRow === undefined) {
+      errors.set(
+        tableRow.name,
         `SQLite ${tableRow.type} relation ${JSON.stringify(tableRow.name)} is missing sqlite_schema definition`,
       )
+
+      continue
+    }
 
     const expectedSchemaType = tableRow.type === 'view' ? 'view' : 'table'
 
     if (schemaRow.type !== expectedSchemaType)
-      throw new InvariantError(
+      errors.set(
+        tableRow.name,
         `SQLite table_list relation ${JSON.stringify(tableRow.name)} type ${JSON.stringify(tableRow.type)} disagrees with sqlite_schema type ${JSON.stringify(schemaRow.type)}`,
       )
   }
@@ -1394,8 +1424,6 @@ function sqliteColumnValueFacts(column: XInfoRow, schema: SchemaRow | undefined)
 async function readCatalogContext(executor: CatalogExecutor, request: CatalogRequest) {
   const versionRows = await executor.execute(queries.version)
 
-  const { actualVersion, version } = decodeSqliteVersion(versionRows)
-
   const namespaceContext = { writableDefault: mainNamespace }
   const identities = sqliteIdentity.create({
     context: namespaceContext,
@@ -1428,10 +1456,30 @@ async function readCatalogContext(executor: CatalogExecutor, request: CatalogReq
       throw new InvariantError(
         'SQLite catalog cannot manage an attached database namespace',
       )
-  const versionLimited =
-    actualVersion[0]! < 3 || (actualVersion[0] === 3 && actualVersion[1]! < 37)
+  return {
+    ...readSqliteVersionEvidence(versionRows),
+    namespaceContext,
+    identities,
+    resolvedRequest,
+  }
+}
 
-  return { version, namespaceContext, identities, resolvedRequest, versionLimited }
+/** Converts invalid successful version metadata into unavailable catalog evidence. */
+function readSqliteVersionEvidence(versionRows: unknown[]) {
+  try {
+    const decoded = decodeSqliteVersion(versionRows)
+    return {
+      version: decoded.version,
+      versionLimited:
+        decoded.actualVersion[0]! < 3 ||
+        (decoded.actualVersion[0] === 3 && decoded.actualVersion[1]! < 37),
+      versionError: undefined as string | undefined,
+    }
+  } catch (error) {
+    if (!(error instanceof InvariantError)) throw error
+
+    return { version: 'unknown', versionLimited: false, versionError: error.message }
+  }
 }
 
 /**
@@ -1512,7 +1560,7 @@ async function readDatabaseContext(executor: CatalogExecutor) {
  * @returns Validated database aliases and explicit external-namespace evidence.
  */
 function decodeSqliteDatabases(dbRows: unknown[]) {
-  const databases = dbRows.map((value, index) => {
+  const databases = stableRows(dbRows).map((value, index) => {
     const row = rowAt(value, 'database_list', index)
     return {
       seq: integerAt(row, 'seq', 'database_list', index),
@@ -1989,6 +2037,7 @@ async function readTableEvidence(
   const indexLists = new Map<string, IndexListRow[]>()
   const indexInfos = new Map<string, IndexInfoRow[]>()
   const foreignKeys = new Map<string, ForeignKeyRow[]>()
+  const errors = new Map<string, string>()
   for (const row of scopeRows) {
     if (row.type !== 'table' && row.type !== 'virtual' && row.type !== 'shadow') continue
 
@@ -1999,6 +2048,7 @@ async function readTableEvidence(
       indexLists,
       foreignKeys,
       indexInfos,
+      errors,
     )
   }
 
@@ -2006,14 +2056,40 @@ async function readTableEvidence(
   for (const row of mainTables.filter(
     (entry) => entry.type === 'table' && !entry.name.startsWith('sqlite_'),
   )) {
-    const observed =
-      indexLists.get(row.name) ??
-      decodeIndexListRows(await executor.execute(queries.indexes(row.name)), row.name)
+    const observed = indexLists.get(row.name)
 
-    reservationIndexLists.set(row.name, observed)
+    if (observed) {
+      reservationIndexLists.set(row.name, observed)
+      continue
+    }
+
+    if (errors.has(row.name)) continue
+
+    const rows = await executor.execute(queries.indexes(row.name))
+    const decoded = decodeTableObservation(row.name, errors, () =>
+      decodeIndexListRows(rows, row.name),
+    )
+
+    if (decoded) reservationIndexLists.set(row.name, decoded)
   }
 
-  return { xinfo, indexLists, indexInfos, foreignKeys, reservationIndexLists }
+  return { xinfo, indexLists, indexInfos, foreignKeys, reservationIndexLists, errors }
+}
+
+/** Keeps a relation-local decoder error distinct from an executor rejection. */
+function decodeTableObservation<T>(
+  table: string,
+  errors: Map<string, string>,
+  decode: () => T,
+): T | undefined {
+  try {
+    return decode()
+  } catch (error) {
+    if (!(error instanceof InvariantError)) throw error
+    if (!errors.has(table)) errors.set(table, error.message)
+
+    return undefined
+  }
 }
 
 /**
@@ -2033,31 +2109,37 @@ async function readSqliteTableEvidence(
   indexLists: Map<string, IndexListRow[]>,
   foreignKeys: Map<string, ForeignKeyRow[]>,
   indexInfos: Map<string, IndexInfoRow[]>,
+  errors: Map<string, string>,
 ) {
-  xinfo.set(
-    row.name,
-    decodeXInfoRows(await executor.execute(queries.xinfo(row.name)), row.name),
+  const columns = await executor.execute(queries.xinfo(row.name))
+  const decodedColumns = decodeTableObservation(row.name, errors, () =>
+    decodeXInfoRows(columns, row.name),
   )
 
-  indexLists.set(
-    row.name,
-    decodeIndexListRows(await executor.execute(queries.indexes(row.name)), row.name),
+  if (decodedColumns) xinfo.set(row.name, decodedColumns)
+
+  const indexes = await executor.execute(queries.indexes(row.name))
+  const decodedIndexes = decodeTableObservation(row.name, errors, () =>
+    decodeIndexListRows(indexes, row.name),
   )
 
-  foreignKeys.set(
-    row.name,
-    decodeForeignKeyRows(await executor.execute(queries.foreignKeys(row.name)), row.name),
+  if (decodedIndexes) indexLists.set(row.name, decodedIndexes)
+
+  const keys = await executor.execute(queries.foreignKeys(row.name))
+  const decodedKeys = decodeTableObservation(row.name, errors, () =>
+    decodeForeignKeyRows(keys, row.name),
   )
 
-  for (const index of indexLists.get(row.name)!)
-    indexInfos.set(
-      `${row.name}\0${index.name}`,
-      decodeIndexInfoRows(
-        await executor.execute(queries.indexInfo(index.name)),
-        row.name,
-        index.name,
-      ),
+  if (decodedKeys) foreignKeys.set(row.name, decodedKeys)
+
+  for (const index of decodedIndexes ?? []) {
+    const info = await executor.execute(queries.indexInfo(index.name))
+    const decodedInfo = decodeTableObservation(row.name, errors, () =>
+      decodeIndexInfoRows(info, row.name, index.name),
     )
+
+    if (decodedInfo) indexInfos.set(`${row.name}\0${index.name}`, decodedInfo)
+  }
 }
 
 /** Rejects changed catalog observations before building a snapshot. */
@@ -2073,7 +2155,8 @@ async function assertCatalogUnchanged(input: SqliteCatalogConsistency): Promise<
     evidence,
   } = input
 
-  const { xinfo, indexLists, indexInfos, foreignKeys, reservationIndexLists } = evidence
+  const { xinfo, indexLists, indexInfos, foreignKeys, reservationIndexLists, errors } =
+    evidence
 
   /**
    * Keeps table observations covered by the resolved catalog request.
@@ -2106,6 +2189,7 @@ async function assertCatalogUnchanged(input: SqliteCatalogConsistency): Promise<
     indexLists,
     foreignKeys,
     indexInfos,
+    errors,
   )
 }
 
@@ -2135,14 +2219,7 @@ async function assertSqliteInventoryUnchanged(
   assertSame(
     'database_list',
     databases,
-    (await executor.execute(queries.databases)).map((value, index) => {
-      const row = rowAt(value, 'database_list', index)
-      return {
-        seq: integerAt(row, 'seq', 'database_list', index),
-        name: stringAt(row, 'name', 'database_list', index),
-        file: nullableStringAt(row, 'file', 'database_list', index),
-      }
-    }),
+    decodeSqliteDatabases(await executor.execute(queries.databases)),
   )
 
   assertSame(
@@ -2180,9 +2257,11 @@ async function assertSqliteTableEvidenceUnchanged(
   indexLists: Map<string, IndexListRow[]>,
   foreignKeys: Map<string, ForeignKeyRow[]>,
   indexInfos: Map<string, IndexInfoRow[]>,
+  errors: Map<string, string>,
 ) {
   for (const row of scopeRows) {
     if (row.type !== 'table' && row.type !== 'virtual' && row.type !== 'shadow') continue
+    if (errors.has(row.name)) continue
 
     const finalX = decodeXInfoRows(
       await executor.execute(queries.xinfo(row.name)),
@@ -2868,6 +2947,24 @@ function versionLimitedCatalog(
   }
 }
 
+/** Returns no management authority when the native catalog inventory is invalid. */
+function invalidSqliteCatalog(
+  context: Awaited<ReturnType<typeof readCatalogContext>>,
+  reason: string,
+): CatalogSnapshot {
+  const evidence = unknown(reason)
+  return {
+    source: { dialect: 'sqlite', version: context.version },
+    request: context.resolvedRequest,
+    capabilities: catalogCapabilities(),
+    namespaceContext: context.namespaceContext,
+    namespaces: { items: [], coverage: evidence },
+    nameReservations: { items: [], coverage: evidence },
+    constraintNameReservations: { items: [], coverage: evidence },
+    diagnostics: [{ code: 'catalog.sqlite.metadata', message: reason }],
+  }
+}
+
 /** Validates table-list identity uniqueness and observed database aliases. */
 function validateTableList(
   tableRows: TableRow[],
@@ -2917,14 +3014,43 @@ async function introspectSqlite(
   executor: CatalogExecutor,
   request: CatalogRequest,
 ): Promise<CatalogSnapshot> {
-  const context = await readCatalogContext(executor, request)
+  const queryErrors = new Set<unknown>()
+  const trackedExecutor: CatalogExecutor = {
+    async execute(query) {
+      try {
+        return await executor.execute(query)
+      } catch (error) {
+        queryErrors.add(error)
+        throw error
+      }
+    },
+  }
+
+  const context = await readCatalogContext(trackedExecutor, request)
   const { identities, versionLimited } = context
 
+  if (context.versionError) return invalidSqliteCatalog(context, context.versionError)
   if (versionLimited) return versionLimitedCatalog(context)
 
-  const inventory = await readSqliteInventory(executor, identities)
-  const evidence = await prepareSqliteCatalogEvidence(executor, context, inventory)
-  return buildSqliteSnapshot({ ...context, ...inventory, ...evidence, executor })
+  try {
+    const inventory = await readSqliteInventory(trackedExecutor, identities)
+    const evidence = await prepareSqliteCatalogEvidence(
+      trackedExecutor,
+      context,
+      inventory,
+    )
+
+    return await buildSqliteSnapshot({
+      ...context,
+      ...inventory,
+      ...evidence,
+      executor: trackedExecutor,
+    })
+  } catch (error) {
+    if (!(error instanceof InvariantError) || queryErrors.has(error)) throw error
+
+    return invalidSqliteCatalog(context, error.message)
+  }
 }
 
 export const sqliteCatalog: CatalogIntrospector = { introspectCatalog: introspectSqlite }
@@ -2962,20 +3088,48 @@ async function buildSqliteSnapshot(input: SqliteSnapshotAssembly) {
 
   const constraintReservations: CatalogConstraintNameReservation[] = []
   const namespace: CatalogNamespace = buildMainCatalogNamespace({ ...input })
+  appendUnscopedMetadataDiagnostics(namespace, tableEvidence, diagnostics, identities)
+  const invalidEvidence = tableEvidence.errors.size > 0
   return {
     source: { dialect: 'sqlite', version },
     request: resolvedRequest,
     capabilities: catalogCapabilities(),
     namespaceContext,
     namespaces: { items: [namespace], coverage: complete },
-    nameReservations: { items: uniqueNames, coverage: complete },
+    nameReservations: {
+      items: uniqueNames,
+      coverage: invalidEvidence
+        ? unknown('SQLite relation metadata does not prove all name reservations')
+        : complete,
+    },
     constraintNameReservations: {
       items: constraintReservations,
-      coverage: constraintNameCoverage,
+      coverage: invalidEvidence
+        ? unknown('SQLite relation metadata does not prove all constraint names')
+        : constraintNameCoverage,
     },
     diagnostics: diagnostics.sort(
       (a, b) => compare(a.code, b.code) || compare(a.message, b.message),
     ),
+  }
+}
+
+/** Reports reservation errors on tables outside the returned relation scope. */
+function appendUnscopedMetadataDiagnostics(
+  namespace: CatalogNamespace,
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+  diagnostics: CatalogDiagnostic[],
+  identities: CanonicalRelationIdentityModule,
+): void {
+  const returnedNames = new Set(
+    namespace.relations.items.map((relation) => relation.identity.relation.comparisonKey),
+  )
+
+  for (const [name, reason] of evidence.errors) {
+    const key = identities.resolve(relationInput('main', name)).relation.comparisonKey
+
+    if (!returnedNames.has(key))
+      appendMetadataDiagnostic(diagnostics, identities, name, reason)
   }
 }
 
@@ -3027,18 +3181,24 @@ function validateRequestedOwnerIndexes(
   indexLists: Map<string, IndexListRow[]>,
   reservationIndexLists: Map<string, IndexListRow[]>,
   schemaRows: SchemaRow[],
+  errors: Map<string, string>,
 ) {
   const requestedOwners = mainTables.filter((entry) =>
     relationRequested(scopeIdentity(entry.name), resolvedRequest, identities),
   )
 
-  for (const owner of requestedOwners)
-    validateOwnerIndexes(
-      owner,
-      indexLists.get(owner.name) ?? reservationIndexLists.get(owner.name) ?? [],
-      schemaRows,
-      identities,
+  for (const owner of requestedOwners) {
+    if (errors.has(owner.name)) continue
+
+    decodeTableObservation(owner.name, errors, () =>
+      validateOwnerIndexes(
+        owner,
+        indexLists.get(owner.name) ?? reservationIndexLists.get(owner.name) ?? [],
+        schemaRows,
+        identities,
+      ),
     )
+  }
 }
 
 /**
@@ -3049,8 +3209,43 @@ function validateRequestedOwnerIndexes(
  * @returns The main namespace with relation evidence and requested coverage.
  */
 function buildMainCatalogNamespace(input: SqliteNamespaceAssembly) {
+  const { scopeRows, tableEvidence, identities, completeMain } = input
+  const rows = scopeRows.filter((entry) => !entry.name.startsWith('sqlite_'))
+  const relations = rows.map((row) => buildObservedSqliteRelation(row, input))
+  downgradeInvalidForeignKeys(rows, relations, input)
+  relations.sort((a, b) => identities.compare(a.identity, b.identity))
+
+  const namespace: CatalogNamespace = {
+    identity: identities.resolveNamespace(mainNamespace),
+    owner: unsupportedByEngine('SQLite has no namespace owner'),
+    relations: {
+      items: relations,
+      coverage:
+        tableEvidence.errors.size > 0
+          ? {
+              state: 'partial',
+              remainder: unknown('SQLite relation metadata is invalid'),
+            }
+          : completeMain
+            ? complete
+            : {
+                state: 'partial',
+                remainder: unmanaged(
+                  'Relations outside the requested catalog scope are unmanaged',
+                ),
+              },
+    },
+  }
+
+  return namespace
+}
+
+/** Builds one relation, recording a local metadata failure without losing its identity. */
+function buildObservedSqliteRelation(
+  row: TableRow,
+  input: SqliteNamespaceAssembly,
+): CatalogRelation {
   const {
-    scopeRows,
     mainTables,
     schemaRows,
     tableEvidence,
@@ -3058,44 +3253,239 @@ function buildMainCatalogNamespace(input: SqliteNamespaceAssembly) {
     hasExternalNamespace,
     viewObjects,
     triggerObjects,
-    completeMain,
+    diagnostics,
   } = input
 
-  const relations: CatalogRelation[] = []
-  for (const row of scopeRows) {
-    if (row.name.startsWith('sqlite_')) continue
+  const invalid = tableEvidence.errors.get(row.name)
 
-    relations.push(
-      buildCatalogRelation(
-        row,
-        mainTables,
-        schemaRows,
-        tableEvidence,
-        identities,
-        hasExternalNamespace,
-        [...viewObjects, ...triggerObjects],
-      ),
+  if (invalid) {
+    appendMetadataDiagnostic(diagnostics, identities, row.name, invalid)
+    return unknownSqliteRelation(row, schemaRows, tableEvidence, identities, invalid)
+  }
+
+  try {
+    return buildCatalogRelation(
+      row,
+      mainTables,
+      schemaRows,
+      tableEvidence,
+      identities,
+      hasExternalNamespace,
+      [...viewObjects, ...triggerObjects],
+    )
+  } catch (error) {
+    if (!(error instanceof InvariantError)) throw error
+
+    tableEvidence.errors.set(row.name, error.message)
+    appendMetadataDiagnostic(diagnostics, identities, row.name, error.message)
+    return unknownSqliteRelation(
+      row,
+      schemaRows,
+      tableEvidence,
+      identities,
+      error.message,
     )
   }
+}
 
-  relations.sort((a, b) => identities.compare(a.identity, b.identity))
-  const namespace: CatalogNamespace = {
-    identity: identities.resolveNamespace(mainNamespace),
-    owner: unsupportedByEngine('SQLite has no namespace owner'),
-    relations: {
-      items: relations,
-      coverage: completeMain
-        ? complete
-        : {
-            state: 'partial',
-            remainder: unmanaged(
-              'Relations outside the requested catalog scope are unmanaged',
-            ),
-          },
-    },
+/** Removes FK proofs that depend on invalid parent metadata. */
+function downgradeInvalidForeignKeys(
+  rows: readonly TableRow[],
+  relations: CatalogRelation[],
+  input: SqliteNamespaceAssembly,
+): void {
+  const { tableEvidence, schemaRows, identities, diagnostics } = input
+  for (const [index, row] of rows.entries()) {
+    if (tableEvidence.errors.has(row.name)) continue
+
+    const dependency = tableEvidence.foreignKeys
+      .get(row.name)
+      ?.find((key) =>
+        [...tableEvidence.errors.keys()].some(
+          (name) =>
+            asciiFoldSqliteIdentifier(name) === asciiFoldSqliteIdentifier(key.table),
+        ),
+      )
+
+    if (!dependency) continue
+
+    const reason = `SQLite foreign key on ${JSON.stringify(row.name)} references invalid parent metadata`
+    relations[index] = unknownSqliteRelation(
+      row,
+      schemaRows,
+      tableEvidence,
+      identities,
+      reason,
+    )
+    tableEvidence.errors.set(row.name, reason)
+    appendMetadataDiagnostic(diagnostics, identities, row.name, reason)
+  }
+}
+
+/** Preserves a proven relation identity and definition without granting management. */
+function unknownSqliteRelation(
+  row: TableRow,
+  schemaRows: readonly SchemaRow[],
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+  identities: CanonicalRelationIdentityModule,
+  reason: string,
+): CatalogRelation {
+  const schema = schemaForTable(schemaRows, row.name)
+  const schemaValid =
+    schema?.type === (row.type === 'view' ? 'view' : 'table') &&
+    asciiFoldSqliteIdentifier(schema.tbl_name) === asciiFoldSqliteIdentifier(row.name)
+
+  const nativeDefinition =
+    schemaValid && schema.sql !== null ? present(schema.sql) : unknown(reason)
+
+  const columns = recoveredSqliteColumns(
+    row,
+    schemaValid ? schema : undefined,
+    evidence,
+    nativeDefinition,
+    identities,
+    reason,
+  )
+
+  const unavailable = { items: [], coverage: unknown(reason) }
+  return {
+    identity: identities.resolve(relationInput('main', row.name)),
+    kind:
+      row.type === 'virtual'
+        ? 'virtualTable'
+        : row.type === 'shadow'
+          ? 'shadowTable'
+          : row.type === 'view'
+            ? 'view'
+            : 'table',
+    persistence: 'permanent',
+    owner: unsupportedByEngine('SQLite has no relation owner'),
+    management: 'unmanaged',
+    nativeDefinition,
+    table:
+      row.type === 'view'
+        ? unknown(reason)
+        : present({
+            columns,
+            primaryKey: unknown(reason),
+            uniqueConstraints: unavailable,
+            foreignKeys: unavailable,
+            indexes: unavailable,
+            options: { items: catalogTableOptions(row), coverage: complete },
+            opaqueObjects: unavailable,
+          }),
+  }
+}
+
+/** Keeps valid column observations when another member observation is invalid. */
+function recoveredSqliteColumns(
+  row: TableRow,
+  schema: SchemaRow | undefined,
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+  nativeDefinition: CatalogRelation['nativeDefinition'],
+  identities: CanonicalRelationIdentityModule,
+  reason: string,
+): CatalogTable['columns'] {
+  const observed = evidence.xinfo.get(row.name)
+
+  if (!observed || !schema) return { items: [], coverage: unknown(reason) }
+
+  try {
+    const decoded = decodeCatalogColumns(
+      row,
+      schema,
+      observed,
+      nativeDefinition,
+      identities,
+    ).decodedColumns
+
+    return {
+      items: recoverRowidColumnFacts(
+        row,
+        schema,
+        observed,
+        evidence,
+        decoded,
+        identities,
+        reason,
+      ),
+      coverage: complete,
+    }
+  } catch (error) {
+    if (!(error instanceof InvariantError)) throw error
+
+    return { items: [], coverage: unknown(reason) }
+  }
+}
+
+/** Uses validated primary-key inventory before inferring INTEGER rowid facts. */
+function recoverRowidColumnFacts(
+  row: TableRow,
+  schema: SchemaRow,
+  observed: XInfoRow[],
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+  columns: CatalogColumn[],
+  identities: CanonicalRelationIdentityModule,
+  reason: string,
+): CatalogColumn[] {
+  const primary = observed.filter((column) => column.pk > 0)
+
+  if (
+    row.wr !== 0 ||
+    primary.length !== 1 ||
+    primary[0]!.pk !== 1 ||
+    primary[0]!.type.toUpperCase() !== 'INTEGER'
+  )
+    return columns
+
+  const ambiguous = columns.map((column) =>
+    column.name === primary[0]!.name
+      ? { ...column, nullable: unknown(reason), generation: unknown(reason) }
+      : column,
+  )
+
+  const indexes = evidence.indexLists.get(row.name)
+
+  if (!indexes) return ambiguous
+
+  try {
+    if (validateTableIndexes(row, indexes, identities)) return columns
+  } catch (error) {
+    if (!(error instanceof InvariantError)) throw error
+
+    return ambiguous
   }
 
-  return namespace
+  const sql = schema.sql
+
+  if (sql === null) return ambiguous
+
+  return columns.map((column) =>
+    column.name === primary[0]!.name
+      ? {
+          ...column,
+          nullable: present(false),
+          generation: present({
+            kind: 'rowidAlias',
+            autoIncrement: hasSqlToken(sql, 'AUTOINCREMENT'),
+          }),
+        }
+      : column,
+  )
+}
+
+/** Adds a stable, relation-targeted diagnostic for invalid metadata. */
+function appendMetadataDiagnostic(
+  diagnostics: CatalogDiagnostic[],
+  identities: CanonicalRelationIdentityModule,
+  name: string,
+  reason: string,
+): void {
+  diagnostics.push({
+    code: 'catalog.sqlite.metadata',
+    message: reason,
+    target: identities.resolve(relationInput('main', name)),
+  })
 }
 
 /**
@@ -3283,13 +3673,7 @@ type TableForeignKeyDecoding = {
   row: TableRow
   columns: XInfoRow[]
   mainTables: readonly TableRow[]
-  evidence: {
-    xinfo: Map<string, XInfoRow[]>
-    indexLists: Map<string, IndexListRow[]>
-    indexInfos: Map<string, IndexInfoRow[]>
-    foreignKeys: Map<string, ForeignKeyRow[]>
-    reservationIndexLists: Map<string, IndexListRow[]>
-  }
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>
   identities: CanonicalRelationIdentityModule
   createSql: string | null
   constraintName: CatalogNoEvidence | { readonly state: 'absent' }
@@ -3351,13 +3735,7 @@ type SqliteSnapshotAssembly = {
   scopeRows: TableRow[]
   resolvedRequest: ResolvedCatalogRequest
   identities: CanonicalRelationIdentityModule
-  tableEvidence: {
-    xinfo: Map<string, XInfoRow[]>
-    indexLists: Map<string, IndexListRow[]>
-    indexInfos: Map<string, IndexInfoRow[]>
-    foreignKeys: Map<string, ForeignKeyRow[]>
-    reservationIndexLists: Map<string, IndexListRow[]>
-  }
+  tableEvidence: Awaited<ReturnType<typeof readTableEvidence>>
   mainTables: TableRow[]
   reservationIndexLists: Map<string, IndexListRow[]>
   hasExternalNamespace: boolean
@@ -3469,9 +3847,12 @@ async function prepareSqliteCatalogEvidence(
     sameNamespace(entry, identities.resolveNamespace(mainNamespace)),
   )
 
-  validateSchemaRows(schemaRows, mainTables, resolvedRequest, identities)
+  const schemaErrors = new Map<string, string>()
+  validateSchemaRows(schemaRows, mainTables, resolvedRequest, identities, schemaErrors)
   const tableEvidence = await readTableEvidence(executor, scopeRows, mainTables)
-  const { indexLists, reservationIndexLists } = tableEvidence
+  for (const [name, reason] of schemaErrors)
+    if (!tableEvidence.errors.has(name)) tableEvidence.errors.set(name, reason)
+  const { indexLists, reservationIndexLists, errors } = tableEvidence
   validateRequestedOwnerIndexes(
     mainTables,
     scopeIdentity,
@@ -3480,6 +3861,7 @@ async function prepareSqliteCatalogEvidence(
     indexLists,
     reservationIndexLists,
     schemaRows,
+    errors,
   )
 
   return { scopeRows, completeMain, tableEvidence, reservationIndexLists }
@@ -3489,18 +3871,13 @@ type SqliteNamespaceAssembly = {
   scopeRows: TableRow[]
   mainTables: TableRow[]
   schemaRows: SchemaRow[]
-  tableEvidence: {
-    xinfo: Map<string, XInfoRow[]>
-    indexLists: Map<string, IndexListRow[]>
-    indexInfos: Map<string, IndexInfoRow[]>
-    foreignKeys: Map<string, ForeignKeyRow[]>
-    reservationIndexLists: Map<string, IndexListRow[]>
-  }
+  tableEvidence: Awaited<ReturnType<typeof readTableEvidence>>
   identities: CanonicalRelationIdentityModule
   hasExternalNamespace: boolean
   viewObjects: SchemaRow[]
   triggerObjects: SchemaRow[]
   completeMain: boolean
+  diagnostics: CatalogDiagnostic[]
 }
 
 type SqliteCatalogConsistency = {
