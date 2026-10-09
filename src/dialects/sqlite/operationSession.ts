@@ -27,6 +27,8 @@ let nextMemoryId = 0
 let nextSessionId = 0
 const nativeSessionIds = new WeakMap<object, string>()
 const memoryDatabaseIds = new WeakMap<object, string>()
+const connectorStates = new WeakMap<Connector, ConnectorState>()
+const nativeOwners = new WeakMap<object, ConnectorState>()
 
 /** Accepts only the native DatabaseSync capabilities needed by a pinned lease. */
 function nativeDatabase(value: unknown): NativeDatabase {
@@ -175,10 +177,17 @@ function queryFailure(cause: unknown, message: string): QueryError {
 
 type ProviderState = {
   closed: boolean
-  poisoned: boolean
-  leased: boolean
   activeLease?: Promise<void>
   closePromise?: Promise<void>
+  detached: boolean
+}
+
+type ConnectorState = {
+  providers: number
+  poisoned: boolean
+  leased: boolean
+  native?: NativeDatabase
+  closing?: Promise<void>
 }
 
 type LeaseState = { queue: Promise<void>; cancelled: boolean; released: boolean }
@@ -186,12 +195,19 @@ type LeaseState = { queue: Promise<void>; cancelled: boolean; released: boolean 
 /** Verifies that db0 still owns the same clean native instance. */
 async function verifyNative(
   connector: Connector,
+  owner: ConnectorState,
   database: NativeDatabase,
   identity: OperationSessionIdentity,
 ): Promise<void> {
-  if (nativeDatabase(await connector.getInstance!()) !== database) {
+  if (
+    (await connector.getInstance!()) !== database ||
+    owner.native !== database ||
+    nativeOwners.get(database) !== owner
+  ) {
     throw new QueryError({ message: 'SQLite native session changed during operation' })
   }
+
+  nativeDatabase(database)
 
   if (!sameIdentity(readIdentity(database), identity)) {
     throw new QueryError({ message: 'SQLite session identity changed during operation' })
@@ -199,26 +215,56 @@ async function verifyNative(
 }
 
 /** Disposes db0 resources and retains a failed call for close retry. */
-async function dispose(connector: Connector): Promise<void> {
+async function dispose(connector: Connector, owner: ConnectorState): Promise<void> {
+  const database = owner.native
+
+  if (!database) return
+
   try {
+    if (
+      (await connector.getInstance!()) !== database ||
+      nativeOwners.get(database) !== owner
+    )
+      throw new QueryError({ message: 'SQLite native session changed before disposal' })
+
     await connector.dispose!()
+    nativeOwners.delete(database)
+    owner.native = undefined
   } catch (cause) {
     throw queryFailure(cause, 'Failed to dispose SQLite operation session')
   }
 }
 
+/** Shares teardown with concurrent closes and leaves a failed disposal retryable. */
+function closeOwnedConnector(connector: Connector, owner: ConnectorState): Promise<void> {
+  if (owner.closing) return owner.closing
+
+  owner.closing = dispose(connector, owner)
+    .then(() => {
+      owner.poisoned = false
+    })
+    .catch((cause: unknown) => {
+      owner.poisoned = true
+      throw cause
+    })
+    .finally(() => {
+      owner.closing = undefined
+    })
+  return owner.closing
+}
+
 /** Retains cleanup evidence and blocks new leases when disposal remains incomplete. */
 async function disposeAfterFailure(
   connector: Connector,
-  provider: ProviderState,
+  owner: ConnectorState,
   cause: unknown,
   message: string,
 ): Promise<QueryError> {
   const primary = queryFailure(cause, message)
   try {
-    await dispose(connector)
+    await dispose(connector, owner)
   } catch (cleanup) {
-    provider.poisoned = true
+    owner.poisoned = true
 
     Object.assign(primary, {
       cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
@@ -231,7 +277,7 @@ async function disposeAfterFailure(
 /** Releases a session after proving reuse or discarding the native instance. */
 async function releaseLease(
   connector: Connector,
-  provider: ProviderState,
+  owner: ConnectorState,
   database: NativeDatabase,
   identity: OperationSessionIdentity,
   state: LeaseState,
@@ -245,17 +291,18 @@ async function releaseLease(
 
   try {
     if (state.cancelled || disposition === 'discard') {
-      await dispose(connector)
+      await dispose(connector, owner)
       return
     }
 
+    await verifyNative(connector, owner, database, identity)
     rollbackNative(database)
 
-    await verifyNative(connector, database, identity)
+    await verifyNative(connector, owner, database, identity)
   } catch (cause) {
     throw await disposeAfterFailure(
       connector,
-      provider,
+      owner,
       cause,
       'Failed to release SQLite operation session',
     )
@@ -267,6 +314,7 @@ async function releaseLease(
 /** Queues one native call and keeps the tail settled for later cleanup. */
 function enqueue<T>(
   connector: Connector,
+  owner: ConnectorState,
   database: NativeDatabase,
   identity: OperationSessionIdentity,
   state: LeaseState,
@@ -280,7 +328,7 @@ function enqueue<T>(
     if (state.cancelled) throw new QueryError({ message: 'SQLite lease was cancelled' })
 
     try {
-      await verifyNative(connector, database, identity)
+      await verifyNative(connector, owner, database, identity)
       return execute(database.prepare(query.sql), bindings(query.params))
     } catch (cause) {
       throw queryFailure(cause, 'SQLite operation failed')
@@ -297,7 +345,7 @@ function enqueue<T>(
 /** Creates an exclusive lease over one open DatabaseSync. */
 function createLease(
   connector: Connector,
-  provider: ProviderState,
+  owner: ConnectorState,
   database: NativeDatabase,
   identity: OperationSessionIdentity,
   finish: () => void,
@@ -312,12 +360,12 @@ function createLease(
     identity,
     /** Reads rows with StatementSync.all. */
     query: (query) =>
-      enqueue(connector, database, identity, state, query, (statement, params) =>
+      enqueue(connector, owner, database, identity, state, query, (statement, params) =>
         readRows(statement, params),
       ),
     /** Executes a statement with StatementSync.run. */
     run: (query) =>
-      enqueue(connector, database, identity, state, query, (statement, params) => {
+      enqueue(connector, owner, database, identity, state, query, (statement, params) => {
         statement.run(...params)
       }),
     /** Poisons the lease; synchronous DatabaseSync calls finish naturally. */
@@ -329,49 +377,81 @@ function createLease(
     },
     /** Settles all work, then proves reuse or discards the native instance. */
     release: (disposition) =>
-      releaseLease(connector, provider, database, identity, state, finish, disposition),
+      releaseLease(connector, owner, database, identity, state, finish, disposition),
   }
+}
+
+/** Claims only an open native instance after excluding another connector's owner. */
+async function claimNativeDatabase(
+  connector: Connector,
+  owner: ConnectorState,
+): Promise<NativeDatabase> {
+  const database = await connector.getInstance!()
+  const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
+
+  if (!(database instanceof DatabaseSync))
+    throw new QueryError({ message: 'db0 node-sqlite did not expose a DatabaseSync' })
+
+  const existingOwner = nativeOwners.get(database)
+
+  if (existingOwner && existingOwner !== owner)
+    throw new QueryError({
+      message: 'SQLite native session is owned by another connector',
+    })
+
+  if (owner.native && owner.native !== database)
+    throw new QueryError({ message: 'SQLite native session changed during operation' })
+
+  const validated = nativeDatabase(database)
+  nativeOwners.set(database, owner)
+  owner.native = database
+  return validated
 }
 
 /** Opens one native lease and clears its provider slot on failure. */
 async function openLease(
   connector: Connector,
-  state: ProviderState,
+  provider: ProviderState,
+  owner: ConnectorState,
 ): Promise<OperationSession> {
-  if (state.closed) throw new QueryError({ message: 'SQLite provider is closed' })
+  if (owner.closing) await owner.closing
 
-  if (state.poisoned)
+  if (provider.closed) throw new QueryError({ message: 'SQLite provider is closed' })
+
+  if (owner.poisoned)
     throw new QueryError({
       message: 'SQLite provider requires successful close after failed disposal',
     })
 
-  if (state.leased) throw new QueryError({ message: 'SQLite session is already leased' })
+  if (owner.leased) throw new QueryError({ message: 'SQLite session is already leased' })
 
-  state.leased = true
+  owner.leased = true
   let finish!: () => void
-  state.activeLease = new Promise<void>((resolve) => {
+  provider.activeLease = new Promise<void>((resolve) => {
     finish = resolve
   })
 
   const finishLease = () => {
-    state.leased = false
-    state.activeLease = undefined
+    owner.leased = false
+    provider.activeLease = undefined
     finish()
   }
 
   try {
-    const database = nativeDatabase(await connector.getInstance!())
+    const claimed = await claimNativeDatabase(connector, owner)
 
-    assertCleanTransaction(database)
+    assertCleanTransaction(claimed)
 
-    return createLease(connector, state, database, readIdentity(database), finishLease)
+    return createLease(connector, owner, claimed, readIdentity(claimed), finishLease)
   } catch (cause) {
-    const error = await disposeAfterFailure(
-      connector,
-      state,
-      cause,
-      'Failed to open SQLite operation session',
-    )
+    const error = owner.native
+      ? await disposeAfterFailure(
+          connector,
+          owner,
+          cause,
+          'Failed to open SQLite operation session',
+        )
+      : queryFailure(cause, 'Failed to open SQLite operation session')
 
     finishLease()
     throw error
@@ -379,20 +459,29 @@ async function openLease(
 }
 
 /** Closes once after the active lease and permits a failed disposal retry. */
-function closeProvider(connector: Connector, state: ProviderState): Promise<void> {
-  if (state.closePromise) return state.closePromise
+function closeProvider(
+  connector: Connector,
+  provider: ProviderState,
+  owner: ConnectorState,
+): Promise<void> {
+  if (provider.closePromise) return provider.closePromise
 
-  state.closed = true
-  state.closePromise = (state.activeLease ?? Promise.resolve())
+  provider.closed = true
+  provider.closePromise = (provider.activeLease ?? Promise.resolve())
     .then(async () => {
-      await dispose(connector)
-      state.poisoned = false
+      if (!provider.detached) {
+        owner.providers--
+        provider.detached = true
+      }
+
+      if (owner.providers === 0 || owner.poisoned)
+        await closeOwnedConnector(connector, owner)
     })
     .catch((cause: unknown) => {
-      state.closePromise = undefined
+      provider.closePromise = undefined
       throw cause
     })
-  return state.closePromise
+  return provider.closePromise
 }
 
 /** Adapts exactly db0 0.4.0's node-sqlite connector to pinned native sessions. */
@@ -410,12 +499,20 @@ export function createDb0NodeSqliteOperationSessionProvider(
         'Automatic SQLite operation sessions require db0 node-sqlite; provide an explicit operationSessionProvider for other connectors',
     })
 
-  const state: ProviderState = { closed: false, poisoned: false, leased: false }
+  let owner = connectorStates.get(connector)
+
+  if (!owner) {
+    owner = { providers: 0, poisoned: false, leased: false }
+    connectorStates.set(connector, owner)
+  }
+
+  owner.providers++
+  const state: ProviderState = { closed: false, detached: false }
   return {
     nativeTransactions: true,
     /** Opens one exclusive native session. */
-    open: () => openLease(connector, state),
+    open: () => openLease(connector, state, owner),
     /** Closes after the active lease and supports retry after disposal failure. */
-    close: () => closeProvider(connector, state),
+    close: () => closeProvider(connector, state, owner),
   }
 }
