@@ -5,7 +5,7 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 
 import { asciiFoldSqliteIdentifier } from '../identity'
-import { sqliteNaming } from '../naming'
+import { sqliteNaming, validateSqliteObjectName } from '../naming'
 
 import type { Column, Definition, ForeignKey, Index } from './definition'
 import { quote } from './definition'
@@ -79,6 +79,8 @@ function foreignKeySql(key: ForeignKey): string {
 
 /** Compiles every final column and retained simple constraint into one CREATE TABLE. */
 export function createSql(name: string, definition: Definition): CompiledQuery {
+  validateSqliteObjectName(name, 'table')
+
   if (!definition.columns.length)
     throw new Error('SQLite table must retain at least one column')
 
@@ -97,6 +99,8 @@ export function createSql(name: string, definition: Definition): CompiledQuery {
 
 /** Compiles a simple main-database index without relying on IF NOT EXISTS. */
 export function indexSql(table: string, index: Index): CompiledQuery {
+  validateSqliteObjectName(index.name, 'index')
+
   return statement(
     `create ${index.unique ? 'unique ' : ''}index ${address(index.name)} on ${quote(table)} (${columnsSql(index.columns)})`,
   )

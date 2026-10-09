@@ -38,3 +38,13 @@ export const sqliteNaming = {
   createRegistry: (): PhysicalNameRegistry =>
     createPhysicalNameRegistry(SQLITE_PHYSICAL_NAMING),
 }
+
+/** Rejects SQLite's reserved object prefix for authored table and index names. */
+export function validateSqliteObjectName(name: string, role: 'table' | 'index'): void {
+  sqliteNaming.validate(name, `SQLite ${role} name`)
+
+  if (asciiFoldSqliteIdentifier(name).startsWith('sqlite_'))
+    throw new Error(
+      `SQLite ${role} name ${JSON.stringify(name)} uses reserved prefix "sqlite_"`,
+    )
+}
