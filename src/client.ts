@@ -504,7 +504,7 @@ function createClientMigration(
   ensureClientOpen()
   return createMigrateBuilder({
     schemas: config.schemas,
-    migration: dialect.migration,
+    migration: clientMigrationAdapter(dialect, config.map),
     runOperation: createMigrationRunner(
       coordinator,
       clientExecutor,
@@ -530,6 +530,27 @@ function createClientMigration(
       }
     },
   })
+}
+
+/** Binds the client's explicit result contract without changing shared dialect policies. */
+function clientMigrationAdapter(
+  dialect: ReturnType<typeof resolveDialect>,
+  map?: ValueMapConfig,
+) {
+  const schema = dialect.migration.planning.schema
+  return {
+    ...dialect.migration,
+    planning: {
+      ...dialect.migration.planning,
+      schema: {
+        ...schema,
+        lowerDesiredSchema: (graph: Parameters<typeof schema.lowerDesiredSchema>[0]) =>
+          schema.lowerDesiredSchema(graph, {
+            hasGlobalResultMapping: typeof map?.mapResultValue === 'function',
+          }),
+      },
+    },
+  }
 }
 
 /** Owns root client execution and shutdown through the operation coordinator. */

@@ -1,8 +1,8 @@
 import type {
-  AuthoredDesiredSchema,
   CatalogSnapshot,
   DialectIdentity,
   DialectNaming,
+  DialectSchema,
   LoweredDatabaseDefault,
   LoweredDesiredColumn,
   LoweredDesiredSchema,
@@ -176,7 +176,7 @@ export type MigrationPlanningContext = Readonly<{
      * @returns Desired tables with dialect-specific physical storage and resolved
      *   references.
      */
-    lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+    lowerDesiredSchema: DialectSchema['lowerDesiredSchema']
     /**
      * Normalizes physical SQL type spelling for stable schema comparison.
      *

@@ -2,6 +2,7 @@ import type {
   AuthoredDesiredColumn,
   AuthoredDesiredSchema,
   AuthoredDesiredTable,
+  DialectSchema,
   LoweredDatabaseDefault,
   LoweredDesiredColumn,
   LoweredDesiredSchema,
@@ -21,6 +22,7 @@ import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
 
+import { assertSqliteDefaultCompatibility } from './defaultCompatibility'
 import { inferSqliteColumnType } from './infer'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
 import {
@@ -277,6 +279,7 @@ function lowerColumn(
   column: AuthoredDesiredColumn,
   dataType: string,
   analysis: SchemaAnalysis,
+  hasResultMapping: boolean,
 ): LoweredDesiredColumn {
   if (column.metadata?.comment !== undefined) {
     throw new MigrationError({
@@ -293,6 +296,7 @@ function lowerColumn(
   const primaryKey = primaryKeyNames(table)
   const autoIncrement = lowerGeneration(table, column, dataType)
   const reference = column.reference
+  const databaseDefault = lowerColumnDefault(table, column, dataType, hasResultMapping)
 
   return Object.freeze({
     identifier: column.identifier,
@@ -302,9 +306,7 @@ function lowerColumn(
       (column.metadata?.unique ?? false) &&
       !(primaryKey.length === 1 && primaryKey[0] === column.name),
     autoIncrement,
-    ...(column.metadata?.databaseDefault === undefined
-      ? {}
-      : { databaseDefault: lowerDefault(column.metadata.databaseDefault) }),
+    ...(databaseDefault === undefined ? {} : { databaseDefault }),
     ...(reference === undefined
       ? {}
       : {
@@ -322,9 +324,32 @@ function lowerColumn(
   })
 }
 
+/** Validates a column's logical default contract before formatting its declared SQL. */
+function lowerColumnDefault(
+  table: AuthoredDesiredTable,
+  column: AuthoredDesiredColumn,
+  dataType: string,
+  hasGlobalResultMapping: boolean,
+): LoweredDatabaseDefault | undefined {
+  const value = column.metadata?.databaseDefault
+
+  if (value === undefined) return undefined
+
+  assertSqliteDefaultCompatibility(
+    value,
+    dataType,
+    column.schema,
+    hasGlobalResultMapping || typeof column.metadata?.mapResult === 'function',
+    formatIdentity(table.identity, column.name),
+  )
+
+  return lowerDefault(value)
+}
+
 /** Lowers SQLite's supported ordinary main-database table profile. */
 export function lowerSqliteDesiredSchema(
   graph: AuthoredDesiredSchema,
+  context?: Parameters<DialectSchema['lowerDesiredSchema']>[1],
 ): LoweredDesiredSchema {
   const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
   const analyses = new Map<AuthoredDesiredColumn, SchemaAnalysis>()
@@ -357,7 +382,13 @@ export function lowerSqliteDesiredSchema(
     for (const column of orderedColumns(table)) {
       loweredColumns.set(
         column,
-        lowerColumn(table, column, resolvedTypes.get(column)!, analyses.get(column)!),
+        lowerColumn(
+          table,
+          column,
+          resolvedTypes.get(column)!,
+          analyses.get(column)!,
+          context?.hasGlobalResultMapping ?? false,
+        ),
       )
     }
   }

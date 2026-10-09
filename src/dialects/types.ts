@@ -156,7 +156,13 @@ export type DialectSchema = Readonly<{
    * @returns Desired tables with dialect-specific physical storage and resolved
    *   references.
    */
-  lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+  lowerDesiredSchema(
+    graph: AuthoredDesiredSchema,
+    context?: Readonly<{
+      /** The client supplies an explicit result-mapping contract for every column. */
+      hasGlobalResultMapping: boolean
+    }>,
+  ): LoweredDesiredSchema
   /**
    * Infers a supported physical SQL type from Valibot schema facts.
    *
