@@ -54,6 +54,15 @@ async function expectPlanningFailure(run: () => Promise<unknown>, message?: stri
   })
 }
 
+/** Asserts SQLite lowering rejects a Migration Program before execution can begin. */
+async function expectLoweringFailure(run: () => Promise<unknown>, message?: string) {
+  await expect(run()).rejects.toMatchObject({
+    stage: 'lowering',
+    outcome: 'unchanged',
+    ...(message ? { message } : {}),
+  })
+}
+
 const additive: MigrationOwnershipDeclaration[] = [
   { kind: 'relation', relation: { relation: 'parent' }, shape: 'additive' },
   { kind: 'relation', relation: { relation: 'owners' }, shape: 'additive' },
@@ -168,6 +177,242 @@ it('resolves the production member and creates a desired FK graph through Client
     await db.migrate().execute()
     expect(await db.migrate().plan()).toEqual({ steps: [] })
     expect((await db.migrate().dryRun()).actions).toEqual([])
+  } finally {
+    await db.close()
+  }
+})
+
+it.each(['sqlite_reserved', 'SQLITE_reserved', 'sQlItE_reserved'])(
+  'rejects reserved SQLite table name %s before exposing DDL',
+  async (name) => {
+    const Valid = defineTable(
+      'aaa_valid',
+      { id: pipe(number(), integer()) },
+      { primaryKey: 'id' },
+    )
+
+    const Reserved = defineTable(
+      name,
+      { id: pipe(number(), integer()) },
+      { primaryKey: 'id' },
+    )
+
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const native = await connector.getInstance!()
+    native.exec('create table seed(id INTEGER primary key); insert into seed values(7)')
+    const db = createDatabase({ connector, schemas: [Valid, Reserved] })
+    const ddlAttempts = trackNativeMutations(native)
+
+    try {
+      const before = native
+        .prepare('select name,sql from sqlite_schema order by name')
+        .all()
+
+      const message = `SQLite table name ${JSON.stringify(name)} uses reserved prefix "sqlite_"`
+
+      await expectLoweringFailure(() => db.migrate().dryRun(), message)
+      await expectLoweringFailure(() => db.migrate().execute())
+
+      expect(ddlAttempts).toEqual([])
+
+      expect(
+        native.prepare('select name,sql from sqlite_schema order by name').all(),
+      ).toEqual(before)
+
+      expect(native.prepare('select * from seed').all()).toEqual([{ id: 7 }])
+    } finally {
+      await db.close()
+    }
+  },
+)
+
+it.each([
+  ['sqlite_reserved_index', false],
+  ['SQLITE_reserved_index', true],
+])(
+  'rejects reserved index %s on a %s table before exposing any DDL',
+  async (indexName, existing) => {
+    const relationName = existing ? 'existing_records' : 'new_records'
+    const Good = defineTable(
+      'aaa_valid',
+      { id: pipe(number(), integer()), value: string() },
+      {
+        primaryKey: 'id',
+        indexes: [{ name: 'valid_records_value', columns: ['value'] }],
+      },
+    )
+
+    const Bad = defineTable(
+      relationName,
+      { id: pipe(number(), integer()), value: string() },
+      {
+        primaryKey: 'id',
+        indexes: [{ name: indexName, columns: ['value'] }],
+      },
+    )
+
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const native = await connector.getInstance!()
+    native.exec(
+      "create table existing_records (id INTEGER primary key not null, value TEXT not null); insert into existing_records values (7, 'kept')",
+    )
+
+    const db = createDatabase({ connector, schemas: [Good, Bad] })
+    const ddlAttempts = trackNativeMutations(native)
+
+    try {
+      const before = native
+        .prepare('select type,name,tbl_name,sql from sqlite_schema order by type,name')
+        .all()
+
+      const message = `SQLite index name ${JSON.stringify(indexName)} uses reserved prefix "sqlite_"`
+
+      await expectLoweringFailure(() => db.migrate().dryRun(), message)
+      await expectLoweringFailure(() => db.migrate().execute())
+
+      expect(ddlAttempts).toEqual([])
+
+      expect(
+        native
+          .prepare('select type,name,tbl_name,sql from sqlite_schema order by type,name')
+          .all(),
+      ).toEqual(before)
+
+      expect(native.prepare('select * from existing_records').all()).toEqual([
+        { id: 7, value: 'kept' },
+      ])
+    } finally {
+      await db.close()
+    }
+  },
+)
+
+it('suppresses the whole SQLite Migration Program when one table name is reserved', async () => {
+  const Valid = defineTable(
+    'aaa_valid',
+    { id: pipe(number(), integer()) },
+    { primaryKey: 'id' },
+  )
+
+  const Reserved = defineTable(
+    'sqlite_reserved',
+    { id: pipe(number(), integer()) },
+    { primaryKey: 'id' },
+  )
+
+  const tables = [Valid, Reserved]
+  const ownership: MigrationOwnershipDeclaration[] = [
+    ...tables.map((relation) => ({
+      kind: 'relation' as const,
+      relation,
+      shape: 'additive' as const,
+    })),
+  ]
+
+  const test = await fixture(
+    'create table seed(id INTEGER primary key); insert into seed values(7)',
+  )
+
+  try {
+    const catalog = await sqliteDialect.catalog.introspectCatalog(
+      test.executor,
+      createCatalogRequest(tables, ownership),
+    )
+
+    const migration = planMigration(tables, catalog, sqliteDialect.migration.planning, {
+      migrationOwnership: ownership,
+    })
+
+    const result = sqliteDialect.migration.lower(migration, migration.profile)
+
+    expect(result.issues?.map((entry) => entry.message)).toContain(
+      'SQLite table name "sqlite_reserved" uses reserved prefix "sqlite_"',
+    )
+
+    expect(result).not.toHaveProperty('program')
+
+    expect(
+      migration.plan.steps
+        .filter((step) => step.kind === 'create_table')
+        .map((step) => step.target.relation.relation.spelling),
+    ).toEqual(['aaa_valid', 'sqlite_reserved'])
+  } finally {
+    await test.close()
+  }
+})
+
+/** Checks quoted objects, generated SQLite catalog objects and inserted row state. */
+function expectQuotedMigrationState(
+  native: DatabaseSync,
+  tableName: string,
+  indexName: string,
+): void {
+  const quotedTableName = `"${tableName.replaceAll('"', '""')}"`
+
+  expect(native.prepare(`select * from ${quotedTableName}`).all()).toEqual([
+    { id: 1, sqlite_value: 'kept', sqlite_unique_value: 'unique' },
+  ])
+
+  expect(
+    native.prepare('select name from sqlite_schema where type = ?').all('index'),
+  ).toContainEqual({ name: indexName })
+
+  expect(
+    native
+      .prepare("select name from sqlite_schema where name like 'sqlite_autoindex_%'")
+      .all(),
+  ).toContainEqual({ name: `sqlite_autoindex_${tableName}_1` })
+
+  expect(
+    native.prepare('select seq from sqlite_sequence where name = ?').get(tableName),
+  ).toEqual({ seq: 1 })
+}
+
+it('allows quoted object names, sqlite_ columns and non-ASCII prefix lookalikes', async () => {
+  const tableName = 'sqlİte_records.with"quote_雪'
+  const indexName = 'quoted.index"name_雪'
+  const quotedTableName = `"${tableName.replaceAll('"', '""')}"`
+  const Quoted = defineTable(
+    tableName,
+    {
+      id: pipe(
+        number(),
+        integer(),
+        column({ generation: { kind: 'identity', mode: 'byDefault' } }),
+      ),
+      sqlite_value: string(),
+      sqlite_unique_value: pipe(string(), column({ unique: true })),
+    },
+    {
+      primaryKey: 'id',
+      indexes: [{ name: indexName, columns: ['sqlite_value'] }],
+    },
+  )
+
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  const db = createDatabase({ connector, schemas: [Quoted] })
+
+  try {
+    const preview = await db.migrate().dryRun()
+    expect(preview.actions).toHaveLength(1)
+
+    expect(preview.actions[0]!.statements.map(({ sql }) => sql)).toEqual([
+      expect.stringMatching(/^create table/),
+      expect.stringMatching(/^create index/),
+    ])
+
+    await db.migrate().execute()
+
+    native
+      .prepare(
+        `insert into ${quotedTableName} ("sqlite_value", "sqlite_unique_value") values (?, ?)`,
+      )
+      .run('kept', 'unique')
+
+    expect(await db.migrate().plan()).toEqual({ steps: [] })
+    expect((await db.migrate().dryRun()).actions).toEqual([])
+    expectQuotedMigrationState(native, tableName, indexName)
   } finally {
     await db.close()
   }
