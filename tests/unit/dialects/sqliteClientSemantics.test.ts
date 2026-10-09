@@ -52,6 +52,76 @@ async function fixture(schemas: readonly TableHandle[], sql = '') {
   return { native, db: createDatabase({ connector, schemas }) }
 }
 
+it.each([
+  { label: 'closes during the transaction', closeDuringTransaction: true },
+  { label: 'closes after the transaction', closeDuringTransaction: false },
+])(
+  'keeps a shared connector open when another Client fails and $label',
+  async ({ closeDuringTransaction }) => {
+    const Records = defineTable(
+      'records',
+      { id: pipe(number(), integer()), label: string() },
+      { primaryKey: 'id' },
+    )
+
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const first = createDatabase({ connector, schemas: [Records] })
+    const second = createDatabase({ connector, schemas: [Records] })
+
+    try {
+      await first.migrate().execute()
+      await first.insert(Records).values({ id: 1, label: 'committed' }).execute()
+
+      await first.transaction(async (transaction) => {
+        await transaction
+          .insert(Records)
+          .values({ id: 2, label: 'transaction' })
+          .execute()
+
+        await expect(second.ping()).rejects.toThrow(/already leased/)
+
+        if (closeDuringTransaction) await second.close()
+
+        expect(await transaction.from(Records).execute()).toEqual([
+          { id: 1, label: 'committed' },
+          { id: 2, label: 'transaction' },
+        ])
+      })
+
+      expect(await first.from(Records).execute()).toEqual([
+        { id: 1, label: 'committed' },
+        { id: 2, label: 'transaction' },
+      ])
+
+      expect((await first.migrate().dryRun()).actions).toEqual([])
+    } finally {
+      await Promise.all([first.close(), second.close()])
+    }
+  },
+)
+
+it('does not retain a provider when Client creation rejects an invalid SQLite namespace', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+
+  expect(() =>
+    createDatabase({
+      connector,
+      schemas: [],
+      defaultNamespace: [{ role: 'database', spelling: 'aux' }],
+    }),
+  ).toThrow(/SQLite query registration default/)
+
+  const db = createDatabase({ connector, schemas: [] })
+  try {
+    await db.ping()
+  } finally {
+    await db.close()
+  }
+
+  expect(() => native.prepare('select 1')).toThrow(/not open/)
+})
+
 it.each([42n, 9007199254740993n, 9223372036854775807n, -9223372036854775808n])(
   'round-trips BIGINT %s through RETURNING and SELECT without changing storage',
   async (value) => {

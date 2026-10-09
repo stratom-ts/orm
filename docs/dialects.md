@@ -228,6 +228,14 @@ SQLite requires the exact db0 0.4.0 `node-sqlite` connector, Node >=22.5 and SQL
 Node 22.5 through 22.12 requires the `--experimental-sqlite` flag. The package's PostgreSQL Node baseline
 does not change. SQLite manages ordinary permanent non-STRICT rowid tables in `main`.
 
+Clients and operation providers created from one `node-sqlite` connector share exclusive
+ownership of its native session. While one Client has an active operation or transaction,
+an operation from another Client using that connector fails with an already-leased error.
+Closing another Client does not close the active session; the owned native session is
+disposed after the last provider closes. Separate connector objects that return an
+already-owned native `DatabaseSync` cannot open a session, and closing them does not
+dispose that instance.
+
 SQLite validates built-in value mappings when a client is created, before it opens a
 session or issues SQL. Compatibility follows SQLite affinity rules, including `INT`
 precedence over `TEXT` or `REAL` in unusual declared type names.

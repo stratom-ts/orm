@@ -15,6 +15,8 @@ import type {
   OperationSessionProvider,
 } from '@/operations/operationSession'
 
+import { deferred } from '../../helpers/deferredPromise'
+
 const directories: string[] = []
 
 /** Hides newer properties while retaining the real DatabaseSync methods and state. */
@@ -232,6 +234,280 @@ it('rolls back an open transaction before reuse and supports savepoints', async 
   await provider.close()
 })
 
+it('shares a connector lease across providers without closing the active transaction', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const first = createDb0NodeSqliteOperationSessionProvider(connector)
+  const second = createDb0NodeSqliteOperationSessionProvider(connector)
+  const session = await first.open()
+  let active: OperationSession | undefined = session
+  let primary: unknown
+
+  try {
+    await session.run({ sql: 'create table records(id INTEGER)', params: [] })
+    await session.run({ sql: 'insert into records values(1)', params: [] })
+    await session.run({ sql: 'begin', params: [] })
+    await session.run({ sql: 'insert into records values(2)', params: [] })
+
+    await expect(second.open()).rejects.toThrow(/already leased/)
+    await second.close()
+
+    expect(
+      await session.query({ sql: 'select id from records order by id', params: [] }),
+    ).toEqual([{ id: 1 }, { id: 2 }])
+
+    await session.run({ sql: 'commit', params: [] })
+    await session.release('reuse')
+    active = undefined
+    const next = await first.open()
+    active = next
+
+    expect(
+      await next.query({ sql: 'select id from records order by id', params: [] }),
+    ).toEqual([{ id: 1 }, { id: 2 }])
+
+    await next.release('reuse')
+    active = undefined
+  } catch (cause) {
+    primary = cause
+  } finally {
+    await second.close().catch((cause: unknown) => {
+      primary ??= cause
+    })
+
+    await closeBaseline(first, active, primary)
+  }
+})
+
+it('keeps a handed-off native lease alive when the earlier provider closes', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const first = createDb0NodeSqliteOperationSessionProvider(connector)
+  const second = createDb0NodeSqliteOperationSessionProvider(connector)
+  const initial = await first.open()
+  await initial.run({ sql: 'create table records(id INTEGER)', params: [] })
+  await initial.release('reuse')
+  const handedOff = await second.open()
+  let active: OperationSession | undefined = handedOff
+  let primary: unknown
+
+  try {
+    expect(handedOff.identity).toEqual(initial.identity)
+    await handedOff.run({ sql: 'begin', params: [] })
+    await handedOff.run({ sql: 'insert into records values(3)', params: [] })
+    await first.close()
+    await handedOff.run({ sql: 'commit', params: [] })
+
+    expect(await handedOff.query({ sql: 'select id from records', params: [] })).toEqual([
+      { id: 3 },
+    ])
+
+    await handedOff.release('reuse')
+    active = undefined
+  } catch (cause) {
+    primary = cause
+  } finally {
+    await first.close().catch((cause: unknown) => {
+      primary ??= cause
+    })
+
+    await closeBaseline(second, active, primary)
+  }
+})
+
+it('reserves the shared lease before an asynchronous native lookup completes', async () => {
+  const native = nodeSqliteConnector({ name: ':memory:' })
+  const lookupStarted = deferred()
+  const finishLookup = deferred()
+  let reads = 0
+  const connector = {
+    ...native,
+    async getInstance() {
+      reads++
+
+      if (reads === 1) {
+        lookupStarted.resolve()
+        await finishLookup.promise
+      }
+
+      return native.getInstance!()
+    },
+  }
+
+  const first = createDb0NodeSqliteOperationSessionProvider(connector)
+  const second = createDb0NodeSqliteOperationSessionProvider(connector)
+  const opening = first.open()
+  await lookupStarted.promise
+  const competing = second.open()
+  const readsBeforeRelease = reads
+  finishLookup.resolve()
+  const session = await opening
+  let active: OperationSession | undefined = session
+  let primary: unknown
+
+  try {
+    await expect(competing).rejects.toThrow(/already leased/)
+    expect(readsBeforeRelease).toBe(1)
+    await session.run({ sql: 'begin', params: [] })
+    await session.run({ sql: 'create table records(id INTEGER)', params: [] })
+    await session.run({ sql: 'commit', params: [] })
+    await session.release('reuse')
+    active = undefined
+  } catch (cause) {
+    primary = cause
+  } finally {
+    const competingLease = await competing.catch(() => undefined)
+    await competingLease?.release('discard').catch((cause: unknown) => {
+      primary ??= cause
+    })
+
+    await second.close().catch((cause: unknown) => {
+      primary ??= cause
+    })
+
+    await closeBaseline(first, active, primary)
+  }
+})
+
+it('rejects connector aliases to an owned DatabaseSync without probing or disposing it', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  const first = createDb0NodeSqliteOperationSessionProvider(connector)
+  const alias = createDb0NodeSqliteOperationSessionProvider({
+    ...connector,
+    getInstance: () => native,
+  })
+
+  const unopenedAlias = createDb0NodeSqliteOperationSessionProvider({
+    ...connector,
+    getInstance: () => native,
+  })
+
+  const session = await first.open()
+  let active: OperationSession | undefined = session
+  let primary: unknown
+
+  try {
+    await session.run({ sql: 'create table records(id INTEGER)', params: [] })
+    await session.run({ sql: 'begin', params: [] })
+    await session.run({ sql: 'insert into records values(7)', params: [] })
+
+    await expect(alias.open()).rejects.toThrow(/owned by another connector/)
+    await alias.close()
+    await unopenedAlias.close()
+    await session.run({ sql: 'commit', params: [] })
+
+    expect(await session.query({ sql: 'select id from records', params: [] })).toEqual([
+      { id: 7 },
+    ])
+
+    await session.release('reuse')
+    active = undefined
+  } catch (cause) {
+    primary = cause
+  } finally {
+    await Promise.all([alias.close(), unopenedAlias.close()]).catch((cause: unknown) => {
+      primary ??= cause
+    })
+
+    await closeBaseline(first, active, primary)
+  }
+})
+
+it('rejects a stale native alias without disposing the live replacement', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const stale = await connector.getInstance!()
+  const first = createDb0NodeSqliteOperationSessionProvider(connector)
+  const alias = createDb0NodeSqliteOperationSessionProvider({
+    ...connector,
+    getInstance: () => stale,
+  })
+
+  let active: OperationSession | undefined
+  let primary: unknown
+  try {
+    active = await first.open()
+    await active.release('discard')
+    active = await first.open()
+
+    await active.run({ sql: 'create table records(id INTEGER)', params: [] })
+    await active.run({ sql: 'insert into records values(1)', params: [] })
+    await active.run({ sql: 'begin', params: [] })
+    await active.run({ sql: 'insert into records values(2)', params: [] })
+
+    await expect(alias.open()).rejects.toMatchObject({ _tag: 'QueryError' })
+    await alias.close()
+
+    expect(
+      await active.query({ sql: 'select id from records order by id', params: [] }),
+    ).toEqual([{ id: 1 }, { id: 2 }])
+
+    await active.run({ sql: 'commit', params: [] })
+    await active.release('reuse')
+    active = undefined
+  } catch (cause) {
+    primary = cause
+  } finally {
+    await alias.close().catch((cause: unknown) => {
+      primary ??= cause
+    })
+
+    await closeBaseline(first, active, primary)
+  }
+})
+
+it.each(['reuse', 'discard'] as const)(
+  'does not affect another connector after a leased connector switches native targets on %s',
+  async (disposition) => {
+    const original = nodeSqliteConnector({ name: ':memory:' })
+    const other = nodeSqliteConnector({ name: ':memory:' })
+    const originalNative = await original.getInstance!()
+    const otherNative = await other.getInstance!()
+    let current = originalNative
+    const first = createDb0NodeSqliteOperationSessionProvider({
+      ...original,
+      getInstance: () => current,
+    })
+
+    const second = createDb0NodeSqliteOperationSessionProvider(other)
+    const firstLease = await first.open()
+    const secondLease = await second.open()
+    let activeFirst: OperationSession | undefined = firstLease
+    let activeSecond: OperationSession | undefined = secondLease
+    let primary: unknown
+
+    try {
+      await secondLease.run({ sql: 'create table records(id INTEGER)', params: [] })
+      await secondLease.run({ sql: 'begin', params: [] })
+      await secondLease.run({ sql: 'insert into records values(9)', params: [] })
+      current = otherNative
+
+      await expect(
+        firstLease.release(disposition).finally(() => {
+          activeFirst = undefined
+        }),
+      ).rejects.toMatchObject({ _tag: 'QueryError' })
+
+      expect(
+        await secondLease.query({ sql: 'select id from records', params: [] }),
+      ).toEqual([{ id: 9 }])
+
+      await secondLease.run({ sql: 'commit', params: [] })
+      await secondLease.release('reuse')
+      activeSecond = undefined
+      expect(otherNative.prepare('select id from records').all()).toEqual([{ id: 9 }])
+    } catch (cause) {
+      primary = cause
+    } finally {
+      current = originalNative
+
+      await closeBaseline(first, activeFirst, primary).catch((cause: unknown) => {
+        primary ??= cause
+      })
+
+      await closeBaseline(second, activeSecond, primary)
+    }
+  },
+)
+
 it('serializes concurrent native writes and binds a DataView without coercion', async () => {
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
@@ -398,6 +674,99 @@ it('drains an active lease on close and retries a failed connector disposal', as
   await provider.close()
   expect(disposals).toBe(2)
   await expect(provider.open()).rejects.toMatchObject({ _tag: 'QueryError' })
+})
+
+it('waits for the last provider teardown before a newly adapted provider opens', async () => {
+  const native = nodeSqliteConnector({ name: ':memory:' })
+  const disposalStarted = deferred()
+  const finishDisposal = deferred()
+  let reads = 0
+  let disposals = 0
+  const connector = {
+    ...native,
+    getInstance() {
+      reads++
+      return native.getInstance!()
+    },
+    async dispose() {
+      disposals++
+      disposalStarted.resolve()
+      await finishDisposal.promise
+      return native.dispose!()
+    },
+  }
+
+  const first = createDb0NodeSqliteOperationSessionProvider(connector)
+  const initial = await first.open()
+  const identity = initial.identity
+  await initial.release('reuse')
+  const closing = first.close()
+  await disposalStarted.promise
+
+  const second = createDb0NodeSqliteOperationSessionProvider(connector)
+  const readsBeforeOpen = reads
+  const opening = second.open()
+  const readsDuringDisposal = reads
+  finishDisposal.resolve()
+  await closing
+  const fresh = await opening
+  let active: OperationSession | undefined = fresh
+  let primary: unknown
+
+  try {
+    expect(readsDuringDisposal).toBe(readsBeforeOpen)
+    expect(fresh.identity.physicalSession).not.toBe(identity.physicalSession)
+    expect(disposals).toBe(1)
+    await fresh.run({ sql: 'create table records(id INTEGER)', params: [] })
+    await fresh.release('reuse')
+    active = undefined
+  } catch (cause) {
+    primary = cause
+  } finally {
+    await closeBaseline(second, active, primary)
+  }
+})
+
+it('retries failed disposal after another provider adapts the connector', async () => {
+  const native = nodeSqliteConnector({ name: ':memory:' })
+  let disposals = 0
+  const connector = {
+    ...native,
+    dispose() {
+      disposals++
+
+      if (disposals === 1) throw new Error('dispose failed')
+
+      return native.dispose!()
+    },
+  }
+
+  const first = createDb0NodeSqliteOperationSessionProvider(connector)
+  const lease = await first.open()
+  await lease.release('reuse')
+
+  await expect(first.close()).rejects.toMatchObject({
+    _tag: 'QueryError',
+    cause: { message: 'dispose failed' },
+  })
+
+  const second = createDb0NodeSqliteOperationSessionProvider(connector)
+  let active: OperationSession | undefined
+  let primary: unknown
+  try {
+    await expect(second.open()).rejects.toThrow(/requires successful close/)
+    await first.close()
+    const recovered = await second.open()
+    active = recovered
+    await recovered.run({ sql: 'create table records(id INTEGER)', params: [] })
+    await recovered.release('reuse')
+    active = undefined
+    expect(disposals).toBe(2)
+  } catch (cause) {
+    primary = cause
+  } finally {
+    await closeBaseline(second, active, primary)
+  }
 })
 
 it('blocks new leases after repeated discard failure until close disposes the native database', async () => {

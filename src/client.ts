@@ -724,11 +724,6 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
   const isRegistered = createRegistrationCheck(schemas)
-  const operationSessionProvider =
-    config.operationSessionProvider ??
-    dialect.operations.createSessionProvider(config.connector)
-
-  const coordinator = new OperationCoordinator(operationSessionProvider)
   const query = dialect.query.resolve(
     schemas,
     config.defaultNamespace === undefined
@@ -737,6 +732,11 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
   )
 
   const mapper = createValueMapper(dialect, config.map, schemas, query)
+  const operationSessionProvider =
+    config.operationSessionProvider ??
+    dialect.operations.createSessionProvider(config.connector)
+
+  const coordinator = new OperationCoordinator(operationSessionProvider)
   const { ensureOpen, rootExecutor, close } = createDatabaseLifecycle(coordinator)
   return {
     config,
