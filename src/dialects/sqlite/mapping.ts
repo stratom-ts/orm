@@ -114,6 +114,18 @@ function numberFromBigInt(dataType: string, value: bigint): number {
   return safeInteger(dataType, number)
 }
 
+const SQLITE_BIGINT_MIN = -(2n ** 63n)
+const SQLITE_BIGINT_MAX = 2n ** 63n - 1n
+
+/** Rejects bigints outside SQLite's signed 64-bit integer range. */
+function sqliteBigint(dataType: string, value: bigint): bigint {
+  if (value < SQLITE_BIGINT_MIN || value > SQLITE_BIGINT_MAX) {
+    return mappingError(dataType, 'values must be within the signed 64-bit integer range')
+  }
+
+  return value
+}
+
 /**
  * Converts supported integer inputs to bigint and rejects invalid numeric values.
  *
@@ -123,15 +135,22 @@ function numberFromBigInt(dataType: string, value: bigint): number {
  * @returns The parsed bigint, or undefined for unsupported input representations.
  */
 function bigintValue(dataType: string, value: unknown): bigint | undefined {
-  if (typeof value === 'bigint') return value
-  if (typeof value === 'number') return BigInt(safeInteger(dataType, value))
+  if (typeof value === 'bigint') return sqliteBigint(dataType, value)
+
+  if (typeof value === 'number') {
+    return sqliteBigint(dataType, BigInt(safeInteger(dataType, value)))
+  }
 
   if (typeof value === 'string' && /^-?\d+$/.test(value)) {
+    let parsed: bigint
+
     try {
-      return BigInt(value)
+      parsed = BigInt(value)
     } catch {
       return mappingError(dataType, 'values must be valid integers')
     }
+
+    return sqliteBigint(dataType, parsed)
   }
 
   return undefined
