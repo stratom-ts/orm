@@ -7,8 +7,7 @@ import { SchemaError } from '@/utils/error'
 
 import type { SqlDataType } from '../types'
 
-const SQLITE_INTEGER_MIN = -9223372036854775808n
-const SQLITE_INTEGER_MAX = 9223372036854775807n
+import { isSqliteSupportedBigInt, isSqliteSupportedNumber } from './numeric'
 
 /** Throws the contract required when a choice schema has no safe default mapping. */
 function unsupportedChoiceType(type: string): never {
@@ -33,13 +32,7 @@ export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
   if (kind === 'number') {
     const numbers = options as number[]
 
-    if (numbers.some((value) => !Number.isFinite(value))) {
-      return unsupportedChoiceType(schema.type)
-    }
-
-    if (
-      numbers.some((value) => Number.isInteger(value) && !Number.isSafeInteger(value))
-    ) {
+    if (numbers.some((value) => !isSqliteSupportedNumber(value))) {
       return unsupportedChoiceType(schema.type)
     }
 
@@ -47,11 +40,7 @@ export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
   }
 
   if (kind === 'bigint') {
-    if (
-      (options as bigint[]).some(
-        (value) => value < SQLITE_INTEGER_MIN || value > SQLITE_INTEGER_MAX,
-      )
-    ) {
+    if ((options as bigint[]).some((value) => !isSqliteSupportedBigInt(value))) {
       return unsupportedChoiceType(schema.type)
     }
 
@@ -85,8 +74,29 @@ const JSON_SHAPED_SCHEMA_TYPES = new Set([
  */
 function inferSqliteLiteralType(literal: unknown): SqlDataType {
   if (typeof literal === 'string') return 'TEXT'
-  if (typeof literal === 'number') return Number.isInteger(literal) ? 'INTEGER' : 'REAL'
-  if (typeof literal === 'bigint') return 'BIGINT'
+
+  if (typeof literal === 'number') {
+    if (!isSqliteSupportedNumber(literal)) {
+      throw new SchemaError({
+        message:
+          'cannot infer a SQLite column type for a non-finite or unsafe integer literal',
+      })
+    }
+
+    return Number.isInteger(literal) ? 'INTEGER' : 'REAL'
+  }
+
+  if (typeof literal === 'bigint') {
+    if (!isSqliteSupportedBigInt(literal)) {
+      throw new SchemaError({
+        message:
+          'cannot infer a SQLite column type for a bigint literal outside the signed 64-bit integer range',
+      })
+    }
+
+    return 'BIGINT'
+  }
+
   if (typeof literal === 'boolean') return 'BOOLEAN'
   if (literal === null) return 'NULL'
 

@@ -4,6 +4,7 @@ import {
   enum as enumSchema,
   exactOptional,
   integer,
+  literal,
   minValue,
   nonNullable,
   nonNullish,
@@ -166,6 +167,53 @@ describe('SQLite choice inference bigint boundaries', () => {
     expect(() => sqliteSchema.inferColumnType(picklist([0n, max + 1n]))).toThrow(
       SchemaError,
     )
+  })
+})
+
+describe('SQLite literal inference numeric bounds', () => {
+  it.each([
+    ['NaN', Number.NaN],
+    ['positive infinity', Number.POSITIVE_INFINITY],
+    ['negative infinity', Number.NEGATIVE_INFINITY],
+    ['unsafe positive integer', Number.MAX_SAFE_INTEGER + 1],
+    ['unsafe negative integer', Number.MIN_SAFE_INTEGER - 1],
+  ])('rejects %s during desired-schema lowering', (_name, value) => {
+    const Records = defineTable(
+      'literal_records',
+      { value: literal(value) },
+      { primaryKey: 'value' },
+    )
+
+    expect(() => lowerDesiredSchema([Records], identities(), sqliteSchema)).toThrow(
+      MigrationError,
+    )
+  })
+
+  it('accepts finite safe number literals and rejects non-finite values consistently', () => {
+    expect(sqliteSchema.inferColumnType(literal(Number.MIN_SAFE_INTEGER))).toBe('INTEGER')
+    expect(sqliteSchema.inferColumnType(literal(Number.MAX_SAFE_INTEGER))).toBe('INTEGER')
+    expect(sqliteSchema.inferColumnType(literal(1.25))).toBe('REAL')
+  })
+
+  it('accepts signed 64-bit bigint literals and rejects their invalid neighbors', () => {
+    const min = -9223372036854775808n
+    const max = 9223372036854775807n
+
+    expect(sqliteSchema.inferColumnType(literal(min))).toBe('BIGINT')
+    expect(sqliteSchema.inferColumnType(literal(max))).toBe('BIGINT')
+    expect(sqliteSchema.inferColumnType(literal(42n))).toBe('BIGINT')
+
+    for (const value of [min - 1n, max + 1n]) {
+      const Records = defineTable(
+        'literal_records',
+        { value: literal(value) },
+        { primaryKey: 'value' },
+      )
+
+      expect(() => lowerDesiredSchema([Records], identities(), sqliteSchema)).toThrow(
+        MigrationError,
+      )
+    }
   })
 })
 
