@@ -7,6 +7,62 @@ import { SchemaError } from '@/utils/error'
 
 import type { SqlDataType } from '../types'
 
+const SQLITE_INTEGER_MIN = -9223372036854775808n
+const SQLITE_INTEGER_MAX = 9223372036854775807n
+
+/** Throws the contract required when a choice schema has no safe default mapping. */
+function unsupportedChoiceType(type: string): never {
+  throw new SchemaError({
+    message: `cannot infer a SQLite column type for a mixed or unsupported ${type} output; specify column({ physicalType: { sqlite: ... } }) and explicit parameter and result mappings`,
+  })
+}
+
+/** Infers storage for enum and picklist values from their validated output options. */
+export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
+  const schema = analysis.baseSchema as typeof analysis.baseSchema & {
+    options?: unknown[]
+  }
+
+  const options = schema.options
+  const kind = analysis.outputKind
+
+  if (!options?.length || !kind) return unsupportedChoiceType(schema.type)
+
+  if (kind === 'string') return 'TEXT'
+
+  if (kind === 'number') {
+    const numbers = options as number[]
+
+    if (numbers.some((value) => !Number.isFinite(value))) {
+      return unsupportedChoiceType(schema.type)
+    }
+
+    if (
+      numbers.some((value) => Number.isInteger(value) && !Number.isSafeInteger(value))
+    ) {
+      return unsupportedChoiceType(schema.type)
+    }
+
+    return numbers.every(Number.isInteger) ? 'INTEGER' : 'REAL'
+  }
+
+  if (kind === 'bigint') {
+    if (
+      (options as bigint[]).some(
+        (value) => value < SQLITE_INTEGER_MIN || value > SQLITE_INTEGER_MAX,
+      )
+    ) {
+      return unsupportedChoiceType(schema.type)
+    }
+
+    return 'BIGINT'
+  }
+
+  if (kind === 'boolean') return 'BOOLEAN'
+
+  return unsupportedChoiceType(schema.type)
+}
+
 const JSON_SHAPED_SCHEMA_TYPES = new Set([
   'object',
   'loose_object',
@@ -46,9 +102,10 @@ export function inferSqliteColumnType(
 
   switch (baseSchema.type) {
     case 'string':
+      return 'TEXT'
     case 'enum':
     case 'picklist':
-      return 'TEXT'
+      return inferSqliteChoiceType(analysis)
     case 'number':
       return analysis.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
     case 'literal': {

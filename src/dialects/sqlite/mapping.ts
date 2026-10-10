@@ -3,6 +3,7 @@ import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
+import { inferSqliteChoiceType } from './infer'
 import { normalizeSqliteDataType } from './normalize'
 
 /** Finds output-changing actions beneath pipes and schema wrappers. */
@@ -54,6 +55,13 @@ function mappingType(dataType: string, context?: DialectValueMappingContext): st
     case 'string':
       return 'TEXT'
     case 'number':
+      if (
+        analysis.baseSchema.type === 'enum' ||
+        analysis.baseSchema.type === 'picklist'
+      ) {
+        return inferSqliteChoiceType(analysis)
+      }
+
       return analysis.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
     case 'bigint':
       return 'BIGINT'
