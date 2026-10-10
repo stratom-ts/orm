@@ -168,6 +168,96 @@ describe('SQLite catalog introspection with inherited index collations', () => {
   )
 })
 
+describe('SQLite catalog introspection with literal index terms', () => {
+  it.runIf(nodeSqliteSupported)(
+    'preserves literal constant index terms as unsupported rich semantics',
+    async () => {
+      const { DatabaseSync } = await import('node:sqlite')
+      const database = new DatabaseSync(':memory:')
+
+      try {
+        database.exec(`
+          CREATE TABLE target (id INTEGER PRIMARY KEY, value TEXT);
+          CREATE INDEX target_number ON target(1);
+        `)
+
+        const snapshot = await sqliteCatalog.introspectCatalog(
+          createNodeSqliteExecutor(database),
+          {
+            relations: [],
+            absentRelations: [],
+            completeNamespaces: [[{ role: 'database', spelling: 'main' }]],
+          },
+        )
+
+        const table = tableOf(relationNamed(snapshot, 'target'))
+
+        expect(table.indexes.coverage.state).toBe('complete')
+
+        expect(table.indexes.items).toMatchObject([
+          {
+            name: { state: 'present', value: 'target_number' },
+            columns: [],
+            semantics: { state: 'unsupported' },
+            nativeDefinition: { state: 'present' },
+          },
+        ])
+
+        expect(snapshot.diagnostics).not.toContainEqual(
+          expect.objectContaining({ code: 'catalog.sqlite.metadata' }),
+        )
+      } finally {
+        database.close()
+      }
+    },
+  )
+})
+
+describe('SQLite catalog introspection with quote-bent index terms', () => {
+  it.runIf(nodeSqliteSupported)(
+    'matches a single-quoted column term to its native table column',
+    async () => {
+      const { DatabaseSync } = await import('node:sqlite')
+      const database = new DatabaseSync(':memory:')
+
+      try {
+        database.exec(`
+          CREATE TABLE target (id INTEGER PRIMARY KEY, value TEXT);
+          CREATE INDEX target_value ON target('value');
+        `)
+
+        const snapshot = await sqliteCatalog.introspectCatalog(
+          createNodeSqliteExecutor(database),
+          {
+            relations: [],
+            absentRelations: [],
+            completeNamespaces: [[{ role: 'database', spelling: 'main' }]],
+          },
+        )
+
+        const table = tableOf(relationNamed(snapshot, 'target'))
+
+        expect(table.indexes.coverage.state).toBe('complete')
+
+        expect(table.indexes.items).toMatchObject([
+          {
+            name: { state: 'present', value: 'target_value' },
+            columns: ['value'],
+            semantics: { state: 'present', value: { kind: 'simple' } },
+            nativeDefinition: { state: 'present' },
+          },
+        ])
+
+        expect(snapshot.diagnostics).not.toContainEqual(
+          expect.objectContaining({ code: 'catalog.sqlite.metadata' }),
+        )
+      } finally {
+        database.close()
+      }
+    },
+  )
+})
+
 describe('SQLite catalog introspection with quoted declared types', () => {
   it.runIf(nodeSqliteSupported)(
     'compares punctuation-bearing type names independently of identifier quoting',

@@ -3113,16 +3113,24 @@ function definitionIndexTermIsSimple(
   term: readonly DefinitionToken[],
   columnCollations: ReadonlyMap<string, string>,
 ): boolean {
+  if (term.length === 0) return false
+
+  const head = term[0]!
+
+  if (head.kind !== 'identifier' && head.kind !== 'word' && head.kind !== 'string')
+    return false
+
   if (
-    term[0]?.kind !== 'word' &&
-    term[0]?.kind !== 'identifier' &&
-    term[0]?.kind !== 'string'
+    head.kind === 'word' &&
+    !/^[A-Za-z_$\u0080-\uFFFF][A-Za-z0-9_$\u0080-\uFFFF]*$/.test(head.value)
   )
     return false
 
-  let collation =
-    columnCollations.get(asciiFoldSqliteIdentifier(definitionIdentifier(term[0]))) ??
-    'BINARY'
+  const nativeCollation = columnCollations.get(asciiFoldSqliteIdentifier(head.value))
+
+  if (nativeCollation === undefined) return false
+
+  let collation = nativeCollation
 
   for (let index = 1; index < term.length; index++) {
     if (definitionWord(term[index], 'ASC')) continue
