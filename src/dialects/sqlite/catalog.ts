@@ -578,6 +578,371 @@ function tokenizeSqliteSql(sql: string) {
   return collector.tokens
 }
 
+type DefinitionToken = {
+  kind: 'word' | 'identifier' | 'string' | 'symbol'
+  value: string
+}
+
+type NativeIndexTerm = { name: string; coll: string; desc: boolean }
+
+type NativeConstraintEvidence = {
+  primaryKey: { columns: string[]; terms: NativeIndexTerm[]; rowidAlias: boolean } | null
+  keys: { origin: 'pk' | 'u'; terms: NativeIndexTerm[] }[]
+  foreignKeys: {
+    columns: string[]
+    table: string
+    referencedColumns: string[] | null
+    onDelete: string
+    onUpdate: string
+  }[]
+}
+
+function definitionBlockCommentEnd(sql: string, index: number): number {
+  const end = sql.indexOf('*/', index + 2)
+
+  if (end < 0)
+    throw new InvariantError('Malformed SQLite schema SQL: unterminated block comment')
+
+  return end + 2
+}
+
+function definitionWordEnd(sql: string, index: number): number {
+  let end = index + 1
+  while (end < sql.length && /[A-Za-z0-9_$\u0080-\uFFFF]/.test(sql[end]!)) end++
+  return end
+}
+
+/** Keeps clause boundaries and quoted identifiers when checking native constraints. */
+function definitionTokens(sql: string): DefinitionToken[] {
+  const tokens: DefinitionToken[] = []
+  let index = 0
+
+  while (index < sql.length) {
+    const char = sql[index]!
+
+    if (/\s/.test(char)) {
+      index++
+    } else if (char === '-' && sql[index + 1] === '-') {
+      const end = sql.indexOf('\n', index + 2)
+      index = end < 0 ? sql.length : end + 1
+    } else if (char === '/' && sql[index + 1] === '*') {
+      index = definitionBlockCommentEnd(sql, index)
+    } else if (char === "'" || char === '"' || char === '`' || char === '[') {
+      const close = char === '[' ? ']' : char
+      const end = quotedSqlEnd(
+        sql,
+        index,
+        close,
+        close !== ']',
+        char === "'" ? 'string' : 'quoted identifier',
+      )
+
+      const raw = sql.slice(index + 1, end - 1)
+      tokens.push({
+        kind: char === "'" ? 'string' : 'identifier',
+        value: close === ']' ? raw : raw.replaceAll(close + close, close),
+      })
+
+      index = end
+    } else if (/[A-Za-z0-9_$\u0080-\uFFFF]/.test(char)) {
+      const end = definitionWordEnd(sql, index)
+      tokens.push({ kind: 'word', value: sql.slice(index, end) })
+      index = end
+    } else {
+      tokens.push({ kind: 'symbol', value: char })
+      index++
+    }
+  }
+
+  return tokens
+}
+
+function definitionWord(token: DefinitionToken | undefined, word: string): boolean {
+  return (
+    token?.kind === 'word' &&
+    asciiFoldSqliteIdentifier(token.value) === word.toLowerCase()
+  )
+}
+
+function definitionIdentifier(token: DefinitionToken | undefined): string {
+  if (token?.kind === 'word' || token?.kind === 'identifier' || token?.kind === 'string')
+    return token.value
+
+  throw new InvariantError('SQLite native constraint has an unparseable identifier')
+}
+
+/** Splits a parenthesized native clause at commas outside nested expressions. */
+function definitionSegments(
+  tokens: readonly DefinitionToken[],
+  open: number,
+): {
+  segments: DefinitionToken[][]
+  end: number
+} {
+  if (tokens[open]?.kind !== 'symbol' || tokens[open].value !== '(')
+    throw new InvariantError('SQLite native constraint has no column list')
+
+  const segments: DefinitionToken[][] = [[]]
+  let depth = 1
+  for (let index = open + 1; index < tokens.length; index++) {
+    const token = tokens[index]!
+
+    if (token.kind === 'symbol' && token.value === '(') depth++
+    if (token.kind === 'symbol' && token.value === ')') depth--
+    if (depth === 0) return { segments, end: index }
+
+    if (token.kind === 'symbol' && token.value === ',' && depth === 1) segments.push([])
+    else segments.at(-1)!.push(token)
+  }
+
+  throw new InvariantError('Malformed SQLite schema SQL: unterminated column list')
+}
+
+function definitionColumns(tokens: readonly DefinitionToken[], open: number): string[] {
+  return definitionSegments(tokens, open).segments.map((segment) =>
+    definitionIdentifier(segment[0]),
+  )
+}
+
+function definitionIndexTerms(
+  tokens: readonly DefinitionToken[],
+  open: number,
+  columnCollations: ReadonlyMap<string, string>,
+): NativeIndexTerm[] {
+  return definitionSegments(tokens, open).segments.map((segment) => {
+    const name = definitionIdentifier(segment[0])
+    let coll = columnCollations.get(asciiFoldSqliteIdentifier(name)) ?? 'BINARY'
+    let desc = false
+    for (let index = 1; index < segment.length; index++) {
+      if (definitionWord(segment[index], 'COLLATE'))
+        coll = definitionIdentifier(segment[index + 1])
+
+      if (definitionWord(segment[index], 'DESC')) desc = true
+    }
+
+    return { name, coll, desc }
+  })
+}
+
+function nativeForeignKey(
+  segment: readonly DefinitionToken[],
+  columns: string[],
+  reference: number,
+): NativeConstraintEvidence['foreignKeys'][number] {
+  const table = definitionIdentifier(segment[reference + 1])
+  const target = segment.at(reference + 2)
+  const referencedColumns =
+    target?.kind === 'symbol' && target.value === '('
+      ? definitionColumns(segment, reference + 2)
+      : null
+
+  const actions = { onDelete: 'NO ACTION', onUpdate: 'NO ACTION' }
+  const actionStart =
+    referencedColumns === null
+      ? reference + 2
+      : definitionSegments(segment, reference + 2).end + 1
+
+  for (let index = actionStart; index < segment.length; index++) {
+    if (definitionWord(segment[index], 'REFERENCES')) break
+    if (!definitionWord(segment[index], 'ON')) continue
+
+    const kind = definitionWord(segment[index + 1], 'DELETE')
+      ? 'onDelete'
+      : definitionWord(segment[index + 1], 'UPDATE')
+        ? 'onUpdate'
+        : null
+
+    if (kind === null) continue
+
+    const first = definitionIdentifier(segment[index + 2]).replace(/[a-z]/g, (letter) =>
+      letter.toUpperCase(),
+    )
+
+    const second =
+      first === 'SET' || first === 'NO'
+        ? ` ${definitionIdentifier(segment[index + 3]).replace(/[a-z]/g, (letter) => letter.toUpperCase())}`
+        : ''
+
+    actions[kind] = first + second
+  }
+
+  return { columns, table, referencedColumns, ...actions }
+}
+
+function definitionSegmentHead(segment: readonly DefinitionToken[]) {
+  const start = definitionWord(segment[0], 'CONSTRAINT') ? 2 : 0
+  const tableClause =
+    definitionWord(segment[start], 'PRIMARY') ||
+    definitionWord(segment[start], 'UNIQUE') ||
+    definitionWord(segment[start], 'FOREIGN') ||
+    definitionWord(segment[0], 'CONSTRAINT')
+
+  return {
+    start: tableClause ? start : 1,
+    column: tableClause ? null : definitionIdentifier(segment[0]),
+  }
+}
+
+/** Finds a column's own collation outside defaults and other expressions. */
+function definitionColumnCollation(segment: readonly DefinitionToken[]): string | null {
+  let depth = 0
+  for (let index = 1; index < segment.length; index++) {
+    const token = segment[index]!
+
+    if (token.kind === 'symbol' && token.value === '(') depth++
+    if (token.kind === 'symbol' && token.value === ')') depth--
+
+    if (depth === 0 && definitionWord(token, 'COLLATE'))
+      return definitionIdentifier(segment[index + 1])
+  }
+
+  return null
+}
+
+function definitionPrimaryKey(
+  segment: readonly DefinitionToken[],
+  index: number,
+  column: string | null,
+  collations: ReadonlyMap<string, string>,
+): NonNullable<NativeConstraintEvidence['primaryKey']> {
+  const terms =
+    column === null
+      ? definitionIndexTerms(segment, index + 2, collations)
+      : [
+          {
+            name: column,
+            coll: collations.get(asciiFoldSqliteIdentifier(column)) ?? 'BINARY',
+            desc: definitionWord(segment[index + 2], 'DESC'),
+          },
+        ]
+
+  const columns = terms.map((term) => term.name)
+  return {
+    columns,
+    terms,
+    rowidAlias:
+      column === null
+        ? columns.length === 1
+        : !definitionWord(segment[index + 2], 'DESC'),
+  }
+}
+
+function definitionUnique(
+  segment: readonly DefinitionToken[],
+  index: number,
+  column: string | null,
+  collations: ReadonlyMap<string, string>,
+): NativeIndexTerm[] {
+  if (column === null) return definitionIndexTerms(segment, index + 1, collations)
+
+  return [
+    {
+      name: column,
+      coll: collations.get(asciiFoldSqliteIdentifier(column)) ?? 'BINARY',
+      desc: false,
+    },
+  ]
+}
+
+function definitionForeignKey(
+  segment: readonly DefinitionToken[],
+  index: number,
+): { key: NativeConstraintEvidence['foreignKeys'][number]; end: number } {
+  const source = definitionColumns(segment, index + 2)
+  const end = definitionSegments(segment, index + 2).end
+
+  if (!definitionWord(segment[end + 1], 'REFERENCES'))
+    throw new InvariantError('SQLite native foreign key has no REFERENCES clause')
+
+  return { key: nativeForeignKey(segment, source, end + 1), end }
+}
+
+function decodeDefinitionSegment(
+  segment: readonly DefinitionToken[],
+  collations: ReadonlyMap<string, string>,
+): NativeConstraintEvidence {
+  const result: NativeConstraintEvidence = {
+    primaryKey: null,
+    keys: [],
+    foreignKeys: [],
+  }
+
+  const { start, column } = definitionSegmentHead(segment)
+  let depth = 0
+
+  for (let index = start; index < segment.length; index++) {
+    const token = segment[index]!
+
+    if (token.kind === 'symbol' && token.value === '(') depth++
+    if (token.kind === 'symbol' && token.value === ')') depth--
+    if (depth !== 0 || token.kind !== 'word') continue
+
+    if (definitionWord(token, 'PRIMARY') && definitionWord(segment[index + 1], 'KEY')) {
+      result.primaryKey = definitionPrimaryKey(segment, index, column, collations)
+      result.keys.push({ origin: 'pk', terms: result.primaryKey.terms })
+      index++
+      continue
+    }
+
+    if (definitionWord(token, 'UNIQUE')) {
+      const terms = definitionUnique(segment, index, column, collations)
+      result.keys.push({ origin: 'u', terms })
+      continue
+    }
+
+    if (definitionWord(token, 'FOREIGN') && definitionWord(segment[index + 1], 'KEY')) {
+      const foreign = definitionForeignKey(segment, index)
+      result.foreignKeys.push(foreign.key)
+      index = foreign.end + 2
+      continue
+    }
+
+    if (definitionWord(token, 'REFERENCES') && column !== null)
+      result.foreignKeys.push(nativeForeignKey(segment, [column], index))
+  }
+
+  return result
+}
+
+/** Reads actual CREATE TABLE constraint clauses, excluding defaults and comments. */
+function nativeConstraintEvidence(sql: string): NativeConstraintEvidence {
+  const tokens = definitionTokens(sql)
+  const body = tokens.findIndex((token) => token.kind === 'symbol' && token.value === '(')
+
+  if (body < 0) throw new InvariantError('SQLite table definition has no column list')
+
+  const segments = definitionSegments(tokens, body).segments
+  const collations = new Map<string, string>()
+  for (const segment of segments) {
+    const { column } = definitionSegmentHead(segment)
+
+    if (column === null) continue
+
+    const coll = definitionColumnCollation(segment)
+
+    if (coll !== null) collations.set(asciiFoldSqliteIdentifier(column), coll)
+  }
+
+  const result: NativeConstraintEvidence = {
+    primaryKey: null,
+    keys: [],
+    foreignKeys: [],
+  }
+
+  for (const segment of segments) {
+    const part = decodeDefinitionSegment(segment, collations)
+
+    if (part.primaryKey && result.primaryKey)
+      throw new InvariantError('SQLite native definition has multiple primary keys')
+
+    result.primaryKey ??= part.primaryKey
+    result.keys.push(...part.keys)
+    result.foreignKeys.push(...part.foreignKeys)
+  }
+
+  return result
+}
+
 /** Tests for an unquoted SQL token outside strings and comments. */
 function hasSqlToken(sql: string, wanted: string): boolean {
   return hasSqlTokens(sql, [wanted])
@@ -2706,7 +3071,6 @@ function buildCatalogTable(input: SqliteTableAssembly) {
   const { row, evidence, identities, hasExternalNamespace, initial } = input
   const { xinfo, indexInfos, foreignKeys } = evidence
   const tableOpaque = initial.opaque
-  const options = catalogTableOptions(row)
   const structure = decodeTableStructure({
     ...input,
     xinfo,
@@ -2735,6 +3099,9 @@ function buildCatalogTable(input: SqliteTableAssembly) {
     managed: indexEvidence.managed,
   })
 
+  if (row.type === 'table')
+    verifyNativeConstraintEvidence(row, createSql, evidence, columns)
+
   const hasCheckConstraint = preserveCheckConstraint(
     createSql,
     constraintName,
@@ -2748,13 +3115,228 @@ function buildCatalogTable(input: SqliteTableAssembly) {
     uniqueConstraints,
     foreignEvidence.fks,
     catalogIndexes,
-    options,
+    catalogTableOptions(row),
     tableOpaque,
     hasExternalNamespace,
     identities,
   )
 
   return { table, managed }
+}
+
+/** Requires each native constraint to have matching structured observations. */
+function verifyNativeConstraintEvidence(
+  row: TableRow,
+  sql: string | null,
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+  columns: XInfoRow[],
+): void {
+  if (sql === null)
+    throw new InvariantError(
+      `SQLite table ${JSON.stringify(row.name)} has no native constraint evidence`,
+    )
+
+  const native = nativeConstraintEvidence(sql)
+  const rowidAlias = verifyNativePrimaryKey(row, native, evidence, columns)
+  verifyNativeKeyIndexes(row, native, evidence, rowidAlias)
+  verifyNativeForeignKeys(row, native, evidence)
+}
+
+function sameNativeColumns(left: readonly string[], right: readonly string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (name, index) =>
+        asciiFoldSqliteIdentifier(name) === asciiFoldSqliteIdentifier(right[index]!),
+    )
+  )
+}
+
+function sameNativeTerms(
+  left: readonly NativeIndexTerm[],
+  right: readonly NativeIndexTerm[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (term, index) =>
+        asciiFoldSqliteIdentifier(term.name) ===
+          asciiFoldSqliteIdentifier(right[index]!.name) &&
+        asciiFoldSqliteIdentifier(term.coll) ===
+          asciiFoldSqliteIdentifier(right[index]!.coll) &&
+        term.desc === right[index]!.desc,
+    )
+  )
+}
+
+function sameNativeKeyIdentity(
+  left: readonly NativeIndexTerm[],
+  right: readonly NativeIndexTerm[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (term, index) =>
+        asciiFoldSqliteIdentifier(term.name) ===
+          asciiFoldSqliteIdentifier(right[index]!.name) &&
+        asciiFoldSqliteIdentifier(term.coll) ===
+          asciiFoldSqliteIdentifier(right[index]!.coll),
+    )
+  )
+}
+
+function verifyNativePrimaryKey(
+  row: TableRow,
+  native: NativeConstraintEvidence,
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+  columns: XInfoRow[],
+): boolean {
+  const pkColumns = columns.filter((column) => column.pk > 0).sort((a, b) => a.pk - b.pk)
+
+  if (
+    native.primaryKey === null
+      ? pkColumns.length > 0
+      : !sameNativeColumns(
+          native.primaryKey.columns,
+          pkColumns.map((column) => column.name),
+        )
+  )
+    throw new InvariantError(
+      `SQLite table ${JSON.stringify(row.name)} has inconsistent native primary-key evidence`,
+    )
+
+  const rowidAlias =
+    row.wr === 0 &&
+    native.primaryKey?.rowidAlias === true &&
+    pkColumns.length === 1 &&
+    pkColumns[0]!.type.toUpperCase() === 'INTEGER'
+
+  const pkIndex = (evidence.indexLists.get(row.name) ?? []).find(
+    (index) => index.origin === 'pk',
+  )
+
+  if (pkColumns.length > 0 && !rowidAlias && !pkIndex)
+    throw new InvariantError(
+      `SQLite table ${JSON.stringify(row.name)} is missing primary-key index evidence`,
+    )
+
+  if (rowidAlias && pkIndex)
+    throw new InvariantError(
+      `SQLite table ${JSON.stringify(row.name)} has contradictory rowid index evidence`,
+    )
+
+  return rowidAlias
+}
+
+function verifyNativeKeyIndexes(
+  row: TableRow,
+  native: NativeConstraintEvidence,
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+  rowidAlias: boolean,
+): void {
+  const groups: { origin: 'pk' | 'u'; terms: NativeIndexTerm[] }[] = []
+  for (const clause of native.keys) {
+    if (clause.origin === 'pk' && rowidAlias) continue
+
+    const shared = groups.find((group) =>
+      sameNativeKeyIdentity(group.terms, clause.terms),
+    )
+
+    if (shared) shared.origin = clause.origin === 'pk' ? 'pk' : shared.origin
+    else groups.push({ ...clause })
+  }
+
+  const indexes = (evidence.indexLists.get(row.name) ?? [])
+    .filter((index) => index.origin === 'u' || index.origin === 'pk')
+    .map((index) => ({
+      origin: index.origin,
+      terms: (evidence.indexInfos.get(`${row.name}\0${index.name}`) ?? [])
+        .filter((term) => term.key === 1)
+        .sort((a, b) => a.seqno - b.seqno)
+        .map((term) => ({
+          name: term.name ?? '',
+          coll: term.coll ?? '',
+          desc: term.desc === 1,
+        })),
+    }))
+
+  for (const group of groups) {
+    const match = indexes.findIndex(
+      (index) =>
+        index.origin === group.origin && sameNativeTerms(index.terms, group.terms),
+    )
+
+    if (match < 0) {
+      const contradictory = indexes.some(
+        (index) =>
+          index.origin === group.origin &&
+          sameNativeKeyIdentity(index.terms, group.terms),
+      )
+
+      throw new InvariantError(
+        `SQLite table ${JSON.stringify(row.name)} ${contradictory ? 'has inconsistent' : 'is missing'} ${group.origin === 'pk' ? 'primary-key' : 'UNIQUE'} index evidence`,
+      )
+    }
+
+    indexes.splice(match, 1)
+  }
+
+  if (indexes.length > 0)
+    throw new InvariantError(
+      `SQLite table ${JSON.stringify(row.name)} has inconsistent native constraint index evidence`,
+    )
+}
+
+function verifyNativeForeignKeys(
+  row: TableRow,
+  native: NativeConstraintEvidence,
+  evidence: Awaited<ReturnType<typeof readTableEvidence>>,
+): void {
+  const observedForeignKeys = new Map<number, ForeignKeyRow[]>()
+  for (const key of evidence.foreignKeys.get(row.name) ?? []) {
+    const group = observedForeignKeys.get(key.id) ?? []
+    group.push(key)
+    observedForeignKeys.set(key.id, group)
+  }
+
+  const remaining = [...observedForeignKeys.values()].map((group) => ({
+    columns: group.sort((a, b) => a.seq - b.seq).map((key) => key.from),
+    table: group[0]!.table,
+    referencedColumns: group.map((key) => key.to),
+    onDelete: group[0]!.on_delete,
+    onUpdate: group[0]!.on_update,
+  }))
+
+  for (const key of native.foreignKeys) {
+    const index = remaining.findIndex(
+      (observed) =>
+        sameNativeColumns(key.columns, observed.columns) &&
+        asciiFoldSqliteIdentifier(key.table) ===
+          asciiFoldSqliteIdentifier(observed.table) &&
+        (key.referencedColumns === null
+          ? observed.referencedColumns.every((name) => name === null)
+          : sameNativeColumns(
+              key.referencedColumns,
+              observed.referencedColumns.map((name) => name ?? ''),
+            )) &&
+        asciiFoldSqliteIdentifier(key.onDelete) ===
+          asciiFoldSqliteIdentifier(observed.onDelete) &&
+        asciiFoldSqliteIdentifier(key.onUpdate) ===
+          asciiFoldSqliteIdentifier(observed.onUpdate),
+    )
+
+    if (index < 0)
+      throw new InvariantError(
+        `SQLite table ${JSON.stringify(row.name)} is missing foreign-key evidence`,
+      )
+
+    remaining.splice(index, 1)
+  }
+
+  if (remaining.length > 0)
+    throw new InvariantError(
+      `SQLite table ${JSON.stringify(row.name)} has inconsistent native foreign-key evidence`,
+    )
 }
 
 /**
@@ -3419,6 +4001,18 @@ function recoveredSqliteColumns(
 }
 
 /** Uses validated primary-key inventory before inferring INTEGER rowid facts. */
+function nativeRowidAlias(sql: string | null, column: string): boolean {
+  if (sql === null) return false
+
+  const primary = nativeConstraintEvidence(sql).primaryKey
+  return (
+    primary?.rowidAlias === true &&
+    primary.columns.length === 1 &&
+    asciiFoldSqliteIdentifier(primary.columns[0]!) === asciiFoldSqliteIdentifier(column)
+  )
+}
+
+/** Uses validated primary-key inventory before inferring INTEGER rowid facts. */
 function recoverRowidColumnFacts(
   row: TableRow,
   schema: SchemaRow,
@@ -3456,9 +4050,7 @@ function recoverRowidColumnFacts(
     return ambiguous
   }
 
-  const sql = schema.sql
-
-  if (sql === null) return ambiguous
+  if (!nativeRowidAlias(schema.sql, primary[0]!.name)) return ambiguous
 
   return columns.map((column) =>
     column.name === primary[0]!.name
@@ -3467,7 +4059,7 @@ function recoverRowidColumnFacts(
           nullable: present(false),
           generation: present({
             kind: 'rowidAlias',
-            autoIncrement: hasSqlToken(sql, 'AUTOINCREMENT'),
+            autoIncrement: hasSqlToken(schema.sql ?? '', 'AUTOINCREMENT'),
           }),
         }
       : column,
@@ -3588,7 +4180,9 @@ function decodeTablePrimaryKey(
     row.wr === 0 &&
     pks.length === 1 &&
     pks[0]!.type.toUpperCase() === 'INTEGER' &&
-    pkIndex === undefined
+    pkIndex === undefined &&
+    schema !== undefined &&
+    nativeRowidAlias(schema.sql, pks[0]!.name)
 
   const sqlEvidence = tableSqlEvidence(schema, rowidAlias, nativeDefinition)
   const { createSql, constraintName, autoIncrement } = sqlEvidence

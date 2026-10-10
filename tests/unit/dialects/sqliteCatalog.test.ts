@@ -180,7 +180,7 @@ const fixtureSchemaRowsSchema = [
     type: 'table',
     name: 'parent',
     tbl_name: 'parent',
-    sql: "CREATE TABLE parent(id INTEGER PRIMARY KEY AUTOINCREMENT, v VARCHAR(12) DEFAULT 'safe', b BLOB DEFAULT TRUE, r DOUBLE, d DECIMAL(10,2) DEFAULT (lower('x')))",
+    sql: "CREATE TABLE parent(id INTEGER PRIMARY KEY AUTOINCREMENT, v VARCHAR(12) DEFAULT 'safe' UNIQUE, b BLOB DEFAULT TRUE UNIQUE, r DOUBLE, d DECIMAL(10,2) DEFAULT (lower('x')))",
   },
   {
     type: 'table',
@@ -508,21 +508,21 @@ function createSqliteConstraintRows(options: FixtureOptions) {
 
   if (options.namedConstraint)
     schema[0]!.sql =
-      'CREATE TABLE parent(id INTEGER, v TEXT, CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v))'
+      'CREATE TABLE parent(id INTEGER, v TEXT, b BLOB, CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v), UNIQUE(b))'
 
   if (options.namedConstraint)
     schema[1]!.sql =
-      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, CONSTRAINT named_fk FOREIGN KEY(pa,pb) REFERENCES parent(id,v))'
+      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, CONSTRAINT named_fk FOREIGN KEY(pa,pb) REFERENCES parent(id,v) ON UPDATE CASCADE ON DELETE SET NULL)'
 
   if (options.simpleForeignKey)
     schema[1]!.sql =
-      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(id))'
+      'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(id) ON UPDATE CASCADE ON DELETE SET NULL)'
 
   if (options.matchClause) schema[1]!.sql = `${schema[1]!.sql!.slice(0, -1)} MATCH FULL)`
 
   if (options.richUniqueIndex)
     schema.find((entry) => entry.name === 'simple')!.sql =
-      'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT UNIQUE)'
+      'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT, UNIQUE(value DESC))'
 
   if (options.opaqueDefault)
     schema.find((entry) => entry.name === 'simple')!.sql =
@@ -2194,6 +2194,16 @@ describe('SQLite catalog foreign-key evidence and ordering: matches explicit for
         execute: async (query) => {
           const rows = await fixture.execute(query)
 
+          if (query.sql.includes('sqlite_schema'))
+            return rows.map((row) =>
+              (row as { name?: string }).name === 'child'
+                ? {
+                    ...(row as Record<string, unknown>),
+                    sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(v) ON DELETE CASCADE)',
+                  }
+                : row,
+            )
+
           if (query.sql.includes('foreign_key_list') && query.params[0] === 'child')
             return [
               {
@@ -2274,12 +2284,25 @@ describe('SQLite catalog foreign-key evidence and ordering: orders unresolved FK
 
       return {
         /** Executes fixture SQL with the configured native observations. */
-        execute: async (query) =>
-          query.sql.includes('pragma_foreign_key_list') && query.params[0] === 'child'
-            ? reverse
-              ? [...rows].reverse()
-              : rows
-            : fixture.execute(query),
+        execute: async (query) => {
+          if (
+            query.sql.includes('pragma_foreign_key_list') &&
+            query.params[0] === 'child'
+          )
+            return reverse ? [...rows].reverse() : rows
+
+          const observed = await fixture.execute(query)
+          return query.sql.includes('sqlite_schema')
+            ? observed.map((row) =>
+                (row as { name?: string }).name === 'child'
+                  ? {
+                      ...(row as Record<string, unknown>),
+                      sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES Missing(id) ON DELETE CASCADE, FOREIGN KEY(pa) REFERENCES missing(id) ON DELETE CASCADE)',
+                    }
+                  : row,
+              )
+            : observed
+        },
       }
     }
 
@@ -2349,6 +2372,7 @@ const quotedIndexInfoRows = [
 ]
 
 const indexInfoRows: Record<string, unknown[]> = {
+  pk_desc_auto: [{ seqno: 0, cid: 0, name: 'id', desc: 1, coll: 'BINARY', key: 1 }],
   parent_n: [
     {
       seqno: 0,
@@ -2643,6 +2667,18 @@ function executeSqliteCatalogFixture(reverse: boolean): CatalogExecutor {
   return {
     /** Executes fixture SQL with the configured native observations. */
     execute: async (query) => {
+      if (query.sql.includes('sqlite_schema')) {
+        const rows = await fixture.execute(query)
+        return rows.map((row) =>
+          (row as { name?: string }).name === 'child'
+            ? {
+                ...(row as Record<string, unknown>),
+                sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(id) ON DELETE CASCADE, FOREIGN KEY(pa) REFERENCES parent(v) ON UPDATE RESTRICT ON DELETE SET NULL)',
+              }
+            : row,
+        )
+      }
+
       if (query.sql.includes('foreign_key_list') && query.params[0] === 'child') {
         const rows = structuredClone(executeSqliteCatalogFixtureRows)
 

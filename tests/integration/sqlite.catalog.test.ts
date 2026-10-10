@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { planMigration } from '@/ddl/migrationPlan'
 import type { CatalogRelation, CatalogSnapshot, CatalogTable } from '@/dialects'
 import type { CatalogExecutor } from '@/dialects/catalog'
-import { sqliteCatalog } from '@/dialects/sqlite'
+import { sqliteCatalog, sqliteDialect } from '@/dialects/sqlite'
 
 const observesARealSQLiteCatalogWithCanonicalIdentitiesAndRowidGenerationData = `
         PRAGMA foreign_keys = ON;
@@ -171,6 +172,495 @@ describe('SQLite catalog introspection with node:sqlite: observes attached and t
     },
   )
 })
+
+const mainRequest = {
+  relations: [],
+  absentRelations: [],
+  completeNamespaces: [[{ role: 'database' as const, spelling: 'main' }]],
+}
+
+/** Removes the same native observation on every read, optionally reversing all row orders. */
+function omittedConstraintExecutor(
+  native: CatalogExecutor,
+  name: string,
+  omittedQuery: string,
+  reverse: boolean,
+): CatalogExecutor {
+  return {
+    execute: async (query) => {
+      if (query.sql.includes(omittedQuery) && query.params[0] === name) return []
+
+      let rows = await native.execute(query)
+
+      if (omittedQuery === 'index_list' && query.sql.includes('sqlite_schema'))
+        rows = rows.filter(
+          (row) =>
+            (row as { type?: string; tbl_name?: string }).type !== 'index' ||
+            (row as { tbl_name?: string }).tbl_name !== name,
+        )
+
+      return reverse ? [...rows].reverse() : rows
+    },
+  }
+}
+
+/** Adds a consistent but invented UNIQUE autoindex to both SQLite inventories. */
+function extraUniqueExecutor(native: CatalogExecutor): CatalogExecutor {
+  const name = 'sqlite_autoindex_target_1'
+  return {
+    execute: async (query) => {
+      const rows = await native.execute(query)
+
+      if (query.sql.includes('index_list') && query.params[0] === 'target')
+        return [{ seq: 0, name, unique: 1, origin: 'u', partial: 0 }]
+
+      if (query.sql.includes('index_xinfo') && query.params[0] === name)
+        return [{ seqno: 0, cid: 1, name: 'value', desc: 0, coll: 'BINARY', key: 1 }]
+
+      if (query.sql.includes('sqlite_schema'))
+        return [...rows, { type: 'index', name, tbl_name: 'target', sql: null }]
+
+      return rows
+    },
+  }
+}
+
+it.runIf(nodeSqliteSupported).each([
+  [
+    'foreign key',
+    'CREATE TABLE parent(id INTEGER PRIMARY KEY); CREATE TABLE child(id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id))',
+    'child',
+    'foreign_key_list',
+    'foreignKeys',
+    'missing foreign-key evidence',
+  ],
+  [
+    'TEXT primary key',
+    'CREATE TABLE target(id TEXT PRIMARY KEY)',
+    'target',
+    'index_list',
+    'primaryKey',
+    'missing primary-key index evidence',
+  ],
+  [
+    'composite primary key',
+    'CREATE TABLE target(a TEXT, b TEXT, PRIMARY KEY(a,b))',
+    'target',
+    'index_list',
+    'primaryKey',
+    'missing primary-key index evidence',
+  ],
+  [
+    'INTEGER PRIMARY KEY DESC',
+    'CREATE TABLE target(id INTEGER PRIMARY KEY DESC)',
+    'target',
+    'index_list',
+    'primaryKey',
+    'missing primary-key index evidence',
+  ],
+  [
+    'UNIQUE',
+    'CREATE TABLE target(id INTEGER PRIMARY KEY, value TEXT UNIQUE)',
+    'target',
+    'index_list',
+    'uniqueConstraints',
+    'missing UNIQUE index evidence',
+  ],
+  [
+    'rowid UNIQUE',
+    'CREATE TABLE target(id INTEGER PRIMARY KEY UNIQUE)',
+    'target',
+    'index_list',
+    'uniqueConstraints',
+    'missing UNIQUE index evidence',
+  ],
+] as const)(
+  'rejects consistently omitted %s metadata',
+  async (_label, sql, name, omittedQuery, affected, message) => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec(sql)
+      const native = createNodeSqliteExecutor(database)
+      const observe = (reverse: boolean) =>
+        sqliteCatalog.introspectCatalog(
+          omittedConstraintExecutor(native, name, omittedQuery, reverse),
+          mainRequest,
+        )
+
+      const snapshot = await observe(false)
+      expect(await observe(true)).toEqual(snapshot)
+      const relation = relationNamed(snapshot, name)
+      const table = tableOf(relation)
+      expect(relation.management).toBe('unmanaged')
+      expect(relation.nativeDefinition.state).toBe('present')
+      expect(table.columns.coverage.state).toBe('complete')
+
+      expect(
+        affected === 'primaryKey'
+          ? table.primaryKey.state
+          : table[affected].coverage.state,
+      ).toBe('unknown')
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: 'catalog.sqlite.metadata',
+          message: expect.stringContaining(message) as unknown,
+        }),
+      )
+
+      expect(() =>
+        planMigration([], snapshot, sqliteDialect.migration.planning, {
+          migrationOwnership: [
+            { kind: 'completeNamespace', namespace: mainRequest.completeNamespaces[0]! },
+          ],
+        }),
+      ).toThrow(/catalog|unknown|incomplete/i)
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'does not infer rowid generation or nullability when the DESC primary-key index is omitted',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec('CREATE TABLE target(id INTEGER PRIMARY KEY DESC)')
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        omittedConstraintExecutor(
+          createNodeSqliteExecutor(database),
+          'target',
+          'index_list',
+          false,
+        ),
+        mainRequest,
+      )
+
+      const id = tableOf(relationNamed(snapshot, 'target')).columns.items[0]!
+      expect(id.generation.state).toBe('unknown')
+      expect(id.nullable.state).toBe('unknown')
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'distinguishes real clauses from quoted names, defaults, and comments',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec(`CREATE TABLE "(" ("x,y" TEXT DEFAULT 'REFERENCES PRIMARY KEY UNIQUE (', 'UNIQUE' TEXT,
+      café TEXT, a$b TEXT, id INTEGER PRIMARY KEY) /* REFERENCES UNIQUE PRIMARY KEY */`)
+
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        createNodeSqliteExecutor(database),
+        mainRequest,
+      )
+
+      const relation = relationNamed(snapshot, '(')
+      expect(relation.management).toBe('managed')
+      expect(tableOf(relation).foreignKeys.items).toEqual([])
+      expect(tableOf(relation).uniqueConstraints.items).toEqual([])
+
+      expect(tableOf(relation).columns.items.at(-1)!.generation).toMatchObject({
+        state: 'present',
+        value: { kind: 'rowidAlias' },
+      })
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'keeps distinct actions for multiple inline foreign keys',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec(`CREATE TABLE p(id INTEGER PRIMARY KEY); CREATE TABLE q(id INTEGER PRIMARY KEY);
+      CREATE TABLE child(id INTEGER PRIMARY KEY, value INTEGER REFERENCES p(id) ON DELETE CASCADE REFERENCES q(id) ON DELETE RESTRICT)`)
+
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        createNodeSqliteExecutor(database),
+        mainRequest,
+      )
+
+      const relation = relationNamed(snapshot, 'child')
+      expect(relation.management).toBe('managed')
+
+      expect(
+        tableOf(relation).foreignKeys.items.map((key) => [
+          key.referencedRelation.relation.spelling,
+          key.onDelete,
+        ]),
+      ).toEqual([
+        ['p', 'cascade'],
+        ['q', 'restrict'],
+      ])
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'accepts SQLite deduplication of opposite UNIQUE sort directions',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec(
+        'CREATE TABLE target(id INTEGER PRIMARY KEY, value TEXT, UNIQUE(value), UNIQUE(value DESC))',
+      )
+
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        createNodeSqliteExecutor(database),
+        mainRequest,
+      )
+
+      const relation = relationNamed(snapshot, 'target')
+      expect(relation.management).toBe('managed')
+      expect(tableOf(relation).uniqueConstraints.coverage.state).toBe('complete')
+      expect(tableOf(relation).uniqueConstraints.items).toHaveLength(1)
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'accepts a primary key sharing an earlier UNIQUE index direction',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec('CREATE TABLE target(value TEXT UNIQUE, PRIMARY KEY(value DESC))')
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        createNodeSqliteExecutor(database),
+        mainRequest,
+      )
+
+      const relation = relationNamed(snapshot, 'target')
+      expect(relation.management).toBe('managed')
+      expect(tableOf(relation).primaryKey.state).toBe('present')
+      expect(tableOf(relation).uniqueConstraints.coverage.state).toBe('complete')
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'rejects an extra UNIQUE autoindex absent from native table SQL',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec('CREATE TABLE target(id INTEGER PRIMARY KEY, value TEXT)')
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        extraUniqueExecutor(createNodeSqliteExecutor(database)),
+        mainRequest,
+      )
+
+      const relation = relationNamed(snapshot, 'target')
+      expect(relation.management).toBe('unmanaged')
+      expect(tableOf(relation).uniqueConstraints.coverage.state).toBe('unknown')
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining(
+            'inconsistent native constraint index evidence',
+          ) as unknown,
+        }),
+      )
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'rejects an explicit target forged for an implicit parent-key reference',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec(
+        'CREATE TABLE parent(id INTEGER PRIMARY KEY, value TEXT UNIQUE); CREATE TABLE child(id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent)',
+      )
+
+      const native = createNodeSqliteExecutor(database)
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        {
+          execute: async (query) => {
+            const rows = await native.execute(query)
+            return query.sql.includes('foreign_key_list') && query.params[0] === 'child'
+              ? rows.map((row) => ({ ...(row as Record<string, unknown>), to: 'value' }))
+              : rows
+          },
+        },
+        mainRequest,
+      )
+
+      expect(tableOf(relationNamed(snapshot, 'child')).foreignKeys.coverage.state).toBe(
+        'unknown',
+      )
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining('missing foreign-key evidence') as unknown,
+        }),
+      )
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'rejects a missing collated UNIQUE index despite a same-column BINARY index',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec(
+        'CREATE TABLE target(id INTEGER PRIMARY KEY, value TEXT, UNIQUE(value), UNIQUE(value COLLATE NOCASE))',
+      )
+
+      const indexes = database.prepare('pragma index_list(target)').all() as {
+        name: string
+        seq: number
+      }[]
+
+      const omitted = indexes.find((index) =>
+        (
+          database.prepare(`pragma index_xinfo("${index.name}")`).all() as {
+            coll: string
+          }[]
+        ).some((term) => term.coll === 'NOCASE'),
+      )!.name
+
+      const native = createNodeSqliteExecutor(database)
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        {
+          execute: async (query) => {
+            const rows = await native.execute(query)
+
+            if (query.sql.includes('index_list') && query.params[0] === 'target')
+              return rows
+                .filter((row) => (row as { name: string }).name !== omitted)
+                .map((row, seq) => ({ ...(row as Record<string, unknown>), seq }))
+
+            if (query.sql.includes('sqlite_schema'))
+              return rows.filter((row) => (row as { name?: string }).name !== omitted)
+
+            return rows
+          },
+        },
+        mainRequest,
+      )
+
+      expect(
+        tableOf(relationNamed(snapshot, 'target')).uniqueConstraints.coverage.state,
+      ).toBe('unknown')
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining('missing UNIQUE index evidence') as unknown,
+        }),
+      )
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported)(
+  'rejects primary-key index direction that contradicts INTEGER PRIMARY KEY DESC',
+  async () => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec('CREATE TABLE target(id INTEGER PRIMARY KEY DESC)')
+      const native = createNodeSqliteExecutor(database)
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        {
+          execute: async (query) => {
+            const rows = await native.execute(query)
+            return query.sql.includes('index_xinfo')
+              ? rows.map((row) => ({ ...(row as Record<string, unknown>), desc: 0 }))
+              : rows
+          },
+        },
+        mainRequest,
+      )
+
+      const relation = relationNamed(snapshot, 'target')
+      expect(relation.management).toBe('unmanaged')
+      expect(tableOf(relation).primaryKey.state).toBe('unknown')
+      expect(tableOf(relation).columns.items[0]!.generation.state).toBe('absent')
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining(
+            'inconsistent primary-key index evidence',
+          ) as unknown,
+        }),
+      )
+    } finally {
+      database.close()
+    }
+  },
+)
+
+it.runIf(nodeSqliteSupported).each(['target', 'action'] as const)(
+  'rejects foreign-key %s observations that contradict native SQL',
+  async (changed) => {
+    const { DatabaseSync } = await import('node:sqlite')
+    const database = new DatabaseSync(':memory:')
+    try {
+      database.exec(
+        'CREATE TABLE parent(id INTEGER PRIMARY KEY, value TEXT UNIQUE); CREATE TABLE child(id INTEGER PRIMARY KEY, parent_value TEXT REFERENCES parent(value) ON DELETE CASCADE)',
+      )
+
+      const native = createNodeSqliteExecutor(database)
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        {
+          execute: async (query) => {
+            const rows = await native.execute(query)
+
+            if (query.sql.includes('foreign_key_list') && query.params[0] === 'child')
+              return rows.map((row) => ({
+                ...(row as Record<string, unknown>),
+                ...(changed === 'target' ? { to: 'id' } : { on_delete: 'RESTRICT' }),
+              }))
+
+            return rows
+          },
+        },
+        mainRequest,
+      )
+
+      expect(tableOf(relationNamed(snapshot, 'child')).foreignKeys.coverage.state).toBe(
+        'unknown',
+      )
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining('missing foreign-key evidence') as unknown,
+        }),
+      )
+    } finally {
+      database.close()
+    }
+  },
+)
 
 /**
  * Checks real SQLite catalog identity, table management, and decoded member evidence.

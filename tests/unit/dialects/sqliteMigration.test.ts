@@ -166,6 +166,113 @@ async function execute(
   })
 }
 
+const RetainedFkOwner = defineTable(
+  'fk_owner',
+  { id: pipe(number(), integer()) },
+  { primaryKey: 'id' },
+)
+
+const RetainedFkChild = defineTable(
+  'fk_child',
+  {
+    id: pipe(number(), integer()),
+    owner_id: nullable(pipe(number(), integer())),
+    label: string(),
+    tag: pipe(nullable(string()), column({ unique: true })),
+  },
+  { primaryKey: 'id' },
+)
+
+const retainedFkSchemas = [RetainedFkOwner, RetainedFkChild]
+const retainedFkOwnership: MigrationOwnershipDeclaration[] = [
+  { kind: 'relation', relation: RetainedFkOwner, shape: 'additive' },
+  { kind: 'relation', relation: RetainedFkChild, shape: 'additive' },
+]
+
+/**
+ * Checks seeded rows and the retained live foreign key after a rejected or completed
+ * rebuild.
+ */
+function expectRetainedForeignKey(
+  native: DatabaseSync,
+  data: unknown[],
+  foreignKeys: unknown[],
+) {
+  expect(native.prepare('select * from fk_child').all()).toEqual(data)
+  expect(native.prepare('pragma foreign_key_list(fk_child)').all()).toEqual(foreignKeys)
+}
+
+/** Runs the retained-FK scenario through the normal planning pipeline. */
+function planRetainedFk(executor: Executor) {
+  return planned(executor, retainedFkSchemas, retainedFkOwnership)
+}
+
+/** Repeats a consistent FK omission on every catalog query. */
+function omitRetainedForeignKey(executor: Executor): Executor {
+  return {
+    ...executor,
+    execute: (query) =>
+      query.sql.includes('pragma_foreign_key_list') && query.params[0] === 'fk_child'
+        ? Promise.resolve([])
+        : executor.execute(query),
+  }
+}
+
+it('rejects an additive rebuild when the live foreign key is missing from repeated catalog reads', async () => {
+  const opened = await fixture(`
+    pragma foreign_keys=on;
+    create table fk_owner(id INTEGER PRIMARY KEY);
+    create table fk_child(id INTEGER PRIMARY KEY, owner_id INTEGER REFERENCES fk_owner(id), label TEXT NOT NULL, tag TEXT);
+    insert into fk_owner values(7);
+    insert into fk_child values(1,7,'seed','one');
+  `)
+
+  try {
+    const beforeSchema = opened.native
+      .prepare('select name,sql from sqlite_schema order by name')
+      .all()
+
+    const beforeData = opened.native.prepare('select * from fk_child').all()
+
+    const beforeForeignKeys = opened.native
+      .prepare('pragma foreign_key_list(fk_child)')
+      .all()
+
+    const mutations = trackNativeMutations(opened.native)
+    const omitted = omitRetainedForeignKey(opened.executor)
+
+    await expect(planRetainedFk(omitted)).rejects.toThrow(/catalog|unknown|incomplete/i)
+
+    await expect(
+      execute(omitted, retainedFkSchemas, retainedFkOwnership),
+    ).rejects.toMatchObject({
+      outcome: 'unchanged',
+    })
+
+    expect(mutations).toEqual([])
+
+    expect(
+      opened.native.prepare('select name,sql from sqlite_schema order by name').all(),
+    ).toEqual(beforeSchema)
+
+    expectRetainedForeignKey(opened.native, beforeData, beforeForeignKeys)
+
+    const complete = await planRetainedFk(opened.executor)
+    expect(
+      complete.program.actions.some((action) =>
+        action.statements.some((statement) => /^create table/i.test(statement.sql)),
+      ),
+    ).toBe(true)
+
+    await execute(opened.executor, retainedFkSchemas, retainedFkOwnership)
+    expectRetainedForeignKey(opened.native, beforeData, beforeForeignKeys)
+
+    expect((await planRetainedFk(opened.executor)).migration.plan.steps).toEqual([])
+  } finally {
+    await opened.close()
+  }
+})
+
 it('resolves the production member and creates a desired FK graph through Client', async () => {
   expect(resolveDialect('sqlite')).toBe(sqliteDialect)
   const connector = nodeSqliteConnector({ name: ':memory:' })
