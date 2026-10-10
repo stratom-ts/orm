@@ -89,6 +89,63 @@ const assertBlocksMainManagementWhenAttachedOrTemporaryObjectsAreData = [
   ],
 ]
 
+const nativeDefinitionCrossCheckCases = [
+  [
+    'native-column-type',
+    'parent',
+    'columns',
+    'column "v" has inconsistent native declared-type evidence',
+  ],
+  [
+    'native-column-not-null',
+    'parent',
+    'columns',
+    'column "v" has inconsistent native NOT NULL evidence',
+  ],
+  [
+    'native-column-default',
+    'parent',
+    'columns',
+    'column "v" has inconsistent native default evidence',
+  ],
+  [
+    'native-column-generated',
+    'generated_t',
+    'columns',
+    'column "derived" has inconsistent native generated-column evidence',
+  ],
+  [
+    'native-table-strict',
+    'strict_t',
+    'options',
+    'has inconsistent native STRICT evidence',
+  ],
+  [
+    'native-table-without-rowid',
+    'wr',
+    'options',
+    'has inconsistent native WITHOUT ROWID evidence',
+  ],
+  [
+    'native-table-virtual',
+    'virt',
+    'options',
+    'has inconsistent native table-kind evidence',
+  ],
+  [
+    'native-index-partial',
+    'parent',
+    'indexes',
+    'index "rich_partial" has inconsistent native partial-index evidence',
+  ],
+  [
+    'native-index-semantics',
+    'parent',
+    'indexes',
+    'index "rich_desc" has inconsistent native index-semantics evidence',
+  ],
+] as const
+
 const executeSqliteCatalogFixtureRows = [
   {
     id: 0,
@@ -293,7 +350,7 @@ const fixtureColumnRowsXinfo = {
     {
       cid: 2,
       name: 'b',
-      type: '',
+      type: 'BLOB',
       notnull: 0,
       dflt_value: 'TRUE',
       pk: 0,
@@ -363,15 +420,15 @@ const fixtureColumnRowsXinfo = {
       cid: 0,
       name: 'id',
       type: 'TEXT',
-      notnull: 0,
+      notnull: 1,
       dflt_value: null,
       pk: 1,
       hidden: 0,
     },
   ],
   wr_auto: [
-    { cid: 0, name: 'a', type: 'TEXT', notnull: 0, dflt_value: null, pk: 1, hidden: 0 },
-    { cid: 1, name: 'b', type: 'TEXT', notnull: 0, dflt_value: null, pk: 2, hidden: 0 },
+    { cid: 0, name: 'a', type: 'TEXT', notnull: 1, dflt_value: null, pk: 1, hidden: 0 },
+    { cid: 1, name: 'b', type: 'TEXT', notnull: 1, dflt_value: null, pk: 2, hidden: 0 },
   ],
   pk_desc: [
     {
@@ -508,7 +565,7 @@ function createSqliteConstraintRows(options: FixtureOptions) {
 
   if (options.namedConstraint)
     schema[0]!.sql =
-      'CREATE TABLE parent(id INTEGER, v TEXT, b BLOB, CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v), UNIQUE(b))'
+      "CREATE TABLE parent(id INTEGER, v VARCHAR(12) DEFAULT 'safe', b BLOB DEFAULT TRUE, r DOUBLE, d DECIMAL(10,2) DEFAULT (lower('x')), CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v), UNIQUE(b))"
 
   if (options.namedConstraint)
     schema[1]!.sql =
@@ -768,6 +825,34 @@ function malformedMemberRows(
   if (options.malformed === 'ncol' && query.sql.includes('table_list'))
     rows = rows.map((row) => ({ ...(row as Record<string, unknown>), ncol: 99 }))
 
+  if (query.sql.includes('table_xinfo') && query.params[0] === 'parent')
+    rows = rows.map((row) => {
+      const column = row as Record<string, unknown>
+
+      if (column.name !== 'v') return row
+
+      if (options.malformed === 'native-column-type') return { ...column, type: 'TEXT' }
+
+      if (options.malformed === 'native-column-not-null')
+        return { ...column, column_notnull: 1 }
+
+      if (options.malformed === 'native-column-default')
+        return { ...column, dflt_value: "'changed'" }
+
+      return row
+    })
+
+  if (
+    options.malformed === 'native-column-generated' &&
+    query.sql.includes('table_xinfo') &&
+    query.params[0] === 'generated_t'
+  )
+    rows = rows.map((row) =>
+      (row as Record<string, unknown>).name === 'derived'
+        ? { ...(row as Record<string, unknown>), hidden: 3 }
+        : row,
+    )
+
   if (options.malformed === 'fk-duplicate' && query.sql.includes('foreign_key_list'))
     rows = [
       ...rows,
@@ -814,6 +899,22 @@ function malformedFixtureRows(
       ...rows,
       { schema: 'ghost', name: 'outside', type: 'table', ncol: 1, wr: 0, strict: 0 },
     ]
+
+  if (query.sql.includes('table_list'))
+    rows = rows.map((row) => {
+      const table = row as Record<string, unknown>
+
+      if (options.malformed === 'native-table-strict' && table.name === 'strict_t')
+        return { ...table, strict: 0 }
+
+      if (options.malformed === 'native-table-without-rowid' && table.name === 'wr')
+        return { ...table, wr: 0 }
+
+      if (options.malformed === 'native-table-virtual' && table.name === 'virt')
+        return { ...table, type: 'table' }
+
+      return row
+    })
 
   if (options.malformed === 'database-wrong-type' && query.sql.includes('database_list'))
     rows = rows.map((row) => ({ ...(row as Record<string, unknown>), name: 42 }))
@@ -902,6 +1003,13 @@ function malformedIndexDetails(
     p[0] === 'parent_n'
   )
     rows = rows.map((row) => ({ ...(row as Record<string, unknown>), desc: 2 }))
+
+  if (
+    options.malformed === 'native-index-semantics' &&
+    query.sql.includes('index_xinfo') &&
+    p[0] === 'rich_desc'
+  )
+    rows = rows.map((row) => ({ ...(row as Record<string, unknown>), desc: 0 }))
 
   if (
     options.malformed === 'index-xinfo-expression' &&
@@ -1003,6 +1111,13 @@ function malformedIndexRows(
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'parent_n'
         ? { ...(row as Record<string, unknown>), unique: 'true' }
+        : row,
+    )
+
+  if (options.malformed === 'native-index-partial' && query.sql.includes('index_list'))
+    rows = rows.map((row) =>
+      (row as Record<string, unknown>).name === 'rich_partial'
+        ? { ...(row as Record<string, unknown>), partial: 0 }
         : row,
     )
 
@@ -2036,6 +2151,58 @@ describe('SQLite invalid metadata ordering', () => {
       expect(reversed).toEqual(forward)
     }
   })
+})
+
+describe('SQLite native definition cross-checks', () => {
+  it.each(nativeDefinitionCrossCheckCases)(
+    'rejects stable %s observations before planning',
+    async (malformed, relationName, affected, message) => {
+      const observe = (reverse: boolean) =>
+        sqliteCatalog.introspectCatalog(
+          fixtureExecutor({ malformed, reverse, withoutOpaqueDependencies: true }),
+          request,
+        )
+
+      const snapshot = await observe(false)
+      expect(await observe(true)).toEqual(snapshot)
+
+      const relation = relationNamed(snapshot, relationName)
+      const table = tableOf(relation)
+
+      expect(relation.management).toBe('unmanaged')
+      expect(table[affected].coverage.state).toBe('unknown')
+
+      const preservedCoverage =
+        affected === 'columns'
+          ? table.options.coverage.state
+          : affected === 'options' && malformed !== 'native-table-virtual'
+            ? table.columns.coverage.state
+            : 'complete'
+
+      expect(preservedCoverage).toBe('complete')
+
+      const unrelated = relationNamed(snapshot, 'simple')
+      expect(unrelated.management).toBe('managed')
+      expect(tableOf(unrelated).columns.coverage.state).toBe('complete')
+      expect(tableOf(unrelated).options.coverage.state).toBe('complete')
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: 'catalog.sqlite.metadata',
+          message: expect.stringContaining(message) as unknown,
+          target: relation.identity,
+        }),
+      )
+
+      expect(() =>
+        planMigration([], snapshot, sqliteDialect.migration.planning, {
+          migrationOwnership: [
+            { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
+          ],
+        }),
+      ).toThrow(/catalog|unknown|incomplete/i)
+    },
+  )
 })
 
 describe('SQLite invalid version and executor evidence', () => {

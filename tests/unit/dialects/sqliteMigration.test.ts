@@ -273,6 +273,66 @@ it('rejects an additive rebuild when the live foreign key is missing from repeat
   }
 })
 
+it('rejects contradictory native column evidence before exposing a program or DDL', async () => {
+  const Records = defineTable(
+    'records',
+    {
+      id: pipe(number(), integer()),
+      retained: nullable(string()),
+      added: nullable(string()),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const ownership: MigrationOwnershipDeclaration[] = [
+    { kind: 'relation', relation: Records, shape: 'additive' },
+  ]
+
+  const opened = await fixture(
+    "create table records(id INTEGER primary key, retained TEXT default 'kept'); insert into records values(1,'value')",
+  )
+
+  try {
+    const mutations = trackNativeMutations(opened.native)
+    const damaged: Executor = {
+      ...opened.executor,
+      execute: async (query) => {
+        const rows = await opened.executor.execute(query)
+
+        return query.sql.includes('pragma_table_xinfo') && query.params[0] === 'records'
+          ? rows.map((row) =>
+              (row as { name?: string }).name === 'retained'
+                ? { ...(row as Record<string, unknown>), type: 'INTEGER' }
+                : row,
+            )
+          : rows
+      },
+    }
+
+    let exposed: Awaited<ReturnType<typeof planned>> | undefined
+
+    await expect(
+      planned(damaged, [Records], ownership).then((result) => {
+        exposed = result
+      }),
+    ).rejects.toThrow(/catalog|unknown|incomplete/i)
+
+    expect(exposed).toBeUndefined()
+
+    await expect(execute(damaged, [Records], ownership)).rejects.toMatchObject({
+      outcome: 'unchanged',
+    })
+
+    expect(mutations).toEqual([])
+
+    expect(opened.native.prepare('select * from records').all()).toEqual([
+      { id: 1, retained: 'value' },
+    ])
+  } finally {
+    await opened.close()
+  }
+})
+
 it('resolves the production member and creates a desired FK graph through Client', async () => {
   expect(resolveDialect('sqlite')).toBe(sqliteDialect)
   const connector = nodeSqliteConnector({ name: ':memory:' })

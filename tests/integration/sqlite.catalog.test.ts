@@ -123,6 +123,168 @@ describe('SQLite catalog introspection with node:sqlite', () => {
   )
 })
 
+describe('SQLite catalog introspection with inherited index collations', () => {
+  it.runIf(nodeSqliteSupported)(
+    'inherits a native column collation when classifying a bare user-index term',
+    async () => {
+      const { DatabaseSync } = await import('node:sqlite')
+      const database = new DatabaseSync(':memory:')
+
+      try {
+        database.exec(`
+          CREATE TABLE target (id INTEGER PRIMARY KEY, value TEXT COLLATE NOCASE);
+          CREATE INDEX target_value ON target(value);
+        `)
+
+        const snapshot = await sqliteCatalog.introspectCatalog(
+          createNodeSqliteExecutor(database),
+          {
+            relations: [],
+            absentRelations: [],
+            completeNamespaces: [[{ role: 'database', spelling: 'main' }]],
+          },
+        )
+
+        const relation = relationNamed(snapshot, 'target')
+        const table = tableOf(relation)
+
+        expect(table.indexes.coverage.state).toBe('complete')
+
+        expect(table.indexes.items).toMatchObject([
+          {
+            name: { state: 'present', value: 'target_value' },
+            columns: ['value'],
+            semantics: { state: 'unsupported' },
+          },
+        ])
+
+        expect(snapshot.diagnostics).not.toContainEqual(
+          expect.objectContaining({ code: 'catalog.sqlite.metadata' }),
+        )
+      } finally {
+        database.close()
+      }
+    },
+  )
+})
+
+describe('SQLite catalog introspection with quoted declared types', () => {
+  it.runIf(nodeSqliteSupported)(
+    'compares punctuation-bearing type names independently of identifier quoting',
+    async () => {
+      const { DatabaseSync } = await import('node:sqlite')
+      const database = new DatabaseSync(':memory:')
+
+      try {
+        database.exec(`
+          CREATE TABLE target (
+            value "VARCHAR(12)",
+            comment_like "A--B",
+            escaped "A""B""C",
+            spaced "A B",
+            explicit_null TEXT NULL,
+            default_null TEXT DEFAULT 'x' NULL
+          )
+        `)
+
+        const snapshot = await sqliteCatalog.introspectCatalog(
+          createNodeSqliteExecutor(database),
+          {
+            relations: [],
+            absentRelations: [],
+            completeNamespaces: [[{ role: 'database', spelling: 'main' }]],
+          },
+        )
+
+        const table = tableOf(relationNamed(snapshot, 'target'))
+
+        expect(table.columns.coverage.state).toBe('complete')
+
+        expect(table.columns.items.map(({ dataType }) => dataType)).toMatchObject([
+          { state: 'present', value: { native: 'VARCHAR(12)' } },
+          { state: 'present', value: { native: 'A--B' } },
+          { state: 'present', value: { native: 'A"B"C' } },
+          { state: 'present', value: { native: 'A B' } },
+          { state: 'present', value: { native: 'TEXT' } },
+          { state: 'present', value: { native: 'TEXT' } },
+        ])
+
+        expect(snapshot.diagnostics).not.toContainEqual(
+          expect.objectContaining({ code: 'catalog.sqlite.metadata' }),
+        )
+      } finally {
+        database.close()
+      }
+    },
+  )
+})
+
+const declaredTypeContradictionCases = [
+  ['escaped identifier quotes', 'CREATE TABLE target(value "A""B""C")', 'ABC'],
+  ['significant quoted whitespace', 'CREATE TABLE target(value "A B")', 'A  B'],
+  ['explicit NULL', 'CREATE TABLE target(value TEXT NULL)', 'TEXT NULL'],
+] as const
+
+/** Mutates one decoded table_xinfo type while optionally reversing every result. */
+function mutatedDeclaredTypeExecutor(
+  native: CatalogExecutor,
+  observedType: string,
+  reverse: boolean,
+): CatalogExecutor {
+  return {
+    execute: async (query) => {
+      let rows = await native.execute(query)
+
+      if (query.sql.includes('pragma_table_xinfo') && query.params[0] === 'target')
+        rows = rows.map((row) =>
+          (row as { name?: string }).name === 'value'
+            ? { ...(row as Record<string, unknown>), type: observedType }
+            : row,
+        )
+
+      return reverse ? [...rows].reverse() : rows
+    },
+  }
+}
+
+describe('SQLite catalog introspection with contradictory quoted declared types', () => {
+  it.runIf(nodeSqliteSupported).each(declaredTypeContradictionCases)(
+    'rejects a stable %s mutation',
+    async (_label, sql, observedType) => {
+      const { DatabaseSync } = await import('node:sqlite')
+      const database = new DatabaseSync(':memory:')
+
+      try {
+        database.exec(sql)
+        const native = createNodeSqliteExecutor(database)
+        const observe = (reverse: boolean) =>
+          sqliteCatalog.introspectCatalog(
+            mutatedDeclaredTypeExecutor(native, observedType, reverse),
+            mainRequest,
+          )
+
+        const snapshot = await observe(false)
+        expect(await observe(true)).toEqual(snapshot)
+
+        const relation = relationNamed(snapshot, 'target')
+        const table = tableOf(relation)
+        expect(relation.management).toBe('unmanaged')
+        expect(table.columns.coverage.state).toBe('unknown')
+        expect(table.options.coverage.state).toBe('complete')
+
+        expect(snapshot.diagnostics).toContainEqual(
+          expect.objectContaining({
+            code: 'catalog.sqlite.metadata',
+            target: relation.identity,
+          }),
+        )
+      } finally {
+        database.close()
+      }
+    },
+  )
+})
+
 describe('SQLite catalog introspection with node:sqlite: observes attached and temporary relations and maps UNIQUE auto-indexes conservatively', () => {
   it.runIf(nodeSqliteSupported)(
     'observes attached and temporary relations and maps UNIQUE auto-indexes conservatively',
