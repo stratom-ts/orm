@@ -25,7 +25,50 @@ describe('SQLite value mapping', () => {
     expect(mapSqliteResultValue('TEXT', 'plain')).toBe('plain')
     expect(mapSqliteResultValue('JSON', '{not json}')).toBe('{not json}')
   })
+})
 
+describe('SQLite bigint value mapping', () => {
+  it.each([
+    -9223372036854775808n,
+    9223372036854775807n,
+    0n,
+    42,
+    '-9223372036854775808',
+    '9223372036854775807',
+  ])(
+    'maps signed 64-bit BIGINT value %s at the parameter and result boundary',
+    (value) => {
+      const expected = BigInt(value)
+
+      expect(mapSqliteParamValue('BIGINT', value)).toBe(expected)
+      expect(mapSqliteResultValue('BIGINT', value)).toBe(expected)
+    },
+  )
+
+  describe.each([
+    { direction: 'parameter', map: mapSqliteParamValue },
+    { direction: 'result', map: mapSqliteResultValue },
+  ])('$direction mapping', ({ map }) => {
+    it.each([
+      -9223372036854775809n,
+      9223372036854775808n,
+      -18446744073709551616n,
+      18446744073709551616n,
+      '-9223372036854775809',
+      '9223372036854775808',
+      '-18446744073709551616',
+      '18446744073709551616',
+    ])('rejects out-of-range BIGINT value %s', (value) => {
+      expect(() => map('BIGINT', value)).toThrow(QueryError)
+
+      expect(() => map('BIGINT', value)).toThrow(
+        /SQLite BIGINT values must be within the signed 64-bit integer range/,
+      )
+    })
+  })
+})
+
+describe('SQLite numeric value validation', () => {
   it('preserves nullish values and rejects lossy numeric mappings', () => {
     expect(mapSqliteParamValue('INTEGER', null)).toBeNull()
     expect(mapSqliteResultValue('BIGINT', undefined)).toBeUndefined()

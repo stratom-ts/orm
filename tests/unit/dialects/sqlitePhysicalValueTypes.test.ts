@@ -191,7 +191,7 @@ it.each(['TEXT', 'CHARACTER VARYING(32)', 'BLOB'])(
 )
 
 it.each(['INTEGER', 'NUMERIC', 'BLOB'])(
-  'preserves large bigint values through %s',
+  'enforces signed 64-bit bigint values through %s before native execution',
   async (type) => {
     const Records = defineTable(
       'records',
@@ -201,21 +201,96 @@ it.each(['INTEGER', 'NUMERIC', 'BLOB'])(
       { primaryKey: 'value' },
     )
 
-    const db = createDatabase({
-      connector: nodeSqliteConnector({ name: ':memory:' }),
-      schemas: [Records],
-    })
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const native = await connector.getInstance!()
+    const db = createDatabase({ connector, schemas: [Records] })
 
     try {
       await db.migrate().execute()
-      const row = { value: 9007199254740993n }
-      expect(await db.insert(Records).values(row).execute()).toEqual([row])
-      expect(await db.from(Records).where(row).execute()).toEqual([row])
+      const rows = [
+        { value: -9223372036854775808n },
+        { value: 9007199254740993n },
+        { value: 9223372036854775807n },
+      ]
+
+      expect(await db.insert(Records).values(rows).execute()).toEqual(rows)
+      expect(await db.from(Records).orderBy(Records.value, 'asc').execute()).toEqual(rows)
+
+      const prepare = vi.spyOn(native, 'prepare')
+
+      await expect(
+        db.insert(Records).values({ value: 9223372036854775808n }).execute(),
+      ).rejects.toThrow(/signed 64-bit integer range/)
+
+      await expect(
+        db.from(Records).where({ value: -9223372036854775809n }).execute(),
+      ).rejects.toThrow(/signed 64-bit integer range/)
+
+      expect(prepare).not.toHaveBeenCalled()
+      prepare.mockRestore()
+      expect(await db.from(Records).orderBy(Records.value, 'asc').execute()).toEqual(rows)
     } finally {
       await db.close()
     }
   },
 )
+
+it('rejects an out-of-range native bigint result', async () => {
+  const Records = defineTable(
+    'records',
+    {
+      value: pipe(bigint(), column({ physicalType: { sqlite: 'BLOB' } })),
+    },
+    { primaryKey: 'value' },
+  )
+
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  native.exec(
+    "create table records(value BLOB); insert into records values('9223372036854775808')",
+  )
+
+  const db = createDatabase({ connector, schemas: [Records] })
+  try {
+    await expect(db.from(Records).execute()).rejects.toThrow(
+      /signed 64-bit integer range/,
+    )
+  } finally {
+    await db.close()
+  }
+})
+
+it('lets paired column hooks own bigint values outside the built-in range', async () => {
+  const Records = defineTable(
+    'records',
+    {
+      value: pipe(
+        bigint(),
+        column({
+          physicalType: { sqlite: 'BLOB' },
+          mapParam: String,
+          mapResult: (value) => BigInt(String(value)),
+        }),
+      ),
+    },
+    { primaryKey: 'value' },
+  )
+
+  const db = createDatabase({
+    connector: nodeSqliteConnector({ name: ':memory:' }),
+    schemas: [Records],
+  })
+
+  const row = { value: 9223372036854775808n }
+
+  try {
+    await db.migrate().execute()
+    expect(await db.insert(Records).values(row).execute()).toEqual([row])
+    expect(await db.from(Records).where(row).execute()).toEqual([row])
+  } finally {
+    await db.close()
+  }
+})
 
 it.each(['column', 'client', 'mixed'])(
   'uses paired %s hooks for safe numeric/boolean TEXT and numeric-affinity strings',
