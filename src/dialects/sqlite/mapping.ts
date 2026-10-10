@@ -5,6 +5,11 @@ import type { DialectValueMappingContext } from '../types'
 
 import { inferSqliteChoiceType } from './infer'
 import { normalizeSqliteDataType } from './normalize'
+import {
+  isSqliteSafeInteger,
+  isSqliteSupportedBigInt,
+  isSqliteSupportedNumber,
+} from './numeric'
 
 /** Finds output-changing actions beneath pipes and schema wrappers. */
 function hasTransformation(schema: unknown): boolean {
@@ -93,7 +98,7 @@ function mappingError(dataType: string, message: string): never {
 
 /** Rejects numbers outside JavaScript's safe integer range. */
 function safeInteger(dataType: string, value: number): number {
-  if (!Number.isSafeInteger(value)) {
+  if (!isSqliteSafeInteger(value)) {
     return mappingError(dataType, 'values must be safe integers')
   }
 
@@ -102,8 +107,11 @@ function safeInteger(dataType: string, value: number): number {
 
 /** Rejects non-finite numeric values before SQL parameter mapping. */
 function finiteNumber(dataType: string, value: number): number {
-  if (!Number.isFinite(value)) return mappingError(dataType, 'values must be finite')
-  if (Number.isInteger(value)) return safeInteger(dataType, value)
+  if (!isSqliteSupportedNumber(value)) {
+    if (!Number.isFinite(value)) return mappingError(dataType, 'values must be finite')
+
+    return mappingError(dataType, 'values must be safe integers')
+  }
 
   return value
 }
@@ -114,12 +122,9 @@ function numberFromBigInt(dataType: string, value: bigint): number {
   return safeInteger(dataType, number)
 }
 
-const SQLITE_BIGINT_MIN = -(2n ** 63n)
-const SQLITE_BIGINT_MAX = 2n ** 63n - 1n
-
 /** Rejects bigints outside SQLite's signed 64-bit integer range. */
 function sqliteBigint(dataType: string, value: bigint): bigint {
-  if (value < SQLITE_BIGINT_MIN || value > SQLITE_BIGINT_MAX) {
+  if (!isSqliteSupportedBigInt(value)) {
     return mappingError(dataType, 'values must be within the signed 64-bit integer range')
   }
 

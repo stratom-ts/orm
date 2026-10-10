@@ -168,10 +168,29 @@ function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
 }
 
 /** Selects the explicit physical type or infers one from the column schema. */
-function physicalType(column: AuthoredDesiredColumn, analysis: SchemaAnalysis): string {
-  const selected =
-    column.metadata?.physicalType?.sqlite ??
+function physicalType(
+  column: AuthoredDesiredColumn,
+  analysis: SchemaAnalysis,
+  hasGlobalParameterMapping: boolean,
+  hasGlobalResultMapping: boolean,
+): string {
+  const explicit = column.metadata?.physicalType?.sqlite
+  const hasParameterMapping =
+    hasGlobalParameterMapping || typeof column.metadata?.mapParam === 'function'
+
+  const hasResultMapping =
+    hasGlobalResultMapping || typeof column.metadata?.mapResult === 'function'
+
+  if (
+    explicit !== undefined &&
+    analysis.baseSchema.type === 'literal' &&
+    (analysis.outputKind === 'number' || analysis.outputKind === 'bigint') &&
+    (!hasParameterMapping || !hasResultMapping)
+  ) {
     inferSqliteColumnType(column.schema, analysis)
+  }
+
+  const selected = explicit ?? inferSqliteColumnType(column.schema, analysis)
 
   return assertSafeSqliteDataType(String(selected))
 }
@@ -359,7 +378,17 @@ export function lowerSqliteDesiredSchema(
     const analysis = analyzeSchema(column.schema)
     analyses.set(column, analysis)
 
-    if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
+    if (!column.reference) {
+      resolvedTypes.set(
+        column,
+        physicalType(
+          column,
+          analysis,
+          context?.hasGlobalParameterMapping ?? false,
+          context?.hasGlobalResultMapping ?? false,
+        ),
+      )
+    }
   }
 
   for (const table of graph.tables) {

@@ -547,6 +547,7 @@ function clientMigrationAdapter(
         lowerDesiredSchema: (graph: Parameters<typeof schema.lowerDesiredSchema>[0]) =>
           schema.lowerDesiredSchema(graph, {
             hasGlobalResultMapping: typeof map?.mapResultValue === 'function',
+            hasGlobalParameterMapping: typeof map?.mapParamValue === 'function',
           }),
       },
     },

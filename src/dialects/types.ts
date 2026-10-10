@@ -161,6 +161,8 @@ export type DialectSchema = Readonly<{
     context?: Readonly<{
       /** The client supplies an explicit result-mapping contract for every column. */
       hasGlobalResultMapping: boolean
+      /** The client supplies an explicit parameter-mapping contract for every column. */
+      hasGlobalParameterMapping?: boolean
     }>,
   ): LoweredDesiredSchema
   /**
