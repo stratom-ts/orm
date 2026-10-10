@@ -6,10 +6,22 @@ import { postgresDialect } from './postgres'
 import { sqliteDialect } from './sqlite'
 import type { Dialect } from './types'
 
-const DIALECTS = new Map<string, Dialect>([
-  [postgresDialect.id, postgresDialect],
-  [sqliteDialect.id, sqliteDialect],
+/** Complete production dialect members used to construct the resolver registry. */
+export const productionDialects: readonly Dialect[] = Object.freeze([
+  postgresDialect,
+  sqliteDialect,
 ])
+
+/** Constructs a validated dialect registry without silently replacing duplicate ids. */
+export function createDialectRegistry(
+  dialects: readonly Dialect[],
+): Map<string, Dialect> {
+  const registry = new Map<string, Dialect>()
+  for (const dialect of dialects) insertDialect(registry, dialect)
+  return registry
+}
+
+const DIALECTS = createDialectRegistry(productionDialects)
 
 /**
  * Registers an isolated contract-test dialect and returns exact cleanup.
@@ -18,6 +30,15 @@ const DIALECTS = new Map<string, Dialect>([
  * remains the static registration above.
  */
 export function registerDialectForTest(dialect: Dialect): () => void {
+  insertDialect(DIALECTS, dialect)
+
+  return () => {
+    if (DIALECTS.get(dialect.id) === dialect) DIALECTS.delete(dialect.id)
+  }
+}
+
+/** Adds one validated member to a registry. */
+function insertDialect(registry: Map<string, Dialect>, dialect: Dialect): void {
   if (
     typeof dialect.id !== 'string' ||
     dialect.id.length === 0 ||
@@ -27,15 +48,11 @@ export function registerDialectForTest(dialect: Dialect): () => void {
     throw new SchemaError({ message: 'dialect id must be a non-empty identifier' })
   }
 
-  if (DIALECTS.has(dialect.id)) {
+  if (registry.has(dialect.id)) {
     throw new SchemaError({ message: `dialect "${dialect.id}" is already registered` })
   }
 
-  DIALECTS.set(dialect.id, dialect)
-
-  return () => {
-    if (DIALECTS.get(dialect.id) === dialect) DIALECTS.delete(dialect.id)
-  }
+  registry.set(dialect.id, dialect)
 }
 
 /**
@@ -55,7 +72,7 @@ export function resolveDialect(id: SQLDialect): Dialect {
 
   if (!dialect) {
     throw new SchemaError({
-      message: `unsupported connector dialect "${id}"; supported: ${[...DIALECTS.keys()].join(', ')}`,
+      message: `unsupported connector dialect "${id}"; supported: ${[...DIALECTS.keys()].sort().join(', ')}`,
     })
   }
 
