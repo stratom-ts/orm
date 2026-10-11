@@ -8,9 +8,9 @@ import type {
   CatalogSnapshot,
   CatalogTable,
 } from '@/dialects'
-import { sqliteCatalog } from '@/dialects'
 import type { CatalogColumn } from '@/dialects/catalog'
-import { sqliteDialect } from '@/dialects/sqlite'
+import { sqliteCatalog } from '@/dialects/sqlite/catalog'
+import { sqliteDialect } from '@/dialects/sqlite/dialect'
 import { InvariantError } from '@/utils/error'
 
 const rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData = [
@@ -561,7 +561,7 @@ function fixtureSchemaRows(options: FixtureOptions) {
  *   variations.
  */
 function createSqliteConstraintRows(options: FixtureOptions) {
-  let schema = structuredClone(fixtureSchemaRowsSchema)
+  const schema = structuredClone(fixtureSchemaRowsSchema)
 
   if (options.namedConstraint)
     schema[0]!.sql =

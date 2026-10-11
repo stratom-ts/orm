@@ -1,5 +1,5 @@
 import ts from '@typescript/typescript6'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -14,7 +14,7 @@ const classifiesConcreteDialectReferenceSData = [
   ["import { postgresDialect } from '@/dialects'", true],
   ["import { oracleDialect } from '@/dialects'", true],
   ["import { postgresDialect as selected } from '@/dialects'", true],
-  ["import { createDb0PostgresqlOperationSessionProvider } from '@/dialects'", true],
+  ["import { createDb0PostgresOperationSessionProvider } from '@/dialects'", true],
   ["export { sqliteDialect } from '@/dialects'", true],
   ["export { mssqlDialect } from '@/dialects'", true],
   ["import { resolveDialect, oracleDialect } from '@/dialects'", true],
@@ -99,6 +99,53 @@ function sourceFiles(path: string): string[] {
 const coreFiles = CORE_PATHS.flatMap(sourceFiles)
 const sharedExecutionFiles = SHARED_EXECUTION_PATHS.flatMap(sourceFiles)
 const DIALECT_BARREL_RUNTIME_ALLOWLIST = new Set(['resolveDialect'])
+const REQUIRED_DIALECT_FILES = [
+  'dialect.ts',
+  'index.ts',
+  'identity.ts',
+  'naming.ts',
+  'schema.ts',
+  'query.ts',
+  'catalog.ts',
+  'operations.ts',
+  'operationSession.ts',
+  'migration/index.ts',
+] as const
+
+const REQUIRED_DIALECT_FACETS = [
+  'identity',
+  'naming',
+  'schema',
+  'query',
+  'catalog',
+  'operations',
+] as const
+
+type PublicDialectContract = {
+  provider: string
+}
+
+const PUBLIC_DIALECT_CONTRACTS = {
+  postgres: {
+    provider: 'createDb0PostgresOperationSessionProvider',
+  },
+  sqlite: {
+    provider: 'createDb0NodeSqliteOperationSessionProvider',
+  },
+} as const satisfies Readonly<Record<string, PublicDialectContract>>
+
+type ProductionDialectSource = {
+  symbol: string
+  code: string
+  directory: string
+}
+
+type ImportBinding = {
+  imported: string
+  module: string
+}
+
+type IndexSurface = ReadonlyMap<string, ReadonlySet<string>>
 
 /** Parses source into a TypeScript syntax tree for architecture checks. */
 function parseSource(text: string, file = 'architecture-fixture.ts'): ts.SourceFile {
@@ -108,6 +155,387 @@ function parseSource(text: string, file = 'architecture-fixture.ts'): ts.SourceF
 /** Parses source into a TypeScript syntax tree for architecture checks. */
 function parse(file: string): ts.SourceFile {
   return parseSource(readFileSync(file, 'utf8'), file)
+}
+
+/** Maps each local named import to its original symbol and source module. */
+function namedImportBindings(source: ts.SourceFile): Map<string, ImportBinding> {
+  const imports = new Map<string, ImportBinding>()
+
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+
+    const bindings = statement.importClause?.namedBindings
+
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+
+    for (const element of bindings.elements) {
+      imports.set(element.name.text, {
+        imported: element.propertyName?.text ?? element.name.text,
+        module: statement.moduleSpecifier.text,
+      })
+    }
+  }
+
+  return imports
+}
+
+/** Derives production dialect source directories from the resolver registration. */
+function productionDialectSources(
+  source = parse(join(ROOT, 'src/dialects/resolve.ts')),
+): ProductionDialectSource[] {
+  const imports = namedImportBindings(source)
+
+  const declaration = descendants(source).find(
+    (node): node is ts.VariableDeclaration =>
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'productionDialects',
+  )
+
+  const members =
+    declaration && descendants(declaration).find(ts.isArrayLiteralExpression)
+
+  if (!members) throw new Error('productionDialects must be an array literal')
+
+  return members.elements.map((element) => {
+    if (!ts.isIdentifier(element))
+      throw new Error('productionDialects entries must be imported identifiers')
+
+    const binding = imports.get(element.text)
+    const module = binding?.module
+
+    if (!binding || !module?.startsWith('./') || module.slice(2).includes('/'))
+      throw new Error(`${element.text} must be imported from a dialect directory`)
+
+    const code = module.slice(2)
+    const symbol = `${code}Dialect`
+
+    if (element.text !== symbol || binding.imported !== symbol)
+      throw new Error(`${module} must register an unaliased ${symbol} import`)
+
+    return {
+      symbol,
+      code,
+      directory: join(ROOT, 'src/dialects', code),
+    }
+  })
+}
+
+/** Returns runtime names declared by one exported source statement. */
+function exportedStatementNames(statement: ts.Statement): string[] {
+  const exported =
+    ts.canHaveModifiers(statement) &&
+    ts.getModifiers(statement)?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword)
+
+  if (!exported) return []
+
+  if (ts.isFunctionDeclaration(statement) && statement.name) return [statement.name.text]
+
+  if (!ts.isVariableStatement(statement)) return []
+
+  return statement.declarationList.declarations.flatMap(({ name }) =>
+    ts.isIdentifier(name) ? [name.text] : [],
+  )
+}
+
+/** Finds the sole exported defineDialect object in a member manifest. */
+function dialectAssembly(
+  source: ts.SourceFile,
+  symbol: string,
+): ts.ObjectLiteralExpression | undefined {
+  const declarations = source.statements.filter(
+    (statement) => !ts.isImportDeclaration(statement),
+  )
+
+  if (declarations.length !== 1 || !ts.isVariableStatement(declarations[0]!))
+    return undefined
+
+  const statement = declarations[0]
+  const declarationsList = statement.declarationList
+
+  if (
+    declarationsList.declarations.length !== 1 ||
+    !(declarationsList.flags & ts.NodeFlags.Const)
+  )
+    return undefined
+
+  const [member] = statement.declarationList.declarations
+  const call = member.initializer
+  const exported = statement.modifiers?.some(
+    ({ kind }) => kind === ts.SyntaxKind.ExportKeyword,
+  )
+
+  if (!exported || !ts.isIdentifier(member.name) || member.name.text !== symbol)
+    return undefined
+
+  if (
+    !call ||
+    !ts.isCallExpression(call) ||
+    call.expression.getText() !== 'defineDialect'
+  )
+    return undefined
+
+  if (call.arguments.length !== 1) return undefined
+
+  const definition = call.arguments[0]!
+  return ts.isObjectLiteralExpression(definition) ? definition : undefined
+}
+
+/** Reports facet bindings that do not use the member's required imported modules. */
+function dialectManifestViolations(
+  source: ts.SourceFile,
+  member: Pick<ProductionDialectSource, 'symbol' | 'code'>,
+): string[] {
+  const imports = namedImportBindings(source)
+  const assembly = dialectAssembly(source, member.symbol)
+
+  if (!assembly) return [`${member.symbol}: invalid defineDialect assembly`]
+
+  const codePrefix = `${member.code[0]!.toUpperCase()}${member.code.slice(1)}`
+  const defineDialect = imports.get('defineDialect')
+  const violations =
+    defineDialect?.imported === 'defineDialect' &&
+    defineDialect.module === '../defineDialect'
+      ? []
+      : [`${member.symbol}: defineDialect must come from ../defineDialect`]
+
+  const expected: { property: string; identifier: string; module: string }[] = [
+    ...REQUIRED_DIALECT_FACETS.map((facet) => ({
+      property: facet,
+      identifier: `${member.code}${facet[0]!.toUpperCase()}${facet.slice(1)}`,
+      module: `./${facet}`,
+    })),
+    {
+      property: 'lower',
+      identifier: `lower${codePrefix}MigrationPlan`,
+      module: './migration',
+    },
+    {
+      property: 'execute',
+      identifier: `execute${codePrefix}Migration`,
+      module: './migration',
+    },
+  ]
+
+  return violations.concat(
+    expected.flatMap(({ property, identifier, module }) => {
+      const assignment = assembly.properties.find(
+        (candidate): candidate is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(candidate) && propertyName(candidate.name) === property,
+      )
+
+      const binding = imports.get(identifier)
+      const valid =
+        assignment &&
+        ts.isIdentifier(assignment.initializer) &&
+        assignment.initializer.text === identifier &&
+        binding?.imported === identifier &&
+        binding.module === module
+
+      return valid
+        ? []
+        : [`${member.symbol}: ${property} must use ${identifier} from ${module}`]
+    }),
+  )
+}
+
+/** Checks the imported session provider selected by a member's operations facet. */
+function assertOperationSessionProvider(
+  source: ts.SourceFile,
+  code: string,
+  expectedProvider: string,
+): void {
+  const declaration = descendants(source).find(
+    (node): node is ts.VariableDeclaration =>
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === `${code}Operations`,
+  )
+
+  const initializer = declaration?.initializer
+
+  if (!initializer || !ts.isObjectLiteralExpression(initializer))
+    throw new Error(`${code}Operations must be an object literal`)
+
+  const provider = initializer.properties.find(
+    (candidate): candidate is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(candidate) &&
+      propertyName(candidate.name) === 'createSessionProvider',
+  )
+
+  if (!provider || !ts.isIdentifier(provider.initializer))
+    throw new Error(`${code}Operations must select a session-provider identifier`)
+
+  const providerName = provider.initializer.text
+  const binding = namedImportBindings(source).get(providerName)
+
+  if (providerName !== expectedProvider)
+    throw new Error(`${code}Operations must use ${expectedProvider}`)
+
+  if (binding?.imported !== providerName || binding.module !== './operationSession')
+    throw new Error(
+      `${code}Operations session provider must be an unaliased import from ./operationSession`,
+    )
+}
+
+/** Derives one member's allowed public index surface from its documented declarations. */
+function dialectIndexSurface(member: ProductionDialectSource): IndexSurface {
+  if (!(member.code in PUBLIC_DIALECT_CONTRACTS))
+    throw new Error(`${member.code} must declare its public contract`)
+
+  const contract: PublicDialectContract =
+    PUBLIC_DIALECT_CONTRACTS[member.code as keyof typeof PUBLIC_DIALECT_CONTRACTS]
+
+  assertOperationSessionProvider(
+    parse(join(member.directory, 'operations.ts')),
+    member.code,
+    contract.provider,
+  )
+
+  return new Map<string, ReadonlySet<string>>([
+    ['./dialect', new Set([member.symbol])],
+    ['./operationSession', new Set([contract.provider])],
+  ])
+}
+
+/** Reports statements that deviate from one member's exact explicit export surface. */
+function dialectIndexViolations(source: ts.SourceFile, expected: IndexSurface): string[] {
+  const seen = new Set<string>()
+  const violations = source.statements.flatMap((statement) =>
+    inspectIndexExport(statement, expected, seen),
+  )
+
+  const missing = [...expected].flatMap(([module, names]) =>
+    [...names].flatMap((name) =>
+      seen.has(`${module}:${name}`) ? [] : [`missing public export ${name}`],
+    ),
+  )
+
+  return [...violations, ...missing]
+}
+
+/** Checks one public index statement and records its valid named exports. */
+function inspectIndexExport(
+  statement: ts.Statement,
+  expected: IndexSurface,
+  seen: Set<string>,
+): string[] {
+  if (!ts.isExportDeclaration(statement) || statement.isTypeOnly)
+    return ['index.ts may contain only runtime export declarations']
+
+  const module = moduleSpecifier(statement)?.text
+  const exports = statement.exportClause
+
+  if (!module || !exports || !ts.isNamedExports(exports) || !expected.has(module))
+    return ['index.ts exports must use an allowed module and explicit names']
+
+  return exports.elements.flatMap((element) => {
+    const token = `${module}:${element.name.text}`
+
+    if (element.propertyName || !expected.get(module)!.has(element.name.text))
+      return [`unexpected public export ${token}`]
+
+    if (seen.has(token)) return [`duplicate public export ${token}`]
+
+    seen.add(token)
+    return []
+  })
+}
+
+const EXAMPLE_MANIFEST = `
+  import { defineDialect } from '../defineDialect'
+  import { exampleIdentity } from './identity'
+  import { exampleNaming } from './naming'
+  import { exampleSchema } from './schema'
+  import { exampleQuery } from './query'
+  import { exampleCatalog } from './catalog'
+  import { exampleOperations } from './operations'
+  import { executeExampleMigration, lowerExampleMigrationPlan } from './migration'
+
+  export const exampleDialect = defineDialect({
+    id: 'example',
+    identity: exampleIdentity,
+    naming: exampleNaming,
+    schema: exampleSchema,
+    query: exampleQuery,
+    catalog: exampleCatalog,
+    operations: exampleOperations,
+    lower: lowerExampleMigrationPlan,
+    execute: executeExampleMigration,
+  })
+`
+
+const EXAMPLE_REGISTRY = `
+  import { exampleDialect } from './example'
+  export const productionDialects = [exampleDialect]
+`
+
+const EXAMPLE_OPERATIONS = `
+  import { createDb0ExampleOperationSessionProvider } from './operationSession'
+  export const exampleOperations = {
+    createSessionProvider: createDb0ExampleOperationSessionProvider,
+    compile: () => ({ sql: 'select 1', params: [] }),
+  }
+`
+
+const OPERATION_PROVIDER_CLASSIFICATIONS = [
+  [
+    'a provider imported from the wrong module',
+    EXAMPLE_OPERATIONS.replace("from './operationSession'", "from './runtime'"),
+    'unaliased import from ./operationSession',
+  ],
+  [
+    'an arbitrarily named provider',
+    EXAMPLE_OPERATIONS.replaceAll(
+      'createDb0ExampleOperationSessionProvider',
+      'createArbitraryProvider',
+    ),
+    'exampleOperations must use createDb0ExampleOperationSessionProvider',
+  ],
+] as const
+
+const MANIFEST_CLASSIFICATIONS = [
+  ['valid bindings', EXAMPLE_MANIFEST, false],
+  [
+    'wrong facet source',
+    EXAMPLE_MANIFEST.replace("from './identity'", "from './query'"),
+    true,
+  ],
+  ['inline facet', EXAMPLE_MANIFEST.replace('query: exampleQuery', 'query: {}'), true],
+  [
+    'wrong migration source',
+    EXAMPLE_MANIFEST.replace("from './migration'", "from './runtime'"),
+    true,
+  ],
+  [
+    'multiple declarations',
+    EXAMPLE_MANIFEST.replace(
+      'export const exampleDialect =',
+      'export const extraDialect = {}, exampleDialect =',
+    ),
+    true,
+  ],
+  [
+    'non-const declaration',
+    EXAMPLE_MANIFEST.replace('export const exampleDialect', 'export let exampleDialect'),
+    true,
+  ],
+] as const
+
+const EXAMPLE_INDEX_SURFACE: IndexSurface = new Map([
+  ['./dialect', new Set(['exampleDialect'])],
+  ['./operationSession', new Set(['createDb0ExampleOperationSessionProvider'])],
+])
+
+const EXAMPLE_INDEX = `
+  export { exampleDialect } from './dialect'
+  export { createDb0ExampleOperationSessionProvider } from './operationSession'
+`
+
+/** Replaces only the valid member export in an otherwise complete fake index. */
+function indexFixtureWithMemberExport(memberExport: string): string {
+  return EXAMPLE_INDEX.replace("export { exampleDialect } from './dialect'", memberExport)
 }
 
 /** Formats the source path and one-based line number of an architecture violation. */
@@ -594,6 +1022,166 @@ function rawMemberComparisonLeaks(source: ts.SourceFile): string[] {
     return leak === undefined ? [] : [leak]
   })
 }
+
+describe('production dialect source organization', () => {
+  it('requires every registered member to provide the shared source shape and facets', () => {
+    const violations = productionDialectSources().flatMap(({ code, directory }) => {
+      const missingFiles = REQUIRED_DIALECT_FILES.filter(
+        (file) => !existsSync(join(directory, file)),
+      ).map((file) => `${code}: missing ${file}`)
+
+      const missingFacets = REQUIRED_DIALECT_FACETS.flatMap((facet) => {
+        const file = join(directory, `${facet}.ts`)
+
+        if (!existsSync(file)) return []
+
+        const symbol = `${code}${facet[0]!.toUpperCase()}${facet.slice(1)}`
+
+        const exportsSymbol = parse(file).statements.some(
+          (statement) =>
+            ts.isVariableStatement(statement) &&
+            Boolean(statement.declarationList.flags & ts.NodeFlags.Const) &&
+            exportedStatementNames(statement).includes(symbol),
+        )
+
+        return exportsSymbol ? [] : [`${code}: ${facet}.ts must export const ${symbol}`]
+      })
+
+      return [...missingFiles, ...missingFacets]
+    })
+
+    expect(violations).toEqual([])
+  })
+
+  it('derives the member symbol from its registered directory', () => {
+    expect(productionDialectSources(parseSource(EXAMPLE_REGISTRY))[0]).toMatchObject({
+      code: 'example',
+      symbol: 'exampleDialect',
+    })
+
+    expect(() =>
+      productionDialectSources(
+        parseSource(EXAMPLE_REGISTRY.replaceAll('exampleDialect', 'arbitraryDialect')),
+      ),
+    ).toThrow('must register an unaliased exampleDialect import')
+  })
+})
+
+describe('production dialect shared helpers', () => {
+  it('routes desired-schema graphs through the shared lowerer', () => {
+    for (const { code, directory } of productionDialectSources()) {
+      const imports = namedImportBindings(parse(join(directory, 'lowerDesiredSchema.ts')))
+
+      expect(imports.get('lowerDesiredSchemaGraph'), code).toEqual({
+        imported: 'lowerDesiredSchemaGraph',
+        module: '@/dialects/lowerDesiredSchema',
+      })
+    }
+  })
+
+  it('shares lifecycle SQL only between the members with identical syntax', () => {
+    const sharedMembers = productionDialectSources().filter(({ code }) =>
+      ['postgres', 'sqlite'].includes(code),
+    )
+
+    for (const { code, directory } of sharedMembers) {
+      const imports = namedImportBindings(parse(join(directory, 'operations.ts')))
+
+      expect(imports.get('compileCommonOperationCommand'), code).toEqual({
+        imported: 'compileCommonOperationCommand',
+        module: '../operations',
+      })
+    }
+  })
+})
+
+describe('production dialect source organization: keeps assembly isolated', () => {
+  it('keeps each complete member assembly as the only declaration in dialect.ts', () => {
+    const violations = productionDialectSources().flatMap((member) =>
+      dialectManifestViolations(parse(join(member.directory, 'dialect.ts')), member),
+    )
+
+    expect(violations).toEqual([])
+  })
+
+  it.each(MANIFEST_CLASSIFICATIONS)('classifies %s', (_name, code, rejected) => {
+    const violations = dialectManifestViolations(parseSource(code), {
+      symbol: 'exampleDialect',
+      code: 'example',
+    })
+
+    expect(violations.length > 0).toBe(rejected)
+  })
+
+  it.each(OPERATION_PROVIDER_CLASSIFICATIONS)('rejects %s', (_name, code, message) => {
+    expect(() =>
+      assertOperationSessionProvider(
+        parseSource(code),
+        'example',
+        'createDb0ExampleOperationSessionProvider',
+      ),
+    ).toThrow(message)
+  })
+})
+
+describe('production dialect source organization: keeps exports explicit', () => {
+  it('uses index.ts only for explicit public exports', () => {
+    const violations = productionDialectSources().flatMap((member) =>
+      dialectIndexViolations(
+        parse(join(member.directory, 'index.ts')),
+        dialectIndexSurface(member),
+      ),
+    )
+
+    expect(violations).toEqual([])
+  })
+})
+
+describe('production dialect source organization: classifies public indexes', () => {
+  it('accepts a complete explicit index', () => {
+    expect(
+      dialectIndexViolations(parseSource(EXAMPLE_INDEX), EXAMPLE_INDEX_SURFACE),
+    ).toEqual([])
+  })
+
+  it.each([
+    [
+      'side-effect import',
+      `${EXAMPLE_INDEX}\nimport './setup'`,
+      'index.ts may contain only runtime export declarations',
+    ],
+    [
+      'runtime statement',
+      `${EXAMPLE_INDEX}\nconst leaked = 1`,
+      'index.ts may contain only runtime export declarations',
+    ],
+    [
+      'wildcard export',
+      indexFixtureWithMemberExport(`export * from './dialect'`),
+      'index.ts exports must use an allowed module and explicit names',
+    ],
+    [
+      'aliased member',
+      indexFixtureWithMemberExport(
+        `export { internalDialect as exampleDialect } from './dialect'`,
+      ),
+      'unexpected public export ./dialect:exampleDialect',
+    ],
+    [
+      'wrong member module',
+      indexFixtureWithMemberExport(`export { exampleDialect } from './operationSession'`),
+      'unexpected public export ./operationSession:exampleDialect',
+    ],
+    [
+      'arbitrary session helper',
+      `${EXAMPLE_INDEX}\nexport { helper } from './operationSession'`,
+      'unexpected public export ./operationSession:helper',
+    ],
+  ])('classifies %s', (_name, code, expectedViolation) => {
+    const violations = dialectIndexViolations(parseSource(code), EXAMPLE_INDEX_SURFACE)
+    expect(violations).toContain(expectedViolation)
+  })
+})
 
 describe('dialect extension locality architecture', () => {
   it('keeps concrete dialect imports outside Client, Schema, Query, Migration, and Operations', () => {

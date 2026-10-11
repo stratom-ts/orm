@@ -1,9 +1,11 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import {
-  createDb0PostgresqlOperationSessionProvider,
+  createDb0NodeSqliteOperationSessionProvider,
+  createDb0PostgresOperationSessionProvider,
   postgresDialect,
   resolveDialect,
+  sqliteDialect,
 } from '@/index'
 import type {
   CreateDatabaseConfig,
@@ -40,7 +42,7 @@ describe('public dialect member contract', () => {
     expectTypeOf<CreateDatabaseConfig>().not.toHaveProperty('dialect')
   })
 
-  it('exposes PostgreSQL behavior only through cohesive facets', () => {
+  it('exposes production behavior only through cohesive facets', () => {
     expectTypeOf<Dialect>().not.toHaveProperty('relationIdentity')
     expectTypeOf<Dialect>().not.toHaveProperty('lowerDesiredSchema')
     expectTypeOf<Dialect>().not.toHaveProperty('inferColumnType')
@@ -51,14 +53,20 @@ describe('public dialect member contract', () => {
     expectTypeOf<Dialect>().not.toHaveProperty('mapParamValue')
 
     expect(postgresDialect.operations.createSessionProvider).toBe(
-      createDb0PostgresqlOperationSessionProvider,
+      createDb0PostgresOperationSessionProvider,
     )
 
-    expect(postgresDialect.catalog).toBeDefined()
-    expect(postgresDialect.migration.planning.identity).toBe(postgresDialect.identity)
-    expect(postgresDialect.migration.planning.naming).toBe(postgresDialect.naming)
-    expect(postgresDialect.migration.planning.schema).toBe(postgresDialect.schema)
-    expect(postgresDialect.migration.catalog).toBe(postgresDialect.catalog)
+    expect(sqliteDialect.operations.createSessionProvider).toBe(
+      createDb0NodeSqliteOperationSessionProvider,
+    )
+
+    for (const dialect of [postgresDialect, sqliteDialect]) {
+      expect(dialect.catalog).toBeDefined()
+      expect(dialect.migration.planning.identity).toBe(dialect.identity)
+      expect(dialect.migration.planning.naming).toBe(dialect.naming)
+      expect(dialect.migration.planning.schema).toBe(dialect.schema)
+      expect(dialect.migration.catalog).toBe(dialect.catalog)
+    }
   })
 })
 
@@ -99,9 +107,10 @@ describe('public dialect member contract: binds PostgreSQL identity and naming s
   })
 })
 
-describe('public dialect member contract: resolves the complete PostgreSQL dialect member', () => {
-  it('resolves the complete PostgreSQL dialect member', () => {
+describe('public dialect member contract: resolves every production dialect member', () => {
+  it('resolves every production dialect member', () => {
     expect(resolveDialect('postgresql')).toBe(postgresDialect)
+    expect(resolveDialect('sqlite')).toBe(sqliteDialect)
   })
 })
 

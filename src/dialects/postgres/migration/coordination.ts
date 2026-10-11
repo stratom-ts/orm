@@ -186,7 +186,7 @@ export async function runCancellable<T>(options: {
 
   const operation = options.operation()
 
-  var { interrupted, timer, abort } = armOperationInterruption(timeoutMs, runtime)
+  const { interrupted, timer, abort } = armOperationInterruption(timeoutMs, runtime)
   const settled = operation.then(
     (value) => ({ kind: 'value' as const, value }),
     (cause: unknown) => ({ kind: 'error' as const, cause }),
@@ -413,7 +413,7 @@ async function acquireCoordinationLock(
       acquired,
     )
 
-    let row = await attemptCoordinationLock(
+    const row = await attemptCoordinationLock(
       options,
       state,
       timeout,

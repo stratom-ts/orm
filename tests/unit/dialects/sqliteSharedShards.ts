@@ -1,9 +1,7 @@
 import nodeSqliteConnector from 'db0/connectors/node-sqlite'
 
-import {
-  createDb0NodeSqliteOperationSessionProvider,
-  executeSqliteMigration,
-} from '@/dialects/sqlite'
+import { executeSqliteMigration } from '@/dialects/sqlite/migration/runtime'
+import { createDb0NodeSqliteOperationSessionProvider } from '@/dialects/sqlite/operationSession'
 import type { Executor } from '@/query'
 import { MigrationError } from '@/utils/error'
 

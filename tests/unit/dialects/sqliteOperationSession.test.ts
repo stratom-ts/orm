@@ -6,10 +6,8 @@ import { dirname, join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { OperationCommand } from '@/dialects'
-import {
-  compileSqliteOperationCommand,
-  createDb0NodeSqliteOperationSessionProvider,
-} from '@/dialects/sqlite'
+import { compileSqliteOperationCommand } from '@/dialects/sqlite/operations'
+import { createDb0NodeSqliteOperationSessionProvider } from '@/dialects/sqlite/operationSession'
 import type {
   OperationSession,
   OperationSessionProvider,

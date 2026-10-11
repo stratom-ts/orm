@@ -3800,7 +3800,7 @@ function verifyNativeForeignKeys(
  *   status.
  */
 function decodeTableIndexes(input: SqliteIndexDecoding) {
-  let {
+  const {
     indexes,
     indexInfos,
     row,
@@ -3809,8 +3809,9 @@ function decodeTableIndexes(input: SqliteIndexDecoding) {
     identities,
     constraintName,
     createSql,
-    managed,
   } = input
+
+  let managed = input.managed
 
   const uniqueConstraints: CatalogKeyConstraint[] = []
   const catalogIndexes: CatalogIndex[] = []
@@ -3843,7 +3844,7 @@ function decodeTableIndexes(input: SqliteIndexDecoding) {
  * @returns Portable foreign-key evidence while preserving table management status.
  */
 function decodeTableForeignKeys(input: TableForeignKeyDecoding) {
-  let {
+  const {
     foreignKeys,
     row,
     columns,
@@ -3852,8 +3853,9 @@ function decodeTableForeignKeys(input: TableForeignKeyDecoding) {
     identities,
     createSql,
     constraintName,
-    managed,
   } = input
+
+  let managed = input.managed
 
   const fks: CatalogForeignKey[] = []
   const grouped = new Map<number, ForeignKeyRow[]>()
@@ -4786,16 +4788,10 @@ type TableForeignKeyDecoding = {
  * @returns Columns and primary-key evidence before indexes and foreign keys.
  */
 function decodeTableStructure(input: SqliteTableStructure) {
-  let {
-    row,
-    schema,
-    xinfo,
-    nativeDefinition,
-    identities,
-    managed,
-    tableOpaque,
-    evidence,
-  } = input
+  const { row, schema, xinfo, nativeDefinition, identities, tableOpaque, evidence } =
+    input
+
+  let managed = input.managed
 
   const columnEvidence = decodeCatalogColumns(
     row,

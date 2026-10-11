@@ -26,8 +26,8 @@ registration default takes precedence over the selected dialect/session writable
 default. There is no shared `public` fallback. PostgreSQL omission equals explicit
 `public` only when the resolved context names `public`.
 
-PostgreSQL identities contain database, schema, and relation. SQLite fixture identities
-contain database alias and relation.
+PostgreSQL identities contain database, schema, and relation. SQLite identities contain
+database alias and relation.
 
 ## Consequences
 

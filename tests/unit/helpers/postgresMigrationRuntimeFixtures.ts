@@ -57,7 +57,7 @@ export function createPostgresMigrationRuntime(
     async (migrationProgram: MigrationProgram) => migrationProgram,
   )
 
-  var { held, releaseHold } = createRuntimeHold(options)
+  const { held, releaseHold } = createRuntimeHold(options)
   const { hang, cancel } = createInFlightCancellation()
 
   /** Applies the fixture's configured lock-acquisition outcome. */

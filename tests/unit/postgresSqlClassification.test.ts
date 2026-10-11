@@ -7,7 +7,7 @@ import {
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
 import { scanPostgresSql } from '@/dialects/postgres/postgresSql'
-import { createDb0PostgresqlOperationSessionProvider } from '@/index'
+import { createDb0PostgresOperationSessionProvider } from '@/index'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 import { createNativeConnector } from './helpers/operationSessionFixtures'
@@ -15,7 +15,7 @@ import { createNativeConnector } from './helpers/operationSessionFixtures'
 describe('PostgreSQL SQL lexical classification', () => {
   it('lexically classifies stateful SQL without matching inert quoted text', async () => {
     const connector = createNativeConnector()
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const warm = await provider.open()
     await warm.release('reuse')
 

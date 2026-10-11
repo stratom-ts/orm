@@ -1,3 +1,7 @@
+import {
+  formatDesiredSchemaIdentity,
+  lowerDesiredSchemaGraph,
+} from '@/dialects/lowerDesiredSchema'
 import type {
   AuthoredDesiredColumn,
   AuthoredDesiredSchema,
@@ -6,19 +10,8 @@ import type {
   LoweredDesiredColumn,
   LoweredDesiredSchema,
 } from '@/dialects/types'
-import type {
-  CanonicalIdentifier,
-  CanonicalRelationIdentity,
-} from '@/migrations/canonicalRelationIdentity'
-import type {
-  ColumnGeneration,
-  ColumnMetadata,
-  DatabaseDefault,
-  ReferenceMetadata,
-} from '@/schemas'
-import { analyzeSchema } from '@/schemas'
+import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
 import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
-import type { AnySchema } from '@/types/schema'
 import { MigrationError } from '@/utils/error'
 
 import { inferPostgresColumnType } from './infer'
@@ -37,62 +30,6 @@ const IDENTITY_BASE_TYPES = new Set([
   'int4',
   'int8',
 ])
-
-/**
- * Tests canonical relation identity equality.
- *
- * @param left - Left relation identity.
- * @param right - Right relation identity.
- */
-function sameIdentity(
-  left: CanonicalRelationIdentity,
-  right: CanonicalRelationIdentity,
-): boolean {
-  return (
-    left.relation.comparisonKey === right.relation.comparisonKey &&
-    left.namespace.length === right.namespace.length &&
-    left.namespace.every(
-      (segment, index) =>
-        segment.role === right.namespace[index]?.role &&
-        segment.identifier.comparisonKey ===
-          right.namespace[index]?.identifier.comparisonKey,
-    )
-  )
-}
-
-/**
- * Formats a relation or column identity for diagnostics.
- *
- * @param identity - Canonical relation identity.
- * @param column - Optional column name.
- */
-function formatIdentity(identity: CanonicalRelationIdentity, column?: string): string {
-  const parts = identity.namespace.map(
-    (segment) => `${segment.role}:${JSON.stringify(segment.identifier.spelling)}`,
-  )
-
-  parts.push(`relation:${JSON.stringify(identity.relation.spelling)}`)
-
-  if (column !== undefined) parts.push(`column:${JSON.stringify(column)}`)
-
-  return `[${parts.join(', ')}]`
-}
-
-/**
- * Reads the schema spelling from a PostgreSQL relation identity.
- *
- * @param identity - Canonical relation identity.
- */
-/**
- * Returns table columns in deterministic name order.
- *
- * @param table - Authored desired table.
- */
-function orderedColumns(table: AuthoredDesiredTable): AuthoredDesiredColumn[] {
-  return [...table.columns].sort((left, right) =>
-    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-  )
-}
 
 /**
  * Lowers a portable database expression to PostgreSQL SQL.
@@ -233,18 +170,20 @@ function validateReferencePhysicalType(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
   inheritedType: string,
-): void {
+): string {
   const selected = column.metadata?.physicalType?.postgresql
 
-  if (selected === undefined) return
+  if (selected === undefined) return inheritedType
 
   const localType = assertSafePostgresDataType(String(selected))
 
   if (normalizePostgresDataType(localType) !== normalizePostgresDataType(inheritedType)) {
     throw new MigrationError({
-      message: `Reference column ${formatIdentity(table.identity, column.name)} selects PostgreSQL type ${JSON.stringify(localType)} but target type is ${JSON.stringify(inheritedType)}`,
+      message: `Reference column ${formatDesiredSchemaIdentity(table.identity, column.name)} selects PostgreSQL type ${JSON.stringify(localType)} but target type is ${JSON.stringify(inheritedType)}`,
     })
   }
+
+  return inheritedType
 }
 
 /**
@@ -263,13 +202,13 @@ function validatePostgresColumn(
 
   if (metadata?.comment !== undefined) {
     throw new MigrationError({
-      message: `PostgreSQL migration lowering does not support comments on ${formatIdentity(table.identity, column.name)}`,
+      message: `PostgreSQL migration lowering does not support comments on ${formatDesiredSchemaIdentity(table.identity, column.name)}`,
     })
   }
 
   if (metadata?.onUpdate !== undefined) {
     throw new MigrationError({
-      message: `PostgreSQL migration lowering does not support onUpdate on ${formatIdentity(table.identity, column.name)}`,
+      message: `PostgreSQL migration lowering does not support onUpdate on ${formatDesiredSchemaIdentity(table.identity, column.name)}`,
     })
   }
 
@@ -283,7 +222,7 @@ function validatePostgresColumn(
 
     if (!IDENTITY_BASE_TYPES.has(base)) {
       throw new MigrationError({
-        message: `column ${formatIdentity(table.identity, column.name)} uses identity generation with type ${JSON.stringify(dataType)}; PostgreSQL identity requires smallint, integer, or bigint`,
+        message: `column ${formatDesiredSchemaIdentity(table.identity, column.name)} uses identity generation with type ${JSON.stringify(dataType)}; PostgreSQL identity requires smallint, integer, or bigint`,
       })
     }
   }
@@ -310,7 +249,7 @@ function lowerColumn(
     : [table.metadata.primaryKey]
 
   const reference = column.reference
-  return Object.freeze({
+  return {
     identifier: column.identifier,
     dataType,
     notNull: !analysis.nullable,
@@ -336,7 +275,7 @@ function lowerColumn(
               : { onUpdate: reference.metadata.onUpdate }),
           },
         }),
-  })
+  }
 }
 
 /**
@@ -350,184 +289,11 @@ function lowerColumn(
 export function lowerPostgresDesiredSchema(
   graph: AuthoredDesiredSchema,
 ): LoweredDesiredSchema {
-  const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
-  const analyses = new Map<AuthoredDesiredColumn, SchemaAnalysis>()
-
-  /** Caches schema facts and resolves physical types for columns without references. */
-  function registerColumnAnalysis(column: AuthoredDesiredColumn): void {
-    const analysis = analyzeSchema(column.schema)
-    analyses.set(column, analysis)
-
-    if (!column.reference) resolvedTypes.set(column, physicalType(column, analysis))
-  }
-
-  for (const table of graph.tables) {
-    if (table.columns.length === 0) {
-      throw new MigrationError({
-        message: `table ${formatIdentity(table.identity)} has no columns`,
-      })
-    }
-
-    for (const column of orderedColumns(table)) registerColumnAnalysis(column)
-  }
-
-  resolveReferenceTypes(graph, resolvedTypes)
-
-  const loweredColumns = new Map<AuthoredDesiredColumn, LoweredDesiredColumn>()
-
-  for (const table of graph.tables) {
-    for (const column of orderedColumns(table)) {
-      loweredColumns.set(
-        column,
-        lowerColumn(table, column, resolvedTypes.get(column)!, analyses.get(column)!),
-      )
-    }
-  }
-
-  return freezeLoweredSchema(graph, loweredColumns)
-}
-
-type PendingReference = { table: AuthoredDesiredTable; column: AuthoredDesiredColumn }
-
-/**
- * Freezes resolved tables, columns, and primary-key identifiers into a desired schema.
- *
- * @param graph - Registered authored tables and their resolved reference graph.
- * @param loweredColumns - Desired columns after dialect-specific storage resolution.
- *
- * @returns An immutable desired schema with frozen table, column, and key metadata.
- */
-function freezeLoweredSchema(
-  graph: AuthoredDesiredSchema,
-  loweredColumns: ReadonlyMap<AuthoredDesiredColumn, LoweredDesiredColumn>,
-): LoweredDesiredSchema {
-  return Object.freeze({
-    tables: Object.freeze(
-      graph.tables.map((table) => {
-        const primaryKey = Array.isArray(table.metadata.primaryKey)
-          ? [...table.metadata.primaryKey]
-          : [table.metadata.primaryKey]
-
-        return Object.freeze({
-          handle: table.handle,
-          identity: table.identity,
-          // Resolution is sorted for determinism; emitted DDL preserves authored order.
-          columns: Object.freeze(
-            table.columns.map((column) => loweredColumns.get(column)!),
-          ),
-          primaryKey: Object.freeze(
-            primaryKey.map((name) => {
-              const column = table.columns.find((candidate) => candidate.name === name)
-
-              if (!column) {
-                throw new MigrationError({
-                  message: `Primary key ${formatIdentity(table.identity, name)} does not name a desired column`,
-                })
-              }
-
-              return column.identifier
-            }),
-          ),
-        })
-      }),
-    ),
+  return lowerDesiredSchemaGraph(graph, undefined, {
+    lowerPhysicalType: (column, analysis) => physicalType(column, analysis),
+    lowerReferenceType: (table, column, inheritedType) =>
+      validateReferencePhysicalType(table, column, inheritedType),
+    lowerColumn: (table, column, dataType, analysis) =>
+      lowerColumn(table, column, dataType, analysis),
   })
-}
-
-/**
- * Resolves reference types in dependency order and rejects cycles without progress.
- *
- * @param graph - Registered authored tables and their resolved reference graph.
- * @param resolvedTypes - Mutable cache of physical types already resolved for authored
- *   columns.
- */
-function resolveReferenceTypes(
-  graph: AuthoredDesiredSchema,
-  resolvedTypes: Map<
-    Readonly<{
-      name: string
-      identifier: CanonicalIdentifier
-      schema: AnySchema
-      metadata?: ColumnMetadata
-      reference?: Readonly<{
-        metadata: ReferenceMetadata
-        targetRelation: CanonicalRelationIdentity
-        targetColumn: CanonicalIdentifier
-      }>
-    }>,
-    string
-  >,
-) {
-  let pending = graph.tables.flatMap((table) =>
-    orderedColumns(table)
-      .filter((column) => column.reference !== undefined)
-      .map((column) => ({ table, column })),
-  )
-
-  while (pending.length > 0) {
-    const unresolved: typeof pending = []
-    let progress = false
-
-    for (const item of pending)
-      progress = resolvePendingType(item, unresolved, graph, resolvedTypes) || progress
-
-    if (!progress) {
-      const first = unresolved[0]!
-      throw new MigrationError({
-        message: `Cannot resolve reference-only physical type cycle at ${formatIdentity(first.table.identity, first.column.name)}`,
-      })
-    }
-
-    pending = unresolved
-  }
-}
-
-/**
- * Resolves one reference type or defers it until the target's type is known.
- *
- * @param item - Current member or pending reference under evaluation.
- * @param unresolved - Pending references whose target types are not yet available.
- * @param graph - Registered authored tables and their resolved reference graph.
- * @param resolvedTypes - Mutable cache of physical types already resolved for authored
- *   columns.
- *
- * @returns Whether the target type was available and this reference was resolved.
- */
-function resolvePendingType(
-  item: PendingReference,
-  unresolved: PendingReference[],
-  graph: AuthoredDesiredSchema,
-  resolvedTypes: Map<AuthoredDesiredColumn, string>,
-): boolean {
-  const reference = item.column.reference!
-  const targetTable = graph.tables.find((table) =>
-    sameIdentity(table.identity, reference.targetRelation),
-  )
-
-  if (!targetTable) {
-    throw new MigrationError({
-      message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets unregistered relation ${formatIdentity(reference.targetRelation)}`,
-    })
-  }
-
-  const targetColumn = targetTable.columns.find(
-    (column) => column.identifier.comparisonKey === reference.targetColumn.comparisonKey,
-  )
-
-  if (!targetColumn) {
-    throw new MigrationError({
-      message: `Reference ${formatIdentity(item.table.identity, item.column.name)} targets missing column ${formatIdentity(reference.targetRelation, reference.targetColumn.spelling)}`,
-    })
-  }
-
-  const targetType = resolvedTypes.get(targetColumn)
-
-  if (targetType === undefined) {
-    unresolved.push(item)
-    return false
-  }
-
-  validateReferencePhysicalType(item.table, item.column, targetType)
-  resolvedTypes.set(item.column, targetType)
-  return true
 }

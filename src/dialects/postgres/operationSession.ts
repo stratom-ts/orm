@@ -446,15 +446,15 @@ function createNativeOperationSession(
 }
 
 /**
- * Creates the exact operation-session provider for db0 0.3.4's PostgreSQL
+ * Creates the exact operation-session provider for db0 0.4.0's PostgreSQL
  * connector, whose `getInstance()` is one lazily connected native `pg.Client`.
  *
  * @example
- *   const provider = createDb0PostgresqlOperationSessionProvider(connector)
+ *   const provider = createDb0PostgresOperationSessionProvider(connector)
  *
  * @param connector - Db0 PostgreSQL connector.
  */
-export function createDb0PostgresqlOperationSessionProvider(
+export function createDb0PostgresOperationSessionProvider(
   connector: Connector,
 ): OperationSessionProvider {
   assertDb0PostgresConnector(connector)
@@ -547,7 +547,7 @@ async function openNativeLease(
 
   state.activeLease = lease
 
-  let {
+  const {
     client,
     identity,
   }: { client: NativePostgresClient; identity: OperationSessionIdentity } =
