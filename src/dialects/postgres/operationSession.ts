@@ -479,14 +479,6 @@ export function createDb0PostgresOperationSessionProvider(
 }
 
 /**
- * @deprecated Use `createDb0PostgresOperationSessionProvider`. The old code-prefix
- *   spelling remains available during the 0.x compatibility window and is removed in
- *   1.0.
- */
-export const createDb0PostgresqlOperationSessionProvider =
-  createDb0PostgresOperationSessionProvider
-
-/**
  * Requires the connector capabilities needed for exact native PostgreSQL session
  * ownership.
  *

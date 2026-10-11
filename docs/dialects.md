@@ -353,12 +353,8 @@ upper snake case. Use `const` unless a binding is reassigned, use `let` for reas
 and do not use `var`.
 
 Each member `index.ts` exports its complete Dialect and advanced operation-session provider
-factory. The package root exposes those exports symmetrically. SQLite implementation
-helpers that were already exposed remain deprecated compatibility exports during 0.x;
-use `sqliteDialect` facets or the public database interface instead. Those helper exports
-are removed in 1.0. The former
-`createDb0PostgresqlOperationSessionProvider` spelling is also a deprecated 0.x alias for
-`createDb0PostgresOperationSessionProvider`.
+factory. The package root exposes those exports symmetrically. Do not expose dialect
+implementation helpers; use the complete Dialect facets or the public database interface.
 
 Package-supported members are statically imported and listed in `productionDialects` in
 `src/dialects/resolve.ts` by their exact db0 `SQLDialect` id. `createDialectRegistry()`

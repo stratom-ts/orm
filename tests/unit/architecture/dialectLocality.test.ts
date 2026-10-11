@@ -123,56 +123,14 @@ const REQUIRED_DIALECT_FACETS = [
 
 type PublicDialectContract = {
   provider: string
-  operationSessionCompatibility: readonly {
-    name: string
-    initializer: string
-  }[]
-  compatibility: Readonly<Record<string, readonly string[]>>
 }
 
 const PUBLIC_DIALECT_CONTRACTS = {
   postgres: {
     provider: 'createDb0PostgresOperationSessionProvider',
-    operationSessionCompatibility: [
-      {
-        name: 'createDb0PostgresqlOperationSessionProvider',
-        initializer: 'createDb0PostgresOperationSessionProvider',
-      },
-    ],
-    compatibility: {},
   },
   sqlite: {
     provider: 'createDb0NodeSqliteOperationSessionProvider',
-    operationSessionCompatibility: [],
-    compatibility: {
-      './identity': [
-        'SQLITE_IDENTITY_POLICY',
-        'asciiFoldSqliteIdentifier',
-        'sqliteIdentity',
-      ],
-      './infer': ['inferSqliteColumnType'],
-      './catalog': ['sqliteCatalog'],
-      './lowerDesiredSchema': ['lowerSqliteDesiredSchema'],
-      './mapping': ['mapSqliteParamValue', 'mapSqliteResultValue'],
-      './naming': ['SQLITE_PHYSICAL_NAMING', 'sqliteNaming'],
-      './normalize': ['normalizeSqliteDataType', 'normalizeSqliteDefaultExpression'],
-      './queryAddressing': ['resolveSqliteQuery'],
-      './operations': ['compileSqliteOperationCommand', 'sqliteOperations'],
-      './migration': ['executeSqliteMigration', 'lowerSqliteMigrationPlan'],
-      './validate': [
-        'assertSafeSqliteDataType',
-        'formatSqliteDefaultExpression',
-        'formatSqliteLiteral',
-        'normalizeSqliteDefaultValue',
-      ],
-      './compile': [
-        'compileSqlite',
-        'createSqliteQueryRelationResolver',
-        'resolveSqliteQueryRelation',
-      ],
-      './schema': ['sqliteSchema'],
-      './query': ['sqliteQuery'],
-    },
   },
 } as const satisfies Readonly<Record<string, PublicDialectContract>>
 
@@ -186,8 +144,6 @@ type ImportBinding = {
   imported: string
   module: string
 }
-
-type CompatibilityBinding = ImportBinding & { name: string }
 
 type IndexSurface = ReadonlyMap<string, ReadonlySet<string>>
 
@@ -423,70 +379,6 @@ function assertOperationSessionProvider(
     )
 }
 
-/** Maps exported const names to their initializer identifiers. */
-function exportedConstInitializers(source: ts.SourceFile): Map<string, string> {
-  const entries = source.statements.flatMap((statement) => {
-    if (
-      !ts.isVariableStatement(statement) ||
-      !(statement.declarationList.flags & ts.NodeFlags.Const)
-    )
-      return []
-
-    const exported = new Set(exportedStatementNames(statement))
-
-    return statement.declarationList.declarations.flatMap((declaration) =>
-      ts.isIdentifier(declaration.name) &&
-      declaration.initializer !== undefined &&
-      ts.isIdentifier(declaration.initializer) &&
-      exported.has(declaration.name.text)
-        ? ([[declaration.name.text, declaration.initializer.text]] as const)
-        : [],
-    )
-  })
-
-  return new Map(entries)
-}
-
-/** Returns deprecated runtime exports declared by a source module. */
-function deprecatedExportNames(source: ts.SourceFile): string[] {
-  return source.statements.flatMap((statement) =>
-    statement.getFullText(source).includes('@deprecated')
-      ? exportedStatementNames(statement)
-      : [],
-  )
-}
-
-/** Checks compatibility declarations against their independent source bindings. */
-function assertCompatibilityExports(
-  source: ts.SourceFile,
-  expected: readonly CompatibilityBinding[],
-  code: string,
-): void {
-  const exported = source.statements.flatMap(exportedStatementNames)
-  const deprecated = deprecatedExportNames(source)
-  const initializers = exportedConstInitializers(source)
-  const imports = namedImportBindings(source)
-  const expectedNames = expected.map(({ name }) => name)
-
-  if (
-    exported.length !== expected.length ||
-    deprecated.length !== expected.length ||
-    expectedNames.some((name) => !exported.includes(name) || !deprecated.includes(name))
-  )
-    throw new Error(`${code}/compatibility.ts violates its public contract`)
-
-  const invalid = expected.find(({ name, imported, module }) => {
-    const initializer = initializers.get(name)
-    const binding = initializer ? imports.get(initializer) : undefined
-    return binding?.imported !== imported || binding.module !== module
-  })
-
-  if (invalid)
-    throw new Error(
-      `${code}/compatibility.ts must wire ${invalid.name} from ${invalid.module}`,
-    )
-}
-
 /** Derives one member's allowed public index surface from its documented declarations. */
 function dialectIndexSurface(member: ProductionDialectSource): IndexSurface {
   if (!(member.code in PUBLIC_DIALECT_CONTRACTS))
@@ -501,45 +393,10 @@ function dialectIndexSurface(member: ProductionDialectSource): IndexSurface {
     contract.provider,
   )
 
-  const surface = new Map<string, ReadonlySet<string>>([
+  return new Map<string, ReadonlySet<string>>([
     ['./dialect', new Set([member.symbol])],
-    [
-      './operationSession',
-      new Set([
-        contract.provider,
-        ...contract.operationSessionCompatibility.map(({ name }) => name),
-      ]),
-    ],
+    ['./operationSession', new Set([contract.provider])],
   ])
-
-  const operationSession = parse(join(member.directory, 'operationSession.ts'))
-  const sessionInitializers = exportedConstInitializers(operationSession)
-  const deprecatedSessionExports = deprecatedExportNames(operationSession)
-
-  if (
-    contract.operationSessionCompatibility.some(
-      ({ name, initializer }) =>
-        sessionInitializers.get(name) !== initializer ||
-        !deprecatedSessionExports.includes(name),
-    )
-  )
-    throw new Error(
-      `${member.code}/operationSession.ts is missing a compatibility export`,
-    )
-
-  const compatibility = Object.entries(contract.compatibility).flatMap(
-    ([module, names]) => names.map((name) => ({ name, imported: name, module })),
-  )
-
-  if (compatibility.length > 0) {
-    const compatibilityFile = join(member.directory, 'compatibility.ts')
-    const compatibilitySource = parse(compatibilityFile)
-
-    assertCompatibilityExports(compatibilitySource, compatibility, member.code)
-    surface.set('./compatibility', new Set(compatibility.map(({ name }) => name)))
-  }
-
-  return surface
 }
 
 /** Reports statements that deviate from one member's exact explicit export surface. */
@@ -622,28 +479,6 @@ const EXAMPLE_OPERATIONS = `
   }
 `
 
-const EXAMPLE_COMPATIBILITY_BINDINGS = [
-  { name: 'mapSqliteParamValue', imported: 'mapSqliteParamValue', module: './mapping' },
-  {
-    name: 'mapSqliteResultValue',
-    imported: 'mapSqliteResultValue',
-    module: './mapping',
-  },
-] as const
-
-const EXAMPLE_COMPATIBILITY = `
-  import {
-    mapSqliteParamValue as mapSqliteParamValueImplementation,
-    mapSqliteResultValue as mapSqliteResultValueImplementation,
-  } from './mapping'
-
-  /** @deprecated Compatibility fixture. */
-  export const mapSqliteParamValue = mapSqliteParamValueImplementation
-
-  /** @deprecated Compatibility fixture. */
-  export const mapSqliteResultValue = mapSqliteResultValueImplementation
-`
-
 const OPERATION_PROVIDER_CLASSIFICATIONS = [
   [
     'a provider imported from the wrong module',
@@ -690,23 +525,12 @@ const MANIFEST_CLASSIFICATIONS = [
 
 const EXAMPLE_INDEX_SURFACE: IndexSurface = new Map([
   ['./dialect', new Set(['exampleDialect'])],
-  [
-    './operationSession',
-    new Set([
-      'createDb0ExampleOperationSessionProvider',
-      'createDb0ExampleLegacyOperationSessionProvider',
-    ]),
-  ],
-  ['./compatibility', new Set(['legacyExampleHelper'])],
+  ['./operationSession', new Set(['createDb0ExampleOperationSessionProvider'])],
 ])
 
 const EXAMPLE_INDEX = `
   export { exampleDialect } from './dialect'
-  export {
-    createDb0ExampleOperationSessionProvider,
-    createDb0ExampleLegacyOperationSessionProvider,
-  } from './operationSession'
-  export { legacyExampleHelper } from './compatibility'
+  export { createDb0ExampleOperationSessionProvider } from './operationSession'
 `
 
 /** Replaces only the valid member export in an otherwise complete fake index. */
@@ -1283,19 +1107,6 @@ describe('production dialect source organization: keeps exports explicit', () =>
 
     expect(violations).toEqual([])
   })
-
-  it('rejects same-signature compatibility exports wired to the wrong symbol', () => {
-    const source = parseSource(
-      EXAMPLE_COMPATIBILITY.replace(
-        'export const mapSqliteParamValue = mapSqliteParamValueImplementation',
-        'export const mapSqliteParamValue = mapSqliteResultValueImplementation',
-      ),
-    )
-
-    expect(() =>
-      assertCompatibilityExports(source, EXAMPLE_COMPATIBILITY_BINDINGS, 'sqlite'),
-    ).toThrow('must wire mapSqliteParamValue from ./mapping')
-  })
 })
 
 describe('production dialect source organization: classifies public indexes', () => {
@@ -1330,13 +1141,8 @@ describe('production dialect source organization: classifies public indexes', ()
     ],
     [
       'wrong member module',
-      indexFixtureWithMemberExport(`export { exampleDialect } from './compatibility'`),
-      'unexpected public export ./compatibility:exampleDialect',
-    ],
-    [
-      'arbitrary helper',
-      `${EXAMPLE_INDEX}\nexport { helper } from './compatibility'`,
-      'unexpected public export ./compatibility:helper',
+      indexFixtureWithMemberExport(`export { exampleDialect } from './operationSession'`),
+      'unexpected public export ./operationSession:exampleDialect',
     ],
     [
       'arbitrary session helper',

@@ -3,7 +3,6 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   createDb0NodeSqliteOperationSessionProvider,
   createDb0PostgresOperationSessionProvider,
-  createDb0PostgresqlOperationSessionProvider,
   postgresDialect,
   resolveDialect,
   sqliteDialect,
@@ -54,10 +53,6 @@ describe('public dialect member contract', () => {
     expectTypeOf<Dialect>().not.toHaveProperty('mapParamValue')
 
     expect(postgresDialect.operations.createSessionProvider).toBe(
-      createDb0PostgresOperationSessionProvider,
-    )
-
-    expect(createDb0PostgresqlOperationSessionProvider).toBe(
       createDb0PostgresOperationSessionProvider,
     )
 

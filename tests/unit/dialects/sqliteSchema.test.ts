@@ -24,18 +24,9 @@ import { describe, expect, it } from 'vitest'
 import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
 import { sqliteIdentity } from '@/dialects/sqlite/identity'
 import { sqliteNaming } from '@/dialects/sqlite/naming'
-import { sqliteQuery } from '@/dialects/sqlite/query'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AuthoredDesiredSchema, LoweredDesiredTable } from '@/dialects/types'
-import {
-  column,
-  defineTable,
-  sqliteIdentity as publicSqliteIdentity,
-  sqliteNaming as publicSqliteNaming,
-  sqliteQuery as publicSqliteQuery,
-  sqliteSchema as publicSqliteSchema,
-  reference,
-} from '@/index'
+import { column, defineTable, reference } from '@/index'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import type { PhysicalNameRegistry } from '@/migrations/physicalNaming'
 import type { AnySchema } from '@/types/schema'
@@ -323,15 +314,6 @@ describe('SQLite schema defaults and names', () => {
     const unsafeDefault = () => sqliteSchema.lowerDesiredSchema(unsafe)
     expect(unsafeDefault).toThrow(MigrationError)
     expect(unsafeDefault).toThrow(/unsafe SQLite/i)
-  })
-})
-
-describe('SQLite schema defaults and names: re-exports ready SQLite facets from the package surface without a dialect member', () => {
-  it('re-exports ready SQLite facets from the package surface without a dialect member', () => {
-    expect(publicSqliteIdentity).toBe(sqliteIdentity)
-    expect(publicSqliteNaming).toBe(sqliteNaming)
-    expect(publicSqliteQuery).toBe(sqliteQuery)
-    expect(publicSqliteSchema).toBe(sqliteSchema)
   })
 })
 
