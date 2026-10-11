@@ -1243,6 +1243,34 @@ describe('production dialect source organization', () => {
   })
 })
 
+describe('production dialect shared helpers', () => {
+  it('routes desired-schema graphs through the shared lowerer', () => {
+    for (const { code, directory } of productionDialectSources()) {
+      const imports = namedImportBindings(parse(join(directory, 'lowerDesiredSchema.ts')))
+
+      expect(imports.get('lowerDesiredSchemaGraph'), code).toEqual({
+        imported: 'lowerDesiredSchemaGraph',
+        module: '@/dialects/lowerDesiredSchema',
+      })
+    }
+  })
+
+  it('shares lifecycle SQL only between the members with identical syntax', () => {
+    const sharedMembers = productionDialectSources().filter(({ code }) =>
+      ['postgres', 'sqlite'].includes(code),
+    )
+
+    for (const { code, directory } of sharedMembers) {
+      const imports = namedImportBindings(parse(join(directory, 'operations.ts')))
+
+      expect(imports.get('compileCommonOperationCommand'), code).toEqual({
+        imported: 'compileCommonOperationCommand',
+        module: '../operations',
+      })
+    }
+  })
+})
+
 describe('production dialect source organization: keeps assembly isolated', () => {
   it('keeps each complete member assembly as the only declaration in dialect.ts', () => {
     const violations = productionDialectSources().flatMap((member) =>

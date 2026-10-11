@@ -86,6 +86,14 @@ members, physical column properties, and structured canonical foreign-key refere
 Engine-specific create-table AST projection happens only inside the selected member's
 migration lowering.
 
+Package-supported members route that graph through the internal
+`lowerDesiredSchemaGraph()` module. It owns structured identity lookup and diagnostics,
+column ordering by comparison key then authored spelling, dependency-aware reference
+type resolution, stable missing-target and cycle failures, and immutable result assembly.
+A member supplies only narrow hooks for namespace validation, physical type selection,
+reference-type compatibility, defaults, generation, and final physical column metadata.
+Do not copy the graph algorithm into a member or widen `DialectSchema` with these hooks.
+
 `inferColumnType()` maps logical Valibot intent to a physical type.
 `normalizeDataType()` supplies catalog-comparison form, and
 `normalizeDefaultValue()` may supply default-value comparison form. Unsupported type,
@@ -174,6 +182,11 @@ exclusive physical operation sessions. `operations.compile()` compiles structure
 transaction, rollback, and savepoint commands. A custom provider can replace only the
 first responsibility; the selected member still compiles lifecycle commands and owns
 all other facets.
+
+PostgreSQL and SQLite delegate their identical lifecycle SQL to
+`compileCommonOperationCommand()`. Keep the member-level compiler wrapper: it preserves
+the member interface and is the replacement seam for an engine with different lifecycle
+syntax. Do not put connector/session behavior in the common compiler.
 
 An `OperationSessionProvider` must advertise `nativeTransactions: true`, implement
 `open()` and `close()`, and return sessions with `query`, `run`, `cancel`, and
