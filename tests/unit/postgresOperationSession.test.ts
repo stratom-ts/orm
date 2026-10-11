@@ -7,7 +7,7 @@ import {
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
 import type { OperationSessionProvider } from '@/index'
-import { QueryError, createDb0PostgresqlOperationSessionProvider } from '@/index'
+import { QueryError, createDb0PostgresOperationSessionProvider } from '@/index'
 import {
   OperationCoordinator,
   getOperationReleaseCleanupFailures,
@@ -24,7 +24,7 @@ import {
 describe('db0 PostgreSQL operation-session adapter', () => {
   it('proves identity at every lease and after reuse cleanup', async () => {
     const connector = createNativeConnector()
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const plainSql = `select '?' as "?", $1::text as value`
 
     const first = await provider.open()
@@ -75,7 +75,7 @@ describe('db0 PostgreSQL operation-session adapter: reads changed current_schema
       currentSchema: () => schema,
     })
 
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
 
     const first = await provider.open()
     expect(first.identity.namespaceContext?.writableDefault).toEqual([
@@ -116,7 +116,7 @@ describe('db0 PostgreSQL operation-session adapter: discards a reused session wh
       },
     })
 
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
 
     await session.run({ sql: 'create schema tenant', params: [] })
@@ -131,7 +131,7 @@ describe('db0 PostgreSQL operation-session adapter: discards a reused session wh
 
   it('discards a reused session when final namespace evidence cannot be read', async () => {
     const connector = createNativeConnector({ identityFailureAt: 2 })
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
 
     await session.run({ sql: 'select 1', params: [] })
@@ -159,7 +159,7 @@ describe('db0 PostgreSQL operation-session adapter: retains final namespace-evid
     })
 
     const coordinator = new OperationCoordinator(
-      createDb0PostgresqlOperationSessionProvider(connector),
+      createDb0PostgresOperationSessionProvider(connector),
     )
 
     const error = await coordinator
@@ -202,7 +202,7 @@ describe('db0 PostgreSQL operation-session lifecycle', () => {
       },
     })
 
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
     const identity = session.identity
     const initialDatabase = identity.database
@@ -247,7 +247,7 @@ describe('db0 PostgreSQL operation-session lifecycle: cancels an active call and
       },
     })
 
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
     const originalIdentity = session.identity
     const query = session.query({ sql: 'select pg_sleep(30)', params: [] })
@@ -279,7 +279,7 @@ describe('db0 PostgreSQL operation-session lifecycle: cancels an active call and
 
 describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that cannot prove native PostgreSQL pinning', () => {
   it('rejects connectors that cannot prove native PostgreSQL pinning', async () => {
-    expect(() => createDb0PostgresqlOperationSessionProvider(customConnector())).toThrow(
+    expect(() => createDb0PostgresOperationSessionProvider(customConnector())).toThrow(
       /automatic operation sessions/i,
     )
 
@@ -290,7 +290,7 @@ describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that ca
       dispose: async () => {},
     }
 
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const { readinessProvider, missingReadiness } = await assertMissingPostgresReadiness(
       provider,
       connector,
@@ -306,7 +306,7 @@ describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that ca
       end: undefined,
     }
 
-    const cancellationProvider = createDb0PostgresqlOperationSessionProvider({
+    const cancellationProvider = createDb0PostgresOperationSessionProvider({
       ...connector,
       /** Returns the native client owned by the fixture connector. */
       getInstance: () => missingCancellation,
@@ -316,7 +316,7 @@ describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that ca
       /cancellation capabilities/i,
     )
 
-    const dirtyProvider = createDb0PostgresqlOperationSessionProvider({
+    const dirtyProvider = createDb0PostgresOperationSessionProvider({
       ...connector,
       /** Returns the native client owned by the fixture connector. */
       getInstance: () => ({
@@ -337,7 +337,7 @@ describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rej
       releaseFailure: { value: undefined },
     })
 
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
 
     await session.run({ sql: 'begin', params: [] })
@@ -348,7 +348,7 @@ describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rej
 
   it('waits for an active lease before deduplicated provider close', async () => {
     const connector = createNativeConnector()
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
 
     const firstClose = provider.close()
@@ -370,7 +370,7 @@ describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rej
 describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rejection from exact-provider release verification: allows provider close cleanup to retry after disposal fails', () => {
   it('allows provider close cleanup to retry after disposal fails', async () => {
     const connector = createNativeConnector({ disposeFailures: 1 })
-    const provider = createDb0PostgresqlOperationSessionProvider(connector)
+    const provider = createDb0PostgresOperationSessionProvider(connector)
 
     const firstClose = provider.close()
     await expect(firstClose).rejects.toThrow(/dispose failed/i)
@@ -406,7 +406,7 @@ async function assertMissingPostgresReadiness(
     async end() {},
   }
 
-  const readinessProvider = createDb0PostgresqlOperationSessionProvider({
+  const readinessProvider = createDb0PostgresOperationSessionProvider({
     ...connector,
     /** Returns the native client owned by the fixture connector. */
     getInstance: () => missingReadiness,

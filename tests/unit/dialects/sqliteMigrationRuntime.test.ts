@@ -6,10 +6,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import type { MigrationProgram } from '@/ddl/migrationProgram'
-import {
-  createDb0NodeSqliteOperationSessionProvider,
-  executeSqliteMigration,
-} from '@/dialects/sqlite'
+import { executeSqliteMigration } from '@/dialects/sqlite/migration/runtime'
+import { createDb0NodeSqliteOperationSessionProvider } from '@/dialects/sqlite/operationSession'
 import type {
   OperationSession,
   OperationSessionProvider,

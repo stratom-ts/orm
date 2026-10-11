@@ -1538,6 +1538,9 @@ export async function introspectPostgres(
   )
 }
 
+/** PostgreSQL scoped catalog observation. */
+export const postgresCatalog = { introspectCatalog: introspectPostgres }
+
 /**
  * Resolves requested namespaces and binds relation membership checks.
  *

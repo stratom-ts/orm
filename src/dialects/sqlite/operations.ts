@@ -22,7 +22,7 @@ export function compileSqliteOperationCommand(command: OperationCommand): Compil
   }
 }
 
-/** SQLite operation facet; full Dialect assembly is a separate task. */
+/** SQLite operation-session adaptation and lifecycle command compilation. */
 export const sqliteOperations = {
   createSessionProvider: createDb0NodeSqliteOperationSessionProvider,
   compile: compileSqliteOperationCommand,

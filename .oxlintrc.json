@@ -27,6 +27,8 @@
     "max-lines-per-function": ["error", { "max": 50, "skipBlankLines": true }],
     "no-else-return": "error",
     "no-lonely-if": "error",
+    "no-var": "error",
+    "prefer-const": "error",
     "jsdoc/require-param-description": "error",
     "jsdoc/require-returns-description": "error"
   }

@@ -1,7 +1,8 @@
 import { number, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { compileSqlite, sqliteQuery } from '@/dialects/sqlite'
+import { compileSqlite } from '@/dialects/sqlite/compile'
+import { sqliteQuery } from '@/dialects/sqlite/query'
 import { column, defineTable } from '@/index'
 import { QueryError } from '@/utils/error'
 

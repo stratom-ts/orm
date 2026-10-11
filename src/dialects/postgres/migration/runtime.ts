@@ -489,7 +489,7 @@ async function executeTransaction(
 ): Promise<void> {
   await beginMigrationTransaction(options, cancellation, state, cleanupFailures)
 
-  let program = await prepareMigrationProgram(
+  const program = await prepareMigrationProgram(
     state,
     options,
     cancellation,

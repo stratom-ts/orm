@@ -22,12 +22,10 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
-import {
-  sqliteIdentity,
-  sqliteNaming,
-  sqliteQuery,
-  sqliteSchema,
-} from '@/dialects/sqlite'
+import { sqliteIdentity } from '@/dialects/sqlite/identity'
+import { sqliteNaming } from '@/dialects/sqlite/naming'
+import { sqliteQuery } from '@/dialects/sqlite/query'
+import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AuthoredDesiredSchema, LoweredDesiredTable } from '@/dialects/types'
 import {
   column,

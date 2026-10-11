@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 
 import type { MigrationPrecondition, MigrationProgram } from '@/ddl/migrationProgram'
-import { executeSqliteMigration } from '@/dialects/sqlite'
+import { executeSqliteMigration } from '@/dialects/sqlite/migration/runtime'
 import type { Executor } from '@/query'
 import { MigrationError } from '@/utils/error'
 

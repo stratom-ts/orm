@@ -323,10 +323,62 @@ initialized empty temp schema is accepted only after its object inventory is pro
 
 ## Registering and testing a member
 
-Package-supported members are statically registered in `src/dialects/resolve.ts` by
-their db0 `SQLDialect` id. Adding support consists of implementing one complete member
-and adding that dispatcher registration. Do not add a runtime plugin registry or
-database-specific logic to Client, Schema, Query, Migration, or Operations.
+Every package-supported member uses this source shape:
+
+```text
+src/dialects/<member>/
+├── dialect.ts          # complete defineDialect(...) assembly only
+├── index.ts            # intentional package exports only
+├── identity.ts         # <member>Identity
+├── naming.ts           # <member>Naming
+├── schema.ts           # <member>Schema
+├── query.ts            # <member>Query
+├── catalog.ts          # <member>Catalog
+├── operations.ts       # <member>Operations
+├── operationSession.ts # advanced connector/session adaptation
+└── migration/index.ts  # member migration lowering and execution exports
+```
+
+Files used only by one engine keep descriptive names and do not need a matching file in
+other members. Do not add empty forwarding modules to make engine-specific implementations
+look alike. The shared files above are composition points: each exports the complete facet
+named with the member code prefix. `dialect.ts` imports those facets and passes them to
+`defineDialect()` with the member's lowering and execution functions. It contains no
+implementation helpers or public re-exports.
+
+Use `postgres` and `sqlite` as code prefixes and PostgreSQL and SQLite in prose. The exact
+db0 connector selector remains `postgresql`. Functions use a verb followed by the member
+prefix and subject, such as `createDb0PostgresOperationSessionProvider`. Constants use
+upper snake case. Use `const` unless a binding is reassigned, use `let` for reassignment,
+and do not use `var`.
+
+Each member `index.ts` exports its complete Dialect and advanced operation-session provider
+factory. The package root exposes those exports symmetrically. SQLite implementation
+helpers that were already exposed remain deprecated compatibility exports during 0.x;
+use `sqliteDialect` facets or the public database interface instead. Those helper exports
+are removed in 1.0. The former
+`createDb0PostgresqlOperationSessionProvider` spelling is also a deprecated 0.x alias for
+`createDb0PostgresOperationSessionProvider`.
+
+Package-supported members are statically imported and listed in `productionDialects` in
+`src/dialects/resolve.ts` by their exact db0 `SQLDialect` id. `createDialectRegistry()`
+validates the complete list. The architecture suite derives member directories from that
+registration and enforces the manifest, shared facet files, facet symbols, and explicit
+public index. Do not add a runtime plugin registry or database-specific logic to Client,
+Schema, Query, Migration, or Operations.
+
+Before registering a new member:
+
+1. Implement every `Dialect` facet in the source shape above and assemble it only in
+   `dialect.ts` with `defineDialect()`.
+2. Add the complete member to `productionDialects` and confirm its exact connector id.
+3. Declare every reusable contract capability and register all required contract shards.
+4. Add native integration coverage for connector selection, queries, transaction routing,
+   Migration Plan equality, execution, post-migration state, and cleanup. Document engine
+   and connector version limits in this guide.
+5. Export only the complete member and advanced session-provider factory from `index.ts`.
+6. Run architecture and public-interface tests, typecheck, lint, formatting, build, the
+   unit suite, and the applicable native integration profile.
 
 The private `registerDialectForTest()` seam exists only for isolated contract tests. It
 is deliberately not a package export. A test adapter registers shared behavior through

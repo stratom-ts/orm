@@ -1,5 +1,7 @@
 import type { CompiledQuery, OperationCommand } from '../types'
 
+import { createDb0PostgresOperationSessionProvider } from './operationSession'
+
 /**
  * Compiles PostgreSQL operation lifecycle commands without exposing physical policy to
  * Client.
@@ -21,4 +23,10 @@ export function compilePostgresOperationCommand(
     case 'releaseSavepoint':
       return { sql: `release savepoint sp_${command.id}`, params: [] }
   }
+}
+
+/** PostgreSQL operation-session adaptation and lifecycle command compilation. */
+export const postgresOperations = {
+  createSessionProvider: createDb0PostgresOperationSessionProvider,
+  compile: compilePostgresOperationCommand,
 }

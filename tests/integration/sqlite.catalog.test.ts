@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { planMigration } from '@/ddl/migrationPlan'
 import type { CatalogRelation, CatalogSnapshot, CatalogTable } from '@/dialects'
 import type { CatalogExecutor } from '@/dialects/catalog'
-import { sqliteCatalog, sqliteDialect } from '@/dialects/sqlite'
+import { sqliteCatalog } from '@/dialects/sqlite/catalog'
+import { sqliteDialect } from '@/dialects/sqlite/dialect'
 
 const observesARealSQLiteCatalogWithCanonicalIdentitiesAndRowidGenerationData = `
         PRAGMA foreign_keys = ON;

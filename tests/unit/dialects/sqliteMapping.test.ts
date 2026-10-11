@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { mapSqliteParamValue, mapSqliteResultValue } from '@/dialects/sqlite'
+import { mapSqliteParamValue, mapSqliteResultValue } from '@/dialects/sqlite/mapping'
 import { QueryError } from '@/utils/error'
 
 describe('SQLite value mapping', () => {

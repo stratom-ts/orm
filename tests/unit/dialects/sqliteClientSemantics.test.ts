@@ -12,9 +12,10 @@ import {
 } from 'valibot'
 import { expect, it } from 'vitest'
 
-import { normalizeSqliteDefaultExpression } from '@/dialects/sqlite'
+import { sqliteCatalog } from '@/dialects/sqlite/catalog'
+import { normalizeSqliteDefaultExpression } from '@/dialects/sqlite/normalize'
 import { assertSafeSqliteDefaultExpression } from '@/dialects/sqlite/validate'
-import { column, createDatabase, defineTable, reference, sqliteCatalog } from '@/index'
+import { column, createDatabase, defineTable, reference } from '@/index'
 import type { TableHandle } from '@/types'
 
 it('normalizes only unquoted spacing and retains escaped quotes in SQL strings', () => {

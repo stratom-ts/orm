@@ -473,8 +473,8 @@ export type SqlAst = SelectAst | InsertAst | UpdateAst | DeleteAst
  * Each cohesive facet owns one stage of database semantics: identity and
  * namespace resolution, physical naming, schema lowering, query behavior,
  * catalog observation, operation-session adaptation, and migration lowering.
- * PostgreSQL is the production implementation; test-only adapters may expose
- * explicit unsupported stubs for capabilities outside their contract.
+ * Production adapters implement every facet; test-only adapters may expose explicit
+ * unsupported stubs for capabilities outside their contract.
  */
 export interface Dialect {
   readonly id: string

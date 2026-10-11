@@ -9,7 +9,7 @@ import type {
   OperationSessionProvider,
   TableHandle,
 } from '@/index'
-import { createDatabase, createDb0PostgresqlOperationSessionProvider } from '@/index'
+import { createDatabase, createDb0PostgresOperationSessionProvider } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import type { DialectIntegrationAdapter } from './support/dialectIntegrationContract'
@@ -170,7 +170,7 @@ function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
   schemas: TSchemas,
   options: PostgresClientOptions,
 ): Db<TSchemas> {
-  const realProvider = createDb0PostgresqlOperationSessionProvider(connector)
+  const realProvider = createDb0PostgresOperationSessionProvider(connector)
   const operationSessionProvider = options.hooks
     ? observeSessionProvider(realProvider, options.hooks)
     : realProvider

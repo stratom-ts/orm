@@ -3,7 +3,8 @@ import { literal, pipe } from 'valibot'
 import { expect, it, vi } from 'vitest'
 
 import { lowerDesiredSchema } from '@/ddl/desiredSchema'
-import { sqliteIdentity, sqliteSchema } from '@/dialects/sqlite'
+import { sqliteIdentity } from '@/dialects/sqlite/identity'
+import { sqliteSchema } from '@/dialects/sqlite/schema'
 import { column, createDatabase, defineTable } from '@/index'
 import { MigrationError, SchemaError } from '@/utils/error'
 
