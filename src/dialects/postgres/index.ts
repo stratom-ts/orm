@@ -1,4 +1,4 @@
-import type { Dialect } from '../types'
+import { defineDialect } from '../defineDialect'
 
 import { postgresIdentity } from './identity'
 import { inferPostgresColumnType } from './infer'
@@ -28,12 +28,6 @@ const postgresSchema = {
 
 const postgresCatalog = { introspectCatalog: introspectPostgres }
 
-const postgresMigrationPlanning = {
-  identity: postgresIdentity,
-  naming: postgresNaming,
-  schema: postgresSchema,
-}
-
 /**
  * Complete PostgreSQL dialect member for the db0 stack.
  *
@@ -49,7 +43,7 @@ const postgresMigrationPlanning = {
  *     selection: [{ kind: 'all' }],
  *   })
  */
-export const postgresDialect: Dialect = {
+export const postgresDialect = defineDialect({
   id: 'postgresql',
   identity: postgresIdentity,
   naming: postgresNaming,
@@ -64,10 +58,6 @@ export const postgresDialect: Dialect = {
     createSessionProvider: createDb0PostgresqlOperationSessionProvider,
     compile: compilePostgresOperationCommand,
   },
-  migration: {
-    planning: postgresMigrationPlanning,
-    catalog: postgresCatalog,
-    lower: lowerPostgresMigrationPlan,
-    execute: executePostgresMigration,
-  },
-}
+  lower: lowerPostgresMigrationPlan,
+  execute: executePostgresMigration,
+})

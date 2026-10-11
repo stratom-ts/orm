@@ -1,4 +1,4 @@
-import type { Dialect } from '../types'
+import { defineDialect } from '../defineDialect'
 
 import { sqliteCatalog } from './catalog'
 import { sqliteIdentity } from './identity'
@@ -60,7 +60,7 @@ export const sqliteQuery = {
 }
 
 /** Complete SQLite >=3.37 member for the exact db0 0.4.0 node-sqlite connector. */
-export const sqliteDialect: Dialect = {
+export const sqliteDialect = defineDialect({
   id: 'sqlite',
   identity: sqliteIdentity,
   naming: sqliteNaming,
@@ -68,10 +68,6 @@ export const sqliteDialect: Dialect = {
   query: sqliteQuery,
   catalog: sqliteCatalog,
   operations: sqliteOperations,
-  migration: {
-    planning: { identity: sqliteIdentity, naming: sqliteNaming, schema: sqliteSchema },
-    catalog: sqliteCatalog,
-    lower: lowerSqliteMigrationPlan,
-    execute: executeSqliteMigration,
-  },
-}
+  lower: lowerSqliteMigrationPlan,
+  execute: executeSqliteMigration,
+})
