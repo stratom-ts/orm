@@ -11,8 +11,9 @@ import type {
 } from '@/index'
 import { createDatabase, createDb0PostgresOperationSessionProvider } from '@/index'
 
+import type { DialectIntegrationAdapter } from '../support/dialectIntegrationContract'
+
 import { waitForPostgres } from './postgres.setup'
-import type { DialectIntegrationAdapter } from './support/dialectIntegrationContract'
 
 const postgresUrl = process.env.POSTGRESQL_URL
 type PostgresConnector = ReturnType<typeof postgresql>

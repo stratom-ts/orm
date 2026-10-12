@@ -164,7 +164,11 @@ function bindings(params: readonly unknown[]): SqliteBinding[] {
     )
       return value
 
-    if (ArrayBuffer.isView(value)) return value
+    if (value instanceof Uint8Array) return value
+
+    // Node 22.5 binds only Uint8Array views; reuse the same bytes without copying.
+    if (ArrayBuffer.isView(value))
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
 
     throw new QueryError({ message: 'Unsupported node:sqlite parameter value' })
   })

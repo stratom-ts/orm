@@ -6,19 +6,11 @@
     "dist"
   ],
   "type": "module",
-  "main": "./dist/stratom.umd.cjs",
-  "module": "./dist/stratom.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/stratom.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/stratom.umd.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/stratom.js"
     }
   },
   "scripts": {
@@ -27,6 +19,8 @@
     "test": "pnpm test:unit && pnpm test:integration",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration:postgres": "vitest run --config vitest.integration.config.ts tests/integration/postgres",
+    "test:integration:sqlite": "vitest run --config vitest.integration.config.ts tests/integration/sqlite",
     "test:coverage": "vitest run --config vitest.unit.config.ts --coverage",
     "typecheck": "tsc",
     "fmt": "oxfmt",
@@ -57,7 +51,7 @@
     "vitest": "^4.1.11"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.5"
   },
   "packageManager": "pnpm@11.15.1"
 }

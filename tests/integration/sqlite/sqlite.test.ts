@@ -2,8 +2,8 @@ import nodeSqliteConnector from 'db0/connectors/node-sqlite'
 
 import { createDatabase } from '@/index'
 
-import type { DialectIntegrationAdapter } from './support/dialectIntegrationContract'
-import { registerDialectIntegrationScenarios } from './support/dialectIntegrationContract'
+import type { DialectIntegrationAdapter } from '../support/dialectIntegrationContract'
+import { registerDialectIntegrationScenarios } from '../support/dialectIntegrationContract'
 
 const sqliteIntegration: DialectIntegrationAdapter = {
   name: 'SQLite node-sqlite',

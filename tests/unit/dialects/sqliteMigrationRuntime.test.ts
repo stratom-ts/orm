@@ -14,6 +14,8 @@ import type {
 } from '@/operations/operationSession'
 import type { Executor } from '@/query'
 
+import { inTransaction } from '../../helpers/nativeTransaction'
+
 const directories: string[] = []
 
 /** Creates a disposable SQLite database path. */
@@ -67,7 +69,7 @@ async function closeContention(
   providers: readonly OperationSessionProvider[],
 ): Promise<void> {
   try {
-    if (owner.isTransaction) owner.exec('rollback')
+    if (inTransaction(owner)) owner.exec('rollback')
   } finally {
     try {
       owner.close()
@@ -153,7 +155,7 @@ it('starts BEGIN IMMEDIATE before prepare and commits ordered actions', async ()
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
   const session = await provider.open()
   const prepare = vi.fn<() => Promise<MigrationProgram>>(async () => {
-    expect((await connector.getInstance!()).isTransaction).toBe(true)
+    expect(inTransaction(await connector.getInstance!())).toBe(true)
     return program()
   })
 
@@ -170,7 +172,7 @@ it('starts BEGIN IMMEDIATE before prepare and commits ordered actions', async ()
     ).toHaveLength(1)
 
     expect(prepare).toHaveBeenCalledTimes(1)
-    expect((await connector.getInstance!()).isTransaction).toBe(false)
+    expect(inTransaction(await connector.getInstance!())).toBe(false)
   } finally {
     await session.release('discard')
     await provider.close()
