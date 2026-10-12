@@ -1,4 +1,4 @@
-name: PostgreSQL integration
+name: Quality, build, and database tests
 
 on:
   pull_request:
@@ -6,7 +6,29 @@ on:
     branches: [main]
 
 jobs:
+  quality:
+    name: Static quality
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm fmt:check
+      - name: Check changed files for whitespace errors
+        run: git diff --check "$BASE_SHA" "$GITHUB_SHA"
+
   integration:
+    name: PostgreSQL unit and integration tests
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -36,6 +58,7 @@ jobs:
       - run: pnpm test:integration
 
   sqlite-minimum-runtime:
+    name: SQLite minimum runtime smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
