@@ -6,8 +6,10 @@ export * from '@/dialects'
 export { defineTable, isTableHandle } from './defineTable'
 export type {
   DeleteBuilder,
+  ExcludedRef,
   ExpressionBuilder,
   InsertBuilder,
+  InsertConflictBuilder,
   InsertValuesBuilder,
   QueryBuilder,
   SelectBuilder,
@@ -36,6 +38,7 @@ export {
   or,
   sum,
   upper,
+  excluded,
 } from '@/query'
 export type {
   DialectMigrationAdapter,

@@ -4,6 +4,7 @@ import type {
   Dialect,
   DialectQueryResolution,
   InsertAst,
+  InsertConflictAst,
   JoinAst,
   OrderByAst,
   PredicateAst,
@@ -15,6 +16,7 @@ import type {
   UpdateAst,
 } from '@/dialects'
 import type { RelationIdentityInput } from '@/schemas'
+import { getColumnMetadata } from '@/schemas'
 import type { ColumnRef, Prettify, TableHandle } from '@/types'
 import type {
   InferInsert,
@@ -34,6 +36,9 @@ import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
 import type { ValueMapper } from './mapping'
+import type { ExcludedRef } from './upsert'
+import { isExcludedRef } from './upsert'
+import { buildInsertSchema, validateUpdatePatchWithStructuredValues } from './validate'
 
 /** Result when a write runs without `returning`. */
 export type WriteResult = {
@@ -644,6 +649,10 @@ export type InsertBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = WriteResult,
 > = {
+  /** Selects an authored candidate key to handle insert conflicts. */
+  onConflict(
+    columns: readonly TableColumnInput<THandle>[],
+  ): InsertConflictBuilder<THandle, TResult>
   /**
    * Creates a write builder that returns every affected row's columns.
    *
@@ -692,6 +701,46 @@ export type InsertBuilder<
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
 
+type TableColumnName<THandle extends TableHandle> = keyof InferSelect<THandle> & string
+
+type TableColumnRef<THandle extends TableHandle> = Extract<
+  THandle[TableColumnName<THandle> & keyof THandle],
+  ColumnRef
+>
+
+type TableColumnInput<THandle extends TableHandle> =
+  | TableColumnName<THandle>
+  | TableColumnRef<THandle>
+
+type InsertableColumnRef<THandle extends TableHandle> = Extract<
+  THandle[keyof InferInsert<THandle> & keyof THandle],
+  ColumnRef
+>
+
+type CompatibleExcludedRef<TColumn, TValue> =
+  TColumn extends ColumnRef<string, string, infer TColumnValue>
+    ? Exclude<TColumnValue, undefined> extends Exclude<TValue, undefined>
+      ? ExcludedRef<TColumn>
+      : never
+    : never
+
+type ConflictUpdatePatch<THandle extends TableHandle> = {
+  [K in keyof InferUpdate<THandle>]?:
+    | InferUpdate<THandle>[K]
+    | CompatibleExcludedRef<InsertableColumnRef<THandle>, InferUpdate<THandle>[K]>
+}
+
+/** Action-only state entered after selecting an insert conflict target. */
+export type InsertConflictBuilder<
+  THandle extends TableHandle = TableHandle,
+  TResult = WriteResult,
+> = {
+  /** Ignores a row that conflicts with the selected candidate key. */
+  doNothing(): InsertBuilder<THandle, TResult>
+  /** Updates writable columns when a row conflicts with the selected candidate key. */
+  doUpdate(patch: ConflictUpdatePatch<THandle>): InsertBuilder<THandle, TResult>
+}
+
 /**
  * Creates an insert builder for inserting rows into a table.
  *
@@ -713,14 +762,13 @@ export type InsertBuilder<
 export function createInsertBuilder<THandle extends TableHandle>(
   options: InsertBuilderOptions<THandle>,
 ): InsertBuilder<THandle, unknown> {
-  const { handle, dialect, executor, mapper, rows, returning } = options
-  const captured = { handle, dialect, executor, mapper, rows, returning }
+  const { handle, dialect, executor, mapper, rows, returning, conflict } = options
+  const captured = { handle, dialect, executor, mapper, rows, returning, conflict }
 
   const query = options.query ?? dialect.query.resolve([handle])
 
-  /** Builds the insert AST. */
   const buildAst = () =>
-    buildInsertAst({ handle, dialect, executor, mapper, rows, returning })
+    buildInsertAst({ handle, dialect, executor, mapper, rows, returning, conflict })
 
   /** Compiles the current insert query. */
   const compile = () => query.compile(buildAst())
@@ -734,6 +782,29 @@ export function createInsertBuilder<THandle extends TableHandle>(
   )
 
   return {
+    onConflict(columns) {
+      const target = resolveConflictTarget(handle, columns)
+      return {
+        doNothing: () =>
+          createInsertBuilder({
+            ...captured,
+            query,
+            conflict: { target, action: { kind: 'doNothing' } },
+          }) as never,
+        doUpdate: (patch) =>
+          createInsertBuilder({
+            ...captured,
+            query,
+            conflict: {
+              target,
+              action: {
+                kind: 'doUpdate',
+                set: resolveConflictUpdate(handle, patch),
+              },
+            },
+          }) as never,
+      }
+    },
     ...createWriteReturning((changes) =>
       createInsertBuilder({ ...captured, query, ...changes }),
     ),
@@ -759,6 +830,139 @@ export type InsertValuesBuilder<THandle extends TableHandle = TableHandle> = {
   values(
     row: InferInsert<THandle> | InferInsert<THandle>[],
   ): InsertBuilder<THandle, InferSelect<THandle>>
+}
+
+/** Resolves and validates one candidate-key conflict target. */
+function resolveConflictTarget<THandle extends TableHandle>(
+  handle: THandle,
+  columns: readonly TableColumnInput<THandle>[],
+): string[] {
+  const tableName = handle.getTableMetadata().name
+
+  if (columns.length === 0) {
+    throw new QueryError({
+      message: `onConflict(...) on "${tableName}" requires at least one column`,
+    })
+  }
+
+  const entries = handle.getSchema().entries as Record<string, unknown>
+  const target = columns.map((column) =>
+    resolveConflictColumn(handle, entries, tableName, column),
+  )
+
+  if (new Set(target).size !== target.length) {
+    throw new QueryError({
+      message: `onConflict(...) on "${tableName}" contains duplicate columns`,
+    })
+  }
+
+  const metadata = handle.getTableMetadata()
+  const primaryKey = Array.isArray(metadata.primaryKey)
+    ? metadata.primaryKey
+    : [metadata.primaryKey]
+
+  const uniqueTargets = [
+    primaryKey,
+    ...(metadata.indexes ?? [])
+      .filter((index) => index.unique === true)
+      .map((index) => index.columns),
+    ...Object.entries(handle.getSchema().entries)
+      .filter(([, schema]) => getColumnMetadata(schema)?.unique === true)
+      .map(([name]) => [name]),
+  ]
+
+  const matchesCandidateKey = uniqueTargets.some(
+    (candidate) =>
+      candidate.length === target.length &&
+      candidate.every((name, index) => name === target[index]),
+  )
+
+  if (!matchesCandidateKey) {
+    throw new QueryError({
+      message: `onConflict(...) on "${tableName}" must exactly match an authored candidate key in column order`,
+    })
+  }
+
+  return target
+}
+
+/** Resolves one conflict target column and rejects foreign references. */
+function resolveConflictColumn<THandle extends TableHandle>(
+  handle: THandle,
+  entries: Record<string, unknown>,
+  tableName: string,
+  column: TableColumnInput<THandle>,
+): string {
+  const name = columnName(column)
+
+  if (!Object.hasOwn(entries, name)) {
+    throw new QueryError({
+      message: `onConflict(...) on "${tableName}" references unknown column "${name}"`,
+    })
+  }
+
+  if (typeof column !== 'string' && handle[name as keyof THandle] !== column) {
+    throw new QueryError({
+      message: `onConflict(...) on "${tableName}" references a foreign column "${name}"`,
+    })
+  }
+
+  return name
+}
+
+/** Validates and structures a conflict update patch in authored property order. */
+function resolveConflictUpdate<THandle extends TableHandle>(
+  handle: THandle,
+  patch: ConflictUpdatePatch<THandle>,
+): Extract<InsertConflictAst['action'], { kind: 'doUpdate' }>['set'] {
+  const cleaned = validateUpdatePatchWithStructuredValues(handle, patch, isExcludedRef)
+  const insertable = new Set(Object.keys(buildInsertSchema(handle).entries))
+
+  return Object.entries(cleaned).map(([column, value]) => {
+    if (!isExcludedRef(value)) {
+      return { column, value: { kind: 'value' as const, value } }
+    }
+
+    const source = value.column.column
+    const ownedReference =
+      Object.hasOwn(handle.getSchema().entries, source) &&
+      handle[source as keyof THandle] === value.column
+
+    if (!ownedReference || !insertable.has(source)) {
+      throw new QueryError({
+        message: `excluded(...) on "${handle.getTableMetadata().name}" requires an insertable column from the same table handle`,
+      })
+    }
+
+    return { column, value: { kind: 'excluded' as const, column: source } }
+  })
+}
+
+/** Maps only bound values in a structured conflict action. */
+function mapConflictParams(
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  conflict: InsertConflictAst,
+): InsertConflictAst {
+  if (!mapper || conflict.action.kind === 'doNothing') return conflict
+
+  return {
+    ...conflict,
+    action: {
+      kind: 'doUpdate',
+      set: conflict.action.set.map((assignment) =>
+        assignment.value.kind === 'value'
+          ? {
+              ...assignment,
+              value: {
+                kind: 'value',
+                value: mapper.mapParam(handle, assignment.column, assignment.value.value),
+              },
+            }
+          : assignment,
+      ),
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1798,6 +2002,7 @@ type InsertBuilderOptions<THandle extends TableHandle> = {
   executor: Executor
   mapper?: ValueMapper
   rows: Record<string, unknown>[]
+  conflict?: InsertConflictAst
   returning?: ReturningAst
 }
 
@@ -1811,7 +2016,7 @@ type InsertBuilderOptions<THandle extends TableHandle> = {
 function buildInsertAst<THandle extends TableHandle>(
   options: InsertBuilderOptions<THandle>,
 ): InsertAst {
-  const { handle, mapper, rows, returning } = options
+  const { handle, mapper, rows, conflict, returning } = options
   const columnSet: string[] = []
   const seen = new Set<string>()
   for (const key of rows.flatMap((row) => Object.keys(row))) {
@@ -1839,6 +2044,7 @@ function buildInsertAst<THandle extends TableHandle>(
     relation: info.relation,
     columns: columnSet,
     values,
+    ...(conflict ? { conflict: mapConflictParams(handle, mapper, conflict) } : {}),
     ...(returning ? { returning } : {}),
   }
 }

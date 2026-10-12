@@ -2,7 +2,7 @@ import { boolean, integer, number, pipe, string } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Db, TableHandle } from '@/index'
-import { column, defineTable } from '@/index'
+import { column, defineTable, excluded } from '@/index'
 
 const integrationCapabilityNames = [
   'lifecycle',
@@ -80,6 +80,24 @@ const ContractRecords = defineTable(
   { primaryKey: 'id', indexes: [{ columns: ['label'], unique: true }] },
 )
 
+const ContractScopedRecords = defineTable(
+  'contract_scoped_records',
+  {
+    id: pipe(
+      number(),
+      integer(),
+      column({ generation: { kind: 'identity', mode: 'byDefault' } }),
+    ),
+    scope: string(),
+    key: string(),
+    value: string(),
+  },
+  {
+    primaryKey: 'id',
+    indexes: [{ columns: ['scope', 'key'], unique: true }],
+  },
+)
+
 /** Returns whether every capability required for an integration scenario is supported. */
 export function shouldRegisterDialectIntegrationScenario(
   capabilities: DialectIntegrationAdapter['capabilities'],
@@ -115,6 +133,7 @@ export function registerDialectIntegrationScenarios(
   describe(`${adapter.name} shared integration scenarios`, () => {
     registerLifecycleIntegration(adapter)
     registerCrudIntegration(adapter)
+    registerUpsertIntegration(adapter)
     registerTransactionIntegration(adapter)
 
     registerDialectIntegrationScenario(
@@ -238,6 +257,66 @@ function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
           db.from(ContractRecords).where(ContractRecords.id, 'eq', inserted.id).execute(),
         ).resolves.toEqual([])
       })
+    },
+  )
+}
+
+/** Registers shared insert conflict behavior for PostgreSQL and SQLite. */
+function registerUpsertIntegration(adapter: DialectIntegrationAdapter) {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration'],
+    'round-trips insert conflict actions, composite targets, bulk rows, and returning',
+    async () => {
+      await adapter.withDatabase(
+        [ContractRecords, ContractScopedRecords],
+        async ({ db }) => {
+          const scoped = ContractScopedRecords
+
+          await db.migrate().execute()
+          await db.insert(ContractRecords).values({ label: 'stable' }).execute()
+
+          const conflict = db
+            .insert(ContractRecords)
+            .values({ label: 'stable', active: false })
+            .onConflict([ContractRecords.label])
+
+          expect(await conflict.doNothing().execute()).toEqual([])
+
+          const updated = await conflict
+            .doUpdate({ active: excluded(ContractRecords.active) })
+            .returning([ContractRecords.label, ContractRecords.active])
+            .executeTakeFirstOrThrow()
+
+          expect(updated).toEqual({ label: 'stable', active: false })
+
+          await db
+            .insert(scoped)
+            .values({ scope: 'a', key: 'one', value: 'original' })
+            .execute()
+
+          await db
+            .insert(scoped)
+            .values([
+              { scope: 'a', key: 'one', value: 'updated' },
+              { scope: 'a', key: 'two', value: 'second' },
+            ])
+            .onConflict([scoped.scope, scoped.key])
+            .doUpdate({ value: excluded(scoped.value) })
+            .execute()
+
+          expect(
+            await db
+              .from(scoped)
+              .select([scoped.scope, scoped.key, scoped.value])
+              .orderBy(scoped.key)
+              .execute(),
+          ).toEqual([
+            { scope: 'a', key: 'one', value: 'updated' },
+            { scope: 'a', key: 'two', value: 'second' },
+          ])
+        },
+      )
     },
   )
 }

@@ -7,6 +7,7 @@ import type {
   CompiledQuery,
   DeleteAst,
   InsertAst,
+  InsertConflictAst,
   JoinAst,
   OrderByAst,
   PredicateAst,
@@ -34,6 +35,13 @@ import { assertSafePostgresDataType, formatPostgresDefault } from './validate'
  */
 function quoteIdent(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
+}
+
+/** Rejects values that cannot serve as SQL identifiers. */
+function assertIdentifier(value: unknown, description: string): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new QueryError({ message: `${description} must be a non-empty string` })
+  }
 }
 
 /**
@@ -684,8 +692,40 @@ function compileInsert(
   node: InsertAst,
   resolveRelation: PostgresQueryRelationResolver,
 ): CompiledQuery {
+  if (
+    !Array.isArray(node.columns) ||
+    !Array.isArray(node.values as unknown) ||
+    node.values.length === 0
+  ) {
+    throw new QueryError({ message: 'insert requires at least one values row' })
+  }
+
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
-  const cols = node.columns.map((c) => quoteIdent(c)).join(', ')
+
+  if (node.columns.length === 0) {
+    if (node.values.length !== 1 || node.values[0]?.length !== 0) {
+      throw new QueryError({
+        message:
+          'PostgreSQL supports empty insert columns only as one DEFAULT VALUES row',
+      })
+    }
+
+    const params: unknown[] = []
+    const conflict = compileInsertConflict(node.conflict, params)
+
+    return {
+      sql: `insert into ${tableSql} default values${conflict}${compileReturning(node.returning)}`,
+      params,
+    }
+  }
+
+  const cols = node.columns
+    .map((column) => {
+      assertIdentifier(column, 'insert column')
+      return quoteIdent(column)
+    })
+    .join(', ')
+
   const params: unknown[] = []
   const rowSql = node.values.map((row) => {
     const placeholders = row.map((value) => {
@@ -698,8 +738,92 @@ function compileInsert(
     return `(${placeholders.join(', ')})`
   })
 
-  const sql = `insert into ${tableSql} (${cols}) values ${rowSql.join(', ')}${compileReturning(node.returning)}`
+  const conflict = compileInsertConflict(node.conflict, params)
+  const sql = `insert into ${tableSql} (${cols}) values ${rowSql.join(', ')}${conflict}${compileReturning(node.returning)}`
   return { sql, params }
+}
+
+/** Compiles a structured PostgreSQL insert conflict clause. */
+function compileInsertConflict(
+  conflict: InsertConflictAst | undefined,
+  params: unknown[],
+): string {
+  if (!conflict) return ''
+
+  if (!Array.isArray(conflict.target) || conflict.target.length === 0) {
+    throw new QueryError({ message: 'insert conflict target must not be empty' })
+  }
+
+  const target = conflict.target
+    .map((column) => {
+      assertIdentifier(column, 'insert conflict target column')
+      return quoteIdent(column)
+    })
+    .join(', ')
+
+  if (new Set(conflict.target).size !== conflict.target.length) {
+    throw new QueryError({ message: 'insert conflict target contains duplicate columns' })
+  }
+
+  const action = (conflict as { readonly action?: unknown }).action
+
+  if (typeof action !== 'object' || action === null || !('kind' in action)) {
+    throw new QueryError({ message: 'insert conflict requires an action' })
+  }
+
+  if (action.kind === 'doNothing') {
+    return ` on conflict (${target}) do nothing`
+  }
+
+  if (action.kind !== 'doUpdate' || !('set' in action) || !Array.isArray(action.set)) {
+    throw new QueryError({ message: 'unsupported insert conflict action' })
+  }
+
+  if (action.set.length === 0) {
+    throw new QueryError({
+      message: 'insert conflict update requires at least one SET column',
+    })
+  }
+
+  const set = action.set
+    .map((assignment) => compileInsertConflictAssignment(assignment, params))
+    .join(', ')
+
+  return ` on conflict (${target}) do update set ${set}`
+}
+
+/** Compiles one validated PostgreSQL conflict update assignment. */
+function compileInsertConflictAssignment(input: unknown, params: unknown[]): string {
+  if (typeof input !== 'object' || input === null) {
+    throw new QueryError({ message: 'insert conflict update assignment is invalid' })
+  }
+
+  const assignment = input as { readonly column?: unknown; readonly value?: unknown }
+  assertIdentifier(assignment.column, 'insert conflict update column')
+
+  const value = assignment.value
+
+  if (typeof value !== 'object' || value === null) {
+    throw new QueryError({ message: 'insert conflict update value is invalid' })
+  }
+
+  const structuredValue = value as {
+    readonly kind?: unknown
+    readonly column?: unknown
+    readonly value?: unknown
+  }
+
+  if (structuredValue.kind === 'excluded') {
+    assertIdentifier(structuredValue.column, 'excluded column')
+    return `${quoteIdent(assignment.column)} = excluded.${quoteIdent(structuredValue.column)}`
+  }
+
+  if (structuredValue.kind !== 'value') {
+    throw new QueryError({ message: 'unsupported insert conflict update value' })
+  }
+
+  params.push(structuredValue.value)
+  return `${quoteIdent(assignment.column)} = $${params.length}`
 }
 
 /**
