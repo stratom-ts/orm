@@ -18,6 +18,8 @@ import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwners
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 
+import { inTransaction } from '../../helpers/nativeTransaction'
+
 const main = [{ role: 'database' as const, spelling: 'main' }]
 const completeMain: MigrationOwnershipDeclaration[] = [
   { kind: 'completeNamespace', namespace: main },
@@ -1262,7 +1264,7 @@ async function assertRebuildRollback(program: MigrationProgram, index: number) {
 
     expect(originalState(test.native)).toEqual(before)
     expect(test.native.prepare('pragma foreign_keys').get()).toEqual({ foreign_keys: 1 })
-    expect(test.native.isTransaction).toBe(false)
+    expect(inTransaction(test.native)).toBe(false)
   } finally {
     await test.close()
   }
@@ -1874,7 +1876,7 @@ it.each([false, true])(
           : ['id', 'label', 'retained', 'retained_owner_id', 'nick', 'owner_id'],
       )
 
-      expect(test.native.isTransaction).toBe(false)
+      expect(inTransaction(test.native)).toBe(false)
     } finally {
       await test.close()
     }

@@ -18,7 +18,6 @@ export default defineConfig({
           typescriptCompilerFolder: typescript6CompilerFolder,
         },
       },
-      outDirs: ['dist', { dir: 'dist', moduleFormat: 'cjs' }],
     }),
   ],
   test: {
@@ -62,21 +61,11 @@ export default defineConfig({
   build: {
     lib: {
       entry: ['src/index.ts'],
-      name: 'Stratom',
       fileName: 'stratom',
-      formats: ['es', 'umd'],
+      formats: ['es'],
     },
     rollupOptions: {
       external: ['valibot', 'db0', 'node:async_hooks', 'node:crypto', 'node:fs'],
-      output: {
-        globals: {
-          valibot: 'valibot',
-          db0: 'db0',
-          'node:async_hooks': 'async_hooks',
-          'node:crypto': 'crypto',
-          'node:fs': 'fs',
-        },
-      },
     },
   },
 })

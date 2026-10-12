@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: pnpm lint
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - run: pnpm typecheck
+  format:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - run: pnpm fmt:check
+      - name: Check changed files for whitespace errors
+        run: git diff --check "$BASE_SHA" "$GITHUB_SHA"
+  test-unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: &node-matrix
+        node: [24]
+        include:
+          # Minimum supported Node. pnpm needs a newer Node, so dependencies are
+          # installed on 24 before switching, and Vitest runs without pnpm.
+          - node: 22.5.0
+            node-options: --experimental-sqlite
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@v5
+        if: matrix.node != 24
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: node_modules/.bin/vitest run --config vitest.unit.config.ts
+        env:
+          NODE_OPTIONS: ${{ matrix.node-options }}
+  test-integration-postgres:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: *node-matrix
+    services:
+      postgres:
+        image: postgres:alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: db0
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d db0"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      POSTGRESQL_URL: postgresql://test:test@localhost:5432/db0
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@v5
+        if: matrix.node != 24
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/postgres
+        env:
+          NODE_OPTIONS: ${{ matrix.node-options }}
+  test-integration-sqlite:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: *node-matrix
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@v5
+        if: matrix.node != 24
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/sqlite
+        env:
+          NODE_OPTIONS: ${{ matrix.node-options }}

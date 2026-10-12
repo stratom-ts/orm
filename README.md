@@ -21,6 +21,8 @@ pnpm add stratom valibot db0
 # plus the driver required by your connector (e.g. pg for PostgreSQL)
 ```
 
+Stratom is ESM only and requires Node >=22.5.
+
 ## PostgreSQL integration tests
 
 The repeatable PostgreSQL suite uses Docker Compose and an isolated schema per test.
@@ -31,15 +33,15 @@ service, and run the dedicated command:
 ```bash
 cp .env.example .env
 docker compose up -d --wait
-pnpm test:integration
+pnpm test:integration:postgres
 docker compose down -v
 ```
 
 On PowerShell, use `Copy-Item .env.example .env` for the first command. Use
-`pnpm test:unit` when PostgreSQL is not configured. `pnpm test` runs the unit suite
-followed by the integration suite, while `pnpm test:integration` runs only integration
-tests; both fail with a setup message instead of silently passing when the service is
-unavailable.
+`pnpm test:unit` or `pnpm test:integration:sqlite` when PostgreSQL is not configured;
+the SQLite suite needs no service. `pnpm test` runs the unit suite followed by every
+integration suite, while `pnpm test:integration` runs only integration tests; both fail
+with a setup message instead of silently passing when PostgreSQL is unavailable.
 
 ## Quick start
 
@@ -267,8 +269,8 @@ the structured unsupported/unavailable states instead of falling back to Postgre
 Adding package-supported database behavior is therefore local to one complete member and
 one dispatcher registration. PostgreSQL and SQLite are production members.
 
-SQLite uses the exact db0 0.4.0 `node-sqlite` connector on Node >=22.5 and SQLite
-version 3.37 or later. Node 22.5 through 22.12 needs `--experimental-sqlite`.
+SQLite uses the exact db0 0.4.0 `node-sqlite` connector and SQLite version 3.37 or
+later. Node 22.5 through 22.12 needs `--experimental-sqlite`.
 SQLite manages ordinary permanent non-STRICT rowid tables in `main`,
 with simple PK/unique/FK constraints, column indexes, portable defaults and AUTOINCREMENT.
 Migrations use legal direct operations or atomic table rebuilds that preserve retained

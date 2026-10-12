@@ -237,9 +237,9 @@ DDL.
 
 ## SQLite production profile
 
-SQLite requires the exact db0 0.4.0 `node-sqlite` connector, Node >=22.5 and SQLite >=3.37.
-Node 22.5 through 22.12 requires the `--experimental-sqlite` flag. The package's PostgreSQL Node baseline
-does not change. SQLite manages ordinary permanent non-STRICT rowid tables in `main`.
+SQLite requires the exact db0 0.4.0 `node-sqlite` connector and SQLite >=3.37. Node 22.5
+through 22.12 requires the `--experimental-sqlite` flag. SQLite manages ordinary permanent
+non-STRICT rowid tables in `main`.
 
 Clients and operation providers created from one `node-sqlite` connector share exclusive
 ownership of its native session. While one Client has an active operation or transaction,

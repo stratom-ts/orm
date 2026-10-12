@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Db } from '@/index'
 import { column, defineTable } from '@/index'
 
-import { deferred } from '../helpers/deferredPromise'
+import { deferred } from '../../helpers/deferredPromise'
 
 import { waitForPostgres } from './postgres.setup'
 import type { SessionEvent } from './postgresIntegration'
