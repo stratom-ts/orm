@@ -15,6 +15,7 @@ export {
   createUpdateBuilder,
   type DeleteBuilder,
   type InsertBuilder,
+  type InsertConflictBuilder,
   type InsertValuesBuilder,
   type QueryBuilder,
   type SelectBuilder,
@@ -22,6 +23,7 @@ export {
   type UpdateSetBuilder,
   type WriteResult,
 } from './builder'
+export { excluded, type ExcludedRef } from './upsert'
 export {
   and,
   count,

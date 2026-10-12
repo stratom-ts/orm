@@ -382,6 +382,8 @@ const stats = await db
 ### Inserting, updating, deleting
 
 ```typescript
+import { excluded } from 'stratom'
+
 // bulk insert (returns all inserted rows by default)
 await db
   .insert(User)
@@ -389,6 +391,23 @@ await db
     { email: 'a@b.com', fullName: 'A' },
     { email: 'c@d.com', fullName: 'C' },
   ])
+  .execute()
+
+// PostgreSQL and SQLite upsert using an authored candidate key
+await db
+  .insert(User)
+  .values({ email: 'a@b.com', fullName: 'Updated' })
+  .onConflict([User.email])
+  .doUpdate({ fullName: excluded(User.fullName) })
+  .returning([User.id, User.fullName])
+  .execute()
+
+// Ignore a conflicting row
+await db
+  .insert(User)
+  .values({ email: 'a@b.com', fullName: 'Unchanged' })
+  .onConflict([User.email])
+  .doNothing()
   .execute()
 
 // update requires where(...) or .all()
@@ -401,6 +420,17 @@ const deleted = await db
   .returning([User.id])
   .execute()
 ```
+
+`onConflict(...)` accepts only an exact authored candidate key: the primary key, a
+`unique: true` column, or a unique table index. Composite keys must use the authored
+column order. `doUpdate(...)` follows the normal update writable-column rules. Its
+values can be validated literals or `excluded(Table.column)` references to insertable
+columns on the same table handle. Bulk values and all returning and first-row terminals
+remain available after choosing `doNothing()` or `doUpdate(...)`.
+
+Initial upsert support does not accept constraint or index names, partial predicates,
+expression indexes, an update `WHERE` clause, arbitrary SQL expressions, MySQL replace,
+or SQL `MERGE`.
 
 ### Transactions
 

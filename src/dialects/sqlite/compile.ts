@@ -7,6 +7,7 @@ import type {
   CompiledQuery,
   DeleteAst,
   InsertAst,
+  InsertConflictAst,
   JoinAst,
   OrderByAst,
   PredicateAst,
@@ -617,6 +618,12 @@ function compileInsert(
       })
     }
 
+    if (node.conflict) {
+      throw new QueryError({
+        message: 'SQLite does not support an insert conflict clause with DEFAULT VALUES',
+      })
+    }
+
     return {
       sql: `insert into ${table} default values${compileReturning(node.returning)}`,
       params: [],
@@ -630,11 +637,95 @@ function compileInsert(
 
   const params: unknown[] = []
   const values = compileInsertValues(node, params)
+  const conflict = compileInsertConflict(node.conflict, params)
 
   return {
-    sql: `insert into ${table} (${columns.join(', ')}) values ${values.join(', ')}${compileReturning(node.returning)}`,
+    sql: `insert into ${table} (${columns.join(', ')}) values ${values.join(', ')}${conflict}${compileReturning(node.returning)}`,
     params,
   }
+}
+
+/** Compiles a structured SQLite insert conflict clause. */
+function compileInsertConflict(
+  conflict: InsertConflictAst | undefined,
+  params: unknown[],
+): string {
+  if (!conflict) return ''
+
+  if (!Array.isArray(conflict.target) || conflict.target.length === 0) {
+    throw new QueryError({ message: 'insert conflict target must not be empty' })
+  }
+
+  const target = conflict.target
+    .map((column) => {
+      assertNonEmptyString(column, 'insert conflict target column')
+      return quoteIdentifier(column)
+    })
+    .join(', ')
+
+  if (new Set(conflict.target).size !== conflict.target.length) {
+    throw new QueryError({ message: 'insert conflict target contains duplicate columns' })
+  }
+
+  const action = (conflict as { readonly action?: unknown }).action
+
+  if (typeof action !== 'object' || action === null || !('kind' in action)) {
+    throw new QueryError({ message: 'insert conflict requires an action' })
+  }
+
+  if (action.kind === 'doNothing') {
+    return ` on conflict (${target}) do nothing`
+  }
+
+  if (action.kind !== 'doUpdate' || !('set' in action) || !Array.isArray(action.set)) {
+    throw new QueryError({ message: 'unsupported insert conflict action' })
+  }
+
+  if (action.set.length === 0) {
+    throw new QueryError({
+      message: 'insert conflict update requires at least one SET column',
+    })
+  }
+
+  const set = action.set
+    .map((assignment) => compileInsertConflictAssignment(assignment, params))
+    .join(', ')
+
+  return ` on conflict (${target}) do update set ${set}`
+}
+
+/** Compiles one validated SQLite conflict update assignment. */
+function compileInsertConflictAssignment(input: unknown, params: unknown[]): string {
+  if (typeof input !== 'object' || input === null) {
+    throw new QueryError({ message: 'insert conflict update assignment is invalid' })
+  }
+
+  const assignment = input as { readonly column?: unknown; readonly value?: unknown }
+  assertNonEmptyString(assignment.column, 'insert conflict update column')
+
+  const value = assignment.value
+
+  if (typeof value !== 'object' || value === null) {
+    throw new QueryError({ message: 'insert conflict update value is invalid' })
+  }
+
+  const structuredValue = value as {
+    readonly kind?: unknown
+    readonly column?: unknown
+    readonly value?: unknown
+  }
+
+  if (structuredValue.kind === 'excluded') {
+    assertNonEmptyString(structuredValue.column, 'excluded column')
+    return `${quoteIdentifier(assignment.column)} = excluded.${quoteIdentifier(structuredValue.column)}`
+  }
+
+  if (structuredValue.kind !== 'value') {
+    throw new QueryError({ message: 'unsupported insert conflict update value' })
+  }
+
+  params.push(structuredValue.value)
+  return `${quoteIdentifier(assignment.column)} = ?`
 }
 
 /**

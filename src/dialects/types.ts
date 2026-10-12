@@ -437,6 +437,25 @@ export type ReturningAst =
   | { readonly kind: 'all' }
   | { readonly kind: 'columns'; readonly columns: readonly string[] }
 
+/** One assignment in an insert conflict update action. */
+export type InsertConflictAssignmentAst = Readonly<{
+  column: string
+  value:
+    | Readonly<{ kind: 'value'; value: unknown }>
+    | Readonly<{ kind: 'excluded'; column: string }>
+}>
+
+/** Structured insert conflict target and action. */
+export type InsertConflictAst = Readonly<{
+  target: readonly string[]
+  action:
+    | Readonly<{ kind: 'doNothing' }>
+    | Readonly<{
+        kind: 'doUpdate'
+        set: readonly InsertConflictAssignmentAst[]
+      }>
+}>
+
 export type InsertAst = {
   readonly kind: 'insert'
   readonly relation: RelationIdentityInput
@@ -444,6 +463,7 @@ export type InsertAst = {
   readonly columns: readonly string[]
   /** One or more value tuples aligned with `columns`. */
   readonly values: readonly (readonly unknown[])[]
+  readonly conflict?: InsertConflictAst
   readonly returning?: ReturningAst
 }
 

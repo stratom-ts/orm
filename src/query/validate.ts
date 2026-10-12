@@ -255,6 +255,15 @@ export function validateUpdatePatch(
   handle: TableHandle,
   patch: unknown,
 ): Record<string, unknown> {
+  return validateUpdatePatchWithStructuredValues(handle, patch, () => false)
+}
+
+/** Validates an update patch while preserving caller-owned structured values. */
+export function validateUpdatePatchWithStructuredValues(
+  handle: TableHandle,
+  patch: unknown,
+  isStructuredValue: (value: unknown) => boolean,
+): Record<string, unknown> {
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
     throw new ValidationError({
       message: `Invalid update on "${handle.getTableMetadata().name}": expected a plain object patch`,
@@ -262,22 +271,18 @@ export function validateUpdatePatch(
   }
 
   const schema = buildUpdateSchema(handle)
-  const result = safeParse(schema, patch)
+  const authoredPatch = patch as Record<string, unknown>
+  const literalPatch = Object.fromEntries(
+    Object.entries(authoredPatch).filter(([, value]) => !isStructuredValue(value)),
+  )
+
+  const result = safeParse(schema, literalPatch)
 
   if (!result.success) {
     throw new ValidationError({
       message: `Invalid update on "${handle.getTableMetadata().name}": ${formatIssues(result.issues)}`,
       issues: result.issues,
     })
-  }
-
-  const output = result.output as Record<string, unknown>
-
-  // Drop undefined keys so SET only includes provided fields
-  const cleaned: Record<string, unknown> = {}
-
-  for (const [key, value] of Object.entries(output)) {
-    if (value !== undefined) cleaned[key] = value
   }
 
   // Reject keys not in the update schema (Valibot object strips unknown by default)
@@ -289,6 +294,17 @@ export function validateUpdatePatch(
         message: `Invalid update on "${handle.getTableMetadata().name}": unknown or non-updatable column "${key}"`,
       })
     }
+  }
+
+  const output = result.output as Record<string, unknown>
+
+  // Preserve authored patch order while retaining structured values for their caller.
+  const cleaned: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(authoredPatch)) {
+    const cleanedValue = isStructuredValue(value) ? value : output[key]
+
+    if (cleanedValue !== undefined) cleaned[key] = cleanedValue
   }
 
   if (Object.keys(cleaned).length === 0) {

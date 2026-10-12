@@ -3,6 +3,8 @@ export type {
   AggregateExprAst,
   ComparisonOp,
   DeleteAst,
+  InsertConflictAssignmentAst,
+  InsertConflictAst,
   InsertAst,
   JoinAst,
   OrderByAst,
