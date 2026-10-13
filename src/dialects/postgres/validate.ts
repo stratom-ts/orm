@@ -1,4 +1,4 @@
-import { InvariantError } from '@/utils/error'
+import { SchemaError } from '@/utils/error'
 
 /** Base types allowed in DDL (with optional precision/length suffixes). */
 const ALLOWED_PG_BASE_TYPES = new Set([
@@ -89,11 +89,13 @@ export function assertSafePostgresDataType(dataType: string): string {
   const trimmed = dataType.trim()
 
   if (!trimmed) {
-    throw new InvariantError('column data type must be a non-empty string')
+    throw new SchemaError({ message: 'column data type must be a non-empty string' })
   }
 
   if (/[;"\\]|--|\/\*|\*\//.test(trimmed)) {
-    throw new InvariantError(`unsafe column data type: ${JSON.stringify(dataType)}`)
+    throw new SchemaError({
+      message: `unsafe column data type: ${JSON.stringify(dataType)}`,
+    })
   }
 
   const lower = trimmed.toLowerCase()
@@ -102,13 +104,17 @@ export function assertSafePostgresDataType(dataType: string): string {
   )
 
   if (!match) {
-    throw new InvariantError(`unsupported column data type: ${JSON.stringify(dataType)}`)
+    throw new SchemaError({
+      message: `unsupported column data type: ${JSON.stringify(dataType)}`,
+    })
   }
 
   const base = match[1]!.replace(/\s+/g, ' ').trim()
 
   if (!ALLOWED_PG_BASE_TYPES.has(base)) {
-    throw new InvariantError(`unsupported column data type: ${JSON.stringify(dataType)}`)
+    throw new SchemaError({
+      message: `unsupported column data type: ${JSON.stringify(dataType)}`,
+    })
   }
 
   if (match[2]) {
@@ -143,7 +149,7 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
 
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      throw new InvariantError('column default number must be finite')
+      throw new SchemaError({ message: 'column default number must be finite' })
     }
 
     return String(value)

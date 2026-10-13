@@ -5,6 +5,7 @@ import {
   createMigrationCoordinationScope,
   migrationLockAcquisitionOrder,
 } from '@/migrations/coordinationScope'
+import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import { MigrationError } from '@/utils/error'
 
 import {
@@ -25,6 +26,34 @@ const relation = {
   ],
   relation: { spelling: 'events', comparisonKey: 'events' },
 }
+
+it('retains PostgreSQL ownership error origin and rollback/unlock cleanup evidence', async () => {
+  const invalidOwnership = new MigrationOwnershipSchemaError({
+    message: 'missing registered handle',
+  })
+
+  const runtime = harness({
+    prepareFailure: invalidOwnership,
+    failRun: /^rollback$/i,
+    failUnlock: true,
+  })
+
+  const error = await runtime.execute().catch((cause: unknown) => cause)
+
+  expect(error).toMatchObject({
+    _tag: 'MigrationError',
+    cause: invalidOwnership,
+    stage: 'planning',
+    outcome: 'unchanged',
+  })
+
+  expect((error as MigrationError).defect).toBeUndefined()
+
+  expect((error as MigrationError).cleanupFailures?.map(({ stage }) => stage)).toEqual([
+    'rollback',
+    'unlock',
+  ])
+})
 
 describe('PostgreSQL migration runtime failures', () => {
   it.each([null, undefined])(

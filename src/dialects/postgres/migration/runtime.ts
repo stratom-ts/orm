@@ -1,6 +1,7 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
+import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { MigrationError, QueryError } from '@/utils/error'
+import { MigrationError, QueryError, SchemaError } from '@/utils/error'
 
 import type {
   CancellationState,
@@ -55,7 +56,8 @@ function executionDefect(
     structured?.defect === true ||
     (!structured &&
       !(cause instanceof MigrationCancellationError) &&
-      !(cause instanceof QueryError))
+      !(cause instanceof QueryError) &&
+      !(cause instanceof SchemaError))
   )
 }
 
@@ -130,6 +132,7 @@ function reportedStage(
 ): MigrationExecutionStage {
   if (cause instanceof MigrationCancellationError) return cause.stage
   if (cause instanceof MigrationError && cause.stage !== undefined) return cause.stage
+  if (cause instanceof MigrationOwnershipSchemaError) return 'planning'
 
   return fallback
 }
@@ -418,6 +421,14 @@ function migrationExecutionOutcome(
 
   if (primary) {
     const outcome = failureOutcome(primary.stage, ddlStarted, rollbackAcknowledged)
+
+    if (
+      primary.cause instanceof SchemaError &&
+      outcome === 'unchanged' &&
+      cleanupFailures.length === 0
+    )
+      throw primary.cause
+
     throw executionError({
       ...primary,
       outcome,

@@ -30,7 +30,7 @@ import { column, defineTable, reference } from '@/index'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import type { PhysicalNameRegistry } from '@/migrations/physicalNaming'
 import type { AnySchema } from '@/types/schema'
-import { InvariantError, MigrationError, SchemaError } from '@/utils/error'
+import { MigrationError, SchemaError } from '@/utils/error'
 
 const context = {
   writableDefault: [{ role: 'database' as const, spelling: 'main' }],
@@ -335,14 +335,14 @@ describe('SQLite schema defaults and names: allows long SQLite names and validat
 
     /** Validates an identifier containing NUL to exercise rejection. */
     const nulName = () => sqliteNaming.validate('has\0nul', 'NUL SQLite name')
-    expect(nulName).toThrow(InvariantError)
+    expect(nulName).toThrow(SchemaError)
     expect(nulName).toThrow(/must not contain NUL/i)
 
     /** Validates an identifier containing an unpaired surrogate to exercise rejection. */
     const unpairedSurrogate = () =>
       sqliteNaming.validate('has\ud800surrogate', 'surrogate SQLite name')
 
-    expect(unpairedSurrogate).toThrow(InvariantError)
+    expect(unpairedSurrogate).toThrow(SchemaError)
     expect(unpairedSurrogate).toThrow(/must not contain unpaired Unicode surrogates/i)
 
     registry.reserve({

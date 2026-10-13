@@ -3,7 +3,7 @@ import type {
   NamespaceRole,
   RelationIdentityInput,
 } from '@/schemas/actions/relation'
-import { InvariantError } from '@/utils/error'
+import { SchemaError } from '@/utils/error'
 
 export type {
   NamespaceIdentifierInput,
@@ -192,11 +192,11 @@ function compareCodeUnits(left: string, right: string): number {
  */
 function assertIdentifier(spelling: string, description: string): void {
   if (spelling.length === 0) {
-    throw new InvariantError(`${description} must not be empty`)
+    throw new SchemaError({ message: `${description} must not be empty` })
   }
 
   if (spelling.includes('\0')) {
-    throw new InvariantError(`${description} must not contain NUL`)
+    throw new SchemaError({ message: `${description} must not contain NUL` })
   }
 
   for (let index = 0; index < spelling.length; index++) {
@@ -212,9 +212,9 @@ function assertIdentifier(spelling: string, description: string): void {
         spelling.charCodeAt(index + 1) <= 0xdfff
       )
     ) {
-      throw new InvariantError(
-        `${description} must not contain unpaired Unicode surrogates`,
-      )
+      throw new SchemaError({
+        message: `${description} must not contain unpaired Unicode surrogates`,
+      })
     }
 
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) index++

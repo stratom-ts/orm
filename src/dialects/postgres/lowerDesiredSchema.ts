@@ -12,7 +12,7 @@ import type {
 } from '@/dialects/types'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
 import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, SchemaError } from '@/utils/error'
 
 import { inferPostgresColumnType } from './infer'
 import { normalizePostgresDataType } from './normalize'
@@ -289,11 +289,17 @@ function lowerColumn(
 export function lowerPostgresDesiredSchema(
   graph: AuthoredDesiredSchema,
 ): LoweredDesiredSchema {
-  return lowerDesiredSchemaGraph(graph, undefined, {
-    lowerPhysicalType: (column, analysis) => physicalType(column, analysis),
-    lowerReferenceType: (table, column, inheritedType) =>
-      validateReferencePhysicalType(table, column, inheritedType),
-    lowerColumn: (table, column, dataType, analysis) =>
-      lowerColumn(table, column, dataType, analysis),
-  })
+  try {
+    return lowerDesiredSchemaGraph(graph, undefined, {
+      lowerPhysicalType: (column, analysis) => physicalType(column, analysis),
+      lowerReferenceType: (table, column, inheritedType) =>
+        validateReferencePhysicalType(table, column, inheritedType),
+      lowerColumn: (table, column, dataType, analysis) =>
+        lowerColumn(table, column, dataType, analysis),
+    })
+  } catch (cause) {
+    if (!(cause instanceof SchemaError)) throw cause
+
+    throw new MigrationError({ message: cause.message, cause })
+  }
 }
