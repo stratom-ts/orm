@@ -30,8 +30,8 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "db0": "^0.4.0",
-    "valibot": "^1.4.2"
+    "db0": "^0.4.1",
+    "valibot": "^1.5.0"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.59.0",
