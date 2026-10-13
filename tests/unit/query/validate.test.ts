@@ -1,0 +1,162 @@
+import {
+  flatten,
+  getDotPath,
+  nullable,
+  number,
+  object,
+  optional,
+  pipe,
+  string,
+} from 'valibot'
+import { describe, expect, it } from 'vitest'
+
+import { ValidationError, column, defineTable } from '@/index'
+import { validateInsertRow, validateUpdatePatch } from '@/query/validate'
+
+const Rows = defineTable(
+  'validation_rows',
+  {
+    id: pipe(number(), column({ generation: { kind: 'identity', mode: 'always' } })),
+    name: string(),
+    count: number(),
+    locked: pipe(string(), column({ readonly: true })),
+    profile: optional(nullable(object({ alias: string() }))),
+  },
+  { primaryKey: 'id' },
+)
+
+function captureValidationError(operation: () => unknown): ValidationError {
+  try {
+    operation()
+  } catch (error) {
+    if (error instanceof ValidationError) return error
+  }
+
+  throw new Error('Expected validation to fail')
+}
+
+describe('insert validation issues', () => {
+  it.each([
+    { row: null, message: 'expected a plain object row', path: null },
+    { row: 'nope', message: 'expected a plain object row', path: null },
+    { row: [], message: 'expected a plain object row', path: null },
+  ])('reports root failures for $row', ({ row, message, path }) => {
+    const error = captureValidationError(() => validateInsertRow(Rows, row))
+
+    expect(error).toMatchObject({ table: 'validation_rows', operation: 'insert' })
+    expect(error.issues).toHaveLength(1)
+    expect(getDotPath(error.issues[0]!)).toBe(path)
+    expect(flatten(error.issues).root?.[0]).toContain(message)
+    expect(error.message).toContain(message)
+  })
+
+  it.each([
+    {
+      row: { name: 'A', count: 1, extra: true },
+      key: 'extra',
+      message: 'unknown or non-insertable',
+    },
+    {
+      row: { id: 1, name: 'A', count: 1 },
+      key: 'id',
+      message: 'unknown or non-insertable',
+    },
+    { row: { name: undefined, count: 1 }, key: 'name', message: 'cannot be undefined' },
+    { row: { name: 'A', count: '1' }, key: 'count', message: 'Invalid type' },
+  ])('reports column failure at $key', ({ row, key, message }) => {
+    const error = captureValidationError(() => validateInsertRow(Rows, row))
+
+    expect(error.table).toBe('validation_rows')
+    expect(error.operation).toBe('insert')
+    expect(getDotPath(error.issues[0]!)).toBe(key)
+    expect(flatten(error.issues).nested?.[key]?.[0]).toContain(message)
+    expect(error.message).toContain(`${key}:`)
+  })
+
+  it('retains Valibot required-field issues when a key is missing', () => {
+    const error = captureValidationError(() => validateInsertRow(Rows, { name: 'A' }))
+
+    expect(error.issues[0].type).toBe('object')
+    expect(getDotPath(error.issues[0]!)).toBe('count')
+    expect(error.message).toContain('count:')
+  })
+})
+
+describe('insert issue aggregation', () => {
+  it('retains all issues for multiple invalid columns', () => {
+    const error = captureValidationError(() =>
+      validateInsertRow(Rows, { name: 1, count: '1', locked: 'L' }),
+    )
+
+    const paths = error.issues.map((issue) => getDotPath(issue))
+    const flattened = flatten(error.issues).nested
+
+    expect(paths).toEqual(['name', 'count'])
+    expect(flattened?.name).toHaveLength(1)
+    expect(flattened?.count).toHaveLength(1)
+    expect(error.message).toContain(`name: ${flattened?.name?.[0]}`)
+    expect(error.message).toContain(`count: ${flattened?.count?.[0]}`)
+  })
+
+  it('preserves Valibot nested paths in flattened issues and messages', () => {
+    const error = captureValidationError(() =>
+      validateInsertRow(Rows, {
+        name: 'A',
+        count: 1,
+        locked: 'L',
+        profile: { alias: 2 },
+      }),
+    )
+
+    expect(getDotPath(error.issues[0]!)).toBe('profile.alias')
+    expect(flatten(error.issues).nested?.['profile.alias']).toHaveLength(1)
+    expect(error.message).toContain('profile.alias:')
+  })
+})
+
+describe('update validation issues', () => {
+  it.each([
+    { patch: null, message: 'expected a plain object patch', path: null },
+    { patch: 'nope', message: 'expected a plain object patch', path: null },
+    { patch: [], message: 'expected a plain object patch', path: null },
+  ])('reports root failures for $patch', ({ patch, message, path }) => {
+    const error = captureValidationError(() => validateUpdatePatch(Rows, patch))
+
+    expect(error).toMatchObject({ table: 'validation_rows', operation: 'update' })
+    expect(getDotPath(error.issues[0]!)).toBe(path)
+    expect(flatten(error.issues).root?.[0]).toContain(message)
+    expect(error.message).toContain(message)
+  })
+
+  it.each([
+    { patch: { extra: 'x' }, key: 'extra', message: 'unknown or non-updatable' },
+    { patch: { locked: 'x' }, key: 'locked', message: 'unknown or non-updatable' },
+    { patch: { count: '1' }, key: 'count', message: 'Invalid type' },
+  ])('reports column failure at $key', ({ patch, key, message }) => {
+    const error = captureValidationError(() => validateUpdatePatch(Rows, patch))
+
+    expect(error.table).toBe('validation_rows')
+    expect(error.operation).toBe('update')
+    expect(getDotPath(error.issues[0]!)).toBe(key)
+    expect(flatten(error.issues).nested?.[key]?.[0]).toContain(message)
+    expect(error.message).toContain(`${key}:`)
+  })
+
+  it.each([{}, { name: undefined }])('reports an empty cleaned patch for %o', (patch) => {
+    const error = captureValidationError(() => validateUpdatePatch(Rows, patch))
+
+    expect(error.table).toBe('validation_rows')
+    expect(error.operation).toBe('update')
+    expect(getDotPath(error.issues[0]!)).toBeNull()
+
+    expect(flatten(error.issues).root?.[0]).toContain(
+      'patch must include at least one column',
+    )
+
+    expect(error.message).toContain('patch must include at least one column')
+  })
+
+  it('allows undefined update values when another column remains', () => {
+    expect(validateUpdatePatch(Rows, { name: undefined, count: 1 })).toEqual({ count: 1 })
+  })
+})
