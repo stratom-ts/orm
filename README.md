@@ -46,8 +46,8 @@ with a setup message instead of silently passing when PostgreSQL is unavailable.
 ## Quick start
 
 ```typescript
-import { createDatabase, defineTable, column } from 'stratom'
 import { postgresql } from 'db0/connectors/postgresql'
+import { createDatabase, defineTable, column } from 'stratom'
 import { boolean, number, pipe, string } from 'valibot'
 
 const User = defineTable(
