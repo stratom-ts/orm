@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  DriverError,
   InvariantError,
   MigrationError,
   QueryError,
@@ -10,6 +11,7 @@ import {
   catchTag,
   catchTags,
 } from '@/index'
+import { driverError } from '@/utils/error'
 
 describe('TaggedError', () => {
   it('should create a tagged error class with the given tag', () => {
@@ -57,6 +59,60 @@ describe('QueryError', () => {
     expect(error._tag).toBe('QueryError')
     expect(error.message).toBe('closed')
   })
+})
+
+describe('DriverError', () => {
+  it('keeps an object whose diagnostic getters throw as the cause', () => {
+    const cause = Object.defineProperties(
+      {},
+      {
+        message: {
+          get: () => {
+            throw new Error('message getter failed')
+          },
+        },
+        code: {
+          get: () => {
+            throw new Error('code getter failed')
+          },
+        },
+      },
+    )
+
+    const error = driverError(cause, 'sqlite', 'select 1')
+
+    expect(error.cause).toBe(cause)
+    expect(error.message).toBe('Database operation failed')
+    expect(error.code).toBeUndefined()
+  })
+
+  it.each([
+    {
+      cause: Object.assign(new Error('duplicate value'), { code: '23505' }),
+      code: '23505',
+    },
+    { cause: { code: 'SQLITE_CONSTRAINT_UNIQUE' }, code: 'SQLITE_CONSTRAINT_UNIQUE' },
+    { cause: null, code: undefined },
+    { cause: undefined, code: undefined },
+    { cause: 0, code: undefined },
+  ])(
+    'retains thrown value %# and exposes only native code and SQL text',
+    ({ cause, code }) => {
+      const sql = 'insert into records (value) values ($1)'
+      const error = driverError(cause, 'selected-dialect', sql)
+      expect(error).toBeInstanceOf(DriverError)
+
+      expect(error).toMatchObject({
+        _tag: 'DriverError',
+        dialect: 'selected-dialect',
+        sql,
+      })
+
+      expect(error.cause).toBe(cause)
+      expect(error.code).toBe(code)
+      expect(error).not.toHaveProperty('params')
+    },
+  )
 })
 
 describe('ValidationError', () => {

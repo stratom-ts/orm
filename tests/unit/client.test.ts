@@ -261,7 +261,7 @@ describe('client registration: should retain registered schemas on the client', 
     const db = createDatabase({ connector, schemas: [] })
 
     expect(createProvider).toHaveBeenCalledTimes(1)
-    expect(createProvider).toHaveBeenCalledWith(connector)
+    expect(createProvider).toHaveBeenCalledWith(connector, 'postgresql')
     await db.close()
     createProvider.mockRestore()
   })

@@ -451,16 +451,7 @@ async function pingClient(
 ): Promise<void> {
   ensureClientOpen()
 
-  try {
-    await clientExecutor.execute(operations.compile({ kind: 'ping' }))
-  } catch (cause) {
-    if (cause instanceof QueryError) throw cause
-
-    throw new QueryError({
-      message: cause instanceof Error ? cause.message : 'Connectivity check failed',
-      cause,
-    })
-  }
+  await clientExecutor.execute(operations.compile({ kind: 'ping' }))
 }
 
 /** Checks registration by exact authored relation identity. */
@@ -756,7 +747,7 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
   const mapper = createValueMapper(dialect, config.map, schemas, query)
   const operationSessionProvider =
     config.operationSessionProvider ??
-    dialect.operations.createSessionProvider(config.connector)
+    dialect.operations.createSessionProvider(config.connector, dialect.id)
 
   const coordinator = new OperationCoordinator(operationSessionProvider)
   const { ensureOpen, rootExecutor, close } = createDatabaseLifecycle(coordinator)

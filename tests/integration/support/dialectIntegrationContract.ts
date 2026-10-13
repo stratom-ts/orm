@@ -2,7 +2,7 @@ import { boolean, integer, number, pipe, string } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Db, TableHandle } from '@/index'
-import { column, defineTable, excluded } from '@/index'
+import { DriverError, column, defineTable, excluded } from '@/index'
 
 const integrationCapabilityNames = [
   'lifecycle',
@@ -25,6 +25,7 @@ export type IntegrationScenarioRegistrar = (
 
 export interface DialectIntegrationAdapter {
   readonly name: string
+  readonly dialectId: string
   readonly capabilities: Readonly<
     Record<IntegrationCapabilityName, IntegrationCapability>
   >
@@ -135,6 +136,8 @@ export function registerDialectIntegrationScenarios(
     registerCrudIntegration(adapter)
     registerUpsertIntegration(adapter)
     registerTransactionIntegration(adapter)
+    registerDriverErrorIntegration(adapter)
+    registerQueryDriverErrorIntegration(adapter)
 
     registerDialectIntegrationScenario(
       adapter,
@@ -209,12 +212,80 @@ function registerTransactionIntegration(adapter: DialectIntegrationAdapter) {
   )
 }
 
-/**
- * Registers the scenario that round-trips representative CRUD.
- *
- * @param adapter - Adapter supplying the dialect behavior exercised by shared contract
- *   scenarios.
- */
+/** Verifies database failures through the same public client path for both dialects. */
+function registerDriverErrorIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['migration', 'query', 'transaction'],
+    'reports native constraint failures with dialect, code, SQL, and cause',
+    async () => {
+      await adapter.withDatabase([ContractRecords], async ({ db }) => {
+        await db.migrate().execute()
+        const secret = 'secret-bound-value'
+        await db.insert(ContractRecords).values({ label: secret }).execute()
+
+        const write = await db
+          .insert(ContractRecords)
+          .values({ label: secret })
+          .execute()
+          .catch((cause: unknown) => cause)
+
+        expect(write).toBeInstanceOf(DriverError)
+
+        expect(write).toMatchObject({
+          _tag: 'DriverError',
+          dialect: adapter.dialectId,
+        })
+
+        expect(typeof (write as DriverError).code).toBe('string')
+        expect((write as DriverError).cause).toBeInstanceOf(Error)
+        expect((write as DriverError).sql).not.toContain(secret)
+        expect(write).not.toHaveProperty('params')
+
+        const transaction = await db
+          .transaction(async (trx) => {
+            await trx.insert(ContractRecords).values({ label: secret }).execute()
+          })
+          .catch((cause: unknown) => cause)
+
+        expect(transaction).toMatchObject({
+          _tag: 'DriverError',
+          dialect: adapter.dialectId,
+          code: (write as DriverError).code,
+        })
+
+        expect((transaction as DriverError).sql).not.toContain(secret)
+      })
+    },
+  )
+}
+
+/** Verifies a row query failure before the relation exists in the database. */
+function registerQueryDriverErrorIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query'],
+    'reports missing-relation queries as parameter-free driver errors',
+    async () => {
+      await adapter.withDatabase([ContractRecords], async ({ db }) => {
+        const secret = 'secret-bound-value'
+        const error = await db
+          .from(ContractRecords)
+          .where(ContractRecords.label, 'eq', secret)
+          .execute()
+          .catch((cause: unknown) => cause)
+
+        expect(error).toBeInstanceOf(DriverError)
+        expect(error).toMatchObject({ _tag: 'DriverError', dialect: adapter.dialectId })
+        expect(typeof (error as DriverError).code).toBe('string')
+        expect((error as DriverError).sql).not.toContain(secret)
+        expect((error as DriverError).cause).toBeInstanceOf(Error)
+        expect(error).not.toHaveProperty('params')
+      })
+    },
+  )
+}
+
 function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
   registerDialectIntegrationScenario(
     adapter,

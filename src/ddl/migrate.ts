@@ -10,6 +10,7 @@ import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
 import {
+  DriverError,
   MigrationError,
   QueryError,
   SchemaError,
@@ -87,7 +88,11 @@ export type MigrateBuilder = {
 function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
   if (cause instanceof SchemaError) return cause
 
-  if (!(cause instanceof MigrationError) && !(cause instanceof QueryError)) {
+  if (
+    !(cause instanceof MigrationError) &&
+    !(cause instanceof QueryError) &&
+    !(cause instanceof DriverError)
+  ) {
     const wrapped = new MigrationError({
       message: cause instanceof Error ? cause.message : 'Migration failed',
       cause,
@@ -101,7 +106,7 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
     return wrapped
   }
 
-  if (cause instanceof QueryError)
+  if (cause instanceof QueryError || cause instanceof DriverError)
     return new MigrationError({
       message: cause.message,
       cause,
@@ -629,7 +634,7 @@ async function runMigrationPreview<T>(operation: () => Promise<T>): Promise<T> {
 
     if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
 
-    if (cause instanceof QueryError) {
+    if (cause instanceof QueryError || cause instanceof DriverError) {
       const cleanupFailures = sessionCleanupFailures(cause)
       throw new MigrationError({
         message: cause.message,
@@ -672,6 +677,7 @@ function isDefect(cause: unknown): boolean {
   return (
     !(cause instanceof MigrationError) &&
     !(cause instanceof QueryError) &&
+    !(cause instanceof DriverError) &&
     !(cause instanceof SchemaError)
   )
 }

@@ -137,10 +137,7 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
       schemas: [],
     })
 
-    await expect(releaseDb.ping()).rejects.toMatchObject({
-      _tag: 'QueryError',
-      cause: undefined,
-    })
+    await expect(releaseDb.ping()).rejects.toBeUndefined()
 
     await expect(releaseDb.ping()).resolves.toBeUndefined()
     expect(releaseControls.openCount).toBe(2)

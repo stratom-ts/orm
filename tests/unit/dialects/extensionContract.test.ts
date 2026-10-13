@@ -980,6 +980,7 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
             return {
               provider: dialect.operations.createSessionProvider(
                 createContractConnector().connector,
+                dialect.id,
               ),
               /** Returns semantic operation events recorded by the fixture. */
               events: () =>

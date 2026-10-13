@@ -12,10 +12,166 @@ import type {
   OperationSession,
   OperationSessionProvider,
 } from '@/operations/operationSession'
+import type { DriverError } from '@/utils/error'
 
 import { deferred } from '../../helpers/deferredPromise'
 
 const directories: string[] = []
+
+it.each([
+  { command: { kind: 'ping' } as const, sql: 'select 1', call: 'query' as const },
+  {
+    command: { kind: 'createSavepoint', id: 3 } as const,
+    sql: 'savepoint sp_3',
+    call: 'run' as const,
+  },
+])(
+  'classifies a failed SQLite $command.kind native call',
+  async ({ command, sql, call }) => {
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const provider = createDb0NodeSqliteOperationSessionProvider(
+      connector,
+      'custom-sqlite',
+    )
+
+    const session = await provider.open()
+    const native = await connector.getInstance!()
+    const originalPrepare = native.prepare.bind(native)
+    const nativeCause = Object.assign(new Error('native lifecycle failure'), {
+      code: 'SQLITE_TEST',
+    })
+
+    let executed = false
+
+    const prepare = vi.spyOn(native, 'prepare').mockImplementation((statementSql) =>
+      statementSql === sql
+        ? ({
+            /** Fails native row retrieval for ping. */
+            all: () => {
+              executed = true
+              throw nativeCause
+            },
+            /** Sets the native integer mode before ping. */
+            setReadBigInts: () => undefined,
+            /** Fails native statement execution for savepoints. */
+            run: () => {
+              executed = true
+              throw nativeCause
+            },
+          } as unknown as ReturnType<typeof native.prepare>)
+        : originalPrepare(statementSql),
+    )
+
+    try {
+      const compiled = compileSqliteOperationCommand(command)
+      const failure = await session[call](compiled).catch((cause: unknown) => cause)
+
+      expect(executed).toBe(true)
+
+      expect(failure).toMatchObject({
+        _tag: 'DriverError',
+        dialect: 'custom-sqlite',
+        code: 'SQLITE_TEST',
+        sql,
+        cause: nativeCause,
+      })
+
+      expect((failure as DriverError).cause).toBe(nativeCause)
+    } finally {
+      prepare.mockRestore()
+      await session.release('discard')
+      await provider.close()
+    }
+  },
+)
+
+it.each([undefined, null, 9, { code: 'SQLITE_CONSTRAINT_UNIQUE' }])(
+  'classifies SQLite prepare rejection %s and retains its exact cause',
+  async (nativeCause) => {
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const provider = createDb0NodeSqliteOperationSessionProvider(
+      connector,
+      'custom-sqlite',
+    )
+
+    const session = await provider.open()
+    const native = await connector.getInstance!()
+    const originalPrepare = native.prepare.bind(native)
+    const sql = 'select ? as value'
+
+    const prepare = vi.spyOn(native, 'prepare').mockImplementation((statement) => {
+      if (statement === sql) throw nativeCause
+
+      return originalPrepare(statement)
+    })
+
+    try {
+      const error = await session
+        .query({ sql, params: ['secret-bound-value'] })
+        .catch((cause: unknown) => cause)
+
+      expect(error).toMatchObject({
+        _tag: 'DriverError',
+        dialect: 'custom-sqlite',
+        sql,
+        cause: nativeCause,
+      })
+
+      expect((error as DriverError).code).toBe(
+        nativeCause && typeof nativeCause === 'object' && 'code' in nativeCause
+          ? nativeCause.code
+          : undefined,
+      )
+
+      expect(error).not.toHaveProperty('params')
+    } finally {
+      prepare.mockRestore()
+      await session.release('discard')
+      await provider.close()
+    }
+  },
+)
+
+it('preserves a result-normalization defect with its original identity and stack', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const provider = createDb0NodeSqliteOperationSessionProvider(connector)
+  const session = await provider.open()
+  const native = await connector.getInstance!()
+  const originalPrepare = native.prepare.bind(native)
+  const defect = new TypeError('broken row getter')
+  const originalStack = defect.stack
+  const row = Object.defineProperty({}, 'value', {
+    enumerable: true,
+    /** Throws from Stratom's result normalization after the native call returns. */
+    get() {
+      throw defect
+    },
+  })
+
+  const prepare = vi.spyOn(native, 'prepare').mockImplementation((sql) =>
+    sql === 'select value from records'
+      ? ({
+          /** Supplies the malformed native row. */
+          all: () => [row],
+          /** Accepts the native integer mode. */
+          setReadBigInts: () => undefined,
+        } as unknown as ReturnType<typeof native.prepare>)
+      : originalPrepare(sql),
+  )
+
+  try {
+    const error = await session
+      .query({ sql: 'select value from records', params: [] })
+      .catch((cause: unknown) => cause)
+
+    expect(error).toBe(defect)
+    expect((error as Error).stack).toBe(originalStack)
+  } finally {
+    prepare.mockRestore()
+    await session.release('discard')
+    await provider.close()
+  }
+})
 
 /** Hides newer properties while retaining the real DatabaseSync methods and state. */
 async function baselineFixture() {

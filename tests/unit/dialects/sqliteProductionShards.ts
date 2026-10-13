@@ -237,9 +237,9 @@ function recordProvider(
   )
 
   vi.spyOn(sqliteDialect.operations, 'createSessionProvider').mockImplementation(
-    (selected) => {
+    (selected, dialectId) => {
       state.selected = selected as typeof connector
-      const provider = createProvider(selected)
+      const provider = createProvider(selected, dialectId)
       return {
         ...provider,
         /** Seeds representative query data once on the actual pinned native session. */

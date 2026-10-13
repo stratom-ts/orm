@@ -1,6 +1,6 @@
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { RelationIdentityInput } from '@/schemas'
-import { QueryError } from '@/utils/error'
+import { InvariantError, QueryError } from '@/utils/error'
 
 import type {
   ComparisonOp,
@@ -33,6 +33,16 @@ function assertNonEmptyString(
 ): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new QueryError({ message: `${description} must be a non-empty string` })
+  }
+}
+
+/** Rejects malformed builder-owned identifiers while preserving the diagnostic. */
+function assertAstNonEmptyString(
+  value: unknown,
+  description: string,
+): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new InvariantError(`${description} must be a non-empty string`)
   }
 }
 
@@ -229,7 +239,7 @@ function comparisonSql(op: ComparisonOp): string {
     case 'lte':
       return '<='
     default:
-      throw new QueryError({ message: `unsupported SQLite comparison ${String(op)}` })
+      throw new InvariantError(`unsupported SQLite comparison ${String(op)}`)
   }
 }
 
@@ -251,12 +261,12 @@ function compileReturning(returning: ReturningAst | undefined): string {
   }
 
   if (candidate.kind !== 'columns' || !candidate.columns?.length) {
-    throw new QueryError({ message: 'returning columns must not be empty' })
+    throw new InvariantError('returning columns must not be empty')
   }
 
   return ` returning ${candidate.columns
     .map((column) => {
-      assertNonEmptyString(column, 'returning column')
+      assertAstNonEmptyString(column, 'returning column')
       return `${quoteIdentifier(column)} as ${quoteIdentifier(column)}`
     })
     .join(', ')}`
@@ -269,7 +279,7 @@ function qualifyColumn(
   relation: RelationIdentityInput | undefined,
   resolveRelation: SqliteQueryRelationResolver,
 ): string {
-  assertNonEmptyString(column, 'SQLite query column')
+  assertAstNonEmptyString(column, 'SQLite query column')
   const quoted = quoteIdentifier(column)
   return relation
     ? `${quoteIdentifier(resolveRelationAlias(relations, relation, resolveRelation))}.${quoted}`
@@ -298,11 +308,11 @@ function compilePredicate(
       return compileComparison(predicate, params, relations, resolveRelation)
     case 'and':
       if (!Array.isArray(predicate.preds as unknown)) {
-        throw new QueryError({ message: 'and predicate requires a predicate array' })
+        throw new InvariantError('and predicate requires a predicate array')
       }
 
       if (predicate.preds.length === 0) {
-        throw new QueryError({ message: 'and predicate must not be empty' })
+        throw new InvariantError('and predicate must not be empty')
       }
 
       if (predicate.preds.length === 1)
@@ -313,11 +323,11 @@ function compilePredicate(
         .join(' and ')})`
     case 'or':
       if (!Array.isArray(predicate.preds as unknown)) {
-        throw new QueryError({ message: 'or predicate requires a predicate array' })
+        throw new InvariantError('or predicate requires a predicate array')
       }
 
       if (predicate.preds.length === 0) {
-        throw new QueryError({ message: 'or predicate must not be empty' })
+        throw new InvariantError('or predicate must not be empty')
       }
 
       if (predicate.preds.length === 1)
@@ -329,7 +339,7 @@ function compilePredicate(
     case 'not':
       return `(not ${compilePredicate(predicate.pred, params, relations, resolveRelation)})`
     default:
-      throw new QueryError({ message: 'unsupported SQLite predicate' })
+      throw new InvariantError('unsupported SQLite predicate')
   }
 }
 
@@ -385,7 +395,7 @@ function compileExpression(
     case 'date_trunc':
       throw new QueryError({ message: 'SQLite 3.37 does not support date_trunc' })
     default:
-      throw new QueryError({ message: 'unsupported SQLite expression' })
+      throw new InvariantError('unsupported SQLite expression')
   }
 }
 
@@ -415,14 +425,14 @@ function compileSelectItem(
       const column = qualifyColumn(item.column, relations, item.relation, resolveRelation)
 
       const alias = item.alias ?? item.column
-      assertNonEmptyString(alias, 'select alias')
+      assertAstNonEmptyString(alias, 'select alias')
       return `${column} as ${quoteIdentifier(alias)}`
     }
     case 'expr':
-      assertNonEmptyString(item.alias, 'select alias')
+      assertAstNonEmptyString(item.alias, 'select alias')
       return `${compileExpression(item.expr, params, relations, resolveRelation)} as ${quoteIdentifier(item.alias)}`
     default:
-      throw new QueryError({ message: 'unsupported SQLite select item' })
+      throw new InvariantError('unsupported SQLite select item')
   }
 }
 
@@ -448,7 +458,7 @@ function compileOrderBy(
       const direction = (item as { readonly direction?: unknown }).direction
 
       if (direction !== 'asc' && direction !== 'desc') {
-        throw new QueryError({ message: 'order direction must be asc or desc' })
+        throw new InvariantError('order direction must be asc or desc')
       }
 
       return `${qualifyColumn(item.column, relations, item.relation, resolveRelation)} ${direction}`
@@ -508,7 +518,7 @@ function compileSelect(
   resolveRelation: SqliteQueryRelationResolver,
 ): CompiledQuery {
   if (!Array.isArray(node.selection as unknown)) {
-    throw new QueryError({ message: 'select items must be an array' })
+    throw new InvariantError('select items must be an array')
   }
 
   const relations = createRelationContext(
@@ -606,16 +616,16 @@ function compileInsert(
     !Array.isArray(node.values as unknown) ||
     node.values.length === 0
   ) {
-    throw new QueryError({ message: 'insert requires at least one values row' })
+    throw new InvariantError('insert requires at least one values row')
   }
 
   const table = qualifySqliteQueryRelation(node.relation, resolveRelation)
 
   if (node.columns.length === 0) {
     if (node.values.length !== 1 || node.values[0]?.length !== 0) {
-      throw new QueryError({
-        message: 'SQLite supports empty insert columns only as one DEFAULT VALUES row',
-      })
+      throw new InvariantError(
+        'SQLite supports empty insert columns only as one DEFAULT VALUES row',
+      )
     }
 
     if (node.conflict) {
@@ -631,7 +641,7 @@ function compileInsert(
   }
 
   const columns = node.columns.map((column) => {
-    assertNonEmptyString(column, 'insert column')
+    assertAstNonEmptyString(column, 'insert column')
     return quoteIdentifier(column)
   })
 
@@ -653,24 +663,24 @@ function compileInsertConflict(
   if (!conflict) return ''
 
   if (!Array.isArray(conflict.target) || conflict.target.length === 0) {
-    throw new QueryError({ message: 'insert conflict target must not be empty' })
+    throw new InvariantError('insert conflict target must not be empty')
   }
 
   const target = conflict.target
     .map((column) => {
-      assertNonEmptyString(column, 'insert conflict target column')
+      assertAstNonEmptyString(column, 'insert conflict target column')
       return quoteIdentifier(column)
     })
     .join(', ')
 
   if (new Set(conflict.target).size !== conflict.target.length) {
-    throw new QueryError({ message: 'insert conflict target contains duplicate columns' })
+    throw new InvariantError('insert conflict target contains duplicate columns')
   }
 
   const action = (conflict as { readonly action?: unknown }).action
 
   if (typeof action !== 'object' || action === null || !('kind' in action)) {
-    throw new QueryError({ message: 'insert conflict requires an action' })
+    throw new InvariantError('insert conflict requires an action')
   }
 
   if (action.kind === 'doNothing') {
@@ -678,13 +688,11 @@ function compileInsertConflict(
   }
 
   if (action.kind !== 'doUpdate' || !('set' in action) || !Array.isArray(action.set)) {
-    throw new QueryError({ message: 'unsupported insert conflict action' })
+    throw new InvariantError('unsupported insert conflict action')
   }
 
   if (action.set.length === 0) {
-    throw new QueryError({
-      message: 'insert conflict update requires at least one SET column',
-    })
+    throw new InvariantError('insert conflict update requires at least one SET column')
   }
 
   const set = action.set
@@ -697,16 +705,16 @@ function compileInsertConflict(
 /** Compiles one validated SQLite conflict update assignment. */
 function compileInsertConflictAssignment(input: unknown, params: unknown[]): string {
   if (typeof input !== 'object' || input === null) {
-    throw new QueryError({ message: 'insert conflict update assignment is invalid' })
+    throw new InvariantError('insert conflict update assignment is invalid')
   }
 
   const assignment = input as { readonly column?: unknown; readonly value?: unknown }
-  assertNonEmptyString(assignment.column, 'insert conflict update column')
+  assertAstNonEmptyString(assignment.column, 'insert conflict update column')
 
   const value = assignment.value
 
   if (typeof value !== 'object' || value === null) {
-    throw new QueryError({ message: 'insert conflict update value is invalid' })
+    throw new InvariantError('insert conflict update value is invalid')
   }
 
   const structuredValue = value as {
@@ -716,12 +724,12 @@ function compileInsertConflictAssignment(input: unknown, params: unknown[]): str
   }
 
   if (structuredValue.kind === 'excluded') {
-    assertNonEmptyString(structuredValue.column, 'excluded column')
+    assertAstNonEmptyString(structuredValue.column, 'excluded column')
     return `${quoteIdentifier(assignment.column)} = excluded.${quoteIdentifier(structuredValue.column)}`
   }
 
   if (structuredValue.kind !== 'value') {
-    throw new QueryError({ message: 'unsupported insert conflict update value' })
+    throw new InvariantError('unsupported insert conflict update value')
   }
 
   params.push(structuredValue.value)
@@ -739,7 +747,7 @@ function compileInsertConflictAssignment(input: unknown, params: unknown[]): str
 function compileInsertValues(node: InsertAst, params: unknown[]) {
   return node.values.map((row) => {
     if (!Array.isArray(row) || row.length !== node.columns.length) {
-      throw new QueryError({ message: 'insert row width must match its columns' })
+      throw new InvariantError('insert row width must match its columns')
     }
 
     return `(${row
@@ -771,7 +779,7 @@ function compileUpdate(
   resolveRelation: SqliteQueryRelationResolver,
 ): CompiledQuery {
   if (!Array.isArray(node.set as unknown) || node.set.length === 0) {
-    throw new QueryError({ message: 'update requires at least one SET column' })
+    throw new InvariantError('update requires at least one SET column')
   }
 
   if (!node.where && node.allowAll !== true) {
@@ -783,7 +791,7 @@ function compileUpdate(
 
   const assignments = node.set
     .map((item) => {
-      assertNonEmptyString(item.column, 'update column')
+      assertAstNonEmptyString(item.column, 'update column')
       params.push(item.value)
       return `${quoteIdentifier(item.column)} = ?`
     })
@@ -839,7 +847,7 @@ export function compileSqlite(
     case 'delete':
       return compileDelete(node, resolveRelation)
     default:
-      throw new QueryError({ message: 'unsupported SQLite query AST' })
+      throw new InvariantError('unsupported SQLite query AST')
   }
 }
 
@@ -870,9 +878,7 @@ function compileComparison(
   const op = comparisonSql(predicate.op)
 
   if (predicate.right !== undefined && Object.hasOwn(predicate, 'value')) {
-    throw new QueryError({
-      message: 'comparison cannot contain both right and value',
-    })
+    throw new InvariantError('comparison cannot contain both right and value')
   }
 
   if (predicate.right !== undefined) {

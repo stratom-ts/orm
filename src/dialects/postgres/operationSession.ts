@@ -6,7 +6,7 @@ import type {
   OperationSessionIdentity,
   OperationSessionProvider,
 } from '@/operations/operationSession'
-import { QueryError } from '@/utils/error'
+import { QueryError, driverError } from '@/utils/error'
 
 import { scanPostgresSql } from './postgresSql'
 
@@ -146,8 +146,9 @@ function asNativePostgresClient(value: unknown): NativePostgresClient {
  */
 async function readIdentity(
   client: NativePostgresClient,
+  dialectId: string,
 ): Promise<OperationSessionIdentity> {
-  const result = await client.query(POSTGRES_OPERATION_IDENTITY_SQL)
+  const result = await queryNativeSql(client, POSTGRES_OPERATION_IDENTITY_SQL, dialectId)
   const row = result.rows?.[0] as
     | { database?: unknown; physicalSession?: unknown; schema?: unknown }
     | undefined
@@ -181,6 +182,19 @@ async function readIdentity(
       ]),
     }),
   })
+}
+
+/** Classifies a native provider command without enclosing identity checks. */
+async function queryNativeSql(
+  client: NativePostgresClient,
+  sql: string,
+  dialectId: string,
+): Promise<NativePostgresResult> {
+  try {
+    return await client.query(sql)
+  } catch (cause) {
+    throw driverError(cause, dialectId, sql)
+  }
 }
 
 /**
@@ -227,6 +241,7 @@ async function verifyReleasedSession(
   client: NativePostgresClient,
   identity: OperationSessionIdentity,
   requiresCleanup: boolean,
+  dialectId: string,
 ): Promise<void> {
   assertReusableNativeClient(client)
 
@@ -237,11 +252,11 @@ async function verifyReleasedSession(
   }
 
   if (requiresCleanup) {
-    await client.query(POSTGRES_OPERATION_ROLLBACK_SQL)
-    await client.query(POSTGRES_OPERATION_UNLOCK_SQL)
+    await queryNativeSql(client, POSTGRES_OPERATION_ROLLBACK_SQL, dialectId)
+    await queryNativeSql(client, POSTGRES_OPERATION_UNLOCK_SQL, dialectId)
   }
 
-  const releasedIdentity = await readIdentity(client)
+  const releasedIdentity = await readIdentity(client, dialectId)
 
   if (!sameOperationSessionIdentity(releasedIdentity, identity)) {
     throw new QueryError({
@@ -309,6 +324,7 @@ async function executeNativeQuery(
   client: NativePostgresClient,
   state: NativeSessionState,
   query: CompiledQuery,
+  dialectId: string,
 ): Promise<NativePostgresResult> {
   if (asNativePostgresClient(await connector.getInstance()) !== client) {
     throw new QueryError({
@@ -326,6 +342,8 @@ async function executeNativeQuery(
       values: query.params,
       signal: controller.signal,
     })
+  } catch (cause) {
+    throw driverError(cause, dialectId, query.sql)
   } finally {
     state.activeController = undefined
   }
@@ -355,6 +373,7 @@ async function releaseNativeSession(
   disposeConnector: () => Promise<void>,
   finishLease: () => void,
   disposition: Parameters<OperationSession['release']>[0],
+  dialectId: string,
 ): Promise<void> {
   if (state.released) {
     throw new QueryError({
@@ -374,7 +393,13 @@ async function releaseNativeSession(
       return
     }
 
-    await verifyReleasedSession(connector, client, identity, state.requiresCleanup)
+    await verifyReleasedSession(
+      connector,
+      client,
+      identity,
+      state.requiresCleanup,
+      dialectId,
+    )
   } catch (cause) {
     releaseFailed = true
     releaseError = cause
@@ -406,6 +431,7 @@ function createNativeOperationSession(
   identity: OperationSessionIdentity,
   disposeConnector: () => Promise<void>,
   finishLease: () => void,
+  dialectId: string,
 ): OperationSession {
   const state: NativeSessionState = {
     released: false,
@@ -422,12 +448,13 @@ function createNativeOperationSession(
       enqueueSessionOperation(
         state,
         async () =>
-          (await executeNativeQuery(connector, client, state, query)).rows ?? [],
+          (await executeNativeQuery(connector, client, state, query, dialectId)).rows ??
+          [],
       ),
     /** Executes a statement without requiring result rows. */
     run: (query) =>
       enqueueSessionOperation(state, async () => {
-        await executeNativeQuery(connector, client, state, query)
+        await executeNativeQuery(connector, client, state, query, dialectId)
       }),
     /** Cancels the active physical-session operation. */
     cancel: () => cancelNativeSession(client, state),
@@ -441,6 +468,7 @@ function createNativeOperationSession(
         disposeConnector,
         finishLease,
         disposition,
+        dialectId,
       ),
   }
 }
@@ -456,6 +484,7 @@ function createNativeOperationSession(
  */
 export function createDb0PostgresOperationSessionProvider(
   connector: Connector,
+  dialectId = 'postgresql',
 ): OperationSessionProvider {
   assertDb0PostgresConnector(connector)
 
@@ -472,7 +501,7 @@ export function createDb0PostgresOperationSessionProvider(
   return {
     nativeTransactions: true,
     /** Opens an exclusive physical-session lease. */
-    open: () => openNativeLease(state, connector, dispose),
+    open: () => openNativeLease(state, connector, dispose, dialectId),
     /** Closes owned resources after active work has settled. */
     close: () => closeNativeProvider(state, dispose),
   }
@@ -528,6 +557,7 @@ async function openNativeLease(
   state: NativeProviderState,
   connector: Connector,
   dispose: () => Promise<void>,
+  dialectId: string,
 ): Promise<OperationSession> {
   if (state.closed) {
     throw new QueryError({ message: 'Operation session provider has been closed' })
@@ -551,13 +581,20 @@ async function openNativeLease(
     client,
     identity,
   }: { client: NativePostgresClient; identity: OperationSessionIdentity } =
-    await readNativeLeaseIdentity(connector, dispose, state, finishLease)
+    await readNativeLeaseIdentity(connector, dispose, state, finishLease, dialectId)
 
-  return createNativeOperationSession(connector, client, identity, dispose, () => {
-    state.leased = false
-    state.activeLease = undefined
-    finishLease()
-  })
+  return createNativeOperationSession(
+    connector,
+    client,
+    identity,
+    dispose,
+    () => {
+      state.leased = false
+      state.activeLease = undefined
+      finishLease()
+    },
+    dialectId,
+  )
 }
 
 /**
@@ -576,29 +613,35 @@ async function readNativeLeaseIdentity(
   dispose: () => Promise<void>,
   state: NativeProviderState,
   finishLease: () => void,
+  dialectId: string,
 ) {
   let client: NativePostgresClient
   let identity: OperationSessionIdentity
 
   try {
-    client = asNativePostgresClient(await connector.getInstance())
+    let instance: unknown
+    try {
+      instance = await connector.getInstance()
+    } catch (cause) {
+      throw new QueryError({
+        message:
+          cause instanceof Error
+            ? `Failed to open PostgreSQL operation session: ${cause.message}`
+            : 'Failed to open PostgreSQL operation session',
+        cause,
+      })
+    }
+
+    client = asNativePostgresClient(instance)
     assertReusableNativeClient(client)
-    identity = await readIdentity(client)
+    identity = await readIdentity(client, dialectId)
   } catch (cause) {
     await dispose().catch(() => undefined)
     state.leased = false
     state.activeLease = undefined
     finishLease()
 
-    if (cause instanceof QueryError) throw cause
-
-    throw new QueryError({
-      message:
-        cause instanceof Error
-          ? `Failed to open PostgreSQL operation session: ${cause.message}`
-          : 'Failed to open PostgreSQL operation session',
-      cause,
-    })
+    throw cause
   }
 
   return { client, identity }
