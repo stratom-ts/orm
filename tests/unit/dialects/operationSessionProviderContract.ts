@@ -180,11 +180,7 @@ function registerIdentityScenarios(createProvider: ProviderContractFactory): voi
         .run(({ executor }) => executor.run({ sql: 'mutate then fail', params: [] }))
         .catch((cause: unknown) => cause)
 
-      expect(error).toMatchObject({
-        _tag: 'QueryError',
-        cause: primary,
-        message: primary.message,
-      })
+      expect(error).toBe(primary)
 
       const cleanupFailures = getOperationReleaseCleanupFailures(error)
       expect(cleanupFailures).toHaveLength(1)
@@ -441,11 +437,7 @@ function registerCombinedIdentityCleanupScenario(
         .run(({ executor }) => executor.run({ sql: 'mutate then fail', params: [] }))
         .catch((cause: unknown) => cause)
 
-      expect(error).toMatchObject({
-        _tag: 'QueryError',
-        cause: primary,
-        message: primary.message,
-      })
+      expect(error).toBe(primary)
 
       const cleanupFailures = getOperationReleaseCleanupFailures(error)
       expect(cleanupFailures).toHaveLength(2)

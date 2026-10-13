@@ -5,17 +5,50 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 
 import { asciiFoldSqliteIdentifier } from '../identity'
-import { sqliteNaming, validateSqliteObjectName } from '../naming'
+import {
+  SqliteReservedObjectNameError,
+  sqliteNaming,
+  validateSqliteObjectName,
+} from '../naming'
 
 import type { Column, Definition, ForeignKey, Index } from './definition'
 import { quote } from './definition'
+import { SqliteMigrationCapabilityError, capabilityError } from './error'
 
 /** Verifies a structured identifier rather than accepting a forged comparison key. */
 export function assertIdentifier(identifier: CanonicalIdentifier): void {
+  if (!hasValidIdentifierSpelling(identifier.spelling))
+    throw new SqliteMigrationCapabilityError(
+      'invalid_target',
+      'SQLite migration target contains an invalid identifier',
+    )
+
   sqliteNaming.validate(identifier.spelling, 'SQLite migration identifier')
 
   if (asciiFoldSqliteIdentifier(identifier.spelling) !== identifier.comparisonKey)
-    throw new Error('Invalid SQLite canonical identifier')
+    throw new SqliteMigrationCapabilityError(
+      'invalid_target',
+      'Invalid SQLite canonical identifier',
+    )
+}
+
+/** Recognizes authored-name failures rejected by physical name validation. */
+function hasValidIdentifierSpelling(value: string): boolean {
+  if (!value || value.includes('\0')) return false
+
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index)
+
+    if (unit < 0xd800 || unit > 0xdfff) continue
+
+    const next = value.charCodeAt(index + 1)
+
+    if (unit > 0xdbff || !(next >= 0xdc00 && next <= 0xdfff)) return false
+
+    index++
+  }
+
+  return true
 }
 
 /** Rejects targets outside the supported main profile before SQL compilation. */
@@ -27,7 +60,10 @@ export function assertMain(identity: CanonicalRelationIdentity): void {
     segment.role !== 'database' ||
     segment.identifier.comparisonKey !== 'main'
   )
-    throw new Error('SQLite migration targets must use database:main')
+    throw new SqliteMigrationCapabilityError(
+      'invalid_target',
+      'SQLite migration targets must use database:main',
+    )
 
   assertIdentifier(segment.identifier)
   assertIdentifier(identity.relation)
@@ -54,7 +90,7 @@ export function columnSql(column: Column): string {
 
 /** Formats ordered columns for a key, index or explicit projection. */
 export function columnsSql(columns: readonly string[]): string {
-  if (!columns.length) throw new Error('SQLite key/index columns cannot be empty')
+  if (!columns.length) throw capabilityError('SQLite key/index columns cannot be empty')
 
   return columns.map(quote).join(', ')
 }
@@ -62,7 +98,7 @@ export function columnsSql(columns: readonly string[]): string {
 /** Validates referential actions before putting them in DDL. */
 function actionSql(action: string): string {
   if (!['cascade', 'restrict', 'no action', 'set null', 'set default'].includes(action))
-    throw new Error('Unsupported SQLite referential action')
+    throw capabilityError('Unsupported SQLite referential action')
 
   return action
 }
@@ -72,17 +108,23 @@ function foreignKeySql(key: ForeignKey): string {
   assertMain(key.relation)
 
   if (key.columns.length !== key.referencedColumns.length)
-    throw new Error('SQLite FK arity mismatch')
+    throw capabilityError('SQLite FK arity mismatch')
 
   return `foreign key (${columnsSql(key.columns)}) references ${quote(key.relation.relation.spelling)} (${columnsSql(key.referencedColumns)}) on delete ${actionSql(key.onDelete)} on update ${actionSql(key.onUpdate)}`
 }
 
 /** Compiles every final column and retained simple constraint into one CREATE TABLE. */
 export function createSql(name: string, definition: Definition): CompiledQuery {
-  validateSqliteObjectName(name, 'table')
+  try {
+    validateSqliteObjectName(name, 'table')
+  } catch (cause) {
+    if (!(cause instanceof SqliteReservedObjectNameError)) throw cause
+
+    throw capabilityError(cause.message)
+  }
 
   if (!definition.columns.length)
-    throw new Error('SQLite table must retain at least one column')
+    throw capabilityError('SQLite table must retain at least one column')
 
   const clauses = definition.columns.map(columnSql)
 
@@ -99,7 +141,13 @@ export function createSql(name: string, definition: Definition): CompiledQuery {
 
 /** Compiles a simple main-database index without relying on IF NOT EXISTS. */
 export function indexSql(table: string, index: Index): CompiledQuery {
-  validateSqliteObjectName(index.name, 'index')
+  try {
+    validateSqliteObjectName(index.name, 'index')
+  } catch (cause) {
+    if (!(cause instanceof SqliteReservedObjectNameError)) throw cause
+
+    throw capabilityError(cause.message)
+  }
 
   return statement(
     `create ${index.unique ? 'unique ' : ''}index ${address(index.name)} on ${quote(table)} (${columnsSql(index.columns)})`,

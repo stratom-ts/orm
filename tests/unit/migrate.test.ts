@@ -23,8 +23,10 @@ import {
   postgresDialect,
   reference,
 } from '@/index'
+import type { OperationSessionProvider } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { generatedIndexName } from '@/migrations/physicalNaming'
+import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
 import { columnTarget, namespaceTarget, relationTarget } from './helpers/planTargets'
@@ -809,9 +811,9 @@ describe('db.migrate() policy and coordination: classifies authoritative catalog
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [] })
 
-    vi.spyOn(postgresDialect.catalog, 'introspectCatalog').mockRejectedValueOnce(
-      new Error('catalog observation failed'),
-    )
+    const defect = new TypeError('catalog observation failed')
+    const originalStack = defect.stack
+    vi.spyOn(postgresDialect.catalog, 'introspectCatalog').mockRejectedValueOnce(defect)
 
     const error = await db
       .migrate()
@@ -822,7 +824,12 @@ describe('db.migrate() policy and coordination: classifies authoritative catalog
       stage: 'introspection',
       outcome: 'unchanged',
       retryable: false,
+      defect: true,
+      cause: defect,
     })
+
+    expect((error as MigrationError).cause).toBe(defect)
+    expect(((error as MigrationError).cause as Error).stack).toBe(originalStack)
 
     expect(connector.runSql).toContain('rollback')
 
@@ -832,6 +839,166 @@ describe('db.migrate() policy and coordination: classifies authoritative catalog
 
     await db.close()
   })
+})
+
+it('preserves planning defects by identity and stack in preview', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const db = createDatabase({ connector, schemas: [] })
+  const defect = new TypeError('planning defect')
+  const originalStack = defect.stack
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw defect
+  })
+
+  const rejection = await db
+    .migrate()
+    .plan()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toBe(defect)
+  expect((rejection as Error).stack).toBe(originalStack)
+  await db.close()
+})
+
+it('preserves preview defect identity and transfers provider release cleanup evidence', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const provider = postgresDialect.operations.createSessionProvider(connector)
+  const releaseFailure = new Error('provider release failed')
+  const operationSessionProvider: OperationSessionProvider = {
+    nativeTransactions: true,
+    async open() {
+      const session = await provider.open()
+
+      return {
+        get identity() {
+          return session.identity
+        },
+        query: (query) => session.query(query),
+        run: (query) => session.run(query),
+        cancel: () => session.cancel(),
+        async release(disposition) {
+          await session.release(disposition)
+          throw releaseFailure
+        },
+      }
+    },
+    close: () => provider.close(),
+  }
+
+  const db = createDatabase({
+    connector,
+    schemas: [],
+    operationSessionProvider,
+  })
+
+  const defect = new TypeError('planning defect with provider cleanup failure')
+  const originalStack = defect.stack
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw defect
+  })
+
+  const rejection = await db
+    .migrate()
+    .plan()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toBe(defect)
+  expect((rejection as Error).stack).toBe(originalStack)
+  expect(getOperationReleaseCleanupFailures(rejection)).toContain(releaseFailure)
+  await db.close()
+})
+
+it('preserves a pre-existing defect MigrationError and its cleanup evidence in preview', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const db = createDatabase({ connector, schemas: [] })
+  const cleanupCause = new Error('provider release failed')
+  const expected = new MigrationError({
+    message: 'structured planning defect',
+    defect: true,
+    stage: 'planning',
+    outcome: 'unchanged',
+    retryable: false,
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanupCause }],
+  })
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw expected
+  })
+
+  const rejection = await db
+    .migrate()
+    .plan()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toBe(expected)
+
+  expect(rejection).toMatchObject({
+    defect: true,
+    stage: 'planning',
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanupCause }],
+  })
+
+  expect(rejection).not.toHaveProperty('cause')
+  await db.close()
+})
+
+it('preserves an explicitly undefined cause when preview adds a stage', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const db = createDatabase({ connector, schemas: [] })
+  const expected = new MigrationError({
+    message: 'defect with explicit undefined cause',
+    cause: undefined,
+    defect: true,
+    outcome: 'unchanged',
+    retryable: false,
+  })
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw expected
+  })
+
+  const rejection = await db
+    .migrate()
+    .plan()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+  expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
+  expect((rejection as MigrationError).cause).toBeUndefined()
+  await db.close()
+})
+
+it('retains the planning stage when execution wraps a planning defect', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const db = createDatabase({ connector, schemas: [] })
+  const defect = new TypeError('execution planning defect')
+  const originalStack = defect.stack
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw defect
+  })
+
+  const rejection = await db
+    .migrate()
+    .execute()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({
+    stage: 'planning',
+    outcome: 'unchanged',
+    defect: true,
+  })
+
+  expect((rejection as MigrationError).cause).toBe(defect)
+  expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
+  await db.close()
 })
 
 describe('db.migrate() policy and coordination: executes no DDL when whole-plan lowering reports a capability issue', () => {

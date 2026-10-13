@@ -153,7 +153,11 @@ function createRuntimeFixtureRunner(
       discard,
       cancel,
       /** Prepares the fixture statement for the supplied SQL. */
-      prepare: () => prepare(migrationProgram),
+      prepare: () => {
+        if (Object.hasOwn(options, 'prepareFailure')) throw options.prepareFailure
+
+        return prepare(migrationProgram)
+      },
     })
 }
 
@@ -295,6 +299,7 @@ function classifyFixtureEvent(query: { sql: string }): CoordinationContractEvent
 }
 
 type MigrationRuntimeFixtureOptions = {
+  prepareFailure?: unknown
   failRun?: RegExp
   failUnlock?: boolean
   unlockResults?: (boolean | Error)[]

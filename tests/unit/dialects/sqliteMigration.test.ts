@@ -351,6 +351,62 @@ it('resolves the production member and creates a desired FK graph through Client
   }
 })
 
+it('does not turn an unexpected SQLite lowering failure into a capability issue', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const db = createDatabase({ connector, schemas: [Parent, Owner] })
+  const defect = new TypeError('lowering defect')
+  const originalStack = defect.stack
+
+  vi.spyOn(sqliteDialect.migration!, 'lower').mockImplementation(() => {
+    throw defect
+  })
+
+  try {
+    const rejection = await db
+      .migrate()
+      .dryRun()
+      .catch((cause: unknown) => cause)
+
+    expect(rejection).toBe(defect)
+    expect((rejection as Error).stack).toBe(originalStack)
+  } finally {
+    vi.restoreAllMocks()
+    await db.close()
+  }
+})
+
+it('rethrows defects from the real SQLite lowerer without capability conversion', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const db = createDatabase({ connector, schemas: [Parent, Owner] })
+  const defect = new TypeError('profile getter failed')
+  const originalStack = defect.stack
+  const lower = sqliteDialect.migration!.lower.bind(sqliteDialect.migration)
+  vi.spyOn(sqliteDialect.migration!, 'lower').mockImplementation((planned, expected) => {
+    const injected = new Proxy(planned, {
+      get(target, property, receiver) {
+        if (property === 'profile') throw defect
+
+        return Reflect.get(target, property, receiver) as unknown
+      },
+    })
+
+    return lower(injected, expected)
+  })
+
+  try {
+    const rejection = await db
+      .migrate()
+      .dryRun()
+      .catch((cause: unknown) => cause)
+
+    expect(rejection).toBe(defect)
+    expect((rejection as Error).stack).toBe(originalStack)
+  } finally {
+    vi.restoreAllMocks()
+    await db.close()
+  }
+})
+
 it.each(['sqlite_reserved', 'SQLITE_reserved', 'sQlItE_reserved'])(
   'rejects reserved SQLite table name %s before exposing DDL',
   async (name) => {

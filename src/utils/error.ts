@@ -129,6 +129,7 @@ export function catchTags<T, E extends ErrorHandlers<T>>(
 export class MigrationError extends TaggedError('MigrationError')<{
   message: string
   cause?: unknown
+  defect?: true
   stage?: MigrationExecutionStage
   outcome?: MigrationExecutionOutcome
   retryable?: boolean

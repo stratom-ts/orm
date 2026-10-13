@@ -2,7 +2,9 @@ import { date, pipe, string, unknown } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { column, createDatabase, defineTable } from '@/index'
+import type { OperationSessionProvider } from '@/operations/operationSession'
 import type { CompiledQuery } from '@/query/builder'
+import { QueryError } from '@/utils/error'
 
 import { createMockPostgresConnector } from './helpers/nativePostgresClient'
 
@@ -76,6 +78,145 @@ describe('client value mapping', () => {
 
     await db.close()
   })
+})
+
+it('lets result mapping defects reach the caller unchanged', async () => {
+  const defect = new TypeError('result mapping failed')
+  const originalStack = defect.stack
+  const connector = createMockPostgresConnector({
+    rowsBySql: () => [{ id: '550e8400-e29b-41d4-a716-446655440000' }],
+  })
+
+  const db = createDatabase({
+    connector,
+    schemas: [LedgerEntries],
+    map: {
+      mapResultValue: () => {
+        throw defect
+      },
+    },
+  })
+
+  const rejection = await db
+    .from(LedgerEntries)
+    .execute()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toBe(defect)
+  expect((rejection as Error).stack).toBe(originalStack)
+
+  await db.close()
+})
+
+it('lets INSERT RETURNING mapping defects reach the caller unchanged', async () => {
+  const defect = new TypeError('insert returning mapping failed')
+  const originalStack = defect.stack
+  const connector = createMockPostgresConnector({
+    rowsBySql: () => [{ id: '550e8400-e29b-41d4-a716-446655440000' }],
+  })
+
+  const db = createDatabase({
+    connector,
+    schemas: [LedgerEntries],
+    map: {
+      mapResultValue: () => {
+        throw defect
+      },
+    },
+  })
+
+  const rejection = await db
+    .insert(LedgerEntries)
+    .values({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      recordedAt: new Date('2026-09-10T01:02:03.000Z'),
+      payload: {},
+      note: 'returning mapping',
+      source: 'test',
+    })
+    .returning([LedgerEntries.id])
+    .execute()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toBe(defect)
+  expect((rejection as Error).stack).toBe(originalStack)
+  await db.close()
+})
+
+it.each(['row', 'statement'] as const)(
+  'lets executor TypeErrors reach the caller unchanged for %s queries',
+  async (kind) => {
+    const defect = new TypeError(`executor ${kind} failed`)
+    const originalStack = defect.stack
+    const connector = createMockPostgresConnector()
+    const operationSessionProvider: OperationSessionProvider = {
+      nativeTransactions: true,
+      async open() {
+        return {
+          identity: { database: 'test', physicalSession: 'test-session' },
+          async query(query) {
+            if (query.sql.includes('ledger_entries')) throw defect
+
+            return []
+          },
+          async run(query) {
+            if (query.sql.includes('ledger_entries')) throw defect
+          },
+          async cancel() {},
+          async release() {},
+        }
+      },
+      async close() {},
+    }
+
+    const db = createDatabase({
+      connector,
+      schemas: [LedgerEntries],
+      operationSessionProvider,
+    })
+
+    const operation =
+      kind === 'row'
+        ? db.from(LedgerEntries).execute()
+        : db
+            .insert(LedgerEntries)
+            .values({
+              id: '550e8400-e29b-41d4-a716-446655440000',
+              recordedAt: new Date('2026-09-10T01:02:03.000Z'),
+              payload: {},
+              note: 'note',
+              source: 'api',
+            })
+            .execute()
+
+    const rejection = await operation.catch((cause: unknown) => cause)
+    expect(rejection).toBe(defect)
+    expect((rejection as Error).stack).toBe(originalStack)
+
+    await db.close()
+  },
+)
+
+it('passes a recognized QueryError from the executor through unchanged', async () => {
+  const expected = new QueryError({ message: 'known query failure' })
+  const connector = createMockPostgresConnector({
+    onPrepare(sql) {
+      if (sql.includes('ledger_entries')) throw expected
+
+      return createMockPostgresConnector().prepare(sql)
+    },
+  })
+
+  const db = createDatabase({ connector, schemas: [LedgerEntries] })
+
+  const rejection = await db
+    .from(LedgerEntries)
+    .execute()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toBe(expected)
+  expect(rejection).not.toHaveProperty('defect')
+  await db.close()
 })
 
 describe('client value mapping: uses dialect defaults when no client override exists', () => {

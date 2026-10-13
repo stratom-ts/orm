@@ -4,7 +4,7 @@ import type {
   MigrationRuntimeOptions,
 } from '@/ddl/migrationProgram'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { MigrationError } from '@/utils/error'
+import { InvariantError, MigrationError, QueryError } from '@/utils/error'
 
 import { asciiFoldSqliteIdentifier } from '../identity'
 
@@ -31,6 +31,22 @@ type State = {
   cleanupFailures: MigrationCleanupFailure[]
 }
 
+/** Marks unrecognized runtime failures while preserving expected query errors. */
+function isExecutionDefect(
+  cause: unknown,
+  structured: MigrationError | undefined,
+): boolean {
+  return structured?.defect === true || (!structured && !(cause instanceof QueryError))
+}
+
+/** Keeps stage selection separate from outcome and provenance reconstruction. */
+function failureStage(
+  error: Failure,
+  structured: MigrationError | undefined,
+): MigrationExecutionStage {
+  return error.stage === 'validation' ? 'validation' : (structured?.stage ?? error.stage)
+}
+
 /** Retains structured provenance while applying the known SQLite transaction outcome. */
 function failure(
   error: Failure,
@@ -44,9 +60,10 @@ function failure(
   return new MigrationError({
     message:
       error.cause instanceof Error ? error.cause.message : 'SQLite migration failed',
-    cause: structured?.cause ?? error.cause,
-    stage:
-      error.stage === 'validation' ? 'validation' : (structured?.stage ?? error.stage),
+    cause:
+      structured && Object.hasOwn(structured, 'cause') ? structured.cause : error.cause,
+    ...(isExecutionDefect(error.cause, structured) ? { defect: true as const } : {}),
+    stage: failureStage(error, structured),
     outcome,
     retryable: outcome === 'unknown' ? false : (structured?.retryable ?? retryable),
     actionIndex: error.actionIndex ?? structured?.actionIndex,
@@ -129,7 +146,7 @@ async function readBusyTimeout(options: MigrationRuntimeOptions): Promise<number
   const value = (rows[0] as { timeout?: unknown } | undefined)?.timeout
 
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error('SQLite did not report a valid busy_timeout')
+    throw new InvariantError('SQLite did not report a valid busy_timeout')
   }
 
   return value
@@ -178,7 +195,10 @@ async function acquire(options: MigrationRuntimeOptions, state: State): Promise<
   const timeout = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS
 
   if (!Number.isFinite(timeout) || timeout < 0) {
-    state.primary = { cause: new Error('Invalid SQLite lock timeout'), stage: 'lock' }
+    state.primary = {
+      cause: new InvariantError('Invalid SQLite lock timeout'),
+      stage: 'lock',
+    }
     return
   }
 
@@ -190,7 +210,7 @@ async function acquire(options: MigrationRuntimeOptions, state: State): Promise<
     await run(options, 'pragma foreign_keys=off')
 
     if ((await readForeignKeys(options)) !== 0)
-      throw new Error('SQLite FK enforcement could not be disabled before BEGIN')
+      throw new InvariantError('SQLite FK enforcement could not be disabled before BEGIN')
 
     await run(options, 'pragma busy_timeout=0')
     await attemptBegin(options, deadline)
@@ -267,10 +287,10 @@ async function assertPrecondition(
   const count = (rows[0] as { count?: unknown } | undefined)?.count
 
   if (typeof count !== 'number' && typeof count !== 'bigint')
-    throw new Error('SQLite returned an invalid NULL count')
+    throw new InvariantError('SQLite returned an invalid NULL count')
 
   if (count < 0 || !Number.isSafeInteger(Number(count)))
-    throw new Error('SQLite returned an invalid NULL count')
+    throw new InvariantError('SQLite returned an invalid NULL count')
 
   if (count > 0)
     throw new MigrationError({
@@ -359,7 +379,7 @@ async function readForeignKeys(options: MigrationRuntimeOptions): Promise<number
   const value = (rows[0] as { foreign_keys?: unknown } | undefined)?.foreign_keys
 
   if (value !== 0 && value !== 1)
-    throw new Error('SQLite did not report a valid foreign_keys policy')
+    throw new InvariantError('SQLite did not report a valid foreign_keys policy')
 
   return value
 }
@@ -382,7 +402,7 @@ async function validateFinalState(
       params: [],
     })
 
-    if (foreign.length) throw new Error('SQLite foreign_key_check failed')
+    if (foreign.length) throw new InvariantError('SQLite foreign_key_check failed')
 
     const integrity = await options.executor.execute({
       sql: 'pragma main.integrity_check',
@@ -393,7 +413,7 @@ async function validateFinalState(
       integrity.length !== 1 ||
       (integrity[0] as { integrity_check?: unknown }).integrity_check !== 'ok'
     )
-      throw new Error('SQLite integrity_check failed')
+      throw new InvariantError('SQLite integrity_check failed')
 
     await options.validate?.()
   } catch (cause) {
@@ -488,7 +508,7 @@ async function restoreForeignKeys(
     await run(options, `pragma foreign_keys=${state.foreignKeys}`)
 
     if ((await readForeignKeys(options)) !== state.foreignKeys)
-      throw new Error('SQLite FK policy restoration failed')
+      throw new InvariantError('SQLite FK policy restoration failed')
   } catch (cause) {
     state.cleanupFailures.push({ stage: 'sessionCleanup', cause })
     options.discard()

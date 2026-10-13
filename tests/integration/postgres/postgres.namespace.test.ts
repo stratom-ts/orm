@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { DatabaseError } from 'pg'
 import type { Client } from 'pg'
 import { array, boolean, date, integer, number, object, pipe, string } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Db } from '@/index'
-import { QueryError, column, defineTable, eq, reference } from '@/index'
+import { column, defineTable, eq, reference } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
@@ -264,10 +265,10 @@ async function assertConstraintsAndIndexes(
     })
     .execute()
 
-  await expect(foreignKeyInsert).rejects.toBeInstanceOf(QueryError)
+  await expect(foreignKeyInsert).rejects.toBeInstanceOf(DatabaseError)
 
   await expect(foreignKeyInsert).rejects.toMatchObject({
-    cause: { code: '23503' },
+    code: '23503',
   })
 
   const uniqueConstraintInsert = db
@@ -275,10 +276,10 @@ async function assertConstraintsAndIndexes(
     .values({ id: randomUUID(), email: 'owner@example.com' })
     .execute()
 
-  await expect(uniqueConstraintInsert).rejects.toBeInstanceOf(QueryError)
+  await expect(uniqueConstraintInsert).rejects.toBeInstanceOf(DatabaseError)
 
   await expect(uniqueConstraintInsert).rejects.toMatchObject({
-    cause: { code: '23505' },
+    code: '23505',
   })
 
   await assertPhysicalIndexes(admin, schema)
