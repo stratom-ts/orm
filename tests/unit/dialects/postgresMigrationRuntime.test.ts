@@ -5,6 +5,7 @@ import {
   createMigrationCoordinationScope,
   migrationLockAcquisitionOrder,
 } from '@/migrations/coordinationScope'
+import { MigrationError } from '@/utils/error'
 
 import {
   createPostgresMigrationRuntime as harness,
@@ -26,6 +27,27 @@ const relation = {
 }
 
 describe('PostgreSQL migration runtime failures', () => {
+  it.each([null, undefined])(
+    'preserves an explicitly present nullish defect cause: %s',
+    async (originalCause) => {
+      const structured = new MigrationError({
+        message: 'wrapped nullish defect',
+        cause: originalCause,
+        defect: true,
+        stage: 'planning',
+        outcome: 'unchanged',
+        retryable: false,
+      })
+
+      const runtime = harness({ prepareFailure: structured })
+      const rejection = await runtime.execute().catch((cause: unknown) => cause)
+
+      expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+      expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
+      expect((rejection as MigrationError).cause).toBe(originalCause)
+    },
+  )
+
   it('classifies arbitrary SQL as a non-transaction event', async () => {
     const runtime = harness()
 

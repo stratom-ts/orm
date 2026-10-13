@@ -1,6 +1,6 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, QueryError } from '@/utils/error'
 
 import type {
   CancellationState,
@@ -26,7 +26,7 @@ const DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS = 30_000
  * @param cause - Failure whose primary cause is requested.
  */
 function primaryCause(cause: unknown): unknown {
-  if (cause instanceof MigrationError && cause.cause !== undefined) {
+  if (cause instanceof MigrationError && Object.hasOwn(cause, 'cause')) {
     return cause.cause
   }
 
@@ -44,6 +44,19 @@ function executionRetryable(
   if (options.outcome === 'unknown') return false
 
   return structured?.retryable ?? options.retryable
+}
+
+/** Marks defects while allowing known migration, cancellation and query failures. */
+function executionDefect(
+  cause: unknown,
+  structured: MigrationError | undefined,
+): boolean {
+  return (
+    structured?.defect === true ||
+    (!structured &&
+      !(cause instanceof MigrationCancellationError) &&
+      !(cause instanceof QueryError))
+  )
 }
 
 /**
@@ -79,6 +92,7 @@ function executionError(options: {
   return new MigrationError({
     message: cause instanceof Error ? cause.message : 'Migration failed',
     cause: primaryCause(cause),
+    ...(executionDefect(cause, structured) ? { defect: true as const } : {}),
     stage: structured?.stage ?? options.stage,
     outcome: options.outcome,
     retryable,
@@ -629,7 +643,7 @@ async function prepareMigrationProgram(
     } catch (cause) {
       state.primary = {
         cause,
-        stage: reportedStage(cause, 'lowering'),
+        stage: reportedStage(cause, 'introspection'),
       }
 
       retainCancellationFailures(cleanupFailures, cause)

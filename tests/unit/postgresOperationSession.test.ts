@@ -7,7 +7,7 @@ import {
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
 import type { OperationSessionProvider } from '@/index'
-import { QueryError, createDb0PostgresOperationSessionProvider } from '@/index'
+import { createDb0PostgresOperationSessionProvider } from '@/index'
 import {
   OperationCoordinator,
   getOperationReleaseCleanupFailures,
@@ -166,12 +166,7 @@ describe('db0 PostgreSQL operation-session adapter: retains final namespace-evid
       .run(({ executor }) => executor.run({ sql: 'select primary failure', params: [] }))
       .catch((cause: unknown) => cause)
 
-    expect(error).toBeInstanceOf(QueryError)
-
-    expect(error).toMatchObject({
-      message: 'primary native operation failure',
-      cause: primary,
-    })
+    expect(error).toBe(primary)
 
     expect(getOperationReleaseCleanupFailures(error)).toHaveLength(1)
 

@@ -551,27 +551,17 @@ async function runQuery<T>(
   ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
 ): Promise<T> {
   const compiled = query.compile(ast)
+  const rows = await executor.execute(compiled)
 
-  try {
-    const rows = await executor.execute(compiled)
-
-    if (mapper && ast.kind === 'select') {
-      return mapSelectedRows(mapper, rows, resultColumns) as T
-    }
-
-    if (mapper && 'returning' in ast && ast.returning) {
-      return mapper.mapResultRows(handle, rows) as T
-    }
-
-    return rows as T
-  } catch (cause) {
-    if (cause instanceof QueryError) throw cause
-
-    throw new QueryError({
-      message: cause instanceof Error ? cause.message : 'Query execution failed',
-      cause,
-    })
+  if (mapper && ast.kind === 'select') {
+    return mapSelectedRows(mapper, rows, resultColumns) as T
   }
+
+  if (mapper && 'returning' in ast && ast.returning) {
+    return mapper.mapResultRows(handle, rows) as T
+  }
+
+  return rows as T
 }
 
 /**
@@ -598,24 +588,15 @@ async function runWrite(
 ): Promise<unknown[] | WriteResult> {
   const compiled = query.compile(ast)
 
-  try {
-    if (ast.returning) {
-      const rows = await executor.execute(compiled)
-      return mapper ? mapper.mapResultRows(handle, rows) : rows
-    }
-
-    await executor.run(compiled)
-
-    // db0 does not expose affected-row counts portably
-    return { rowCount: 0 }
-  } catch (cause) {
-    if (cause instanceof QueryError) throw cause
-
-    throw new QueryError({
-      message: cause instanceof Error ? cause.message : 'Query execution failed',
-      cause,
-    })
+  if (ast.returning) {
+    const rows = await executor.execute(compiled)
+    return mapper ? mapper.mapResultRows(handle, rows) : rows
   }
+
+  await executor.run(compiled)
+
+  // db0 does not expose affected-row counts portably
+  return { rowCount: 0 }
 }
 
 /**

@@ -9,6 +9,7 @@ import type {
   MigrationLoweringResult,
   MigrationPrecondition,
 } from '@/ddl/migrationProgram'
+import { attemptSync } from '@/utils/error'
 
 import { asciiFoldSqliteIdentifier, sqliteIdentity } from '../identity'
 import { assertSafeSqliteDataType } from '../validate'
@@ -21,6 +22,7 @@ import {
   quote,
   sameName,
 } from './definition'
+import { SqliteMigrationCapabilityError, capabilityCheck } from './error'
 import { finalDefinition, rebuild } from './rebuild'
 import type { TableGroup } from './rebuild'
 import {
@@ -56,7 +58,8 @@ function checkProfile(
     expected.identityAdapter !== sqliteIdentity.id ||
     planned.profile.identityAdapter !== expected.identityAdapter
   )
-    throw new Error(
+    throw new SqliteMigrationCapabilityError(
+      'profile_mismatch',
       'SQLite identity adapter does not match the executing Semantic Profile',
     )
 
@@ -64,7 +67,8 @@ function checkProfile(
     namespaceKey(planned, planned.profile.namespaceContext.writableDefault) !==
     namespaceKey(planned, expected.namespaceContext.writableDefault)
   )
-    throw new Error(
+    throw new SqliteMigrationCapabilityError(
+      'profile_mismatch',
       'SQLite writable namespace context does not match the executing session',
     )
 
@@ -72,18 +76,27 @@ function checkProfile(
     namespaceKey(planned, planned.profile.registrationDefault) !==
     namespaceKey(planned, expected.registrationDefault)
   )
-    throw new Error(
+    throw new SqliteMigrationCapabilityError(
+      'profile_mismatch',
       'SQLite registration default does not match the executing configuration',
     )
 
-  assertMain(planned.identities.resolve({ relation: 'profile_probe' }))
+  try {
+    assertMain(planned.identities.resolve({ relation: 'profile_probe' }))
+  } catch (cause) {
+    if (!(cause instanceof SqliteMigrationCapabilityError)) throw cause
+
+    throw new SqliteMigrationCapabilityError('profile_mismatch', cause.message)
+  }
+
   const [major, minor] = planned.catalogSnapshot.source.version.split('.').map(Number)
 
   if (
     planned.catalogSnapshot.source.dialect !== 'sqlite' ||
     !(major! > 3 || (major === 3 && minor! >= 37))
   )
-    throw new Error(
+    throw new SqliteMigrationCapabilityError(
+      'profile_mismatch',
       'SQLite migrations require authoritative SQLite >=3.37 catalog evidence',
     )
 }
@@ -100,10 +113,13 @@ function checkStep(step: MigrationStep): void {
           : 'column'
 
   if (step.target.kind !== kind)
-    throw new Error('SQLite step has an incompatible structured Migration Target')
+    throw new SqliteMigrationCapabilityError(
+      'invalid_target',
+      'SQLite step has an incompatible structured Migration Target',
+    )
 
   if (step.kind === 'add_column' || step.kind === 'alter_column_type')
-    assertSafeSqliteDataType(step.dataType)
+    capabilityCheck(() => assertSafeSqliteDataType(step.dataType), 'invalid_target')
 
   if (step.target.kind === 'namespace') {
     assertMain({
@@ -231,7 +247,11 @@ function directDrop(
 function createAction(planned: PlannedMigration, group: TableGroup): MigrationAction {
   const desired = planned.desiredTables.get(group.identity)
 
-  if (!desired) throw new Error('SQLite CREATE TABLE lacks a registered desired table')
+  if (!desired)
+    throw new SqliteMigrationCapabilityError(
+      'missing_desired_table',
+      'SQLite CREATE TABLE lacks a registered desired table',
+    )
 
   const definition = desiredDefinition(desired)
   const name = group.identity.relation.spelling
@@ -239,7 +259,11 @@ function createAction(planned: PlannedMigration, group: TableGroup): MigrationAc
   const indexes = group.steps
     .filter(({ step }) => step.kind === 'create_index')
     .map(({ step }) => {
-      if (step.kind !== 'create_index') throw new Error('Invalid SQLite index step')
+      if (step.kind !== 'create_index')
+        throw new SqliteMigrationCapabilityError(
+          'invalid_target',
+          'Invalid SQLite index step',
+        )
 
       return indexSql(name, {
         name: step.target.index.spelling,
@@ -275,14 +299,22 @@ function directAction(planned: PlannedMigration, group: TableGroup): MigrationAc
         unique: step.unique,
       })
 
-    if (step.kind !== 'add_column') throw new Error('Invalid SQLite direct operation')
+    if (step.kind !== 'add_column')
+      throw new SqliteMigrationCapabilityError(
+        'invalid_target',
+        'Invalid SQLite direct operation',
+      )
 
     const column = definition.columns.find(
       (candidate) =>
         asciiFoldSqliteIdentifier(candidate.name) === step.target.column.comparisonKey,
     )
 
-    if (!column) throw new Error('Missing final SQLite column')
+    if (!column)
+      throw new SqliteMigrationCapabilityError(
+        'compile_failure',
+        'Missing final SQLite column',
+      )
 
     return statement(`alter table ${address(name)} add column ${columnSql(column)}`)
   })
@@ -351,7 +383,8 @@ function checkDestructiveDependencies(
           ),
       )
     )
-      throw new Error(
+      throw new SqliteMigrationCapabilityError(
+        'compile_failure',
         'SQLite destructive drop has a retained incoming foreign-key dependency',
       )
   }
@@ -367,7 +400,8 @@ function requireDependencyEvidence(planned: PlannedMigration): void {
     namespace?.relations.coverage.state !== 'complete' ||
     namespace.relations.items.some((relation) => relation.management !== 'managed')
   )
-    throw new Error(
+    throw new SqliteMigrationCapabilityError(
+      'compile_failure',
       'SQLite destructive drops require complete main namespace dependency evidence',
     )
 }
@@ -433,7 +467,8 @@ function checkUniqueIndexDrops(planned: PlannedMigration, group: TableGroup): vo
       ),
     )
   )
-    throw new Error(
+    throw new SqliteMigrationCapabilityError(
+      'compile_failure',
       'SQLite unique-index drop has a retained incoming foreign-key dependency',
     )
 }
@@ -525,19 +560,22 @@ export function lowerSqliteMigrationPlan(
   const actions: MigrationAction[] = []
   const preconditions: MigrationPrecondition[] = []
   for (const group of orderGroups(planned, groups)) {
-    try {
-      const lowered = lowerGroup(planned, group, names.get(group)!)
-      actions.push(lowered.action)
-      preconditions.push(...lowered.preconditions)
-    } catch (cause) {
-      issues.push(
-        issue(
-          'compile_failure',
-          cause,
-          group.steps.map(({ index }) => index),
-        ),
-      )
+    const result = attemptSync(() => lowerGroup(planned, group, names.get(group)!))
+
+    if (result.ok) {
+      actions.push(result.value.action)
+      preconditions.push(...result.value.preconditions)
+      continue
     }
+
+    if (!(result.error instanceof SqliteMigrationCapabilityError)) throw result.error
+
+    issues.push(
+      issue(
+        result.error,
+        group.steps.map(({ index }) => index),
+      ),
+    )
   }
 
   if (issues.length)
@@ -578,11 +616,16 @@ function rowidIssues(planned: PlannedMigration): MigrationCapabilityIssue[] {
         expected.length !== observed.length ||
         expected.some((column, index) => !sameName(column.name, observed[index]!.name))
       )
-        throw new Error('Unsupported SQLite rowid alias conversion')
+        throw new SqliteMigrationCapabilityError(
+          'compile_failure',
+          'Unsupported SQLite rowid alias conversion',
+        )
 
       return []
     } catch (cause) {
-      return [issue('compile_failure', cause, sourceStepIndexes)]
+      if (!(cause instanceof SqliteMigrationCapabilityError)) throw cause
+
+      return [issue(cause, sourceStepIndexes)]
     }
   })
 }
@@ -607,7 +650,9 @@ function stepIssues(
 
     return []
   } catch (cause) {
-    return [issue('invalid_target', cause, [index])]
+    if (!(cause instanceof SqliteMigrationCapabilityError)) throw cause
+
+    return [issue(cause, [index])]
   }
 }
 
@@ -620,19 +665,20 @@ function profileIssues(
     checkProfile(planned, expected)
     return []
   } catch (cause) {
-    return [issue('profile_mismatch', cause, [])]
+    if (!(cause instanceof SqliteMigrationCapabilityError)) throw cause
+
+    return [issue(cause, [])]
   }
 }
 
 /** Retains deterministic capability diagnostics and original semantic provenance. */
 function issue(
-  code: MigrationCapabilityIssue['code'],
-  cause: unknown,
+  cause: SqliteMigrationCapabilityError,
   sourceStepIndexes: readonly number[],
 ): MigrationCapabilityIssue {
   return {
-    code,
-    message: cause instanceof Error ? cause.message : 'SQLite migration lowering failed',
+    code: cause.code,
+    message: cause.message,
     sourceStepIndexes,
   }
 }

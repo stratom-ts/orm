@@ -70,6 +70,20 @@ export function getOperationReleaseCleanupFailures(cause: unknown): readonly unk
     : []
 }
 
+/** Transfers retained cleanup evidence when a boundary unwraps an object defect. */
+export function transferOperationReleaseCleanupFailures(
+  source: unknown,
+  target: unknown,
+): boolean {
+  if (!((typeof target === 'object' && target !== null) || typeof target === 'function'))
+    return false
+
+  for (const failure of getOperationReleaseCleanupFailures(source))
+    retainOperationReleaseCleanupFailure(target, failure)
+
+  return true
+}
+
 /**
  * Validates the operation session provider contract at runtime.
  *
@@ -460,12 +474,12 @@ export class OperationCoordinator {
 }
 
 /**
- * Wraps pinned query and statement calls with consistent query errors.
+ * Exposes pinned query and statement rejections without reclassifying them.
  *
  * @param session - Pinned physical session whose identity and lifecycle must remain
  *   valid.
  *
- * @returns A pinned-session executor that wraps native failures as query errors.
+ * @returns A pinned-session executor preserving the underlying rejection identity.
  */
 function createSessionExecutor(session: OperationSession): Executor {
   return {
@@ -475,16 +489,7 @@ function createSessionExecutor(session: OperationSession): Executor {
      * @param query - Compiled query to execute.
      */
     async execute(query) {
-      try {
-        return await session.query(query)
-      } catch (cause) {
-        if (cause instanceof QueryError) throw cause
-
-        throw new QueryError({
-          message: cause instanceof Error ? cause.message : 'Query execution failed',
-          cause,
-        })
-      }
+      return session.query(query)
     },
     /**
      * Executes a statement through the pinned operation session.
@@ -492,16 +497,7 @@ function createSessionExecutor(session: OperationSession): Executor {
      * @param query - Compiled query to execute.
      */
     async run(query) {
-      try {
-        await session.run(query)
-      } catch (cause) {
-        if (cause instanceof QueryError) throw cause
-
-        throw new QueryError({
-          message: cause instanceof Error ? cause.message : 'Statement execution failed',
-          cause,
-        })
-      }
+      await session.run(query)
     },
   }
 }

@@ -7,8 +7,14 @@ import type {
   PhysicalNameRegistry,
   PhysicalNamingProfile,
 } from '@/migrations/physicalNaming'
+import { TaggedError } from '@/utils/error'
 
 import { asciiFoldSqliteIdentifier } from './identity'
+
+/** Expected rejection for SQLite's reserved object-name prefix. */
+export class SqliteReservedObjectNameError extends TaggedError(
+  'SqliteReservedObjectNameError',
+)<{ message: string }> {}
 
 /** SQLite identifier comparison and uniqueness scope. */
 export const SQLITE_PHYSICAL_NAMING: PhysicalNamingProfile = {
@@ -44,7 +50,7 @@ export function validateSqliteObjectName(name: string, role: 'table' | 'index'):
   sqliteNaming.validate(name, `SQLite ${role} name`)
 
   if (asciiFoldSqliteIdentifier(name).startsWith('sqlite_'))
-    throw new Error(
-      `SQLite ${role} name ${JSON.stringify(name)} uses reserved prefix "sqlite_"`,
-    )
+    throw new SqliteReservedObjectNameError({
+      message: `SQLite ${role} name ${JSON.stringify(name)} uses reserved prefix "sqlite_"`,
+    })
 }

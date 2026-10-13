@@ -11,6 +11,8 @@ import {
   formatSqliteLiteral,
 } from '../validate'
 
+import { capabilityCheck, capabilityError } from './error'
+
 export type Column = {
   name: string
   dataType: string
@@ -41,7 +43,7 @@ export type Definition = {
 /** Requires one fully observed fact before preserving catalog state. */
 export function fact<T>(value: CatalogFact<T>, label: string): T {
   if (value.state !== 'present')
-    throw new Error(`Incomplete SQLite evidence: ${label} (${value.state})`)
+    throw capabilityError(`Incomplete SQLite evidence: ${label} (${value.state})`)
 
   return value.value
 }
@@ -49,14 +51,14 @@ export function fact<T>(value: CatalogFact<T>, label: string): T {
 /** Requires complete member coverage before rebuilding a table. */
 export function complete<T>(value: CatalogSet<T>, label: string): readonly T[] {
   if (value.coverage.state !== 'complete')
-    throw new Error(`Incomplete SQLite evidence: ${label}`)
+    throw capabilityError(`Incomplete SQLite evidence: ${label}`)
 
   return value.items
 }
 
 /** Quotes a single SQLite identifier, including literal dots and quotes. */
 export function quote(value: string): string {
-  if (!value || value.includes('\0')) throw new Error('Invalid SQLite identifier')
+  if (!value || value.includes('\0')) throw capabilityError('Invalid SQLite identifier')
 
   return `"${value.replaceAll('"', '""')}"`
 }
@@ -79,16 +81,16 @@ export function observedTable(
     relation.kind !== 'table' ||
     relation.persistence !== 'permanent'
   )
-    throw new Error('SQLite target lacks a managed ordinary permanent table')
+    throw capabilityError('SQLite target lacks a managed ordinary permanent table')
 
   fact(relation.nativeDefinition, 'table SQL')
   const table = fact(relation.table, 'table definition')
 
   if (complete(table.options, 'table options').some((option) => option.value !== 'false'))
-    throw new Error('SQLite STRICT and WITHOUT ROWID tables are unsupported')
+    throw capabilityError('SQLite STRICT and WITHOUT ROWID tables are unsupported')
 
   if (complete(table.opaqueObjects, 'opaque dependencies').length)
-    throw new Error('SQLite opaque dependencies cannot be preserved')
+    throw capabilityError('SQLite opaque dependencies cannot be preserved')
 
   return table
 }
@@ -106,15 +108,19 @@ export function desiredColumn(
 
   return {
     name,
-    dataType: assertSafeSqliteDataType(column.dataType),
+    dataType: capabilityCheck(() => assertSafeSqliteDataType(column.dataType)),
     notNull: column.notNull,
     rowidAlias,
     autoIncrement: column.autoIncrement,
     ...(column.databaseDefault
-      ? { defaultSql: assertSafeSqliteDefaultExpression(column.databaseDefault.sql) }
+      ? {
+          defaultSql: capabilityCheck(() =>
+            assertSafeSqliteDefaultExpression(column.databaseDefault!.sql),
+          ),
+        }
       : {}),
     ...(column.defaultValue !== undefined
-      ? { defaultSql: formatSqliteLiteral(column.defaultValue) }
+      ? { defaultSql: capabilityCheck(() => formatSqliteLiteral(column.defaultValue!)) }
       : {}),
   }
 }
@@ -149,7 +155,7 @@ function assertSimple(value: {
   fact(value.semantics, 'constraint/index semantics')
 
   if (fact(value.validity, 'constraint/index validity') !== 'valid')
-    throw new Error('Invalid SQLite constraint or index')
+    throw capabilityError('Invalid SQLite constraint or index')
 }
 
 /** Preserves every observed physical member, including additive live columns. */
@@ -205,7 +211,7 @@ function observedColumn(column: CatalogTable['columns']['items'][number]): Colum
       : fact(column.generation, 'generation')
 
   if (generation && generation.kind !== 'rowidAlias')
-    throw new Error('Unsupported SQLite generation')
+    throw capabilityError('Unsupported SQLite generation')
 
   const defaultSql =
     column.default.state === 'absent' ? undefined : fact(column.default, 'default').native
@@ -213,13 +219,19 @@ function observedColumn(column: CatalogTable['columns']['items'][number]): Colum
   const nativeType = fact(column.dataType, 'column type').native
   return {
     name: column.name,
-    dataType: nativeType ? assertSafeSqliteDataType(nativeType) : '',
+    dataType: nativeType
+      ? capabilityCheck(() => assertSafeSqliteDataType(nativeType))
+      : '',
     notNull: !fact(column.nullable, 'column nullability'),
     rowidAlias: generation?.kind === 'rowidAlias',
     autoIncrement: generation?.kind === 'rowidAlias' && generation.autoIncrement,
     ...(defaultSql === undefined
       ? {}
-      : { defaultSql: assertSafeSqliteDefaultExpression(defaultSql) }),
+      : {
+          defaultSql: capabilityCheck(() =>
+            assertSafeSqliteDefaultExpression(defaultSql),
+          ),
+        }),
   }
 }
 

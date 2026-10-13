@@ -242,8 +242,66 @@ it('retains structured preparation diagnostics and appends rollback cleanup evid
   })
 
   expect((rejection as MigrationError).cause).toBe(primary)
+  expect(rejection).not.toHaveProperty('defect')
   expect(test.calls).not.toContain(statement.sql)
 })
+
+it('marks wrapped execution defects and retains their original cause and stack', async () => {
+  const defect = new TypeError('validation defect')
+  const originalStack = defect.stack
+  const test = fixture({ validationFailure: defect })
+  const rejection = await test.execute().catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({
+    stage: 'validation',
+    outcome: 'rolledBack',
+    defect: true,
+  })
+
+  expect((rejection as MigrationError).cause).toBe(defect)
+  expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
+})
+
+it('preserves an existing defect marker while reconstructing migration diagnostics', async () => {
+  const defect = new TypeError('already marked defect')
+  const originalStack = defect.stack
+  const marked = new MigrationError({
+    message: defect.message,
+    cause: defect,
+    defect: true,
+    stage: 'planning',
+    outcome: 'unchanged',
+    retryable: false,
+  })
+
+  const test = fixture({ prepareFailure: marked })
+  const rejection = await test.execute().catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+  expect((rejection as MigrationError).cause).toBe(defect)
+  expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
+})
+
+it.each([null, undefined])(
+  'preserves an explicitly present nullish defect cause: %s',
+  async (originalCause) => {
+    const structured = new MigrationError({
+      message: 'wrapped nullish defect',
+      cause: originalCause,
+      defect: true,
+      stage: 'planning',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+
+    const test = fixture({ prepareFailure: structured })
+    const rejection = await test.execute().catch((cause: unknown) => cause)
+
+    expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+    expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
+    expect((rejection as MigrationError).cause).toBe(originalCause)
+  },
+)
 
 it('retains transaction-incompatible action provenance before any precondition or DDL', async () => {
   const test = fixture()

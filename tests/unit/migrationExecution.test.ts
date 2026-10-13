@@ -437,7 +437,8 @@ function assertRollbackCancellationFailure(
 ) {
   expect(error).toMatchObject({
     _tag: 'MigrationError',
-    cause: { cause: primary },
+    cause: primary,
+    defect: true,
     stage: 'ddl',
     outcome: 'unknown',
     cleanupFailures: [
@@ -480,12 +481,13 @@ function assertMigrationCleanupFailures(
 ) {
   expect(error).toMatchObject({
     _tag: 'MigrationError',
-    cause: { cause: primary },
+    cause: primary,
+    defect: true,
     stage: 'ddl',
     outcome: 'unknown',
     cleanupFailures: [
-      { stage: 'rollback', cause: { cause: rollbackFailure } },
-      { stage: 'unlock', cause: { cause: unlockFailure } },
+      { stage: 'rollback', cause: rollbackFailure },
+      { stage: 'unlock', cause: unlockFailure },
     ],
   })
 

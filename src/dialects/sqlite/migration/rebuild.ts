@@ -14,6 +14,7 @@ import {
   quote,
   sameName,
 } from './definition'
+import { capabilityError } from './error'
 import { address, columnsSql, createSql, indexSql, statement } from './sql'
 
 export type TableGroup = {
@@ -28,12 +29,15 @@ function applyColumn(definition: Definition, step: MigrationStep): void {
   const name = step.target.column.spelling
   const column = definition.columns.find((candidate) => sameName(candidate.name, name))
 
-  if (!column) throw new Error(`SQLite column ${quote(name)} has no observed definition`)
+  if (!column)
+    throw capabilityError(`SQLite column ${quote(name)} has no observed definition`)
+
   if (step.kind === 'alter_column_type') changeType(column, step.dataType)
   if (step.kind === 'set_not_null') column.notNull = true
 
   if (step.kind === 'drop_not_null') {
-    if (column.rowidAlias) throw new Error('SQLite rowid aliases cannot become nullable')
+    if (column.rowidAlias)
+      throw capabilityError('SQLite rowid aliases cannot become nullable')
 
     column.notNull = false
   }
@@ -65,7 +69,7 @@ function changeType(column: Column, desired: string): void {
       [from, to].every((type) => ['integer', 'numeric'].includes(type))
     )
   )
-    throw new Error(
+    throw capabilityError(
       `Unproven lossless SQLite conversion from ${column.dataType} to ${desired}`,
     )
 
@@ -84,7 +88,7 @@ function removeColumn(definition: Definition, name: string): void {
     touches(definition.primaryKey) ||
     definition.indexes.some((index) => touches(index.columns))
   )
-    throw new Error(
+    throw capabilityError(
       `SQLite dropped column ${quote(name)} has a retained key/index dependency`,
     )
 
@@ -133,7 +137,8 @@ function addColumn(
       candidate.identifier.comparisonKey === step.target.column.comparisonKey,
   )
 
-  if (!column) throw new Error('SQLite ADD COLUMN lacks a registered desired column')
+  if (!column)
+    throw capabilityError('SQLite ADD COLUMN lacks a registered desired column')
 
   definition.columns.push(desiredColumnForAddition(column))
 
@@ -156,7 +161,7 @@ function desiredColumnForAddition(
       normalized.toLowerCase() === 'null' ||
       !literalDefault(normalized))
   )
-    throw new Error('SQLite required-column backfill is unsupported')
+    throw capabilityError('SQLite required-column backfill is unsupported')
 
   return result
 }
@@ -172,7 +177,8 @@ function hiddenRowid(old: Definition, final: Definition): string | undefined {
       ),
   )
 
-  if (!name) throw new Error('SQLite hidden rowid cannot be addressed without shadowing')
+  if (!name)
+    throw capabilityError('SQLite hidden rowid cannot be addressed without shadowing')
 
   return name
 }

@@ -2,11 +2,14 @@ import type { DialectMigrationAdapter, MigrationProgram } from '@/ddl/migrationP
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
-import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
+import {
+  getOperationReleaseCleanupFailures,
+  transferOperationReleaseCleanupFailures,
+} from '@/operations/coordinator'
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
-import { MigrationError, attempt, attemptSync } from '@/utils/error'
+import { MigrationError, QueryError, attempt, attemptSync } from '@/utils/error'
 
 import type {
   MigrationPlan,
@@ -14,6 +17,8 @@ import type {
   MigrationStep,
 } from './migrationPlan'
 import { planMigration } from './migrationPlan'
+
+const phaseDefectWrappers = new WeakSet<MigrationError>()
 
 /** Destructive migrate operations that require explicit execution permission. */
 export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
@@ -73,16 +78,49 @@ export type MigrateBuilder = {
  * @param cause - Failure to structure.
  * @param stage - Migration stage that observed the failure.
  */
-function phaseError(cause: unknown, stage: MigrationExecutionStage): MigrationError {
-  if (cause instanceof MigrationError && cause.stage !== undefined) return cause
+function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
+  if (!(cause instanceof MigrationError) && !(cause instanceof QueryError)) {
+    const wrapped = new MigrationError({
+      message: cause instanceof Error ? cause.message : 'Migration failed',
+      cause,
+      defect: true,
+      stage,
+      outcome: 'unchanged',
+      retryable: false,
+    })
+
+    phaseDefectWrappers.add(wrapped)
+    return wrapped
+  }
+
+  if (cause instanceof QueryError)
+    return new MigrationError({
+      message: cause.message,
+      cause,
+      stage,
+      outcome: 'unchanged',
+      retryable: false,
+    })
+
+  if (cause.stage !== undefined) return cause
 
   return new MigrationError({
-    message: cause instanceof Error ? cause.message : 'Migration failed',
-    cause:
-      cause instanceof MigrationError && cause.cause !== undefined ? cause.cause : cause,
+    message: cause.message,
+    ...(Object.hasOwn(cause, 'cause') ? { cause: cause.cause } : {}),
     stage,
-    outcome: 'unchanged',
-    retryable: false,
+    outcome: cause.outcome ?? 'unchanged',
+    retryable: cause.retryable ?? false,
+    ...(cause.defect === undefined ? {} : { defect: cause.defect }),
+    ...(cause.actionIndex === undefined ? {} : { actionIndex: cause.actionIndex }),
+    ...(cause.capabilityIssues === undefined
+      ? {}
+      : { capabilityIssues: cause.capabilityIssues }),
+    ...(cause.sourceStepIndexes === undefined
+      ? {}
+      : { sourceStepIndexes: cause.sourceStepIndexes }),
+    ...(cause.cleanupFailures === undefined
+      ? {}
+      : { cleanupFailures: cause.cleanupFailures }),
   })
 }
 
@@ -98,7 +136,8 @@ function withReleaseCleanup(error: MigrationError): MigrationError {
 
   return new MigrationError({
     message: error.message,
-    ...(error.cause === undefined ? {} : { cause: error.cause }),
+    ...(Object.hasOwn(error, 'cause') ? { cause: error.cause } : {}),
+    ...(error.defect === undefined ? {} : { defect: error.defect }),
     ...(error.stage === undefined ? {} : { stage: error.stage }),
     ...(error.outcome === undefined ? {} : { outcome: error.outcome }),
     ...(error.retryable === undefined ? {} : { retryable: error.retryable }),
@@ -128,6 +167,11 @@ function sessionCleanupFailures(
     stage: 'sessionCleanup' as const,
     cause: failure,
   }))
+}
+
+/** Identifies phase wrappers safe to unwrap without losing provider cleanup evidence. */
+function shouldUnwrapPreviewDefect(error: MigrationError): boolean {
+  return phaseDefectWrappers.has(error)
 }
 
 /**
@@ -481,6 +525,7 @@ function throwExecutionCleanup(
       message:
         cause instanceof Error ? cause.message : 'Migration session cleanup failed',
       cause,
+      ...(isDefect(cause) ? { defect: true as const } : {}),
       stage: 'sessionCleanup',
       outcome: success.outcome,
       retryable: false,
@@ -492,6 +537,7 @@ function throwExecutionCleanup(
     message:
       cause instanceof Error ? cause.message : 'Migration operation session failed',
     cause,
+    ...(isDefect(cause) ? { defect: true as const } : {}),
     stage: 'sessionCleanup',
     outcome: 'unchanged',
     retryable: false,
@@ -523,57 +569,64 @@ function createMigrationPreview(
   return {
     /** Builds a semantic Migration Plan without lowering or executing it. */
     async plan() {
-      return runMigrationPreview(
-        () =>
-          runOperation(
-            async (executor) =>
-              (await observeMigrationPlan(executor, planningOptions)).planned.plan,
-          ),
-        'Migration planning failed',
+      return runMigrationPreview(() =>
+        runOperation(
+          async (executor) =>
+            (await observeMigrationPlan(executor, planningOptions)).planned.plan,
+        ),
       )
     },
 
     /** Builds and lowers the plan without executing physical actions. */
     async dryRun() {
-      return runMigrationPreview(
-        () =>
-          runOperation(async (executor) => {
-            const { planned, expected } = await observeMigrationPlan(
-              executor,
-              planningOptions,
-            )
+      return runMigrationPreview(() =>
+        runOperation(async (executor) => {
+          const { planned, expected } = await observeMigrationPlan(
+            executor,
+            planningOptions,
+          )
 
-            return dryRunProgram(lowerPlan(migration, planned, expected))
-          }),
-        'Migration dry-run failed',
+          return dryRunProgram(lowerPlan(migration, planned, expected))
+        }),
       )
     },
   }
 }
 
 /**
- * Preserves structured preview errors and includes retained session cleanup failures.
+ * Preserves expected preview errors and leaves defects unchanged.
  *
  * @param operation - Work to run within the current session or error boundary.
- * @param failureMessage - Fallback diagnostic when a rejection is not an Error instance.
  *
  * @returns The preview result after successful session cleanup.
  */
-async function runMigrationPreview<T>(
-  operation: () => Promise<T>,
-  failureMessage: string,
-): Promise<T> {
+async function runMigrationPreview<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation()
   } catch (cause) {
+    if (
+      cause instanceof MigrationError &&
+      shouldUnwrapPreviewDefect(cause) &&
+      (sessionCleanupFailures(cause).length === 0 ||
+        transferOperationReleaseCleanupFailures(cause, cause.cause))
+    )
+      throw cause.cause
+
     if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
 
-    const cleanupFailures = sessionCleanupFailures(cause)
-    throw new MigrationError({
-      message: cause instanceof Error ? cause.message : failureMessage,
-      ...(cause !== undefined ? { cause } : {}),
-      ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
-    })
+    if (cause instanceof QueryError) {
+      const cleanupFailures = sessionCleanupFailures(cause)
+      throw new MigrationError({
+        message: cause.message,
+        cause,
+        stage: 'introspection',
+        outcome: 'unchanged',
+        retryable: false,
+        ...(cleanupFailures.length ? { cleanupFailures } : {}),
+      })
+    }
+
+    throw cause
   }
 }
 
@@ -591,8 +644,14 @@ function throwAdapterExecutionError(cause: unknown, discard: () => void): never 
     message:
       cause instanceof Error ? cause.message : 'Migration adapter execution failed',
     cause: cause,
+    ...(isDefect(cause) ? { defect: true as const } : {}),
     stage: 'ddl',
     outcome: 'unknown',
     retryable: false,
   })
+}
+
+/** Marks only invariant or unrecognized failures as defects. */
+function isDefect(cause: unknown): boolean {
+  return !(cause instanceof MigrationError) && !(cause instanceof QueryError)
 }
