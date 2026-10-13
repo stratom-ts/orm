@@ -31,7 +31,7 @@ const connectorStates = new WeakMap<Connector, ConnectorState>()
 const nativeOwners = new WeakMap<object, ConnectorState>()
 
 /** Accepts only the native DatabaseSync capabilities needed by a pinned lease. */
-function nativeDatabase(value: unknown, dialectId: string): NativeDatabase {
+function nativeDatabase(value: unknown, probeFailureMessage: string): NativeDatabase {
   const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
 
   if (!(value instanceof DatabaseSync) || value.isOpen === false) {
@@ -40,7 +40,12 @@ function nativeDatabase(value: unknown, dialectId: string): NativeDatabase {
     })
   }
 
-  nativeSql(value, 'select 1', dialectId, () => undefined)
+  try {
+    value.prepare('select 1')
+  } catch (cause) {
+    throw new QueryError({ message: probeFailureMessage, cause })
+  }
+
   return value
 }
 
@@ -230,6 +235,7 @@ async function verifyNative(
   database: NativeDatabase,
   identity: OperationSessionIdentity,
   dialectId: string,
+  probeFailureMessage: string,
 ): Promise<void> {
   if (
     (await connector.getInstance!()) !== database ||
@@ -239,7 +245,7 @@ async function verifyNative(
     throw new QueryError({ message: 'SQLite native session changed during operation' })
   }
 
-  nativeDatabase(database, dialectId)
+  nativeDatabase(database, probeFailureMessage)
 
   if (!sameIdentity(readIdentity(database, dialectId), identity)) {
     throw new QueryError({ message: 'SQLite session identity changed during operation' })
@@ -328,10 +334,25 @@ async function releaseLease(
       return
     }
 
-    await verifyNative(connector, owner, database, identity, dialectId)
+    await verifyNative(
+      connector,
+      owner,
+      database,
+      identity,
+      dialectId,
+      'Failed to release SQLite operation session',
+    )
+
     rollbackNative(database, dialectId)
 
-    await verifyNative(connector, owner, database, identity, dialectId)
+    await verifyNative(
+      connector,
+      owner,
+      database,
+      identity,
+      dialectId,
+      'Failed to release SQLite operation session',
+    )
   } catch (cause) {
     throw await disposeAfterFailure(
       connector,
@@ -361,7 +382,15 @@ function enqueue<T>(
   const result = state.queue.then(async () => {
     if (state.cancelled) throw new QueryError({ message: 'SQLite lease was cancelled' })
 
-    await verifyNative(connector, owner, database, identity, dialectId)
+    await verifyNative(
+      connector,
+      owner,
+      database,
+      identity,
+      dialectId,
+      'SQLite operation failed',
+    )
+
     const params = bindings(query.params)
     let statement: NativeStatement
     try {
@@ -471,7 +500,6 @@ function createLease(
 async function claimNativeDatabase(
   connector: Connector,
   owner: ConnectorState,
-  dialectId: string,
 ): Promise<NativeDatabase> {
   const database = await connector.getInstance!()
   const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
@@ -489,7 +517,7 @@ async function claimNativeDatabase(
   if (owner.native && owner.native !== database)
     throw new QueryError({ message: 'SQLite native session changed during operation' })
 
-  const validated = nativeDatabase(database, dialectId)
+  const validated = nativeDatabase(database, 'Failed to open SQLite operation session')
   nativeOwners.set(database, owner)
   owner.native = database
   return validated
@@ -526,7 +554,7 @@ async function openLease(
   }
 
   try {
-    const claimed = await claimNativeDatabase(connector, owner, dialectId)
+    const claimed = await claimNativeDatabase(connector, owner)
 
     assertCleanTransaction(claimed, dialectId)
 
