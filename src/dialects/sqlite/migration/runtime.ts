@@ -13,6 +13,7 @@ import {
   SchemaError,
 } from '@/utils/error'
 
+import { sqliteClassifyDriverError } from '../classifyDriverError'
 import { asciiFoldSqliteIdentifier } from '../identity'
 
 const DEFAULT_LOCK_TIMEOUT_MS = 30_000
@@ -86,33 +87,6 @@ function failure(
   })
 }
 
-/** Recognizes one native SQLite BUSY or LOCKED primary/extended code. */
-function hasBusyCode(record: Record<string, unknown>): boolean {
-  if (typeof record.code === 'string' && /^SQLITE_(BUSY|LOCKED)(_|$)/.test(record.code))
-    return true
-
-  return ['code', 'errcode', 'errno', 'sqliteCode', 'extendedErrcode'].some((key) => {
-    const numeric = record[key]
-    return typeof numeric === 'number' && [5, 6].includes(numeric & 0xff)
-  })
-}
-
-/** Walks connector causes to locate a native lock code. */
-function isBusy(cause: unknown): boolean {
-  const seen = new Set<object>()
-  let current = cause
-  while (typeof current === 'object' && current !== null && !seen.has(current)) {
-    seen.add(current)
-    const record = current as Record<string, unknown>
-
-    if (hasBusyCode(record)) return true
-
-    current = record.cause
-  }
-
-  return false
-}
-
 /** Reports an abort only between synchronous native calls. */
 function assertNotAborted(
   options: MigrationRuntimeOptions,
@@ -173,7 +147,7 @@ async function tryBegin(
     await run(options, 'begin immediate')
     return { busy: false }
   } catch (cause) {
-    if (!isBusy(cause)) throw cause
+    if (sqliteClassifyDriverError(cause).kind !== 'transient') throw cause
 
     return { busy: true, cause }
   }

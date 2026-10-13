@@ -778,6 +778,7 @@ function createCustomPlanningDialect() {
   const normalizeDefaultValue = normalizeCustomPlanningDefault
   const dialect: Dialect = {
     id: 'mysql',
+    classifyDriverError: () => ({ kind: 'unknown', retryable: false }),
     identity,
     naming,
     schema: {

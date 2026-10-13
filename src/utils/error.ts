@@ -190,14 +190,36 @@ export class QueryError extends TaggedError('QueryError')<{
   cause?: unknown
 }> {}
 
+/** Portable meaning of a native database failure. */
+export type DriverErrorKind =
+  | 'uniqueViolation'
+  | 'foreignKeyViolation'
+  | 'notNullViolation'
+  | 'checkViolation'
+  | 'transient'
+  | 'unknown'
+
+/** Fields a selected dialect can establish from native diagnostics. */
+export type DriverErrorClassification = Readonly<{
+  kind: DriverErrorKind
+  retryable: boolean
+  constraint?: string
+  table?: string
+  columns?: readonly string[]
+}>
+
+export type DriverErrorClassifier = (cause: unknown) => DriverErrorClassification
+
 /** Error thrown by db0, a database driver, or the database while executing SQL. */
-export class DriverError extends TaggedError('DriverError')<{
-  message: string
-  dialect: string
-  code?: string
-  sql: string
-  cause: unknown
-}> {}
+export class DriverError extends TaggedError('DriverError')<
+  {
+    message: string
+    dialect: string
+    code?: string
+    sql: string
+    cause: unknown
+  } & DriverErrorClassification
+> {}
 
 /** Reads optional driver metadata without replacing the original rejection. */
 function nativeStringProperty(
@@ -213,7 +235,12 @@ function nativeStringProperty(
 }
 
 /** Preserves any native rejection from one physical SQL call. */
-export function driverError(cause: unknown, dialect: string, sql: string): DriverError {
+export function driverError(
+  cause: unknown,
+  dialect: string,
+  sql: string,
+  classify: DriverErrorClassifier,
+): DriverError {
   const objectCause =
     (typeof cause === 'object' && cause !== null) || typeof cause === 'function'
 
@@ -229,6 +256,39 @@ export function driverError(cause: unknown, dialect: string, sql: string): Drive
     ...(code === undefined ? {} : { code }),
     sql,
     cause,
+    ...classify(cause),
+  })
+}
+
+/** Applies the selected member's policy only to a recognized driver failure. */
+export function classifyDriverError(
+  failure: unknown,
+  classify: DriverErrorClassifier,
+): unknown {
+  if (!(failure instanceof DriverError)) return failure
+
+  const classification = classify(failure.cause)
+
+  if (
+    failure.kind === classification.kind &&
+    failure.retryable === classification.retryable &&
+    failure.constraint === classification.constraint &&
+    failure.table === classification.table &&
+    (failure.columns === classification.columns ||
+      (failure.columns?.length === classification.columns?.length &&
+        failure.columns?.every(
+          (column, index) => column === classification.columns?.[index],
+        )))
+  )
+    return failure
+
+  return new DriverError({
+    message: failure.message,
+    dialect: failure.dialect,
+    ...(failure.code === undefined ? {} : { code: failure.code }),
+    sql: failure.sql,
+    cause: failure.cause,
+    ...classification,
   })
 }
 

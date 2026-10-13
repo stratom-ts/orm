@@ -98,9 +98,19 @@ function sourceFiles(path: string): string[] {
 
 const coreFiles = CORE_PATHS.flatMap(sourceFiles)
 const sharedExecutionFiles = SHARED_EXECUTION_PATHS.flatMap(sourceFiles)
+const sharedDriverClassificationFiles = [
+  ...sharedExecutionFiles,
+  ...sourceFiles('src/client.ts'),
+  ...sourceFiles('src/utils/error.ts'),
+]
+
+const nativeDriverCode =
+  /\b(?:SQLITE_(?:CONSTRAINT|BUSY|LOCKED)[A-Z_]*|23505|23503|23502|23514|40P01|40001|08(?:[0-9A-Z]{3})?|57P0[123]|ECONNRESET|EPIPE|ETIMEDOUT|2067|1555|787|1299|275|errcode|extendedErrcode|sqliteCode)\b/
+
 const DIALECT_BARREL_RUNTIME_ALLOWLIST = new Set(['resolveDialect'])
 const REQUIRED_DIALECT_FILES = [
   'dialect.ts',
+  'classifyDriverError.ts',
   'index.ts',
   'identity.ts',
   'naming.ts',
@@ -113,6 +123,7 @@ const REQUIRED_DIALECT_FILES = [
 ] as const
 
 const REQUIRED_DIALECT_FACETS = [
+  'classifyDriverError',
   'identity',
   'naming',
   'schema',
@@ -446,6 +457,7 @@ function inspectIndexExport(
 const EXAMPLE_MANIFEST = `
   import { defineDialect } from '../defineDialect'
   import { exampleIdentity } from './identity'
+  import { exampleClassifyDriverError } from './classifyDriverError'
   import { exampleNaming } from './naming'
   import { exampleSchema } from './schema'
   import { exampleQuery } from './query'
@@ -455,6 +467,7 @@ const EXAMPLE_MANIFEST = `
 
   export const exampleDialect = defineDialect({
     id: 'example',
+    classifyDriverError: exampleClassifyDriverError,
     identity: exampleIdentity,
     naming: exampleNaming,
     schema: exampleSchema,
@@ -1253,6 +1266,29 @@ describe('dialect extension locality architecture: keeps db0 transport adaptatio
     )
 
     expect(references.length > 0).toBe(rejected)
+  })
+})
+
+describe('dialect extension locality architecture: keeps driver codes in members', () => {
+  it('has no concrete driver codes in shared execution or error boundaries', () => {
+    expect(
+      sharedDriverClassificationFiles.flatMap((file) =>
+        nativeDriverCode.test(readFileSync(file, 'utf8')) ? [relative(ROOT, file)] : [],
+      ),
+    ).toEqual([])
+  })
+
+  it.each([
+    ['SQLITE_CONSTRAINT_UNIQUE', true],
+    ['40P01', true],
+    ['08006', true],
+    ['57P01', true],
+    ['2067', true],
+    ["nativeField(cause, 'extendedErrcode')", true],
+    ['ECONNRESET', true],
+    ['kind: uniqueViolation', false],
+  ])('classifies code fixture %s', (code, expected) => {
+    expect(nativeDriverCode.test(code)).toBe(expected)
   })
 })
 

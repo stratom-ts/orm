@@ -1,4 +1,4 @@
-import { boolean, integer, number, pipe, string } from 'valibot'
+import { boolean, integer, nullable, number, pipe, string } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Db, TableHandle } from '@/index'
@@ -41,7 +41,9 @@ export interface DialectIntegrationAdapter {
    */
   withDatabase<const TSchemas extends readonly TableHandle[], TResult>(
     schemas: TSchemas,
-    callback: (context: Readonly<{ db: Db<TSchemas> }>) => Promise<TResult>,
+    callback: (
+      context: Readonly<{ db: Db<TSchemas>; nativeSql(sql: string): Promise<void> }>,
+    ) => Promise<TResult>,
   ): Promise<TResult>
 }
 
@@ -99,6 +101,24 @@ const ContractScopedRecords = defineTable(
   },
 )
 
+const ContractParents = defineTable(
+  'contract_parents',
+  {
+    id: pipe(number(), integer()),
+  },
+  { primaryKey: 'id' },
+)
+
+const ContractFailures = defineTable(
+  'contract_failures',
+  {
+    id: pipe(number(), integer()),
+    value: nullable(string()),
+    owner: pipe(number(), integer()),
+  },
+  { primaryKey: 'id', indexes: [{ columns: ['value'], unique: true }] },
+)
+
 /** Returns whether every capability required for an integration scenario is supported. */
 export function shouldRegisterDialectIntegrationScenario(
   capabilities: DialectIntegrationAdapter['capabilities'],
@@ -137,6 +157,7 @@ export function registerDialectIntegrationScenarios(
     registerUpsertIntegration(adapter)
     registerTransactionIntegration(adapter)
     registerDriverErrorIntegration(adapter)
+    registerConstraintDriverErrorIntegration(adapter)
     registerQueryDriverErrorIntegration(adapter)
 
     registerDialectIntegrationScenario(
@@ -235,6 +256,8 @@ function registerDriverErrorIntegration(adapter: DialectIntegrationAdapter): voi
         expect(write).toMatchObject({
           _tag: 'DriverError',
           dialect: adapter.dialectId,
+          kind: 'uniqueViolation',
+          retryable: false,
         })
 
         expect(typeof (write as DriverError).code).toBe('string')
@@ -252,12 +275,160 @@ function registerDriverErrorIntegration(adapter: DialectIntegrationAdapter): voi
           _tag: 'DriverError',
           dialect: adapter.dialectId,
           code: (write as DriverError).code,
+          kind: 'uniqueViolation',
+          retryable: false,
         })
 
         expect((transaction as DriverError).sql).not.toContain(secret)
       })
     },
   )
+}
+
+/** Exercises native constraints through the same public write paths on each member. */
+function registerConstraintDriverErrorIntegration(
+  adapter: DialectIntegrationAdapter,
+): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query'],
+    'classifies real constraint failures across write operations',
+    async () => {
+      await adapter.withDatabase(
+        [ContractParents, ContractFailures],
+        async ({ db, nativeSql }) =>
+          assertConstraintFailures(db, nativeSql, adapter.dialectId),
+      )
+    },
+  )
+}
+
+type ConstraintDb = Db<readonly [typeof ContractParents, typeof ContractFailures]>
+
+type ConstraintCase = Readonly<{
+  scenario: string
+  kind: DriverError['kind']
+  execute(): Promise<unknown>
+}>
+
+/** Creates stricter physical constraints than the authored columns can express. */
+async function prepareConstraintFixture(
+  db: ConstraintDb,
+  nativeSql: (sql: string) => Promise<void>,
+): Promise<void> {
+  await nativeSql(`
+    create table contract_parents (id integer primary key);
+    create table contract_failures (
+      id integer primary key,
+      value text not null check (length(value) > 1),
+      owner integer not null references contract_parents(id),
+      unique(value)
+    );
+  `)
+
+  await db.insert(ContractParents).values({ id: 1 }).execute()
+
+  await db
+    .insert(ContractFailures)
+    .values([
+      { id: 1, value: 'first', owner: 1 },
+      { id: 2, value: 'second', owner: 1 },
+    ])
+    .execute()
+}
+
+/** Exercises each portable constraint kind using native insert failures. */
+function insertConstraintCases(db: ConstraintDb): readonly ConstraintCase[] {
+  return [
+    {
+      scenario: 'insert unique',
+      kind: 'uniqueViolation',
+      execute: () =>
+        db
+          .insert(ContractFailures)
+          .values({ id: 3, value: 'second', owner: 1 })
+          .execute(),
+    },
+    {
+      scenario: 'insert foreign key',
+      kind: 'foreignKeyViolation',
+      execute: () =>
+        db
+          .insert(ContractFailures)
+          .values({ id: 3, value: 'third', owner: 999 })
+          .execute(),
+    },
+    {
+      scenario: 'insert not null',
+      kind: 'notNullViolation',
+      execute: () =>
+        db.insert(ContractFailures).values({ id: 3, value: null, owner: 1 }).execute(),
+    },
+    {
+      scenario: 'insert check',
+      kind: 'checkViolation',
+      execute: () =>
+        db.insert(ContractFailures).values({ id: 3, value: 'x', owner: 1 }).execute(),
+    },
+  ]
+}
+
+/** Exercises the common failure boundary after update, delete, and upsert execution. */
+function mutationConstraintCases(db: ConstraintDb): readonly ConstraintCase[] {
+  return [
+    {
+      scenario: 'update unique',
+      kind: 'uniqueViolation',
+      execute: () =>
+        db
+          .update(ContractFailures)
+          .set({ value: 'second' })
+          .where(ContractFailures.id, 'eq', 1)
+          .execute(),
+    },
+    {
+      scenario: 'delete foreign key',
+      kind: 'foreignKeyViolation',
+      execute: () =>
+        db.delete(ContractParents).where(ContractParents.id, 'eq', 1).execute(),
+    },
+    {
+      scenario: 'upsert unique',
+      kind: 'uniqueViolation',
+      execute: () =>
+        db
+          .insert(ContractFailures)
+          .values({ id: 1, value: 'second', owner: 1 })
+          .onConflict([ContractFailures.id])
+          .doUpdate({ value: excluded(ContractFailures.value) })
+          .execute(),
+    },
+  ]
+}
+
+/** Verifies identical logical classifications from both real database engines. */
+async function assertConstraintFailures(
+  db: ConstraintDb,
+  nativeSql: (sql: string) => Promise<void>,
+  dialectId: string,
+): Promise<void> {
+  await prepareConstraintFixture(db, nativeSql)
+
+  for (const { scenario, kind, execute } of [
+    ...insertConstraintCases(db),
+    ...mutationConstraintCases(db),
+  ]) {
+    const failure = await execute().catch((cause: unknown) => cause)
+    expect(failure, scenario).toBeInstanceOf(DriverError)
+
+    expect(failure, scenario).toMatchObject({
+      dialect: dialectId,
+      kind,
+      retryable: false,
+    })
+
+    expect((failure as DriverError).cause, scenario).toBeInstanceOf(Error)
+  }
 }
 
 /** Verifies a row query failure before the relation exists in the database. */
@@ -276,7 +447,14 @@ function registerQueryDriverErrorIntegration(adapter: DialectIntegrationAdapter)
           .catch((cause: unknown) => cause)
 
         expect(error).toBeInstanceOf(DriverError)
-        expect(error).toMatchObject({ _tag: 'DriverError', dialect: adapter.dialectId })
+
+        expect(error).toMatchObject({
+          _tag: 'DriverError',
+          dialect: adapter.dialectId,
+          kind: 'unknown',
+          retryable: false,
+        })
+
         expect(typeof (error as DriverError).code).toBe('string')
         expect((error as DriverError).sql).not.toContain(secret)
         expect((error as DriverError).cause).toBeInstanceOf(Error)

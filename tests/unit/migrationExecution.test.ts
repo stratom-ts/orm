@@ -20,6 +20,8 @@ describe('driver migration classification', () => {
       code: native.code,
       sql: 'create table driver_events',
       cause: native,
+      kind: 'uniqueViolation',
+      retryable: false,
     })
 
     const controls = createControllableProvider({

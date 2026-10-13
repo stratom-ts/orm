@@ -1,6 +1,7 @@
 import { defineDialect } from '../defineDialect'
 
 import { postgresCatalog } from './catalog'
+import { postgresClassifyDriverError } from './classifyDriverError'
 import { postgresIdentity } from './identity'
 import { executePostgresMigration, lowerPostgresMigrationPlan } from './migration'
 import { postgresNaming } from './naming'
@@ -25,6 +26,7 @@ import { postgresSchema } from './schema'
  */
 export const postgresDialect = defineDialect({
   id: 'postgresql',
+  classifyDriverError: postgresClassifyDriverError,
   identity: postgresIdentity,
   naming: postgresNaming,
   schema: postgresSchema,

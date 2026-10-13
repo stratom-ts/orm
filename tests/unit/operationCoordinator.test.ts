@@ -1,8 +1,14 @@
+import type { SQLDialect } from 'db0'
 import { describe, expect, it } from 'vitest'
 
-import { QueryError, createDatabase } from '@/index'
+import { postgresDialect } from '@/dialects/postgres/dialect'
+import { registerDialectForTest } from '@/dialects/resolve'
+import { DriverError, QueryError, createDatabase } from '@/index'
 import type { OperationSessionProvider } from '@/index'
-import { OperationCoordinator } from '@/operations/coordinator'
+import {
+  OperationCoordinator,
+  getOperationReleaseCleanupFailures,
+} from '@/operations/coordinator'
 
 import { deferred } from '../helpers/deferredPromise'
 
@@ -11,6 +17,81 @@ import {
   customConnector,
   withDeadline,
 } from './helpers/operationSessionFixtures'
+
+/** Installs a member whose classifier differs from the native PostgreSQL adapter. */
+function classifiedDatabase(
+  stage: 'query' | 'open',
+  driver: DriverError,
+  cleanup: Error,
+) {
+  const controls = createControllableProvider({
+    ...(stage === 'open' ? { openFailure: { session: 1, value: driver } } : {}),
+    /** Fails only the selected provider query. */
+    beforeCall: async (_session, sql) => {
+      if (stage === 'query' && sql === 'select 1') throw driver
+    },
+    /** Retains cleanup evidence beside the reclassified query failure. */
+    beforeRelease: async () => {
+      if (stage === 'query') throw cleanup
+    },
+  })
+
+  const dialect = {
+    ...postgresDialect,
+    id: 'classification-member',
+    /** Exercises member selection independently of the PostgreSQL native adapter. */
+    classifyDriverError: () => ({ kind: 'checkViolation' as const, retryable: false }),
+  }
+
+  const unregister = registerDialectForTest(dialect)
+  const db = createDatabase({
+    connector: { ...customConnector(), dialect: dialect.id as SQLDialect },
+    operationSessionProvider: controls.provider,
+    schemas: [],
+  })
+
+  return { db, unregister }
+}
+
+describe('selected member provider failure classification', () => {
+  it.each(['query', 'open'] as const)(
+    'applies the selected member classifier to recognized %s provider failures',
+    async (stage) => {
+      const native = { code: '23505' }
+      const driver = new DriverError({
+        message: 'native failure',
+        dialect: 'classification-member',
+        sql: 'select 1',
+        cause: native,
+        kind: 'unknown',
+        retryable: false,
+      })
+
+      const cleanup = new Error('release failed')
+      const { db, unregister } = classifiedDatabase(stage, driver, cleanup)
+
+      try {
+        const failure = await db.ping().catch((cause: unknown) => cause)
+        expect(failure).toMatchObject({
+          _tag: 'DriverError',
+          kind: 'checkViolation',
+          retryable: false,
+          cause: native,
+          sql: 'select 1',
+        })
+
+        expect((failure as DriverError).cause).toBe(native)
+
+        expect(getOperationReleaseCleanupFailures(failure)).toEqual(
+          stage === 'query' ? [cleanup] : [],
+        )
+      } finally {
+        await db.close()
+        unregister()
+      }
+    },
+  )
+})
 
 describe('OperationCoordinator', () => {
   it('snapshots nested namespace identity and discards when the live context changes', async () => {

@@ -8,6 +8,7 @@ import type {
 } from '@/operations/operationSession'
 import { QueryError, driverError } from '@/utils/error'
 
+import { postgresClassifyDriverError } from './classifyDriverError'
 import { scanPostgresSql } from './postgresSql'
 
 type NativePostgresResult = {
@@ -193,7 +194,7 @@ async function queryNativeSql(
   try {
     return await client.query(sql)
   } catch (cause) {
-    throw driverError(cause, dialectId, sql)
+    throw driverError(cause, dialectId, sql, postgresClassifyDriverError)
   }
 }
 
@@ -343,7 +344,7 @@ async function executeNativeQuery(
       signal: controller.signal,
     })
   } catch (cause) {
-    throw driverError(cause, dialectId, query.sql)
+    throw driverError(cause, dialectId, query.sql, postgresClassifyDriverError)
   } finally {
     state.activeController = undefined
   }

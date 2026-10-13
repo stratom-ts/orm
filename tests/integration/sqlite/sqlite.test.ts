@@ -30,13 +30,22 @@ const sqliteIntegration: DialectIntegrationAdapter = {
   },
   /** Provides each shared integration scenario with its own native in-memory database. */
   withDatabase: async (schemas, callback) => {
+    const connector = nodeSqliteConnector({ name: ':memory:' })
     const db = createDatabase({
-      connector: nodeSqliteConnector({ name: ':memory:' }),
+      connector,
       schemas,
     })
 
     try {
-      return await callback({ db })
+      return await callback({
+        db,
+        /** Executes test-only physical DDL on the same in-memory database. */
+        async nativeSql(sql) {
+          const native = await connector.getInstance!()
+          native.exec('pragma foreign_keys = on')
+          native.exec(sql)
+        },
+      })
     } finally {
       await db.close()
     }
