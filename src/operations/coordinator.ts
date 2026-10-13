@@ -3,7 +3,8 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { NamespaceContext } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
 import type { NamespaceRole } from '@/schemas'
-import { QueryError, attempt } from '@/utils/error'
+import type { DriverErrorClassifier } from '@/utils/error'
+import { QueryError, attempt, classifyDriverError } from '@/utils/error'
 
 import type {
   OperationSession,
@@ -299,7 +300,10 @@ export class OperationCoordinator {
    *
    * @param provider - Exclusive native operation session provider.
    */
-  constructor(private readonly provider: OperationSessionProvider) {
+  constructor(
+    private readonly provider: OperationSessionProvider,
+    private readonly classify?: DriverErrorClassifier,
+  ) {
     assertProvider(provider)
   }
 
@@ -375,7 +379,11 @@ export class OperationCoordinator {
     if (this.closePromise) return this.closePromise
 
     this.closing = true
-    this.closePromise = this.tail.then(() => this.provider.close())
+    this.closePromise = this.tail
+      .then(() => this.provider.close())
+      .catch((failure: unknown) => {
+        throw this.classify ? classifyDriverError(failure, this.classify) : failure
+      })
     return this.closePromise
   }
   /**
@@ -416,7 +424,16 @@ export class OperationCoordinator {
 
     await releaseOperationSession(state)
 
-    if (state.operationFailed) throw state.operationError
+    if (state.operationFailed) {
+      const classified = this.classify
+        ? classifyDriverError(state.operationError, this.classify)
+        : state.operationError
+
+      if (classified !== state.operationError)
+        transferOperationReleaseCleanupFailures(state.operationError, classified)
+
+      throw classified
+    }
 
     return state.result as T
   }
@@ -441,7 +458,7 @@ export class OperationCoordinator {
     assertSession(state.session)
     state.capturedIdentity = captureSessionIdentity(state.session)
     state.disposition = 'reuse'
-    const executor = createSessionExecutor(state.session)
+    const executor = createSessionExecutor(state.session, this.classify)
     const token: OperationToken = {
       coordinator: this,
       executor,
@@ -474,14 +491,17 @@ export class OperationCoordinator {
 }
 
 /**
- * Exposes pinned query and statement rejections without reclassifying them.
+ * Exposes pinned query and statement rejections under the selected member's policy.
  *
  * @param session - Pinned physical session whose identity and lifecycle must remain
  *   valid.
  *
- * @returns A pinned-session executor preserving the underlying rejection identity.
+ * @returns A pinned-session executor preserving unrecognized rejection identity.
  */
-function createSessionExecutor(session: OperationSession): Executor {
+function createSessionExecutor(
+  session: OperationSession,
+  classify?: DriverErrorClassifier,
+): Executor {
   return {
     /**
      * Executes a query through the pinned operation session.
@@ -489,7 +509,11 @@ function createSessionExecutor(session: OperationSession): Executor {
      * @param query - Compiled query to execute.
      */
     async execute(query) {
-      return session.query(query)
+      try {
+        return await session.query(query)
+      } catch (failure) {
+        throw classify ? classifyDriverError(failure, classify) : failure
+      }
     },
     /**
      * Executes a statement through the pinned operation session.
@@ -497,7 +521,11 @@ function createSessionExecutor(session: OperationSession): Executor {
      * @param query - Compiled query to execute.
      */
     async run(query) {
-      await session.run(query)
+      try {
+        await session.run(query)
+      } catch (failure) {
+        throw classify ? classifyDriverError(failure, classify) : failure
+      }
     },
   }
 }

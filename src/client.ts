@@ -749,7 +749,11 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
     config.operationSessionProvider ??
     dialect.operations.createSessionProvider(config.connector, dialect.id)
 
-  const coordinator = new OperationCoordinator(operationSessionProvider)
+  const coordinator = new OperationCoordinator(
+    operationSessionProvider,
+    dialect.classifyDriverError,
+  )
+
   const { ensureOpen, rootExecutor, close } = createDatabaseLifecycle(coordinator)
   return {
     config,

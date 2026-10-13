@@ -34,11 +34,19 @@ function program(): MigrationProgram {
 type FixtureOptions = {
   fail?: 'ddl' | 'commit' | 'restore'
   rollbackFailure?: boolean
-  busy?: boolean
+  busy?: boolean | 'numeric'
   nullCount?: number
   prepareFailure?: MigrationError | SchemaError
   integrityFailure?: boolean
   validationFailure?: Error
+}
+
+/** Creates either native SQLite BUSY diagnostic shape used by this fixture. */
+function busyError(numeric: boolean): Error {
+  return Object.assign(
+    new Error('busy'),
+    numeric ? { code: 'ERR_SQLITE_ERROR', errcode: 517 } : { code: 'SQLITE_BUSY' },
+  )
 }
 
 /** Drives the production runtime with controlled native command acknowledgements. */
@@ -65,7 +73,7 @@ function fixture(options: FixtureOptions = {}) {
       calls.push(query.sql)
 
       if (options.busy && query.sql === 'begin immediate')
-        throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' })
+        throw busyError(options.busy === 'numeric')
 
       if (options.fail === 'ddl' && query.sql === statement.sql)
         throw new Error('DDL failed')
@@ -129,18 +137,21 @@ it.each([
   },
 )
 
-it('does not prepare or run DDL after a nonblocking BUSY coordination attempt', async () => {
-  const test = fixture({ busy: true })
-  await expect(test.execute()).rejects.toMatchObject({
-    stage: 'lock',
-    outcome: 'unchanged',
-    retryable: true,
-  })
+it.each([true, 'numeric'] as const)(
+  'does not prepare or run DDL after a nonblocking BUSY %s coordination attempt',
+  async (busy) => {
+    const test = fixture({ busy })
+    await expect(test.execute()).rejects.toMatchObject({
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: true,
+    })
 
-  expect(test.prepare).not.toHaveBeenCalled()
-  expect(test.calls).not.toContain(statement.sql)
-  expect(test.calls).toContain('pragma busy_timeout=250')
-})
+    expect(test.prepare).not.toHaveBeenCalled()
+    expect(test.calls).not.toContain(statement.sql)
+    expect(test.calls).toContain('pragma busy_timeout=250')
+  },
+)
 
 it.each(['integrity', 'convergence'] as const)(
   'rolls back %s validation failure with provenance and cleanup evidence',

@@ -8,6 +8,7 @@ type DialectDefinition = Omit<Dialect, 'migration'> &
 /** Binds one dialect's facets to its derived Migration adapter. */
 export function defineDialect({
   id,
+  classifyDriverError,
   identity,
   naming,
   schema,
@@ -19,6 +20,7 @@ export function defineDialect({
 }: DialectDefinition): Dialect {
   return {
     id,
+    classifyDriverError,
     identity,
     naming,
     schema,

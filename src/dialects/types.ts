@@ -18,6 +18,7 @@ import type {
 } from '@/schemas/actions/types'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
+import type { DriverErrorClassifier } from '@/utils/error'
 
 import type { CatalogIntrospector } from './catalog'
 
@@ -499,6 +500,9 @@ export type SqlAst = SelectAst | InsertAst | UpdateAst | DeleteAst
  */
 export interface Dialect {
   readonly id: string
+
+  /** Interprets native failures using only this member's reliable diagnostics. */
+  readonly classifyDriverError: DriverErrorClassifier
 
   /** Identity and writable-namespace selection for canonical relations. */
   readonly identity: DialectIdentity

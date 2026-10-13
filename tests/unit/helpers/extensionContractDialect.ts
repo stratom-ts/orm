@@ -826,6 +826,7 @@ export function createExtensionContractDialect(
 
   return {
     id: EXTENSION_CONTRACT_DIALECT_ID,
+    classifyDriverError: () => ({ kind: 'unknown', retryable: false }),
     identity,
     naming,
     schema,

@@ -9,6 +9,8 @@ import type {
 } from '@/operations/operationSession'
 import { DriverError, QueryError, driverError } from '@/utils/error'
 
+import { sqliteClassifyDriverError } from './classifyDriverError'
+
 type NativeStatement = {
   all(...params: SqliteBinding[]): Record<string, unknown>[]
   setReadBigInts(enabled: boolean): void
@@ -59,7 +61,7 @@ function nativeSql<T>(
   try {
     return execute(database.prepare(sql))
   } catch (cause) {
-    throw driverError(cause, dialectId, sql)
+    throw driverError(cause, dialectId, sql, sqliteClassifyDriverError)
   }
 }
 
@@ -85,7 +87,7 @@ function rollbackNative(database: NativeDatabase, dialectId: string): void {
       cause.code !== 'ERR_SQLITE_ERROR' ||
       cause.message !== 'cannot rollback - no transaction is active'
     )
-      throw driverError(cause, dialectId, 'rollback')
+      throw driverError(cause, dialectId, 'rollback', sqliteClassifyDriverError)
   }
 
   assertCleanTransaction(database, dialectId)
@@ -396,7 +398,7 @@ function enqueue<T>(
     try {
       statement = database.prepare(query.sql)
     } catch (cause) {
-      throw driverError(cause, dialectId, query.sql)
+      throw driverError(cause, dialectId, query.sql, sqliteClassifyDriverError)
     }
 
     return execute(statement, params)
@@ -422,7 +424,7 @@ function readRows(
     statement.setReadBigInts(true)
     rows = statement.all(...params)
   } catch (cause) {
-    throw driverError(cause, dialectId, sql)
+    throw driverError(cause, dialectId, sql, sqliteClassifyDriverError)
   }
 
   return normalizeRows(rows)
@@ -438,7 +440,7 @@ function runStatement(
   try {
     statement.run(...params)
   } catch (cause) {
-    throw driverError(cause, dialectId, sql)
+    throw driverError(cause, dialectId, sql, sqliteClassifyDriverError)
   }
 }
 

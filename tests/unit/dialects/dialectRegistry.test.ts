@@ -23,6 +23,7 @@ describe('production dialect construction and registration', () => {
   it('resolves every production member with exact Migration facet bindings', () => {
     for (const dialect of productionDialects) {
       expect(resolveDialect(dialect.id as SQLDialect)).toBe(dialect)
+      expect(typeof dialect.classifyDriverError).toBe('function')
       expect(dialect.migration.planning.identity).toBe(dialect.identity)
       expect(dialect.migration.planning.naming).toBe(dialect.naming)
       expect(dialect.migration.planning.schema).toBe(dialect.schema)

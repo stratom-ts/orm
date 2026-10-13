@@ -24,7 +24,7 @@ lowering, and migration behavior still come from the member selected by
 
 ## The complete interface
 
-A member owns all seven facets below. A capability may be explicitly unsupported, but
+A member owns every facet below, including native failure classification. A capability may be explicitly unsupported, but
 it must not fall through to PostgreSQL behavior or require a database-specific branch in
 Client, Schema, Query, Migration, or Operations.
 
@@ -176,6 +176,15 @@ member may therefore omit a feature without pretending that the corresponding da
 objects are absent.
 
 ### Operations and connector adaptation
+
+Each member provides `classifyDriverError(cause)`. It walks native cause chains and
+returns `kind` (`uniqueViolation`, `foreignKeyViolation`, `notNullViolation`,
+`checkViolation`, `transient`, or `unknown`), `retryable`, and only reliable native
+`constraint`, `table`, or `columns` fields. Unknown failures return `unknown` and
+`false`; diagnostics are never inferred from message text. Native session adapters use
+their member's classifier when wrapping SQL failures as `DriverError`. The shared
+operation boundary applies the selected member's classifier to recognized
+`DriverError` values from custom providers while preserving unrecognized failures.
 
 `operations.createSessionProvider(connector)` adapts the exact selected db0 connector to
 exclusive physical operation sessions. `operations.compile()` compiles structured ping,

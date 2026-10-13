@@ -516,6 +516,7 @@ function createFakeSqliteFacets(identity: {
 
   return {
     id: 'sqlite',
+    classifyDriverError: () => ({ kind: 'unknown' as const, retryable: false }),
     identity: { id: 'sqlite-fixture', ...identity },
     naming,
     schema: {

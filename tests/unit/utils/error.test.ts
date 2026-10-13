@@ -62,6 +62,8 @@ describe('QueryError', () => {
 })
 
 describe('DriverError', () => {
+  const classifyUnknown = () => ({ kind: 'unknown' as const, retryable: false })
+
   it('keeps an object whose diagnostic getters throw as the cause', () => {
     const cause = Object.defineProperties(
       {},
@@ -79,7 +81,7 @@ describe('DriverError', () => {
       },
     )
 
-    const error = driverError(cause, 'sqlite', 'select 1')
+    const error = driverError(cause, 'sqlite', 'select 1', classifyUnknown)
 
     expect(error.cause).toBe(cause)
     expect(error.message).toBe('Database operation failed')
@@ -99,7 +101,8 @@ describe('DriverError', () => {
     'retains thrown value %# and exposes only native code and SQL text',
     ({ cause, code }) => {
       const sql = 'insert into records (value) values ($1)'
-      const error = driverError(cause, 'selected-dialect', sql)
+      const error = driverError(cause, 'selected-dialect', sql, classifyUnknown)
+
       expect(error).toBeInstanceOf(DriverError)
 
       expect(error).toMatchObject({

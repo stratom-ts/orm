@@ -249,7 +249,16 @@ export const postgresIntegrationAdapter: DialectIntegrationAdapter = {
   },
   /** Runs the shared integration scenario with the adapter's isolated database client. */
   withDatabase(schemas, callback) {
-    return withPostgresDatabase(schemas, callback)
+    return withPostgresDatabase(schemas, ({ db, admin, schema }) =>
+      callback({
+        db,
+        /** Executes test-only physical DDL within this scenario's schema. */
+        async nativeSql(sql) {
+          await admin.query(`set search_path to ${quoteIdentifier(schema)}`)
+          await admin.query(sql)
+        },
+      }),
+    )
   },
 }
 
