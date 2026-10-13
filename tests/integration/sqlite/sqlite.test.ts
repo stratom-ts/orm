@@ -7,6 +7,7 @@ import { registerDialectIntegrationScenarios } from '../support/dialectIntegrati
 
 const sqliteIntegration: DialectIntegrationAdapter = {
   name: 'SQLite node-sqlite',
+  dialectId: 'sqlite',
   capabilities: {
     lifecycle: { state: 'supported' },
     query: { state: 'supported' },

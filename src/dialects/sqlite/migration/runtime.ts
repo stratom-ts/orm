@@ -5,7 +5,13 @@ import type {
 } from '@/ddl/migrationProgram'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { InvariantError, MigrationError, QueryError, SchemaError } from '@/utils/error'
+import {
+  DriverError,
+  InvariantError,
+  MigrationError,
+  QueryError,
+  SchemaError,
+} from '@/utils/error'
 
 import { asciiFoldSqliteIdentifier } from '../identity'
 
@@ -39,7 +45,10 @@ function isExecutionDefect(
 ): boolean {
   return (
     structured?.defect === true ||
-    (!structured && !(cause instanceof QueryError) && !(cause instanceof SchemaError))
+    (!structured &&
+      !(cause instanceof QueryError) &&
+      !(cause instanceof DriverError) &&
+      !(cause instanceof SchemaError))
   )
 }
 

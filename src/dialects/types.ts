@@ -304,10 +304,11 @@ export type DialectOperations = Readonly<{
    * Creates the connector's provider for exclusive native operation sessions.
    *
    * @param connector - Connector that owns native connection resources.
+   * @param dialectId - ID of the selected Dialect member for driver errors.
    *
    * @returns The connector's provider for exclusive native operation sessions.
    */
-  createSessionProvider(connector: Connector): OperationSessionProvider
+  createSessionProvider(connector: Connector, dialectId: string): OperationSessionProvider
   /**
    * Compiles the current query or command into SQL and ordered bound parameters.
    *

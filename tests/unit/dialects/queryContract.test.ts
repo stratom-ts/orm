@@ -1,11 +1,37 @@
 import { number, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
+import { compilePostgres } from '@/dialects/postgres/compile'
+import { compileSqlite } from '@/dialects/sqlite/compile'
 import type { CompiledQuery, Dialect, SelectAst } from '@/index'
-import { QueryError, column, defineTable, eq, postgresDialect, reference } from '@/index'
+import {
+  InvariantError,
+  QueryError,
+  column,
+  defineTable,
+  eq,
+  postgresDialect,
+  reference,
+} from '@/index'
 import { createTableBuilder, createValueMapper } from '@/query'
 
 import { exactQueryAddressing } from '../helpers/queryAddressing'
+
+describe('dialect compiler AST invariants', () => {
+  it('treats malformed builder ASTs as invariants in both compilers', () => {
+    const relation = { relation: 'events' }
+
+    expect(() =>
+      compilePostgres({ kind: 'select', relation, selection: [] } as never),
+    ).toThrow(InvariantError)
+
+    expect(() =>
+      compileSqlite({ kind: 'select', relation, selection: null } as never),
+    ).toThrow(InvariantError)
+
+    expect(() => compileSqlite({ kind: 'select', relation, selection: [] })).not.toThrow()
+  })
+})
 
 describe('dialect query contract', () => {
   it('delivers authored relation intent to the selected query member', () => {

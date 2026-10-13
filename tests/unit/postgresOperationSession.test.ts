@@ -1,6 +1,7 @@
 import type { Connector } from 'db0'
 import { describe, expect, it } from 'vitest'
 
+import { compilePostgresOperationCommand } from '@/dialects/postgres/operations'
 import {
   POSTGRES_OPERATION_IDENTITY_SQL,
   POSTGRES_OPERATION_ROLLBACK_SQL,
@@ -12,6 +13,7 @@ import {
   OperationCoordinator,
   getOperationReleaseCleanupFailures,
 } from '@/operations/coordinator'
+import type { DriverError } from '@/utils/error'
 
 import { deferred } from '../helpers/deferredPromise'
 
@@ -20,6 +22,98 @@ import {
   customConnector,
   withDeadline,
 } from './helpers/operationSessionFixtures'
+
+describe('native PostgreSQL driver classification', () => {
+  it.each([undefined, null, 7, { code: '23505' }])(
+    'retains native rejection %s with the selected dialect and parameter-free SQL',
+    async (nativeCause) => {
+      const sql = 'insert into records (value) values ($1)'
+      const connector = createNativeConnector({
+        /** Rejects only the statement under test. */
+        onQuery: async (text) => {
+          if (text === sql) throw nativeCause
+
+          return []
+        },
+      })
+
+      const provider = createDb0PostgresOperationSessionProvider(connector, 'custom-pg')
+      const session = await provider.open()
+
+      try {
+        const error = await session
+          .run({ sql, params: ['secret-bound-value'] })
+          .catch((cause: unknown) => cause)
+
+        expect(error).toMatchObject({
+          _tag: 'DriverError',
+          dialect: 'custom-pg',
+          sql,
+          cause: nativeCause,
+        })
+
+        expect((error as DriverError).code).toBe(
+          nativeCause && typeof nativeCause === 'object' && 'code' in nativeCause
+            ? nativeCause.code
+            : undefined,
+        )
+
+        expect(error).not.toHaveProperty('params')
+      } finally {
+        await session.release('discard')
+        await provider.close()
+      }
+    },
+  )
+})
+
+describe('native PostgreSQL lifecycle failure classification', () => {
+  it.each([
+    { command: { kind: 'ping' } as const, sql: 'select 1', call: 'query' as const },
+    {
+      command: { kind: 'createSavepoint', id: 3 } as const,
+      sql: 'savepoint sp_3',
+      call: 'run' as const,
+    },
+  ])(
+    'classifies a failed $command.kind call as DriverError',
+    async ({ command, sql, call }) => {
+      const nativeCause = Object.assign(new Error('native lifecycle failure'), {
+        code: 'XX000',
+      })
+
+      const connector = createNativeConnector({
+        /** Rejects the lifecycle SQL while allowing provider identity checks. */
+        onQuery: async (text) => {
+          if (text === sql) throw nativeCause
+
+          return []
+        },
+      })
+
+      const provider = createDb0PostgresOperationSessionProvider(connector, 'custom-pg')
+      const session = await provider.open()
+
+      try {
+        const compiled = compilePostgresOperationCommand(command)
+        const failure = await session[call](compiled).catch((cause: unknown) => cause)
+
+        expect(failure).toMatchObject({
+          _tag: 'DriverError',
+          dialect: 'custom-pg',
+          code: 'XX000',
+          sql,
+          cause: nativeCause,
+        })
+
+        expect((failure as DriverError).cause).toBe(nativeCause)
+      } finally {
+        await session.release('discard')
+        await provider.close()
+      }
+    },
+  )
+})
 
 describe('db0 PostgreSQL operation-session adapter', () => {
   it('proves identity at every lease and after reuse cleanup', async () => {
@@ -166,7 +260,12 @@ describe('db0 PostgreSQL operation-session adapter: retains final namespace-evid
       .run(({ executor }) => executor.run({ sql: 'select primary failure', params: [] }))
       .catch((cause: unknown) => cause)
 
-    expect(error).toBe(primary)
+    expect(error).toMatchObject({
+      _tag: 'DriverError',
+      dialect: 'postgresql',
+      sql: 'select primary failure',
+      cause: primary,
+    })
 
     expect(getOperationReleaseCleanupFailures(error)).toHaveLength(1)
 
@@ -336,7 +435,13 @@ describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rej
     const session = await provider.open()
 
     await session.run({ sql: 'begin', params: [] })
-    await expect(session.release('reuse')).rejects.toBeUndefined()
+
+    await expect(session.release('reuse')).rejects.toMatchObject({
+      _tag: 'DriverError',
+      sql: POSTGRES_OPERATION_ROLLBACK_SQL,
+      cause: undefined,
+    })
+
     expect(connector.disposeCount).toBe(1)
     await provider.close()
   })

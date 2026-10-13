@@ -7,7 +7,7 @@ import type {
   OperationSessionIdentity,
   OperationSessionProvider,
 } from '@/operations/operationSession'
-import { QueryError } from '@/utils/error'
+import { DriverError, QueryError, driverError } from '@/utils/error'
 
 type NativeStatement = {
   all(...params: SqliteBinding[]): Record<string, unknown>[]
@@ -31,7 +31,7 @@ const connectorStates = new WeakMap<Connector, ConnectorState>()
 const nativeOwners = new WeakMap<object, ConnectorState>()
 
 /** Accepts only the native DatabaseSync capabilities needed by a pinned lease. */
-function nativeDatabase(value: unknown): NativeDatabase {
+function nativeDatabase(value: unknown, probeFailureMessage: string): NativeDatabase {
   const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
 
   if (!(value instanceof DatabaseSync) || value.isOpen === false) {
@@ -40,23 +40,42 @@ function nativeDatabase(value: unknown): NativeDatabase {
     })
   }
 
-  value.prepare('select 1')
+  try {
+    value.prepare('select 1')
+  } catch (cause) {
+    throw new QueryError({ message: probeFailureMessage, cause })
+  }
+
   return value
 }
 
+/** Classifies only native preparation and statement execution. */
+function nativeSql<T>(
+  database: NativeDatabase,
+  sql: string,
+  dialectId: string,
+  execute: (statement: NativeStatement) => T,
+): T {
+  try {
+    return execute(database.prepare(sql))
+  } catch (cause) {
+    throw driverError(cause, dialectId, sql)
+  }
+}
+
 /** Proves transaction cleanliness without requiring properties absent on Node 22.5. */
-function assertCleanTransaction(database: NativeDatabase): void {
+function assertCleanTransaction(database: NativeDatabase, dialectId: string): void {
   if (database.isTransaction === true)
     throw new QueryError({ message: 'SQLite session has an open transaction' })
 
   if (database.isTransaction === false) return
 
-  database.prepare('begin').run()
-  database.prepare('rollback').run()
+  nativeSql(database, 'begin', dialectId, (statement) => statement.run())
+  nativeSql(database, 'rollback', dialectId, (statement) => statement.run())
 }
 
 /** Rolls back pending work and accepts only SQLite's native no-transaction error. */
-function rollbackNative(database: NativeDatabase): void {
+function rollbackNative(database: NativeDatabase, dialectId: string): void {
   try {
     database.prepare('rollback').run()
   } catch (cause) {
@@ -66,35 +85,38 @@ function rollbackNative(database: NativeDatabase): void {
       cause.code !== 'ERR_SQLITE_ERROR' ||
       cause.message !== 'cannot rollback - no transaction is active'
     )
-      throw cause
+      throw driverError(cause, dialectId, 'rollback')
   }
 
-  assertCleanTransaction(database)
+  assertCleanTransaction(database, dialectId)
 }
 
 /**
  * Preserves large signed integers while returning safe native catalog integers as
  * numbers.
  */
-function readRows(statement: NativeStatement, params: SqliteBinding[]): unknown[] {
-  statement.setReadBigInts(true)
-  return statement
-    .all(...params)
-    .map((row) =>
-      Object.fromEntries(
-        Object.entries(row).map(([key, value]) => [
-          key,
-          typeof value === 'bigint' && Number.isSafeInteger(Number(value))
-            ? Number(value)
-            : value,
-        ]),
-      ),
-    )
+function normalizeRows(rows: Record<string, unknown>[]): unknown[] {
+  return rows.map((row) =>
+    Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [
+        key,
+        typeof value === 'bigint' && Number.isSafeInteger(Number(value))
+          ? Number(value)
+          : value,
+      ]),
+    ),
+  )
 }
 
 /** Reads complete native identity from the main database and DatabaseSync instance. */
-function readIdentity(database: NativeDatabase): OperationSessionIdentity {
-  const rows = database.prepare('pragma database_list').all()
+function readIdentity(
+  database: NativeDatabase,
+  dialectId: string,
+): OperationSessionIdentity {
+  const rows = nativeSql(database, 'pragma database_list', dialectId, (statement) =>
+    statement.all(),
+  )
+
   const main = rows.find((row) => (row as { name?: unknown }).name === 'main') as
     | { file?: unknown }
     | undefined
@@ -174,9 +196,19 @@ function bindings(params: readonly unknown[]): SqliteBinding[] {
   })
 }
 
-/** Converts third-party failures into the query boundary's error type. */
-function queryFailure(cause: unknown, message: string): QueryError {
-  return cause instanceof QueryError ? cause : new QueryError({ message, cause })
+/** Preserves SQL driver failures and classifies provider configuration failures. */
+function queryFailure(cause: unknown, message: string): QueryError | DriverError {
+  if (
+    cause instanceof DriverError &&
+    cause.sql === 'begin' &&
+    cause.cause instanceof Error &&
+    cause.cause.message === 'cannot start a transaction within a transaction'
+  )
+    return new QueryError({ message, cause: cause.cause })
+
+  return cause instanceof QueryError || cause instanceof DriverError
+    ? cause
+    : new QueryError({ message, cause })
 }
 
 type ProviderState = {
@@ -202,6 +234,8 @@ async function verifyNative(
   owner: ConnectorState,
   database: NativeDatabase,
   identity: OperationSessionIdentity,
+  dialectId: string,
+  probeFailureMessage: string,
 ): Promise<void> {
   if (
     (await connector.getInstance!()) !== database ||
@@ -211,9 +245,9 @@ async function verifyNative(
     throw new QueryError({ message: 'SQLite native session changed during operation' })
   }
 
-  nativeDatabase(database)
+  nativeDatabase(database, probeFailureMessage)
 
-  if (!sameIdentity(readIdentity(database), identity)) {
+  if (!sameIdentity(readIdentity(database, dialectId), identity)) {
     throw new QueryError({ message: 'SQLite session identity changed during operation' })
   }
 }
@@ -263,7 +297,7 @@ async function disposeAfterFailure(
   owner: ConnectorState,
   cause: unknown,
   message: string,
-): Promise<QueryError> {
+): Promise<QueryError | DriverError> {
   const primary = queryFailure(cause, message)
   try {
     await dispose(connector, owner)
@@ -287,6 +321,7 @@ async function releaseLease(
   state: LeaseState,
   finish: () => void,
   disposition: 'reuse' | 'discard',
+  dialectId: string,
 ): Promise<void> {
   if (state.released) throw new QueryError({ message: 'SQLite lease was released twice' })
 
@@ -299,10 +334,25 @@ async function releaseLease(
       return
     }
 
-    await verifyNative(connector, owner, database, identity)
-    rollbackNative(database)
+    await verifyNative(
+      connector,
+      owner,
+      database,
+      identity,
+      dialectId,
+      'Failed to release SQLite operation session',
+    )
 
-    await verifyNative(connector, owner, database, identity)
+    rollbackNative(database, dialectId)
+
+    await verifyNative(
+      connector,
+      owner,
+      database,
+      identity,
+      dialectId,
+      'Failed to release SQLite operation session',
+    )
   } catch (cause) {
     throw await disposeAfterFailure(
       connector,
@@ -324,6 +374,7 @@ function enqueue<T>(
   state: LeaseState,
   query: CompiledQuery,
   execute: (statement: NativeStatement, params: SqliteBinding[]) => T,
+  dialectId: string,
 ): Promise<T> {
   if (state.released || state.cancelled)
     return Promise.reject(new QueryError({ message: 'SQLite lease is inactive' }))
@@ -331,12 +382,24 @@ function enqueue<T>(
   const result = state.queue.then(async () => {
     if (state.cancelled) throw new QueryError({ message: 'SQLite lease was cancelled' })
 
+    await verifyNative(
+      connector,
+      owner,
+      database,
+      identity,
+      dialectId,
+      'SQLite operation failed',
+    )
+
+    const params = bindings(query.params)
+    let statement: NativeStatement
     try {
-      await verifyNative(connector, owner, database, identity)
-      return execute(database.prepare(query.sql), bindings(query.params))
+      statement = database.prepare(query.sql)
     } catch (cause) {
-      throw queryFailure(cause, 'SQLite operation failed')
+      throw driverError(cause, dialectId, query.sql)
     }
+
+    return execute(statement, params)
   })
 
   state.queue = result.then(
@@ -346,6 +409,39 @@ function enqueue<T>(
   return result
 }
 
+/** Keeps native row retrieval separate from Stratom's result normalization. */
+function readRows(
+  statement: NativeStatement,
+  params: SqliteBinding[],
+  dialectId: string,
+  sql: string,
+): unknown[] {
+  let rows: Record<string, unknown>[]
+
+  try {
+    statement.setReadBigInts(true)
+    rows = statement.all(...params)
+  } catch (cause) {
+    throw driverError(cause, dialectId, sql)
+  }
+
+  return normalizeRows(rows)
+}
+
+/** Runs one native statement without enclosing caller-owned work. */
+function runStatement(
+  statement: NativeStatement,
+  params: SqliteBinding[],
+  dialectId: string,
+  sql: string,
+): void {
+  try {
+    statement.run(...params)
+  } catch (cause) {
+    throw driverError(cause, dialectId, sql)
+  }
+}
+
 /** Creates an exclusive lease over one open DatabaseSync. */
 function createLease(
   connector: Connector,
@@ -353,6 +449,7 @@ function createLease(
   database: NativeDatabase,
   identity: OperationSessionIdentity,
   finish: () => void,
+  dialectId: string,
 ): OperationSession {
   const state: LeaseState = {
     queue: Promise.resolve(),
@@ -360,18 +457,23 @@ function createLease(
     released: false,
   }
 
+  const enqueueOnLease = <T>(
+    query: CompiledQuery,
+    execute: (statement: NativeStatement, params: SqliteBinding[]) => T,
+  ) => enqueue(connector, owner, database, identity, state, query, execute, dialectId)
+
   return {
     identity,
     /** Reads rows with StatementSync.all. */
     query: (query) =>
-      enqueue(connector, owner, database, identity, state, query, (statement, params) =>
-        readRows(statement, params),
+      enqueueOnLease(query, (statement, params) =>
+        readRows(statement, params, dialectId, query.sql),
       ),
     /** Executes a statement with StatementSync.run. */
     run: (query) =>
-      enqueue(connector, owner, database, identity, state, query, (statement, params) => {
-        statement.run(...params)
-      }),
+      enqueueOnLease(query, (statement, params) =>
+        runStatement(statement, params, dialectId, query.sql),
+      ),
     /** Poisons the lease; synchronous DatabaseSync calls finish naturally. */
     cancel: async () => {
       if (state.released) throw new QueryError({ message: 'SQLite lease was released' })
@@ -381,7 +483,16 @@ function createLease(
     },
     /** Settles all work, then proves reuse or discards the native instance. */
     release: (disposition) =>
-      releaseLease(connector, owner, database, identity, state, finish, disposition),
+      releaseLease(
+        connector,
+        owner,
+        database,
+        identity,
+        state,
+        finish,
+        disposition,
+        dialectId,
+      ),
   }
 }
 
@@ -406,7 +517,7 @@ async function claimNativeDatabase(
   if (owner.native && owner.native !== database)
     throw new QueryError({ message: 'SQLite native session changed during operation' })
 
-  const validated = nativeDatabase(database)
+  const validated = nativeDatabase(database, 'Failed to open SQLite operation session')
   nativeOwners.set(database, owner)
   owner.native = database
   return validated
@@ -417,6 +528,7 @@ async function openLease(
   connector: Connector,
   provider: ProviderState,
   owner: ConnectorState,
+  dialectId: string,
 ): Promise<OperationSession> {
   if (owner.closing) await owner.closing
 
@@ -444,9 +556,16 @@ async function openLease(
   try {
     const claimed = await claimNativeDatabase(connector, owner)
 
-    assertCleanTransaction(claimed)
+    assertCleanTransaction(claimed, dialectId)
 
-    return createLease(connector, owner, claimed, readIdentity(claimed), finishLease)
+    return createLease(
+      connector,
+      owner,
+      claimed,
+      readIdentity(claimed, dialectId),
+      finishLease,
+      dialectId,
+    )
   } catch (cause) {
     const error = owner.native
       ? await disposeAfterFailure(
@@ -491,6 +610,7 @@ function closeProvider(
 /** Adapts exactly db0 0.4.0's node-sqlite connector to pinned native sessions. */
 export function createDb0NodeSqliteOperationSessionProvider(
   connector: Connector,
+  dialectId = 'sqlite',
 ): OperationSessionProvider {
   if (
     connector.name !== 'node-sqlite' ||
@@ -515,7 +635,7 @@ export function createDb0NodeSqliteOperationSessionProvider(
   return {
     nativeTransactions: true,
     /** Opens one exclusive native session. */
-    open: () => openLease(connector, state, owner),
+    open: () => openLease(connector, state, owner, dialectId),
     /** Closes after the active lease and supports retry after disposal failure. */
     close: () => closeProvider(connector, state, owner),
   }

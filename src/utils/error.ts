@@ -180,7 +180,7 @@ export class SchemaError extends TaggedError('SchemaError')<{
 }> {}
 
 /**
- * Error thrown when a query cannot be executed (closed client, driver failure, etc.).
+ * Error thrown for invalid query use or an unavailable client.
  *
  * @example
  *   throw new QueryError({ message: 'Database has been closed' })
@@ -189,6 +189,48 @@ export class QueryError extends TaggedError('QueryError')<{
   message: string
   cause?: unknown
 }> {}
+
+/** Error thrown by db0, a database driver, or the database while executing SQL. */
+export class DriverError extends TaggedError('DriverError')<{
+  message: string
+  dialect: string
+  code?: string
+  sql: string
+  cause: unknown
+}> {}
+
+/** Reads optional driver metadata without replacing the original rejection. */
+function nativeStringProperty(
+  value: object,
+  key: 'message' | 'code',
+): string | undefined {
+  try {
+    const property = (value as Record<string, unknown>)[key]
+    return typeof property === 'string' ? property : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Preserves any native rejection from one physical SQL call. */
+export function driverError(cause: unknown, dialect: string, sql: string): DriverError {
+  const objectCause =
+    (typeof cause === 'object' && cause !== null) || typeof cause === 'function'
+
+  const message =
+    (objectCause ? nativeStringProperty(cause, 'message') : undefined) ??
+    'Database operation failed'
+
+  const code = objectCause ? nativeStringProperty(cause, 'code') : undefined
+
+  return new DriverError({
+    message,
+    dialect,
+    ...(code === undefined ? {} : { code }),
+    sql,
+    cause,
+  })
+}
 
 /**
  * Error thrown when insert/update payloads fail Valibot validation.

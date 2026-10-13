@@ -106,7 +106,11 @@ async function fixture(sql = initial) {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const native = await connector.getInstance!()
   native.exec(sql)
-  const provider = sqliteDialect.operations.createSessionProvider(connector)
+  const provider = sqliteDialect.operations.createSessionProvider(
+    connector,
+    sqliteDialect.id,
+  )
+
   const session = await provider.open()
   const executor: Executor = {
     execute: (query) => session.query(query),

@@ -5,7 +5,7 @@ import { array, boolean, date, integer, number, object, pipe, string } from 'val
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Db } from '@/index'
-import { column, defineTable, eq, reference } from '@/index'
+import { DriverError, column, defineTable, eq, reference } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
@@ -265,18 +265,22 @@ async function assertConstraintsAndIndexes(
     })
     .execute()
 
-  await expect(foreignKeyInsert).rejects.toBeInstanceOf(DatabaseError)
+  await expect(foreignKeyInsert).rejects.toBeInstanceOf(DriverError)
 
   await expect(foreignKeyInsert).rejects.toMatchObject({
     code: '23503',
   })
+
+  expect(
+    ((await foreignKeyInsert.catch((cause: unknown) => cause)) as DriverError).cause,
+  ).toBeInstanceOf(DatabaseError)
 
   const uniqueConstraintInsert = db
     .insert(Accounts)
     .values({ id: randomUUID(), email: 'owner@example.com' })
     .execute()
 
-  await expect(uniqueConstraintInsert).rejects.toBeInstanceOf(DatabaseError)
+  await expect(uniqueConstraintInsert).rejects.toBeInstanceOf(DriverError)
 
   await expect(uniqueConstraintInsert).rejects.toMatchObject({
     code: '23505',

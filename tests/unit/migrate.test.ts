@@ -866,7 +866,11 @@ it('preserves planning defects by identity and stack in preview', async () => {
 it('preserves preview defect identity and transfers provider release cleanup evidence', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
-  const provider = postgresDialect.operations.createSessionProvider(connector)
+  const provider = postgresDialect.operations.createSessionProvider(
+    connector,
+    postgresDialect.id,
+  )
+
   const releaseFailure = new Error('provider release failed')
   const operationSessionProvider: OperationSessionProvider = {
     nativeTransactions: true,
@@ -915,7 +919,11 @@ it('preserves preview defect identity and transfers provider release cleanup evi
 
 it('reports provider release SchemaError after an applied migration as session cleanup', async () => {
   const connector = createMockConnector()
-  const provider = postgresDialect.operations.createSessionProvider(connector)
+  const provider = postgresDialect.operations.createSessionProvider(
+    connector,
+    postgresDialect.id,
+  )
+
   const releaseFailure = new SchemaError({ message: 'provider release failed' })
   const operationSessionProvider: OperationSessionProvider = {
     nativeTransactions: true,

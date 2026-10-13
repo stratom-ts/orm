@@ -1,8 +1,8 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import type { OperationSessionProvider } from '@/index'
-import { column, createDatabase, defineTable } from '@/index'
+import type { MigrationError, OperationSessionProvider } from '@/index'
+import { DriverError, column, createDatabase, defineTable } from '@/index'
 
 import { deferred } from '../helpers/deferredPromise'
 
@@ -10,6 +10,56 @@ import {
   createControllableProvider,
   customConnector,
 } from './helpers/operationSessionFixtures'
+
+describe('driver migration classification', () => {
+  it('retains a driver failure as the cause of a staged migration error', async () => {
+    const native = Object.assign(new Error('native DDL failure'), { code: '23505' })
+    const driver = new DriverError({
+      message: native.message,
+      dialect: 'postgresql',
+      code: native.code,
+      sql: 'create table driver_events',
+      cause: native,
+    })
+
+    const controls = createControllableProvider({
+      /** Fails at the physical DDL call. */
+      beforeCall: async (_session, sql) => {
+        if (/^create table/i.test(sql)) throw driver
+      },
+    })
+
+    const Events = defineTable(
+      'driver_events',
+      { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+      { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
+    )
+
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [Events],
+    })
+
+    try {
+      const error = await db
+        .migrate()
+        .execute()
+        .catch((cause: unknown) => cause)
+
+      expect(error).toMatchObject({
+        _tag: 'MigrationError',
+        stage: 'ddl',
+        outcome: 'rolledBack',
+        cause: driver,
+      })
+
+      expect((error as MigrationError).defect).toBeUndefined()
+    } finally {
+      await db.close()
+    }
+  })
+})
 
 describe('public migration execution and session cleanup', () => {
   it('excludes queries from complete migration DDL and cleanup', async () => {

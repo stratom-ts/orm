@@ -1,7 +1,7 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { MigrationError, QueryError, SchemaError } from '@/utils/error'
+import { DriverError, MigrationError, QueryError, SchemaError } from '@/utils/error'
 
 import type {
   CancellationState,
@@ -57,6 +57,7 @@ function executionDefect(
     (!structured &&
       !(cause instanceof MigrationCancellationError) &&
       !(cause instanceof QueryError) &&
+      !(cause instanceof DriverError) &&
       !(cause instanceof SchemaError))
   )
 }

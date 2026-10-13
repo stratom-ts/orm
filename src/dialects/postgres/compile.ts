@@ -1,6 +1,6 @@
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { RelationIdentityInput } from '@/schemas'
-import { QueryError } from '@/utils/error'
+import { InvariantError, QueryError } from '@/utils/error'
 
 import type {
   ComparisonOp,
@@ -40,7 +40,7 @@ function quoteIdent(ident: string): string {
 /** Rejects values that cannot serve as SQL identifiers. */
 function assertIdentifier(value: unknown, description: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
-    throw new QueryError({ message: `${description} must be a non-empty string` })
+    throw new InvariantError(`${description} must be a non-empty string`)
   }
 }
 
@@ -347,11 +347,11 @@ function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
 
-  if (returning.columns.length === 0) {
-    throw new QueryError({ message: 'returning columns must not be empty' })
+  if (!Array.isArray(returning.columns) || returning.columns.length === 0) {
+    throw new InvariantError('returning columns must not be empty')
   }
 
-  return ` returning ${returning.columns.map((c) => quoteIdent(c)).join(', ')}`
+  return ` returning ${(returning.columns as readonly string[]).map((c) => quoteIdent(c)).join(', ')}`
 }
 
 /**
@@ -410,20 +410,30 @@ function compilePredicate(
     case 'cmp':
       return compileComparison(pred, params, relations, resolveRelation)
     case 'and': {
-      if (pred.preds.length === 0) return 'true'
+      if (!Array.isArray(pred.preds))
+        throw new InvariantError('and predicate requires a predicate array')
 
-      if (pred.preds.length === 1)
-        return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
+      const predicates = pred.preds as readonly PredicateAst[]
 
-      return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' and ')})`
+      if (predicates.length === 0) return 'true'
+
+      if (predicates.length === 1)
+        return compilePredicate(predicates[0]!, params, relations, resolveRelation)
+
+      return `(${predicates.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' and ')})`
     }
     case 'or': {
-      if (pred.preds.length === 0) return 'false'
+      if (!Array.isArray(pred.preds))
+        throw new InvariantError('or predicate requires a predicate array')
 
-      if (pred.preds.length === 1)
-        return compilePredicate(pred.preds[0]!, params, relations, resolveRelation)
+      const predicates = pred.preds as readonly PredicateAst[]
 
-      return `(${pred.preds.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' or ')})`
+      if (predicates.length === 0) return 'false'
+
+      if (predicates.length === 1)
+        return compilePredicate(predicates[0]!, params, relations, resolveRelation)
+
+      return `(${predicates.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' or ')})`
     }
     case 'not':
       return `(not ${compilePredicate(pred.pred, params, relations, resolveRelation)})`
@@ -616,11 +626,11 @@ function compileSelect(
   const params: unknown[] = []
   const selection = (node as Partial<SelectAst>).selection
 
-  if (!selection || selection.length === 0) {
-    throw new QueryError({ message: 'select items must not be empty' })
+  if (!Array.isArray(selection) || selection.length === 0) {
+    throw new InvariantError('select items must not be empty')
   }
 
-  const selectionSql = selection
+  const selectionSql = (selection as readonly SelectItemAst[])
     .map((item) => compileSelectItem(item, params, relations, resolveRelation))
     .join(', ')
 
@@ -697,17 +707,16 @@ function compileInsert(
     !Array.isArray(node.values as unknown) ||
     node.values.length === 0
   ) {
-    throw new QueryError({ message: 'insert requires at least one values row' })
+    throw new InvariantError('insert requires at least one values row')
   }
 
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
 
   if (node.columns.length === 0) {
     if (node.values.length !== 1 || node.values[0]?.length !== 0) {
-      throw new QueryError({
-        message:
-          'PostgreSQL supports empty insert columns only as one DEFAULT VALUES row',
-      })
+      throw new InvariantError(
+        'PostgreSQL supports empty insert columns only as one DEFAULT VALUES row',
+      )
     }
 
     const params: unknown[] = []
@@ -751,7 +760,7 @@ function compileInsertConflict(
   if (!conflict) return ''
 
   if (!Array.isArray(conflict.target) || conflict.target.length === 0) {
-    throw new QueryError({ message: 'insert conflict target must not be empty' })
+    throw new InvariantError('insert conflict target must not be empty')
   }
 
   const target = conflict.target
@@ -762,13 +771,13 @@ function compileInsertConflict(
     .join(', ')
 
   if (new Set(conflict.target).size !== conflict.target.length) {
-    throw new QueryError({ message: 'insert conflict target contains duplicate columns' })
+    throw new InvariantError('insert conflict target contains duplicate columns')
   }
 
   const action = (conflict as { readonly action?: unknown }).action
 
   if (typeof action !== 'object' || action === null || !('kind' in action)) {
-    throw new QueryError({ message: 'insert conflict requires an action' })
+    throw new InvariantError('insert conflict requires an action')
   }
 
   if (action.kind === 'doNothing') {
@@ -776,13 +785,11 @@ function compileInsertConflict(
   }
 
   if (action.kind !== 'doUpdate' || !('set' in action) || !Array.isArray(action.set)) {
-    throw new QueryError({ message: 'unsupported insert conflict action' })
+    throw new InvariantError('unsupported insert conflict action')
   }
 
   if (action.set.length === 0) {
-    throw new QueryError({
-      message: 'insert conflict update requires at least one SET column',
-    })
+    throw new InvariantError('insert conflict update requires at least one SET column')
   }
 
   const set = action.set
@@ -795,7 +802,7 @@ function compileInsertConflict(
 /** Compiles one validated PostgreSQL conflict update assignment. */
 function compileInsertConflictAssignment(input: unknown, params: unknown[]): string {
   if (typeof input !== 'object' || input === null) {
-    throw new QueryError({ message: 'insert conflict update assignment is invalid' })
+    throw new InvariantError('insert conflict update assignment is invalid')
   }
 
   const assignment = input as { readonly column?: unknown; readonly value?: unknown }
@@ -804,7 +811,7 @@ function compileInsertConflictAssignment(input: unknown, params: unknown[]): str
   const value = assignment.value
 
   if (typeof value !== 'object' || value === null) {
-    throw new QueryError({ message: 'insert conflict update value is invalid' })
+    throw new InvariantError('insert conflict update value is invalid')
   }
 
   const structuredValue = value as {
@@ -819,7 +826,7 @@ function compileInsertConflictAssignment(input: unknown, params: unknown[]): str
   }
 
   if (structuredValue.kind !== 'value') {
-    throw new QueryError({ message: 'unsupported insert conflict update value' })
+    throw new InvariantError('unsupported insert conflict update value')
   }
 
   params.push(structuredValue.value)
@@ -844,11 +851,11 @@ function compileUpdate(
   const tableAlias = quoteIdent(relations[0]!.alias)
   const params: unknown[] = []
 
-  if (node.set.length === 0) {
-    throw new QueryError({ message: 'update requires at least one SET column' })
+  if (!Array.isArray(node.set) || node.set.length === 0) {
+    throw new InvariantError('update requires at least one SET column')
   }
 
-  const setSql = node.set
+  const setSql = (node.set as UpdateAst['set'])
     .map((item) => {
       params.push(item.value)
       return `${quoteIdent(item.column)} = $${params.length}`

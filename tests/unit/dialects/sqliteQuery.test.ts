@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { compileSqlite } from '@/dialects/sqlite/compile'
 import { sqliteQuery } from '@/dialects/sqlite/query'
 import { column, defineTable } from '@/index'
-import { QueryError } from '@/utils/error'
+import { InvariantError, QueryError } from '@/utils/error'
 
 const Records = defineTable(
   'Records',
@@ -217,9 +217,9 @@ describe('SQLite query validation: requires an explicit full-table opt-in for em
         allowAll: false,
       })
 
-    expect(update).toThrow(QueryError)
+    expect(update).toThrow(InvariantError)
     expect(update).toThrow(/predicate must not be empty/i)
-    expect(nestedDelete).toThrow(QueryError)
+    expect(nestedDelete).toThrow(InvariantError)
     expect(nestedDelete).toThrow(/predicate must not be empty/i)
   })
 })

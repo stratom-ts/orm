@@ -238,6 +238,7 @@ const supported = { state: 'supported' as const }
 
 export const postgresIntegrationAdapter: DialectIntegrationAdapter = {
   name: 'PostgreSQL',
+  dialectId: 'postgresql',
   readiness: waitForPostgres,
   capabilities: {
     lifecycle: supported,

@@ -197,7 +197,7 @@ it.each(['row', 'statement'] as const)(
   },
 )
 
-it('passes a recognized QueryError from the executor through unchanged', async () => {
+it('classifies a native QueryError as DriverError while retaining its cause', async () => {
   const expected = new QueryError({ message: 'known query failure' })
   const connector = createMockPostgresConnector({
     onPrepare(sql) {
@@ -214,7 +214,12 @@ it('passes a recognized QueryError from the executor through unchanged', async (
     .execute()
     .catch((cause: unknown) => cause)
 
-  expect(rejection).toBe(expected)
+  expect(rejection).toMatchObject({
+    _tag: 'DriverError',
+    dialect: 'postgresql',
+    cause: expected,
+  })
+
   expect(rejection).not.toHaveProperty('defect')
   await db.close()
 })
