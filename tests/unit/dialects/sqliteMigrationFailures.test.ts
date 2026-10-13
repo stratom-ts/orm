@@ -2,7 +2,9 @@ import { expect, it, vi } from 'vitest'
 
 import type { MigrationPrecondition, MigrationProgram } from '@/ddl/migrationProgram'
 import { executeSqliteMigration } from '@/dialects/sqlite/migration/runtime'
+import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { Executor } from '@/query'
+import type { SchemaError } from '@/utils/error'
 import { MigrationError } from '@/utils/error'
 
 const statement = { sql: 'create table records (id integer)', params: [] }
@@ -34,7 +36,7 @@ type FixtureOptions = {
   rollbackFailure?: boolean
   busy?: boolean
   nullCount?: number
-  prepareFailure?: MigrationError
+  prepareFailure?: MigrationError | SchemaError
   integrityFailure?: boolean
   validationFailure?: Error
 }
@@ -100,6 +102,32 @@ function fixture(options: FixtureOptions = {}) {
 
   return { calls, discard, prepare, execute }
 }
+
+it.each([
+  ['rollback', { rollbackFailure: true }, 'rollback'],
+  ['session cleanup', { fail: 'restore' as const }, 'sessionCleanup'],
+])(
+  'retains SQLite ownership error origin through %s failure',
+  async (_, failure, stage) => {
+    const invalidOwnership = new MigrationOwnershipSchemaError({
+      message: 'missing registered handle',
+    })
+
+    const test = fixture({ prepareFailure: invalidOwnership, ...failure })
+
+    const error = await test.execute().catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      cause: invalidOwnership,
+      stage: 'planning',
+      outcome: 'unchanged',
+    })
+
+    expect((error as MigrationError).defect).toBeUndefined()
+    expect((error as MigrationError).cleanupFailures?.[0]?.stage).toBe(stage)
+  },
+)
 
 it('does not prepare or run DDL after a nonblocking BUSY coordination attempt', async () => {
   const test = fixture({ busy: true })

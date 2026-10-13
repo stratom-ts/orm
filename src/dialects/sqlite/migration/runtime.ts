@@ -3,8 +3,9 @@ import type {
   MigrationProgram,
   MigrationRuntimeOptions,
 } from '@/ddl/migrationProgram'
+import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { InvariantError, MigrationError, QueryError } from '@/utils/error'
+import { InvariantError, MigrationError, QueryError, SchemaError } from '@/utils/error'
 
 import { asciiFoldSqliteIdentifier } from '../identity'
 
@@ -36,7 +37,10 @@ function isExecutionDefect(
   cause: unknown,
   structured: MigrationError | undefined,
 ): boolean {
-  return structured?.defect === true || (!structured && !(cause instanceof QueryError))
+  return (
+    structured?.defect === true ||
+    (!structured && !(cause instanceof QueryError) && !(cause instanceof SchemaError))
+  )
 }
 
 /** Keeps stage selection separate from outcome and provenance reconstruction. */
@@ -368,7 +372,11 @@ async function prepareAndExecute(
     state.primary = {
       cause,
       stage:
-        cause instanceof MigrationError && cause.stage ? cause.stage : 'introspection',
+        cause instanceof MigrationError && cause.stage
+          ? cause.stage
+          : cause instanceof MigrationOwnershipSchemaError
+            ? 'planning'
+            : 'introspection',
     }
   }
 }
@@ -526,6 +534,13 @@ function outcome(state: State): { outcome: 'applied' | 'unchanged' } {
         : state.ddlStarted
           ? 'rolledBack'
           : 'unchanged'
+
+    if (
+      state.primary.cause instanceof SchemaError &&
+      effect === 'unchanged' &&
+      state.cleanupFailures.length === 0
+    )
+      throw state.primary.cause
 
     throw failure(state.primary, effect, state.cleanupFailures)
   }

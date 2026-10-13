@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
+import { SchemaError } from '@/utils/error'
 
 import { SQLITE_IDENTITY_POLICY } from '../helpers/dialectPolicies'
 
@@ -348,9 +349,9 @@ describe('canonical SQLite relation identity: rejects invalid identifiers and di
       context: SQLITE_CONTEXT,
     })
 
-    expect(() => postgres.resolve({ relation: '' })).toThrow(/must not be empty/)
-    expect(() => postgres.resolve({ relation: 'a\0b' })).toThrow(/NUL/)
-    expect(() => postgres.resolve({ relation: '\ud800' })).toThrow(/surrogate/)
+    expect(() => postgres.resolve({ relation: '' })).toThrow(SchemaError)
+    expect(() => postgres.resolve({ relation: 'a\0b' })).toThrow(SchemaError)
+    expect(() => postgres.resolve({ relation: '\ud800' })).toThrow(SchemaError)
 
     expect(() =>
       postgres.resolve({

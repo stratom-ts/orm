@@ -31,6 +31,9 @@ import { asciiFoldSqliteIdentifier, sqliteIdentity } from './identity'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
 import { assertSafeSqliteDefaultExpression } from './validate'
 
+const UNPAIRED_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+
 type Row = Record<string, unknown>
 
 type TableRow = {
@@ -181,7 +184,12 @@ function rowAt(value: unknown, query: string, index: number): Row {
 function stringAt(row: Row, key: string, query: string, index: number): string {
   const value = row[key]
 
-  if (typeof value !== 'string' || value.length === 0) {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.includes('\0') ||
+    UNPAIRED_SURROGATE.test(value)
+  ) {
     throw new InvariantError(
       `Malformed SQLite ${query} row ${index}: ${JSON.stringify(key)} must be a non-empty string`,
     )
@@ -211,7 +219,11 @@ function nullableStringAt(
 
   if (value === null) return null
 
-  if (typeof value !== 'string') {
+  if (
+    typeof value !== 'string' ||
+    value.includes('\0') ||
+    UNPAIRED_SURROGATE.test(value)
+  ) {
     throw new InvariantError(
       `Malformed SQLite ${query} row ${index}: ${JSON.stringify(key)} must be a string or null`,
     )

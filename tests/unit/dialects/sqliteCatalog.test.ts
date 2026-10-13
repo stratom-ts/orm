@@ -904,6 +904,12 @@ function malformedFixtureRows(
     rows = rows.map((row) => {
       const table = row as Record<string, unknown>
 
+      if (table.name === 'parent' && options.malformed === 'table-name-nul')
+        return { ...table, name: 'parent\0bad' }
+
+      if (table.name === 'parent' && options.malformed === 'table-name-surrogate')
+        return { ...table, name: 'parent\ud800bad' }
+
       if (options.malformed === 'native-table-strict' && table.name === 'strict_t')
         return { ...table, strict: 0 }
 
@@ -921,6 +927,19 @@ function malformedFixtureRows(
 
   return malformedMemberRows(rows, query, options)
 }
+
+it.each(['table-name-nul', 'table-name-surrogate'])(
+  'keeps malformed SQLite returned identifiers as unknown evidence: %s',
+  async (malformed) => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed }),
+      request,
+    )
+
+    expectUnknownMetadata(snapshot, 'Malformed SQLite table_list row')
+    expect(snapshot.namespaces.coverage.state).toBe('unknown')
+  },
+)
 
 /**
  * Injects conflicting relation names, kinds, and definitions into native schema

@@ -17,6 +17,7 @@ import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import {
   MigrationError,
+  SchemaError,
   column,
   createDatabase,
   defineTable,
@@ -909,6 +910,57 @@ it('preserves preview defect identity and transfers provider release cleanup evi
   expect(rejection).toBe(defect)
   expect((rejection as Error).stack).toBe(originalStack)
   expect(getOperationReleaseCleanupFailures(rejection)).toContain(releaseFailure)
+  await db.close()
+})
+
+it('reports provider release SchemaError after an applied migration as session cleanup', async () => {
+  const connector = createMockConnector()
+  const provider = postgresDialect.operations.createSessionProvider(connector)
+  const releaseFailure = new SchemaError({ message: 'provider release failed' })
+  const operationSessionProvider: OperationSessionProvider = {
+    nativeTransactions: true,
+    async open() {
+      const session = await provider.open()
+
+      return {
+        get identity() {
+          return session.identity
+        },
+        query: (query) => session.query(query),
+        run: (query) => session.run(query),
+        cancel: () => session.cancel(),
+        async release(disposition) {
+          await session.release(disposition)
+          throw releaseFailure
+        },
+      }
+    },
+    close: () => provider.close(),
+  }
+
+  const db = createDatabase({
+    connector,
+    schemas: [Users],
+    operationSessionProvider,
+  })
+
+  const rejection = await db
+    .migrate()
+    .execute()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toBeInstanceOf(MigrationError)
+
+  expect(rejection).toMatchObject({
+    stage: 'sessionCleanup',
+    outcome: 'applied',
+    retryable: false,
+    cause: releaseFailure,
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseFailure }],
+  })
+
+  expect(rejection).not.toHaveProperty('defect')
+  expect(connector.runSql).toContain('commit')
   await db.close()
 })
 

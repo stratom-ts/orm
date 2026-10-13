@@ -14,6 +14,7 @@ import {
   physicalNameDigest,
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
+import { InvariantError, MigrationError, SchemaError } from '@/utils/error'
 
 import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import {
@@ -165,7 +166,16 @@ describe('generated physical naming: truncates only the readable UTF-8 prefix wi
   it('rejects a terminal high surrogate', () => {
     expect(() =>
       validatePhysicalName('invalid\ud800', 'index name', POSTGRES_PHYSICAL_NAMING),
-    ).toThrow(/unpaired Unicode surrogates/)
+    ).toThrow(SchemaError)
+  })
+
+  it('keeps an impossible naming profile as an invariant defect', () => {
+    expect(() =>
+      generatedIndexName(owner('public', 'users'), ['id'], false, {
+        ...POSTGRES_PHYSICAL_NAMING,
+        maximumLength: 1,
+      }),
+    ).toThrow(InvariantError)
   })
 
   it('measures the same Unicode spelling in bytes or scalars as configured', () => {
@@ -203,7 +213,7 @@ describe('physical name reservations', () => {
         token: 'public.posts',
         description: 'public posts index',
       }),
-    ).toThrow(/physical name collision/i)
+    ).toThrow(SchemaError)
 
     expect(() =>
       registry.reserve({
@@ -314,54 +324,70 @@ describe('physical name reservations: makes relation-constraint reservations ide
   })
 })
 
-describe('physical name validation and legacy adoption', () => {
-  it('rejects explicit PostgreSQL overlength and schema-wide collisions', () => {
-    const TooLong = defineTable(
-      'too_long',
-      {
-        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-        email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
-      },
-      {
-        primaryKey: 'id',
-        indexes: [{ name: 'x'.repeat(64), columns: ['email'] }],
-      },
-    )
+it('rejects explicit PostgreSQL physical names above the identifier limit', () => {
+  const TooLong = defineTable(
+    'too_long',
+    {
+      id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+      email: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    },
+    {
+      primaryKey: 'id',
+      indexes: [{ name: 'x'.repeat(64), columns: ['email'] }],
+    },
+  )
 
-    expect(() =>
-      planMigration(
-        [TooLong],
-        { namespaceContext: context, tables: [], ...emptyReservations },
-        postgresDialect,
-      ),
-    ).toThrow(/identifier limit of 63 UTF-8 bytes/i)
+  expect(() =>
+    planMigration(
+      [TooLong],
+      { namespaceContext: context, tables: [], ...emptyReservations },
+      postgresDialect,
+    ),
+  ).toThrow(MigrationError)
 
-    const First = defineTable(
-      'first',
-      {
-        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-        value: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
-      },
-      { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
-    )
+  expect(() =>
+    planMigration(
+      [TooLong],
+      { namespaceContext: context, tables: [], ...emptyReservations },
+      postgresDialect,
+    ),
+  ).toThrow(/identifier limit of 63 UTF-8 bytes/i)
+})
 
-    const Second = defineTable(
-      'second',
-      {
-        id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
-        value: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
-      },
-      { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
-    )
+it('rejects colliding PostgreSQL physical names in one schema', () => {
+  const First = defineTable(
+    'first',
+    {
+      id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+      value: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    },
+    { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
+  )
 
-    expect(() =>
-      planMigration(
-        [Second, First],
-        { namespaceContext: context, tables: [], ...emptyReservations },
-        postgresDialect,
-      ),
-    ).toThrow(/physical name collision.*shared_idx/i)
-  })
+  const Second = defineTable(
+    'second',
+    {
+      id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+      value: pipe(string(), column({ physicalType: { postgresql: 'text' } })),
+    },
+    { primaryKey: 'id', indexes: [{ name: 'shared_idx', columns: ['value'] }] },
+  )
+
+  expect(() =>
+    planMigration(
+      [Second, First],
+      { namespaceContext: context, tables: [], ...emptyReservations },
+      postgresDialect,
+    ),
+  ).toThrow(MigrationError)
+
+  expect(() =>
+    planMigration(
+      [Second, First],
+      { namespaceContext: context, tables: [], ...emptyReservations },
+      postgresDialect,
+    ),
+  ).toThrow(/physical name collision.*shared_idx/i)
 })
 
 describe('physical name validation and legacy adoption: adopts one legacy generated index by semantics and rejects ambiguity', () => {

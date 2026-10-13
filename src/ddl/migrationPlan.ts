@@ -21,12 +21,15 @@ import type {
   MigrationOwnershipDeclaration,
   ResolvedMigrationOwnership,
 } from '@/migrations/migrationOwnership'
-import { resolveMigrationOwnership } from '@/migrations/migrationOwnership'
+import {
+  MigrationOwnershipSchemaError,
+  resolveMigrationOwnership,
+} from '@/migrations/migrationOwnership'
 import type { PhysicalNameRegistry, PhysicalNameSeed } from '@/migrations/physicalNaming'
 import { getReferenceMetadata } from '@/schemas/actions/reference'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, SchemaError } from '@/utils/error'
 
 import { lowerDesiredSchema } from './desiredSchema'
 import type {
@@ -2714,11 +2717,14 @@ export function planMigration(
       options.migrationOwnership ?? [],
     )
   } catch (cause) {
-    if (cause instanceof MigrationError) throw cause
+    if (cause instanceof MigrationError || cause instanceof MigrationOwnershipSchemaError)
+      throw cause
+
+    if (!(cause instanceof SchemaError)) throw cause
 
     throw new MigrationError({
-      message: cause instanceof Error ? cause.message : 'Migration planning failed',
-      ...(cause !== undefined ? { cause } : {}),
+      message: cause.message,
+      cause,
     })
   }
 }

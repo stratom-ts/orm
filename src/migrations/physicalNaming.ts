@@ -1,4 +1,4 @@
-import { InvariantError } from '@/utils/error'
+import { InvariantError, SchemaError } from '@/utils/error'
 
 import type { CanonicalRelationIdentity } from './canonicalRelationIdentity'
 
@@ -293,11 +293,11 @@ export function validatePhysicalName(
   profile: PhysicalNamingProfile,
 ): void {
   if (name.length === 0) {
-    throw new InvariantError(`${description} must not be empty`)
+    throw new SchemaError({ message: `${description} must not be empty` })
   }
 
   if (name.includes('\0')) {
-    throw new InvariantError(`${description} must not contain NUL`)
+    throw new SchemaError({ message: `${description} must not contain NUL` })
   }
 
   for (let index = 0; index < name.length; index++) {
@@ -306,26 +306,26 @@ export function validatePhysicalName(
     if (codeUnit < 0xd800 || codeUnit > 0xdfff) continue
 
     if (codeUnit > 0xdbff || index + 1 >= name.length) {
-      throw new InvariantError(
-        `${description} must not contain unpaired Unicode surrogates`,
-      )
+      throw new SchemaError({
+        message: `${description} must not contain unpaired Unicode surrogates`,
+      })
     }
 
     const next = name.charCodeAt(index + 1)
 
     if (next < 0xdc00 || next > 0xdfff) {
-      throw new InvariantError(
-        `${description} must not contain unpaired Unicode surrogates`,
-      )
+      throw new SchemaError({
+        message: `${description} must not contain unpaired Unicode surrogates`,
+      })
     }
 
     index++
   }
 
   if (measuredLength(name, profile) > profile.maximumLength) {
-    throw new InvariantError(
-      `${description} ${JSON.stringify(name)} exceeds ${profile.id} identifier limit of ${profile.maximumLength} ${profile.lengthUnit === 'utf8Bytes' ? 'UTF-8 bytes' : 'Unicode scalars'}`,
-    )
+    throw new SchemaError({
+      message: `${description} ${JSON.stringify(name)} exceeds ${profile.id} identifier limit of ${profile.maximumLength} ${profile.lengthUnit === 'utf8Bytes' ? 'UTF-8 bytes' : 'Unicode scalars'}`,
+    })
   }
 }
 
@@ -407,9 +407,9 @@ export function createPhysicalNameRegistry(
       const current = names.get(key)
 
       if (current && current.token !== token) {
-        throw new InvariantError(
-          `Physical name collision for ${JSON.stringify(name)} between ${current.description} and ${description}`,
-        )
+        throw new SchemaError({
+          message: `Physical name collision for ${JSON.stringify(name)} between ${current.description} and ${description}`,
+        })
       }
 
       names.set(key, { token, description })

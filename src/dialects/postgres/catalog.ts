@@ -25,11 +25,14 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 import { toNumberOrNull } from '@/utils'
-import { InvariantError } from '@/utils/error'
+import { InvariantError, MigrationError } from '@/utils/error'
 
 import { postgresIdentity } from './identity'
 import { normalizePostgresDataType } from './normalize'
 import { normalizePostgresDefaultExpression } from './validate'
+
+const UNPAIRED_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
 const createConstraintQueryData = `
       select n.nspname as schema, tbl.relname as table_name, con.conname as constraint_name,
@@ -256,9 +259,12 @@ function assertObservationUnchanged(
   second: unknown[],
 ): void {
   if (stableObservation(first) !== stableObservation(second)) {
-    throw new InvariantError(
-      `PostgreSQL catalog changed during introspection: ${description} observations differ`,
-    )
+    throw new MigrationError({
+      message: `PostgreSQL catalog changed during introspection: ${description} observations differ`,
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
   }
 }
 
@@ -290,7 +296,12 @@ function rowAt(value: unknown, query: string, index: number): Row {
 function stringAt(row: Row, key: string, query: string, index: number): string {
   const value = row[key]
 
-  if (typeof value !== 'string' || value.length === 0) {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.includes('\0') ||
+    UNPAIRED_SURROGATE.test(value)
+  ) {
     throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a non-empty string`,
     )
@@ -317,7 +328,11 @@ function nullableStringAt(
 
   if (value === null) return null
 
-  if (typeof value !== 'string') {
+  if (
+    typeof value !== 'string' ||
+    value.includes('\0') ||
+    UNPAIRED_SURROGATE.test(value)
+  ) {
     throw new InvariantError(
       `Malformed PostgreSQL ${query} row ${index}: ${JSON.stringify(key)} must be a string or null`,
     )
@@ -1305,9 +1320,12 @@ function buildCatalogNamespaces(
     )
 
     if (!namespace) {
-      throw new InvariantError(
-        `PostgreSQL catalog changed during introspection: relation ${identities.format(relation.identity)} references a missing namespace`,
-      )
+      throw new MigrationError({
+        message: `PostgreSQL catalog changed during introspection: relation ${identities.format(relation.identity)} references a missing namespace`,
+        stage: 'introspection',
+        outcome: 'unchanged',
+        retryable: true,
+      })
     }
 
     ;(namespace.relations.items as CatalogRelation[]).push(relation)
@@ -1863,9 +1881,13 @@ async function assertRelationIdentityUnchanged(
     JSON.stringify(relationFingerprint(relationRows)) !==
     JSON.stringify(relationFingerprint(finalRelationRows))
   ) {
-    throw new InvariantError(
-      'PostgreSQL catalog changed during introspection: requested relations were replaced, created, or removed',
-    )
+    throw new MigrationError({
+      message:
+        'PostgreSQL catalog changed during introspection: requested relations were replaced, created, or removed',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
   }
 }
 
@@ -2106,9 +2128,12 @@ function resolveRequestedTable(
   const entry = relationRegistry.get(identity)
 
   if (!entry) {
-    throw new InvariantError(
-      `PostgreSQL catalog changed during introspection: ${query} row references missing table ${identities.format(identity)}`,
-    )
+    throw new MigrationError({
+      message: `PostgreSQL catalog changed during introspection: ${query} row references missing table ${identities.format(identity)}`,
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
   }
 
   if (!entry.table) return undefined

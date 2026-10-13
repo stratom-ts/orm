@@ -7,7 +7,7 @@ import {
   createCatalogRequest,
   resolveMigrationOwnership,
 } from '@/migrations/migrationOwnership'
-import { InvariantError, attemptSync } from '@/utils/error'
+import { InvariantError, SchemaError, attemptSync } from '@/utils/error'
 
 import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
 import {
@@ -247,6 +247,7 @@ describe('migration ownership identities and validation', () => {
       })
 
     expect(first).toThrow(/duplicate migration ownership relation/i)
+    expect(first).toThrow(SchemaError)
     expect(second).toThrow(/duplicate migration ownership relation/i)
     const firstAttempt = attemptSync(first)
     const secondAttempt = attemptSync(second)
@@ -274,7 +275,7 @@ describe('migration ownership identities and validation: rejects a tombstone tha
           },
         ],
       }),
-    ).toThrow(/contradictory present and absent/i)
+    ).toThrow(SchemaError)
   })
 })
 

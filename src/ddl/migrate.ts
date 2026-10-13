@@ -9,7 +9,13 @@ import {
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
-import { MigrationError, QueryError, attempt, attemptSync } from '@/utils/error'
+import {
+  MigrationError,
+  QueryError,
+  SchemaError,
+  attempt,
+  attemptSync,
+} from '@/utils/error'
 
 import type {
   MigrationPlan,
@@ -79,6 +85,8 @@ export type MigrateBuilder = {
  * @param stage - Migration stage that observed the failure.
  */
 function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
+  if (cause instanceof SchemaError) return cause
+
   if (!(cause instanceof MigrationError) && !(cause instanceof QueryError)) {
     const wrapped = new MigrationError({
       message: cause instanceof Error ? cause.message : 'Migration failed',
@@ -518,6 +526,13 @@ function throwExecutionCleanup(
 ): never {
   if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
 
+  if (
+    cause instanceof SchemaError &&
+    success === undefined &&
+    sessionCleanupFailures(cause).length === 0
+  )
+    throw cause
+
   const cleanupFailures = sessionCleanupFailures(cause)
 
   if (success) {
@@ -638,6 +653,7 @@ async function runMigrationPreview<T>(operation: () => Promise<T>): Promise<T> {
  */
 function throwAdapterExecutionError(cause: unknown, discard: () => void): never {
   if (cause instanceof MigrationError) throw cause
+  if (cause instanceof SchemaError) throw cause
 
   discard()
   throw new MigrationError({
@@ -653,5 +669,9 @@ function throwAdapterExecutionError(cause: unknown, discard: () => void): never 
 
 /** Marks only invariant or unrecognized failures as defects. */
 function isDefect(cause: unknown): boolean {
-  return !(cause instanceof MigrationError) && !(cause instanceof QueryError)
+  return (
+    !(cause instanceof MigrationError) &&
+    !(cause instanceof QueryError) &&
+    !(cause instanceof SchemaError)
+  )
 }

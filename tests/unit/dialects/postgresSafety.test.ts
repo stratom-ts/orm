@@ -5,6 +5,11 @@ import type {
   PostgresCreateTableAst as CreateTableAst,
   PostgresCreateTableColumnAst as CreateTableColumnAst,
 } from '@/dialects/postgres/migration/ast'
+import {
+  assertSafePostgresDataType,
+  formatPostgresDefault,
+} from '@/dialects/postgres/validate'
+import { SchemaError } from '@/utils/error'
 
 /** Builds a fresh table handle for the schema scenario. */
 function createTable(...columns: CreateTableColumnAst[]): CreateTableAst {
@@ -33,6 +38,18 @@ function col(
 }
 
 const compile = compilePostgres
+
+describe('direct PostgreSQL DDL validation', () => {
+  it('tags unsafe types, unsupported types, and non-finite defaults as schema errors', () => {
+    expect(() => assertSafePostgresDataType('text; drop table users')).toThrow(
+      SchemaError,
+    )
+
+    expect(() => assertSafePostgresDataType('unknown_type')).toThrow(SchemaError)
+
+    expect(() => formatPostgresDefault(Number.POSITIVE_INFINITY)).toThrow(SchemaError)
+  })
+})
 
 describe('PostgreSQL schema and SQL safety', () => {
   describe('ddl safety - type validation via compile', () => {

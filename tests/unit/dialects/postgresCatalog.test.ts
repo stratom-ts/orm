@@ -1,10 +1,13 @@
+import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { createMigrateBuilder } from '@/ddl/migrate'
 import type { CatalogExecutor, CatalogRequest, CatalogTable } from '@/dialects'
 import type { CatalogColumn, CatalogIndex, CatalogRelation } from '@/dialects/catalog'
 import type { CatalogSnapshot } from '@/index'
-import { postgresDialect } from '@/index'
+import { column, defineTable, postgresDialect } from '@/index'
 import type { Executor } from '@/query'
+import { InvariantError, MigrationError } from '@/utils/error'
 
 const shouldNormalizeCatalogRowsIntoAPublicSnapshotData2 = [
   {
@@ -888,23 +891,135 @@ describe('PostgreSQL catalog version and invariant checks: rejects malformed and
         executor({ malformedIndex: true }),
         request,
       ),
-    ).rejects.toThrow(/malformed postgresql index row.*columns/i)
+    ).rejects.toBeInstanceOf(InvariantError)
 
     await expect(
       postgresDialect.catalog.introspectCatalog(executor({ raced: true }), request),
-    ).rejects.toThrow(/catalog changed during introspection.*missing table/i)
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
 
     await expect(
       postgresDialect.catalog.introspectCatalog(executor({ deleted: true }), request),
-    ).rejects.toThrow(/catalog changed during introspection.*removed/i)
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
 
     await expect(
       postgresDialect.catalog.introspectCatalog(
         executor({ changedMembers: true }),
         request,
       ),
-    ).rejects.toThrow(/catalog changed during introspection.*column observations differ/i)
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
+
+    await expect(
+      postgresDialect.catalog.introspectCatalog(
+        executor({ missingNamespace: true }),
+        request,
+      ),
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
   })
+})
+
+it.each([
+  ['NUL', 'events\0bad'],
+  ['unpaired surrogate', 'events\ud800bad'],
+])(
+  'keeps PostgreSQL returned relation names containing %s as defects',
+  async (_, name) => {
+    await expect(
+      postgresDialect.catalog.introspectCatalog(
+        executor({ returnedRelationName: name }),
+        request,
+      ),
+    ).rejects.toBeInstanceOf(InvariantError)
+  },
+)
+
+/** Runs the public migration builder against the controlled PostgreSQL catalog rows. */
+function migrationWithCatalogFixture(options: PostgresFixtureOptions) {
+  const observed = executor(options)
+  const session: Executor = {
+    /** Returns stable advisory-lock acknowledgements around real catalog reads. */
+    async execute(query) {
+      if (query.sql.includes('pg_try_advisory_lock')) return [{ locked: true }]
+      if (query.sql.includes('pg_advisory_unlock')) return [{ unlocked: true }]
+
+      return observed.execute(query)
+    },
+    /** Acknowledges transaction statements without changing the controlled catalog. */
+    async run() {},
+  }
+
+  const Events = defineTable(
+    'events',
+    { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+    { primaryKey: 'id' },
+  )
+
+  return createMigrateBuilder({
+    schemas: [Events],
+    migration: postgresDialect.migration,
+    runOperation: async (operation) =>
+      operation(
+        session,
+        'test',
+        () => undefined,
+        async () => undefined,
+      ),
+  })
+}
+
+it.each(['plan', 'dryRun', 'execute'] as const)(
+  'reports a raced PostgreSQL catalog through public migrate().%s()',
+  async (method) => {
+    const migration = migrationWithCatalogFixture({ changedMembers: true })
+    const error = await migration[method]().catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(MigrationError)
+
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
+
+    expect((error as MigrationError).defect).toBeUndefined()
+  },
+)
+
+it('preserves malformed PostgreSQL rows as defects through public migration', async () => {
+  const preview = migrationWithCatalogFixture({ malformedIndex: true })
+  await expect(preview.plan()).rejects.toBeInstanceOf(InvariantError)
+
+  const execution = migrationWithCatalogFixture({ malformedIndex: true })
+  const error = await execution.execute().catch((cause: unknown) => cause)
+
+  expect(error).toMatchObject({
+    _tag: 'MigrationError',
+    stage: 'introspection',
+    outcome: 'unchanged',
+    defect: true,
+  })
+
+  expect((error as MigrationError).cause).toBeInstanceOf(InvariantError)
 })
 
 /**
@@ -1413,6 +1528,8 @@ function fixtureRelationRows(
     },
   ]
 
+  if (options.returnedRelationName) rows[0]!.name = options.returnedRelationName
+
   if (options.unrelatedRace) {
     rows.push({
       ...rows[0]!,
@@ -1523,7 +1640,7 @@ async function executePostgresFixture(
   if (connection) return connection
 
   if (sql.includes('-- catalog:namespace')) {
-    return [{ schema: 'public', owner: 'app' }]
+    return options.missingNamespace ? [] : [{ schema: 'public', owner: 'app' }]
   }
 
   if (sql.includes('as relation_kind')) {
@@ -1567,6 +1684,8 @@ type PostgresFixtureOptions = {
   deleted?: boolean
   changedMembers?: boolean
   malformedIndex?: boolean
+  returnedRelationName?: string
+  missingNamespace?: boolean
   unrelatedRace?: boolean
   relationKind?: 'r' | 'v'
 }

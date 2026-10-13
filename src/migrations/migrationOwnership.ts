@@ -1,7 +1,7 @@
 import { isTableHandle } from '@/defineTable'
 import type { CatalogRequest } from '@/dialects/catalog'
 import type { TableHandle } from '@/types'
-import { InvariantError } from '@/utils/error'
+import { SchemaError } from '@/utils/error'
 
 import type {
   CanonicalNamespaceSegment,
@@ -30,6 +30,9 @@ export type MigrationOwnershipDeclaration =
       kind: 'completeNamespace'
       namespace?: readonly NamespaceIdentifierInput[]
     }>
+
+/** Invalid authored migration ownership, retained as schema configuration failure. */
+export class MigrationOwnershipSchemaError extends SchemaError {}
 
 export type ResolvedMigrationOwnership = {
   /**
@@ -365,21 +368,21 @@ function applyRelationDeclarations(
 ) {
   for (const { declaration, identity } of resolvedRelations) {
     if (declaration.kind === 'relation' && !registered.has(identity)) {
-      throw new InvariantError(
-        `Migration ownership for ${identities.format(identity)} requires a registered table handle`,
-      )
+      throw new MigrationOwnershipSchemaError({
+        message: `Migration ownership for ${identities.format(identity)} requires a registered table handle`,
+      })
     }
 
     if (declaration.kind === 'relation' && explicitlyShaped.has(identity)) {
-      throw new InvariantError(
-        `Duplicate migration ownership relation ${identities.format(identity)}`,
-      )
+      throw new MigrationOwnershipSchemaError({
+        message: `Duplicate migration ownership relation ${identities.format(identity)}`,
+      })
     }
 
     if (declaration.kind === 'relation' && absent.has(identity)) {
-      throw new InvariantError(
-        `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
-      )
+      throw new MigrationOwnershipSchemaError({
+        message: `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
+      })
     }
 
     if (declaration.kind === 'relation') {
@@ -389,15 +392,15 @@ function applyRelationDeclarations(
     }
 
     if (absent.has(identity)) {
-      throw new InvariantError(
-        `Duplicate absent-relation migration ownership for ${identities.format(identity)}`,
-      )
+      throw new MigrationOwnershipSchemaError({
+        message: `Duplicate absent-relation migration ownership for ${identities.format(identity)}`,
+      })
     }
 
     if (registered.has(identity)) {
-      throw new InvariantError(
-        `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
-      )
+      throw new MigrationOwnershipSchemaError({
+        message: `Contradictory present and absent migration ownership for ${identities.format(identity)}`,
+      })
     }
 
     absent.set(identity, true)
@@ -445,9 +448,9 @@ function resolveCompleteNamespaces(
 
   for (let index = 1; index < completeNamespaces.length; index++) {
     if (sameNamespace(completeNamespaces[index - 1]!, completeNamespaces[index]!)) {
-      throw new InvariantError(
-        `Duplicate complete-namespace migration ownership for ${formatNamespace(completeNamespaces[index]!)}`,
-      )
+      throw new MigrationOwnershipSchemaError({
+        message: `Duplicate complete-namespace migration ownership for ${formatNamespace(completeNamespaces[index]!)}`,
+      })
     }
   }
 
