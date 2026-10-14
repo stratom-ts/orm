@@ -16,6 +16,8 @@ import {
 import { sqliteClassifyDriverError } from '../classifyDriverError'
 import { asciiFoldSqliteIdentifier } from '../identity'
 
+import { SqliteMigrationCapabilityError } from './error'
+
 const DEFAULT_LOCK_TIMEOUT_MS = 30_000
 const RETRY_WAIT_MS = 10
 
@@ -61,6 +63,24 @@ function failureStage(
   return error.stage === 'validation' ? 'validation' : (structured?.stage ?? error.stage)
 }
 
+/** Formats stage/action context and recognized diagnostics without native text. */
+function failureMessage(
+  error: Failure,
+  stage: MigrationExecutionStage,
+  actionIndex: number | undefined,
+  structured: MigrationError | undefined,
+): string {
+  const cause = error.cause
+  const detail =
+    structured?.message ??
+    (cause instanceof InvariantError || cause instanceof SqliteMigrationCapabilityError
+      ? cause.message
+      : undefined)
+
+  const action = actionIndex === undefined ? '' : ` during action ${actionIndex + 1}`
+  return `SQLite migration ${stage} failed${action}${detail === undefined ? '' : `: ${detail}`}`
+}
+
 /** Retains structured provenance while applying the known SQLite transaction outcome. */
 function failure(
   error: Failure,
@@ -70,17 +90,17 @@ function failure(
 ): MigrationError {
   const structured = error.cause instanceof MigrationError ? error.cause : undefined
   const retainedCleanup = [...(structured?.cleanupFailures ?? []), ...cleanupFailures]
-
+  const stage = failureStage(error, structured)
+  const actionIndex = error.actionIndex ?? structured?.actionIndex
   return new MigrationError({
-    message:
-      error.cause instanceof Error ? error.cause.message : 'SQLite migration failed',
+    message: failureMessage(error, stage, actionIndex, structured),
     cause:
       structured && Object.hasOwn(structured, 'cause') ? structured.cause : error.cause,
     ...(isExecutionDefect(error.cause, structured) ? { defect: true as const } : {}),
-    stage: failureStage(error, structured),
+    stage,
     outcome,
     retryable: outcome === 'unknown' ? false : (structured?.retryable ?? retryable),
-    actionIndex: error.actionIndex ?? structured?.actionIndex,
+    actionIndex,
     sourceStepIndexes: error.sourceStepIndexes ?? structured?.sourceStepIndexes,
     capabilityIssues: structured?.capabilityIssues,
     cleanupFailures: retainedCleanup.length ? retainedCleanup : undefined,

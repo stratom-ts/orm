@@ -15,9 +15,60 @@ import {
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import type { Db } from '@/index'
-import { QueryError, ValidationError, column, createDatabase, defineTable } from '@/index'
+import {
+  DriverError,
+  QueryError,
+  ValidationError,
+  column,
+  createDatabase,
+  defineTable,
+} from '@/index'
 
-import { createMockPostgresConnector as createMockConnector } from '../helpers/nativePostgresClient'
+import {
+  createMockPostgresConnector as createMockConnector,
+  createMockStatement,
+} from '../helpers/nativePostgresClient'
+
+/** Checks public query context while retaining the unchanged native diagnostic. */
+function expectWriteFailure(
+  failure: unknown,
+  operation: string,
+  secret: string,
+  cause: Error,
+): void {
+  expect(failure).toBeInstanceOf(DriverError)
+  expect((failure as DriverError).message).toContain(operation)
+  expect((failure as DriverError).message).toContain('users')
+  expect((failure as DriverError).message).not.toContain(secret)
+  expect((failure as DriverError).cause).toBe(cause)
+  expect(JSON.stringify(failure)).toContain(`native failure: ${secret}`)
+}
+
+/** Runs one public write and returns its rejected value for context assertions. */
+async function captureWriteFailure(operation: () => Promise<unknown>): Promise<unknown> {
+  return operation().catch((cause: unknown) => cause)
+}
+
+/** Creates a connector that rejects executed insert/update statements. */
+function createFailingWriteConnector(cause: Error) {
+  return createMockConnector({
+    onPrepare(sql) {
+      const statement = createMockStatement()
+
+      if (/^\s*(insert|update)/i.test(sql)) {
+        statement.all = async () => {
+          throw cause
+        }
+
+        statement.run = async () => {
+          throw cause
+        }
+      }
+
+      return statement
+    },
+  })
+}
 
 const Users = defineTable(
   'users',
@@ -607,6 +658,30 @@ describe('CRUD safety and validation: should reject invalid update patch', () =>
 })
 
 describe('CRUD execute terminals', () => {
+  it('adds safe operation and target context to native write failures', async () => {
+    const secret = 'secret-bound-value'
+    const nativeCause = Object.assign(new Error(`native failure: ${secret}`), {
+      code: '23505',
+    })
+
+    const connector = createFailingWriteConnector(nativeCause)
+
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    const failures = await Promise.all([
+      captureWriteFailure(() => db.insert(Users).values({ email: secret }).execute()),
+      captureWriteFailure(() =>
+        db.update(Users).set({ email: secret }).where(Users.id, 'eq', 1).execute(),
+      ),
+    ])
+
+    expect(failures).toHaveLength(2)
+    expectWriteFailure(failures[0], 'insert into', secret, nativeCause)
+    expectWriteFailure(failures[1], 'update', secret, nativeCause)
+
+    await db.close()
+  })
+
   it('should return full rows by default when calling insert.values().execute', async () => {
     const rows = [{ id: 1, email: 'a@b.com', displayName: 'Ada', active: true }]
     const connector = createMockConnector({

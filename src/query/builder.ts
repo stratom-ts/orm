@@ -15,6 +15,7 @@ import type {
   SqlExprAst,
   UpdateAst,
 } from '@/dialects'
+import { contextualOperationError } from '@/operations/errorContext'
 import type { RelationIdentityInput } from '@/schemas'
 import { getColumnMetadata } from '@/schemas'
 import type { ColumnRef, Prettify, TableHandle } from '@/types'
@@ -30,7 +31,7 @@ import type {
   RightJoinStarResult,
   TableIdentityOf,
 } from '@/types/views'
-import { QueryError } from '@/utils/error'
+import { DriverError, QueryError } from '@/utils/error'
 
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
@@ -551,7 +552,7 @@ async function runQuery<T>(
   ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
 ): Promise<T> {
   const compiled = query.compile(ast)
-  const rows = await executor.execute(compiled)
+  const rows = await executeQueryOperation(ast, () => executor.execute(compiled))
 
   if (mapper && ast.kind === 'select') {
     return mapSelectedRows(mapper, rows, resultColumns) as T
@@ -589,14 +590,42 @@ async function runWrite(
   const compiled = query.compile(ast)
 
   if (ast.returning) {
-    const rows = await executor.execute(compiled)
+    const rows = await executeQueryOperation(ast, () => executor.execute(compiled))
     return mapper ? mapper.mapResultRows(handle, rows) : rows
   }
 
-  await executor.run(compiled)
+  await executeQueryOperation(ast, () => executor.run(compiled))
 
   // db0 does not expose affected-row counts portably
   return { rowCount: 0 }
+}
+
+/** Adds query operation context to recognized execution failures and retains diagnostics. */
+async function executeQueryOperation<T>(
+  ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (cause) {
+    const action =
+      ast.kind === 'select'
+        ? 'select from'
+        : ast.kind === 'insert'
+          ? ast.conflict
+            ? 'upsert into'
+            : 'insert into'
+          : ast.kind === 'update'
+            ? 'update'
+            : 'delete from'
+
+    const message = `Failed to ${action} ${formatRelationInput(ast.relation)}`
+
+    if (cause instanceof DriverError || cause instanceof QueryError)
+      throw contextualOperationError(cause, message)
+
+    throw cause
+  }
 }
 
 /**

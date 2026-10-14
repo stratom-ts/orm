@@ -11,9 +11,26 @@ import {
   customConnector,
 } from './helpers/operationSessionFixtures'
 
+/** Checks that migration context hides driver text while retaining native diagnostics. */
+function expectSafeDriverDiagnostics(
+  error: MigrationError,
+  driver: DriverError,
+  native: Error,
+  secret: string,
+): void {
+  expect(error.message).not.toContain(secret)
+  expect(error.cause).toBe(driver)
+  expect(driver.cause).toBe(native)
+  expect(JSON.stringify(error)).toContain(secret)
+}
+
 describe('driver migration classification', () => {
   it('retains a driver failure as the cause of a staged migration error', async () => {
-    const native = Object.assign(new Error('native DDL failure'), { code: '23505' })
+    const secret = 'sensitive-driver-detail'
+    const native = Object.assign(new Error(`native DDL failure: ${secret}`), {
+      code: '23505',
+    })
+
     const driver = new DriverError({
       message: native.message,
       dialect: 'postgresql',
@@ -56,6 +73,7 @@ describe('driver migration classification', () => {
         cause: driver,
       })
 
+      expectSafeDriverDiagnostics(error as MigrationError, driver, native, secret)
       expect((error as MigrationError).defect).toBeUndefined()
     } finally {
       await db.close()
@@ -204,11 +222,12 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
 
 describe('public migration execution and session cleanup: keeps a DDL failure primary when rollback cancellation also fails: keeps a runtime DDL failure primary when provider release also fails', () => {
   it('keeps a runtime DDL failure primary when provider release also fails', async () => {
+    const primaryCause = new Error('primary runtime DDL failure')
     const releaseCause = new Error('secondary provider release failure')
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
-        if (/^create table/i.test(sql)) throw new Error('primary runtime DDL failure')
+        if (/^create table/i.test(sql)) throw primaryCause
       },
       releaseFailure: {
         session: 1,
@@ -241,7 +260,13 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
       cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
     })
 
-    expect((error as Error).message).toMatch(/primary runtime DDL failure/i)
+    expect((error as Error).message).toMatch(/PostgreSQL migration ddl failed/i)
+    expect((error as MigrationError).cause).toBe(primaryCause)
+
+    expect(((error as MigrationError).cause as Error).message).toMatch(
+      /primary runtime DDL failure/i,
+    )
+
     expect((error as Error).message).not.toMatch(/secondary provider release failure/i)
     await db.close()
   })
@@ -338,11 +363,12 @@ describe('public migration coordination failures: reports an unverified advisory
 
 describe('public migration coordination failures: discards after migration lock acquisition fails', () => {
   it('discards after migration lock acquisition fails', async () => {
+    const lockCause = new Error('lock acquisition failure')
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/pg_try_advisory_lock\(/i.test(sql)) {
-          throw new Error('lock acquisition failure')
+          throw lockCause
         }
       },
     })
@@ -365,7 +391,8 @@ describe('public migration coordination failures: discards after migration lock 
       retryable: false,
     })
 
-    expect((error as Error).message).toMatch(/lock acquisition failure/i)
+    expect((error as Error).message).toMatch(/PostgreSQL migration lock failed/i)
+    expect((error as MigrationError).cause).toBe(lockCause)
     expect(controls.events).toContain('release-started:1:discard')
 
     expect(controls.calls.some((entry) => /pg_advisory_unlock/i.test(entry.sql))).toBe(
@@ -428,10 +455,11 @@ describe('public migration coordination failures: cancels the physical session w
 
 describe('public migration coordination failures: cancels the physical session when a lock try never settles: discards after an ambiguous migration commit failure', () => {
   it('discards after an ambiguous migration commit failure', async () => {
+    const commitCause = new Error('commit outcome unknown')
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
-        if (/^commit$/i.test(sql)) throw new Error('commit outcome unknown')
+        if (/^commit$/i.test(sql)) throw commitCause
       },
     })
 
@@ -459,7 +487,8 @@ describe('public migration coordination failures: cancels the physical session w
       retryable: false,
     })
 
-    expect((error as Error).message).toMatch(/commit outcome unknown/i)
+    expect((error as Error).message).toMatch(/PostgreSQL migration commit failed/i)
+    expect((error as MigrationError).cause).toBe(commitCause)
     expect(controls.calls.some((entry) => /^rollback$/i.test(entry.sql))).toBe(false)
     expect(controls.events).toContain('release-started:1:discard')
     await db.close()

@@ -13,6 +13,107 @@ import {
 } from '@/index'
 import { driverError } from '@/utils/error'
 
+/** Builds nested diagnostics to verify the serializer's native Error traversal. */
+function nestedErrorJson(): Record<string, unknown> {
+  const native = new Error('constraint failed')
+  Object.defineProperty(native, 'code', { value: '23505', enumerable: false })
+  const driver = driverError(
+    native,
+    'postgres',
+    'insert into records values ($1)',
+    () => ({ kind: 'uniqueViolation', retryable: false }),
+  )
+
+  const shared = { note: 'same object' }
+  const circular: Record<string, unknown> = {}
+  circular.self = circular
+  const custom = new (class {
+    readonly error = new Error('custom class failure')
+  })()
+
+  const migration = new MigrationError({
+    message: 'Migration DDL failed',
+    cause: driver,
+    cleanupFailures: [
+      { stage: 'rollback', cause: shared },
+      { stage: 'unlock', cause: shared },
+    ],
+  })
+
+  Object.assign(migration, {
+    circular,
+    details: {
+      date: new Date('2026-01-02T00:00:00.000Z'),
+      stack: 'structured stack data',
+      custom,
+      json: { toJSON: () => ({ rendered: 'custom JSON' }) },
+    },
+  })
+
+  return JSON.parse(JSON.stringify(migration)) as Record<string, unknown>
+}
+
+/** Asserts the recursively serialized migration and driver diagnostics. */
+function expectNestedErrorJson(json: Record<string, unknown>): void {
+  expect(json).toMatchObject({
+    _tag: 'MigrationError',
+    message: 'Migration DDL failed',
+    cause: {
+      _tag: 'DriverError',
+      message: 'postgres database session SQL execution failed',
+      code: '23505',
+      cause: { message: 'constraint failed', code: '23505' },
+    },
+    cleanupFailures: [
+      { cause: { note: 'same object' } },
+      { cause: { note: 'same object' } },
+    ],
+    circular: { self: '[Circular]' },
+    details: {
+      date: '2026-01-02T00:00:00.000Z',
+      stack: 'structured stack data',
+      custom: { error: { message: 'custom class failure' } },
+      json: { rendered: 'custom JSON' },
+    },
+  })
+}
+
+/** Builds arbitrary diagnostics, including hostile getters and custom serializers. */
+function arbitraryErrorJson(): readonly [
+  Record<string, unknown>,
+  Record<string, unknown>,
+] {
+  const nested = { reason: 'underlying cause' }
+  const native = new Error('', { cause: nested })
+  Object.defineProperty(native, 'message', {
+    get: () => {
+      throw new Error('message getter failed')
+    },
+  })
+
+  const wrapper = new QueryError({ message: 'Query failed', cause: native })
+  Object.assign(wrapper, {
+    same: {
+      value: 'same-instance JSON',
+      toJSON() {
+        return this
+      },
+    },
+    throwing: {
+      inner: new Error('fallback diagnostic'),
+      toJSON() {
+        throw new Error('custom serialization failed')
+      },
+    },
+  })
+
+  const bigInt = new MigrationError({ message: 'Migration failed', cause: 123n })
+  return [
+    JSON.parse(JSON.stringify(wrapper)) as Record<string, unknown>,
+    JSON.parse(JSON.stringify(bigInt)) as Record<string, unknown>,
+  ]
+}
+
 describe('TaggedError', () => {
   it('should create a tagged error class with the given tag', () => {
     const MyError = TaggedError('MyError')<{ message: string }>
@@ -32,6 +133,82 @@ describe('TaggedError', () => {
     const SimpleError = TaggedError('SimpleError')<Record<string, unknown>>
     const error = new SimpleError()
     expect(error._tag).toBe('SimpleError')
+  })
+
+  it('uses native non-enumerable message and cause fields', () => {
+    const cause = new Error('driver rejected the write')
+    const error = new MigrationError({ message: 'Migration DDL failed', cause })
+
+    expect(Object.getOwnPropertyDescriptor(error, 'message')?.enumerable).toBe(false)
+    expect(Object.getOwnPropertyDescriptor(error, 'cause')?.enumerable).toBe(false)
+    expect(error.stack).toMatch(/^MigrationError: Migration DDL failed/)
+  })
+})
+
+describe('TaggedError serialization', () => {
+  it('serializes nested driver diagnostics, shared causes, and cycles', () => {
+    expect.assertions(1)
+    expectNestedErrorJson(nestedErrorJson())
+  })
+
+  it('serializes arbitrary causes without mistaking access failures for cycles', () => {
+    const [wrapper, bigInt] = arbitraryErrorJson()
+
+    expect(wrapper).toMatchObject({
+      _tag: 'QueryError',
+      message: 'Query failed',
+      cause: { name: 'Error', cause: { reason: 'underlying cause' } },
+      same: { value: 'same-instance JSON' },
+      throwing: { inner: { message: 'fallback diagnostic' } },
+    })
+
+    expect(bigInt).toMatchObject({
+      _tag: 'MigrationError',
+      cause: '123n',
+    })
+  })
+
+  it('serializes non-enumerable diagnostics on class-valued causes and cycles', () => {
+    class Diagnostic {
+      readonly cause = new Error('nested class failure')
+      readonly self = this
+
+      constructor() {
+        Object.defineProperties(this, {
+          message: { value: 'class failure' },
+          code: { value: 'ECLASS' },
+        })
+      }
+    }
+
+    const cause = new Diagnostic()
+    const wrapper = new QueryError({ message: 'Query failed', cause })
+
+    expect(JSON.parse(JSON.stringify(wrapper))).toMatchObject({
+      cause: {
+        message: 'class failure',
+        code: 'ECLASS',
+        cause: { message: 'nested class failure' },
+        self: '[Circular]',
+      },
+    })
+  })
+})
+
+describe('TaggedError serialization with special property names', () => {
+  it('preserves own __proto__ diagnostics without changing the output prototype', () => {
+    const cause = JSON.parse(
+      '{"__proto__":{"reason":"structured detail"},"code":"E"}',
+    ) as Record<string, unknown>
+
+    const wrapper = new QueryError({ message: 'Query failed', cause })
+    const json = JSON.parse(JSON.stringify(wrapper)) as {
+      cause: Record<string, unknown>
+    }
+
+    expect(Object.getPrototypeOf(json.cause)).toBe(Object.prototype)
+    expect(Object.hasOwn(json.cause, '__proto__')).toBe(true)
+    expect(json.cause['__proto__']).toEqual({ reason: 'structured detail' })
   })
 })
 
@@ -84,7 +261,7 @@ describe('DriverError', () => {
     const error = driverError(cause, 'sqlite', 'select 1', classifyUnknown)
 
     expect(error.cause).toBe(cause)
-    expect(error.message).toBe('Database operation failed')
+    expect(error.message).toBe('sqlite database session SQL execution failed')
     expect(error.code).toBeUndefined()
   })
 

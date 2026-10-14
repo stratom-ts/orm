@@ -161,6 +161,9 @@ it.each(['integrity', 'convergence'] as const)(
       stage: 'lowering',
     })
 
+    const primaryMessage =
+      kind === 'integrity' ? 'SQLite integrity_check failed' : primary.message
+
     const test = fixture({
       integrityFailure: kind === 'integrity',
       validationFailure: kind === 'convergence' ? primary : undefined,
@@ -170,7 +173,8 @@ it.each(['integrity', 'convergence'] as const)(
     await expect(test.execute()).rejects.toMatchObject({
       stage: 'validation',
       outcome: 'rolledBack',
-      message: kind === 'integrity' ? 'SQLite integrity_check failed' : primary.message,
+      message: expect.stringContaining('SQLite migration validation failed') as string,
+      cause: { message: primaryMessage },
       sourceStepIndexes: [7],
       cleanupFailures: [{ stage: 'sessionCleanup', cause: new Error('restore failed') }],
     })

@@ -57,11 +57,12 @@ function nativeSql<T>(
   sql: string,
   dialectId: string,
   execute: (statement: NativeStatement) => T,
+  operation = 'database session SQL execution',
 ): T {
   try {
     return execute(database.prepare(sql))
   } catch (cause) {
-    throw driverError(cause, dialectId, sql, sqliteClassifyDriverError)
+    throw driverError(cause, dialectId, sql, sqliteClassifyDriverError, operation)
   }
 }
 
@@ -72,8 +73,21 @@ function assertCleanTransaction(database: NativeDatabase, dialectId: string): vo
 
   if (database.isTransaction === false) return
 
-  nativeSql(database, 'begin', dialectId, (statement) => statement.run())
-  nativeSql(database, 'rollback', dialectId, (statement) => statement.run())
+  nativeSql(
+    database,
+    'begin',
+    dialectId,
+    (statement) => statement.run(),
+    'transaction begin',
+  )
+
+  nativeSql(
+    database,
+    'rollback',
+    dialectId,
+    (statement) => statement.run(),
+    'transaction rollback',
+  )
 }
 
 /** Rolls back pending work and accepts only SQLite's native no-transaction error. */
@@ -87,7 +101,13 @@ function rollbackNative(database: NativeDatabase, dialectId: string): void {
       cause.code !== 'ERR_SQLITE_ERROR' ||
       cause.message !== 'cannot rollback - no transaction is active'
     )
-      throw driverError(cause, dialectId, 'rollback', sqliteClassifyDriverError)
+      throw driverError(
+        cause,
+        dialectId,
+        'rollback',
+        sqliteClassifyDriverError,
+        'transaction rollback',
+      )
   }
 
   assertCleanTransaction(database, dialectId)
@@ -115,8 +135,12 @@ function readIdentity(
   database: NativeDatabase,
   dialectId: string,
 ): OperationSessionIdentity {
-  const rows = nativeSql(database, 'pragma database_list', dialectId, (statement) =>
-    statement.all(),
+  const rows = nativeSql(
+    database,
+    'pragma database_list',
+    dialectId,
+    (statement) => statement.all(),
+    'database session identity check',
   )
 
   const main = rows.find((row) => (row as { name?: unknown }).name === 'main') as
@@ -398,7 +422,13 @@ function enqueue<T>(
     try {
       statement = database.prepare(query.sql)
     } catch (cause) {
-      throw driverError(cause, dialectId, query.sql, sqliteClassifyDriverError)
+      throw driverError(
+        cause,
+        dialectId,
+        query.sql,
+        sqliteClassifyDriverError,
+        'database session SQL preparation',
+      )
     }
 
     return execute(statement, params)
@@ -424,7 +454,13 @@ function readRows(
     statement.setReadBigInts(true)
     rows = statement.all(...params)
   } catch (cause) {
-    throw driverError(cause, dialectId, sql, sqliteClassifyDriverError)
+    throw driverError(
+      cause,
+      dialectId,
+      sql,
+      sqliteClassifyDriverError,
+      'database session query execution',
+    )
   }
 
   return normalizeRows(rows)
@@ -440,7 +476,13 @@ function runStatement(
   try {
     statement.run(...params)
   } catch (cause) {
-    throw driverError(cause, dialectId, sql, sqliteClassifyDriverError)
+    throw driverError(
+      cause,
+      dialectId,
+      sql,
+      sqliteClassifyDriverError,
+      'database session statement execution',
+    )
   }
 }
 

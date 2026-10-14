@@ -230,9 +230,14 @@ describe('db0 PostgreSQL operation-session adapter: discards a reused session wh
 
     await session.run({ sql: 'select 1', params: [] })
 
-    await expect(session.release('reuse')).rejects.toThrow(
-      /identity evidence unavailable/i,
-    )
+    const failure = await session.release('reuse').catch((cause: unknown) => cause)
+    expect(failure).toMatchObject({
+      message: 'postgresql database session identity check failed',
+    })
+
+    expect((failure as DriverError).cause).toMatchObject({
+      message: 'identity evidence unavailable',
+    })
 
     expect(connector.disposeCount).toBe(1)
     await provider.close()
@@ -270,7 +275,8 @@ describe('db0 PostgreSQL operation-session adapter: retains final namespace-evid
     expect(getOperationReleaseCleanupFailures(error)).toHaveLength(1)
 
     expect(getOperationReleaseCleanupFailures(error)[0]).toMatchObject({
-      message: 'identity evidence unavailable',
+      message: 'postgresql database session identity check failed',
+      cause: { message: 'identity evidence unavailable' },
     })
 
     expect(connector.disposeCount).toBe(1)
@@ -356,7 +362,15 @@ describe('db0 PostgreSQL operation-session lifecycle: cancels an active call and
 
     finishEnd.resolve()
     await expect(withDeadline(cancel)).resolves.toBeUndefined()
-    await expect(withDeadline(query)).rejects.toThrow(/terminated/i)
+    const failure = await withDeadline(query).catch((cause: unknown) => cause)
+    expect(failure).toMatchObject({
+      message: 'postgresql database session SQL execution failed',
+    })
+
+    expect((failure as DriverError).cause).toMatchObject({
+      message: expect.stringMatching(/terminated/i) as string,
+    })
+
     await session.release('reuse')
     expect(connector.endCount).toBe(1)
     expect(connector.disposeCount).toBe(1)

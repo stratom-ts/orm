@@ -94,7 +94,7 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
     !(cause instanceof DriverError)
   ) {
     const wrapped = new MigrationError({
-      message: cause instanceof Error ? cause.message : 'Migration failed',
+      message: `Migration ${stage} failed`,
       cause,
       defect: true,
       stage,
@@ -108,7 +108,7 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
 
   if (cause instanceof QueryError || cause instanceof DriverError)
     return new MigrationError({
-      message: cause.message,
+      message: `Migration ${stage} failed${cause instanceof QueryError ? `: ${cause.message}` : ''}`,
       cause,
       stage,
       outcome: 'unchanged',
@@ -118,7 +118,7 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
   if (cause.stage !== undefined) return cause
 
   return new MigrationError({
-    message: cause.message,
+    message: `Migration ${stage} failed: ${cause.message}`,
     ...(Object.hasOwn(cause, 'cause') ? { cause: cause.cause } : {}),
     stage,
     outcome: cause.outcome ?? 'unchanged',
@@ -542,8 +542,7 @@ function throwExecutionCleanup(
 
   if (success) {
     throw new MigrationError({
-      message:
-        cause instanceof Error ? cause.message : 'Migration session cleanup failed',
+      message: `Migration session cleanup failed${cause instanceof SchemaError ? `: ${cause.message}` : ''}`,
       cause,
       ...(isDefect(cause) ? { defect: true as const } : {}),
       stage: 'sessionCleanup',
@@ -554,8 +553,7 @@ function throwExecutionCleanup(
   }
 
   throw new MigrationError({
-    message:
-      cause instanceof Error ? cause.message : 'Migration operation session failed',
+    message: `Migration operation session failed${cause instanceof SchemaError ? `: ${cause.message}` : ''}`,
     cause,
     ...(isDefect(cause) ? { defect: true as const } : {}),
     stage: 'sessionCleanup',
@@ -637,7 +635,7 @@ async function runMigrationPreview<T>(operation: () => Promise<T>): Promise<T> {
     if (cause instanceof QueryError || cause instanceof DriverError) {
       const cleanupFailures = sessionCleanupFailures(cause)
       throw new MigrationError({
-        message: cause.message,
+        message: `Migration introspection failed${cause instanceof QueryError ? `: ${cause.message}` : ''}`,
         cause,
         stage: 'introspection',
         outcome: 'unchanged',
@@ -662,8 +660,7 @@ function throwAdapterExecutionError(cause: unknown, discard: () => void): never 
 
   discard()
   throw new MigrationError({
-    message:
-      cause instanceof Error ? cause.message : 'Migration adapter execution failed',
+    message: 'Migration DDL execution failed',
     cause: cause,
     ...(isDefect(cause) ? { defect: true as const } : {}),
     stage: 'ddl',

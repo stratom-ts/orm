@@ -438,7 +438,8 @@ describe('db.migrate() adapters and execution: treats omitted and public schemas
       retryable: false,
     })
 
-    expect((error as Error).message).toMatch(/duplicate registered table/i)
+    expect((error as Error).message).toMatch(/migration planning failed/i)
+    expect(JSON.stringify(error)).toMatch(/duplicate registered table/i)
     await db.close()
   })
 })
@@ -745,7 +746,8 @@ describe('db.migrate() runtime rollback', () => {
       retryable: false,
     })
 
-    expect((error as Error).message).toMatch(/NULL values/i)
+    expect((error as Error).message).toMatch(/PostgreSQL migration precondition failed/i)
+    expect(JSON.stringify(error)).toMatch(/NULL values/i)
     expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('rollback')
     expect(connector.runSql).not.toContain('commit')
@@ -773,7 +775,8 @@ describe('db.migrate() runtime rollback: wraps executor errors, rolls back, and 
       retryable: false,
     })
 
-    expect((error as Error).message).toMatch(/executor rejected/i)
+    expect((error as Error).message).toMatch(/PostgreSQL migration ddl failed/i)
+    expect(JSON.stringify(error)).toContain('executor rejected')
     expect(connector.runSql).toContain('begin isolation level repeatable read')
     expect(connector.runSql).toContain('rollback')
     expect(connector.runSql).not.toContain('commit')
@@ -1031,6 +1034,8 @@ it('preserves an explicitly undefined cause when preview adds a stage', async ()
   expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
   expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
   expect((rejection as MigrationError).cause).toBeUndefined()
+  expect(Object.hasOwn(expected, 'cause')).toBe(true)
+  expect(expected.cause).toBeUndefined()
   await db.close()
 })
 
@@ -1156,9 +1161,8 @@ describe('db.migrate() permissions and coordination: normalizes a plain nonconfo
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [] })
 
-    vi.spyOn(postgresDialect.migration!, 'execute').mockRejectedValueOnce(
-      new Error('plain adapter failure'),
-    )
+    const adapterFailure = new Error('plain adapter failure')
+    vi.spyOn(postgresDialect.migration!, 'execute').mockRejectedValueOnce(adapterFailure)
 
     const error = await db
       .migrate()
@@ -1172,7 +1176,8 @@ describe('db.migrate() permissions and coordination: normalizes a plain nonconfo
       retryable: false,
     })
 
-    expect((error as Error).message).toMatch(/plain adapter failure/i)
+    expect((error as Error).message).toMatch(/Migration DDL execution failed/i)
+    expect((error as MigrationError).cause).toBe(adapterFailure)
     await db.close()
   })
 })
