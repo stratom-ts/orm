@@ -1,3 +1,6 @@
+import type { BaseIssue } from 'valibot'
+import { getDotPath } from 'valibot'
+
 import type { MigrationCapabilityIssue } from '@/ddl/migrationProgram'
 import type { Equals } from '@/types/equals'
 
@@ -292,20 +295,52 @@ export function classifyDriverError(
   })
 }
 
+type ValidationOperation = 'insert' | 'update'
+
+type ValidationErrorArgs = Readonly<{
+  table: string
+  operation: ValidationOperation
+  issues: [BaseIssue<unknown>, ...BaseIssue<unknown>[]]
+  cause?: unknown
+}>
+
+function formatValidationIssues(issues: ValidationErrorArgs['issues']): string {
+  return issues
+    .map((issue) => {
+      const path = getDotPath(issue)
+      return path ? `${path}: ${issue.message}` : issue.message
+    })
+    .join('; ')
+}
+
 /**
- * Error thrown when insert/update payloads fail Valibot validation.
+ * Error thrown when insert or update payloads fail Valibot validation.
  *
  * @example
- *   throw new ValidationError({
- *     message: 'Invalid insert payload',
- *     issues: result.issues,
- *   })
+ *   throw new ValidationError({ table: 'users', operation: 'insert', issues })
  */
 export class ValidationError extends TaggedError('ValidationError')<{
+  table: string
+  operation: ValidationOperation
+  issues: [BaseIssue<unknown>, ...BaseIssue<unknown>[]]
   message: string
-  issues?: unknown
   cause?: unknown
-}> {}
+}> {
+  constructor({ table, operation, issues, cause }: ValidationErrorArgs) {
+    const context =
+      operation === 'insert'
+        ? `Invalid insert into "${table}"`
+        : `Invalid update on "${table}"`
+
+    super({
+      table,
+      operation,
+      issues,
+      message: `${context}: ${formatValidationIssues(issues)}`,
+      ...(cause === undefined ? {} : { cause }),
+    })
+  }
+}
 
 /** Error thrown when an internal contract or invariant is violated. */
 export class InvariantError extends TaggedError('InvariantError')<{

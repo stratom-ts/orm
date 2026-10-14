@@ -119,16 +119,28 @@ describe('DriverError', () => {
 })
 
 describe('ValidationError', () => {
-  it('should be a TaggedError with tag ValidationError', () => {
+  it('derives its message from required structured issues', () => {
     const error = new ValidationError({
-      message: 'bad insert',
-      issues: [{ message: 'required' }],
+      table: 'users',
+      operation: 'insert',
+      issues: [
+        {
+          kind: 'schema',
+          type: 'string',
+          input: 1,
+          expected: 'string',
+          received: '1',
+          message: 'expected string',
+        },
+      ],
     })
 
     expect(error).toBeInstanceOf(Error)
     expect(error._tag).toBe('ValidationError')
-    expect(error.message).toBe('bad insert')
-    expect(error.issues).toEqual([{ message: 'required' }])
+    expect(error.table).toBe('users')
+    expect(error.operation).toBe('insert')
+    expect(error.message).toBe('Invalid insert into "users": expected string')
+    expect(error.issues[0].message).toBe('expected string')
   })
 })
 

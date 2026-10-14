@@ -45,6 +45,7 @@ function isInsertOptional(schema: AnySchema): boolean {
 /** Rejects undefined values for columns whose schema requires an insert value. */
 function assertDefinedInsertValue(
   tableName: string,
+  row: Record<string, unknown>,
   columnName: string,
   value: unknown,
   schema: AnySchema | undefined,
@@ -53,7 +54,18 @@ function assertDefinedInsertValue(
   if (isInsertOptional(schema)) return
 
   throw new ValidationError({
-    message: `Invalid insert into "${tableName}": column "${columnName}" cannot be undefined`,
+    table: tableName,
+    operation: 'insert',
+    issues: [
+      validationIssue(
+        value,
+        'undefined',
+        'defined value',
+        'undefined',
+        `column "${columnName}" cannot be undefined`,
+        columnPath(row, columnName, 'value'),
+      ),
+    ],
   })
 }
 
@@ -140,18 +152,58 @@ export function buildUpdateSchema(
   return object(updateEntries)
 }
 
-/**
- * Formats validation issues as a semicolon-delimited diagnostic.
- *
- * @param issues - Validation issues to format.
- */
-function formatIssues(issues: readonly BaseIssue<unknown>[]): string {
-  return issues
-    .map((issue) => {
-      const path = issue.path?.map((item) => String(item.key)).join('.') ?? ''
-      return path ? `${path}: ${issue.message}` : issue.message
-    })
-    .join('; ')
+function validationIssue(
+  input: unknown,
+  type: string,
+  expected: string,
+  received: string,
+  message: string,
+  path?: BaseIssue<unknown>['path'],
+): BaseIssue<unknown> {
+  return {
+    kind: 'schema',
+    type,
+    input,
+    expected,
+    received,
+    message,
+    ...(path ? { path } : {}),
+  }
+}
+
+function columnPath(
+  input: Record<string, unknown>,
+  key: string,
+  origin: 'key' | 'value',
+): NonNullable<BaseIssue<unknown>['path']> {
+  return [{ type: 'object', origin, input, key, value: input[key] }]
+}
+
+function receivedType(input: unknown): string {
+  return input === null ? 'null' : Array.isArray(input) ? 'Array' : typeof input
+}
+
+function assertObjectInput(
+  table: string,
+  operation: 'insert' | 'update',
+  input: unknown,
+): asserts input is Record<string, unknown> {
+  if (input !== null && typeof input === 'object' && !Array.isArray(input)) return
+
+  const noun = operation === 'insert' ? 'row' : 'patch'
+  throw new ValidationError({
+    table,
+    operation,
+    issues: [
+      validationIssue(
+        input,
+        'object',
+        'Object',
+        receivedType(input),
+        `expected a plain object ${noun}`,
+      ),
+    ],
+  })
 }
 
 /**
@@ -171,51 +223,59 @@ export function validateInsertRow(
   handle: TableHandle,
   row: unknown,
 ): Record<string, unknown> {
-  if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-    throw new ValidationError({
-      message: `Invalid insert into "${handle.getTableMetadata().name}": expected a plain object row`,
-    })
-  }
-
+  assertObjectInput(handle.getTableMetadata().name, 'insert', row)
   const entries = handle.getSchema().entries as Record<string, AnySchema>
   const schema = buildInsertSchema(handle)
   const allowed = new Set(Object.keys(schema.entries))
-
-  for (const key of Object.keys(row as object)) {
-    if (!allowed.has(key)) {
-      throw new ValidationError({
-        message: `Invalid insert into "${handle.getTableMetadata().name}": unknown or non-insertable column "${key}"`,
-      })
-    }
-
-    assertDefinedInsertValue(
-      handle.getTableMetadata().name,
-      key,
-      (row as Record<string, unknown>)[key],
-      entries[key],
-    )
-  }
-
+  assertInsertableKeys(handle, row, entries, allowed)
   const result = safeParse(schema, row)
 
-  if (!result.success) {
+  if (!result.success)
     throw new ValidationError({
-      message: `Invalid insert into "${handle.getTableMetadata().name}": ${formatIssues(result.issues)}`,
+      table: handle.getTableMetadata().name,
+      operation: 'insert',
       issues: result.issues,
     })
-  }
 
-  // Keep only provided keys (optional/default omitted → SQL DEFAULT)
+  // Keep only provided keys; omitted defaults remain SQL DEFAULT.
   const cleaned: Record<string, unknown> = {}
-
-  for (const key of Object.keys(row as object)) {
+  for (const key of Object.keys(row)) {
     if (key in (result.output as object)) {
       cleaned[key] = (result.output as Record<string, unknown>)[key]
     }
   }
 
-  // Include parsed defaults from optional schemas that produced values
+  // Include parsed defaults from optional schemas that produced values.
   return includeParsedDefaults(result, cleaned)
+}
+
+function assertInsertableKeys(
+  handle: TableHandle,
+  row: Record<string, unknown>,
+  entries: Record<string, AnySchema>,
+  allowed: Set<string>,
+): void {
+  const table = handle.getTableMetadata().name
+  for (const key of Object.keys(row)) {
+    if (!allowed.has(key)) {
+      throw new ValidationError({
+        table,
+        operation: 'insert',
+        issues: [
+          validationIssue(
+            row,
+            'object',
+            'known insertable column',
+            key,
+            `unknown or non-insertable column "${key}"`,
+            columnPath(row, key, 'key'),
+          ),
+        ],
+      })
+    }
+
+    assertDefinedInsertValue(table, row, key, row[key], entries[key])
+  }
 }
 
 /** Adds parsed schema defaults without replacing explicitly supplied insert values. */
@@ -264,43 +324,28 @@ export function validateUpdatePatchWithStructuredValues(
   patch: unknown,
   isStructuredValue: (value: unknown) => boolean,
 ): Record<string, unknown> {
-  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
-    throw new ValidationError({
-      message: `Invalid update on "${handle.getTableMetadata().name}": expected a plain object patch`,
-    })
-  }
-
+  assertObjectInput(handle.getTableMetadata().name, 'update', patch)
   const schema = buildUpdateSchema(handle)
-  const authoredPatch = patch as Record<string, unknown>
+  const authoredPatch = patch
   const literalPatch = Object.fromEntries(
     Object.entries(authoredPatch).filter(([, value]) => !isStructuredValue(value)),
   )
 
   const result = safeParse(schema, literalPatch)
 
-  if (!result.success) {
+  if (!result.success)
     throw new ValidationError({
-      message: `Invalid update on "${handle.getTableMetadata().name}": ${formatIssues(result.issues)}`,
+      table: handle.getTableMetadata().name,
+      operation: 'update',
       issues: result.issues,
     })
-  }
 
-  // Reject keys not in the update schema (Valibot object strips unknown by default)
   const allowed = new Set(Object.keys(schema.entries))
-
-  for (const key of Object.keys(patch as object)) {
-    if (!allowed.has(key)) {
-      throw new ValidationError({
-        message: `Invalid update on "${handle.getTableMetadata().name}": unknown or non-updatable column "${key}"`,
-      })
-    }
-  }
+  assertUpdatableKeys(handle, patch, allowed)
 
   const output = result.output as Record<string, unknown>
-
-  // Preserve authored patch order while retaining structured values for their caller.
   const cleaned: Record<string, unknown> = {}
-
+  // Preserve authored patch order while retaining structured values for their caller.
   for (const [key, value] of Object.entries(authoredPatch)) {
     const cleanedValue = isStructuredValue(value) ? value : output[key]
 
@@ -309,9 +354,45 @@ export function validateUpdatePatchWithStructuredValues(
 
   if (Object.keys(cleaned).length === 0) {
     throw new ValidationError({
-      message: `Invalid update on "${handle.getTableMetadata().name}": patch must include at least one column`,
+      table: handle.getTableMetadata().name,
+      operation: 'update',
+      issues: [
+        validationIssue(
+          patch,
+          'object',
+          'non-empty patch',
+          'empty object',
+          'patch must include at least one column',
+        ),
+      ],
     })
   }
 
   return cleaned
+}
+
+function assertUpdatableKeys(
+  handle: TableHandle,
+  patch: Record<string, unknown>,
+  allowed: Set<string>,
+): void {
+  const table = handle.getTableMetadata().name
+  for (const key of Object.keys(patch)) {
+    if (!allowed.has(key)) {
+      throw new ValidationError({
+        table,
+        operation: 'update',
+        issues: [
+          validationIssue(
+            patch,
+            'object',
+            'known updatable column',
+            key,
+            `unknown or non-updatable column "${key}"`,
+            columnPath(patch, key, 'key'),
+          ),
+        ],
+      })
+    }
+  }
 }
