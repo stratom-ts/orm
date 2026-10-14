@@ -53,22 +53,141 @@ export function TaggedError<Tag extends string>(
           readonly [P in keyof A as P extends '_tag' ? never : P]: A[P]
         },
       ]
-) => Error & { readonly _tag: Tag } & Readonly<A> {
+) => Error & { readonly _tag: Tag; toJSON(): Record<string, unknown> } & Readonly<A> {
   class BaseError extends Error {
     readonly _tag = tag
+
+    toJSON(): Record<string, unknown> {
+      return serializeError(this, new Set()) as Record<string, unknown>
+    }
 
     /**
      * Creates a tagged error from payload fields.
      *
      * @param args - Payload fields assigned to the error.
      */
-    constructor(args: Record<string, unknown>) {
-      super()
-      Object.assign(this, args)
+    constructor(args: Record<string, unknown> = {}) {
+      const { message, cause, ...properties } = args
+      super(
+        typeof message === 'string' ? message : '',
+        Object.hasOwn(args, 'cause') ? { cause } : undefined,
+      )
+
+      Object.assign(this, properties)
     }
   }
   BaseError.prototype.name = tag
   return BaseError as never
+}
+
+/** Serializes nested errors without losing their non-enumerable native diagnostics. */
+function serializeError(value: unknown, seen: Set<object>): unknown {
+  if (typeof value === 'bigint') return `${value}n`
+  if (typeof value === 'function') return `[Function ${value.name || 'anonymous'}]`
+  if (typeof value === 'symbol') return value.toString()
+  if (value === null || typeof value !== 'object') return value
+
+  if (seen.has(value)) return '[Circular]'
+
+  seen.add(value)
+
+  try {
+    if (Array.isArray(value)) return serializeArray(value, seen)
+
+    return serializeUnknownObject(value, seen)
+  } finally {
+    seen.delete(value)
+  }
+}
+
+/** Serializes custom objects while honoring their JSON representation when available. */
+function serializeUnknownObject(value: object, seen: Set<object>): unknown {
+  if (value instanceof Error) return serializeObject(value, seen, true)
+
+  const customJson = serializeCustomJson(value, seen)
+  return customJson.serialized ? customJson.value : serializeObject(value, seen, false)
+}
+
+/** Recursively serializes array diagnostics without exposing array prototypes. */
+function serializeArray(value: readonly unknown[], seen: Set<object>): unknown[] {
+  const output: unknown[] = []
+  for (const item of value) output.push(serializeError(item, seen))
+  return output
+}
+
+/** Applies an explicit custom JSON serializer when it is safe to call. */
+function serializeCustomJson(
+  value: object,
+  seen: Set<object>,
+): { serialized: boolean; value?: unknown } {
+  try {
+    const toJSON = (value as { toJSON?: (this: object) => unknown }).toJSON
+
+    if (typeof toJSON !== 'function') return { serialized: false }
+
+    const serialized = toJSON.call(value)
+
+    if (serialized === value) return { serialized: false }
+
+    return { serialized: true, value: serializeError(serialized, seen) }
+  } catch {
+    return { serialized: false }
+  }
+}
+
+/** Serializes fields separately so unusual diagnostic getters cannot mask the cause. */
+function serializeObject(
+  value: object,
+  seen: Set<object>,
+  isError: boolean,
+): Record<string, unknown> {
+  const output: Record<string, unknown> = {}
+  const keys = Object.getOwnPropertyNames(value)
+
+  for (const key of keys) {
+    if (!isError || (key !== 'stack' && key !== 'cause'))
+      serializeField(value, key, output, seen)
+  }
+
+  if (isError) serializeNativeError(value as Error, output, seen)
+
+  return output
+}
+
+/** Reads and serializes one property without letting a getter abort traversal. */
+function serializeField(
+  value: object,
+  key: string,
+  output: Record<string, unknown>,
+  seen: Set<object>,
+): void {
+  try {
+    Object.defineProperty(output, key, {
+      value: serializeError((value as Record<string, unknown>)[key], seen),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
+  } catch {
+    // Diagnostic getters must not make error serialization fail.
+  }
+}
+
+/** Adds native Error diagnostics that are non-enumerable by default. */
+function serializeNativeError(
+  value: Error,
+  output: Record<string, unknown>,
+  seen: Set<object>,
+): void {
+  try {
+    output.name = value.name
+  } catch {
+    // Preserve the other diagnostics if a custom name getter throws.
+  }
+
+  serializeField(value, 'message', output, seen)
+
+  if ('cause' in value) serializeField(value, 'cause', output, seen)
 }
 
 /**
@@ -224,43 +343,37 @@ export class DriverError extends TaggedError('DriverError')<
   } & DriverErrorClassification
 > {}
 
-/** Reads optional driver metadata without replacing the original rejection. */
-function nativeStringProperty(
-  value: object,
-  key: 'message' | 'code',
-): string | undefined {
-  try {
-    const property = (value as Record<string, unknown>)[key]
-    return typeof property === 'string' ? property : undefined
-  } catch {
-    return undefined
-  }
-}
-
 /** Preserves any native rejection from one physical SQL call. */
 export function driverError(
   cause: unknown,
   dialect: string,
   sql: string,
   classify: DriverErrorClassifier,
+  operation = 'database session SQL execution',
 ): DriverError {
-  const objectCause =
-    (typeof cause === 'object' && cause !== null) || typeof cause === 'function'
-
-  const message =
-    (objectCause ? nativeStringProperty(cause, 'message') : undefined) ??
-    'Database operation failed'
-
-  const code = objectCause ? nativeStringProperty(cause, 'code') : undefined
+  const code = readDriverCode(cause)
 
   return new DriverError({
-    message,
+    message: `${dialect} ${operation} failed`,
     dialect,
     ...(code === undefined ? {} : { code }),
     sql,
     cause,
     ...classify(cause),
   })
+}
+
+/** Reads optional native driver code without allowing a getter to replace the cause. */
+function readDriverCode(cause: unknown): string | undefined {
+  if ((typeof cause !== 'object' || cause === null) && typeof cause !== 'function')
+    return undefined
+
+  try {
+    const property = (cause as Record<string, unknown>).code
+    return typeof property === 'string' ? property : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** Applies the selected member's policy only to a recognized driver failure. */

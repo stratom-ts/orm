@@ -1,9 +1,10 @@
 import type { SQLDialect } from 'db0'
+import { integer, number, pipe } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { postgresDialect } from '@/dialects/postgres/dialect'
 import { registerDialectForTest } from '@/dialects/resolve'
-import { DriverError, QueryError, createDatabase } from '@/index'
+import { DriverError, QueryError, createDatabase, defineTable } from '@/index'
 import type { OperationSessionProvider } from '@/index'
 import {
   OperationCoordinator,
@@ -17,6 +18,14 @@ import {
   customConnector,
   withDeadline,
 } from './helpers/operationSessionFixtures'
+
+const CoordinatorRecords = defineTable(
+  'coordinator_records',
+  {
+    id: pipe(number(), integer()),
+  },
+  { primaryKey: 'id' },
+)
 
 /** Installs a member whose classifier differs from the native PostgreSQL adapter. */
 function classifiedDatabase(
@@ -91,6 +100,96 @@ describe('selected member provider failure classification', () => {
       }
     },
   )
+})
+
+it('keeps query context and release cleanup evidence when it wraps a driver failure', async () => {
+  const secret = 'native-secret-value'
+  const nativeCause = new Error(`query failed: ${secret}`)
+  const driver = new DriverError({
+    message: 'database session query failed',
+    dialect: 'postgresql',
+    sql: 'select * from coordinator_records',
+    cause: nativeCause,
+    kind: 'unknown',
+    retryable: false,
+  })
+
+  const releaseFailure = new Error('session release failed')
+  const controls = createControllableProvider({
+    beforeCall: async (_session, sql) => {
+      if (sql.includes('coordinator_records')) throw driver
+    },
+    beforeRelease: async () => {
+      throw releaseFailure
+    },
+  })
+
+  const db = createDatabase({
+    connector: customConnector(),
+    operationSessionProvider: controls.provider,
+    schemas: [CoordinatorRecords],
+  })
+
+  const failure = await db
+    .from(CoordinatorRecords)
+    .execute()
+    .catch((cause: unknown) => cause)
+
+  expect(failure).toBeInstanceOf(DriverError)
+  expect((failure as DriverError).message).toContain('select from')
+  expect((failure as DriverError).message).toContain('coordinator_records')
+  expect((failure as DriverError).message).not.toContain(secret)
+  expect((failure as DriverError).cause).toBe(nativeCause)
+  expect(getOperationReleaseCleanupFailures(failure)).toEqual([releaseFailure])
+  expect(JSON.stringify(failure)).toContain(`query failed: ${secret}`)
+
+  await db.close()
+})
+
+it('names ping and transaction lifecycle failures without exposing native text', async () => {
+  for (const [sql, operation, run] of [
+    [
+      'select 1',
+      'postgresql database ping failed',
+      (db: ReturnType<typeof createDatabase>) => db.ping(),
+    ],
+    [
+      'begin',
+      'postgresql database transaction begin failed',
+      (db: ReturnType<typeof createDatabase>) => db.transaction(async () => undefined),
+    ],
+  ] as const) {
+    const secret = 'lifecycle-secret'
+    const nativeCause = new Error(`driver detail: ${secret}`)
+    const driver = new DriverError({
+      message: 'database session query failed',
+      dialect: 'postgresql',
+      sql,
+      cause: nativeCause,
+      kind: 'unknown',
+      retryable: false,
+    })
+
+    const controls = createControllableProvider({
+      beforeCall: async (_session, currentSql) => {
+        if (currentSql === sql) throw driver
+      },
+    })
+
+    const db = createDatabase({
+      connector: customConnector(),
+      operationSessionProvider: controls.provider,
+      schemas: [],
+    })
+
+    const failure = await run(db).catch((cause: unknown) => cause)
+
+    expect(failure).toBeInstanceOf(DriverError)
+    expect((failure as DriverError).message).toContain(operation)
+    expect((failure as DriverError).message).not.toContain(secret)
+    expect((failure as DriverError).cause).toBe(nativeCause)
+    await db.close()
+  }
 })
 
 describe('OperationCoordinator', () => {

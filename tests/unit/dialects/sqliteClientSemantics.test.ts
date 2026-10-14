@@ -336,7 +336,13 @@ it('does not treat different whitespace inside expression literals as default co
   )
 
   try {
-    await expect(db.migrate().dryRun()).rejects.toThrow(/unsupported default change/i)
+    const failure = await db
+      .migrate()
+      .dryRun()
+      .catch((cause: unknown) => cause)
+
+    expect((failure as Error).message).toMatch(/Migration planning failed/i)
+    expect(JSON.stringify(failure)).toMatch(/unsupported default change/i)
     native.exec('insert into records(id) values(1)')
     expect(native.prepare('select label from records').all()).toEqual([{ label: 'a  b' }])
   } finally {

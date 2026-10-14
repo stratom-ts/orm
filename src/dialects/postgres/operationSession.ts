@@ -149,7 +149,13 @@ async function readIdentity(
   client: NativePostgresClient,
   dialectId: string,
 ): Promise<OperationSessionIdentity> {
-  const result = await queryNativeSql(client, POSTGRES_OPERATION_IDENTITY_SQL, dialectId)
+  const result = await queryNativeSql(
+    client,
+    POSTGRES_OPERATION_IDENTITY_SQL,
+    dialectId,
+    'database session identity check',
+  )
+
   const row = result.rows?.[0] as
     | { database?: unknown; physicalSession?: unknown; schema?: unknown }
     | undefined
@@ -190,11 +196,12 @@ async function queryNativeSql(
   client: NativePostgresClient,
   sql: string,
   dialectId: string,
+  operation = 'database session SQL execution',
 ): Promise<NativePostgresResult> {
   try {
     return await client.query(sql)
   } catch (cause) {
-    throw driverError(cause, dialectId, sql, postgresClassifyDriverError)
+    throw driverError(cause, dialectId, sql, postgresClassifyDriverError, operation)
   }
 }
 
@@ -253,8 +260,19 @@ async function verifyReleasedSession(
   }
 
   if (requiresCleanup) {
-    await queryNativeSql(client, POSTGRES_OPERATION_ROLLBACK_SQL, dialectId)
-    await queryNativeSql(client, POSTGRES_OPERATION_UNLOCK_SQL, dialectId)
+    await queryNativeSql(
+      client,
+      POSTGRES_OPERATION_ROLLBACK_SQL,
+      dialectId,
+      'database session rollback',
+    )
+
+    await queryNativeSql(
+      client,
+      POSTGRES_OPERATION_UNLOCK_SQL,
+      dialectId,
+      'database session unlock',
+    )
   }
 
   const releasedIdentity = await readIdentity(client, dialectId)
@@ -625,10 +643,7 @@ async function readNativeLeaseIdentity(
       instance = await connector.getInstance()
     } catch (cause) {
       throw new QueryError({
-        message:
-          cause instanceof Error
-            ? `Failed to open PostgreSQL operation session: ${cause.message}`
-            : 'Failed to open PostgreSQL operation session',
+        message: 'Failed to open PostgreSQL operation session',
         cause,
       })
     }

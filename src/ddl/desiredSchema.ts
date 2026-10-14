@@ -14,7 +14,7 @@ import type { ReferenceMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, SchemaError } from '@/utils/error'
 
 /**
  * Checks whether a column is a single-column primary or unique key.
@@ -200,7 +200,7 @@ export function lowerDesiredSchema(
     if (cause instanceof MigrationError) throw cause
 
     throw new MigrationError({
-      message: cause instanceof Error ? cause.message : 'Desired schema lowering failed',
+      message: `Desired schema lowering failed${cause instanceof SchemaError ? `: ${cause.message}` : ''}`,
       ...(cause === undefined ? {} : { cause }),
     })
   }

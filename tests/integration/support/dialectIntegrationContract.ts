@@ -233,6 +233,37 @@ function registerTransactionIntegration(adapter: DialectIntegrationAdapter) {
   )
 }
 
+/** Verifies portable wrapper context and recursive native diagnostics. */
+function assertContextualDriverFailure(
+  failure: unknown,
+  adapter: DialectIntegrationAdapter,
+  secret: string,
+): void {
+  expect(failure).toBeInstanceOf(DriverError)
+
+  expect(failure).toMatchObject({
+    _tag: 'DriverError',
+    dialect: adapter.dialectId,
+    kind: 'uniqueViolation',
+    retryable: false,
+  })
+
+  const error = failure as DriverError
+  expect(typeof error.code).toBe('string')
+  expect(error.cause).toBeInstanceOf(Error)
+  expect(error.sql).not.toContain(secret)
+  expect(failure).not.toHaveProperty('params')
+  expect(error.message).toContain('insert into')
+  expect(error.message).toContain('contract_records')
+  expect(error.message).not.toContain(secret)
+
+  expect(JSON.parse(JSON.stringify(error))).toMatchObject({
+    _tag: 'DriverError',
+    message: expect.stringContaining('insert into') as string,
+    cause: { message: expect.any(String) as string, code: error.code },
+  })
+}
+
 /** Verifies database failures through the same public client path for both dialects. */
 function registerDriverErrorIntegration(adapter: DialectIntegrationAdapter): void {
   registerDialectIntegrationScenario(
@@ -251,19 +282,7 @@ function registerDriverErrorIntegration(adapter: DialectIntegrationAdapter): voi
           .execute()
           .catch((cause: unknown) => cause)
 
-        expect(write).toBeInstanceOf(DriverError)
-
-        expect(write).toMatchObject({
-          _tag: 'DriverError',
-          dialect: adapter.dialectId,
-          kind: 'uniqueViolation',
-          retryable: false,
-        })
-
-        expect(typeof (write as DriverError).code).toBe('string')
-        expect((write as DriverError).cause).toBeInstanceOf(Error)
-        expect((write as DriverError).sql).not.toContain(secret)
-        expect(write).not.toHaveProperty('params')
+        assertContextualDriverFailure(write, adapter, secret)
 
         const transaction = await db
           .transaction(async (trx) => {
@@ -308,6 +327,8 @@ type ConstraintDb = Db<readonly [typeof ContractParents, typeof ContractFailures
 type ConstraintCase = Readonly<{
   scenario: string
   kind: DriverError['kind']
+  operation: 'insert into' | 'upsert into' | 'update' | 'delete from'
+  relation: 'contract_failures' | 'contract_parents'
   execute(): Promise<unknown>
 }>
 
@@ -343,6 +364,8 @@ function insertConstraintCases(db: ConstraintDb): readonly ConstraintCase[] {
     {
       scenario: 'insert unique',
       kind: 'uniqueViolation',
+      operation: 'insert into',
+      relation: 'contract_failures',
       execute: () =>
         db
           .insert(ContractFailures)
@@ -352,6 +375,8 @@ function insertConstraintCases(db: ConstraintDb): readonly ConstraintCase[] {
     {
       scenario: 'insert foreign key',
       kind: 'foreignKeyViolation',
+      operation: 'insert into',
+      relation: 'contract_failures',
       execute: () =>
         db
           .insert(ContractFailures)
@@ -361,12 +386,16 @@ function insertConstraintCases(db: ConstraintDb): readonly ConstraintCase[] {
     {
       scenario: 'insert not null',
       kind: 'notNullViolation',
+      operation: 'insert into',
+      relation: 'contract_failures',
       execute: () =>
         db.insert(ContractFailures).values({ id: 3, value: null, owner: 1 }).execute(),
     },
     {
       scenario: 'insert check',
       kind: 'checkViolation',
+      operation: 'insert into',
+      relation: 'contract_failures',
       execute: () =>
         db.insert(ContractFailures).values({ id: 3, value: 'x', owner: 1 }).execute(),
     },
@@ -379,6 +408,8 @@ function mutationConstraintCases(db: ConstraintDb): readonly ConstraintCase[] {
     {
       scenario: 'update unique',
       kind: 'uniqueViolation',
+      operation: 'update',
+      relation: 'contract_failures',
       execute: () =>
         db
           .update(ContractFailures)
@@ -389,12 +420,16 @@ function mutationConstraintCases(db: ConstraintDb): readonly ConstraintCase[] {
     {
       scenario: 'delete foreign key',
       kind: 'foreignKeyViolation',
+      operation: 'delete from',
+      relation: 'contract_parents',
       execute: () =>
         db.delete(ContractParents).where(ContractParents.id, 'eq', 1).execute(),
     },
     {
       scenario: 'upsert unique',
       kind: 'uniqueViolation',
+      operation: 'upsert into',
+      relation: 'contract_failures',
       execute: () =>
         db
           .insert(ContractFailures)
@@ -414,7 +449,7 @@ async function assertConstraintFailures(
 ): Promise<void> {
   await prepareConstraintFixture(db, nativeSql)
 
-  for (const { scenario, kind, execute } of [
+  for (const { scenario, kind, operation, relation, execute } of [
     ...insertConstraintCases(db),
     ...mutationConstraintCases(db),
   ]) {
@@ -428,6 +463,9 @@ async function assertConstraintFailures(
     })
 
     expect((failure as DriverError).cause, scenario).toBeInstanceOf(Error)
+    expect((failure as DriverError).message, scenario).toContain(operation)
+    expect((failure as DriverError).message, scenario).toContain(relation)
+    expect(JSON.stringify(failure), scenario).toContain('"_tag":"DriverError"')
   }
 }
 
@@ -459,6 +497,16 @@ function registerQueryDriverErrorIntegration(adapter: DialectIntegrationAdapter)
         expect((error as DriverError).sql).not.toContain(secret)
         expect((error as DriverError).cause).toBeInstanceOf(Error)
         expect(error).not.toHaveProperty('params')
+        expect((error as DriverError).message).toContain('select from')
+        expect((error as DriverError).message).toContain('contract_records')
+        expect((error as DriverError).message).not.toContain(secret)
+
+        expect(JSON.parse(JSON.stringify(error))).toMatchObject({
+          cause: {
+            message: expect.any(String) as string,
+            code: (error as DriverError).code,
+          },
+        })
       })
     },
   )

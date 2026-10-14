@@ -1,7 +1,13 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { DriverError, MigrationError, QueryError, SchemaError } from '@/utils/error'
+import {
+  DriverError,
+  InvariantError,
+  MigrationError,
+  QueryError,
+  SchemaError,
+} from '@/utils/error'
 
 import type {
   CancellationState,
@@ -62,6 +68,23 @@ function executionDefect(
   )
 }
 
+/** Formats operation context and only retains detail from recognized errors. */
+function executionMessage(
+  cause: unknown,
+  stage: MigrationExecutionStage,
+  actionIndex: number | undefined,
+  structured: MigrationError | undefined,
+): string {
+  const detail =
+    structured?.message ??
+    (cause instanceof MigrationCancellationError || cause instanceof InvariantError
+      ? cause.message
+      : undefined)
+
+  const action = actionIndex === undefined ? '' : ` during action ${actionIndex + 1}`
+  return `PostgreSQL migration ${stage} failed${action}${detail === undefined ? '' : `: ${detail}`}`
+}
+
 /**
  * Creates a structured execution failure while preserving the primary cause.
  *
@@ -91,12 +114,12 @@ function executionError(options: {
   ]
 
   const retryable = executionRetryable(structured, options)
-
+  const stage = structured?.stage ?? options.stage
   return new MigrationError({
-    message: cause instanceof Error ? cause.message : 'Migration failed',
+    message: executionMessage(cause, stage, actionIndex, structured),
     cause: primaryCause(cause),
     ...(executionDefect(cause, structured) ? { defect: true as const } : {}),
-    stage: structured?.stage ?? options.stage,
+    stage,
     outcome: options.outcome,
     retryable,
     ...(actionIndex === undefined ? {} : { actionIndex }),

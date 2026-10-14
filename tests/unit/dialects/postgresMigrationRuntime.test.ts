@@ -602,7 +602,9 @@ describe('PostgreSQL application-scoped migration coordination: reports the conf
       const error = await pending
 
       expect(error).toMatchObject({
-        message: 'Timed out acquiring the migration advisory lock after 100ms',
+        message: expect.stringContaining(
+          'Timed out acquiring the migration advisory lock after 100ms',
+        ) as string,
         stage: 'lock',
         outcome: 'unchanged',
         retryable: true,

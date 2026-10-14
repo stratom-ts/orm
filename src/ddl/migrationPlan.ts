@@ -2723,7 +2723,7 @@ export function planMigration(
     if (!(cause instanceof SchemaError)) throw cause
 
     throw new MigrationError({
-      message: cause.message,
+      message: `Migration planning failed: ${cause.message}`,
       cause,
     })
   }

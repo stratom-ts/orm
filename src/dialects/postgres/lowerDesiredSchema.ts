@@ -300,6 +300,9 @@ export function lowerPostgresDesiredSchema(
   } catch (cause) {
     if (!(cause instanceof SchemaError)) throw cause
 
-    throw new MigrationError({ message: cause.message, cause })
+    throw new MigrationError({
+      message: `PostgreSQL desired schema lowering failed: ${cause.message}`,
+      cause,
+    })
   }
 }

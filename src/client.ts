@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
-import type { DialectOperations } from '@/dialects'
+import type { DialectOperations, OperationCommand } from '@/dialects'
 import { resolveDialect } from '@/dialects'
 import type {
   NamespaceIdentifierInput,
@@ -14,6 +14,10 @@ import { validateApplicationId } from '@/migrations/coordinationScope'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import type { OperationContext } from '@/operations/coordinator'
 import { OperationCoordinator } from '@/operations/coordinator'
+import {
+  contextualOperationError,
+  operationCommandErrorMessage,
+} from '@/operations/errorContext'
 import type { OperationSessionProvider } from '@/operations/operationSession'
 import type {
   DeleteBuilder,
@@ -276,15 +280,61 @@ function assertHandles(schemas: readonly TableHandle[]): void {
   }
 }
 
+/** Runs a known session lifecycle command with context from its structured command. */
+async function runOperationCommand(
+  executor: Executor,
+  operations: DialectOperations,
+  command: OperationCommand,
+  dialectId: string,
+): Promise<void> {
+  const compiled = operations.compile(command)
+
+  try {
+    await executor.run(compiled)
+  } catch (cause) {
+    throw contextualOperationError(
+      cause,
+      operationCommandErrorMessage(dialectId, command),
+    )
+  }
+}
+
+/** Runs a root transaction and retains the callback failure during rollback. */
+async function runRootTransactionCallback<T>(
+  scope: TransactionScope,
+  inheritedTransactionFrame: TransactionScopeFrame | undefined,
+  fn: (scope: TransactionScope) => Promise<T>,
+): Promise<T> {
+  const callback = await attempt(() =>
+    activeTransactionScope.run({ scope, parent: inheritedTransactionFrame }, () =>
+      fn(scope),
+    ),
+  )
+
+  await drainTransactionScope(scope)
+
+  if (!callback.ok) throw callback.error
+  if (scope.context.poisoned) throw transactionPoisonedError()
+
+  return callback.value
+}
+
 /** Runs a root transaction and retains the callback failure during rollback. */
 async function runRootTransaction<T>(
   coordinator: OperationCoordinator,
+  dialectId: string,
   operations: DialectOperations,
   inheritedTransactionFrame: TransactionScopeFrame | undefined,
   fn: (scope: TransactionScope) => Promise<T>,
 ): Promise<T> {
   return coordinator.run(async (operation) => {
-    await operation.executor.run(operations.compile({ kind: 'begin' }))
+    await runOperationCommand(
+      operation.executor,
+      operations,
+      { kind: 'begin' },
+      dialectId,
+    )
+
     const scope: TransactionScope = {
       active: true,
       context: { nextSavepointId: 1, poisoned: false },
@@ -294,24 +344,31 @@ async function runRootTransaction<T>(
     }
 
     try {
-      const callback = await attempt(() =>
-        activeTransactionScope.run({ scope, parent: inheritedTransactionFrame }, () =>
-          fn(scope),
-        ),
+      const result = await runRootTransactionCallback(
+        scope,
+        inheritedTransactionFrame,
+        fn,
       )
 
-      await drainTransactionScope(scope)
-
-      if (!callback.ok) throw callback.error
-      if (scope.context.poisoned) throw transactionPoisonedError()
-
       scope.active = false
-      await operation.executor.run(operations.compile({ kind: 'commit' }))
-      return callback.value
+
+      await runOperationCommand(
+        operation.executor,
+        operations,
+        { kind: 'commit' },
+        dialectId,
+      )
+
+      return result
     } catch (error) {
       scope.active = false
       const rollback = await attempt(() =>
-        operation.executor.run(operations.compile({ kind: 'rollback' })),
+        runOperationCommand(
+          operation.executor,
+          operations,
+          { kind: 'rollback' },
+          dialectId,
+        ),
       )
 
       if (!rollback.ok) operation.discard()
@@ -322,8 +379,58 @@ async function runRootTransaction<T>(
 }
 
 /** Runs a nested transaction with savepoint cleanup and queue ownership. */
+async function runNestedTransactionCallback<T>(
+  transactionScope: TransactionScope,
+  nestedScope: TransactionScope,
+  dialectId: string,
+  operations: DialectOperations,
+  savepointId: number,
+  inheritedTransactionFrame: TransactionScopeFrame | undefined,
+  fn: (scope: TransactionScope) => Promise<T>,
+): Promise<T> {
+  let callbackFailed = false
+  let callbackError: unknown
+  let result: T | undefined
+
+  try {
+    result = await activeTransactionScope.run(
+      { scope: nestedScope, parent: inheritedTransactionFrame },
+      () => fn(nestedScope),
+    )
+  } catch (cause) {
+    callbackFailed = true
+    callbackError = cause
+  }
+
+  await drainTransactionScope(nestedScope)
+  nestedScope.active = false
+
+  if (callbackFailed)
+    await rollbackNestedTransaction(
+      transactionScope,
+      dialectId,
+      operations,
+      savepointId,
+      callbackError,
+    )
+
+  if (transactionScope.context.poisoned) throw transactionPoisonedError()
+
+  await executeSavepoint(
+    transactionScope,
+    dialectId,
+    operations,
+    'releaseSavepoint',
+    savepointId,
+  )
+
+  return result as T
+}
+
+/** Runs a nested transaction with savepoint cleanup and queue ownership. */
 async function runNestedTransaction<T>(
   transactionScope: TransactionScope,
+  dialectId: string,
   operations: DialectOperations,
   inheritedTransactionFrame: TransactionScopeFrame | undefined,
   fn: (scope: TransactionScope) => Promise<T>,
@@ -331,7 +438,13 @@ async function runNestedTransaction<T>(
   return scheduleTransactionScope(transactionScope, async () => {
     const savepointId = transactionScope.context.nextSavepointId++
 
-    await executeSavepoint(transactionScope, operations, 'createSavepoint', savepointId)
+    await executeSavepoint(
+      transactionScope,
+      dialectId,
+      operations,
+      'createSavepoint',
+      savepointId,
+    )
 
     const nestedScope: TransactionScope = {
       active: true,
@@ -341,36 +454,15 @@ async function runNestedTransaction<T>(
       queue: Promise.resolve(),
     }
 
-    let callbackFailed = false
-    let callbackError: unknown
-    let result: T | undefined
-
-    try {
-      result = await activeTransactionScope.run(
-        { scope: nestedScope, parent: inheritedTransactionFrame },
-        () => fn(nestedScope),
-      )
-    } catch (cause) {
-      callbackFailed = true
-      callbackError = cause
-    }
-
-    await drainTransactionScope(nestedScope)
-    nestedScope.active = false
-
-    if (callbackFailed)
-      await rollbackNestedTransaction(
-        transactionScope,
-        operations,
-        savepointId,
-        callbackError,
-      )
-
-    if (transactionScope.context.poisoned) throw transactionPoisonedError()
-
-    await executeSavepoint(transactionScope, operations, 'releaseSavepoint', savepointId)
-
-    return result as T
+    return runNestedTransactionCallback(
+      transactionScope,
+      nestedScope,
+      dialectId,
+      operations,
+      savepointId,
+      inheritedTransactionFrame,
+      fn,
+    )
   })
 }
 
@@ -447,11 +539,20 @@ function createClientExecutor(
 async function pingClient(
   clientExecutor: Executor,
   operations: DialectOperations,
+  dialectId: string,
   ensureClientOpen: () => void,
 ): Promise<void> {
   ensureClientOpen()
 
-  await clientExecutor.execute(operations.compile({ kind: 'ping' }))
+  const compiled = operations.compile({ kind: 'ping' })
+  try {
+    await clientExecutor.execute(compiled)
+  } catch (cause) {
+    throw contextualOperationError(
+      cause,
+      operationCommandErrorMessage(dialectId, { kind: 'ping' }),
+    )
+  }
 }
 
 /** Checks registration by exact authored relation identity. */
@@ -688,7 +789,8 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
   )
 
   /** Checks connectivity through the current operation executor. */
-  const ping = () => pingClient(clientExecutor, dialect.operations, ensureClientOpen)
+  const ping = () =>
+    pingClient(clientExecutor, dialect.operations, dialect.id, ensureClientOpen)
 
   const queryContext = { ...context, executor: clientExecutor, ensureClientOpen }
   const { from, insert } = createReadInsertMethods(queryContext)
@@ -799,6 +901,7 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
   if (!transactionScope) {
     return runRootTransaction(
       coordinator,
+      dialect.id,
       dialect.operations,
       inheritedTransactionFrame,
       (scope) => fn(createClient(scope.operation.executor, scope)),
@@ -807,6 +910,7 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
 
   return runNestedTransaction(
     transactionScope,
+    dialect.id,
     dialect.operations,
     inheritedTransactionFrame,
     (scope) => fn(createClient(scope.operation.executor, scope)),
@@ -1049,6 +1153,7 @@ function deleteFrom<THandle extends TableHandle>(
  */
 async function rollbackNestedTransaction(
   transactionScope: TransactionScope,
+  dialectId: string,
   operations: DialectOperations,
   savepointId: number,
   callbackError: unknown,
@@ -1058,11 +1163,11 @@ async function rollbackNestedTransaction(
   if (transactionScope.context.poisoned) throw callbackError
 
   try {
-    await rawExecutor.run(
-      operations.compile({
-        kind: 'rollbackToSavepoint',
-        id: savepointId,
-      }),
+    await runOperationCommand(
+      rawExecutor,
+      operations,
+      { kind: 'rollbackToSavepoint', id: savepointId },
+      dialectId,
     )
   } catch {
     transactionScope.context.poisoned = true
@@ -1071,8 +1176,11 @@ async function rollbackNestedTransaction(
   }
 
   try {
-    await rawExecutor.run(
-      operations.compile({ kind: 'releaseSavepoint', id: savepointId }),
+    await runOperationCommand(
+      rawExecutor,
+      operations,
+      { kind: 'releaseSavepoint', id: savepointId },
+      dialectId,
     )
   } catch {
     transactionScope.context.poisoned = true
@@ -1095,13 +1203,19 @@ async function rollbackNestedTransaction(
  */
 async function executeSavepoint(
   transactionScope: TransactionScope,
+  dialectId: string,
   operations: DialectOperations,
   kind: 'createSavepoint' | 'releaseSavepoint',
   savepointId: number,
 ): Promise<void> {
   const rawExecutor = transactionScope.operation.executor
   try {
-    await rawExecutor.run(operations.compile({ kind, id: savepointId }))
+    await runOperationCommand(
+      rawExecutor,
+      operations,
+      { kind, id: savepointId },
+      dialectId,
+    )
   } catch (error) {
     transactionScope.context.poisoned = true
     transactionScope.operation.discard()

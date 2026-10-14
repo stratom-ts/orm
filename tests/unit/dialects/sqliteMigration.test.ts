@@ -49,19 +49,44 @@ function trackNativeMutations(native: DatabaseSync): string[] {
 
 /** Asserts planning rejects before migration execution can begin. */
 async function expectPlanningFailure(run: () => Promise<unknown>, message?: string) {
-  await expect(run()).rejects.toMatchObject({
+  const failure = await run().catch((cause: unknown) => cause)
+
+  expect(failure).toMatchObject({
     stage: 'planning',
     outcome: 'unchanged',
-    ...(message ? { message } : {}),
   })
+
+  expect((failure as Error).message).toMatch(/migration planning failed/i)
+  expect((failure as Error).message).toContain(message ?? '')
 }
 
 /** Asserts SQLite lowering rejects a Migration Program before execution can begin. */
 async function expectLoweringFailure(run: () => Promise<unknown>, message?: string) {
-  await expect(run()).rejects.toMatchObject({
+  const failure = await run().catch((cause: unknown) => cause)
+
+  expect(failure).toMatchObject({
     stage: 'lowering',
     outcome: 'unchanged',
-    ...(message ? { message } : {}),
+  })
+
+  expect((failure as Error).message).toContain(message ?? '')
+}
+
+/** Checks the retained runtime stage, outcome, and primary diagnostic. */
+async function expectRuntimeFailure(
+  run: () => Promise<unknown>,
+  stage: string,
+  outcome: string,
+  causeMessage: string,
+  cleanupMessage: string,
+): Promise<void> {
+  const failure = await run().catch((cause: unknown) => cause)
+  expect(failure).toMatchObject({
+    stage,
+    outcome,
+    message: expect.stringContaining(`SQLite migration ${stage} failed`) as string,
+    cause: { message: causeMessage },
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: { message: cleanupMessage } }],
   })
 }
 
@@ -799,15 +824,21 @@ it.each([
         .prepare('select name,sql from sqlite_schema order by name')
         .all()
 
-      const error = {
+      const diagnostic = `Unsafe SQLite database expression ${JSON.stringify(expression)}`
+      const planError = {
         stage: 'planning',
         outcome: 'unchanged',
-        message: `Unsafe SQLite database expression ${JSON.stringify(expression)}`,
+        message: `Migration planning failed: ${diagnostic}`,
       }
 
-      await expect(db.migrate().plan()).rejects.toMatchObject(error)
-      await expect(db.migrate().dryRun()).rejects.toMatchObject(error)
-      await expect(db.migrate().execute()).rejects.toMatchObject(error)
+      await expect(db.migrate().plan()).rejects.toMatchObject(planError)
+      await expect(db.migrate().dryRun()).rejects.toMatchObject(planError)
+
+      await expect(db.migrate().execute()).rejects.toMatchObject({
+        stage: 'planning',
+        outcome: 'unchanged',
+        message: expect.stringContaining(diagnostic) as string,
+      })
 
       expect(
         native.prepare('select name,sql from sqlite_schema order by name').all(),
@@ -1319,7 +1350,7 @@ async function assertRebuildRollback(program: MigrationProgram, index: number) {
       outcome: 'rolledBack',
       actionIndex: 0,
       sourceStepIndexes: program.actions[0]!.sourceStepIndexes,
-      message: `injected ${index}`,
+      cause: expect.objectContaining({ message: `injected ${index}` }) as object,
     })
 
     expect(originalState(test.native)).toEqual(before)
@@ -1842,7 +1873,7 @@ it('rolls back a rebuild when final FK validation finds an existing orphan', asy
       stage: 'validation',
       outcome: 'rolledBack',
       sourceStepIndexes: [0],
-      message: 'SQLite foreign_key_check failed',
+      message: expect.stringContaining('SQLite foreign_key_check failed') as string,
     })
 
     expect(
@@ -1904,22 +1935,20 @@ it.each([false, true])(
         },
       }
 
-      await expect(
-        sqliteDialect.migration.execute({
-          executor,
-          databaseIdentity: ':memory:',
-          discard,
-          cancel: async () => undefined,
-          prepare: async () => program,
-        }),
-      ).rejects.toMatchObject({
-        stage: failDdl ? 'ddl' : 'sessionCleanup',
-        message: failDdl ? 'DDL injected' : 'FK restore injected',
-        outcome: failDdl ? 'rolledBack' : 'applied',
-        cleanupFailures: [
-          { stage: 'sessionCleanup', cause: new Error('FK restore injected') },
-        ],
-      })
+      await expectRuntimeFailure(
+        () =>
+          sqliteDialect.migration.execute({
+            executor,
+            databaseIdentity: ':memory:',
+            discard,
+            cancel: async () => undefined,
+            prepare: async () => program,
+          }),
+        failDdl ? 'ddl' : 'sessionCleanup',
+        failDdl ? 'rolledBack' : 'applied',
+        failDdl ? 'DDL injected' : 'FK restore injected',
+        'FK restore injected',
+      )
 
       expect(discard).toHaveBeenCalled()
 
