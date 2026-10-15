@@ -23,6 +23,25 @@ import {
   withDeadline,
 } from './helpers/operationSessionFixtures'
 
+it.each([0, 7, null])(
+  'returns native PostgreSQL count %s through executor.run',
+  async (rowCount) => {
+    const coordinator = new OperationCoordinator(
+      createDb0PostgresOperationSessionProvider(createNativeConnector({ rowCount })),
+    )
+
+    try {
+      await expect(
+        coordinator.run(({ executor }) =>
+          executor.run({ sql: 'update records set value = 1', params: [] }),
+        ),
+      ).resolves.toBe(rowCount ?? undefined)
+    } finally {
+      await coordinator.close()
+    }
+  },
+)
+
 it('preserves a connector open defect through db.ping()', async () => {
   const defect = new TypeError('connector getInstance failed')
   const stack = defect.stack

@@ -207,6 +207,24 @@ after stateful cleanup, before reuse. Reuse compares the full database, physical
 and ordered namespace role/spelling evidence to the lease identity. A changing or
 unprovable identity is an error and the session is discarded.
 
+`OperationSession.run()` and `Executor.run()` return `Promise<number | undefined>`.
+For insert, update, delete, and upsert statements without `RETURNING`, providers must
+return the driver's affected-row count as a nonnegative safe integer. Zero means no rows
+were affected. Statements without a meaningful count, such as lifecycle commands or
+DDL, may return `undefined`; their callers ignore the result. Custom
+`operationSessionProvider` implementations must now supply DML counts. A missing,
+negative, fractional, non-finite, or unsafe DML count is a provider defect: the write
+rejects with `InvariantError` after execution error handling, without converting it to
+`QueryError` or inventing a count. The statement may already have executed.
+
+PostgreSQL uses native `rowCount`, mapping `null` to `undefined`. SQLite converts native
+`changes` (number or bigint) to the numeric contract; writes reject counts outside the
+safe integer range. Counts follow the engine's affected-row semantics, including matched
+updates that assign the existing value. Conflict `DO NOTHING` reports zero for a skipped
+row, and conflict `DO UPDATE` counts the affected row. SQLite counts direct statement
+changes, excluding trigger and foreign-key cascade changes. Writes return rows by
+default; `returningNone()` selects `{ rowCount }` on root and transaction clients.
+
 One root operation exclusively owns one pinned session. Root operations are FIFO; close
 stops new work, drains accepted work and its releases, then closes the provider once.
 Calls on one physical session are serialized. Nested transaction work reuses the pinned

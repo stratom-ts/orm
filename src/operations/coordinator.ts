@@ -501,7 +501,7 @@ function createSessionExecutor(
      */
     async run(query) {
       try {
-        await session.run(query)
+        return await session.run(query)
       } catch (failure) {
         throw classify ? classifyDriverError(failure, classify) : failure
       }

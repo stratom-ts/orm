@@ -9,6 +9,11 @@ export type Executor = {
    * @throws {Error} Unrecognized adapter defects propagate unchanged.
    */
   execute(query: CompiledQuery): Promise<unknown[]>
-  /** Run a statement without requiring row results (DDL / DML). */
-  run(query: CompiledQuery): Promise<void>
+  /**
+   * Run a statement without requiring row results (DDL / DML).
+   *
+   * @returns The driver's nonnegative safe integer affected-row count for DML, or
+   *   undefined for statements without a meaningful count.
+   */
+  run(query: CompiledQuery): Promise<number | undefined>
 }

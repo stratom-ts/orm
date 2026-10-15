@@ -421,6 +421,14 @@ const deleted = await db
   .where(User.id, 'eq', user.id)
   .returning([User.id])
   .execute()
+
+// Report the native affected-row count for insert, update, delete, or upsert
+const result = await db
+  .update(User)
+  .set({ fullName: 'Ada L.' })
+  .where(User.id, 'eq', user.id)
+  .returningNone()
+  .execute() // { rowCount: 1 }, or { rowCount: 0 } when no row matches
 ```
 
 `onConflict(...)` accepts only an exact authored candidate key: the primary key, a

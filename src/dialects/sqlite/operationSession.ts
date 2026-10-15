@@ -16,7 +16,7 @@ import { sqliteClassifyDriverError } from './classifyDriverError'
 type NativeStatement = {
   all(...params: SqliteBinding[]): Record<string, unknown>[]
   setReadBigInts(enabled: boolean): void
-  run(...params: SqliteBinding[]): unknown
+  run(...params: SqliteBinding[]): { changes: number | bigint }
 }
 
 type NativeDatabase = {
@@ -515,9 +515,9 @@ function runStatement(
   params: SqliteBinding[],
   dialectId: string,
   sql: string,
-): void {
+): number {
   try {
-    statement.run(...params)
+    return Number(statement.run(...params).changes)
   } catch (cause) {
     throw driverError(
       cause,

@@ -154,6 +154,7 @@ export function registerDialectIntegrationScenarios(
   describe(`${adapter.name} shared integration scenarios`, () => {
     registerLifecycleIntegration(adapter)
     registerCrudIntegration(adapter)
+    registerWriteCountIntegration(adapter)
     registerUpsertIntegration(adapter)
     registerTransactionIntegration(adapter)
     registerDriverErrorIntegration(adapter)
@@ -556,6 +557,109 @@ function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
       })
     },
   )
+}
+
+/** Verifies the same native DML counts through every public client scope. */
+function registerWriteCountIntegration(adapter: DialectIntegrationAdapter) {
+  for (const scope of ['root', 'transaction', 'nested transaction'] as const) {
+    registerDialectIntegrationScenario(
+      adapter,
+      scope === 'root' ? ['query', 'migration'] : ['query', 'migration', 'transaction'],
+      `returns affected-row counts in a ${scope} scope`,
+      async () => {
+        await adapter.withDatabase([ContractRecords], async ({ db }) => {
+          await db.migrate().execute()
+
+          if (scope === 'root') await assertWriteCounts(db)
+          else if (scope === 'transaction') await db.transaction(assertWriteCounts)
+          else await db.transaction((trx) => trx.transaction(assertWriteCounts))
+        })
+      },
+    )
+  }
+}
+
+/** Exercises independently known single, batch, no-match, and conflict counts. */
+async function assertWriteCounts(
+  db: Db<readonly [typeof ContractRecords]>,
+): Promise<void> {
+  const records = ContractRecords
+  await expect(
+    db.insert(records).values({ label: 'one' }).returningNone().execute(),
+  ).resolves.toEqual({ rowCount: 1 })
+
+  await expect(
+    db
+      .insert(records)
+      .values([{ label: 'two' }, { label: 'three' }])
+      .returningNone()
+      .execute(),
+  ).resolves.toEqual({ rowCount: 2 })
+
+  await expect(
+    db
+      .update(records)
+      .set({ active: false })
+      .where({ label: 'absent' })
+      .returningNone()
+      .execute(),
+  ).resolves.toEqual({ rowCount: 0 })
+
+  await expect(
+    db.update(records).set({ active: false }).all().returningNone().execute(),
+  ).resolves.toEqual({ rowCount: 3 })
+
+  await assertUpsertCounts(db)
+
+  await expect(
+    db.delete(records).where({ label: 'absent' }).returningNone().execute(),
+  ).resolves.toEqual({ rowCount: 0 })
+
+  await expect(db.delete(records).all().returningNone().execute()).resolves.toEqual({
+    rowCount: 4,
+  })
+
+  await expect(db.from(records).execute()).resolves.toEqual([])
+}
+
+/** Verifies inserted, updated, and skipped conflict outcomes on an existing fixture. */
+async function assertUpsertCounts(
+  db: Db<readonly [typeof ContractRecords]>,
+): Promise<void> {
+  const records = ContractRecords
+  await expect(
+    db.update(records).set({ active: false }).all().returningNone().execute(),
+  ).resolves.toEqual({ rowCount: 3 })
+
+  await expect(
+    db
+      .insert(records)
+      .values({ label: 'four' })
+      .returningNone()
+      .onConflict([records.label])
+      .doUpdate({ active: true })
+      .execute(),
+  ).resolves.toEqual({ rowCount: 1 })
+
+  await expect(
+    db
+      .insert(records)
+      .values({ label: 'four' })
+      .onConflict([records.label])
+      .doUpdate({ active: false })
+      .returningNone()
+      .execute(),
+  ).resolves.toEqual({ rowCount: 1 })
+
+  await expect(
+    db
+      .insert(records)
+      .values({ label: 'four' })
+      .onConflict([records.label])
+      .doNothing()
+      .returningNone()
+      .execute(),
+  ).resolves.toEqual({ rowCount: 0 })
 }
 
 /** Registers shared insert conflict behavior for PostgreSQL and SQLite. */

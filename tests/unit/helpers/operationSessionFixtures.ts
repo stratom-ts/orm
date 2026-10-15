@@ -152,6 +152,7 @@ export function createControllableProvider(
     openFailure?: { session: number; value: unknown }
     closeFailure?: { value: unknown }
     unlockResult?: boolean
+    rowCount?: number
   },
 ): ProviderControls {
   const state: ControllableProviderState = {
@@ -356,7 +357,7 @@ async function openControllableSession(
     },
     /** Runs a fixture statement with configured outcomes. */
     run(query) {
-      return call(query.sql, async () => undefined)
+      return call(query.sql, async () => options?.rowCount)
     },
     /** Cancels the active physical-session operation. */
     cancel: () => cancelControllableSession(state, id, options),
@@ -440,6 +441,7 @@ function callControllableSession<T>(
 }
 
 type NativeConnectorOptions = {
+  rowCount?: number | null
   onQuery?: (
     text: string,
     signal: AbortSignal | undefined,
@@ -512,7 +514,7 @@ async function executeNativeFixtureQuery(
       terminated,
     ])
 
-    return { rows }
+    return { rows, rowCount: options?.rowCount ?? null }
   } finally {
     queryState.rejectActive = undefined
     queryState.activeQuery = null

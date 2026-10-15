@@ -31,7 +31,7 @@ import type {
   RightJoinStarResult,
   TableIdentityOf,
 } from '@/types/views'
-import { DriverError, QueryError } from '@/utils/error'
+import { DriverError, InvariantError, QueryError } from '@/utils/error'
 
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
@@ -45,6 +45,10 @@ import { buildInsertSchema, validateUpdatePatchWithStructuredValues } from './va
 export type WriteResult = {
   rowCount: number
 }
+
+/** Keeps count-only mode distinct from returned rows with a numeric rowCount column. */
+declare const noReturning: unique symbol
+type NoReturning = typeof noReturning
 
 export type CompiledQuery = { sql: string; params: unknown[] }
 
@@ -594,10 +598,15 @@ async function runWrite(
     return mapper ? mapper.mapResultRows(handle, rows) : rows
   }
 
-  await executeQueryOperation(ast, () => executor.run(compiled))
+  const rowCount = await executeQueryOperation(ast, () => executor.run(compiled))
 
-  // db0 does not expose affected-row counts portably
-  return { rowCount: 0 }
+  if (rowCount === undefined || !Number.isSafeInteger(rowCount) || rowCount < 0) {
+    throw new InvariantError(
+      'Write execution requires a nonnegative safe integer affected-row count',
+    )
+  }
+
+  return { rowCount }
 }
 
 /** Adds query operation context to recognized execution failures and retains diagnostics. */
@@ -657,7 +666,7 @@ function takeFirstOrThrow<T>(rows: T[], message: string): T {
 
 export type InsertBuilder<
   THandle extends TableHandle = TableHandle,
-  TResult = WriteResult,
+  TResult = NoReturning,
 > = {
   /** Selects an authored candidate key to handle insert conflicts. */
   onConflict(
@@ -669,6 +678,8 @@ export type InsertBuilder<
    * @returns A fresh write builder configured to return all columns of affected rows.
    */
   returningAll(): InsertBuilder<THandle, InferSelect<THandle>>
+  /** Returns a fresh builder that reports the affected-row count without result rows. */
+  returningNone(): InsertBuilder<THandle>
   /**
    * Creates a write builder that returns the requested columns.
    *
@@ -695,7 +706,7 @@ export type InsertBuilder<
    * @throws {QueryError} Invalid query use or a closed client.
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
-  execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  execute(): Promise<TResult extends NoReturning ? WriteResult : TResult[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
@@ -705,7 +716,7 @@ export type InsertBuilder<
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirst(): Promise<
-    TResult extends WriteResult ? WriteResult : TResult | undefined
+    TResult extends NoReturning ? WriteResult : TResult | undefined
   >
   /**
    * Executes the query and requires a result row, preserving write results without a
@@ -717,7 +728,7 @@ export type InsertBuilder<
    * @throws {QueryError} Invalid query use, a closed client, or a missing required row.
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
-  executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
+  executeTakeFirstOrThrow(): Promise<TResult extends NoReturning ? WriteResult : TResult>
 }
 
 type TableColumnName<THandle extends TableHandle> = keyof InferSelect<THandle> & string
@@ -752,7 +763,7 @@ type ConflictUpdatePatch<THandle extends TableHandle> = {
 /** Action-only state entered after selecting an insert conflict target. */
 export type InsertConflictBuilder<
   THandle extends TableHandle = TableHandle,
-  TResult = WriteResult,
+  TResult = NoReturning,
 > = {
   /** Ignores a row that conflicts with the selected candidate key. */
   doNothing(): InsertBuilder<THandle, TResult>
@@ -1006,7 +1017,7 @@ export type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
 
 export type UpdateBuilder<
   THandle extends TableHandle = TableHandle,
-  TResult = WriteResult,
+  TResult = NoReturning,
 > = {
   /**
    * Adds a filter and combines it with any existing predicate using AND.
@@ -1042,6 +1053,8 @@ export type UpdateBuilder<
    * @returns A fresh write builder configured to return all columns of affected rows.
    */
   returningAll(): UpdateBuilder<THandle, InferSelect<THandle>>
+  /** Returns a fresh builder that reports the affected-row count without result rows. */
+  returningNone(): UpdateBuilder<THandle>
   /**
    * Creates a write builder that returns the requested columns.
    *
@@ -1069,7 +1082,7 @@ export type UpdateBuilder<
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    * @throws {ValidationError} A deferred update expression produces an invalid value.
    */
-  execute(): Promise<Prettify<TResult extends WriteResult ? WriteResult : TResult>[]>
+  execute(): Promise<TResult extends NoReturning ? WriteResult : Prettify<TResult>[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
@@ -1080,7 +1093,7 @@ export type UpdateBuilder<
    * @throws {ValidationError} A deferred update expression produces an invalid value.
    */
   executeTakeFirst(): Promise<
-    TResult extends WriteResult ? WriteResult : TResult | undefined
+    TResult extends NoReturning ? WriteResult : TResult | undefined
   >
   /**
    * Executes the query and requires a result row, preserving write results without a
@@ -1093,7 +1106,7 @@ export type UpdateBuilder<
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    * @throws {ValidationError} A deferred update expression produces an invalid value.
    */
-  executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
+  executeTakeFirstOrThrow(): Promise<TResult extends NoReturning ? WriteResult : TResult>
 }
 
 /**
@@ -1172,7 +1185,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(
 
 export type DeleteBuilder<
   THandle extends TableHandle = TableHandle,
-  TResult = WriteResult,
+  TResult = NoReturning,
 > = {
   /**
    * Adds a filter and combines it with any existing predicate using AND.
@@ -1208,6 +1221,8 @@ export type DeleteBuilder<
    * @returns A fresh write builder configured to return all columns of affected rows.
    */
   returningAll(): DeleteBuilder<THandle, InferSelect<THandle>>
+  /** Returns a fresh builder that reports the affected-row count without result rows. */
+  returningNone(): DeleteBuilder<THandle>
   /**
    * Creates a write builder that returns the requested columns.
    *
@@ -1234,7 +1249,7 @@ export type DeleteBuilder<
    * @throws {QueryError} Invalid query use or a closed client.
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
-  execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
+  execute(): Promise<TResult extends NoReturning ? WriteResult : TResult[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
@@ -1244,7 +1259,7 @@ export type DeleteBuilder<
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirst(): Promise<
-    TResult extends WriteResult ? WriteResult : TResult | undefined
+    TResult extends NoReturning ? WriteResult : TResult | undefined
   >
   /**
    * Executes the query and requires a result row, preserving write results without a
@@ -1256,7 +1271,7 @@ export type DeleteBuilder<
    * @throws {QueryError} Invalid query use, a closed client, or a missing required row.
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
-  executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
+  executeTakeFirstOrThrow(): Promise<TResult extends NoReturning ? WriteResult : TResult>
 }
 
 /**
@@ -2550,8 +2565,14 @@ function addOutputColumn(
  *
  * @returns Immutable returning operations for all or selected affected-row columns.
  */
-function createWriteReturning(next: (changes: { returning: ReturningAst }) => unknown) {
+function createWriteReturning(
+  next: (changes: { returning: ReturningAst | undefined }) => unknown,
+) {
   return {
+    /** Returns a builder configured to report only the affected-row count. */
+    returningNone() {
+      return next({ returning: undefined }) as never
+    },
     /** Returns a builder configured to return every column. */
     returningAll() {
       return next({ returning: { kind: 'all' } }) as never
