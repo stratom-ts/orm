@@ -560,7 +560,8 @@ function createColumnRefs<
  *
  * @returns Table handle for registration, queries, and column references
  *
- * @throws SchemaError - When the resulting metadata is invalid
+ * @throws {SchemaError} The table name, columns, keys, indexes, or references are
+ *   invalid.
  */
 export function defineTable<
   const TName extends string,

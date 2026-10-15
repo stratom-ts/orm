@@ -5,7 +5,7 @@ import type {
   NamespaceContext,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
-import { InvariantError } from '@/utils/error'
+import { InvariantError, SchemaError } from '@/utils/error'
 
 const SQLITE_IDENTITY = 'sqlite' as const
 
@@ -38,7 +38,13 @@ export const SQLITE_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
   /** Resolves authored namespace segments using the configured writable defaults. */
   resolveNamespace(selected, writableDefault) {
     requireDatabaseNamespace(writableDefault, 'SQLite writable default')
-    requireDatabaseNamespace(selected, 'SQLite relation namespace')
+
+    if (selected.length !== 1 || selected[0]?.role !== 'database') {
+      throw new SchemaError({
+        message: 'SQLite relation namespace must have ordered roles database',
+      })
+    }
+
     return selected
   },
 }

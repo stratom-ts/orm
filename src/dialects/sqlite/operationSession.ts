@@ -1,13 +1,15 @@
 import type { Connector } from 'db0'
 import { realpathSync } from 'node:fs'
 
+import { nativeField } from '@/dialects/nativeError'
 import type { CompiledQuery } from '@/dialects/types'
+import { retainOperationReleaseCleanupFailure } from '@/operations/coordinator'
 import type {
   OperationSession,
   OperationSessionIdentity,
   OperationSessionProvider,
 } from '@/operations/operationSession'
-import { DriverError, QueryError, driverError } from '@/utils/error'
+import { DriverError, MigrationError, QueryError, driverError } from '@/utils/error'
 
 import { sqliteClassifyDriverError } from './classifyDriverError'
 
@@ -33,7 +35,11 @@ const connectorStates = new WeakMap<Connector, ConnectorState>()
 const nativeOwners = new WeakMap<object, ConnectorState>()
 
 /** Accepts only the native DatabaseSync capabilities needed by a pinned lease. */
-function nativeDatabase(value: unknown, probeFailureMessage: string): NativeDatabase {
+function nativeDatabase(
+  value: unknown,
+  dialectId: string,
+  operation: string,
+): NativeDatabase {
   const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
 
   if (!(value instanceof DatabaseSync) || value.isOpen === false) {
@@ -45,7 +51,18 @@ function nativeDatabase(value: unknown, probeFailureMessage: string): NativeData
   try {
     value.prepare('select 1')
   } catch (cause) {
-    throw new QueryError({ message: probeFailureMessage, cause })
+    if (
+      typeof cause === 'object' &&
+      cause !== null &&
+      nativeField(cause, 'code') === 'ERR_INVALID_STATE'
+    ) {
+      throw new QueryError({
+        message: 'db0 node-sqlite did not expose an open DatabaseSync',
+        cause,
+      })
+    }
+
+    throw driverError(cause, dialectId, 'select 1', sqliteClassifyDriverError, operation)
   }
 
   return value
@@ -222,8 +239,8 @@ function bindings(params: readonly unknown[]): SqliteBinding[] {
   })
 }
 
-/** Preserves SQL driver failures and classifies provider configuration failures. */
-function queryFailure(cause: unknown, message: string): QueryError | DriverError {
+/** Preserves failures except for the known nested-transaction mismatch. */
+function queryFailure(cause: unknown, message: string): unknown {
   if (
     cause instanceof DriverError &&
     cause.sql === 'begin' &&
@@ -232,9 +249,7 @@ function queryFailure(cause: unknown, message: string): QueryError | DriverError
   )
     return new QueryError({ message, cause: cause.cause })
 
-  return cause instanceof QueryError || cause instanceof DriverError
-    ? cause
-    : new QueryError({ message, cause })
+  return cause
 }
 
 type ProviderState = {
@@ -261,7 +276,7 @@ async function verifyNative(
   database: NativeDatabase,
   identity: OperationSessionIdentity,
   dialectId: string,
-  probeFailureMessage: string,
+  probeOperation: string,
 ): Promise<void> {
   if (
     (await connector.getInstance!()) !== database ||
@@ -271,7 +286,7 @@ async function verifyNative(
     throw new QueryError({ message: 'SQLite native session changed during operation' })
   }
 
-  nativeDatabase(database, probeFailureMessage)
+  nativeDatabase(database, dialectId, probeOperation)
 
   if (!sameIdentity(readIdentity(database, dialectId), identity)) {
     throw new QueryError({ message: 'SQLite session identity changed during operation' })
@@ -317,22 +332,50 @@ function closeOwnedConnector(connector: Connector, owner: ConnectorState): Promi
   return owner.closing
 }
 
+/** Retains cleanup beside a defect, including frozen objects and primitive causes. */
+function withProviderCleanup(
+  primary: unknown,
+  cleanup: unknown,
+  message: string,
+): unknown {
+  const cleanupFailures = [{ stage: 'sessionCleanup' as const, cause: cleanup }]
+
+  if ((typeof primary !== 'object' || primary === null) && typeof primary !== 'function')
+    return new MigrationError({
+      message,
+      cause: primary,
+      defect: true,
+      stage: 'sessionCleanup',
+      outcome: 'unknown',
+      cleanupFailures,
+    })
+
+  retainOperationReleaseCleanupFailure(primary, cleanup)
+
+  if (primary instanceof QueryError || primary instanceof DriverError) {
+    try {
+      Object.assign(primary, { cleanupFailures })
+    } catch {
+      // Frozen tagged errors still retain cleanup evidence in the side channel.
+    }
+  }
+
+  return primary
+}
+
 /** Retains cleanup evidence and blocks new leases when disposal remains incomplete. */
 async function disposeAfterFailure(
   connector: Connector,
   owner: ConnectorState,
   cause: unknown,
   message: string,
-): Promise<QueryError | DriverError> {
+): Promise<unknown> {
   const primary = queryFailure(cause, message)
   try {
     await dispose(connector, owner)
   } catch (cleanup) {
     owner.poisoned = true
-
-    Object.assign(primary, {
-      cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
-    })
+    return withProviderCleanup(primary, cleanup, message)
   }
 
   return primary
@@ -366,7 +409,7 @@ async function releaseLease(
       database,
       identity,
       dialectId,
-      'Failed to release SQLite operation session',
+      'operation session release probe',
     )
 
     rollbackNative(database, dialectId)
@@ -377,7 +420,7 @@ async function releaseLease(
       database,
       identity,
       dialectId,
-      'Failed to release SQLite operation session',
+      'operation session release probe',
     )
   } catch (cause) {
     throw await disposeAfterFailure(
@@ -414,7 +457,7 @@ function enqueue<T>(
       database,
       identity,
       dialectId,
-      'SQLite operation failed',
+      'operation session query probe',
     )
 
     const params = bindings(query.params)
@@ -544,6 +587,7 @@ function createLease(
 async function claimNativeDatabase(
   connector: Connector,
   owner: ConnectorState,
+  dialectId: string,
 ): Promise<NativeDatabase> {
   const database = await connector.getInstance!()
   const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
@@ -561,7 +605,7 @@ async function claimNativeDatabase(
   if (owner.native && owner.native !== database)
     throw new QueryError({ message: 'SQLite native session changed during operation' })
 
-  const validated = nativeDatabase(database, 'Failed to open SQLite operation session')
+  const validated = nativeDatabase(database, dialectId, 'operation session open probe')
   nativeOwners.set(database, owner)
   owner.native = database
   return validated
@@ -598,7 +642,7 @@ async function openLease(
   }
 
   try {
-    const claimed = await claimNativeDatabase(connector, owner)
+    const claimed = await claimNativeDatabase(connector, owner, dialectId)
 
     assertCleanTransaction(claimed, dialectId)
 

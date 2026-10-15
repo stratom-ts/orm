@@ -1197,11 +1197,13 @@ function memberIdentifier(
   try {
     return identities.member(role, spelling)
   } catch (cause) {
+    if (!(cause instanceof SchemaError)) throw cause
+
     throw new MigrationError({
       message: `Cannot address ${role} ${JSON.stringify(spelling)} of ${identities.format(
         relation,
-      )}: ${cause instanceof Error ? cause.message : 'invalid identifier'}`,
-      ...(cause !== undefined ? { cause } : {}),
+      )}: ${cause.message}`,
+      cause,
     })
   }
 }

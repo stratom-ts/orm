@@ -12,7 +12,7 @@ only.
 - **Desired-state migrations** — `db.migrate().plan()` / `.dryRun()` / `.execute()` with safe defaults, allowlist, and advisory lock
 - **Typed CRUD** — `db.from(Table).select|insert|update|delete` with column refs
 - **Transactions** — callback API; nested calls use savepoints
-- **Tagged errors** — `MigrationError`, `QueryError`, `ValidationError`, `SchemaError`
+- **Tagged errors** — `SchemaError`, `ValidationError`, `QueryError`, `MigrationError`, `DriverError`, and `InvariantError`, with guards for caught values
 
 ## Installation
 
@@ -46,7 +46,7 @@ with a setup message instead of silently passing when PostgreSQL is unavailable.
 ## Quick start
 
 ```typescript
-import { postgresql } from 'db0/connectors/postgresql'
+import postgresql from 'db0/connectors/postgresql'
 import { createDatabase, defineTable, column } from 'stratom'
 import { boolean, number, pipe, string } from 'valibot'
 
@@ -501,14 +501,87 @@ execution, but it does not apply destructive execution permissions or run DDL.
 
 ### Errors
 
-| Error             | When                                                                                                 |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `MigrationError`  | Unsafe migration, lock failure, unsupported diff, schema-type mapping, or dialect capability failure |
-| `QueryError`      | Execution / closed client / driver failures                                                          |
-| `ValidationError` | Insert/update Valibot validation failures                                                            |
-| `SchemaError`     | Invalid `defineTable` / metadata / registry misuse                                                   |
+| Origin                        | Tags                                                             | Who acts                                                                  |
+| ----------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Caller input or configuration | `SchemaError`, `ValidationError`, `QueryError`, `MigrationError` | Change the input, query, or migration configuration.                      |
+| Database, driver, or db0      | `DriverError`                                                    | Handle `kind` and `retryable`, or report the dependency failure upstream. |
+| Stratom bug                   | `InvariantError` or an unwrapped exception                       | Report the defect to Stratom.                                             |
 
-Use `catchTag` / `catchTags` for tagged handling.
+Catch values are `unknown`. Use `isErrorTag` to narrow one tag, or `isStratomError`
+to inspect the full union. Both guards work when two copies of Stratom are loaded.
+These examples use the live `db` and `User` from the quick start:
+
+```typescript
+import { isErrorTag } from 'stratom'
+import { flatten, getDotPath } from 'valibot'
+
+// A required row is missing: change the lookup or respond with 404.
+try {
+  await db.from(User).where(User.id, 'eq', -1).executeTakeFirstOrThrow()
+} catch (error: unknown) {
+  if (isErrorTag(error, 'QueryError')) console.log(error.message)
+  else throw error
+}
+
+// A unique constraint rejected an insert: handle the conflict by kind.
+try {
+  await db.insert(User).values({ email: 'a@b.com', fullName: 'Another user' }).execute()
+} catch (error: unknown) {
+  if (isErrorTag(error, 'DriverError') && error.kind === 'uniqueViolation') {
+    console.log('Email is already in use', error.constraint)
+  } else throw error
+}
+
+// A transient database failure may be retried by the caller's retry policy.
+try {
+  await db.from(User).execute()
+} catch (error: unknown) {
+  if (isErrorTag(error, 'DriverError') && error.retryable) {
+    console.log('Retry the operation', error.code)
+  } else throw error
+}
+
+// Row validation runs when values(...) is called, before execute().
+try {
+  const payload = JSON.parse('{"email": 7, "fullName": "Ada"}')
+  await db.insert(User).values(payload).execute()
+} catch (error: unknown) {
+  if (isErrorTag(error, 'ValidationError')) {
+    console.log(error.operation, error.table, flatten(error.issues))
+    console.log(error.issues.map((issue) => getDotPath(issue)))
+  } else throw error
+}
+
+// A blocked migration describes where it stopped and why.
+try {
+  await db.migrate().execute()
+} catch (error: unknown) {
+  if (isErrorTag(error, 'MigrationError')) {
+    console.log(
+      error.stage,
+      error.capabilityIssues?.map((issue) => issue.code),
+    )
+  } else throw error
+}
+```
+
+`db.update(User).set(...)` also validates literal values synchronously. Deferred
+update expressions can fail validation when the query executes. Query execution can
+throw `QueryError` for invalid query use or a missing required row, and `DriverError`
+for SQL rejected below Stratom. Migration planning and execution use `MigrationError`
+for expected failures. During migration execution, a defect that needs stage and
+database outcome context is a `MigrationError` with `defect: true`; its `cause`
+retains the original thrown value and stack. Planning and previews preserve defects
+unchanged.
+
+For a caller error report, include the tag, operation, relevant inputs, and the
+structured fields such as `ValidationError.issues` or `MigrationError.stage`,
+`outcome`, and `capabilityIssues`. For a dependency failure, include
+`DriverError.dialect`, `kind`, `retryable`, `code`, `sql`, and the native `cause` and
+its original stack. For a suspected Stratom bug, include the stack, reproduction,
+and any `InvariantError` message or `MigrationError` defect `cause`. Inspect SQL
+before sharing it: bound values are separate, but SQL text can contain authored
+literals or sensitive identifiers.
 
 ## License
 

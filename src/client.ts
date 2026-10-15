@@ -180,7 +180,12 @@ export type CreateDatabaseConfig<
 export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
   /** Registered table handles from `createDatabase`. */
   readonly schemas: TSchemas
-  /** Trivial connectivity check (`SELECT 1` via the owned db0 instance). */
+  /**
+   * Trivial connectivity check (`SELECT 1` via the owned db0 instance).
+   *
+   * @throws {QueryError} The client or transaction scope is closed.
+   * @throws {DriverError} The connectivity SQL fails below Stratom.
+   */
   ping(): Promise<void>
   /** Start a query rooted on a registered table handle. */
   from<THandle extends TableHandle>(handle: THandle): QueryBuilder<THandle>
@@ -216,11 +221,28 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
   /**
    * Callback transaction: commits on success, rolls back on error.
    * Nested calls use SAVEPOINT / ROLLBACK TO / RELEASE.
+   *
+   * @throws {QueryError} The client or transaction scope is invalid.
+   * @throws {DriverError} A transaction command fails below Stratom.
+   * @throws {Error} The callback's thrown value propagates unchanged, including tagged
+   *   errors and defects.
    */
   transaction<T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T>
-  /** Releases underlying connection resources. Idempotent after first call. */
+  /**
+   * Releases underlying connection resources. Idempotent after first call.
+   *
+   * @throws {QueryError} Closure is attempted from an active callback or transaction
+   *   client.
+   * @throws {Error} The session provider's shutdown rejection propagates unchanged.
+   */
   close(): Promise<void>
-  /** Closes the database client when its asynchronous disposal scope exits. */
+  /**
+   * Closes the database client when its asynchronous disposal scope exits.
+   *
+   * @throws {QueryError} Closure is attempted from an active callback or transaction
+   *   client.
+   * @throws {Error} The session provider's shutdown rejection propagates unchanged.
+   */
   [Symbol.asyncDispose](): Promise<void>
 }
 
@@ -684,7 +706,7 @@ function createDatabaseLifecycle(coordinator: OperationCoordinator) {
  * Creates a Stratom client from a db0 connector and table handles.
  *
  * @example
- *   import { postgresql } from 'db0/connectors/postgresql'
+ *   import postgresql from 'db0/connectors/postgresql'
  *
  *   const db = createDatabase({
  *     connector: postgresql({ url: process.env.DATABASE_URL! }),
@@ -699,6 +721,10 @@ function createDatabaseLifecycle(coordinator: OperationCoordinator) {
  *
  * @returns Client with `schemas`, `from`, `insert`, `update`, `delete`, `migrate`,
  *   `transaction`, `ping`, and `close`
+ *
+ * @throws {SchemaError} Configuration, registered handles, or namespace intent is
+ *   invalid.
+ * @throws {QueryError} The connector or session provider lacks required capabilities.
  */
 export function createDatabase<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],

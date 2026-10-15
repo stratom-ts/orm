@@ -8,7 +8,7 @@ import {
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
 import type { OperationSessionProvider } from '@/index'
-import { createDb0PostgresOperationSessionProvider } from '@/index'
+import { createDatabase, createDb0PostgresOperationSessionProvider } from '@/index'
 import {
   OperationCoordinator,
   getOperationReleaseCleanupFailures,
@@ -22,6 +22,78 @@ import {
   customConnector,
   withDeadline,
 } from './helpers/operationSessionFixtures'
+
+it('preserves a connector open defect through db.ping()', async () => {
+  const defect = new TypeError('connector getInstance failed')
+  const stack = defect.stack
+  const connector = {
+    ...createNativeConnector(),
+    getInstance() {
+      throw defect
+    },
+  }
+
+  const db = createDatabase({ connector, schemas: [] })
+
+  try {
+    const failure = await db.ping().catch((cause: unknown) => cause)
+    expect(failure).toBe(defect)
+    expect((failure as Error).stack).toBe(stack)
+  } finally {
+    await db.close()
+  }
+})
+
+it('retains disposal failure beside a frozen connector defect during open', async () => {
+  const defect = Object.freeze(new TypeError('connector open failed'))
+  const cleanup = new Error('disposal failed')
+  const connector = {
+    ...createNativeConnector(),
+    getInstance() {
+      throw defect
+    },
+    async dispose() {
+      throw cleanup
+    },
+  }
+
+  const provider = createDb0PostgresOperationSessionProvider(connector)
+
+  const failure = await provider.open().catch((cause: unknown) => cause)
+
+  expect(failure).toBe(defect)
+  expect((failure as Error).stack).toBe(defect.stack)
+  expect(getOperationReleaseCleanupFailures(failure)).toEqual([cleanup])
+})
+
+it('retains disposal failure after release verification rejects a primitive', async () => {
+  let openings = 0
+  const cleanup = new Error('disposal failed')
+  const connector = {
+    ...createNativeConnector(),
+    getInstance() {
+      openings++
+
+      if (openings === 2) throw 'identity unavailable'
+
+      return createNativeConnector().getInstance()
+    },
+    async dispose() {
+      throw cleanup
+    },
+  }
+
+  const provider = createDb0PostgresOperationSessionProvider(connector)
+  const session = await provider.open()
+  const failure = await session.release('reuse').catch((cause: unknown) => cause)
+
+  expect(failure).toMatchObject({
+    _tag: 'MigrationError',
+    defect: true,
+    cause: 'identity unavailable',
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
+  })
+})
 
 describe('native PostgreSQL driver classification', () => {
   it.each([undefined, null, 7, { code: '23505' }])(

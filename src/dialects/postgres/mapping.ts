@@ -54,21 +54,25 @@ export function mapPostgresResultValue(dataType: string, value: unknown): unknow
     return Number.isNaN(date.getTime()) ? value : date
   }
 
-  if (base === 'json' || base === 'jsonb') {
-    if (typeof value !== 'string') return value
-
-    try {
-      return JSON.parse(value) as unknown
-    } catch {
-      return value
-    }
-  }
+  if (base === 'json' || base === 'jsonb')
+    return typeof value === 'string' ? parseJsonResult(value) : value
 
   if (base === 'uuid') {
     return mapUuidValue(value)
   }
 
   return value
+}
+
+/** Leaves malformed JSON text intact while retaining unexpected parser failures. */
+function parseJsonResult(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown
+  } catch (cause) {
+    if (!(cause instanceof SyntaxError)) throw cause
+
+    return value
+  }
 }
 
 /**

@@ -4,11 +4,8 @@ import { getDotPath } from 'valibot'
 import type { MigrationCapabilityIssue } from '@/ddl/migrationProgram'
 import type { Equals } from '@/types/equals'
 
-type ErrorHandlers<T> = {
-  [K in Extract<T, { _tag: string }>['_tag']]?: (
-    error: Extract<T, { _tag: K }>,
-  ) => Exclude<T, { _tag: string }>
-}
+// Symbol.for keeps the brand stable when two copies of Stratom are loaded.
+const errorBrand = Symbol.for('stratom.error')
 
 export type Attempt<T> =
   | Readonly<{ ok: true; value: T }>
@@ -74,6 +71,20 @@ export function TaggedError<Tag extends string>(
       )
 
       Object.assign(this, properties)
+
+      Object.defineProperty(this, '_tag', {
+        value: tag,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      })
+
+      Object.defineProperty(this, errorBrand, {
+        value: true,
+        enumerable: false,
+        writable: false,
+        configurable: false,
+      })
     }
   }
   BaseError.prototype.name = tag
@@ -188,58 +199,6 @@ function serializeNativeError(
   serializeField(value, 'message', output, seen)
 
   if ('cause' in value) serializeField(value, 'cause', output, seen)
-}
-
-/**
- * Handles a tagged error when `value._tag` matches `tag`; otherwise returns `value`.
- *
- * @example
- *   const result = catchTag(err, 'MigrationError', (e) => e.message)
- *
- * @param value - Result or error that may carry `_tag`
- * @param tag - Tag to match.
- * @param callback - Handler invoked with the matching error.
- *
- * @returns Callback result, or `value` with that tag excluded from the type
- */
-export function catchTag<T, E extends Extract<T, { _tag: string }>['_tag'], V>(
-  value: T,
-  tag: E,
-  callback: (error: Extract<T, { _tag: E }>) => V,
-): V | Exclude<T, { _tag: E }> {
-  if (value instanceof Error && '_tag' in value && value._tag === tag) {
-    return callback(value as Extract<T, { _tag: E }>)
-  }
-
-  return value as Exclude<T, { _tag: E }>
-}
-
-/**
- * Dispatches a tagged error to a matching handler by `_tag`.
- *
- * @example
- *   const result = catchTags(err, {
- *     MigrationError: (e) => e.message,
- *   })
- *
- * @param value - Result or error that may carry `_tag`
- * @param handlers - Map of tag to handler.
- *
- * @returns Handler result, or `value` if no tag matched
- */
-export function catchTags<T, E extends ErrorHandlers<T>>(
-  value: T,
-  handlers: E,
-): Exclude<T, { _tag: keyof E }> {
-  for (const [tag, callback] of Object.entries<(error: unknown) => unknown>(
-    handlers as Record<string, (error: unknown) => unknown>,
-  )) {
-    if (value instanceof Error && '_tag' in value && value._tag === tag) {
-      return callback(value) as Exclude<T, { _tag: keyof E }>
-    }
-  }
-
-  return value as Exclude<T, { _tag: keyof E }>
 }
 
 /**
@@ -408,7 +367,7 @@ export function classifyDriverError(
   })
 }
 
-type ValidationOperation = 'insert' | 'update'
+export type ValidationOperation = 'insert' | 'update'
 
 type ValidationErrorArgs = Readonly<{
   table: string
@@ -462,5 +421,50 @@ export class InvariantError extends TaggedError('InvariantError')<{
   /** Creates a structured invariant error with its diagnostic message. */
   constructor(message: string) {
     super({ message })
+  }
+}
+
+/** Errors exposed by Stratom's public API. */
+export type StratomError =
+  | SchemaError
+  | ValidationError
+  | QueryError
+  | MigrationError
+  | DriverError
+  | InvariantError
+
+const errorTags = new Set<StratomError['_tag']>([
+  'SchemaError',
+  'ValidationError',
+  'QueryError',
+  'MigrationError',
+  'DriverError',
+  'InvariantError',
+])
+
+/** Recognizes a Stratom error from either copy of the package. */
+export function isStratomError(error: unknown): error is StratomError {
+  if (typeof error !== 'object' || error === null) return false
+
+  try {
+    const candidate = error as Record<PropertyKey, unknown>
+    return (
+      candidate[errorBrand] === true &&
+      errorTags.has(candidate._tag as StratomError['_tag'])
+    )
+  } catch {
+    return false
+  }
+}
+
+/** Narrows a caught value to one Stratom error tag. */
+export function isErrorTag<T extends StratomError['_tag']>(
+  error: unknown,
+  tag: T,
+): error is Extract<StratomError, { _tag: T }> {
+  try {
+    return isStratomError(error) && error._tag === tag
+  } catch {
+    return false
   }
 }

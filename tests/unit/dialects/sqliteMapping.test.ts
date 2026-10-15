@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 
 import { mapSqliteParamValue, mapSqliteResultValue } from '@/dialects/sqlite/mapping'
@@ -100,4 +101,84 @@ describe('SQLite value mapping: rejects invalid Date and cyclic JSON parameter v
     expect(cyclicJson).toThrow(QueryError)
     expect(cyclicJson).toThrow(/JSON parameter value cannot be serialized/i)
   })
+})
+
+it('preserves JSON callback defects and serializes shared references once per property', () => {
+  const defect = new TypeError('toJSON failed')
+  const stack = defect.stack
+  let calls = 0
+  const value = {
+    toJSON() {
+      calls++
+      throw defect
+    },
+  }
+
+  const failure = (() => {
+    try {
+      mapSqliteParamValue('JSON', value)
+    } catch (cause) {
+      return cause
+    }
+  })()
+
+  expect(failure).toBe(defect)
+  expect((failure as Error).stack).toBe(stack)
+  expect(calls).toBe(1)
+
+  const shared = { value: 1 }
+  expect(mapSqliteParamValue('JSON', { first: shared, second: shared })).toBe(
+    '{"first":{"value":1},"second":{"value":1}}',
+  )
+
+  expect(() => mapSqliteParamValue('JSON', { value: 1n })).toThrow(QueryError)
+  expect(() => mapSqliteParamValue('JSON', Object(1n))).toThrow(QueryError)
+
+  expect(() => mapSqliteParamValue('JSON', runInNewContext('Object(1n)'))).toThrow(
+    QueryError,
+  )
+
+  expect(mapSqliteParamValue('JSON', Object.create(BigInt.prototype))).toBe('{}')
+})
+
+it('preserves JSON getter defects and non-syntax parser failures', () => {
+  const defect = new RangeError('getter failed')
+  const stack = defect.stack
+  const value = Object.defineProperty({}, 'field', {
+    enumerable: true,
+    get() {
+      throw defect
+    },
+  })
+
+  let getterFailure: unknown
+  try {
+    mapSqliteParamValue('JSON', value)
+  } catch (cause) {
+    getterFailure = cause
+  }
+
+  expect(getterFailure).toBe(defect)
+  expect((getterFailure as Error).stack).toBe(stack)
+  const parserDefect = new TypeError('parser failed')
+  const parserStack = parserDefect.stack
+  const originalParse = JSON.parse
+
+  JSON.parse = () => {
+    throw parserDefect
+  }
+
+  try {
+    let parserFailure: unknown
+    try {
+      mapSqliteResultValue('JSON', '{}')
+    } catch (cause) {
+      parserFailure = cause
+    }
+
+    expect(parserFailure).toBe(parserDefect)
+    expect((parserFailure as Error).stack).toBe(parserStack)
+  } finally {
+    JSON.parse = originalParse
+  }
 })

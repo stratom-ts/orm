@@ -37,14 +37,17 @@ export type MigrationProgram = Readonly<{
   actions: readonly MigrationAction[]
 }>
 
+/** Known reason a complete plan cannot be lowered by a dialect. */
+export type MigrationCapabilityCode =
+  | 'profile_mismatch'
+  | 'missing_desired_table'
+  | 'invalid_target'
+  | 'compile_failure'
+  | 'unsupported_dependency_cycle'
+
 /** Deterministic reason a complete plan cannot be lowered by a dialect. */
 export type MigrationCapabilityIssue = Readonly<{
-  code:
-    | 'profile_mismatch'
-    | 'missing_desired_table'
-    | 'invalid_target'
-    | 'compile_failure'
-    | 'unsupported_dependency_cycle'
+  code: MigrationCapabilityCode
   message: string
   sourceStepIndexes: readonly number[]
 }>
@@ -107,6 +110,11 @@ export type DialectMigrationAdapter = Readonly<{
    * Coordinates and executes one lowered migration program.
    *
    * @param options - Runtime session capabilities and migration preparation callback.
+   *
+   * @throws {MigrationError} When execution fails, with stage, outcome, cleanup
+   *   evidence, and a defect marker for unexpected runtime failures.
+   * @throws {SchemaError} If the preparation callback rejects registered schema input.
+   * @throws {Error} Unrecognized callback defects retain their original identity.
    */
   execute(options: MigrationRuntimeOptions): Promise<MigrationRuntimeSuccess>
 }>
