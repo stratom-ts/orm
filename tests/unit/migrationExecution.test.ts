@@ -223,6 +223,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
 describe('public migration execution and session cleanup: keeps a DDL failure primary when rollback cancellation also fails: keeps a runtime DDL failure primary when provider release also fails', () => {
   it('keeps a runtime DDL failure primary when provider release also fails', async () => {
     const primaryCause = new Error('primary runtime DDL failure')
+    const primaryStack = primaryCause.stack
     const releaseCause = new Error('secondary provider release failure')
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
@@ -257,6 +258,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
       stage: 'ddl',
       outcome: 'rolledBack',
       retryable: false,
+      actionIndex: 0,
       cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
     })
 
@@ -265,6 +267,8 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
     )
 
     expect((error as MigrationError).cause).toBe(primaryCause)
+    expect(((error as MigrationError).cause as Error).stack).toBe(primaryStack)
+    expect((error as MigrationError).cleanupFailures?.[0]?.cause).toBe(releaseCause)
 
     expect(((error as MigrationError).cause as Error).message).toMatch(
       /primary runtime DDL failure/i,

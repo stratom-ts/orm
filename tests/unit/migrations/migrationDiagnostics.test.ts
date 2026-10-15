@@ -15,42 +15,45 @@ const executionFacts = {
     `Execution failed${actionIndex === undefined ? '' : ` during action ${actionIndex + 1}`}`,
 }
 
-it('keeps an absent primary cause absent while preserving structured diagnostics', () => {
-  const issues = [
-    { code: 'invalid_target' as const, message: 'invalid', sourceStepIndexes: [4] },
-  ]
+it.each([0, 2])(
+  'keeps an absent primary cause absent and action index %i through phase enrichment',
+  (actionIndex) => {
+    const issues = [
+      { code: 'invalid_target' as const, message: 'invalid', sourceStepIndexes: [4] },
+    ]
 
-  const indexes = [4]
-  const existing = new MigrationError({
-    message: 'invalid target',
-    defect: true,
-    outcome: 'unchanged',
-    retryable: true,
-    actionIndex: 2,
-    sourceStepIndexes: indexes,
-    capabilityIssues: issues,
-  })
+    const indexes = [4]
+    const existing = new MigrationError({
+      message: 'invalid target',
+      defect: true,
+      outcome: 'unchanged',
+      retryable: true,
+      actionIndex,
+      sourceStepIndexes: indexes,
+      capabilityIssues: issues,
+    })
 
-  const result = enrichMigrationError(existing, {
-    message: 'Migration planning failed: invalid target',
-    stage: 'planning',
-    retryable: false,
-  })
+    const result = enrichMigrationError(existing, {
+      message: 'Migration planning failed: invalid target',
+      stage: 'planning',
+      retryable: false,
+    })
 
-  expect(result.message).toBe('Migration planning failed: invalid target')
-  expect(Object.hasOwn(result, 'cause')).toBe(false)
+    expect(result.message).toBe('Migration planning failed: invalid target')
+    expect(Object.hasOwn(result, 'cause')).toBe(false)
 
-  expect(result).toMatchObject({
-    defect: true,
-    stage: 'planning',
-    outcome: 'unchanged',
-    retryable: false,
-    actionIndex: 2,
-  })
+    expect(result).toMatchObject({
+      defect: true,
+      stage: 'planning',
+      outcome: 'unchanged',
+      retryable: false,
+      actionIndex,
+    })
 
-  expect(result.sourceStepIndexes).toBe(indexes)
-  expect(result.capabilityIssues).toBe(issues)
-})
+    expect(result.sourceStepIndexes).toBe(indexes)
+    expect(result.capabilityIssues).toBe(issues)
+  },
+)
 
 it.each([null, undefined])('retains an explicitly present %s cause', (cause) => {
   const existing = new MigrationError({ message: 'failure', cause })
@@ -59,13 +62,45 @@ it.each([null, undefined])('retains an explicitly present %s cause', (cause) => 
   expect(Object.hasOwn(result, 'cause')).toBe(true)
   expect(result.cause).toBe(cause)
   expect(Object.hasOwn(result, 'defect')).toBe(false)
+
+  const executed = migrationExecutionError(result, executionFacts)
+  expect(Object.hasOwn(executed, 'cause')).toBe(true)
+  expect(executed.cause).toBe(cause)
 })
 
-it('appends cleanup in order, retaining duplicates and existing evidence', () => {
+it.each([
+  { name: 'phase', changes: { stage: 'planning' as const } },
+  {
+    name: 'cleanup',
+    changes: {
+      cleanupFailures: [{ stage: 'unlock' as const, cause: new Error('unlock') }],
+    },
+  },
+])('does not promote an inherited cause during $name enrichment', ({ changes }) => {
+  const inheritedCause = new Error('inherited')
+  class InheritedCauseMigrationError extends MigrationError {}
+
+  Object.defineProperty(InheritedCauseMigrationError.prototype, 'cause', {
+    value: inheritedCause,
+  })
+
+  const existing = new InheritedCauseMigrationError({ message: 'failure' })
+  expect(existing.cause).toBe(inheritedCause)
+  expect(Object.hasOwn(existing, 'cause')).toBe(false)
+
+  const enriched = enrichMigrationError(existing, changes)
+  expect(Object.hasOwn(enriched, 'cause')).toBe(false)
+
+  const executed = migrationExecutionError(enriched, executionFacts)
+  expect(executed.cause).toBe(enriched)
+})
+
+it.each([0, 2])('appends cleanup in order and keeps action index %i', (actionIndex) => {
   const first = new Error('first')
   const second = new Error('second')
   const existing = new MigrationError({
     message: 'failure',
+    actionIndex,
     cleanupFailures: [{ stage: 'rollback', cause: first }],
   })
 
@@ -81,6 +116,8 @@ it('appends cleanup in order, retaining duplicates and existing evidence', () =>
     { stage: 'unlock', cause: second },
     { stage: 'unlock', cause: second },
   ])
+
+  expect(result.actionIndex).toBe(actionIndex)
 
   expect(existing.cleanupFailures).toEqual([{ stage: 'rollback', cause: first }])
 })
