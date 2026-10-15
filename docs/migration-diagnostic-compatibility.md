@@ -108,3 +108,42 @@ minimum Node 22.5.0, including both dialect integration suites.
 Message standardization could be a separate follow-up. In particular, `sessionCleanup`
 and repeated `Migration ... failed` phrases read differently across paths. This review
 preserves their wording.
+
+## Follow-up for #288 and #289 (2026-10-16)
+
+The verification above describes the code before #288. The #288 simplification changed
+two presence checks in `enrichMigrationError`. #289 restores the rules in `52e4129`:
+only an own `cause` is copied, and `actionIndex: 0` is retained. The two-operation
+interface, messages, diagnostic fields, and ownership in the table above are unchanged.
+
+Direct regression tests now cover action indexes 0 and 2 in phase and cleanup
+enrichment. They also cover inherited `cause` values through both enrichment paths.
+An inherited cause does not become an own property. Execution then keeps the enriched
+error itself as its cause. Explicit own `null` and `undefined` causes stay present
+through enrichment and execution. The public PostgreSQL execution test checks that a
+first-action DDL failure keeps `actionIndex: 0`, its primary cause and stack, and its
+provider-release cleanup cause with the same message.
+
+Before the production fix, the two affected unit files had five failed tests and 23
+passed tests. The failures covered zero phase and cleanup indexes, inherited causes
+in both enrichment paths, and the public provider-release path. After the fix, all
+28 tests in those files passed. This follow-up tests the #288 regression against the
+current code. It does not repeat the earlier cross-version comparison.
+
+The follow-up checks ran on Node `v24.12.0` with PostgreSQL at
+`postgresql://test:test@localhost:5432/db0`.
+
+| Check                                               | Result                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------- |
+| Affected unit files, before the fix                 | 2 files, 5 failed and 23 passed tests.                           |
+| Affected unit files, after the fix                  | 2 files, 28 passed tests.                                        |
+| `pnpm test:unit`                                    | 84 files, 1,549 passed tests, including architecture checks.     |
+| `pnpm typecheck`, `pnpm lint`, and `pnpm fmt:check` | Passed.                                                          |
+| `pnpm test:integration:postgres`                    | 7 files, 25 passed tests.                                        |
+| `pnpm test:integration:sqlite`                      | 4 files, 43 passed tests.                                        |
+| `pnpm build` and `git diff --check`                 | Passed. The public declaration has no shared diagnostic exports. |
+
+The first SQLite integration run overlapped with `pnpm build`. Both builds wrote
+`dist`, and the SQLite package test failed while removing one declaration file.
+The SQLite suite passed when run alone. This was a build-output race, not a test
+failure in the migration behavior.

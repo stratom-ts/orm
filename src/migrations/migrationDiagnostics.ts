@@ -19,7 +19,7 @@ export function enrichMigrationError(
   changes: Enrichment,
 ): MigrationError {
   const message = changes.message ?? error.message
-  const cause = 'cause' in error ? { cause: error.cause } : {}
+  const cause = Object.hasOwn(error, 'cause') ? { cause: error.cause } : {}
   const defect = error.defect === undefined ? {} : { defect: error.defect }
 
   const stage =
@@ -35,7 +35,8 @@ export function enrichMigrationError(
       ? { retryable: changes.retryable ?? error.retryable }
       : {}
 
-  const actionIndex = error.actionIndex ? { actionIndex: error.actionIndex } : {}
+  const actionIndex =
+    error.actionIndex !== undefined ? { actionIndex: error.actionIndex } : {}
 
   const sourceStepIndexes = error.sourceStepIndexes
     ? { sourceStepIndexes: error.sourceStepIndexes }
