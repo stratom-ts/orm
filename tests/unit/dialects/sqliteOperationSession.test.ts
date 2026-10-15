@@ -269,10 +269,8 @@ it.each([
 })
 
 /** Hides newer properties while retaining the real DatabaseSync methods and state. */
-async function baselineFixture() {
-  const connector = nodeSqliteConnector({ name: ':memory:' })
-  const native = await connector.getInstance!()
-  const legacy = new Proxy(native, {
+function legacyNative<T extends object>(native: T): T {
+  return new Proxy(native, {
     /** Models the Node 22.5 surface with methods bound to the actual native instance. */
     get(target, key): unknown {
       if (key === 'isOpen' || key === 'isTransaction') return undefined
@@ -281,6 +279,13 @@ async function baselineFixture() {
       return typeof value === 'function' ? value.bind(target) : value
     },
   })
+}
+
+/** Creates a fixture with the Node 22.5 DatabaseSync property surface. */
+async function baselineFixture() {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  const legacy = legacyNative(native)
 
   return { native, connector: { ...connector, getInstance: () => legacy } }
 }
@@ -661,47 +666,51 @@ it('rejects connector aliases to an owned DatabaseSync without probing or dispos
   }
 })
 
-it('rejects a stale native alias without disposing the live replacement', async () => {
-  const connector = nodeSqliteConnector({ name: ':memory:' })
-  const stale = await connector.getInstance!()
-  const first = createDb0NodeSqliteOperationSessionProvider(connector)
-  const alias = createDb0NodeSqliteOperationSessionProvider({
-    ...connector,
-    getInstance: () => stale,
-  })
-
-  let active: OperationSession | undefined
-  let primary: unknown
-  try {
-    active = await first.open()
-    await active.release('discard')
-    active = await first.open()
-
-    await active.run({ sql: 'create table records(id INTEGER)', params: [] })
-    await active.run({ sql: 'insert into records values(1)', params: [] })
-    await active.run({ sql: 'begin', params: [] })
-    await active.run({ sql: 'insert into records values(2)', params: [] })
-
-    await expect(alias.open()).rejects.toMatchObject({ _tag: 'QueryError' })
-    await alias.close()
-
-    expect(
-      await active.query({ sql: 'select id from records order by id', params: [] }),
-    ).toEqual([{ id: 1 }, { id: 2 }])
-
-    await active.run({ sql: 'commit', params: [] })
-    await active.release('reuse')
-    active = undefined
-  } catch (cause) {
-    primary = cause
-  } finally {
-    await alias.close().catch((cause: unknown) => {
-      primary ??= cause
+it.each(['native', 'legacy'] as const)(
+  'rejects a stale native alias on the %s surface without disposing the live replacement',
+  async (surface) => {
+    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const stale = await connector.getInstance!()
+    const legacyStale = legacyNative(stale)
+    const first = createDb0NodeSqliteOperationSessionProvider(connector)
+    const alias = createDb0NodeSqliteOperationSessionProvider({
+      ...connector,
+      getInstance: () => (surface === 'legacy' ? legacyStale : stale),
     })
 
-    await closeBaseline(first, active, primary)
-  }
-})
+    let active: OperationSession | undefined
+    let primary: unknown
+    try {
+      active = await first.open()
+      await active.release('discard')
+      active = await first.open()
+
+      await active.run({ sql: 'create table records(id INTEGER)', params: [] })
+      await active.run({ sql: 'insert into records values(1)', params: [] })
+      await active.run({ sql: 'begin', params: [] })
+      await active.run({ sql: 'insert into records values(2)', params: [] })
+
+      await expect(alias.open()).rejects.toMatchObject({ _tag: 'QueryError' })
+      await alias.close()
+
+      expect(
+        await active.query({ sql: 'select id from records order by id', params: [] }),
+      ).toEqual([{ id: 1 }, { id: 2 }])
+
+      await active.run({ sql: 'commit', params: [] })
+      await active.release('reuse')
+      active = undefined
+    } catch (cause) {
+      primary = cause
+    } finally {
+      await alias.close().catch((cause: unknown) => {
+        primary ??= cause
+      })
+
+      await closeBaseline(first, active, primary)
+    }
+  },
+)
 
 it.each(['reuse', 'discard'] as const)(
   'does not affect another connector after a leased connector switches native targets on %s',

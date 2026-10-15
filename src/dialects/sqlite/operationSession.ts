@@ -1,6 +1,7 @@
 import type { Connector } from 'db0'
 import { realpathSync } from 'node:fs'
 
+import { nativeField } from '@/dialects/nativeError'
 import type { CompiledQuery } from '@/dialects/types'
 import { retainOperationReleaseCleanupFailure } from '@/operations/coordinator'
 import type {
@@ -50,6 +51,17 @@ function nativeDatabase(
   try {
     value.prepare('select 1')
   } catch (cause) {
+    if (
+      typeof cause === 'object' &&
+      cause !== null &&
+      nativeField(cause, 'code') === 'ERR_INVALID_STATE'
+    ) {
+      throw new QueryError({
+        message: 'db0 node-sqlite did not expose an open DatabaseSync',
+        cause,
+      })
+    }
+
     throw driverError(cause, dialectId, 'select 1', sqliteClassifyDriverError, operation)
   }
 
