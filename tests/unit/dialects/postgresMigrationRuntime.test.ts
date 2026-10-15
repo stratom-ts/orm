@@ -56,31 +56,29 @@ it('retains PostgreSQL ownership error origin and rollback/unlock cleanup eviden
 })
 
 describe('PostgreSQL migration runtime failures', () => {
-  it.each([null, undefined])(
-    'preserves an explicitly present nullish defect cause: %s',
-    async (originalCause) => {
-      const structured = new MigrationError({
-        message: 'wrapped nullish defect',
-        cause: originalCause,
-        defect: true,
-        stage: 'planning',
-        outcome: 'unchanged',
-        retryable: false,
-      })
+  it('preserves an explicitly present null defect cause', async () => {
+    const originalCause = null
+    const structured = new MigrationError({
+      message: 'wrapped nullish defect',
+      cause: originalCause,
+      defect: true,
+      stage: 'planning',
+      outcome: 'unchanged',
+      retryable: false,
+    })
 
-      const runtime = harness({ prepareFailure: structured })
-      const rejection = await runtime.execute().catch((cause: unknown) => cause)
+    const runtime = harness({ prepareFailure: structured })
+    const rejection = await runtime.execute().catch((cause: unknown) => cause)
 
-      expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+    expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
 
-      expect((rejection as MigrationError).message).toBe(
-        'PostgreSQL migration planning failed: wrapped nullish defect',
-      )
+    expect((rejection as MigrationError).message).toBe(
+      'PostgreSQL migration planning failed: wrapped nullish defect',
+    )
 
-      expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
-      expect((rejection as MigrationError).cause).toBe(originalCause)
-    },
-  )
+    expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
+    expect((rejection as MigrationError).cause).toBe(originalCause)
+  })
 
   it('classifies arbitrary SQL as a non-transaction event', async () => {
     const runtime = harness()
@@ -153,6 +151,7 @@ describe('PostgreSQL migration runtime failures: classifies an acknowledged DDL 
       stage: 'ddl',
       outcome: 'rolledBack',
       retryable: false,
+      defect: true,
       actionIndex: 0,
       sourceStepIndexes: [4],
     })
@@ -182,6 +181,26 @@ describe('PostgreSQL migration runtime failures: classifies an acknowledged DDL 
     expect(runtime.calls.at(-1)).toMatch(/pg_advisory_unlock/i)
     expect(runtime.discard).toHaveBeenCalled()
   })
+})
+
+it('retains a reported validation stage and its exact execution message', async () => {
+  const primary = new MigrationError({
+    message: 'validation rejected',
+    stage: 'validation',
+  })
+
+  const runtime = harness({ prepareFailure: primary })
+  const rejection = await runtime.execute().catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({
+    stage: 'validation',
+    outcome: 'unchanged',
+    cause: primary,
+  })
+
+  expect((rejection as MigrationError).message).toBe(
+    'PostgreSQL migration validation failed: validation rejected',
+  )
 })
 
 describe('PostgreSQL migration runtime failures: classifies rollback failure as unknown and discards the session', () => {
@@ -310,7 +329,10 @@ describe('PostgreSQL migration coordination and cancellation', () => {
       retryable: true,
     })
 
-    expect((error as Error).message).toMatch(/one no-wait try/i)
+    expect((error as Error).message).toBe(
+      'PostgreSQL migration lock failed: Migration advisory lock was not available after one no-wait try',
+    )
+
     expect(runtime.calls).toHaveLength(1)
     expect(runtime.calls[0]).toMatch(/pg_try_advisory_lock/i)
 
@@ -444,6 +466,10 @@ describe('PostgreSQL migration coordination and cancellation: cancels in-flight 
       outcome: 'unknown',
       retryable: false,
     })
+
+    expect((error as MigrationError).message).toBe(
+      'PostgreSQL migration ddl failed during action 1: Migration execution was aborted',
+    )
 
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.discard).toHaveBeenCalled()

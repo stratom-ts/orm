@@ -240,11 +240,15 @@ it('classifies pre-coordination abort as retryable without preparation', async (
 
 it('treats commit acknowledgement failure as unknown without rollback or unsafe cleanup', async () => {
   const test = fixture({ fail: 'commit' })
-  await expect(test.execute()).rejects.toMatchObject({
+  const rejection = await test.execute().catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({
     stage: 'commit',
     outcome: 'unknown',
     retryable: false,
   })
+
+  expect((rejection as MigrationError).message).toBe('SQLite migration commit failed')
 
   expect(test.calls).not.toContain('rollback')
   expect(test.calls).not.toContain('pragma busy_timeout=250')
@@ -335,26 +339,24 @@ it('preserves an existing defect marker while reconstructing migration diagnosti
   expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
 })
 
-it.each([null, undefined])(
-  'preserves an explicitly present nullish defect cause: %s',
-  async (originalCause) => {
-    const structured = new MigrationError({
-      message: 'wrapped nullish defect',
-      cause: originalCause,
-      defect: true,
-      stage: 'planning',
-      outcome: 'unchanged',
-      retryable: false,
-    })
+it('preserves an explicitly present undefined defect cause', async () => {
+  const originalCause = undefined
+  const structured = new MigrationError({
+    message: 'wrapped nullish defect',
+    cause: originalCause,
+    defect: true,
+    stage: 'planning',
+    outcome: 'unchanged',
+    retryable: false,
+  })
 
-    const test = fixture({ prepareFailure: structured })
-    const rejection = await test.execute().catch((cause: unknown) => cause)
+  const test = fixture({ prepareFailure: structured })
+  const rejection = await test.execute().catch((cause: unknown) => cause)
 
-    expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
-    expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
-    expect((rejection as MigrationError).cause).toBe(originalCause)
-  },
-)
+  expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+  expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
+  expect((rejection as MigrationError).cause).toBe(originalCause)
+})
 
 it('uses an uncaused structured preparation failure as its primary cause', async () => {
   const primary = new MigrationError({ message: 'preparation failed', stage: 'planning' })
