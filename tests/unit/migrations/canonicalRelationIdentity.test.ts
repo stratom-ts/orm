@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { SQLITE_IDENTITY_POLICY as BUILTIN_SQLITE_POLICY } from '@/dialects/sqlite/identity'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
-import { SchemaError } from '@/utils/error'
+import { InvariantError, SchemaError } from '@/utils/error'
 
 import { SQLITE_IDENTITY_POLICY } from '../helpers/dialectPolicies'
 
@@ -51,6 +52,52 @@ describe('canonical relation identity', () => {
 
     expect(identities.equals(identity, differentRole)).toBe(false)
   })
+})
+
+it('classifies authored PostgreSQL namespace mistakes as schema errors', () => {
+  const writable = POSTGRES_CONTEXT.writableDefault
+
+  expect(() =>
+    POSTGRES_POLICY.resolveNamespace(
+      [{ role: 'database', spelling: 'app_db' }],
+      writable,
+    ),
+  ).toThrow(SchemaError)
+
+  expect(() =>
+    POSTGRES_POLICY.resolveNamespace(
+      [
+        { role: 'database', spelling: 'other_db' },
+        { role: 'schema', spelling: 'public' },
+      ],
+      writable,
+    ),
+  ).toThrow(SchemaError)
+
+  expect(() =>
+    POSTGRES_POLICY.resolveNamespace(
+      [{ role: 'schema', spelling: 'public' }],
+      [{ role: 'schema', spelling: 'invalid' }],
+    ),
+  ).toThrow(InvariantError)
+})
+
+it('classifies authored SQLite namespace mistakes as schema errors', () => {
+  const writable = SQLITE_CONTEXT.writableDefault
+
+  expect(() =>
+    BUILTIN_SQLITE_POLICY.resolveNamespace(
+      [{ role: 'schema', spelling: 'main' }],
+      writable,
+    ),
+  ).toThrow(SchemaError)
+
+  expect(() =>
+    BUILTIN_SQLITE_POLICY.resolveNamespace(
+      [{ role: 'database', spelling: 'main' }],
+      [{ role: 'schema', spelling: 'invalid' }],
+    ),
+  ).toThrow(InvariantError)
 })
 
 describe('canonical relation identity: keeps dotted, quoted, case-distinct, and Unicode tuples separate', () => {

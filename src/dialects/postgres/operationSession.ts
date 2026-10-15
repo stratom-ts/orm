@@ -1,12 +1,13 @@
 import type { Connector } from 'db0'
 
 import type { CompiledQuery } from '@/dialects'
+import { retainOperationReleaseCleanupFailure } from '@/operations/coordinator'
 import type {
   OperationSession,
   OperationSessionIdentity,
   OperationSessionProvider,
 } from '@/operations/operationSession'
-import { QueryError, driverError } from '@/utils/error'
+import { MigrationError, QueryError, driverError } from '@/utils/error'
 
 import { postgresClassifyDriverError } from './classifyDriverError'
 import { scanPostgresSql } from './postgresSql'
@@ -422,12 +423,37 @@ async function releaseNativeSession(
   } catch (cause) {
     releaseFailed = true
     releaseError = cause
-    await disposeConnector().catch(() => undefined)
+
+    try {
+      await disposeConnector()
+    } catch (cleanup) {
+      releaseError = withNativeCleanupFailure(cause, cleanup)
+    }
   } finally {
     finishLease()
   }
 
   if (releaseFailed) throw releaseError
+}
+
+/** Keeps disposal failure evidence without replacing an object-valued provider defect. */
+function withNativeCleanupFailure(primary: unknown, cleanup: unknown): unknown {
+  if (
+    (typeof primary === 'object' && primary !== null) ||
+    typeof primary === 'function'
+  ) {
+    retainOperationReleaseCleanupFailure(primary, cleanup)
+    return primary
+  }
+
+  return new MigrationError({
+    message: 'PostgreSQL session cleanup failed after an unknown rejection',
+    cause: primary,
+    defect: true,
+    stage: 'sessionCleanup',
+    outcome: 'unknown',
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
+  })
 }
 
 /**
@@ -638,26 +664,23 @@ async function readNativeLeaseIdentity(
   let identity: OperationSessionIdentity
 
   try {
-    let instance: unknown
-    try {
-      instance = await connector.getInstance()
-    } catch (cause) {
-      throw new QueryError({
-        message: 'Failed to open PostgreSQL operation session',
-        cause,
-      })
-    }
-
+    const instance: unknown = await connector.getInstance()
     client = asNativePostgresClient(instance)
     assertReusableNativeClient(client)
     identity = await readIdentity(client, dialectId)
   } catch (cause) {
-    await dispose().catch(() => undefined)
-    state.leased = false
-    state.activeLease = undefined
-    finishLease()
+    let failure = cause
+    try {
+      await dispose()
+    } catch (cleanup) {
+      failure = withNativeCleanupFailure(cause, cleanup)
+    } finally {
+      state.leased = false
+      state.activeLease = undefined
+      finishLease()
+    }
 
-    throw cause
+    throw failure
   }
 
   return { client, identity }

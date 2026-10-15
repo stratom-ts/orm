@@ -1,3 +1,5 @@
+import { types } from 'node:util'
+
 import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
 import { QueryError, SchemaError } from '@/utils/error'
 
@@ -225,14 +227,28 @@ function mapDateResultValue(value: unknown): unknown {
 function mapJsonParamValue(value: unknown): unknown {
   if (typeof value === 'string') return value
 
-  try {
-    return JSON.stringify(value)
-  } catch (cause) {
-    throw new QueryError({
-      message: 'SQLite JSON parameter value cannot be serialized',
-      cause,
-    })
-  }
+  const ancestors: object[] = []
+  return JSON.stringify(value, function (_key, current: unknown) {
+    if (typeof current === 'bigint' || types.isBigIntObject(current)) {
+      throw new QueryError({
+        message: 'SQLite JSON parameter value cannot be serialized',
+      })
+    }
+
+    if (typeof current === 'object' && current !== null) {
+      while (ancestors.length > 0 && ancestors.at(-1) !== this) ancestors.pop()
+
+      if (ancestors.includes(current)) {
+        throw new QueryError({
+          message: 'SQLite JSON parameter value cannot be serialized',
+        })
+      }
+
+      ancestors.push(current)
+    }
+
+    return current
+  })
 }
 
 /** Parses JSON result strings and preserves values that cannot be decoded. */
@@ -241,7 +257,9 @@ function mapJsonResultValue(value: unknown): unknown {
 
   try {
     return JSON.parse(value) as unknown
-  } catch {
+  } catch (cause) {
+    if (!(cause instanceof SyntaxError)) throw cause
+
     return value
   }
 }

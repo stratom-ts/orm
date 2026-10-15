@@ -36,7 +36,10 @@ const operationReleaseCleanupFailures = new WeakMap<object, unknown[]>()
  * @param cause - Original rejection whose identity and failure details must be preserved.
  * @param failure - Secondary verification or cleanup rejection to retain.
  */
-function retainOperationReleaseCleanupFailure(cause: unknown, failure: unknown): void {
+export function retainOperationReleaseCleanupFailure(
+  cause: unknown,
+  failure: unknown,
+): void {
   if (!((typeof cause === 'object' && cause !== null) || typeof cause === 'function')) {
     return
   }
@@ -193,24 +196,12 @@ function sameNamespaceContext(
  * @param session - Session to validate and snapshot.
  */
 function captureSessionIdentity(session: OperationSession): OperationSessionIdentity {
-  let database: unknown
-  let physicalSession: unknown
-  let namespaceContext: OperationSessionIdentity['namespaceContext']
+  const identity = (session as { readonly identity?: Partial<OperationSessionIdentity> })
+    .identity
 
-  try {
-    const identity = (
-      session as { readonly identity?: Partial<OperationSessionIdentity> }
-    ).identity
-
-    database = identity?.database
-    physicalSession = identity?.physicalSession
-    namespaceContext = captureNamespaceContext(identity?.namespaceContext)
-  } catch (cause) {
-    throw new QueryError({
-      message: 'Unable to capture operation session identity',
-      cause,
-    })
-  }
+  const database: unknown = identity?.database
+  const physicalSession: unknown = identity?.physicalSession
+  const namespaceContext = captureNamespaceContext(identity?.namespaceContext)
 
   if (
     typeof database !== 'string' ||
@@ -240,24 +231,12 @@ function assertStableSessionIdentity(
   session: OperationSession,
   expected: OperationSessionIdentity,
 ): void {
-  let database: unknown
-  let physicalSession: unknown
-  let namespaceContext: OperationSessionIdentity['namespaceContext']
+  const identity = (session as { readonly identity?: Partial<OperationSessionIdentity> })
+    .identity
 
-  try {
-    const identity = (
-      session as { readonly identity?: Partial<OperationSessionIdentity> }
-    ).identity
-
-    database = identity?.database
-    physicalSession = identity?.physicalSession
-    namespaceContext = captureNamespaceContext(identity?.namespaceContext)
-  } catch (cause) {
-    throw new QueryError({
-      message: 'Unable to verify operation session identity before release',
-      cause,
-    })
-  }
+  const database: unknown = identity?.database
+  const physicalSession: unknown = identity?.physicalSession
+  const namespaceContext = captureNamespaceContext(identity?.namespaceContext)
 
   if (typeof database !== 'string' || typeof physicalSession !== 'string') {
     throw new QueryError({

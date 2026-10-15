@@ -691,12 +691,18 @@ export type InsertBuilder<
    *
    * @returns Query result rows, or the native write result for a statement without
    *   returned rows.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
    * @returns The first result row, or undefined when no row exists.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
@@ -707,6 +713,9 @@ export type InsertBuilder<
    *
    * @returns The first result row, or the write result when no returning clause is
    *   configured.
+   *
+   * @throws {QueryError} Invalid query use, a closed client, or a missing required row.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
@@ -836,6 +845,8 @@ export type InsertValuesBuilder<THandle extends TableHandle = TableHandle> = {
    * @param row - Current native catalog row, insert row, or result object.
    *
    * @returns An insert builder containing the validated and mapped rows.
+   *
+   * @throws {ValidationError} Invalid row values are rejected synchronously.
    */
   values(
     row: InferInsert<THandle> | InferInsert<THandle>[],
@@ -986,6 +997,9 @@ export type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
    * @param patch - Column updates or builder state changes applied to a fresh builder.
    *
    * @returns An update builder containing the validated and mapped column patch.
+   *
+   * @throws {ValidationError} Invalid literal values are rejected synchronously; deferred
+   *   expressions may fail during execution.
    */
   set(patch: InferUpdate<THandle>): UpdateBuilder<THandle, InferSelect<THandle>>
 }
@@ -1050,12 +1064,20 @@ export type UpdateBuilder<
    *
    * @returns Query result rows, or the native write result for a statement without
    *   returned rows.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
+   * @throws {ValidationError} A deferred update expression produces an invalid value.
    */
   execute(): Promise<Prettify<TResult extends WriteResult ? WriteResult : TResult>[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
    * @returns The first result row, or undefined when no row exists.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
+   * @throws {ValidationError} A deferred update expression produces an invalid value.
    */
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
@@ -1066,6 +1088,10 @@ export type UpdateBuilder<
    *
    * @returns The first result row, or the write result when no returning clause is
    *   configured.
+   *
+   * @throws {QueryError} Invalid query use, a closed client, or a missing required row.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
+   * @throws {ValidationError} A deferred update expression produces an invalid value.
    */
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
@@ -1204,12 +1230,18 @@ export type DeleteBuilder<
    *
    * @returns Query result rows, or the native write result for a statement without
    *   returned rows.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   execute(): Promise<TResult extends WriteResult ? WriteResult : TResult[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
    * @returns The first result row, or undefined when no row exists.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirst(): Promise<
     TResult extends WriteResult ? WriteResult : TResult | undefined
@@ -1220,6 +1252,9 @@ export type DeleteBuilder<
    *
    * @returns The first result row, or the write result when no returning clause is
    *   configured.
+   *
+   * @throws {QueryError} Invalid query use, a closed client, or a missing required row.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirstOrThrow(): Promise<TResult extends WriteResult ? WriteResult : TResult>
 }
@@ -1509,12 +1544,18 @@ export type SelectBuilder<
    *
    * @returns Query result rows, or the native write result for a statement without
    *   returned rows.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   execute(): Promise<Prettify<TResult>[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
    * @returns The first result row, or undefined when no row exists.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirst(): Promise<TResult | undefined>
   /**
@@ -1523,6 +1564,9 @@ export type SelectBuilder<
    *
    * @returns The first result row, or the write result when no returning clause is
    *   configured.
+   *
+   * @throws {QueryError} Invalid query use, a closed client, or a missing required row.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirstOrThrow(): Promise<TResult>
 }
@@ -1752,12 +1796,20 @@ function createSelectBuilder<THandle extends TableHandle>(
 export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   /** Compile `select * from table` (default read path). */
   compile(): CompiledQuery
-  /** Execute `select * from table`. */
+  /**
+   * Execute `select * from table`.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
+   */
   execute(): Promise<InferSelect<THandle>[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
    * @returns The first result row, or undefined when no row exists.
+   *
+   * @throws {QueryError} Invalid query use or a closed client.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirst(): Promise<InferSelect<THandle> | undefined>
   /**
@@ -1766,6 +1818,9 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    *
    * @returns The first result row, or the write result when no returning clause is
    *   configured.
+   *
+   * @throws {QueryError} Invalid query use, a closed client, or a missing required row.
+   * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   executeTakeFirstOrThrow(): Promise<InferSelect<THandle>>
   /** Explicit select-all (same as default execute path). */

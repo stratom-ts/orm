@@ -1,7 +1,30 @@
 export * from './client'
 export * from '@/schemas'
 export * from '@/types'
-export * from '@/utils'
+export {
+  DriverError,
+  InvariantError,
+  MigrationError,
+  QueryError,
+  SchemaError,
+  ValidationError,
+  isErrorTag,
+  isStratomError,
+} from '@/utils/error'
+export type {
+  DriverErrorClassification,
+  DriverErrorClassifier,
+  DriverErrorKind,
+  MigrationCleanupFailure,
+  MigrationExecutionOutcome,
+  MigrationExecutionStage,
+  StratomError,
+  ValidationOperation,
+} from '@/utils/error'
+export type {
+  MigrationCapabilityCode,
+  MigrationCapabilityIssue,
+} from '@/ddl/migrationProgram'
 export * from '@/dialects'
 export { defineTable, isTableHandle } from './defineTable'
 export type {

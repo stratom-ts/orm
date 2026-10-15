@@ -306,11 +306,12 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
   registerPrimitiveFailureScenario(createProvider)
 
   it('captures immutable context identity before reuse and discards when the next live read fails', async () => {
+    const defect = new Error('identity verification failed')
     const controls = createProvider({
       identityReadFailure: {
         session: 1,
         read: 2,
-        value: new Error('identity verification failed'),
+        value: defect,
       },
     })
 
@@ -335,8 +336,7 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
 
       expect(capturedWasFrozen).toBe(true)
 
-      expect(error).toBeInstanceOf(Error)
-      expect((error as Error).message).toMatch(/verify operation session identity/i)
+      expect(error).toBe(defect)
       expect(controls.events).toContain('release-finished:1:discard')
       expect(controls.events).not.toContain('release-finished:1:reuse')
     } finally {
@@ -355,11 +355,12 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
  */
 function registerInitialIdentityFailureScenario(createProvider: ProviderContractFactory) {
   it('discards when initial identity capture cannot be proven and never invokes the callback', async () => {
+    const defect = new Error('initial identity capture failed')
     const controls = createProvider({
       identityReadFailure: {
         session: 1,
         read: 1,
-        value: new Error('initial identity capture failed'),
+        value: defect,
       },
     })
 
@@ -374,8 +375,7 @@ function registerInitialIdentityFailureScenario(createProvider: ProviderContract
         .catch((cause: unknown) => cause)
 
       expect(invoked).toBe(false)
-      expect(error).toBeInstanceOf(Error)
-      expect((error as Error).message).toMatch(/capture operation session identity/i)
+      expect(error).toBe(defect)
       expect(controls.events).toContain('release-finished:1:discard')
       expect(controls.events).not.toContain('release-finished:1:reuse')
     } finally {
@@ -488,11 +488,12 @@ function registerReleaseScenarios(createProvider: ProviderContractFactory): void
 
   it('retains release cleanup when final identity verification also fails', async () => {
     const release = new Error('release cleanup failure')
+    const defect = new Error('identity verification failed')
     const controls = createProvider({
       identityReadFailure: {
         session: 1,
         read: 2,
-        value: new Error('identity verification failed'),
+        value: defect,
       },
       releaseFailure: { session: 1, value: release },
     })
@@ -504,8 +505,7 @@ function registerReleaseScenarios(createProvider: ProviderContractFactory): void
         .run(async () => undefined)
         .catch((cause: unknown) => cause)
 
-      expect(error).toBeInstanceOf(Error)
-      expect((error as Error).message).toMatch(/verify operation session identity/i)
+      expect(error).toBe(defect)
       expect(getOperationReleaseCleanupFailures(error)).toEqual([release])
     } finally {
       await coordinator.close()
@@ -528,10 +528,7 @@ function registerMigrationScenarios(
 
   it('preserves final identity cleanup evidence across plan and execute wrapping', async () => {
     const release = new Error('release cleanup failure')
-    const verificationFailure = expect.objectContaining({
-      _tag: 'QueryError',
-      message: expect.stringMatching(/verify operation session identity/i) as unknown,
-    }) as unknown
+    let verificationFailure = new Error('identity verification failed')
 
     /** Creates the cleanup failure db fixture used by the contract scenario. */
     const createCleanupFailureDb = () =>
@@ -541,22 +538,29 @@ function registerMigrationScenarios(
           identityReadFailure: {
             session: 1,
             read: 2,
-            value: new Error('identity verification failed'),
+            value: verificationFailure,
           },
           releaseFailure: { session: 1, value: release },
         }).provider,
         schemas: migration.appliedSchemas(),
       })
 
-    await assertPlanningIdentityCleanup(createCleanupFailureDb, release)
+    await assertPlanningIdentityCleanup(
+      createCleanupFailureDb,
+      verificationFailure,
+      release,
+    )
 
+    verificationFailure = new Error('identity verification failed')
     const executeDb = createCleanupFailureDb()
 
     try {
       await expect(executeDb.migrate().execute()).rejects.toMatchObject({
         _tag: 'MigrationError',
+        defect: true,
         stage: 'sessionCleanup',
         outcome: 'applied',
+        cause: verificationFailure,
         cleanupFailures: [
           { stage: 'sessionCleanup', cause: verificationFailure },
           { stage: 'sessionCleanup', cause: release },
@@ -620,15 +624,19 @@ function registerPlanningCleanupFailure(
  */
 async function assertPlanningIdentityCleanup(
   createCleanupFailureDb: () => Db,
+  verificationFailure: Error,
   release: Error,
 ) {
   const planningDb = createCleanupFailureDb()
 
   try {
-    await expect(planningDb.migrate().plan()).rejects.toMatchObject({
-      _tag: 'MigrationError',
-      cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
-    })
+    const failure = await planningDb
+      .migrate()
+      .plan()
+      .catch((cause: unknown) => cause)
+
+    expect(failure).toBe(verificationFailure)
+    expect(getOperationReleaseCleanupFailures(failure)).toEqual([release])
   } finally {
     await planningDb.close()
   }

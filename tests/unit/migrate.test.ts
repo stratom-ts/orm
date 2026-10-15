@@ -866,6 +866,69 @@ it('preserves planning defects by identity and stack in preview', async () => {
   await db.close()
 })
 
+it.each(['plan', 'dryRun'] as const)(
+  'preserves a desired-schema lowerer defect through migrate().%s()',
+  async (terminal) => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+    const defect = new TypeError('desired-schema lowerer failed')
+    const stack = defect.stack
+
+    const lower = vi
+      .spyOn(postgresDialect.schema, 'lowerDesiredSchema')
+      .mockImplementation(() => {
+        throw defect
+      })
+
+    try {
+      const failure = await db
+        .migrate()
+        [terminal]()
+        .catch((cause: unknown) => cause)
+
+      expect(failure).toBe(defect)
+      expect(defect.stack).toBe(stack)
+    } finally {
+      lower.mockRestore()
+      await db.close()
+    }
+  },
+)
+
+it('retains the original desired-schema lowerer defect in migration execution', async () => {
+  const connector = createMockConnector()
+  const db = createDatabase({ connector, schemas: [Users] })
+  const defect = new TypeError('desired-schema lowerer failed')
+  const stack = defect.stack
+
+  const lower = vi
+    .spyOn(postgresDialect.schema, 'lowerDesiredSchema')
+    .mockImplementation(() => {
+      throw defect
+    })
+
+  try {
+    const failure = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+
+    expect(failure).toMatchObject({
+      _tag: 'MigrationError',
+      defect: true,
+      stage: 'planning',
+      outcome: 'unchanged',
+      cause: defect,
+    })
+
+    expect((failure as MigrationError).cause).toBe(defect)
+    expect(defect.stack).toBe(stack)
+  } finally {
+    lower.mockRestore()
+    await db.close()
+  }
+})
+
 it('preserves preview defect identity and transfers provider release cleanup evidence', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()

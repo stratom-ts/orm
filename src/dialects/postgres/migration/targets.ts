@@ -7,7 +7,7 @@ import type {
   CanonicalIdentifier,
   CanonicalRelationIdentity,
 } from '@/migrations/canonicalRelationIdentity'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, SchemaError } from '@/utils/error'
 
 import { postgresNaming } from '../naming'
 
@@ -221,7 +221,9 @@ function identifierIssues(identifier: CanonicalIdentifier, label: string): strin
   try {
     postgresNaming.validate(identifier.spelling, label)
   } catch (cause) {
-    issues.push(cause instanceof Error ? cause.message : `${label} is not addressable`)
+    if (!(cause instanceof SchemaError)) throw cause
+
+    issues.push(cause.message)
   }
 
   return issues

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
 import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationLoweringResult, MigrationProgram } from '@/ddl/migrationProgram'
-import { column, defineTable, postgresDialect, reference } from '@/index'
+import { InvariantError, column, defineTable, postgresDialect, reference } from '@/index'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
@@ -178,6 +178,58 @@ function lower(planned: PlannedMigration, profile = expectedProfile): MigrationP
   return result.program
 }
 
+it.each([
+  new TypeError('identity adapter failed'),
+  new InvariantError('identity invariant failed'),
+])('preserves a namespace identity defect %s', (defect) => {
+  const planned = plan()
+  const stack = defect.stack
+  const identities = new Proxy(planned.identities, {
+    get(target, key, receiver): unknown {
+      if (key === 'resolveNamespace')
+        return () => {
+          throw defect
+        }
+
+      return Reflect.get(target, key, receiver) as unknown
+    },
+  })
+
+  let failure: unknown
+  try {
+    lower({ ...planned, identities })
+  } catch (cause) {
+    failure = cause
+  }
+
+  expect(failure).toBe(defect)
+  expect((failure as Error).stack).toBe(stack)
+})
+
+it('preserves a SQL compilation defect instead of reporting a capability issue', async () => {
+  const compiler = await import('@/dialects/postgres/compile')
+  const defect = new TypeError('compiler failed')
+  const stack = defect.stack
+
+  const compile = vi.spyOn(compiler, 'compilePostgres').mockImplementation(() => {
+    throw defect
+  })
+
+  try {
+    let failure: unknown
+    try {
+      lower(plan())
+    } catch (cause) {
+      failure = cause
+    }
+
+    expect(failure).toBe(defect)
+    expect((failure as Error).stack).toBe(stack)
+  } finally {
+    compile.mockRestore()
+  }
+})
+
 describe('PostgreSQL whole-plan lowering', () => {
   it('lowers an empty plan to an exact zero-action program', () => {
     const planned = plan()
@@ -268,6 +320,24 @@ describe('PostgreSQL whole-plan lowering: compiles a plan-atomic program with ca
 })
 
 describe('PostgreSQL whole-plan validation', () => {
+  it('reports a different executing database as a profile mismatch', () => {
+    const result = postgresDialect.migration!.lower(plan(), {
+      ...expectedProfile,
+      namespaceContext: {
+        writableDefault: [
+          { role: 'database', spelling: 'other' },
+          { role: 'schema', spelling: 'public' },
+        ],
+      },
+    })
+
+    expect(result.issues).toEqual([
+      expect.objectContaining({ code: 'profile_mismatch', sourceStepIndexes: [] }),
+    ])
+
+    expect(result.program).toBeUndefined()
+  })
+
   it('returns profile capability issues without a partial program', () => {
     const result = postgresDialect.migration!.lower(plan(), {
       identityAdapter: 'sqlite',

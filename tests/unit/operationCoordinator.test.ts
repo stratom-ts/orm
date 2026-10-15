@@ -192,44 +192,88 @@ it('names ping and transaction lifecycle failures without exposing native text',
   }
 })
 
-describe('OperationCoordinator', () => {
-  it('snapshots nested namespace identity and discards when the live context changes', async () => {
-    const namespaceContext = {
-      writableDefault: [
-        { role: 'database' as const, spelling: 'coordinator_test' },
-        { role: 'schema' as const, spelling: 'public' },
-      ],
+it.each(['capture', 'verification'] as const)(
+  'preserves a %s identity getter defect and discards the session',
+  async (stage) => {
+    const defect = new TypeError(`${stage} identity getter failed`)
+    const stack = defect.stack
+    const dispositions: string[] = []
+    let reads = 0
+    const provider: OperationSessionProvider = {
+      nativeTransactions: true,
+      async open() {
+        return {
+          get identity() {
+            reads++
+
+            if (stage === 'capture' || reads === 2) throw defect
+
+            return { database: 'db', physicalSession: 'session' }
+          },
+          async query() {
+            return []
+          },
+          async run() {},
+          async cancel() {},
+          async release(disposition) {
+            dispositions.push(disposition)
+          },
+        }
+      },
+      async close() {},
     }
 
-    const dispositions: string[] = []
-    const provider: OperationSessionProvider = createMutableNamespaceProvider(
-      namespaceContext,
-      dispositions,
-    )
-
     const coordinator = new OperationCoordinator(provider)
-    let capturedSchema: string | undefined
-
     try {
-      const error = await coordinator
-        .run(async ({ identity }) => {
-          namespaceContext.writableDefault[1]!.spelling = 'tenant'
-          capturedSchema = identity.namespaceContext?.writableDefault[1]?.spelling
-        })
+      const failure = await coordinator
+        .run(async () => undefined)
         .catch((cause: unknown) => cause)
 
-      expect(capturedSchema).toBe('public')
-      expect(error).toBeInstanceOf(QueryError)
-
-      expect(error).toMatchObject({
-        message: expect.stringMatching(/identity changed/i) as unknown,
-      })
-
+      expect(failure).toBe(defect)
+      expect((failure as Error).stack).toBe(stack)
       expect(dispositions).toEqual(['discard'])
     } finally {
       await coordinator.close()
     }
-  })
+  },
+)
+
+it('snapshots nested namespace identity and discards when the live context changes', async () => {
+  const namespaceContext = {
+    writableDefault: [
+      { role: 'database' as const, spelling: 'coordinator_test' },
+      { role: 'schema' as const, spelling: 'public' },
+    ],
+  }
+
+  const dispositions: string[] = []
+  const provider: OperationSessionProvider = createMutableNamespaceProvider(
+    namespaceContext,
+    dispositions,
+  )
+
+  const coordinator = new OperationCoordinator(provider)
+  let capturedSchema: string | undefined
+
+  try {
+    const error = await coordinator
+      .run(async ({ identity }) => {
+        namespaceContext.writableDefault[1]!.spelling = 'tenant'
+        capturedSchema = identity.namespaceContext?.writableDefault[1]?.spelling
+      })
+      .catch((cause: unknown) => cause)
+
+    expect(capturedSchema).toBe('public')
+    expect(error).toBeInstanceOf(QueryError)
+
+    expect(error).toMatchObject({
+      message: expect.stringMatching(/identity changed/i) as unknown,
+    })
+
+    expect(dispositions).toEqual(['discard'])
+  } finally {
+    await coordinator.close()
+  }
 })
 
 describe('OperationCoordinator: advances the queue and closes after an early provider-open failure', () => {

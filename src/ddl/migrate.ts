@@ -65,16 +65,34 @@ export type MigrateBuilder = {
    */
   allow(...ops: MigrationAllow[]): MigrateBuilder
 
-  /** Builds a semantic Migration Plan without lowering or executing it. */
+  /**
+   * Builds a semantic Migration Plan without lowering or executing it.
+   *
+   * @throws {SchemaError} Authored schema or registration is invalid.
+   * @throws {MigrationError} Planning or catalog introspection fails; driver causes
+   *   retain their origin.
+   */
   plan(): Promise<MigrationPlan>
 
-  /** Lowers the complete plan and returns ordered SQL with all bound values redacted. */
+  /**
+   * Lowers the complete plan and returns ordered SQL with all bound values redacted.
+   *
+   * @throws {SchemaError} Authored schema or registration is invalid.
+   * @throws {MigrationError} Planning, catalog introspection, or lowering is blocked;
+   *   driver causes retain their origin.
+   */
   dryRun(): Promise<MigrationDryRun>
 
   /**
    * Plans and executes the migration through the selected dialect.
    *
    * @param options - Optional cancellation signal and lock deadline.
+   *
+   * @throws {SchemaError} Authored schema or registration is invalid.
+   * @throws {MigrationError} Migration is blocked or fails during execution; `defect:
+   *   true` identifies a wrapped defect.
+   * @throws {QueryError} Execution is attempted from an invalid client or transaction
+   *   scope.
    */
   execute(options?: MigrationExecuteOptions): Promise<void>
 }

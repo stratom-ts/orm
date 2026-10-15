@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   DriverError,
@@ -6,12 +6,11 @@ import {
   MigrationError,
   QueryError,
   SchemaError,
-  TaggedError,
   ValidationError,
-  catchTag,
-  catchTags,
+  isErrorTag,
+  isStratomError,
 } from '@/index'
-import { driverError } from '@/utils/error'
+import { TaggedError, driverError } from '@/utils/error'
 
 /** Builds nested diagnostics to verify the serializer's native Error traversal. */
 function nestedErrorJson(): Record<string, unknown> {
@@ -330,64 +329,123 @@ describe('InvariantError', () => {
   })
 })
 
-describe('catchTag', () => {
-  it('should catch a tagged error and return the callback result', () => {
-    const error = new MigrationError({ message: 'fail' })
-    const result = catchTag(error, 'MigrationError', (e) => `caught: ${e.message}`)
-    expect(result).toBe('caught: fail')
-  })
+it('recognizes public error tags and rejects other tags', () => {
+  const errors = [
+    new SchemaError({ message: 'schema' }),
+    new ValidationError({
+      table: 'users',
+      operation: 'insert',
+      issues: [
+        {
+          kind: 'schema',
+          type: 'string',
+          input: 1,
+          expected: 'string',
+          received: 'number',
+          message: 'Invalid type',
+        },
+      ],
+    }),
+    new QueryError({ message: 'query' }),
+    new MigrationError({ message: 'migration' }),
+    new DriverError({
+      message: 'driver',
+      dialect: 'sqlite',
+      sql: 'select 1',
+      cause: null,
+      kind: 'unknown',
+      retryable: false,
+    }),
+    new InvariantError('invariant'),
+  ]
 
-  it('should pass through a non-matching error', () => {
-    const error = new Error('generic')
-    const result = catchTag(error, 'MigrationError' as never, () => 'caught')
-    expect(result).toBe(error)
-  })
+  for (const error of errors) {
+    expect(isStratomError(error)).toBe(true)
+    expect(isErrorTag(error, error._tag)).toBe(true)
+  }
 
-  it('should pass through a non-error value', () => {
-    const result = catchTag('hello', 'MigrationError' as never, () => 'caught')
-    expect(result).toBe('hello')
-  })
-
-  it('should pass through a matching tag on non-Error objects', () => {
-    const value = { _tag: 'MigrationError' as const, message: 'test' }
-    const result = catchTag(value, 'MigrationError', (e) => `caught: ${e.message}`)
-    expect(result).toBe(value)
-  })
+  expect(isErrorTag(errors[0], 'DriverError')).toBe(false)
+  expect(isStratomError(new (TaggedError('ForeignError'))())).toBe(false)
 })
 
-describe('catchTags', () => {
-  it('should catch an error matching one of the handlers', () => {
-    class MyError extends TaggedError('MigrationError')<{
-      message: string
-    }> {}
-    const error = new MyError({ message: 'custom error' })
-    const result = catchTags(error, {
-      /**
-       * Handles the tagged migration-error branch and exposes its message to the
-       * assertion.
-       */
-      MigrationError: (e: MyError) => `handled: ${e.message}`,
-    } as never)
-
-    expect(result).toBe('handled: custom error')
+it('rejects unbranded and hostile unknown values without throwing', () => {
+  const throwingTag = Object.defineProperty({}, '_tag', {
+    get() {
+      throw new Error('tag')
+    },
   })
 
-  it('should pass through a non-matching error', () => {
-    const error = new Error('generic')
-    const result = catchTags(error, {
-      /** Handles the custom tagged-error branch for dispatch checks. */
-      MyError: () => 'handled',
-    } as never)
+  const throwingBrand = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error('brand')
+      },
+    },
+  )
 
-    expect(result).toBe(error)
+  for (const value of [
+    null,
+    undefined,
+    1,
+    'QueryError',
+    { _tag: 'QueryError' },
+    throwingTag,
+    throwingBrand,
+  ]) {
+    expect(isStratomError(value)).toBe(false)
+    expect(isErrorTag(value, 'QueryError')).toBe(false)
+  }
+})
+
+it('keeps the brand private, non-enumerable, and protected from payload overwrite', () => {
+  const brandSymbol = Symbol.for('stratom.error')
+  const error = new QueryError({
+    message: 'query',
+    _tag: 'DriverError',
+    [brandSymbol]: false,
+  } as never)
+
+  const brand = Object.getOwnPropertySymbols(error)[0]!
+  expect(error._tag).toBe('QueryError')
+  expect(brand).toBe(brandSymbol)
+
+  expect(Object.getOwnPropertyDescriptor(error, brand)).toMatchObject({
+    value: true,
+    enumerable: false,
+    writable: false,
+    configurable: false,
   })
 
-  it('should pass through a non-error value', () => {
-    const result = catchTags('hello', {
-      /** Handles the custom tagged-error branch for dispatch checks. */
-      MyError: () => 'handled',
-    } as never)
+  expect(isErrorTag(error, 'QueryError')).toBe(true)
+})
 
-    expect(result).toBe('hello')
+it('rejects a branded object whose tag getter throws on a second read', () => {
+  let reads = 0
+  const error = new Proxy(new QueryError({ message: 'query' }), {
+    get(target, key, receiver): unknown {
+      if (key === '_tag' && ++reads === 2) throw new Error('second tag read')
+
+      return Reflect.get(target, key, receiver) as unknown
+    },
   })
+
+  expect(isErrorTag(error, 'QueryError')).toBe(false)
+})
+
+it('recognizes an error constructed before a second module copy is loaded', async () => {
+  const error = new DriverError({
+    message: 'driver',
+    dialect: 'sqlite',
+    sql: 'select 1',
+    cause: null,
+    kind: 'unknown',
+    retryable: false,
+  })
+
+  vi.resetModules()
+  const secondCopy = await import('@/utils/error')
+  expect(error).not.toBeInstanceOf(secondCopy.DriverError)
+  expect(secondCopy.isStratomError(error)).toBe(true)
+  expect(secondCopy.isErrorTag(error, 'DriverError')).toBe(true)
 })

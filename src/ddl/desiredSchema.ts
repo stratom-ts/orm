@@ -198,10 +198,11 @@ export function lowerDesiredSchema(
     return lowerer.lowerDesiredSchema(graph)
   } catch (cause) {
     if (cause instanceof MigrationError) throw cause
+    if (!(cause instanceof SchemaError)) throw cause
 
     throw new MigrationError({
-      message: `Desired schema lowering failed${cause instanceof SchemaError ? `: ${cause.message}` : ''}`,
-      ...(cause === undefined ? {} : { cause }),
+      message: `Desired schema lowering failed: ${cause.message}`,
+      cause,
     })
   }
 }

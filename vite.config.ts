@@ -65,7 +65,14 @@ export default defineConfig({
       formats: ['es'],
     },
     rollupOptions: {
-      external: ['valibot', 'db0', 'node:async_hooks', 'node:crypto', 'node:fs'],
+      external: [
+        'valibot',
+        'db0',
+        'node:async_hooks',
+        'node:crypto',
+        'node:fs',
+        'node:util',
+      ],
     },
   },
 })

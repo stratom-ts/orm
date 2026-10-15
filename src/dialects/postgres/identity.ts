@@ -5,7 +5,7 @@ import type {
   NamespaceContext,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
-import { InvariantError } from '@/utils/error'
+import { InvariantError, SchemaError } from '@/utils/error'
 
 const POSTGRES_IDENTITY = 'postgresql' as const
 const POSTGRES_POLICY: CanonicalRelationIdentityPolicy = {
@@ -40,15 +40,15 @@ const POSTGRES_POLICY: CanonicalRelationIdentityPolicy = {
       selected[0]?.role !== 'database' ||
       selected[1]?.role !== 'schema'
     ) {
-      throw new InvariantError(
-        'PostgreSQL relation namespace must have ordered roles database, schema',
-      )
+      throw new SchemaError({
+        message: 'PostgreSQL relation namespace must have ordered roles database, schema',
+      })
     }
 
     if (selected[0]!.spelling !== writableDefault[0]!.spelling) {
-      throw new InvariantError(
-        'PostgreSQL relation database must match the writable database',
-      )
+      throw new SchemaError({
+        message: 'PostgreSQL relation database must match the writable database',
+      })
     }
 
     return selected

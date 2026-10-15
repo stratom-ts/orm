@@ -8,6 +8,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { OperationCommand } from '@/dialects'
 import { compileSqliteOperationCommand } from '@/dialects/sqlite/operations'
 import { createDb0NodeSqliteOperationSessionProvider } from '@/dialects/sqlite/operationSession'
+import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
 import type {
   OperationSession,
   OperationSessionProvider,
@@ -17,6 +18,37 @@ import type { DriverError } from '@/utils/error'
 import { deferred } from '../../helpers/deferredPromise'
 
 const directories: string[] = []
+
+it('classifies a native SQLite open probe failure as DriverError', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  const prepareNative = native.prepare.bind(native)
+  const cause = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' })
+
+  const prepare = vi.spyOn(native, 'prepare').mockImplementation((sql) => {
+    if (sql === 'select 1') throw cause
+
+    return prepareNative(sql)
+  })
+
+  const provider = createDb0NodeSqliteOperationSessionProvider(connector, 'custom-sqlite')
+
+  try {
+    const failure = await provider.open().catch((error: unknown) => error)
+    expect(failure).toMatchObject({
+      _tag: 'DriverError',
+      dialect: 'custom-sqlite',
+      code: 'SQLITE_BUSY',
+      sql: 'select 1',
+      kind: 'transient',
+      retryable: true,
+      cause,
+    })
+  } finally {
+    prepare.mockRestore()
+    await provider.close()
+  }
+})
 
 it.each([
   { command: { kind: 'ping' } as const, sql: 'select 1', call: 'query' as const },
@@ -169,6 +201,69 @@ it('preserves a result-normalization defect with its original identity and stack
   } finally {
     prepare.mockRestore()
     await session.release('discard')
+    await provider.close()
+  }
+})
+
+it.each([
+  {
+    name: 'frozen object',
+    defect: Object.freeze(new TypeError('identity getter failed')),
+  },
+  { name: 'primitive', defect: 17 },
+])('retains a $name identity defect and disposal failure', async ({ defect }) => {
+  const nativeConnector = nodeSqliteConnector({ name: ':memory:' })
+  const database = await nativeConnector.getInstance!()
+  const prepareNative = database.prepare.bind(database)
+  const cleanup = new Error('dispose failed')
+  let disposals = 0
+  const connector = {
+    ...nativeConnector,
+    dispose() {
+      if (++disposals === 1) throw cleanup
+
+      return nativeConnector.dispose!()
+    },
+  }
+
+  const prepare = vi.spyOn(database, 'prepare').mockImplementation((sql) =>
+    sql === 'pragma database_list'
+      ? ({
+          all: () => [
+            Object.defineProperty({}, 'name', {
+              get() {
+                throw defect
+              },
+            }),
+          ],
+        } as unknown as ReturnType<typeof database.prepare>)
+      : prepareNative(sql),
+  )
+
+  const provider = createDb0NodeSqliteOperationSessionProvider(connector)
+
+  try {
+    const failure = await provider.open().catch((cause: unknown) => cause)
+    const objectDefect = defect instanceof Error
+    expect(failure === defect).toBe(objectDefect)
+
+    expect(getOperationReleaseCleanupFailures(failure)).toEqual(
+      objectDefect ? [cleanup] : [],
+    )
+
+    expect(failure).toMatchObject(
+      objectDefect
+        ? { message: 'identity getter failed' }
+        : {
+            _tag: 'MigrationError',
+            defect: true,
+            cause: defect,
+            stage: 'sessionCleanup',
+            cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
+          },
+    )
+  } finally {
+    prepare.mockRestore()
     await provider.close()
   }
 })
@@ -799,6 +894,7 @@ it('keeps file database identity distinct from independent memory identities', a
 
 it('drains an active lease on close and retries a failed connector disposal', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
+  const defect = new Error('dispose failed')
   let disposals = 0
   const provider = createDb0NodeSqliteOperationSessionProvider({
     ...native,
@@ -806,7 +902,7 @@ it('drains an active lease on close and retries a failed connector disposal', as
     dispose() {
       disposals++
 
-      if (disposals === 1) throw new Error('dispose failed')
+      if (disposals === 1) throw defect
 
       return native.dispose!()
     },
@@ -823,8 +919,7 @@ it('drains an active lease on close and retries a failed connector disposal', as
   expect(closed).toBe(false)
   await session.release('reuse')
   const rejection: unknown = await pending.catch((cause: unknown) => cause)
-  expect(rejection).toMatchObject({ _tag: 'QueryError' })
-  expect((rejection as { cause: unknown }).cause).toBeInstanceOf(Error)
+  expect(rejection).toBe(defect)
   await provider.close()
   expect(disposals).toBe(2)
   await expect(provider.open()).rejects.toMatchObject({ _tag: 'QueryError' })
@@ -883,13 +978,14 @@ it('waits for the last provider teardown before a newly adapted provider opens',
 
 it('retries failed disposal after another provider adapts the connector', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
+  const defect = new Error('dispose failed')
   let disposals = 0
   const connector = {
     ...native,
     dispose() {
       disposals++
 
-      if (disposals === 1) throw new Error('dispose failed')
+      if (disposals === 1) throw defect
 
       return native.dispose!()
     },
@@ -899,10 +995,7 @@ it('retries failed disposal after another provider adapts the connector', async 
   const lease = await first.open()
   await lease.release('reuse')
 
-  await expect(first.close()).rejects.toMatchObject({
-    _tag: 'QueryError',
-    cause: { message: 'dispose failed' },
-  })
+  await expect(first.close()).rejects.toBe(defect)
 
   const second = createDb0NodeSqliteOperationSessionProvider(connector)
   let active: OperationSession | undefined
@@ -925,6 +1018,8 @@ it('retries failed disposal after another provider adapts the connector', async 
 
 it('blocks new leases after repeated discard failure until close disposes the native database', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
+  const primary = new Error('dispose attempt 1')
+  const cleanup = new Error('dispose attempt 2')
   let disposals = 0
   let instanceReads = 0
   const connector = {
@@ -938,7 +1033,7 @@ it('blocks new leases after repeated discard failure until close disposes the na
     dispose() {
       disposals++
 
-      if (disposals <= 2) throw new Error(`dispose attempt ${disposals}`)
+      if (disposals <= 2) throw disposals === 1 ? primary : cleanup
 
       return native.dispose!()
     },
@@ -950,13 +1045,8 @@ it('blocks new leases after repeated discard failure until close disposes the na
     .release('discard')
     .catch((cause: unknown) => cause)
 
-  expect(rejection).toMatchObject({
-    _tag: 'QueryError',
-    cause: { message: 'dispose attempt 1' },
-    cleanupFailures: [
-      { stage: 'sessionCleanup', cause: { cause: { message: 'dispose attempt 2' } } },
-    ],
-  })
+  expect(rejection).toBe(primary)
+  expect(getOperationReleaseCleanupFailures(rejection)).toEqual([cleanup])
 
   const readsBeforeReopen = instanceReads
   await expect(provider.open()).rejects.toThrow(/requires successful close/)

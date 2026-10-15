@@ -11,7 +11,7 @@ import type {
   CanonicalRelationIdentityModule,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
-import { attemptSync } from '@/utils/error'
+import { SchemaError, attemptSync } from '@/utils/error'
 
 import { compilePostgres } from '../compile'
 import { postgresIdentity } from '../identity'
@@ -44,7 +44,9 @@ function sameNamespaceInput(
 
     try {
       return identities.resolveNamespace(input)
-    } catch {
+    } catch (cause) {
+      if (!(cause instanceof SchemaError)) throw cause
+
       return null
     }
   }
@@ -150,7 +152,8 @@ function expectedDatabaseIdentifier(
     if (namespace.length === 2 && database?.role === 'database') {
       return database.identifier
     }
-  } catch {
+  } catch (cause) {
+    if (!(cause instanceof SchemaError)) throw cause
     // Profile and target validation report malformed context.
   }
 
@@ -346,12 +349,12 @@ function appendMigrationCompilationIssue(
   sourceStepIndex: number,
 ) {
   const cause = compiled.error
+
+  if (!(cause instanceof SchemaError)) throw cause
+
   issues.push({
     code: 'compile_failure',
-    message:
-      cause instanceof Error
-        ? `Cannot compile migration step ${sourceStepIndex}: ${cause.message}`
-        : `Cannot compile migration step ${sourceStepIndex}`,
+    message: `Cannot compile migration step ${sourceStepIndex}: ${cause.message}`,
     sourceStepIndexes: [sourceStepIndex],
   })
 }

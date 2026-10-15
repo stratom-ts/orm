@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isNumber } from '@/index'
+import { isNumber } from '@/utils/isNumber'
 
 describe('isNumber', () => {
   it('should return true for a number', () => {
