@@ -3,6 +3,7 @@ import type {
   MigrationProgram,
   MigrationRuntimeOptions,
 } from '@/ddl/migrationProgram'
+import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import {
@@ -41,20 +42,6 @@ type State = {
   cleanupFailures: MigrationCleanupFailure[]
 }
 
-/** Marks unrecognized runtime failures while preserving expected query errors. */
-function isExecutionDefect(
-  cause: unknown,
-  structured: MigrationError | undefined,
-): boolean {
-  return (
-    structured?.defect === true ||
-    (!structured &&
-      !(cause instanceof QueryError) &&
-      !(cause instanceof DriverError) &&
-      !(cause instanceof SchemaError))
-  )
-}
-
 /** Keeps stage selection separate from outcome and provenance reconstruction. */
 function failureStage(
   error: Failure,
@@ -89,21 +76,21 @@ function failure(
   retryable = false,
 ): MigrationError {
   const structured = error.cause instanceof MigrationError ? error.cause : undefined
-  const retainedCleanup = [...(structured?.cleanupFailures ?? []), ...cleanupFailures]
   const stage = failureStage(error, structured)
-  const actionIndex = error.actionIndex ?? structured?.actionIndex
-  return new MigrationError({
-    message: failureMessage(error, stage, actionIndex, structured),
-    cause:
-      structured && Object.hasOwn(structured, 'cause') ? structured.cause : error.cause,
-    ...(isExecutionDefect(error.cause, structured) ? { defect: true as const } : {}),
+
+  return migrationExecutionError(error.cause, {
+    message: (actionIndex) => failureMessage(error, stage, actionIndex, structured),
+    defect:
+      !(error.cause instanceof QueryError) &&
+      !(error.cause instanceof DriverError) &&
+      !(error.cause instanceof SchemaError),
     stage,
     outcome,
-    retryable: outcome === 'unknown' ? false : (structured?.retryable ?? retryable),
-    actionIndex,
-    sourceStepIndexes: error.sourceStepIndexes ?? structured?.sourceStepIndexes,
-    capabilityIssues: structured?.capabilityIssues,
-    cleanupFailures: retainedCleanup.length ? retainedCleanup : undefined,
+    retryable,
+    actionIndex: error.actionIndex,
+    sourceStepIndexes: error.sourceStepIndexes,
+    capabilityIssues: undefined,
+    cleanupFailures: cleanupFailures.length ? cleanupFailures : undefined,
   })
 }
 
