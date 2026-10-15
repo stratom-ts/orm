@@ -156,9 +156,44 @@ it('prefers supplied action provenance and retains missing provenance', () => {
   expect(retained.actionIndex).toBe(1)
 })
 
+it('prefers supplied source indexes and capability issues while retaining missing values', () => {
+  const retainedIssues = [
+    { code: 'invalid_target' as const, message: 'retained', sourceStepIndexes: [2] },
+  ]
+
+  const suppliedIssues = [
+    { code: 'invalid_target' as const, message: 'supplied', sourceStepIndexes: [5] },
+  ]
+
+  const existing = new MigrationError({
+    message: 'expected',
+    sourceStepIndexes: [2],
+    capabilityIssues: retainedIssues,
+  })
+
+  const supplied = migrationExecutionError(existing, {
+    ...executionFacts,
+    sourceStepIndexes: [5],
+    capabilityIssues: suppliedIssues,
+  })
+
+  expect(supplied.sourceStepIndexes).toEqual([5])
+  expect(supplied.capabilityIssues).toBe(suppliedIssues)
+
+  const retained = migrationExecutionError(existing, executionFacts)
+  expect(retained.sourceStepIndexes).toBe(existing.sourceStepIndexes)
+  expect(retained.capabilityIssues).toBe(retainedIssues)
+})
+
 it('uses structured retryability except when the database outcome is unknown', () => {
   const existing = new MigrationError({ message: 'retry', retryable: true })
   expect(migrationExecutionError(existing, executionFacts).retryable).toBe(true)
+
+  const nonRetryable = new MigrationError({ message: 'final', retryable: false })
+  expect(
+    migrationExecutionError(nonRetryable, { ...executionFacts, retryable: true })
+      .retryable,
+  ).toBe(false)
 
   expect(
     migrationExecutionError(existing, { ...executionFacts, outcome: 'unknown' })
@@ -193,4 +228,20 @@ it('merges cleanup in order and preserves explicitly supplied undefined optional
 
   expect(Object.hasOwn(empty, 'cleanupFailures')).toBe(true)
   expect(empty.cleanupFailures).toBeUndefined()
+
+  const absent = migrationExecutionError(new Error('failure'), executionFacts)
+  expect(Object.hasOwn(absent, 'cleanupFailures')).toBe(false)
+  expect(Object.hasOwn(absent, 'actionIndex')).toBe(false)
+
+  const structuredEmpty = new MigrationError({ message: 'expected', cleanupFailures: [] })
+  const omitted = migrationExecutionError(structuredEmpty, executionFacts)
+  expect(Object.hasOwn(omitted, 'cleanupFailures')).toBe(false)
+
+  const suppliedEmpty = migrationExecutionError(structuredEmpty, {
+    ...executionFacts,
+    cleanupFailures: undefined,
+  })
+
+  expect(Object.hasOwn(suppliedEmpty, 'cleanupFailures')).toBe(true)
+  expect(suppliedEmpty.cleanupFailures).toBeUndefined()
 })

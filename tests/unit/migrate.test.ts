@@ -13,10 +13,13 @@ import {
 } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { createMigrateBuilder } from '@/ddl/migrate'
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import {
+  DriverError,
   MigrationError,
+  QueryError,
   SchemaError,
   column,
   createDatabase,
@@ -835,6 +838,10 @@ describe('db.migrate() policy and coordination: classifies authoritative catalog
     expect((error as MigrationError).cause).toBe(defect)
     expect(((error as MigrationError).cause as Error).stack).toBe(originalStack)
 
+    expect((error as MigrationError).message).toBe(
+      'PostgreSQL migration introspection failed: Migration introspection failed',
+    )
+
     expect(connector.runSql).toContain('rollback')
 
     expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
@@ -865,6 +872,49 @@ it('preserves planning defects by identity and stack in preview', async () => {
   expect((rejection as Error).stack).toBe(originalStack)
   await db.close()
 })
+
+it.each([
+  [
+    'query',
+    new QueryError({ message: 'preview query failed' }),
+    'Migration introspection failed: preview query failed',
+  ],
+  [
+    'driver',
+    new DriverError({
+      message: 'native detail must remain private',
+      dialect: 'postgresql',
+      sql: 'select 1',
+      cause: new Error('native detail must remain private'),
+      kind: 'unknown',
+      retryable: false,
+    }),
+    'Migration introspection failed',
+  ],
+] as const)(
+  'formats a raw %s failure at the preview boundary',
+  async (_kind, cause, message) => {
+    const builder = createMigrateBuilder({
+      schemas: [],
+      migration: postgresDialect.migration!,
+      runOperation: async () => {
+        throw cause
+      },
+    })
+
+    const rejection = await builder.plan().catch((error: unknown) => error)
+
+    expect(rejection).toMatchObject({
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: false,
+      cause,
+    })
+
+    expect((rejection as MigrationError).message).toBe(message)
+    expect(rejection).not.toHaveProperty('defect')
+  },
+)
 
 it.each(['plan', 'dryRun'] as const)(
   'preserves a desired-schema lowerer defect through migrate().%s()',
@@ -929,16 +979,17 @@ it('retains the original desired-schema lowerer defect in migration execution', 
   }
 })
 
-it('preserves preview defect identity and transfers provider release cleanup evidence', async () => {
-  const migrationPlanning = await import('@/ddl/migrationPlan')
-  const connector = createMockConnector()
+/** Injects one provider-release rejection after the real session releases. */
+function releaseFailingProvider(
+  connector: Connector,
+  releaseFailure: unknown,
+): OperationSessionProvider {
   const provider = postgresDialect.operations.createSessionProvider(
     connector,
     postgresDialect.id,
   )
 
-  const releaseFailure = new Error('provider release failed')
-  const operationSessionProvider: OperationSessionProvider = {
+  return {
     nativeTransactions: true,
     async open() {
       const session = await provider.open()
@@ -958,11 +1009,17 @@ it('preserves preview defect identity and transfers provider release cleanup evi
     },
     close: () => provider.close(),
   }
+}
+
+it('preserves preview defect identity and transfers provider release cleanup evidence', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const releaseFailure = new Error('provider release failed')
 
   const db = createDatabase({
     connector,
     schemas: [],
-    operationSessionProvider,
+    operationSessionProvider: releaseFailingProvider(connector, releaseFailure),
   })
 
   const defect = new TypeError('planning defect with provider cleanup failure')
@@ -983,39 +1040,45 @@ it('preserves preview defect identity and transfers provider release cleanup evi
   await db.close()
 })
 
+it('keeps a primitive preview defect structured when provider release also fails', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const releaseFailure = new Error('provider release failed')
+  const db = createDatabase({
+    connector,
+    schemas: [],
+    operationSessionProvider: releaseFailingProvider(connector, releaseFailure),
+  })
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw 'primitive planning defect'
+  })
+
+  const rejection = await db
+    .migrate()
+    .plan()
+    .catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({
+    defect: true,
+    stage: 'planning',
+    outcome: 'unchanged',
+    retryable: false,
+    cause: 'primitive planning defect',
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseFailure }],
+  })
+
+  expect((rejection as MigrationError).message).toBe('Migration planning failed')
+  await db.close()
+})
+
 it('reports provider release SchemaError after an applied migration as session cleanup', async () => {
   const connector = createMockConnector()
-  const provider = postgresDialect.operations.createSessionProvider(
-    connector,
-    postgresDialect.id,
-  )
-
   const releaseFailure = new SchemaError({ message: 'provider release failed' })
-  const operationSessionProvider: OperationSessionProvider = {
-    nativeTransactions: true,
-    async open() {
-      const session = await provider.open()
-
-      return {
-        get identity() {
-          return session.identity
-        },
-        query: (query) => session.query(query),
-        run: (query) => session.run(query),
-        cancel: () => session.cancel(),
-        async release(disposition) {
-          await session.release(disposition)
-          throw releaseFailure
-        },
-      }
-    },
-    close: () => provider.close(),
-  }
-
   const db = createDatabase({
     connector,
     schemas: [Users],
-    operationSessionProvider,
+    operationSessionProvider: releaseFailingProvider(connector, releaseFailure),
   })
 
   const rejection = await db
@@ -1034,6 +1097,11 @@ it('reports provider release SchemaError after an applied migration as session c
   })
 
   expect(rejection).not.toHaveProperty('defect')
+
+  expect((rejection as MigrationError).message).toBe(
+    'Migration session cleanup failed: provider release failed',
+  )
+
   expect(connector.runSql).toContain('commit')
   await db.close()
 })
@@ -1083,6 +1151,7 @@ it('preserves an explicitly undefined cause when preview adds a stage', async ()
     defect: true,
     outcome: 'unchanged',
     retryable: false,
+    cleanupFailures: [],
   })
 
   vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
@@ -1104,6 +1173,7 @@ it('preserves an explicitly undefined cause when preview adds a stage', async ()
   expect((rejection as MigrationError).cause).toBeUndefined()
   expect(Object.hasOwn(expected, 'cause')).toBe(true)
   expect(expected.cause).toBeUndefined()
+  expect((rejection as MigrationError).cleanupFailures).toEqual([])
   await db.close()
 })
 
@@ -1131,6 +1201,11 @@ it('retains the planning stage when execution wraps a planning defect', async ()
 
   expect((rejection as MigrationError).cause).toBe(defect)
   expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
+
+  expect((rejection as MigrationError).message).toBe(
+    'PostgreSQL migration planning failed: Migration planning failed',
+  )
+
   await db.close()
 })
 
@@ -1244,7 +1319,7 @@ describe('db.migrate() permissions and coordination: normalizes a plain nonconfo
       retryable: false,
     })
 
-    expect((error as Error).message).toMatch(/Migration DDL execution failed/i)
+    expect((error as Error).message).toBe('Migration DDL execution failed')
     expect((error as MigrationError).cause).toBe(adapterFailure)
     await db.close()
   })

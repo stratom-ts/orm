@@ -260,7 +260,10 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
       cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseCause }],
     })
 
-    expect((error as Error).message).toMatch(/PostgreSQL migration ddl failed/i)
+    expect((error as Error).message).toBe(
+      'PostgreSQL migration ddl failed during action 1',
+    )
+
     expect((error as MigrationError).cause).toBe(primaryCause)
 
     expect(((error as MigrationError).cause as Error).message).toMatch(
@@ -297,6 +300,8 @@ describe('public migration coordination failures', () => {
       retryable: false,
       cleanupFailures: [{ stage: 'sessionCleanup', cause: openCause }],
     })
+
+    expect((error as Error).message).toBe('Migration operation session failed')
 
     await db.close()
   })
