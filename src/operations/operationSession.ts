@@ -26,8 +26,12 @@ export type OperationSession = {
    *
    * @param query - Compiled SQL and ordered parameter bindings for the current physical
    *   call.
+   *
+   * @returns The driver's affected-row count for DML, as a nonnegative safe integer.
+   *   Statements without a meaningful count may return undefined. Missing or invalid
+   *   DML counts are provider defects and cause writes to throw InvariantError.
    */
-  run(query: CompiledQuery): Promise<void>
+  run(query: CompiledQuery): Promise<number | undefined>
   /** Cancels the active physical-session operation. */
   cancel(): Promise<void>
   /**

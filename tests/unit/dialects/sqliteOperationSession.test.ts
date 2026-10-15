@@ -8,7 +8,10 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { OperationCommand } from '@/dialects'
 import { compileSqliteOperationCommand } from '@/dialects/sqlite/operations'
 import { createDb0NodeSqliteOperationSessionProvider } from '@/dialects/sqlite/operationSession'
-import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
+import {
+  OperationCoordinator,
+  getOperationReleaseCleanupFailures,
+} from '@/operations/coordinator'
 import type {
   OperationSession,
   OperationSessionProvider,
@@ -18,6 +21,43 @@ import type { DriverError } from '@/utils/error'
 import { deferred } from '../../helpers/deferredPromise'
 
 const directories: string[] = []
+
+it('returns native SQLite counts through executor.run, including bigint changes', async () => {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  const native = await connector.getInstance!()
+  const prepare = native.prepare.bind(native)
+
+  const spy = vi.spyOn(native, 'prepare').mockImplementation((sql) => {
+    const statement = prepare(sql)
+    statement.setReadBigInts(true)
+    return statement
+  })
+
+  const coordinator = new OperationCoordinator(
+    createDb0NodeSqliteOperationSessionProvider(connector),
+  )
+
+  try {
+    await coordinator.run(async ({ executor }) => {
+      await executor.run({ sql: 'create table records (id integer)', params: [] })
+
+      await expect(
+        executor.run({ sql: 'insert into records values (1), (2)', params: [] }),
+      ).resolves.toBe(2)
+
+      await expect(
+        executor.run({ sql: 'update records set id = id where id = 3', params: [] }),
+      ).resolves.toBe(0)
+
+      await expect(
+        executor.run({ sql: 'delete from records', params: [] }),
+      ).resolves.toBe(2)
+    })
+  } finally {
+    spy.mockRestore()
+    await coordinator.close()
+  }
+})
 
 it('classifies a native SQLite open probe failure as DriverError', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })

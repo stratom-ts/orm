@@ -36,7 +36,7 @@ function createCommonRuntime() {
           /** Runs the contract's command through StatementSync.run. */
           async run() {
             events.push('run')
-            await session.run({ sql: 'pragma user_version=1', params: [] })
+            return session.run({ sql: 'pragma user_version=1', params: [] })
           },
           /** Poisons the real lease. */
           async cancel() {

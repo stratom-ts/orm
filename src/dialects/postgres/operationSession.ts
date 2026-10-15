@@ -14,6 +14,7 @@ import { scanPostgresSql } from './postgresSql'
 
 type NativePostgresResult = {
   rows?: unknown[]
+  rowCount?: number | null
 }
 
 type NativePostgresClient = {
@@ -499,7 +500,10 @@ function createNativeOperationSession(
     /** Executes a statement without requiring result rows. */
     run: (query) =>
       enqueueSessionOperation(state, async () => {
-        await executeNativeQuery(connector, client, state, query, dialectId)
+        return (
+          (await executeNativeQuery(connector, client, state, query, dialectId))
+            .rowCount ?? undefined
+        )
       }),
     /** Cancels the active physical-session operation. */
     cancel: () => cancelNativeSession(client, state),

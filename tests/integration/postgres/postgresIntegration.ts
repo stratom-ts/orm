@@ -137,11 +137,12 @@ function observeSessionProvider(
           return rows
         },
         /** Runs a fixture statement with configured outcomes. */
-        async run(compiled): Promise<void> {
+        async run(compiled): Promise<number | undefined> {
           const observed = event(compiled.sql)
           await hooks.before?.(observed)
-          await session.run(compiled)
+          const rowCount = await session.run(compiled)
           await hooks.after?.(observed)
+          return rowCount
         },
         /** Cancels the active physical-session operation. */
         cancel: () => session.cancel(),
