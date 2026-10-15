@@ -18,31 +18,52 @@ export function enrichMigrationError(
   error: MigrationError,
   changes: Enrichment,
 ): MigrationError {
-  const cleanupFailures = changes.cleanupFailures?.length
+  const message = changes.message ?? error.message
+  const cause = 'cause' in error ? { cause: error.cause } : {}
+  const defect = error.defect === undefined ? {} : { defect: error.defect }
+
+  const stage =
+    (changes.stage ?? error.stage) ? { stage: changes.stage ?? error.stage } : {}
+
+  const outcome =
+    (changes.outcome ?? error.outcome)
+      ? { outcome: changes.outcome ?? error.outcome }
+      : {}
+
+  const retryable =
+    changes.retryable !== undefined || error.retryable !== undefined
+      ? { retryable: changes.retryable ?? error.retryable }
+      : {}
+
+  const actionIndex = error.actionIndex ? { actionIndex: error.actionIndex } : {}
+
+  const sourceStepIndexes = error.sourceStepIndexes
+    ? { sourceStepIndexes: error.sourceStepIndexes }
+    : {}
+
+  const capabilityIssues = error.capabilityIssues
+    ? { capabilityIssues: error.capabilityIssues }
+    : {}
+
+  const maybeCleanupFailures = changes.cleanupFailures?.length
     ? [...(error.cleanupFailures ?? []), ...changes.cleanupFailures]
     : error.cleanupFailures
 
+  const cleanupFailures = maybeCleanupFailures
+    ? { cleanupFailures: maybeCleanupFailures }
+    : {}
+
   return new MigrationError({
-    message: changes.message ?? error.message,
-    ...(Object.hasOwn(error, 'cause') ? { cause: error.cause } : {}),
-    ...(error.defect === undefined ? {} : { defect: error.defect }),
-    ...(changes.stage === undefined && error.stage === undefined
-      ? {}
-      : { stage: changes.stage ?? error.stage }),
-    ...(changes.outcome === undefined && error.outcome === undefined
-      ? {}
-      : { outcome: changes.outcome ?? error.outcome }),
-    ...(changes.retryable === undefined && error.retryable === undefined
-      ? {}
-      : { retryable: changes.retryable ?? error.retryable }),
-    ...(error.actionIndex === undefined ? {} : { actionIndex: error.actionIndex }),
-    ...(error.sourceStepIndexes === undefined
-      ? {}
-      : { sourceStepIndexes: error.sourceStepIndexes }),
-    ...(error.capabilityIssues === undefined
-      ? {}
-      : { capabilityIssues: error.capabilityIssues }),
-    ...(cleanupFailures !== undefined ? { cleanupFailures } : {}),
+    message: message,
+    ...cause,
+    ...defect,
+    ...stage,
+    ...outcome,
+    ...retryable,
+    ...actionIndex,
+    ...sourceStepIndexes,
+    ...capabilityIssues,
+    ...cleanupFailures,
   })
 }
 
