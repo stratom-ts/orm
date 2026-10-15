@@ -170,14 +170,19 @@ it.each(['integrity', 'convergence'] as const)(
       fail: 'restore',
     })
 
-    await expect(test.execute()).rejects.toMatchObject({
+    const rejection = await test.execute().catch((cause: unknown) => cause)
+
+    expect(rejection).toMatchObject({
       stage: 'validation',
       outcome: 'rolledBack',
-      message: expect.stringContaining('SQLite migration validation failed') as string,
       cause: { message: primaryMessage },
       sourceStepIndexes: [7],
       cleanupFailures: [{ stage: 'sessionCleanup', cause: new Error('restore failed') }],
     })
+
+    expect((rejection as MigrationError).message).toBe(
+      `SQLite migration validation failed: ${primaryMessage}`,
+    )
 
     expect(test.calls).toContain(statement.sql)
     expect(test.calls).toContain('rollback')
@@ -285,6 +290,11 @@ it('retains structured preparation diagnostics and appends rollback cleanup evid
   })
 
   expect((rejection as MigrationError).cause).toBe(primary)
+
+  expect((rejection as MigrationError).message).toBe(
+    'SQLite migration lowering failed during action 5: Cannot lower target',
+  )
+
   expect(rejection).not.toHaveProperty('defect')
   expect(test.calls).not.toContain(statement.sql)
 })
@@ -346,6 +356,20 @@ it.each([null, undefined])(
   },
 )
 
+it('uses an uncaused structured preparation failure as its primary cause', async () => {
+  const primary = new MigrationError({ message: 'preparation failed', stage: 'planning' })
+  const test = fixture({ prepareFailure: primary })
+  const rejection = await test.execute().catch((cause: unknown) => cause)
+
+  expect((rejection as MigrationError).cause).toBe(primary)
+
+  expect((rejection as MigrationError).message).toBe(
+    'SQLite migration planning failed: preparation failed',
+  )
+
+  expect(rejection).not.toHaveProperty('defect')
+})
+
 it('retains transaction-incompatible action provenance before any precondition or DDL', async () => {
   const test = fixture()
   const incompatible = {
@@ -381,12 +405,23 @@ it.each(['statement-atomic', 'non-atomic'] as const)(
 
 it('reports attempted DDL as rolled back or unknown according to rollback acknowledgement', async () => {
   const rolledBack = fixture({ fail: 'ddl' })
-  await expect(rolledBack.execute()).rejects.toMatchObject({
+  const rolledBackError = await rolledBack.execute().catch((cause: unknown) => cause)
+
+  expect(rolledBackError).toMatchObject({
     stage: 'ddl',
     outcome: 'rolledBack',
     actionIndex: 0,
     sourceStepIndexes: [7],
   })
+
+  expect((rolledBackError as MigrationError).message).toBe(
+    'SQLite migration ddl failed during action 1',
+  )
+
+  expect(Object.hasOwn(rolledBackError as object, 'capabilityIssues')).toBe(true)
+  expect((rolledBackError as MigrationError).capabilityIssues).toBeUndefined()
+  expect(Object.hasOwn(rolledBackError as object, 'cleanupFailures')).toBe(true)
+  expect((rolledBackError as MigrationError).cleanupFailures).toBeUndefined()
 
   expect(rolledBack.calls).toContain('rollback')
 
@@ -402,11 +437,22 @@ it('reports attempted DDL as rolled back or unknown according to rollback acknow
 
 it('retains an acknowledged applied outcome when post-commit busy-policy cleanup fails', async () => {
   const test = fixture({ fail: 'restore' })
-  await expect(test.execute()).rejects.toMatchObject({
+  const rejection = await test.execute().catch((cause: unknown) => cause)
+
+  expect(rejection).toMatchObject({
     stage: 'sessionCleanup',
     outcome: 'applied',
     cleanupFailures: [{ stage: 'sessionCleanup' }],
   })
+
+  expect((rejection as MigrationError).message).toBe(
+    'SQLite migration sessionCleanup failed',
+  )
+
+  expect(Object.hasOwn(rejection as object, 'actionIndex')).toBe(true)
+  expect((rejection as MigrationError).actionIndex).toBeUndefined()
+  expect(Object.hasOwn(rejection as object, 'sourceStepIndexes')).toBe(true)
+  expect((rejection as MigrationError).sourceStepIndexes).toBeUndefined()
 
   expect(test.discard).toHaveBeenCalled()
 })
