@@ -1095,6 +1095,11 @@ it('preserves an explicitly undefined cause when preview adds a stage', async ()
     .catch((cause: unknown) => cause)
 
   expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+
+  expect((rejection as MigrationError).message).toBe(
+    'Migration planning failed: defect with explicit undefined cause',
+  )
+
   expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
   expect((rejection as MigrationError).cause).toBeUndefined()
   expect(Object.hasOwn(expected, 'cause')).toBe(true)

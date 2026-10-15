@@ -72,6 +72,11 @@ describe('PostgreSQL migration runtime failures', () => {
       const rejection = await runtime.execute().catch((cause: unknown) => cause)
 
       expect(rejection).toMatchObject({ defect: true, stage: 'planning' })
+
+      expect((rejection as MigrationError).message).toBe(
+        'PostgreSQL migration planning failed: wrapped nullish defect',
+      )
+
       expect(Object.hasOwn(rejection as object, 'cause')).toBe(true)
       expect((rejection as MigrationError).cause).toBe(originalCause)
     },
@@ -151,6 +156,12 @@ describe('PostgreSQL migration runtime failures: classifies an acknowledged DDL 
       actionIndex: 0,
       sourceStepIndexes: [4],
     })
+
+    expect((error as MigrationError).message).toBe(
+      'PostgreSQL migration ddl failed during action 1',
+    )
+
+    expect(Object.hasOwn(error as object, 'capabilityIssues')).toBe(false)
 
     expect(runtime.calls).toContain('rollback')
     expect(runtime.discard).not.toHaveBeenCalled()
