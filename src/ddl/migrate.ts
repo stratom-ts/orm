@@ -1,5 +1,6 @@
 import type { DialectMigrationAdapter, MigrationProgram } from '@/ddl/migrationProgram'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
+import { enrichMigrationError } from '@/migrations/migrationDiagnostics'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import {
@@ -135,23 +136,11 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
 
   if (cause.stage !== undefined) return cause
 
-  return new MigrationError({
+  return enrichMigrationError(cause, {
     message: `Migration ${stage} failed: ${cause.message}`,
-    ...(Object.hasOwn(cause, 'cause') ? { cause: cause.cause } : {}),
     stage,
     outcome: cause.outcome ?? 'unchanged',
     retryable: cause.retryable ?? false,
-    ...(cause.defect === undefined ? {} : { defect: cause.defect }),
-    ...(cause.actionIndex === undefined ? {} : { actionIndex: cause.actionIndex }),
-    ...(cause.capabilityIssues === undefined
-      ? {}
-      : { capabilityIssues: cause.capabilityIssues }),
-    ...(cause.sourceStepIndexes === undefined
-      ? {}
-      : { sourceStepIndexes: cause.sourceStepIndexes }),
-    ...(cause.cleanupFailures === undefined
-      ? {}
-      : { cleanupFailures: cause.cleanupFailures }),
   })
 }
 
@@ -165,24 +154,8 @@ function withReleaseCleanup(error: MigrationError): MigrationError {
 
   if (failures.length === 0) return error
 
-  return new MigrationError({
-    message: error.message,
-    ...(Object.hasOwn(error, 'cause') ? { cause: error.cause } : {}),
-    ...(error.defect === undefined ? {} : { defect: error.defect }),
-    ...(error.stage === undefined ? {} : { stage: error.stage }),
-    ...(error.outcome === undefined ? {} : { outcome: error.outcome }),
-    ...(error.retryable === undefined ? {} : { retryable: error.retryable }),
-    ...(error.actionIndex === undefined ? {} : { actionIndex: error.actionIndex }),
-    ...(error.sourceStepIndexes === undefined
-      ? {}
-      : { sourceStepIndexes: error.sourceStepIndexes }),
-    ...(error.capabilityIssues === undefined
-      ? {}
-      : { capabilityIssues: error.capabilityIssues }),
-    cleanupFailures: [
-      ...(error.cleanupFailures ?? []),
-      ...failures.map((cause) => ({ stage: 'sessionCleanup' as const, cause })),
-    ],
+  return enrichMigrationError(error, {
+    cleanupFailures: failures.map((cause) => ({ stage: 'sessionCleanup', cause })),
   })
 }
 

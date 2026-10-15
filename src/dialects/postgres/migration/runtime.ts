@@ -1,4 +1,5 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
+import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import {
@@ -26,47 +27,6 @@ import {
 } from './coordination'
 
 const DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS = 30_000
-
-/**
- * Reads the primary cause through an existing structured migration error.
- *
- * @param cause - Failure whose primary cause is requested.
- */
-function primaryCause(cause: unknown): unknown {
-  if (cause instanceof MigrationError && Object.hasOwn(cause, 'cause')) {
-    return cause.cause
-  }
-
-  return cause
-}
-
-/** Resolves retryability while treating an unknown database outcome as final. */
-function executionRetryable(
-  structured: MigrationError | undefined,
-  options: Readonly<{
-    outcome: 'unchanged' | 'rolledBack' | 'applied' | 'unknown'
-    retryable: boolean
-  }>,
-): boolean {
-  if (options.outcome === 'unknown') return false
-
-  return structured?.retryable ?? options.retryable
-}
-
-/** Marks defects while allowing known migration, cancellation and query failures. */
-function executionDefect(
-  cause: unknown,
-  structured: MigrationError | undefined,
-): boolean {
-  return (
-    structured?.defect === true ||
-    (!structured &&
-      !(cause instanceof MigrationCancellationError) &&
-      !(cause instanceof QueryError) &&
-      !(cause instanceof DriverError) &&
-      !(cause instanceof SchemaError))
-  )
-}
 
 /** Formats operation context and only retains detail from recognized errors. */
 function executionMessage(
@@ -105,27 +65,28 @@ function executionError(options: {
 }): MigrationError {
   const { cause } = options
   const structured = cause instanceof MigrationError ? cause : undefined
-  const actionIndex = options.actionIndex ?? structured?.actionIndex
-  const sourceStepIndexes = options.sourceStepIndexes ?? structured?.sourceStepIndexes
-  const capabilityIssues = options.capabilityIssues ?? structured?.capabilityIssues
-  const cleanupFailures = [
-    ...(structured?.cleanupFailures ?? []),
-    ...(options.cleanupFailures ?? []),
-  ]
-
-  const retryable = executionRetryable(structured, options)
   const stage = structured?.stage ?? options.stage
-  return new MigrationError({
-    message: executionMessage(cause, stage, actionIndex, structured),
-    cause: primaryCause(cause),
-    ...(executionDefect(cause, structured) ? { defect: true as const } : {}),
+
+  return migrationExecutionError(cause, {
+    message: (actionIndex) => executionMessage(cause, stage, actionIndex, structured),
+    defect:
+      !(cause instanceof MigrationCancellationError) &&
+      !(cause instanceof QueryError) &&
+      !(cause instanceof DriverError) &&
+      !(cause instanceof SchemaError),
     stage,
     outcome: options.outcome,
-    retryable,
-    ...(actionIndex === undefined ? {} : { actionIndex }),
-    ...(sourceStepIndexes === undefined ? {} : { sourceStepIndexes }),
-    ...(capabilityIssues === undefined ? {} : { capabilityIssues }),
-    ...(cleanupFailures.length ? { cleanupFailures } : {}),
+    retryable: options.retryable,
+    ...(options.actionIndex === undefined ? {} : { actionIndex: options.actionIndex }),
+    ...(options.sourceStepIndexes === undefined
+      ? {}
+      : { sourceStepIndexes: options.sourceStepIndexes }),
+    ...(options.capabilityIssues === undefined
+      ? {}
+      : { capabilityIssues: options.capabilityIssues }),
+    ...(options.cleanupFailures?.length
+      ? { cleanupFailures: options.cleanupFailures }
+      : {}),
   })
 }
 
