@@ -251,12 +251,22 @@ it('applies the original single-pass invalid-parent downgrade and retains outsid
   expect(facts.columns.coverage.state).toBe('complete')
 })
 
-it('preserves input observations and failure collections', () => {
-  const input = fixture()
-  const before = structuredClone({ ...input, identities: undefined })
-  proveSqliteTables(input)
-  expect({ ...input, identities: undefined }).toEqual(before)
-})
+it.each(['healthy', 'damaged'])(
+  'preserves input observations and failure collections with %s evidence',
+  (state) => {
+    const input = fixture()
+
+    if (state === 'damaged')
+      input.evidence.indexLists.set('t', [
+        { seq: 1, name: 'bad', origin: 'u', unique: 1, partial: 0 },
+      ])
+
+    const before = structuredClone({ ...input, identities: undefined })
+    const result = proveSqliteTables(input)
+    expect(result.errors.has('t')).toBe(state === 'damaged')
+    expect({ ...input, identities: undefined }).toEqual(before)
+  },
+)
 
 it('rethrows unrelated errors, invariant errors and primitive defects by identity', () => {
   for (const defect of [

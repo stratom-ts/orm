@@ -342,14 +342,7 @@ function isMain(identity: CanonicalRelationIdentity): boolean {
   )
 }
 
-/**
- * Decodes supported SQLite defaults and preserves unrecognized expressions as opaque
- * evidence.
- *
- * @param raw - Native SQL default expression before decoding.
- *
- * @returns Portable default evidence retaining unsupported native expressions explicitly.
- */
+/** Decodes and validates table_list observations. */
 function decodeTableRows(rows: unknown[]): TableRow[] {
   return stableRows(rows).map((value, index) => {
     const row = rowAt(value, 'table_list', index)

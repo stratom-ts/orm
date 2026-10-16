@@ -2170,11 +2170,10 @@ function catalogTableOptions(row: TableRow) {
 /** Builds table evidence and its resulting management status. */
 function buildCatalogTable(input: SqliteTableAssembly) {
   const { row, evidence, identities, initial, decisions } = input
-  const { xinfo, indexInfos, foreignKeys } = evidence
+  const { indexInfos, foreignKeys } = evidence
   const tableOpaque = initial.opaque
   const structure = decodeTableStructure({
     ...input,
-    xinfo,
     managed: initial.managed,
     tableOpaque,
   })
@@ -3373,7 +3372,6 @@ type SqliteTableAssembly = {
 type SqliteTableStructure = {
   row: TableRow
   schema: SchemaRow | undefined
-  xinfo: Map<string, XInfoRow[]>
   nativeDefinition: CatalogFact<string>
   identities: ReturnType<typeof sqliteIdentity.create>
   managed: boolean
@@ -3423,13 +3421,7 @@ function preserveCheckConstraint(
   return true
 }
 
-/**
- * Checks a native schema row's identity and kind against table-list evidence.
- *
- * @param schemaRow - Native schema definition used to classify portable table semantics.
- * @param mainTables - Validated ordinary tables observed in SQLite's main database.
- * @param scopeIdentity - Canonical namespace identity for catalog scope checks.
- */
+/** Builds native user-index evidence and classifies unsupported expressions or clauses. */
 function decodeSqliteUserIndex(
   index: IndexListRow,
   columnsForIndex: string[],
