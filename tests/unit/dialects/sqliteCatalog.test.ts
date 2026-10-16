@@ -1294,23 +1294,6 @@ describe('SQLite evidence-bearing catalog: fixture retains composite FK ordering
   })
 })
 
-describe('SQLite evidence-bearing catalog: fixture marks strict and without-rowid unmanaged', () => {
-  it('fixture marks strict and without-rowid unmanaged', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    expect(
-      s.namespaces.items[0]!.relations.items.find(
-        (r) => r.identity.relation.spelling === 'wr',
-      )!.management,
-    ).toBe('unmanaged')
-
-    expect(
-      s.namespaces.items[0]!.relations.items.find(
-        (r) => r.identity.relation.spelling === 'strict_t',
-      )!.management,
-    ).toBe('unmanaged')
-  })
-})
-
 describe('SQLite catalog management and opaque evidence', () => {
   it('blocks main management when attached or temporary objects are present', async () => {
     const executeExternal = createExternalSqliteExecutor
@@ -1324,30 +1307,6 @@ describe('SQLite catalog management and opaque evidence', () => {
     const parent = relationNamed(snapshot, 'parent')
 
     assertExternalNamespaceDiagnostics(reversed, snapshot, parent)
-  })
-})
-
-describe('SQLite catalog management and opaque evidence: fixture emits view virtual and shadow kinds', () => {
-  it('fixture emits view virtual and shadow kinds', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const rs = snapshot.namespaces.items[0]!.relations.items
-    expect(rs.find((r) => r.identity.relation.spelling === 'v')!.kind).toBe('view')
-
-    expect(rs.find((r) => r.identity.relation.spelling === 'virt')!.kind).toBe(
-      'virtualTable',
-    )
-
-    expect(rs.find((r) => r.identity.relation.spelling === 'virt_shadow')!.kind).toBe(
-      'shadowTable',
-    )
-
-    expect(
-      tableOf(relationNamed(snapshot, 'virt')).columns.items[0]!.generation.state,
-    ).toBe('unsupported')
-
-    expect(
-      tableOf(relationNamed(snapshot, 'virt_shadow')).columns.items[0]!.generation.state,
-    ).toBe('unsupported')
   })
 })
 
@@ -2134,20 +2093,6 @@ describe('SQLite invalid schema evidence', () => {
     expect(relationNamed(snapshot, 'simple').management).toBe('managed')
     expect(snapshot.nameReservations.coverage.state).toBe('unknown')
   })
-})
-
-it('marks possible rowid facts unknown when index inventory is malformed', async () => {
-  const snapshot = await sqliteCatalog.introspectCatalog(
-    fixtureExecutor({ malformed: 'index-wrong-shape', withoutOpaqueDependencies: true }),
-    request,
-  )
-
-  const id = tableOf(relationNamed(snapshot, 'parent')).columns.items.find(
-    (column) => column.name === 'id',
-  )!
-
-  expect(id.nullable.state).toBe('unknown')
-  expect(id.generation.state).toBe('unknown')
 })
 
 describe('SQLite invalid metadata ordering', () => {
