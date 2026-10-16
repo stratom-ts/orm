@@ -31,6 +31,9 @@ import { asciiFoldSqliteIdentifier, sqliteIdentity } from './identity'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
 import { assertSafeSqliteDefaultExpression } from './validate'
 
+/** A known malformed or contradictory SQLite table observation. */
+class SqliteTableMetadataError extends Error {}
+
 const UNPAIRED_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
@@ -521,7 +524,9 @@ function quotedSqlEnd(
     return cursor + 1
   }
 
-  throw new InvariantError(`Malformed SQLite schema SQL: unterminated ${description}`)
+  throw new SqliteTableMetadataError(
+    `Malformed SQLite schema SQL: unterminated ${description}`,
+  )
 }
 
 /** A quote/comment-aware scanner for unquoted CREATE TABLE SQL token sequences. */
@@ -551,7 +556,9 @@ function tokenizeSqliteSql(sql: string) {
       character === '/' && sql[index + 1] === '*' ? sql.indexOf('*/', index + 2) : null
 
     if (blockCommentEnd === -1) {
-      throw new InvariantError('Malformed SQLite schema SQL: unterminated block comment')
+      throw new SqliteTableMetadataError(
+        'Malformed SQLite schema SQL: unterminated block comment',
+      )
     }
 
     if (character === '-' && sql[index + 1] === '-') {
@@ -630,7 +637,9 @@ function definitionBlockCommentEnd(sql: string, index: number): number {
   const end = sql.indexOf('*/', index + 2)
 
   if (end < 0)
-    throw new InvariantError('Malformed SQLite schema SQL: unterminated block comment')
+    throw new SqliteTableMetadataError(
+      'Malformed SQLite schema SQL: unterminated block comment',
+    )
 
   return end + 2
 }
@@ -703,7 +712,9 @@ function definitionIdentifier(token: DefinitionToken | undefined): string {
   if (token?.kind === 'word' || token?.kind === 'identifier' || token?.kind === 'string')
     return token.value
 
-  throw new InvariantError('SQLite native constraint has an unparseable identifier')
+  throw new SqliteTableMetadataError(
+    'SQLite native constraint has an unparseable identifier',
+  )
 }
 
 /** Splits a parenthesized native clause at commas outside nested expressions. */
@@ -715,7 +726,7 @@ function definitionSegments(
   end: number
 } {
   if (tokens[open]?.kind !== 'symbol' || tokens[open].value !== '(')
-    throw new InvariantError('SQLite native constraint has no column list')
+    throw new SqliteTableMetadataError('SQLite native constraint has no column list')
 
   const segments: DefinitionToken[][] = [[]]
   let depth = 1
@@ -730,7 +741,9 @@ function definitionSegments(
     else segments.at(-1)!.push(token)
   }
 
-  throw new InvariantError('Malformed SQLite schema SQL: unterminated column list')
+  throw new SqliteTableMetadataError(
+    'Malformed SQLite schema SQL: unterminated column list',
+  )
 }
 
 function definitionColumns(tokens: readonly DefinitionToken[], open: number): string[] {
@@ -1029,7 +1042,9 @@ function definitionForeignKey(
   const end = definitionSegments(segment, index + 2).end
 
   if (!definitionWord(segment[end + 1], 'REFERENCES'))
-    throw new InvariantError('SQLite native foreign key has no REFERENCES clause')
+    throw new SqliteTableMetadataError(
+      'SQLite native foreign key has no REFERENCES clause',
+    )
 
   return { key: nativeForeignKey(segment, source, end + 1), end }
 }
@@ -1087,7 +1102,7 @@ function nativeDefinitionEvidence(sql: string): NativeDefinitionEvidence {
   const tableKeyword = tokens.findIndex((token) => definitionWord(token, 'TABLE'))
 
   if (tableKeyword < 0)
-    throw new InvariantError('SQLite native definition has no TABLE clause')
+    throw new SqliteTableMetadataError('SQLite native definition has no TABLE clause')
 
   const kind = tokens
     .slice(0, tableKeyword)
@@ -1108,12 +1123,12 @@ function nativeDefinitionEvidence(sql: string): NativeDefinitionEvidence {
 
   const body = tokens.findIndex((token) => token.kind === 'symbol' && token.value === '(')
 
-  if (body < 0) throw new InvariantError('SQLite table definition has no column list')
+  if (body < 0)
+    throw new SqliteTableMetadataError('SQLite table definition has no column list')
 
   const definition = definitionSegments(tokens, body)
-  const segments = definition.segments
 
-  const columns = segments
+  const columns = definition.segments
     .map((segment) => definitionColumnEvidence(segment))
     .filter((column): column is NativeColumnEvidence => column !== null)
 
@@ -1130,11 +1145,13 @@ function nativeDefinitionEvidence(sql: string): NativeDefinitionEvidence {
     foreignKeys: [],
   }
 
-  for (const segment of segments) {
+  for (const segment of definition.segments) {
     const part = decodeDefinitionSegment(segment, collations)
 
     if (part.primaryKey && result.primaryKey)
-      throw new InvariantError('SQLite native definition has multiple primary keys')
+      throw new SqliteTableMetadataError(
+        'SQLite native definition has multiple primary keys',
+      )
 
     result.primaryKey ??= part.primaryKey
     result.keys.push(...part.keys)
@@ -1185,7 +1202,7 @@ function action(value: string, query: string, index: number): ReferentialAction 
   )
     return normalized
 
-  throw new InvariantError(
+  throw new SqliteTableMetadataError(
     `Malformed SQLite ${query} row ${index}: invalid referential action`,
   )
 }
@@ -1516,8 +1533,6 @@ function validateSchemaRows(
     sameNamespace(entry, identities.resolveNamespace(mainNamespace)),
   )
 
-  assertUniqueSchemaNames(schemaRows)
-
   validateSchemaRelations(schemaRows, mainTables, resolvedRequest, identities, errors)
 
   for (const tableRow of mainTables) {
@@ -1597,7 +1612,7 @@ function validateOwnerIndexes(
 
   for (const entry of indexes) {
     if (entry.origin === 'u' && (entry.unique !== 1 || entry.partial !== 0))
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite UNIQUE index ${JSON.stringify(entry.name)} has invalid flags`,
       )
 
@@ -1613,7 +1628,7 @@ function validateOwnerIndexes(
     )
 
     if (matches.length !== 1 || matches[0]!.sql === null)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite user index ${JSON.stringify(entry.name)} has missing or mismatched sqlite_schema evidence`,
       )
   }
@@ -1625,7 +1640,7 @@ function validateOwnerIndexes(
         scopeIdentity(owner.name).relation.comparisonKey,
   ))
     if (!listed.has(identities.member('index', schema.name).comparisonKey))
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite sqlite_schema index ${JSON.stringify(schema.name)} is missing from index_list`,
       )
 }
@@ -1849,14 +1864,14 @@ function decodeCatalogColumns(
   const decodedColumns: CatalogColumn[] = []
   for (const column of columns) {
     if (seenCids.has(column.cid))
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `Duplicate SQLite table_xinfo cid for ${JSON.stringify(row.name)}`,
       )
 
     const columnKey = identities.member('column', column.name).comparisonKey
 
     if (seenColumnNames.has(columnKey))
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `Duplicate SQLite table_xinfo column for ${JSON.stringify(row.name)}`,
       )
 
@@ -1890,12 +1905,12 @@ function orderSqliteColumns(observedColumns: readonly XInfoRow[], row: TableRow)
   )
 
   if (columns.length !== row.ncol)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} table_list ncol does not match table_xinfo`,
     )
 
   if (columns.some((column, index) => column.cid !== index))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} table_xinfo cids must be contiguous`,
     )
 
@@ -2180,7 +2195,7 @@ function validateAuxiliaryEntries(info: IndexInfoRow[], index: IndexListRow): vo
       (auxiliary.cid === -1 && auxiliary.name !== null) ||
       (auxiliary.cid >= 0 && auxiliary.name === null)
     )
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has malformed auxiliary index_xinfo row`,
       )
   }
@@ -2208,17 +2223,17 @@ function decodeIndexColumns(
 
   for (const entry of keyEntries) {
     if (entry.cid === -1)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has a rowid auxiliary marked as a key term`,
       )
 
     if (entry.cid === -2 && entry.name !== null)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has a malformed expression term`,
       )
 
     if (entry.cid < -2)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has an invalid column id`,
       )
 
@@ -2230,7 +2245,7 @@ function decodeIndexColumns(
     const referencedColumn = columns.find((column) => column.cid === entry.cid)
 
     if (referencedColumn === undefined || referencedColumn.name !== entry.name)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} references a missing or mismatched column`,
       )
 
@@ -2345,7 +2360,7 @@ function validateTableIndexes(
   const indexSeqs = indexes.map((index) => index.seq).sort((a, b) => a - b)
 
   if (indexSeqs.some((seq, position) => seq !== position))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has non-contiguous index_list sequences`,
     )
 
@@ -2353,21 +2368,21 @@ function validateTableIndexes(
     new Set(indexes.map((index) => identities.member('index', index.name).comparisonKey))
       .size !== indexes.length
   )
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `Duplicate SQLite index_list name on ${JSON.stringify(row.name)}`,
     )
 
   const pkIndexes = indexes.filter((index) => index.origin === 'pk')
 
   if (pkIndexes.length > 1)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has multiple primary-key indexes`,
     )
 
   const pkIndex = pkIndexes.at(0)
 
   if (pkIndex && (pkIndex.unique !== 1 || pkIndex.partial !== 0))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite primary-key index on ${JSON.stringify(row.name)} has invalid flags`,
     )
 
@@ -2645,7 +2660,7 @@ async function readTableEvidence(
     if (errors.has(row.name)) continue
 
     const rows = await executor.execute(queries.indexes(row.name))
-    const decoded = decodeTableObservation(row.name, errors, () =>
+    const decoded = decodeNativeRowObservation(row.name, errors, () =>
       decodeIndexListRows(rows, row.name),
     )
 
@@ -2655,8 +2670,24 @@ async function readTableEvidence(
   return { xinfo, indexLists, indexInfos, foreignKeys, reservationIndexLists, errors }
 }
 
-/** Keeps a relation-local decoder error distinct from an executor rejection. */
+/** Keeps an owned proof failure local to its relation. */
 function decodeTableObservation<T>(
+  table: string,
+  errors: Map<string, string>,
+  decode: () => T,
+): T | undefined {
+  try {
+    return decode()
+  } catch (error) {
+    if (!(error instanceof SqliteTableMetadataError)) throw error
+    if (!errors.has(table)) errors.set(table, error.message)
+
+    return undefined
+  }
+}
+
+/** Keeps a malformed successful native row local to its relation. */
+function decodeNativeRowObservation<T>(
   table: string,
   errors: Map<string, string>,
   decode: () => T,
@@ -2691,21 +2722,21 @@ async function readSqliteTableEvidence(
   errors: Map<string, string>,
 ) {
   const columns = await executor.execute(queries.xinfo(row.name))
-  const decodedColumns = decodeTableObservation(row.name, errors, () =>
+  const decodedColumns = decodeNativeRowObservation(row.name, errors, () =>
     decodeXInfoRows(columns, row.name),
   )
 
   if (decodedColumns) xinfo.set(row.name, decodedColumns)
 
   const indexes = await executor.execute(queries.indexes(row.name))
-  const decodedIndexes = decodeTableObservation(row.name, errors, () =>
+  const decodedIndexes = decodeNativeRowObservation(row.name, errors, () =>
     decodeIndexListRows(indexes, row.name),
   )
 
   if (decodedIndexes) indexLists.set(row.name, decodedIndexes)
 
   const keys = await executor.execute(queries.foreignKeys(row.name))
-  const decodedKeys = decodeTableObservation(row.name, errors, () =>
+  const decodedKeys = decodeNativeRowObservation(row.name, errors, () =>
     decodeForeignKeyRows(keys, row.name),
   )
 
@@ -2713,7 +2744,7 @@ async function readSqliteTableEvidence(
 
   for (const index of decodedIndexes ?? []) {
     const info = await executor.execute(queries.indexInfo(index.name))
-    const decodedInfo = decodeTableObservation(row.name, errors, () =>
+    const decodedInfo = decodeNativeRowObservation(row.name, errors, () =>
       decodeIndexInfoRows(info, row.name, index.name),
     )
 
@@ -2883,13 +2914,13 @@ function relationDefinition(row: TableRow, schema: SchemaRow | undefined) {
       row.type !== 'virtual' &&
       row.type !== 'shadow'
     ) {
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `Malformed SQLite table_list row: unsupported type ${JSON.stringify(row.type)}`,
       )
     }
 
     if (row.type === 'table' && schema === undefined) {
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite table ${JSON.stringify(row.name)} is missing sqlite_schema definition`,
       )
     }
@@ -3027,7 +3058,7 @@ function decodeCatalogIndex(
 
   if (index.origin === 'c') {
     if (indexSql === null)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite user index ${JSON.stringify(index.name)} is missing sqlite_schema definition`,
       )
 
@@ -3068,7 +3099,7 @@ function verifyNativeIndexAgainstTable(
   tableSql: string | null,
 ): void {
   if (tableSql === null)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} is missing native table definition`,
     )
 
@@ -3097,7 +3128,7 @@ function verifyNativeIndexSemantics(
   )
 
   if (on < 0 || open < 0)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} has malformed native definition`,
     )
 
@@ -3106,7 +3137,7 @@ function verifyNativeIndexSemantics(
   const partial = tokens.slice(end + 1).some((token) => definitionWord(token, 'WHERE'))
 
   if (partial !== (index.partial === 1))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} has inconsistent native partial-index evidence`,
     )
 
@@ -3115,7 +3146,7 @@ function verifyNativeIndexSemantics(
     terms.segments.every((term) => definitionIndexTermIsSimple(term, columnCollations))
 
   if (simple !== observedSimple)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} has inconsistent native index-semantics evidence`,
     )
 }
@@ -3172,7 +3203,7 @@ function validateIndexSequence(info: IndexInfoRow[], index: IndexListRow) {
   const seqnos = info.map((entry) => entry.seqno).sort((a, b) => a - b)
 
   if (seqnos.some((seqno, position) => seqno !== position))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite index ${JSON.stringify(index.name)} has non-contiguous index_xinfo seqnos`,
     )
 
@@ -3181,7 +3212,7 @@ function validateIndexSequence(info: IndexInfoRow[], index: IndexListRow) {
     .sort((a, b) => a.seqno - b.seqno)
 
   if (keyEntries.some((entry, position) => entry.seqno !== position))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite index ${JSON.stringify(index.name)} has non-contiguous key index_xinfo seqnos`,
     )
 
@@ -3317,7 +3348,7 @@ function decodeForeignKeySource(
   group.sort((a, b) => a.seq - b.seq)
 
   if (group.some((entry, position) => entry.seq !== position))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite foreign-key group on ${JSON.stringify(row.name)} has non-contiguous sequence`,
     )
 
@@ -3326,7 +3357,7 @@ function decodeForeignKeySource(
   const onUpdate = action(first.on_update, 'foreign_key_list', 0)
 
   if (!foreignGroupIsConsistent(group, first))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite foreign-key group on ${JSON.stringify(row.name)} is inconsistent`,
     )
 
@@ -3338,7 +3369,7 @@ function decodeForeignKeySource(
     )
 
     if (source === undefined)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite foreign key on ${JSON.stringify(row.name)} references a missing source column`,
       )
 
@@ -3449,7 +3480,7 @@ function verifyNativeConstraintEvidence(
   columns: XInfoRow[],
 ): void {
   if (sql === null)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has no native constraint evidence`,
     )
 
@@ -3570,7 +3601,7 @@ function verifyNativeColumns(
         asciiFoldSqliteIdentifier(columns[index]?.name ?? ''),
     )
   )
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native column evidence`,
     )
 
@@ -3579,7 +3610,7 @@ function verifyNativeColumns(
     const columnLabel = `SQLite table ${JSON.stringify(row.name)} column ${JSON.stringify(observed.name)}`
 
     if (!nativeTypeMatches(column.type, observed.type))
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `${columnLabel} has inconsistent native declared-type evidence`,
       )
 
@@ -3588,7 +3619,9 @@ function verifyNativeColumns(
       (native.withoutRowid && primary.has(asciiFoldSqliteIdentifier(column.name)))
 
     if (notNull !== (observed.notnull === 1))
-      throw new InvariantError(`${columnLabel} has inconsistent native NOT NULL evidence`)
+      throw new SqliteTableMetadataError(
+        `${columnLabel} has inconsistent native NOT NULL evidence`,
+      )
 
     const nativeDefault =
       column.default === null ? null : nativeDefaultSignature(column.default)
@@ -3597,10 +3630,12 @@ function verifyNativeColumns(
       observed.dflt_value === null ? null : nativeDefaultSignature(observed.dflt_value)
 
     if (nativeDefault !== observedDefault)
-      throw new InvariantError(`${columnLabel} has inconsistent native default evidence`)
+      throw new SqliteTableMetadataError(
+        `${columnLabel} has inconsistent native default evidence`,
+      )
 
     if (column.hidden !== observed.hidden)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `${columnLabel} has inconsistent native generated-column evidence`,
       )
   }
@@ -3665,7 +3700,7 @@ function verifyNativePrimaryKey(
           pkColumns.map((column) => column.name),
         )
   )
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native primary-key evidence`,
     )
 
@@ -3680,12 +3715,12 @@ function verifyNativePrimaryKey(
   )
 
   if (pkColumns.length > 0 && !rowidAlias && !pkIndex)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} is missing primary-key index evidence`,
     )
 
   if (rowidAlias && pkIndex)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has contradictory rowid index evidence`,
     )
 
@@ -3737,7 +3772,7 @@ function verifyNativeKeyIndexes(
           sameNativeKeyIdentity(index.terms, group.terms),
       )
 
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite table ${JSON.stringify(row.name)} ${contradictory ? 'has inconsistent' : 'is missing'} ${group.origin === 'pk' ? 'primary-key' : 'UNIQUE'} index evidence`,
       )
     }
@@ -3746,7 +3781,7 @@ function verifyNativeKeyIndexes(
   }
 
   if (indexes.length > 0)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native constraint index evidence`,
     )
 }
@@ -3790,7 +3825,7 @@ function verifyNativeForeignKeys(
     )
 
     if (index < 0)
-      throw new InvariantError(
+      throw new SqliteTableMetadataError(
         `SQLite table ${JSON.stringify(row.name)} is missing foreign-key evidence`,
       )
 
@@ -3798,7 +3833,7 @@ function verifyNativeForeignKeys(
   }
 
   if (remaining.length > 0)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native foreign-key evidence`,
     )
 }
@@ -3967,7 +4002,7 @@ function buildCatalogRelation(
 /** Cross-checks table-list kind and options against retained CREATE TABLE SQL. */
 function verifyNativeTableEvidence(row: TableRow, sql: string | null): void {
   if (sql === null)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has no native table evidence`,
     )
 
@@ -3975,17 +4010,17 @@ function verifyNativeTableEvidence(row: TableRow, sql: string | null): void {
   const observedKind = row.type === 'virtual' ? 'virtual' : 'table'
 
   if (native.kind !== observedKind)
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native table-kind evidence`,
     )
 
   if (native.strict !== (row.strict === 1))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native STRICT evidence`,
     )
 
   if (native.withoutRowid !== (row.wr === 1))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native WITHOUT ROWID evidence`,
     )
 }
@@ -4092,7 +4127,65 @@ async function introspectSqlite(
   request: CatalogRequest,
 ): Promise<CatalogSnapshot> {
   const queryErrors = new Set<unknown>()
-  const trackedExecutor: CatalogExecutor = {
+  const trackedExecutor = trackSqliteExecutorErrors(executor, queryErrors)
+
+  const context = await readCatalogContext(trackedExecutor, request)
+  const { identities, versionLimited } = context
+
+  if (context.versionError) return invalidSqliteCatalog(context, context.versionError)
+  if (versionLimited) return versionLimitedCatalog(context)
+
+  let inventory: Awaited<ReturnType<typeof readSqliteInventory>>
+  try {
+    inventory = await readSqliteInventory(trackedExecutor, identities)
+  } catch (error) {
+    if (!(error instanceof InvariantError) || queryErrors.has(error)) throw error
+
+    return invalidSqliteCatalog(context, error.message)
+  }
+
+  let evidence: Awaited<ReturnType<typeof prepareSqliteCatalogEvidence>>
+  try {
+    evidence = await prepareSqliteCatalogEvidence(trackedExecutor, context, inventory)
+  } catch (error) {
+    if (!(error instanceof SqliteTableMetadataError) || queryErrors.has(error))
+      throw error
+
+    return invalidSqliteCatalog(context, error.message)
+  }
+
+  let reservations: ReturnType<typeof collectNameReservations>
+  try {
+    reservations = await collectConsistentNameReservations(
+      {
+        ...context,
+        ...inventory,
+        ...evidence,
+        executor: trackedExecutor,
+        evidence: evidence.tableEvidence,
+      },
+      inventory.mainTables,
+      inventory.hasExternalNamespace,
+    )
+  } catch (error) {
+    if (
+      queryErrors.has(error) ||
+      (!(error instanceof SqliteTableMetadataError) && !(error instanceof InvariantError))
+    )
+      throw error
+
+    return invalidSqliteCatalog(context, error.message)
+  }
+
+  return buildSqliteSnapshot({ ...context, ...inventory, ...evidence, reservations })
+}
+
+/** Records executor rejections so acquisition guards preserve their identity. */
+function trackSqliteExecutorErrors(
+  executor: CatalogExecutor,
+  queryErrors: Set<unknown>,
+): CatalogExecutor {
+  return {
     async execute(query) {
       try {
         return await executor.execute(query)
@@ -4102,32 +4195,23 @@ async function introspectSqlite(
       }
     },
   }
+}
 
-  const context = await readCatalogContext(trackedExecutor, request)
-  const { identities, versionLimited } = context
+/** Confirms the catalog is stable before proving global name reservations. */
+async function collectConsistentNameReservations(
+  consistency: SqliteCatalogConsistency,
+  mainTables: readonly TableRow[],
+  hasExternalNamespace: boolean,
+) {
+  await assertCatalogUnchanged(consistency)
 
-  if (context.versionError) return invalidSqliteCatalog(context, context.versionError)
-  if (versionLimited) return versionLimitedCatalog(context)
-
-  try {
-    const inventory = await readSqliteInventory(trackedExecutor, identities)
-    const evidence = await prepareSqliteCatalogEvidence(
-      trackedExecutor,
-      context,
-      inventory,
-    )
-
-    return await buildSqliteSnapshot({
-      ...context,
-      ...inventory,
-      ...evidence,
-      executor: trackedExecutor,
-    })
-  } catch (error) {
-    if (!(error instanceof InvariantError) || queryErrors.has(error)) throw error
-
-    return invalidSqliteCatalog(context, error.message)
-  }
+  return collectNameReservations(
+    consistency.schemaRows,
+    mainTables,
+    consistency.evidence.reservationIndexLists,
+    consistency.identities,
+    hasExternalNamespace,
+  )
 }
 
 export const sqliteCatalog: CatalogIntrospector = { introspectCatalog: introspectSqlite }
@@ -4139,29 +4223,18 @@ export const sqliteCatalog: CatalogIntrospector = { introspectCatalog: introspec
  *
  * @returns The SQLite catalog snapshot after inventory and consistency checks.
  */
-async function buildSqliteSnapshot(input: SqliteSnapshotAssembly) {
+function buildSqliteSnapshot(input: SqliteSnapshotAssembly) {
   const {
-    schemaRows,
     resolvedRequest,
     identities,
     tableEvidence,
-    mainTables,
-    reservationIndexLists,
-    hasExternalNamespace,
+    reservations,
     version,
     namespaceContext,
     diagnostics,
   } = input
 
-  await assertCatalogUnchanged({ ...input, evidence: tableEvidence })
-
-  const { names: uniqueNames, constraintNameCoverage } = collectNameReservations(
-    schemaRows,
-    mainTables,
-    reservationIndexLists,
-    identities,
-    hasExternalNamespace,
-  )
+  const { names: uniqueNames, constraintNameCoverage } = reservations
 
   const constraintReservations: CatalogConstraintNameReservation[] = []
   const namespace: CatalogNamespace = buildMainCatalogNamespace({ ...input })
@@ -4228,6 +4301,7 @@ async function readTableInventory(
   const tableRows = decodeTableRows(await executor.execute(queries.tables))
   const schemaRows = decodeSchemaRows(await executor.execute(queries.schema))
   validateTableList(tableRows, databaseAliases, identities)
+  assertUniqueSchemaNames(schemaRows)
 
   const mainTables = tableRows.filter(
     (row) => row.schema === 'main' && !row.name.startsWith('sqlite_'),
@@ -4351,7 +4425,7 @@ function buildObservedSqliteRelation(
       [...viewObjects, ...triggerObjects],
     )
   } catch (error) {
-    if (!(error instanceof InvariantError)) throw error
+    if (!(error instanceof SqliteTableMetadataError)) throw error
 
     tableEvidence.errors.set(row.name, error.message)
     appendMetadataDiagnostic(diagnostics, identities, row.name, error.message)
@@ -4466,7 +4540,7 @@ function recoverTableOptions(
 
     return { items: catalogTableOptions(row), coverage: complete }
   } catch (error) {
-    if (!(error instanceof InvariantError)) throw error
+    if (!(error instanceof SqliteTableMetadataError)) throw error
 
     return { items: [], coverage: unknown(reason) }
   }
@@ -4512,7 +4586,7 @@ function recoveredSqliteColumns(
       coverage: complete,
     }
   } catch (error) {
-    if (!(error instanceof InvariantError)) throw error
+    if (!(error instanceof SqliteTableMetadataError)) throw error
 
     return { items: [], coverage: unknown(reason) }
   }
@@ -4563,7 +4637,7 @@ function recoverRowidColumnFacts(
   try {
     if (validateTableIndexes(row, indexes, identities)) return columns
   } catch (error) {
-    if (!(error instanceof InvariantError)) throw error
+    if (!(error instanceof SqliteTableMetadataError)) throw error
 
     return ambiguous
   }
@@ -4688,7 +4762,7 @@ function decodeTablePrimaryKey(
   const pks = columns.filter((column) => column.pk > 0).sort((a, b) => a.pk - b.pk)
 
   if (pks.some((column, index) => column.pk !== index + 1))
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has non-contiguous primary-key ordinals`,
     )
 
@@ -4834,16 +4908,13 @@ function decodeTableStructure(input: SqliteTableStructure) {
 }
 
 type SqliteSnapshotAssembly = {
-  executor: CatalogExecutor
-  databases: { seq: number; name: string; file: string | null }[]
-  tableRows: TableRow[]
   schemaRows: SchemaRow[]
   scopeRows: TableRow[]
   resolvedRequest: ResolvedCatalogRequest
   identities: CanonicalRelationIdentityModule
   tableEvidence: Awaited<ReturnType<typeof readTableEvidence>>
   mainTables: TableRow[]
-  reservationIndexLists: Map<string, IndexListRow[]>
+  reservations: ReturnType<typeof collectNameReservations>
   hasExternalNamespace: boolean
   viewObjects: SchemaRow[]
   triggerObjects: SchemaRow[]
@@ -5054,7 +5125,7 @@ function assertSqliteSchemaRelation(
     scopeIdentity(schemaRow.name).relation.comparisonKey !==
       scopeIdentity(schemaRow.tbl_name).relation.comparisonKey
   )
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite sqlite_schema ${schemaRow.type} row ${JSON.stringify(schemaRow.name)} has mismatched tbl_name ${JSON.stringify(schemaRow.tbl_name)}`,
     )
 
@@ -5066,7 +5137,7 @@ function assertSqliteSchemaRelation(
         scopeIdentity(schemaRow.name).relation.comparisonKey,
     )
   )
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite sqlite_schema relation ${JSON.stringify(schemaRow.name)} is missing from table_list`,
     )
 
@@ -5078,7 +5149,7 @@ function assertSqliteSchemaRelation(
         scopeIdentity(schemaRow.tbl_name).relation.comparisonKey,
     )
   )
-    throw new InvariantError(
+    throw new SqliteTableMetadataError(
       `SQLite sqlite_schema index ${JSON.stringify(schemaRow.name)} references a missing table`,
     )
 }
