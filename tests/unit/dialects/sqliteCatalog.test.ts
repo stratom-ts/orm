@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { planMigration } from '@/ddl/migrationPlan'
 import type {
@@ -2318,6 +2318,109 @@ it('gives final database-list decoding the same diagnostic in either row order',
   expect(reversed).toEqual(forward)
   expectUnknownMetadata(forward, '"name" must be a non-empty string')
   expect(forward.namespaces.coverage.state).toBe('unknown')
+})
+
+it('keeps shared SQL parser failures at their reservation or relation scope', async () => {
+  for (const [sql, message, global] of [
+    [
+      'CREATE TABLE parent /*',
+      'Malformed SQLite schema SQL: unterminated block comment',
+      true,
+    ],
+    ['CREATE TABLE parent', 'SQLite table definition has no column list', false],
+  ] as const) {
+    const fixture = fixtureExecutor({ withoutOpaqueDependencies: true })
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      {
+        execute: async (query) => {
+          const rows = await fixture.execute(query)
+          return query.sql.includes('sqlite_schema')
+            ? rows.map((row) =>
+                (row as { name?: string }).name === 'parent'
+                  ? { ...(row as Record<string, unknown>), sql }
+                  : row,
+              )
+            : rows
+        },
+      },
+      global
+        ? {
+            ...request,
+            completeNamespaces: [],
+            relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
+          }
+        : request,
+    )
+
+    const diagnostic = snapshot.diagnostics.find((entry) => entry.message === message)
+    expect(diagnostic?.code).toBe('catalog.sqlite.metadata')
+    expect(diagnostic?.target?.relation.spelling).toBe(global ? undefined : 'parent')
+    expect(snapshot.namespaces.coverage.state).toBe(global ? 'unknown' : 'complete')
+  }
+})
+
+it('keeps invalid foreign-key actions as relation-local metadata failures', async () => {
+  const fixture = fixtureExecutor({ withoutOpaqueDependencies: true })
+  const snapshot = await sqliteCatalog.introspectCatalog(
+    {
+      execute: async (query) => {
+        const rows = await fixture.execute(query)
+        return query.sql.includes('foreign_key_list') && query.params[0] === 'child'
+          ? rows.map((row) => ({
+              ...(row as Record<string, unknown>),
+              on_delete: 'UNSUPPORTED',
+            }))
+          : rows
+      },
+    },
+    request,
+  )
+
+  const child = relationNamed(snapshot, 'child')
+
+  expect(child.management).toBe('unmanaged')
+
+  expect(snapshot.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: 'catalog.sqlite.metadata',
+      message: 'Malformed SQLite foreign_key_list row 0: invalid referential action',
+      target: child.identity,
+    }),
+  )
+})
+
+it.each([
+  ['normal assembly', undefined],
+  ['recovery', 'index-wrong-shape'],
+] as const)('lets unrelated proof failures escape %s unchanged', async (_, malformed) => {
+  const sqliteNormalize = await import('@/dialects/sqlite/normalize')
+
+  for (const failure of [
+    new InvariantError('proof defect'),
+    new Error('proof defect'),
+    'proof defect',
+  ]) {
+    const stack = failure instanceof Error ? failure.stack : undefined
+
+    const spy = vi
+      .spyOn(sqliteNormalize, 'normalizeSqliteDataType')
+      .mockImplementation(() => {
+        throw failure
+      })
+
+    try {
+      await expect(
+        sqliteCatalog.introspectCatalog(
+          fixtureExecutor({ malformed, withoutOpaqueDependencies: true }),
+          request,
+        ),
+      ).rejects.toBe(failure)
+
+      expect(failure instanceof Error ? failure.stack : undefined).toBe(stack)
+    } finally {
+      spy.mockRestore()
+    }
+  }
 })
 
 describe('SQLite fail-closed metadata handling', () => {
