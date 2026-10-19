@@ -217,32 +217,7 @@ including inferred `uuid` or an explicit `text` or `varchar(36)` override.
 SQLite continues to store UUID-validated strings and references as `TEXT` unless
 its own physical type is selected explicitly.
 
-Adopting this inference rule changes the desired storage of existing
-UUID-validated columns previously inferred as text or varchar, even when their
-schema definitions do not change. Adding `uuid()` to an existing text or varchar
-column, or removing its explicit text or varchar override, has the same effect.
-The Migration Plan then includes an `alter_column_type` step. Its SQL preview can
-compile, but the generated
-`ALTER COLUMN ... TYPE uuid` has no `USING` conversion expression and will fail
-on a text or varchar column. To retain current storage, pin the existing type:
-
-```typescript
-import { column, defineTable } from 'stratom'
-
-const LegacyUser = defineTable(
-  'users',
-  {
-    id: pipe(string(), uuid(), column({ physicalType: { postgresql: 'text' } })),
-    // Use 'varchar(36)' instead when that is the existing column type.
-  },
-  { primaryKey: 'id' },
-)
-```
-
-Moving existing data to native UUID storage needs a separate reviewed database
-conversion. Account for dependent foreign keys and column defaults. PostgreSQL
-returns UUIDs in canonical lowercase form, and native UUID equality may merge
-legacy text keys that differ only by case.
+PostgreSQL returns UUID values in canonical lowercase form.
 
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),

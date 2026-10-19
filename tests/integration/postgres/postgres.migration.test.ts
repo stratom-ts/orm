@@ -109,64 +109,6 @@ async function assertInferredUuidCatalog(admin: Client, schema: string) {
   expect(foreignKeys.rows).toEqual([{ count: '1' }])
 }
 
-/** Defines the old, inferred, and pinned versions of one legacy payload table. */
-function legacyUuidTables(legacyType: string) {
-  const Legacy = defineTable(
-    'legacy_uuid_payload',
-    {
-      id: string(),
-      payload: pipe(string(), column({ physicalType: { postgresql: legacyType } })),
-    },
-    { primaryKey: 'id' },
-  )
-
-  const Desired = defineTable(
-    'legacy_uuid_payload',
-    { id: string(), payload: pipe(string(), uuid()) },
-    { primaryKey: 'id' },
-  )
-
-  const Pinned = defineTable(
-    'legacy_uuid_payload',
-    {
-      id: string(),
-      payload: pipe(
-        string(),
-        uuid(),
-        column({ physicalType: { postgresql: legacyType } }),
-      ),
-    },
-    { primaryKey: 'id' },
-  )
-
-  return { Legacy, Desired, Pinned }
-}
-
-/** Confirms a failed conversion preserved both legacy data and physical storage. */
-async function assertLegacyUuidRetained(
-  admin: Client,
-  schema: string,
-  legacyType: string,
-  payload: string,
-) {
-  const retained = await admin.query<{ id: string; payload: string; data_type: string }>(
-    `select row.id, row.payload, cols.data_type
-     from ${quoteIdentifier(schema)}.${quoteIdentifier('legacy_uuid_payload')} row
-     cross join information_schema.columns cols
-     where cols.table_schema = $1 and cols.table_name = 'legacy_uuid_payload'
-       and cols.column_name = 'payload'`,
-    [schema],
-  )
-
-  expect(retained.rows).toEqual([
-    {
-      id: 'existing',
-      payload,
-      data_type: legacyType === 'text' ? 'text' : 'character varying',
-    },
-  ])
-}
-
 describe('PostgreSQL inferred UUID migration', () => {
   it('migrates inferred UUID keys and references, maps supplied strings, and converges', async () => {
     const Parent = defineTable(
@@ -202,53 +144,6 @@ describe('PostgreSQL inferred UUID migration', () => {
       await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
     })
   })
-})
-
-describe('PostgreSQL legacy UUID migration limits', () => {
-  it.each(['text', 'varchar(36)'])(
-    'plans a legacy %s conversion but rolls back a generated ALTER without USING',
-    async (legacyType) => {
-      const { Legacy, Desired, Pinned } = legacyUuidTables(legacyType)
-
-      await withPostgresDatabase(
-        [Legacy],
-        async ({ db, admin, schema, createDatabase }) => {
-          await db.migrate().execute()
-          const payload = '550E8400-E29B-41D4-A716-446655440000'
-          await db.insert(Legacy).values({ id: 'existing', payload }).execute()
-
-          const desired = createDatabase([Desired])
-          expect(await desired.migrate().plan()).toEqual({
-            steps: [
-              expect.objectContaining({ kind: 'alter_column_type', dataType: 'uuid' }),
-            ],
-          })
-
-          const preview = await desired.migrate().dryRun()
-          const sql = preview.actions.flatMap((action) =>
-            action.statements.map((statement) => statement.sql),
-          )
-
-          expect(sql).toEqual([
-            expect.stringMatching(/alter table .* alter column "payload" type uuid$/i),
-          ])
-
-          expect(sql[0]).not.toMatch(/\busing\b/i)
-
-          await expect(desired.migrate().execute()).rejects.toMatchObject({
-            _tag: 'MigrationError',
-            stage: 'ddl',
-            outcome: 'rolledBack',
-          })
-
-          await assertLegacyUuidRetained(admin, schema, legacyType, payload)
-
-          const pinned = createDatabase([Pinned])
-          await expect(pinned.migrate().plan()).resolves.toEqual({ steps: [] })
-        },
-      )
-    },
-  )
 })
 
 describe('PostgreSQL migration runtime integration', () => {

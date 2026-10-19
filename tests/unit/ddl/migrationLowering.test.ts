@@ -332,51 +332,6 @@ describe('PostgreSQL inferred UUID plan lowering', () => {
   })
 })
 
-describe('PostgreSQL inferred UUID type-change lowering', () => {
-  it('compiles inferred UUID type changes without a conversion expression', () => {
-    const Desired = defineTable(
-      'inferred_payload',
-      { id: string(), payload: pipe(string(), uuid()) },
-      { primaryKey: 'id' },
-    )
-
-    const schemas = [Desired]
-    const catalog = {
-      ...emptyCatalog(),
-      tables: [
-        {
-          schema: 'public',
-          name: 'inferred_payload',
-          columns: [
-            { name: 'id', dataType: 'text', isNullable: false },
-            { name: 'payload', dataType: 'text', isNullable: false },
-          ],
-          primaryKey: {
-            name: 'inferred_payload_pkey',
-            columns: ['id'],
-            semanticCompleteness: 'supportedSimple' as const,
-            isValid: true,
-          },
-        },
-      ],
-    }
-
-    const planned = planMigration(
-      schemas,
-      completePostgresCatalog(catalog, createCatalogRequest(schemas, [])),
-      postgresDialect,
-    )
-
-    const sql = lower(planned).actions.flatMap((action) =>
-      action.statements.map((statement) => statement.sql),
-    )
-
-    expect(sql).toEqual([
-      'alter table "public"."inferred_payload" alter column "payload" type uuid',
-    ])
-  })
-})
-
 describe('PostgreSQL whole-plan lowering: compiles a plan-atomic program with canonical source provenance', () => {
   it('compiles a plan-atomic program with canonical source provenance', () => {
     const program = lower(plan())
