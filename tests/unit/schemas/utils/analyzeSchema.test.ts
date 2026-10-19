@@ -3,10 +3,13 @@ import {
   bigint,
   boolean,
   date,
+  email,
   enum as enumSchema,
   exactOptional,
+  length,
   maxLength,
   maxValue,
+  minLength,
   nonNullable,
   nonNullish,
   nonOptional,
@@ -20,10 +23,131 @@ import {
   string,
   undefinedable,
   union,
+  uuid,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { analyzeSchema } from '@/index'
+
+describe('analyzeSchema UUID facts', () => {
+  it('records UUID validation without replacing string or length facts', () => {
+    const schema = pipe(string(), minLength(30), uuid(), maxLength(36))
+    const analysis = analyzeSchema(schema)
+
+    expect(analysis).toMatchObject({
+      stringFormat: 'uuid',
+      outputKind: 'string',
+      stringConstraints: { minLength: 30, maxLength: 36 },
+    })
+
+    expect(analysis.baseSchema.type).toBe('string')
+
+    expect(analyzeSchema(pipe(string(), length(36), uuid())).stringConstraints).toEqual({
+      minLength: 36,
+      maxLength: 36,
+    })
+
+    expect(analyzeSchema(string()).stringFormat).toBeUndefined()
+    expect(analyzeSchema(pipe(string(), email())).stringFormat).toBeUndefined()
+  })
+})
+
+describe('analyzeSchema UUID wrappers', () => {
+  it('retains UUID through every supported wrapper family', () => {
+    const validated = pipe(string(), uuid(), maxLength(36))
+    const cases = [
+      [optional(validated), false, true, true],
+      [exactOptional(validated), false, true, true],
+      [undefinedable(validated), false, true, false],
+      [nullable(validated), true, false, false],
+      [nullish(validated), true, true, true],
+      [nonOptional(optional(validated)), false, false, false],
+      [nonNullable(nullable(validated)), false, false, false],
+      [nonNullish(nullish(validated)), false, false, false],
+    ] as const
+
+    for (const [schema, nullableValue, allowsUndefined, omitOnInsert] of cases) {
+      expect(analyzeSchema(schema)).toMatchObject({
+        stringFormat: 'uuid',
+        stringConstraints: { maxLength: 36 },
+        outputKind: 'string',
+        nullable: nullableValue,
+        allowsUndefined,
+        omitOnInsert,
+      })
+    }
+  })
+})
+
+describe('analyzeSchema UUID nested pipes', () => {
+  it('handles inner and outer pipes on nested and piped wrappers', () => {
+    const base = pipe(string(), uuid())
+    const inner = nullable(base)
+    const outer = pipe(nonNullable(inner), uuid(), maxLength(36))
+    expect(analyzeSchema(outer)).toMatchObject({
+      stringFormat: 'uuid',
+      stringConstraints: { maxLength: 36 },
+      nullable: false,
+      allowsUndefined: false,
+      omitOnInsert: false,
+      outputKind: 'string',
+    })
+
+    expect(analyzeSchema(outer).unwrappedSchema).toBe(base)
+
+    const outerOnlyBase = string()
+    const outerOnly = pipe(nonNullable(nullable(outerOnlyBase)), uuid(), maxLength(36))
+    expect(analyzeSchema(outerOnly)).toMatchObject({
+      stringFormat: 'uuid',
+      stringConstraints: { maxLength: 36 },
+      nullable: false,
+    })
+
+    expect(analyzeSchema(outerOnly).unwrappedSchema).toBe(outerOnlyBase)
+
+    const innerOnlyBase = pipe(string(), uuid(), maxLength(36))
+    expect(analyzeSchema(nonNullable(nullable(innerOnlyBase))).unwrappedSchema).toBe(
+      innerOnlyBase,
+    )
+
+    expect(analyzeSchema(nonNullable(nullable(innerOnlyBase))).stringFormat).toBe('uuid')
+
+    const reversed = optional(nonNullish(pipe(string(), maxLength(36), uuid())))
+    expect(analyzeSchema(reversed)).toMatchObject({
+      stringFormat: 'uuid',
+      nullable: false,
+      allowsUndefined: true,
+      omitOnInsert: true,
+    })
+  })
+})
+
+describe('analyzeSchema UUID defaults', () => {
+  it('retains defaults around and inside piped wrappers', () => {
+    const defaulted = optional(
+      pipe(string(), uuid()),
+      '550e8400-e29b-41d4-a716-446655440000',
+    )
+
+    expect(analyzeSchema(defaulted)).toMatchObject({
+      stringFormat: 'uuid',
+      schemaDefault: '550e8400-e29b-41d4-a716-446655440000',
+      omitOnInsert: true,
+    })
+
+    const pipedDefault = pipe(
+      optional(string(), '550e8400-e29b-41d4-a716-446655440000'),
+      uuid(),
+    )
+
+    expect(analyzeSchema(pipedDefault)).toMatchObject({
+      stringFormat: 'uuid',
+      schemaDefault: '550e8400-e29b-41d4-a716-446655440000',
+      allowsUndefined: true,
+      omitOnInsert: true,
+    })
+  })
+})
 
 describe('analyzeSchema', () => {
   it('reports direct wrapper semantics and dialect-neutral output facts', () => {

@@ -1,4 +1,4 @@
-import { pipe, string } from 'valibot'
+import { pipe, string, uuid } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
@@ -284,6 +284,51 @@ describe('PostgreSQL whole-plan lowering: lowers one semantic step to one exact 
         ],
       },
     })
+  })
+})
+
+describe('PostgreSQL inferred UUID plan lowering', () => {
+  it('compiles inferred UUID primary and foreign key declarations', () => {
+    const Parent = defineTable(
+      'inferred_parent',
+      { id: pipe(string(), uuid()) },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'inferred_child',
+      { id: pipe(string(), uuid()), parentId: reference(Parent, 'id') },
+      { primaryKey: 'id' },
+    )
+
+    const schemas = [Child, Parent]
+    const planned = planMigration(
+      schemas,
+      completePostgresCatalog(emptyCatalog(), createCatalogRequest(schemas, [])),
+      postgresDialect,
+    )
+
+    const sql = lower(planned).actions.flatMap((action) =>
+      action.statements.map((statement) => statement.sql),
+    )
+
+    expect(sql).toContainEqual(
+      expect.stringMatching(
+        /create table "public"\."inferred_parent" \("id" uuid not null/,
+      ),
+    )
+
+    expect(sql).toContainEqual(
+      expect.stringMatching(
+        /create table "public"\."inferred_child" \("id" uuid not null, "parentId" uuid not null/,
+      ),
+    )
+
+    expect(sql).toContainEqual(
+      expect.stringMatching(
+        /foreign key \("parentId"\) references "public"\."inferred_parent" \("id"\)/,
+      ),
+    )
   })
 })
 

@@ -42,6 +42,8 @@ export interface SchemaAnalysis {
   omitOnInsert: boolean
   /** String length constraints found beneath wrappers and in nested pipes. */
   stringConstraints: StringConstraints
+  /** String format validation found beneath wrappers and in nested pipes. */
+  stringFormat?: 'uuid'
   /** Number constraints found beneath wrappers and in nested pipes. */
   numberConstraints: NumberConstraints
   /** A Valibot default found on a wrapper, if one is present. */
@@ -201,7 +203,11 @@ function applyPipeActions(result: RecursiveAnalysis, actions: readonly unknown[]
   for (const item of actions) {
     if (!item || typeof item !== 'object' || !('type' in item)) continue
 
-    const action = item as { type: string; requirement?: number }
+    const action = item as { kind?: string; type: string; requirement?: number }
+
+    if (action.kind === 'validation' && action.type === 'uuid') {
+      result.stringFormat = 'uuid'
+    }
 
     switch (action.type) {
       case 'min_length':
@@ -249,8 +255,10 @@ function applyPipeActions(result: RecursiveAnalysis, actions: readonly unknown[]
 function analyzeNode(schema: AnySchema): RecursiveAnalysis {
   const traversable = schema as TraversableSchema
   const wrapped = wrappedSchema(traversable)
+  const first = traversable.pipe?.[0]
+  const piped = isSchema(first)
 
-  if (wrapped) {
+  if (wrapped && !piped) {
     const inner = analyzeNode(wrapped)
     const result: RecursiveAnalysis = { ...inner }
 
@@ -261,10 +269,9 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
     return result
   }
 
-  const first = traversable.pipe?.[0]
-  const inner = isSchema(first) ? analyzeNode(first) : undefined
+  const inner = piped ? analyzeNode(first) : undefined
   const result: RecursiveAnalysis = inner
-    ? { ...inner, unwrappedSchema: schema }
+    ? { ...inner, unwrappedSchema: wrapped ? inner.unwrappedSchema : schema }
     : {
         baseSchema: schema,
         unwrappedSchema: schema,

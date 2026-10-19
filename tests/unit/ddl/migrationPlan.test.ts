@@ -1,4 +1,4 @@
-import { nullable, pipe, string } from 'valibot'
+import { nullable, pipe, string, uuid } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { PlannedMigration } from '@/ddl/migrationPlan'
@@ -143,6 +143,30 @@ function droppedConstraintCatalog(): CatalogSnapshot {
 }
 
 const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
+
+describe('PostgreSQL inferred UUID Migration Plans', () => {
+  it('leaves an already-UUID catalog unchanged', () => {
+    const Desired = defineTable(
+      'uuid_payloads',
+      { id: pipe(string(), uuid()) },
+      { primaryKey: 'id' },
+    )
+
+    const catalog: CatalogSnapshot = {
+      ...emptyCatalog(),
+      tables: [
+        {
+          schema: 'public',
+          name: 'uuid_payloads',
+          columns: [{ name: 'id', dataType: 'uuid', isNullable: false }],
+          primaryKey: catalogPrimaryKey('uuid_payloads'),
+        },
+      ],
+    }
+
+    expect(planMigration([Desired], catalog, postgresDialect)).toEqual({ steps: [] })
+  })
+})
 
 /** Builds empty catalog evidence for schema reconciliation checks. */
 function emptyCatalog(): CatalogSnapshot {

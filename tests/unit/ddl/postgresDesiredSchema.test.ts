@@ -6,12 +6,13 @@ import type {
   StringSchema,
   TitleAction,
 } from 'valibot'
-import { nullable, number, pipe, string } from 'valibot'
+import { maxLength, nullable, number, pipe, string, uuid } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
 import { postgresDialect } from '@/dialects'
 import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import type { LoweredDesiredTable } from '@/dialects/types'
 import type { TableMetadata } from '@/index'
 import { MigrationError, column, defineTable, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -67,6 +68,174 @@ function supportedSchemaHandles() {
 
   return { Accounts, Memberships, References }
 }
+
+/** Creates a UUID-validated target with the selected PostgreSQL storage. */
+function uuidReferenceParent(targetType: string) {
+  return defineTable(
+    'uuid_parents',
+    {
+      id:
+        targetType === 'uuid'
+          ? pipe(string(), uuid())
+          : pipe(string(), uuid(), column({ physicalType: { postgresql: targetType } })),
+    },
+    { primaryKey: 'id' },
+  )
+}
+
+/** Finds a lowered column in the registered desired-schema graph. */
+function loweredColumn(
+  tables: readonly LoweredDesiredTable[],
+  tableName: string,
+  columnName: string,
+) {
+  return tables
+    .find((table) => table.identity.relation.spelling === tableName)
+    ?.columns.find((item) => item.identifier.spelling === columnName)
+}
+
+describe('PostgreSQL inferred UUID desired storage', () => {
+  it('infers a UUID primary key and nullable UUID column, with selected overrides winning', () => {
+    const Users = defineTable(
+      'uuid_users',
+      {
+        id: pipe(string(), uuid()),
+        optionalId: nullable(pipe(string(), maxLength(36), uuid())),
+        textId: pipe(string(), uuid(), column({ physicalType: { postgresql: 'text' } })),
+        varcharId: pipe(
+          string(),
+          uuid(),
+          column({ physicalType: { postgresql: 'varchar(36)' } }),
+        ),
+        selectedUuid: pipe(
+          string(),
+          uuid(),
+          column({ physicalType: { postgresql: 'uuid' } }),
+        ),
+        sqliteOverride: pipe(
+          string(),
+          uuid(),
+          column({ physicalType: { sqlite: 'BLOB' } }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const table = lowerDesiredSchema(
+      [Users],
+      postgresIdentities(),
+      postgresDialect.schema,
+    ).tables[0]!
+
+    const columns = Object.fromEntries(
+      table.columns.map((item) => [item.identifier.spelling, item]),
+    )
+
+    expect(table.primaryKey).toEqual([identifier('id')])
+    expect(columns.id).toMatchObject({ dataType: 'uuid', notNull: true })
+    expect(columns.optionalId).toMatchObject({ dataType: 'uuid', notNull: false })
+    expect(columns.textId.dataType).toBe('text')
+    expect(columns.varcharId.dataType).toBe('varchar(36)')
+    expect(columns.selectedUuid.dataType).toBe('uuid')
+    expect(columns.sqliteOverride.dataType).toBe('uuid')
+  })
+})
+
+describe('PostgreSQL inferred UUID reference inheritance', () => {
+  it.each(['uuid', 'text', 'varchar(36)'])(
+    'inherits selected %s storage through direct, nullable, and chained references',
+    (targetType) => {
+      const Parent = uuidReferenceParent(targetType)
+      const Child = defineTable(
+        'uuid_children',
+        {
+          id: string(),
+          parentId: reference(Parent, 'id'),
+          nullableParentId: nullable(reference(Parent, 'id')),
+        },
+        { primaryKey: 'id', indexes: [{ columns: ['parentId'], unique: true }] },
+      )
+
+      const Grandchild = defineTable(
+        'uuid_grandchildren',
+        { id: string(), parentId: reference(Child, 'parentId') },
+        { primaryKey: 'id' },
+      )
+
+      const tables = lowerDesiredSchema(
+        [Grandchild, Child, Parent],
+        postgresIdentities(),
+        postgresDialect.schema,
+      ).tables
+
+      expect(loweredColumn(tables, 'uuid_parents', 'id')?.dataType).toBe(targetType)
+
+      expect(loweredColumn(tables, 'uuid_children', 'parentId')?.dataType).toBe(
+        targetType,
+      )
+
+      expect(loweredColumn(tables, 'uuid_children', 'nullableParentId')).toMatchObject({
+        dataType: targetType,
+        notNull: false,
+      })
+
+      expect(loweredColumn(tables, 'uuid_grandchildren', 'parentId')?.dataType).toBe(
+        targetType,
+      )
+    },
+  )
+})
+
+describe('PostgreSQL inferred UUID reference override compatibility', () => {
+  it.each(['uuid', 'text', 'varchar(36)'])(
+    'accepts matching %s and rejects mismatched local storage',
+    (targetType) => {
+      const Parent = uuidReferenceParent(targetType)
+      const Matching = defineTable(
+        'matching_uuid_refs',
+        {
+          id: string(),
+          parentId: pipe(
+            reference(Parent, 'id'),
+            column({ physicalType: { postgresql: targetType } }),
+          ),
+        },
+        { primaryKey: 'id' },
+      )
+
+      const matching = lowerDesiredSchema(
+        [Matching, Parent],
+        postgresIdentities(),
+        postgresDialect.schema,
+      ).tables
+
+      expect(loweredColumn(matching, 'matching_uuid_refs', 'parentId')?.dataType).toBe(
+        targetType,
+      )
+
+      const mismatch = targetType === 'uuid' ? 'text' : 'uuid'
+      const Mismatch = defineTable(
+        'mismatched_uuid_refs',
+        {
+          id: string(),
+          parentId: pipe(
+            reference(Parent, 'id'),
+            column({ physicalType: { postgresql: mismatch } }),
+          ),
+        },
+        { primaryKey: 'id' },
+      )
+
+      expect(() =>
+        lowerDesiredSchema(
+          [Mismatch, Parent],
+          postgresIdentities(),
+          postgresDialect.schema,
+        ),
+      ).toThrow(MigrationError)
+    },
+  )
+})
 
 describe('PostgreSQL desired-schema lowering', () => {
   it('lowers every supported metadata and reference form to one fixed schema graph', () => {

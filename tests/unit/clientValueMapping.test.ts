@@ -1,7 +1,7 @@
-import { date, pipe, string, unknown } from 'valibot'
+import { date, nullable, pipe, string, unknown, uuid } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { column, createDatabase, defineTable } from '@/index'
+import { column, createDatabase, defineTable, reference } from '@/index'
 import type { OperationSessionProvider } from '@/operations/operationSession'
 import type { CompiledQuery } from '@/query/builder'
 import { QueryError } from '@/utils/error'
@@ -28,6 +28,96 @@ const LedgerEntries = defineTable(
   },
   { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
 )
+
+const InferredUuidParent = defineTable(
+  'inferred_uuid_parent',
+  { id: pipe(string(), uuid()) },
+  { primaryKey: 'id' },
+)
+
+const InferredUuidChild = defineTable(
+  'inferred_uuid_child',
+  {
+    id: string(),
+    parentId: reference(InferredUuidParent, 'id'),
+    nullableParentId: nullable(reference(InferredUuidParent, 'id')),
+  },
+  { primaryKey: 'id' },
+)
+
+describe('inferred UUID client value mapping', () => {
+  it('compiles supplied UUID strings and preserves native UUID strings and null results', async () => {
+    const parentId = '550e8400-e29b-41d4-a716-446655440000'
+    const row = { id: 'child', parentId, nullableParentId: null }
+    const connector = createMockPostgresConnector({ rowsBySql: () => [row] })
+    const db = createDatabase({
+      connector,
+      schemas: [InferredUuidParent, InferredUuidChild],
+    })
+
+    const compiled = db.insert(InferredUuidChild).values(row).compile()
+    expect(compiled.params).toContain(parentId)
+    expect(compiled.params).toContain(null)
+    expect(await db.from(InferredUuidChild).execute()).toEqual([row])
+    await db.close()
+  })
+})
+
+describe('inferred UUID client mapping overrides', () => {
+  it('passes inferred and inherited UUID storage to client mapping overrides', async () => {
+    const parentId = '550e8400-e29b-41d4-a716-446655440000'
+    const connector = createMockPostgresConnector({
+      rowsBySql: () => [{ id: 'child', parentId, nullableParentId: null }],
+    })
+
+    const seen: { direction: string; dataType: string; value: unknown }[] = []
+    const db = createDatabase({
+      connector,
+      schemas: [InferredUuidParent, InferredUuidChild],
+      map: {
+        mapParamValue(dataType, value) {
+          seen.push({ direction: 'param', dataType, value })
+          return value
+        },
+        mapResultValue(dataType, value) {
+          seen.push({ direction: 'result', dataType, value })
+          return value
+        },
+      },
+    })
+
+    expect(
+      db.insert(InferredUuidParent).values({ id: parentId }).compile().params,
+    ).toContain(parentId)
+
+    expect(seen).toContainEqual({ direction: 'param', dataType: 'uuid', value: parentId })
+    seen.length = 0
+
+    expect(
+      db
+        .insert(InferredUuidChild)
+        .values({ id: 'child', parentId, nullableParentId: null })
+        .compile().params,
+    ).toContain(parentId)
+
+    expect(seen).toContainEqual({ direction: 'param', dataType: 'uuid', value: parentId })
+    expect(seen).toContainEqual({ direction: 'param', dataType: 'uuid', value: null })
+    seen.length = 0
+
+    expect(await db.from(InferredUuidChild).execute()).toEqual([
+      { id: 'child', parentId, nullableParentId: null },
+    ])
+
+    expect(seen).toContainEqual({
+      direction: 'result',
+      dataType: 'uuid',
+      value: parentId,
+    })
+
+    expect(seen).toContainEqual({ direction: 'result', dataType: 'uuid', value: null })
+    await db.close()
+  })
+})
 
 describe('client value mapping', () => {
   it('uses column overrides before client overrides for parameters and results', async () => {

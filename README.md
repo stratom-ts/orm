@@ -156,6 +156,7 @@ import {
   number,
   pipe,
   string,
+  uuid,
 } from 'valibot'
 
 const Event = defineTable(
@@ -176,11 +177,23 @@ const Event = defineTable(
 The row type is inferred too — `InferSelect<typeof Event>` gives
 `{ id: string; title: string; description: string; attendees: number; isPublic: boolean; startsAt: Date; endedAt: Date | null }`.
 
+For a PostgreSQL UUID primary key, validate the string with `uuid()`:
+
+```typescript
+const User = defineTable('users', { id: pipe(string(), uuid()) }, { primaryKey: 'id' })
+
+await db.insert(User).values({ id: crypto.randomUUID() }).execute()
+```
+
+This selects PostgreSQL `uuid` storage. It does not generate UUID values or add a
+database default; the application supplies each value.
+
 Inference rules (PostgreSQL):
 
 | Valibot schema                                           | Inferred type                    |
 | -------------------------------------------------------- | -------------------------------- |
 | `string()`                                               | `text`                           |
+| `pipe(string(), uuid())`                                 | `uuid`                           |
 | `pipe(string(), maxLength(n))` (n ≤ 255)                 | `varchar(n)`                     |
 | `number()`                                               | `double precision`               |
 | `pipe(number(), integer())`                              | `integer`                        |
@@ -193,6 +206,18 @@ Inference rules (PostgreSQL):
 | `object(...)` / `array(...)` / `record(...)`             | `jsonb`                          |
 | `nullable(x)` / `nullish(x)`                             | wrapped column becomes NULL-able |
 | `optional(x)`                                            | may be omitted; remains NOT NULL |
+
+For PostgreSQL strings, a selected `physicalType.postgresql` override wins first.
+Otherwise, `uuid()` validation selects `uuid` before `minLength`, `maxLength`,
+or `length` can select length-based storage. The length validators still run.
+UUID inference works through `optional`, `exactOptional`, `undefinedable`,
+`nullable`, `nullish`, `nonOptional`, `nonNullable`, and `nonNullish`, including
+nested pipes. A reference inherits the target column's selected physical type,
+including inferred `uuid` or an explicit `text` or `varchar(36)` override.
+SQLite continues to store UUID-validated strings and references as `TEXT` unless
+its own physical type is selected explicitly.
+
+PostgreSQL returns UUID values in canonical lowercase form.
 
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { Client, QueryResult } from 'pg'
-import { pipe, string } from 'valibot'
+import { nullable, pipe, string, uuid } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { column, defineTable } from '@/index'
+import { column, defineTable, reference } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import type { PostgresDatabaseContext, SessionEvent } from './postgresIntegration'
@@ -77,6 +77,74 @@ const NotNullWithoutIndex = defineTable(
 )
 
 beforeAll(waitForPostgres)
+
+/** Confirms fresh inferred columns and their foreign key exist in the native catalog. */
+async function assertInferredUuidCatalog(admin: Client, schema: string) {
+  const types = await admin.query<{
+    table_name: string
+    column_name: string
+    data_type: string
+  }>(
+    `select table_name, column_name, data_type from information_schema.columns
+     where table_schema = $1 and table_name in ('inferred_uuid_parent', 'inferred_uuid_child')
+     order by table_name, ordinal_position`,
+    [schema],
+  )
+
+  expect(types.rows).toEqual([
+    { table_name: 'inferred_uuid_child', column_name: 'id', data_type: 'uuid' },
+    { table_name: 'inferred_uuid_child', column_name: 'parentId', data_type: 'uuid' },
+    { table_name: 'inferred_uuid_parent', column_name: 'id', data_type: 'uuid' },
+    { table_name: 'inferred_uuid_parent', column_name: 'optionalId', data_type: 'uuid' },
+  ])
+
+  const foreignKeys = await admin.query<{ count: string }>(
+    `select count(*)::text as count from pg_constraint con
+     join pg_class tbl on tbl.oid = con.conrelid
+     join pg_namespace ns on ns.oid = tbl.relnamespace
+     where ns.nspname = $1 and tbl.relname = 'inferred_uuid_child' and con.contype = 'f'`,
+    [schema],
+  )
+
+  expect(foreignKeys.rows).toEqual([{ count: '1' }])
+}
+
+describe('PostgreSQL inferred UUID migration', () => {
+  it('migrates inferred UUID keys and references, maps supplied strings, and converges', async () => {
+    const Parent = defineTable(
+      'inferred_uuid_parent',
+      { id: pipe(string(), uuid()), optionalId: nullable(pipe(string(), uuid())) },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'inferred_uuid_child',
+      { id: pipe(string(), uuid()), parentId: reference(Parent, 'id') },
+      { primaryKey: 'id' },
+    )
+
+    await withPostgresDatabase([Child, Parent], async ({ db, admin, schema }) => {
+      await db.migrate().execute()
+      await assertInferredUuidCatalog(admin, schema)
+
+      const uppercase = '550E8400-E29B-41D4-A716-446655440000'
+      const canonical = uppercase.toLowerCase()
+      const childId = '660e8400-e29b-41d4-a716-446655440000'
+      await db.insert(Parent).values({ id: uppercase, optionalId: null }).execute()
+      await db.insert(Child).values({ id: childId, parentId: uppercase }).execute()
+
+      expect(await db.from(Parent).execute()).toEqual([
+        { id: canonical, optionalId: null },
+      ])
+
+      expect(await db.from(Child).execute()).toEqual([
+        { id: childId, parentId: canonical },
+      ])
+
+      await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+    })
+  })
+})
 
 describe('PostgreSQL migration runtime integration', () => {
   it('drops an ordinary index from a PostgreSQL 18 table with NOT NULL constraints', async ({
