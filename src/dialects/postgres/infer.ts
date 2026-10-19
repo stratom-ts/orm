@@ -106,7 +106,9 @@ export function inferPostgresColumnType(
 
   switch (baseSchema.type) {
     case 'string': {
-      return inferPostgresStringType(analysis.stringConstraints)
+      return analysis.stringFormat === 'uuid'
+        ? 'uuid'
+        : inferPostgresStringType(analysis.stringConstraints)
     }
     case 'number': {
       return inferPostgresNumberType(analysis.numberConstraints)

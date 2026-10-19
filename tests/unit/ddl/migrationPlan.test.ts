@@ -1,4 +1,4 @@
-import { nullable, pipe, string } from 'valibot'
+import { nullable, pipe, string, uuid } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { PlannedMigration } from '@/ddl/migrationPlan'
@@ -143,6 +143,132 @@ function droppedConstraintCatalog(): CatalogSnapshot {
 }
 
 const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
+
+/** Defines the inferred UUID payload used across current-catalog cases. */
+function inferredUuidPayloadTable() {
+  return defineTable(
+    'uuid_payloads',
+    { id: string(), payload: pipe(string(), uuid()) },
+    { primaryKey: 'id' },
+  )
+}
+
+/** Supplies current PostgreSQL storage for an existing payload column. */
+function uuidPayloadCatalog(dataType: string): CatalogSnapshot {
+  return {
+    ...emptyCatalog(),
+    tables: [
+      {
+        schema: 'public',
+        name: 'uuid_payloads',
+        columns: [
+          { name: 'id', dataType: 'text', isNullable: false },
+          { name: 'payload', dataType, isNullable: false },
+        ],
+        primaryKey: catalogPrimaryKey('uuid_payloads'),
+      },
+    ],
+  }
+}
+
+describe('PostgreSQL UUID payload Migration Plans', () => {
+  it.each(['text', 'character varying(36)'])(
+    'plans a %s payload type change and lets an explicit legacy type converge',
+    (legacyType) => {
+      const Desired = inferredUuidPayloadTable()
+      const Pinned = defineTable(
+        'uuid_payloads',
+        {
+          id: string(),
+          payload: pipe(
+            string(),
+            uuid(),
+            column({
+              physicalType: {
+                postgresql: legacyType === 'text' ? 'text' : 'varchar(36)',
+              },
+            }),
+          ),
+        },
+        { primaryKey: 'id' },
+      )
+
+      const catalog = uuidPayloadCatalog(legacyType)
+
+      expect(planMigration([Desired], catalog, postgresDialect)).toEqual({
+        steps: [
+          {
+            kind: 'alter_column_type',
+            target: columnTarget('public', 'uuid_payloads', 'payload'),
+            dataType: 'uuid',
+          },
+        ],
+      })
+
+      expect(planMigration([Pinned], catalog, postgresDialect)).toEqual({ steps: [] })
+    },
+  )
+
+  it('leaves an already-UUID catalog unchanged', () => {
+    expect(
+      planMigration(
+        [inferredUuidPayloadTable()],
+        uuidPayloadCatalog('uuid'),
+        postgresDialect,
+      ),
+    ).toEqual({ steps: [] })
+  })
+})
+
+describe('PostgreSQL UUID reference Migration Plans', () => {
+  it('plans UUID type changes through reference inheritance', () => {
+    const Parent = defineTable(
+      'uuid_plan_parent',
+      { id: pipe(string(), uuid()) },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'uuid_plan_child',
+      { id: string(), parentId: reference(Parent, 'id') },
+      { primaryKey: 'id' },
+    )
+
+    const catalog = {
+      ...emptyCatalog(),
+      tables: [
+        {
+          schema: 'public',
+          name: 'uuid_plan_parent',
+          columns: [{ name: 'id', dataType: 'text', isNullable: false }],
+          primaryKey: catalogPrimaryKey('uuid_plan_parent'),
+        },
+        {
+          schema: 'public',
+          name: 'uuid_plan_child',
+          columns: [
+            { name: 'id', dataType: 'text', isNullable: false },
+            { name: 'parentId', dataType: 'text', isNullable: false },
+          ],
+          primaryKey: catalogPrimaryKey('uuid_plan_child'),
+        },
+      ],
+    }
+
+    const steps = planMigration([Child, Parent], catalog, postgresDialect).steps
+    expect(steps).toContainEqual({
+      kind: 'alter_column_type',
+      target: columnTarget('public', 'uuid_plan_parent', 'id'),
+      dataType: 'uuid',
+    })
+
+    expect(steps).toContainEqual({
+      kind: 'alter_column_type',
+      target: columnTarget('public', 'uuid_plan_child', 'parentId'),
+      dataType: 'uuid',
+    })
+  })
+})
 
 /** Builds empty catalog evidence for schema reconciliation checks. */
 function emptyCatalog(): CatalogSnapshot {

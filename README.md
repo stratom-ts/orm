@@ -156,6 +156,7 @@ import {
   number,
   pipe,
   string,
+  uuid,
 } from 'valibot'
 
 const Event = defineTable(
@@ -176,11 +177,23 @@ const Event = defineTable(
 The row type is inferred too — `InferSelect<typeof Event>` gives
 `{ id: string; title: string; description: string; attendees: number; isPublic: boolean; startsAt: Date; endedAt: Date | null }`.
 
+For a PostgreSQL UUID primary key, validate the string with `uuid()`:
+
+```typescript
+const User = defineTable('users', { id: pipe(string(), uuid()) }, { primaryKey: 'id' })
+
+await db.insert(User).values({ id: crypto.randomUUID() }).execute()
+```
+
+This selects PostgreSQL `uuid` storage. It does not generate UUID values or add a
+database default; the application supplies each value.
+
 Inference rules (PostgreSQL):
 
 | Valibot schema                                           | Inferred type                    |
 | -------------------------------------------------------- | -------------------------------- |
 | `string()`                                               | `text`                           |
+| `pipe(string(), uuid())`                                 | `uuid`                           |
 | `pipe(string(), maxLength(n))` (n ≤ 255)                 | `varchar(n)`                     |
 | `number()`                                               | `double precision`               |
 | `pipe(number(), integer())`                              | `integer`                        |
@@ -193,6 +206,43 @@ Inference rules (PostgreSQL):
 | `object(...)` / `array(...)` / `record(...)`             | `jsonb`                          |
 | `nullable(x)` / `nullish(x)`                             | wrapped column becomes NULL-able |
 | `optional(x)`                                            | may be omitted; remains NOT NULL |
+
+For PostgreSQL strings, a selected `physicalType.postgresql` override wins first.
+Otherwise, `uuid()` validation selects `uuid` before `minLength`, `maxLength`,
+or `length` can select length-based storage. The length validators still run.
+UUID inference works through `optional`, `exactOptional`, `undefinedable`,
+`nullable`, `nullish`, `nonOptional`, `nonNullable`, and `nonNullish`, including
+nested pipes. A reference inherits the target column's selected physical type,
+including inferred `uuid` or an explicit `text` or `varchar(36)` override.
+SQLite continues to store UUID-validated strings and references as `TEXT` unless
+its own physical type is selected explicitly.
+
+Adopting this inference rule changes the desired storage of existing
+UUID-validated columns previously inferred as text or varchar, even when their
+schema definitions do not change. Adding `uuid()` to an existing text or varchar
+column, or removing its explicit text or varchar override, has the same effect.
+The Migration Plan then includes an `alter_column_type` step. Its SQL preview can
+compile, but the generated
+`ALTER COLUMN ... TYPE uuid` has no `USING` conversion expression and will fail
+on a text or varchar column. To retain current storage, pin the existing type:
+
+```typescript
+import { column, defineTable } from 'stratom'
+
+const LegacyUser = defineTable(
+  'users',
+  {
+    id: pipe(string(), uuid(), column({ physicalType: { postgresql: 'text' } })),
+    // Use 'varchar(36)' instead when that is the existing column type.
+  },
+  { primaryKey: 'id' },
+)
+```
+
+Moving existing data to native UUID storage needs a separate reviewed database
+conversion. Account for dependent foreign keys and column defaults. PostgreSQL
+returns UUIDs in canonical lowercase form, and native UUID equality may merge
+legacy text keys that differ only by case.
 
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),

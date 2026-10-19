@@ -18,6 +18,7 @@ import {
   pipe,
   string,
   undefinedable,
+  uuid,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -40,6 +41,36 @@ const context = {
 function identities() {
   return sqliteIdentity.create({ context })
 }
+
+describe('SQLite schema facets', () => {
+  it('retains TEXT for UUID validation, wrappers, references, and PostgreSQL-only overrides', () => {
+    const Parent = defineTable(
+      'uuid_parent',
+      {
+        id: pipe(string(), uuid()),
+        wrapped: nullable(optional(pipe(string(), uuid()))),
+        pipedWrapper: pipe(nonNullable(nullable(string())), uuid()),
+        pgOverride: pipe(
+          string(),
+          uuid(),
+          column({ physicalType: { postgresql: 'uuid' } }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'uuid_child',
+      { id: string(), parentId: reference(Parent, 'id') },
+      { primaryKey: 'id' },
+    )
+
+    const tables = lowerDesiredSchema([Child, Parent], identities(), sqliteSchema).tables
+    expect(tables.flatMap((table) => table.columns.map((item) => item.dataType))).toEqual(
+      ['TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT'],
+    )
+  })
+})
 
 describe('SQLite schema facets', () => {
   it('infers distinct logical declared types while comparing their affinities stably', () => {

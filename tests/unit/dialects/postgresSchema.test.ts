@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   date,
+  email,
   enum as enumSchema,
   exactOptional,
   integer,
@@ -15,14 +16,19 @@ import {
   nonNullable,
   nonNullish,
   nonOptional,
+  nullable,
+  nullish,
   number,
   object,
   picklist,
   pipe,
   record,
+  regex,
+  safeParse,
   string,
   undefinedable,
   union,
+  uuid,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -44,6 +50,48 @@ describe('@/dialects/postgres', () => {
 
     it('normalizes a default value to the catalog comparison key', () => {
       expect(postgresDialect.schema.normalizeDefaultValue?.('pending')).toBe("'pending'")
+    })
+  })
+})
+
+describe('@/dialects/postgres: inferColumnType - string schemas', () => {
+  describe('inferColumnType - string schemas', () => {
+    it('infers UUID through wrappers and nested pipes before length storage', () => {
+      const schemas = [
+        pipe(string(), uuid()),
+        pipe(string(), uuid(), maxLength(36)),
+        pipe(string(), maxLength(36), uuid()),
+        pipe(string(), length(36), uuid()),
+        pipe(string(), minLength(36), maxLength(36), uuid()),
+        pipe(string(), uuid(), minLength(36), maxLength(36)),
+        pipe(pipe(string(), maxLength(36)), uuid()),
+        pipe(pipe(string(), uuid()), maxLength(36)),
+        pipe(string(), uuid(), uuid()),
+        nullable(pipe(string(), uuid())),
+        nullish(pipe(string(), uuid())),
+        pipe(nonNullable(nullable(string())), uuid(), maxLength(36)),
+        exactOptional(pipe(string(), uuid())),
+        undefinedable(pipe(string(), uuid())),
+        nonOptional(pipe(string(), uuid())),
+        nonNullish(pipe(string(), uuid())),
+      ]
+
+      for (const schema of schemas) expect(inferColumnType(schema)).toBe('uuid')
+    })
+
+    it('keeps Valibot length validation active even when UUID storage wins', () => {
+      const schema = pipe(string(), uuid(), maxLength(35))
+      expect(inferColumnType(schema)).toBe('uuid')
+
+      expect(safeParse(schema, '550e8400-e29b-41d4-a716-446655440000').success).toBe(
+        false,
+      )
+    })
+
+    it('keeps other validators on ordinary string storage', () => {
+      expect(inferColumnType(pipe(string(), email()))).toBe('text')
+      expect(inferColumnType(pipe(string(), regex(/^[a-z]+$/)))).toBe('text')
+      expect(inferColumnType(pipe(string(), email(), maxLength(60)))).toBe('varchar(60)')
     })
   })
 })

@@ -1,4 +1,4 @@
-import { pipe, string } from 'valibot'
+import { pipe, string, uuid } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
@@ -284,6 +284,96 @@ describe('PostgreSQL whole-plan lowering: lowers one semantic step to one exact 
         ],
       },
     })
+  })
+})
+
+describe('PostgreSQL inferred UUID plan lowering', () => {
+  it('compiles inferred UUID primary and foreign key declarations', () => {
+    const Parent = defineTable(
+      'inferred_parent',
+      { id: pipe(string(), uuid()) },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'inferred_child',
+      { id: pipe(string(), uuid()), parentId: reference(Parent, 'id') },
+      { primaryKey: 'id' },
+    )
+
+    const schemas = [Child, Parent]
+    const planned = planMigration(
+      schemas,
+      completePostgresCatalog(emptyCatalog(), createCatalogRequest(schemas, [])),
+      postgresDialect,
+    )
+
+    const sql = lower(planned).actions.flatMap((action) =>
+      action.statements.map((statement) => statement.sql),
+    )
+
+    expect(sql).toContainEqual(
+      expect.stringMatching(
+        /create table "public"\."inferred_parent" \("id" uuid not null/,
+      ),
+    )
+
+    expect(sql).toContainEqual(
+      expect.stringMatching(
+        /create table "public"\."inferred_child" \("id" uuid not null, "parentId" uuid not null/,
+      ),
+    )
+
+    expect(sql).toContainEqual(
+      expect.stringMatching(
+        /foreign key \("parentId"\) references "public"\."inferred_parent" \("id"\)/,
+      ),
+    )
+  })
+})
+
+describe('PostgreSQL inferred UUID type-change lowering', () => {
+  it('compiles inferred UUID type changes without a conversion expression', () => {
+    const Desired = defineTable(
+      'inferred_payload',
+      { id: string(), payload: pipe(string(), uuid()) },
+      { primaryKey: 'id' },
+    )
+
+    const schemas = [Desired]
+    const catalog = {
+      ...emptyCatalog(),
+      tables: [
+        {
+          schema: 'public',
+          name: 'inferred_payload',
+          columns: [
+            { name: 'id', dataType: 'text', isNullable: false },
+            { name: 'payload', dataType: 'text', isNullable: false },
+          ],
+          primaryKey: {
+            name: 'inferred_payload_pkey',
+            columns: ['id'],
+            semanticCompleteness: 'supportedSimple' as const,
+            isValid: true,
+          },
+        },
+      ],
+    }
+
+    const planned = planMigration(
+      schemas,
+      completePostgresCatalog(catalog, createCatalogRequest(schemas, [])),
+      postgresDialect,
+    )
+
+    const sql = lower(planned).actions.flatMap((action) =>
+      action.statements.map((statement) => statement.sql),
+    )
+
+    expect(sql).toEqual([
+      'alter table "public"."inferred_payload" alter column "payload" type uuid',
+    ])
   })
 })
 
