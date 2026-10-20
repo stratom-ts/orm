@@ -82,7 +82,7 @@ it('expands a relation-scoped wildcard join using authored names and preserves o
   })
 })
 
-describe('SQLite query facet', () => {
+describe('SQLite query', () => {
   it('shares main-defaulted ASCII-insensitive relation and member lookup with compilation', () => {
     const resolved = sqliteQuery.resolve([Records, Events], { registrationDefault: main })
 
@@ -111,7 +111,7 @@ describe('SQLite query facet', () => {
   })
 })
 
-describe('SQLite query facet: compiles supported joins and write forms with anonymous placeholders', () => {
+describe('SQLite query', () => {
   it('compiles supported joins and write forms with anonymous placeholders', () => {
     assertSqliteJoin()
 
@@ -149,7 +149,7 @@ describe('SQLite query facet: compiles supported joins and write forms with anon
   })
 })
 
-describe('SQLite query validation', () => {
+describe('SQLite query', () => {
   it('rejects unsupported SQLite 3.37 forms synchronously', () => {
     assertUnsupportedSqliteJoinAndDateFunctions()
 
@@ -196,7 +196,7 @@ describe('SQLite query validation', () => {
   })
 })
 
-describe('SQLite query validation: requires an explicit full-table opt-in for empty boolean predicate groups', () => {
+describe('SQLite query', () => {
   it('requires an explicit full-table opt-in for empty boolean predicate groups', () => {
     /** Starts an update operation for a registered table handle. */
     const update = () =>
@@ -224,7 +224,7 @@ describe('SQLite query validation: requires an explicit full-table opt-in for em
   })
 })
 
-describe('SQLite query validation: requires allowAll for writes without a predicate', () => {
+describe('SQLite query', () => {
   it('requires allowAll for writes without a predicate', () => {
     /** Compiles an unrestricted update to exercise write-safety rejection. */
     const blockedUpdate = () =>

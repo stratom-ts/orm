@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { compilePostgres } from '@/dialects/postgres/compile'
 
-describe('PostgreSQL migration AST compilation', () => {
+describe('PostgreSQL migration compilation', () => {
   it('compiles constructive descriptive steps', () => {
     assertCompilesConstructiveDescriptiveSteps()
 
@@ -25,7 +25,7 @@ describe('PostgreSQL migration AST compilation', () => {
   })
 })
 
-describe('PostgreSQL migration AST compilation: compiles destructive descriptive steps', () => {
+describe('PostgreSQL migration compilation', () => {
   it('compiles destructive descriptive steps', () => {
     expect(
       compilePostgres({

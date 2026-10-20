@@ -736,7 +736,7 @@ function executor(options: PostgresFixtureOptions = {}): CatalogExecutor {
   }
 }
 
-describe('PostgreSQL evidence-bearing catalog', () => {
+describe('PostgreSQL catalog', () => {
   it('keeps PostgreSQL 18 NOT NULL constraints as nullable column evidence', async () => {
     const catalog = await postgresDialect.catalog.introspectCatalog(
       executor({ version: '180001' }),
@@ -772,7 +772,7 @@ describe('PostgreSQL evidence-bearing catalog', () => {
   })
 })
 
-describe('PostgreSQL evidence-bearing catalog: normalizes row-order permutations and preserves native objects', () => {
+describe('PostgreSQL catalog', () => {
   it('normalizes row-order permutations and preserves native objects', async () => {
     const queries: Parameters<CatalogExecutor['execute']>[0][] = []
     const delegate = executor()
@@ -821,7 +821,7 @@ describe('PostgreSQL evidence-bearing catalog: normalizes row-order permutations
   })
 })
 
-describe('PostgreSQL evidence-bearing catalog: ignores unrelated races and skips table-shaped rows for views', () => {
+describe('PostgreSQL catalog', () => {
   it('ignores unrelated races and skips table-shaped rows for views', async () => {
     const raced = await postgresDialect.catalog.introspectCatalog(
       executor({ unrelatedRace: true }),
@@ -859,7 +859,7 @@ describe('PostgreSQL evidence-bearing catalog: ignores unrelated races and skips
   })
 })
 
-describe('PostgreSQL catalog version and invariant checks', () => {
+describe('PostgreSQL catalog', () => {
   it('reports unsupported server versions', async () => {
     const versionLimited = await postgresDialect.catalog.introspectCatalog(
       executor({ version: '90600' }),
@@ -884,7 +884,7 @@ describe('PostgreSQL catalog version and invariant checks', () => {
   })
 })
 
-describe('PostgreSQL catalog version and invariant checks: rejects malformed and cross-query raced rows instead of fabricating facts', () => {
+describe('PostgreSQL catalog', () => {
   it('rejects malformed and cross-query raced rows instead of fabricating facts', async () => {
     await expect(
       postgresDialect.catalog.introspectCatalog(
@@ -1220,7 +1220,7 @@ function normalizationFixtureExecutor(executedSql: string[]): Executor {
   }
 }
 
-describe('introspect', () => {
+describe('PostgreSQL catalog', () => {
   it('rejects an unresolved writable namespace instead of defaulting to public', async () => {
     const executor: Executor = {
       /** Executes fixture SQL with the configured native observations. */
@@ -1237,7 +1237,7 @@ describe('introspect', () => {
   })
 })
 
-describe('PostgreSQL catalog row normalization', () => {
+describe('PostgreSQL catalog', () => {
   it('should normalize catalog rows into a public snapshot', async () => {
     const executedSql: string[] = []
     const executor = normalizationFixtureExecutor(executedSql)
@@ -1259,7 +1259,7 @@ describe('PostgreSQL catalog row normalization', () => {
   })
 })
 
-describe('PostgreSQL introspection identities and references', () => {
+describe('PostgreSQL catalog', () => {
   it('keeps dotted schema and relation tuples distinct during introspection', async () => {
     const executor: Executor = createDottedCatalogExecutor()
 
@@ -1283,7 +1283,7 @@ describe('PostgreSQL introspection identities and references', () => {
   })
 })
 
-describe('PostgreSQL introspection identities and references: rejects foreign keys with unresolved referenced relation metadata', () => {
+describe('PostgreSQL catalog', () => {
   it('rejects foreign keys with unresolved referenced relation metadata', async () => {
     const executor: Executor = {
       /** Executes fixture SQL with the configured native observations. */
