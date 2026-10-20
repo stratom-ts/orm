@@ -540,6 +540,7 @@ function validateDialectContractShard(
   }
 
   validateOperationSessionMigrationInput(asRecord(inputs)?.operationSession)
+  validateQueryContractInput(asRecord(inputs)?.query)
   validateMigrationContractInput(asRecord(inputs)?.migration)
 }
 
@@ -548,6 +549,72 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null
     ? (value as Record<string, unknown>)
     : undefined
+}
+
+/** Validates nested query participation before any shared scenario registers. */
+function validateQueryContractInput(value: unknown): void {
+  const query = asRecord(value)
+
+  if (query?.state !== 'supported') return
+
+  validateQueryFacet(query.core, 'core')
+  validateQueryFacet(query.valueMapping, 'valueMapping')
+  const scenarios = asRecord(query.scenarios)
+  queryCompilerScenarioIds.forEach((scenarioId) =>
+    validateQueryScenario(scenarios?.[scenarioId], scenarioId),
+  )
+}
+
+/** Validates supported or explicitly unsupported nested query participation. */
+function validateQueryFacet(value: unknown, facet: 'core' | 'valueMapping'): void {
+  const support = asRecord(value)
+
+  if (support?.state === 'unsupported') {
+    if (typeof support.reason !== 'string' || support.reason.trim().length === 0)
+      throw new Error(`Query ${facet} needs a non-empty unsupported reason`)
+
+    return
+  }
+
+  if (support?.state !== 'supported' || !asRecord(support.input))
+    throw new Error(`Supported query contract needs a ${facet} input`)
+}
+
+/** Validates one required compiler scenario before any suite registers. */
+function validateQueryScenario(
+  value: unknown,
+  scenarioId: QueryCompilerScenarioId,
+): void {
+  const support = asRecord(asRecord(value)?.support)
+
+  if (support?.state === 'unsupported') {
+    validateUnsupportedQueryScenario(support, scenarioId)
+    return
+  }
+
+  const input = asRecord(support?.input)
+
+  if (support?.state !== 'supported' || !input?.node || !input.expected)
+    throw new Error(`Query contract omits required scenario ${scenarioId}`)
+}
+
+/** Validates that an unsupported compiler scenario has a reason and rejection case. */
+function validateUnsupportedQueryScenario(
+  support: Record<string, unknown>,
+  scenarioId: QueryCompilerScenarioId,
+): void {
+  if (typeof support.reason !== 'string' || support.reason.trim().length === 0)
+    throw new Error(`Query scenario ${scenarioId} needs a non-empty unsupported reason`)
+
+  const input = asRecord(support.input)
+
+  if (
+    typeof support.expectedMessage !== 'string' ||
+    support.expectedMessage.trim().length === 0 ||
+    !input?.node
+  ) {
+    throw new Error(`Unsupported query scenario ${scenarioId} needs a rejection input`)
+  }
 }
 
 /** Validates nested provider migration participation before any suite registers. */

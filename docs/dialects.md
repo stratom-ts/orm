@@ -443,9 +443,15 @@ Keep member-specific unit specs flat in `tests/unit/dialects/`, named
 `sqliteDesiredSchema.test.ts`). `Schema` covers direct type inference and normalization;
 `DesiredSchema` covers lowering a registered table graph. Keep shared core behavior in its
 shared test file, and name engine-specific fixtures with their member prefix. Use short
-database and facet suite titles, leaving the behavior description in each test title.
+database and facet suite titles, leaving the behavior description in each test title; for
+example, `describe('PostgreSQL schema')` and `describe('SQLite query')`. Name member
+fixtures with the same prefix, such as `postgresSharedFixtures.ts` and
+`sqliteContractFixtures.ts`.
 To run one concern, pass its file to Vitest, for example:
 `pnpm exec vitest run --config vitest.unit.config.ts tests/unit/dialects/postgresDesiredSchema.test.ts`.
+
+See [Dialect consistency status](dialect-consistency-status.md) for the current audit
+reassessment, intentional engine differences, and test-profile exceptions.
 
 Create one exhaustive capability declaration for the complete member. It assigns each
 facet to one named isolated shard. Register the complete member once; the aggregate
