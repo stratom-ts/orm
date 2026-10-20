@@ -1,6 +1,6 @@
 import ts from '@typescript/typescript6'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const classifiesConcreteDialectReferenceSData = [
@@ -189,6 +189,135 @@ function namedImportBindings(source: ts.SourceFile): Map<string, ImportBinding> 
   }
 
   return imports
+}
+
+/** Counts runtime calls through an import from the specified module. */
+function importedCallCount(
+  source: ts.SourceFile,
+  imported: string,
+  module: string,
+): number {
+  const localNames = [...namedImportBindings(source)].flatMap(([local, binding]) =>
+    binding.imported === imported && binding.module === module ? [local] : [],
+  )
+
+  return descendants(source).filter(
+    (node) =>
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      localNames.includes(node.expression.text),
+  ).length
+}
+
+/** Reads test include patterns declared directly by a Vitest profile. */
+function configuredTestIncludes(source: ts.SourceFile): string[] {
+  return descendants(source).flatMap((node) => {
+    if (
+      !ts.isPropertyAssignment(node) ||
+      propertyName(node.name) !== 'include' ||
+      !ts.isArrayLiteralExpression(node.initializer)
+    ) {
+      return []
+    }
+
+    return node.initializer.elements.flatMap((element) =>
+      ts.isStringLiteralLike(element) ? [element.text] : [],
+    )
+  })
+}
+
+/** Checks that every test include remains inside its declared profile. */
+function includesOnlyProfile(
+  includes: readonly string[],
+  profile: 'unit' | 'integration',
+) {
+  return (
+    includes.length > 0 &&
+    includes.every((pattern) => pattern.startsWith(`tests/${profile}/`))
+  )
+}
+
+/** Resolves a relative test dependency and reports whether it enters integration. */
+function integrationModuleReference(
+  source: ts.SourceFile,
+  module: string,
+): string | undefined {
+  if (!module.startsWith('.')) return undefined
+
+  const integrationRoot = join(ROOT, 'tests/integration')
+  const absolute = resolve(source.fileName, '..', module)
+  const pathFromIntegration = relative(integrationRoot, absolute)
+  const insideIntegration =
+    pathFromIntegration === '' ||
+    (pathFromIntegration !== '..' &&
+      !pathFromIntegration.startsWith(`..${sep}`) &&
+      !isAbsolute(pathFromIntegration))
+
+  return insideIntegration ? pathFromIntegration : undefined
+}
+
+/** Finds runtime module dependencies, including re-exports and dynamic imports. */
+function runtimeModuleReferences(source: ts.SourceFile): string[] {
+  const staticReferences = source.statements.flatMap(runtimeStaticModuleReference)
+  return staticReferences.concat(descendants(source).flatMap(dynamicImportReference))
+}
+
+/** Finds one static runtime import or re-export module. */
+function runtimeStaticModuleReference(statement: ts.Statement): string[] {
+  if (ts.isImportDeclaration(statement)) return runtimeImportReference(statement)
+  if (ts.isExportDeclaration(statement)) return runtimeExportReference(statement)
+
+  return []
+}
+
+/** Finds a module imported with at least one runtime binding or for side effects. */
+function runtimeImportReference(statement: ts.ImportDeclaration): string[] {
+  const clause = statement.importClause
+
+  if (clause?.isTypeOnly || (clause && !hasRuntimeImportBinding(clause))) return []
+
+  const module = moduleSpecifier(statement)?.text
+  return module ? [module] : []
+}
+
+/** Checks whether an import clause contains a runtime binding. */
+function hasRuntimeImportBinding(clause: ts.ImportClause): boolean {
+  if (clause.name) return true
+
+  const bindings = clause.namedBindings
+
+  if (!bindings) return false
+  if (!ts.isNamedImports(bindings)) return true
+
+  return bindings.elements.some((element) => !element.isTypeOnly)
+}
+
+/** Finds a runtime re-export module, ignoring clauses that only re-export types. */
+function runtimeExportReference(statement: ts.ExportDeclaration): string[] {
+  if (statement.isTypeOnly) return []
+
+  const clause = statement.exportClause
+
+  if (
+    clause &&
+    ts.isNamedExports(clause) &&
+    clause.elements.length > 0 &&
+    clause.elements.every((element) => element.isTypeOnly)
+  ) {
+    return []
+  }
+
+  const module = moduleSpecifier(statement)?.text
+  return module ? [module] : []
+}
+
+/** Finds a string-literal dynamic import module. */
+function dynamicImportReference(node: ts.Node): string[] {
+  if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword)
+    return []
+
+  const argument = node.arguments[0]
+  return ts.isStringLiteralLike(argument) ? [argument.text] : []
 }
 
 /** Derives production dialect source directories from the resolver registration. */
@@ -1463,6 +1592,178 @@ describe('dialect semantic locality: allows connector dialect only as the resolv
     expect(selections).toHaveLength(1)
     expect(selections[0]).toMatch(/src[/\\]client\.ts:\d+:resolver$/)
     expect(branches).toEqual([])
+  })
+})
+
+describe('dialect test organization: broad entry points', () => {
+  it('keeps shared concern entry points for every production member', () => {
+    const concerns = ['Schema', 'DesiredSchema', 'Query', 'Catalog', 'OperationSession']
+
+    for (const member of productionDialectSources()) {
+      for (const concern of concerns) {
+        expect(
+          existsSync(
+            join(ROOT, 'tests/unit/dialects', `${member.code}${concern}.test.ts`),
+          ),
+          `${member.code} ${concern} unit entry point`,
+        ).toBe(true)
+      }
+
+      const unitRuntime = existsSync(
+        join(ROOT, 'tests/unit/dialects', `${member.code}MigrationRuntime.test.ts`),
+      )
+
+      const nativeRuntime = existsSync(
+        join(
+          ROOT,
+          'tests/integration',
+          member.code,
+          `${member.code}MigrationRuntime.test.ts`,
+        ),
+      )
+
+      expect(
+        unitRuntime || nativeRuntime,
+        `${member.code} physical migration runtime`,
+      ).toBe(true)
+    }
+  })
+})
+
+describe('dialect test organization: contract registration', () => {
+  it('gives each production aggregate sole ownership of contract registration', () => {
+    for (const member of productionDialectSources()) {
+      const aggregate = parse(
+        join(ROOT, 'tests/unit/dialects', `${member.code}ContractKit.test.ts`),
+      )
+
+      expect(
+        importedCallCount(
+          aggregate,
+          'registerDialectContractMember',
+          './dialectContractKit',
+        ),
+        `${member.code} aggregate registrations`,
+      ).toBe(1)
+
+      const memberFiles = sourceFiles('tests/unit/dialects').filter((file) =>
+        relative(ROOT, file).split(/[\\/]/).at(-1)?.startsWith(member.code),
+      )
+
+      for (const file of memberFiles.filter(
+        (path) => !path.endsWith(`${member.code}ContractKit.test.ts`),
+      )) {
+        expect(
+          importedCallCount(
+            parse(file),
+            'registerDialectContractMember',
+            './dialectContractKit',
+          ),
+          relative(ROOT, file),
+        ).toBe(0)
+      }
+    }
+  })
+})
+
+describe('dialect test organization: deterministic unit profile', () => {
+  it('keeps native connectors out of unit dialect fixtures and runners', () => {
+    const nativeModules = /^(?:node:sqlite|db0\/connectors\/(?:node-sqlite|postgresql))$/
+    const unitSources = [
+      ...sourceFiles('tests/unit/dialects'),
+      ...sourceFiles('tests/unit/helpers'),
+    ]
+
+    const violations = unitSources.flatMap((file) => {
+      const source = parse(file)
+      return runtimeModuleReferences(source).flatMap((module) => {
+        const integrationReference = integrationModuleReference(
+          source,
+          module,
+        )?.replaceAll('\\', '/')
+
+        const allowedSupport =
+          integrationReference === 'support/dialectIntegrationContract'
+
+        return nativeModules.test(module) || (integrationReference && !allowedSupport)
+          ? [`${relative(ROOT, file)} imports ${module}`]
+          : []
+      })
+    })
+
+    expect(violations).toEqual([])
+  })
+
+  it.each([
+    ['type import clause', "import type { DatabaseSync } from 'node:sqlite'", []],
+    ['type-only named binding', "import { type DatabaseSync } from 'node:sqlite'", []],
+    ['type-only re-export', "export { type DatabaseSync } from 'node:sqlite'", []],
+    [
+      'native named binding',
+      "import { DatabaseSync } from 'node:sqlite'",
+      ['node:sqlite'],
+    ],
+    ['mocked PostgreSQL driver', "vi.mock('pg')", []],
+    [
+      'dynamic native import',
+      "const sqlite = await import('node:sqlite')",
+      ['node:sqlite'],
+    ],
+  ] as const)('classifies unit dependency fixture: %s', (_label, code, expected) => {
+    expect(runtimeModuleReferences(parseSource(code))).toEqual(expected)
+  })
+})
+
+describe('dialect test organization: native profile', () => {
+  it('lets each native entry register its reusable adapter once', () => {
+    for (const member of productionDialectSources()) {
+      const entry = parse(
+        join(ROOT, 'tests/integration', member.code, `${member.code}.test.ts`),
+      )
+
+      const adapterImport = [...namedImportBindings(entry).values()].some(
+        (binding) =>
+          binding.imported === `${member.code}IntegrationAdapter` &&
+          binding.module === `./${member.code}Integration`,
+      )
+
+      expect(adapterImport, `${member.code} reusable native adapter`).toBe(true)
+
+      expect(
+        importedCallCount(
+          entry,
+          'registerDialectIntegrationScenarios',
+          '../support/dialectIntegrationContract',
+        ),
+        `${member.code} native registrations`,
+      ).toBe(1)
+
+      for (const file of sourceFiles(join('tests/integration', member.code)).filter(
+        (path) => !path.endsWith(`${member.code}.test.ts`),
+      )) {
+        expect(
+          importedCallCount(
+            parse(file),
+            'registerDialectIntegrationScenarios',
+            '../support/dialectIntegrationContract',
+          ),
+          relative(ROOT, file),
+        ).toBe(0)
+      }
+    }
+  })
+})
+
+describe('dialect test organization: profile discovery', () => {
+  it('keeps Vitest unit and integration discovery in their declared profiles', () => {
+    const unit = configuredTestIncludes(parse(join(ROOT, 'vitest.unit.config.ts')))
+    const integration = configuredTestIncludes(
+      parse(join(ROOT, 'vitest.integration.config.ts')),
+    )
+
+    expect(includesOnlyProfile(unit, 'unit')).toBe(true)
+    expect(includesOnlyProfile(integration, 'integration')).toBe(true)
+    expect(includesOnlyProfile(['tests/**/*.test.ts'], 'unit')).toBe(false)
   })
 })
 

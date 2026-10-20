@@ -9,6 +9,8 @@ import type { DialectIntegrationAdapter } from '../../integration/support/dialec
 
 import type { DialectContractMemberCapabilities } from './dialectContractKit'
 import { registerDialectContractMember } from './dialectContractKit'
+import { postgresSemanticContractShard } from './postgresSharedShards'
+import { sqliteSemanticContractShard } from './sqliteSharedShards'
 
 it('preflights nested controlled migration support before registering any suite', () => {
   const unsupported = {
@@ -126,6 +128,64 @@ it.each([
   ],
 ] as const)('preflights malformed migration lowering: %s', (_name, input, message) => {
   expect(() => registerMalformedMigration(input)).toThrow(message)
+})
+
+function registerMalformedQuery(query: unknown): void {
+  const unsupported = {
+    state: 'unsupported',
+    reason: 'Not applicable to this adapter',
+  } as const
+
+  const capabilities = {
+    identity: { ...unsupported, shard: 'complete' },
+    naming: { ...unsupported, shard: 'complete' },
+    desiredSchema: { ...unsupported, shard: 'complete' },
+    query: { state: 'supported', shard: 'complete' },
+    catalog: { ...unsupported, shard: 'complete' },
+    operationSession: { ...unsupported, shard: 'complete' },
+    coordination: { ...unsupported, shard: 'complete' },
+    migration: { ...unsupported, shard: 'complete' },
+    lifecycle: { ...unsupported, shard: 'complete' },
+  } as const
+
+  registerDialectContractMember('malformed query', capabilities, {
+    complete: {
+      identity: unsupported,
+      naming: unsupported,
+      desiredSchema: unsupported,
+      query,
+      catalog: unsupported,
+      operationSession: unsupported,
+      coordination: unsupported,
+      migration: unsupported,
+      lifecycle: unsupported,
+    },
+  } as never)
+}
+
+it('preflights a missing required compiler scenario before registering suites', () => {
+  const scenarios = { ...postgresSemanticContractShard.query.scenarios }
+  delete (scenarios as Record<string, unknown>)['select.join.right']
+
+  expect(() =>
+    registerMalformedQuery({ ...postgresSemanticContractShard.query, scenarios }),
+  ).toThrow(/omits required scenario select\.join\.right/i)
+})
+
+it('preflights unsupported compiler scenarios without a reason before registering suites', () => {
+  const scenarios = {
+    ...sqliteSemanticContractShard.query.scenarios,
+    'select.join.right': {
+      support: {
+        ...sqliteSemanticContractShard.query.scenarios['select.join.right'].support,
+        reason: ' ',
+      },
+    },
+  }
+
+  expect(() =>
+    registerMalformedQuery({ ...sqliteSemanticContractShard.query, scenarios }),
+  ).toThrow(/scenario select\.join\.right needs a non-empty unsupported reason/i)
 })
 
 describe('Dialect contract capability registration', () => {
