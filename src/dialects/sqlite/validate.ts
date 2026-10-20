@@ -5,7 +5,6 @@ import {
   isSqliteDefaultLiteral,
   trimSqliteWhitespace,
 } from './defaults'
-import { normalizeSqliteDefaultExpression } from './normalize'
 
 /** Known SQLite validation rejection consumed by migration lowering. */
 export class SqliteValidationError extends MigrationError {}
@@ -111,11 +110,4 @@ export function formatSqliteDefaultExpression(expression: string): string {
   if (/^current_(timestamp|date|time)$/i.test(value)) return value.toUpperCase()
 
   return `(${value})`
-}
-
-/** Normalizes a primitive default under SQLite's literal rules. */
-export function normalizeSqliteDefaultValue(
-  value: string | number | boolean | null,
-): string {
-  return normalizeSqliteDefaultExpression(formatSqliteLiteral(value))
 }

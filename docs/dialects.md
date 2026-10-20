@@ -386,6 +386,12 @@ named with the member code prefix. `dialect.ts` imports those facets and passes 
 `defineDialect()` with the member's lowering and execution functions. It contains no
 implementation helpers or public re-exports.
 
+Equivalent default behavior has the same owner in each member: `normalize.ts` owns
+comparison forms for types, default expressions, and primitive default values;
+`validate.ts` owns safe validation and SQL formatting; and `schema.ts` assembles the
+schema facet. Engine-specific parser and compatibility modules remain where their separate
+responsibilities justify them.
+
 Use `postgres` and `sqlite` as code prefixes and PostgreSQL and SQLite in prose. The exact
 db0 connector selector remains `postgresql`. Functions use a verb followed by the member
 prefix and subject, such as `createDb0PostgresOperationSessionProvider`. Constants use

@@ -1,3 +1,5 @@
+import { formatPostgresDefault } from './validate'
+
 /**
  * Normalizes PostgreSQL type names and aliases for comparison.
  *
@@ -68,4 +70,51 @@ export function normalizePostgresDataType(dataType: string): string {
  */
 export function postgresBaseType(dataType: string): string {
   return normalizePostgresDataType(dataType).replace(/\(.*\)$/, '')
+}
+
+/** Formats and normalizes a primitive PostgreSQL column default for comparison. */
+export function normalizePostgresDefaultValue(
+  value: string | number | boolean | null,
+): string {
+  return normalizePostgresDefaultExpression(formatPostgresDefault(value))
+}
+
+function stripEnclosingParens(s: string): string {
+  if (s.length < 2 || s[0] !== '(' || s[s.length - 1] !== ')') return s
+
+  let depth = 0
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '(') depth++
+    else if (s[i] === ')') depth--
+
+    if (depth === 0 && i < s.length - 1) return s
+  }
+
+  return depth === 0 ? s.slice(1, -1).trim() : s
+}
+
+function stripAllEnclosingParens(expression: string): string {
+  let normalized = expression
+  let previous: string
+  do {
+    previous = normalized
+    normalized = stripEnclosingParens(normalized)
+  } while (normalized !== previous)
+
+  return normalized
+}
+
+/** Canonicalizes PostgreSQL default expressions for migration comparison. */
+export function normalizePostgresDefaultExpression(expression: string): string {
+  const normalized = stripAllEnclosingParens(expression.trim())
+  const withoutCasts = normalized.replace(
+    /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
+    '',
+  )
+
+  const currentTimestampCandidate = stripAllEnclosingParens(withoutCasts.trim())
+
+  return /^current_timestamp$/i.test(currentTimestampCandidate)
+    ? 'current_timestamp'
+    : withoutCasts
 }

@@ -1,4 +1,4 @@
-import { SchemaError } from '@/utils/error'
+import { MigrationError, SchemaError } from '@/utils/error'
 
 /** Base types allowed in DDL (with optional precision/length suffixes). */
 const ALLOWED_PG_BASE_TYPES = new Set([
@@ -186,72 +186,35 @@ export function formatPostgresLiteral(value: string | number | boolean | null): 
     : `'${escapedQuotes}'`
 }
 
-/**
- * Strips a pair of outer parentheses only when they fully enclose the
- * expression (balanced depth reaches zero at the final character).
- *
- * @param s - Input string that may be wrapped in parentheses.
- *
- * @returns The string with one outer layer removed, or the original string
- *   when the outer parens do not form a matching pair.
- */
-function stripEnclosingParens(s: string): string {
-  if (s.length < 2 || s[0] !== '(' || s[s.length - 1] !== ')') return s
+/** Validates and trims an authored PostgreSQL dialect expression. */
+export function assertSafePostgresDefaultExpression(expression: string): string {
+  const value = expression.trim()
+  let quoted = false
+  let parentheses = 0
+  let unsafe = !value || /\$|;|--|\/\*|\*\//.test(value)
 
-  let depth = 0
+  for (let index = 0; index < value.length && !unsafe; index++) {
+    const character = value[index]
 
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === '(') depth++
-    else if (s[i] === ')') depth--
-
-    if (depth === 0 && i < s.length - 1) return s
+    if (character === "'") {
+      const escaped: boolean = quoted && value[index + 1] === "'"
+      index += escaped ? 1 : 0
+      quoted = escaped ? quoted : !quoted
+    } else if (!quoted && character === '(') {
+      parentheses++
+    } else if (!quoted && character === ')') {
+      unsafe = parentheses === 0
+      parentheses = Math.max(0, parentheses - 1)
+    }
   }
 
-  return depth === 0 ? s.slice(1, -1).trim() : s
-}
+  if (quoted || parentheses !== 0) unsafe = true
 
-/**
- * Strips all balanced outer parentheses from an expression.
- *
- * @param expression - Expression that may have nested outer parentheses.
- */
-function stripAllEnclosingParens(expression: string): string {
-  let normalized = expression
-  let previous: string
+  if (unsafe) {
+    throw new MigrationError({
+      message: `Unsafe PostgreSQL database expression ${JSON.stringify(expression)}`,
+    })
+  }
 
-  do {
-    previous = normalized
-    normalized = stripEnclosingParens(normalized)
-  } while (normalized !== previous)
-
-  return normalized
-}
-
-/**
- * Canonicalizes a PostgreSQL catalog default expression for migration
- * comparison by normalizing whitespace, stripping balanced enclosing
- * parentheses, removing trailing `::type` casts (including chained casts
- * such as `::text::varchar`), and canonicalizing `CURRENT_TIMESTAMP`.
- *
- * @example
- *   normalizePostgresDefaultExpression('(now())') // 'now()'
- *   normalizePostgresDefaultExpression("('a') || ('b')") // "('a') || ('b')"
- *   normalizePostgresDefaultExpression("'x'::text::varchar") // "'x'"
- *
- * @param expression - Raw default expression from `pg_catalog`.
- *
- * @returns Normalized expression suitable for drift comparison.
- */
-export function normalizePostgresDefaultExpression(expression: string): string {
-  const normalized = stripAllEnclosingParens(expression.trim())
-  const withoutCasts = normalized.replace(
-    /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
-    '',
-  )
-
-  const currentTimestampCandidate = stripAllEnclosingParens(withoutCasts.trim())
-
-  return /^current_timestamp$/i.test(currentTimestampCandidate)
-    ? 'current_timestamp'
-    : withoutCasts
+  return value
 }

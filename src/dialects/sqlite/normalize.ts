@@ -1,4 +1,5 @@
 import { trimSqliteWhitespace } from './defaults'
+import { formatSqliteLiteral } from './validate'
 
 /** Returns SQLite's stable affinity key for a declared type spelling. */
 export function normalizeSqliteDataType(dataType: string): string {
@@ -71,6 +72,13 @@ export function normalizeSqliteDefaultExpression(expression: string): string {
   if (/^x'(?:[\da-f]{2})*'$/i.test(result)) return result.toLowerCase()
 
   return collapseUnquotedWhitespace(result)
+}
+
+/** Normalizes a primitive default under SQLite's literal rules. */
+export function normalizeSqliteDefaultValue(
+  value: string | number | boolean | null,
+): string {
+  return normalizeSqliteDefaultExpression(formatSqliteLiteral(value))
 }
 
 /** Collapses spacing outside SQL string literals while preserving doubled quotes. */
