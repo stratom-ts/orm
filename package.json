@@ -21,7 +21,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:integration:postgres": "vitest run --config vitest.integration.config.ts tests/integration/postgres",
     "test:integration:sqlite": "vitest run --config vitest.integration.config.ts tests/integration/sqlite",
-    "test:coverage": "vitest run --config vitest.unit.config.ts --coverage",
+    "test:coverage": "vitest run --config vite.config.ts --coverage --testTimeout 45000 --hookTimeout 40000 tests/unit tests/integration",
     "typecheck": "tsc",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

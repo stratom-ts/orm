@@ -23,12 +23,31 @@ pnpm add stratom valibot db0
 
 Stratom is ESM only and requires Node >=22.5.
 
-## PostgreSQL integration tests
+## Test profiles
 
-The repeatable PostgreSQL suite uses Docker Compose and an isolated schema per test.
-Docker Desktop provides Compose on Windows and macOS; Docker Engine with Compose is
-also supported on Linux. Copy the example environment file, start the health-checked
-service, and run the dedicated command:
+`pnpm test:unit` runs deterministic semantic contracts, compiler and planning checks,
+and injected-failure scenarios for both dialects. It opens no native database and
+needs no database service or experimental SQLite flag.
+
+`pnpm test:integration:sqlite` runs native SQLite connector, query, migration,
+physical lifecycle, database-file, and writer-lock scenarios. It needs Node >=22.5
+and SQLite >=3.37, with no external service. Node 22.5 through 22.12 requires
+`--experimental-sqlite`. The pinned pnpm needs a newer Node, so install dependencies
+on Node 24 before switching to the minimum runtime and running Vitest directly:
+
+```bash
+NODE_OPTIONS=--experimental-sqlite node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/integration/sqlite
+```
+
+On PowerShell, set `$env:NODE_OPTIONS='--experimental-sqlite'` first, then run the
+`node` command without the `NODE_OPTIONS=...` prefix. This environment variable
+passes the flag to Vitest's worker processes.
+
+`pnpm test:integration:postgres` runs native PostgreSQL scenarios. It needs a running
+PostgreSQL service and `POSTGRESQL_URL`. The repeatable suite uses Docker Compose
+and an isolated schema per test. Docker Desktop provides Compose on Windows and
+macOS; Docker Engine with Compose is also supported on Linux. Copy the example
+environment file, start the health-checked service, and run the dedicated command:
 
 ```bash
 cp .env.example .env
@@ -37,11 +56,14 @@ pnpm test:integration:postgres
 docker compose down -v
 ```
 
-On PowerShell, use `Copy-Item .env.example .env` for the first command. Use
-`pnpm test:unit` or `pnpm test:integration:sqlite` when PostgreSQL is not configured;
-the SQLite suite needs no service. `pnpm test` runs the unit suite followed by every
-integration suite, while `pnpm test:integration` runs only integration tests; both fail
-with a setup message instead of silently passing when PostgreSQL is unavailable.
+On PowerShell, use `Copy-Item .env.example .env` for the first command.
+`pnpm test:integration` runs both native profiles; `pnpm test` runs units followed
+by both native profiles. These aggregate commands require both profiles' native
+prerequisites and fail with a setup message when PostgreSQL is unavailable.
+`pnpm test:coverage` measures units and both native profiles in one report, with
+the same native prerequisites as `pnpm test`. CI runs units and both native
+profiles on Node 24 and the minimum supported Node 22.5.0; only the
+SQLite integration job needs the experimental flag on the minimum runtime.
 
 ## Quick start
 

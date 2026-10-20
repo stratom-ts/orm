@@ -1,4 +1,3 @@
-import nodeSqliteConnector from 'db0/connectors/node-sqlite'
 import { literal, pipe } from 'valibot'
 import { expect, it, vi } from 'vitest'
 
@@ -7,6 +6,10 @@ import { sqliteIdentity } from '@/dialects/sqlite/identity'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
 import { column, createDatabase, defineTable } from '@/index'
 import { MigrationError, SchemaError } from '@/utils/error'
+
+import { customConnector } from '../helpers/operationSessionFixtures'
+
+import { createSqliteControllableProvider } from './sqliteSharedFixtures'
 
 const identities = sqliteIdentity.create({
   context: {
@@ -33,7 +36,7 @@ it.each(invalidNumericLiterals)(
       { primaryKey: 'value' },
     )
 
-    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const connector = customConnector('sqlite')
     const getInstance = vi.spyOn(connector, 'getInstance')
     const exec = vi.spyOn(connector, 'exec')
     const prepare = vi.spyOn(connector, 'prepare')
@@ -72,14 +75,19 @@ it.each([
       { primaryKey: 'value' },
     )
 
-    const connector = nodeSqliteConnector({ name: ':memory:' })
+    const connector = customConnector('sqlite')
     const exec = vi.spyOn(connector, 'exec')
     const map = {
       ...(mapParamValue ? { mapParamValue } : {}),
       ...(mapResultValue ? { mapResultValue } : {}),
     }
 
-    const db = createDatabase({ connector, schemas: [InvalidRecords], map })
+    const db = createDatabase({
+      connector,
+      schemas: [InvalidRecords],
+      map,
+      operationSessionProvider: createSqliteControllableProvider().provider,
+    })
 
     try {
       await expect(db.migrate().dryRun()).rejects.toThrow(MigrationError)
@@ -105,119 +113,4 @@ it('rejects an out-of-range bigint literal with an explicit BIGINT type for dire
   expect(() => lowerDesiredSchema([InvalidRecords], identities, sqliteSchema)).toThrow(
     /signed 64-bit integer range/,
   )
-})
-
-it('leaves an existing SQLite catalog and seeded data unchanged when literal lowering fails', async () => {
-  const connector = nodeSqliteConnector({ name: ':memory:' })
-  try {
-    const native = await connector.getInstance!()
-    native.exec(
-      "create table seed(id INTEGER primary key, value TEXT); insert into seed values(7, 'kept')",
-    )
-
-    const beforeSchema = native
-      .prepare('select name,sql from sqlite_schema order by name')
-      .all()
-
-    const beforeData = native.prepare('select * from seed').all()
-    const getInstance = vi.spyOn(connector, 'getInstance')
-    const exec = vi.spyOn(connector, 'exec')
-    const prepare = vi.spyOn(connector, 'prepare')
-    const InvalidRecords = defineTable(
-      'invalid_records',
-      { value: literal(9223372036854775808n) },
-      { primaryKey: 'value' },
-    )
-
-    expect(() => createDatabase({ connector, schemas: [InvalidRecords] })).toThrow(
-      SchemaError,
-    )
-
-    expect(getInstance).not.toHaveBeenCalled()
-    expect(exec).not.toHaveBeenCalled()
-    expect(prepare).not.toHaveBeenCalled()
-
-    expect(
-      native.prepare('select name,sql from sqlite_schema order by name').all(),
-    ).toEqual(beforeSchema)
-
-    expect(native.prepare('select * from seed').all()).toEqual(beforeData)
-  } finally {
-    await connector.dispose?.()
-  }
-})
-
-it('migrates, round-trips supported number and bigint literal boundaries, then has an empty second dry run', async () => {
-  const minBigInt = -9223372036854775808n
-  const maxBigInt = 9223372036854775807n
-  const LiteralValues = defineTable(
-    'literal_values',
-    {
-      id: literal(Number.MIN_SAFE_INTEGER),
-      maxInteger: literal(Number.MAX_SAFE_INTEGER),
-      realValue: literal(1.25),
-      ordinaryBigInt: literal(42n),
-      minBigInt: literal(minBigInt),
-      maxBigInt: literal(maxBigInt),
-    },
-    { primaryKey: 'id' },
-  )
-
-  const db = createDatabase({
-    connector: nodeSqliteConnector({ name: ':memory:' }),
-    schemas: [LiteralValues],
-  })
-
-  const row = {
-    id: Number.MIN_SAFE_INTEGER,
-    maxInteger: Number.MAX_SAFE_INTEGER,
-    realValue: 1.25,
-    ordinaryBigInt: 42n,
-    minBigInt,
-    maxBigInt,
-  } as const
-
-  try {
-    await db.migrate().execute()
-    expect(await db.insert(LiteralValues).values(row).execute()).toEqual([row])
-    expect(await db.from(LiteralValues).execute()).toEqual([row])
-    expect((await db.migrate().dryRun()).actions).toEqual([])
-  } finally {
-    await db.close()
-  }
-})
-
-it('allows paired explicit mappings to represent an out-of-range bigint literal in BLOB storage', async () => {
-  const outOfRange = 9223372036854775808n
-  const Records = defineTable(
-    'literal_blob_records',
-    {
-      value: pipe(
-        literal(outOfRange),
-        column({
-          physicalType: { sqlite: 'BLOB' },
-          mapResult: (value) => BigInt(String(value)),
-        }),
-      ),
-    },
-    { primaryKey: 'value' },
-  )
-
-  const db = createDatabase({
-    connector: nodeSqliteConnector({ name: ':memory:' }),
-    schemas: [Records],
-    map: { mapParamValue: (_type, value) => String(value) },
-  })
-
-  try {
-    await db.migrate().execute()
-
-    expect(await db.insert(Records).values({ value: outOfRange }).execute()).toEqual([
-      { value: outOfRange },
-    ])
-
-    expect(await db.from(Records).execute()).toEqual([{ value: outOfRange }])
-  } finally {
-    await db.close()
-  }
 })

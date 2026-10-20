@@ -1,9 +1,10 @@
-import nodeSqliteConnector from 'db0/connectors/node-sqlite'
 import { enum as enumSchema, integer, number, picklist, pipe } from 'valibot'
 import { expect, it } from 'vitest'
 
-import { createDatabase, defineTable } from '@/index'
+import { defineTable } from '@/index'
 import type { AnySchema } from '@/types/schema'
+
+import { withSqliteDatabase } from './sqliteIntegration'
 
 const booleanChoice = (picklist as unknown as (options: readonly boolean[]) => AnySchema)(
   [true, false],
@@ -23,10 +24,7 @@ const ChoiceValues = defineTable(
 )
 
 it('migrates and round-trips inferred SQLite enum and picklist values', async () => {
-  const connector = nodeSqliteConnector({ name: ':memory:' })
-  const db = createDatabase({ connector, schemas: [ChoiceValues] })
-
-  try {
+  await withSqliteDatabase([ChoiceValues], async ({ db }) => {
     await db.migrate().execute()
 
     const rows = [
@@ -62,7 +60,5 @@ it('migrates and round-trips inferred SQLite enum and picklist values', async ()
     expect(await db.from(ChoiceValues).where({ booleanChoice: false }).execute()).toEqual(
       [rows[1]],
     )
-  } finally {
-    await db.close()
-  }
+  })
 })

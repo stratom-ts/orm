@@ -6,10 +6,12 @@ import type { DatabaseSync } from 'node:sqlite'
 
 import type { Db, MigrationOwnershipDeclaration, TableHandle } from '@/index'
 import { createDatabase } from '@/index'
+import type { ValueMapConfig } from '@/query'
 
 import type { DialectIntegrationAdapter } from '../support/dialectIntegrationContract'
 
 type SqliteDatabaseOptions = Readonly<{
+  map?: ValueMapConfig
   file?: boolean
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   additionalCleanup?(): Promise<void>
@@ -20,6 +22,7 @@ type CallbackSettlement<T> =
   | Readonly<{ status: 'rejected'; reason: unknown }>
 
 export type SqliteDatabaseContext<TSchemas extends readonly TableHandle[]> = Readonly<{
+  connector: ReturnType<typeof nodeSqliteConnector>
   db: Db<TSchemas>
   /** Use only during the callback, sequentially with public db operations. */
   native: DatabaseSync
@@ -50,12 +53,14 @@ export async function withSqliteDatabase<
     db = createDatabase({
       connector,
       schemas,
+      map: options.map,
       ...(options.migrationOwnership === undefined
         ? {}
         : { migrationOwnership: options.migrationOwnership }),
     })
     const native = await connector.getInstance!()
     const value = await callback({
+      connector,
       db,
       native,
       filePath,
@@ -73,6 +78,28 @@ export async function withSqliteDatabase<
 
   const cleanupErrors = await cleanupSqliteDatabase(db, connector, directory, options)
 
+  return unwrapSqliteCallback(settlement, cleanupErrors)
+}
+
+/** Owns a native connector without creating a Client that could claim its provider. */
+export async function withSqliteConnector<TResult>(
+  callback: (
+    context: Readonly<{
+      connector: ReturnType<typeof nodeSqliteConnector>
+      native: DatabaseSync
+    }>,
+  ) => Promise<TResult>,
+): Promise<TResult> {
+  const connector = nodeSqliteConnector({ name: ':memory:' })
+  let settlement: CallbackSettlement<TResult>
+  try {
+    const native = await connector.getInstance!()
+    settlement = { status: 'fulfilled', value: await callback({ connector, native }) }
+  } catch (reason) {
+    settlement = { status: 'rejected', reason }
+  }
+
+  const cleanupErrors = await cleanupSqliteDatabase(undefined, connector, undefined, {})
   return unwrapSqliteCallback(settlement, cleanupErrors)
 }
 
