@@ -1,4 +1,4 @@
-import { postgresBaseType } from './normalize'
+import { extractPostgresBaseType } from './normalize'
 
 /**
  * Normalizes supported UUID representations while preserving other result values.
@@ -44,7 +44,7 @@ function mapUuidValue(value: unknown): unknown {
 export function mapPostgresResultValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
 
-  const base = postgresBaseType(dataType)
+  const base = extractPostgresBaseType(dataType)
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value
@@ -99,7 +99,7 @@ function parseJsonResult(value: string): unknown {
 export function mapPostgresParamValue(dataType: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
 
-  const base = postgresBaseType(dataType)
+  const base = extractPostgresBaseType(dataType)
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value.toISOString()

@@ -1,8 +1,8 @@
 import { number, optional, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { compilePostgres } from '@/dialects/postgres/compile'
-import { compileSqlite } from '@/dialects/sqlite/compile'
+import { compilePostgresQuery } from '@/dialects/postgres/compile'
+import { compileSqliteQuery } from '@/dialects/sqlite/compile'
 import type { Dialect, InsertAst } from '@/index'
 import {
   QueryError,
@@ -297,7 +297,7 @@ describe('SQLite insert upsert compilation', () => {
       returning: { kind: 'all' },
     }
 
-    expect(compileSqlite(ast)).toEqual({
+    expect(compileSqliteQuery(ast)).toEqual({
       sql: 'insert into "main"."records" ("key", "value") values (?, ?) on conflict ("key") do update set "value" = excluded."value", "note""quoted" = ? returning *',
       params: ['a', 'first', 'changed'],
     })
@@ -305,7 +305,7 @@ describe('SQLite insert upsert compilation', () => {
 
   it('rejects a conflict clause combined with DEFAULT VALUES', () => {
     expect(() =>
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'insert',
         relation: { relation: 'records' },
         columns: [],
@@ -322,7 +322,7 @@ describe('SQLite insert upsert compilation', () => {
 describe('PostgreSQL insert upsert compilation', () => {
   it('preserves conflict literals and returning after DEFAULT VALUES', () => {
     expect(
-      compilePostgres({
+      compilePostgresQuery({
         kind: 'insert',
         relation: { relation: 'records' },
         columns: [],

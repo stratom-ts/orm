@@ -60,15 +60,15 @@ export function normalizePostgresDataType(dataType: string): string {
  * Extracts the base PostgreSQL type without length/precision suffix.
  *
  * @example
- *   postgresBaseType('varchar(255)') // 'varchar'
- *   postgresBaseType('numeric(10,2)') // 'numeric'
- *   postgresBaseType('text') // 'text'
+ *   extractPostgresBaseType('varchar(255)') // 'varchar'
+ *   extractPostgresBaseType('numeric(10,2)') // 'numeric'
+ *   extractPostgresBaseType('text') // 'text'
  *
  * @param dataType - SQL data type string (e.g. `varchar(255)`, `numeric(10,2)`)
  *
  * @returns Base type name (e.g. `varchar`, `numeric`)
  */
-export function postgresBaseType(dataType: string): string {
+export function extractPostgresBaseType(dataType: string): string {
   return normalizePostgresDataType(dataType).replace(/\(.*\)$/, '')
 }
 

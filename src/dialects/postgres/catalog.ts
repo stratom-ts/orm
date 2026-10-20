@@ -1511,12 +1511,12 @@ function versionLimitedCatalog(
  * Strictly observes the exact migration ownership scope on one PostgreSQL session.
  *
  * @example
- *   const snapshot = await introspectPostgres(executor, request)
+ *   const snapshot = await postgresCatalog.introspectCatalog(executor, request)
  *
  * @param executor - Session-bound catalog query executor.
  * @param request - Catalog ownership scope to observe.
  */
-export async function introspectPostgres(
+async function introspectPostgresCatalog(
   executor: CatalogExecutor,
   request: CatalogRequest,
 ): Promise<CatalogSnapshot> {
@@ -1559,7 +1559,7 @@ export async function introspectPostgres(
 }
 
 /** PostgreSQL scoped catalog observation. */
-export const postgresCatalog = { introspectCatalog: introspectPostgres }
+export const postgresCatalog = { introspectCatalog: introspectPostgresCatalog }
 
 /**
  * Resolves requested namespaces and binds relation membership checks.

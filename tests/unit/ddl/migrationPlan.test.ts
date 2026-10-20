@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { PlannedMigration } from '@/ddl/migrationPlan'
 import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
 import type { AuthoredDesiredSchema, CompiledQuery, Dialect } from '@/dialects'
-import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import type { TableHandle } from '@/index'
 import { column, defineTable, isSqlNullable, postgresDialect, reference } from '@/index'
@@ -865,7 +865,7 @@ function createPlanningDialectSpies() {
         registrationDefault?: readonly NamespaceIdentifierInput[]
       }) => {
         const identities = createCanonicalRelationIdentityModule({
-          policy: POSTGRES_POLICY,
+          policy: POSTGRES_IDENTITY_POLICY,
           ...options,
         })
 

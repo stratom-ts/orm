@@ -59,23 +59,23 @@ function compareFact(left: CatalogFact<string>, right: CatalogFact<string>): num
 }
 
 /** Stable native ordering for raw and decoded SQLite observations. */
-export function stableSqliteObservation(value: unknown): string {
+export function serializeSqliteObservation(value: unknown): string {
   if (Array.isArray(value))
-    return `[${value.map(stableSqliteObservation).sort(compare).join(',')}]`
+    return `[${value.map(serializeSqliteObservation).sort(compare).join(',')}]`
 
   if (typeof value === 'object' && value !== null) {
     return `{${Object.entries(value)
       .sort(([a], [b]) => compare(a, b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableSqliteObservation(item)}`)
+      .map(([key, item]) => `${JSON.stringify(key)}:${serializeSqliteObservation(item)}`)
       .join(',')}}`
   }
 
   return String(JSON.stringify(typeof value === 'bigint' ? value.toString() : value))
 }
 
-export function stableSqliteRows<T>(rows: readonly T[]): T[] {
+export function sortSqliteRows<T>(rows: readonly T[]): T[] {
   return [...rows].sort((left, right) =>
-    compare(stableSqliteObservation(left), stableSqliteObservation(right)),
+    compare(serializeSqliteObservation(left), serializeSqliteObservation(right)),
   )
 }
 
@@ -2818,16 +2818,16 @@ export type SqliteProofBatchResult = {
 }
 
 function orderedMap<T>(observations: ReadonlyMap<string, T[]>): Map<string, T[]> {
-  return new Map([...observations].map(([name, rows]) => [name, stableSqliteRows(rows)]))
+  return new Map([...observations].map(([name, rows]) => [name, sortSqliteRows(rows)]))
 }
 
 function orderedProofInput(input: SqliteProofBatchInput): SqliteProofBatchInput {
   const { evidence } = input
   return {
     ...input,
-    scopeRows: stableSqliteRows(input.scopeRows),
-    mainTables: stableSqliteRows(input.mainTables),
-    schemaRows: stableSqliteRows(input.schemaRows),
+    scopeRows: sortSqliteRows(input.scopeRows),
+    mainTables: sortSqliteRows(input.mainTables),
+    schemaRows: sortSqliteRows(input.schemaRows),
     reservationIndexLists: input.reservationIndexLists
       ? orderedMap(input.reservationIndexLists)
       : undefined,

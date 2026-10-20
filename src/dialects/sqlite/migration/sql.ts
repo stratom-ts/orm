@@ -12,7 +12,7 @@ import {
 } from '../naming'
 
 import type { Column, Definition, ForeignKey, Index } from './definition'
-import { quote } from './definition'
+import { quoteSqliteIdentifier } from './definition'
 import { SqliteMigrationCapabilityError, capabilityError } from './error'
 
 /** Verifies a structured identifier rather than accepting a forged comparison key. */
@@ -76,7 +76,7 @@ export function statement(sql: string, params: unknown[] = []): CompiledQuery {
 
 /** Formats a validated ordinary main-database table address. */
 export function address(name: string): string {
-  return `"main".${quote(name)}`
+  return `"main".${quoteSqliteIdentifier(name)}`
 }
 
 /** Compiles one supported SQLite column, with exact rowid-alias behavior. */
@@ -85,14 +85,14 @@ export function columnSql(column: Column): string {
     ? ` primary key${column.autoIncrement ? ' autoincrement' : ''}`
     : ''
 
-  return `${quote(column.name)}${column.dataType ? ` ${column.dataType}` : ''}${primary}${column.notNull ? ' not null' : ''}${column.defaultSql === undefined ? '' : ` default ${column.defaultSql}`}`
+  return `${quoteSqliteIdentifier(column.name)}${column.dataType ? ` ${column.dataType}` : ''}${primary}${column.notNull ? ' not null' : ''}${column.defaultSql === undefined ? '' : ` default ${column.defaultSql}`}`
 }
 
 /** Formats ordered columns for a key, index or explicit projection. */
 export function columnsSql(columns: readonly string[]): string {
   if (!columns.length) throw capabilityError('SQLite key/index columns cannot be empty')
 
-  return columns.map(quote).join(', ')
+  return columns.map(quoteSqliteIdentifier).join(', ')
 }
 
 /** Validates referential actions before putting them in DDL. */
@@ -110,7 +110,7 @@ function foreignKeySql(key: ForeignKey): string {
   if (key.columns.length !== key.referencedColumns.length)
     throw capabilityError('SQLite FK arity mismatch')
 
-  return `foreign key (${columnsSql(key.columns)}) references ${quote(key.relation.relation.spelling)} (${columnsSql(key.referencedColumns)}) on delete ${actionSql(key.onDelete)} on update ${actionSql(key.onUpdate)}`
+  return `foreign key (${columnsSql(key.columns)}) references ${quoteSqliteIdentifier(key.relation.relation.spelling)} (${columnsSql(key.referencedColumns)}) on delete ${actionSql(key.onDelete)} on update ${actionSql(key.onUpdate)}`
 }
 
 /** Compiles every final column and retained simple constraint into one CREATE TABLE. */
@@ -150,6 +150,6 @@ export function indexSql(table: string, index: Index): CompiledQuery {
   }
 
   return statement(
-    `create ${index.unique ? 'unique ' : ''}index ${address(index.name)} on ${quote(table)} (${columnsSql(index.columns)})`,
+    `create ${index.unique ? 'unique ' : ''}index ${address(index.name)} on ${quoteSqliteIdentifier(table)} (${columnsSql(index.columns)})`,
   )
 }

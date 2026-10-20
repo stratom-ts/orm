@@ -57,7 +57,7 @@ export function complete<T>(value: CatalogSet<T>, label: string): readonly T[] {
 }
 
 /** Quotes a single SQLite identifier, including literal dots and quotes. */
-export function quote(value: string): string {
+export function quoteSqliteIdentifier(value: string): string {
   if (!value || value.includes('\0')) throw capabilityError('Invalid SQLite identifier')
 
   return `"${value.replaceAll('"', '""')}"`

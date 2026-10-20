@@ -4,7 +4,7 @@ import { QueryError } from '@/utils/error'
 
 import type { DialectQueryResolution, DialectQueryResolveOptions } from '../types'
 
-import { compilePostgres, createPostgresQueryRelationResolver } from './compile'
+import { compilePostgresQuery, createPostgresQueryRelationResolver } from './compile'
 
 /**
  * Finds registered table handles that address the same PostgreSQL query relation.
@@ -113,7 +113,7 @@ export function resolvePostgresQuery(
 
   return Object.freeze({
     /** Compiles the current query or command into SQL and ordered bound parameters. */
-    compile: (node: Parameters<typeof compilePostgres>[0]) =>
+    compile: (node: Parameters<typeof compilePostgresQuery>[0]) =>
       compileResolvedPostgresQuery(node, resolveRelation, requirements),
     /** Finds handles matching the authored relation under query rules. */
     findRelationMatches(
@@ -151,11 +151,11 @@ export function resolvePostgresQuery(
  * @returns Compiled SQL and bound values in emitted order.
  */
 function compileResolvedPostgresQuery(
-  node: Parameters<typeof compilePostgres>[0],
+  node: Parameters<typeof compilePostgresQuery>[0],
   resolveRelation: ReturnType<typeof createPostgresQueryRelationResolver>,
   requirements: Map<string, Readonly<{ database?: string; schema?: string }>>,
 ) {
-  const compiled = compilePostgres(node, resolveRelation)
+  const compiled = compilePostgresQuery(node, resolveRelation)
 
   if (requirements.size === 0) return compiled
 

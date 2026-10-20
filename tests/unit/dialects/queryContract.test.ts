@@ -1,8 +1,8 @@
 import { number, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
-import { compilePostgres } from '@/dialects/postgres/compile'
-import { compileSqlite } from '@/dialects/sqlite/compile'
+import { compilePostgresQuery } from '@/dialects/postgres/compile'
+import { compileSqliteQuery } from '@/dialects/sqlite/compile'
 import type { CompiledQuery, Dialect, SelectAst } from '@/index'
 import {
   InvariantError,
@@ -22,14 +22,16 @@ describe('dialect compiler AST invariants', () => {
     const relation = { relation: 'events' }
 
     expect(() =>
-      compilePostgres({ kind: 'select', relation, selection: [] } as never),
+      compilePostgresQuery({ kind: 'select', relation, selection: [] } as never),
     ).toThrow(InvariantError)
 
     expect(() =>
-      compileSqlite({ kind: 'select', relation, selection: null } as never),
+      compileSqliteQuery({ kind: 'select', relation, selection: null } as never),
     ).toThrow(InvariantError)
 
-    expect(() => compileSqlite({ kind: 'select', relation, selection: [] })).not.toThrow()
+    expect(() =>
+      compileSqliteQuery({ kind: 'select', relation, selection: [] }),
+    ).not.toThrow()
   })
 })
 

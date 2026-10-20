@@ -4,7 +4,7 @@ import { QueryError } from '@/utils/error'
 
 import type { DialectQueryResolution, DialectQueryResolveOptions } from '../types'
 
-import { compileSqlite, createSqliteQueryRelationResolver } from './compile'
+import { compileSqliteQuery, createSqliteQueryRelationResolver } from './compile'
 import { asciiFoldSqliteIdentifier } from './identity'
 import { projectSqliteQuery } from './queryProjection'
 
@@ -21,8 +21,8 @@ export function resolveSqliteQuery(
 
   const query: DialectQueryResolution = Object.freeze({
     /** Compiles the current query or command into SQL and ordered bound parameters. */
-    compile(node: Parameters<typeof compileSqlite>[0]) {
-      return compileSqlite(projectSqliteQuery(query, node), resolveRelation)
+    compile(node: Parameters<typeof compileSqliteQuery>[0]) {
+      return compileSqliteQuery(projectSqliteQuery(query, node), resolveRelation)
     },
     /** Finds handles matching the authored relation under query rules. */
     findRelationMatches(

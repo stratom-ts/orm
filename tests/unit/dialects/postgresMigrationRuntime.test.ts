@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { postgresAdvisoryLockIdentity } from '@/dialects/postgres/migration'
+import { mapPostgresAdvisoryLockIdentity } from '@/dialects/postgres/migration'
 import {
   createMigrationCoordinationScope,
   migrationLockAcquisitionOrder,
@@ -542,7 +542,7 @@ describe('PostgreSQL migration runtime', () => {
   it('derives stable scoped keys and separates database/application identities', () => {
     /** Computes the advisory-lock identity for the fixture database and application scope. */
     const scoped = (database: string, applicationId: string) =>
-      postgresAdvisoryLockIdentity(
+      mapPostgresAdvisoryLockIdentity(
         migrationLockAcquisitionOrder(
           createMigrationCoordinationScope({
             dialect: 'postgresql',

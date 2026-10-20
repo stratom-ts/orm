@@ -14,7 +14,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createMigrateBuilder } from '@/ddl/migrate'
-import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import {
   DriverError,
@@ -550,7 +550,7 @@ describe('db.migrate() lowering and rollback: preflights generated names against
     )
 
     const identities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: {
         writableDefault: [
           { role: 'database', spelling: 'test' },

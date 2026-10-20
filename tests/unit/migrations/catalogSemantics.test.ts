@@ -1,7 +1,7 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -319,7 +319,7 @@ describe('catalog semantic adoption: preserves additive constraints and removes 
 describe('catalog semantic adoption: reserves check and exclusion constraint names against generated constraints', () => {
   it('reserves check and exclusion constraint names against generated constraints', () => {
     const identities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: namespaceContext,
     })
 

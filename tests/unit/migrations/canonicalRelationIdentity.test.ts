@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import { SQLITE_IDENTITY_POLICY as BUILTIN_SQLITE_POLICY } from '@/dialects/sqlite/identity'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -22,7 +22,7 @@ const SQLITE_CONTEXT = {
 describe('canonical relation identity', () => {
   it('preserves spelling and compares ordered namespace roles structurally', () => {
     const identities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
     })
 
@@ -58,14 +58,14 @@ it('classifies authored PostgreSQL namespace mistakes as schema errors', () => {
   const writable = POSTGRES_CONTEXT.writableDefault
 
   expect(() =>
-    POSTGRES_POLICY.resolveNamespace(
+    POSTGRES_IDENTITY_POLICY.resolveNamespace(
       [{ role: 'database', spelling: 'app_db' }],
       writable,
     ),
   ).toThrow(SchemaError)
 
   expect(() =>
-    POSTGRES_POLICY.resolveNamespace(
+    POSTGRES_IDENTITY_POLICY.resolveNamespace(
       [
         { role: 'database', spelling: 'other_db' },
         { role: 'schema', spelling: 'public' },
@@ -75,7 +75,7 @@ it('classifies authored PostgreSQL namespace mistakes as schema errors', () => {
   ).toThrow(SchemaError)
 
   expect(() =>
-    POSTGRES_POLICY.resolveNamespace(
+    POSTGRES_IDENTITY_POLICY.resolveNamespace(
       [{ role: 'schema', spelling: 'public' }],
       [{ role: 'schema', spelling: 'invalid' }],
     ),
@@ -103,7 +103,7 @@ it('classifies authored SQLite namespace mistakes as schema errors', () => {
 describe('canonical relation identity: keeps dotted, quoted, case-distinct, and Unicode tuples separate', () => {
   it('keeps dotted, quoted, case-distinct, and Unicode tuples separate', () => {
     const identities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
     })
 
@@ -130,12 +130,12 @@ describe('canonical relation identity: keeps dotted, quoted, case-distinct, and 
 describe('canonical relation identity: resolves PostgreSQL omission from registration before session context', () => {
   it('resolves PostgreSQL omission from registration before session context', () => {
     const sessionIdentities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
     })
 
     const registeredIdentities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
       registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
     })
@@ -175,7 +175,7 @@ describe('canonical relation identity: resolves PostgreSQL omission from registr
 describe('canonical relation identity: treats an empty PostgreSQL namespace as omitted', () => {
   it('treats an empty PostgreSQL namespace as omitted', () => {
     const identities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
       registrationDefault: [{ role: 'schema', spelling: 'tenant' }],
     })
@@ -193,7 +193,7 @@ describe('canonical relation identity: treats an empty PostgreSQL namespace as o
 
   it('sorts comparison-key tuples by locale-independent UTF-16 code units', () => {
     const identities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
     })
 
@@ -211,7 +211,7 @@ describe('canonical relation identity: treats an empty PostgreSQL namespace as o
 describe('canonical relation identity: models PostgreSQL as database/schema/relation', () => {
   it('models PostgreSQL as database/schema/relation', () => {
     const identities = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
     })
 
@@ -387,7 +387,7 @@ describe('canonical SQLite relation identity: keeps SQLite tuples collision-free
 describe('canonical SQLite relation identity: rejects invalid identifiers and dialect namespace shapes', () => {
   it('rejects invalid identifiers and dialect namespace shapes', () => {
     const postgres = createCanonicalRelationIdentityModule({
-      policy: POSTGRES_POLICY,
+      policy: POSTGRES_IDENTITY_POLICY,
       context: POSTGRES_CONTEXT,
     })
 
