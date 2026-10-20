@@ -1,7 +1,6 @@
 import { inferSqliteColumnType } from './infer'
 import { lowerSqliteDesiredSchema } from './lowerDesiredSchema'
-import { normalizeSqliteDataType } from './normalize'
-import { normalizeSqliteDefaultValue } from './validate'
+import { normalizeSqliteDataType, normalizeSqliteDefaultValue } from './normalize'
 
 /** SQLite desired-schema lowering and physical type behavior. */
 export const sqliteSchema = {

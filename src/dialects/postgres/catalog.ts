@@ -28,8 +28,10 @@ import { toNumberOrNull } from '@/utils'
 import { InvariantError, MigrationError } from '@/utils/error'
 
 import { postgresIdentity } from './identity'
-import { normalizePostgresDataType } from './normalize'
-import { normalizePostgresDefaultExpression } from './validate'
+import {
+  normalizePostgresDataType,
+  normalizePostgresDefaultExpression,
+} from './normalize'
 
 const UNPAIRED_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/

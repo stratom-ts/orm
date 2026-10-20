@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizePostgresDefaultExpression } from '@/dialects/postgres/validate'
+import { normalizePostgresDefaultExpression } from '@/dialects/postgres/normalize'
 
 describe('PostgreSQL default-expression normalization', () => {
   it.each([

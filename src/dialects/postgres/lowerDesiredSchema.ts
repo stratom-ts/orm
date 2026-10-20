@@ -15,11 +15,14 @@ import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import { MigrationError, SchemaError } from '@/utils/error'
 
 import { inferPostgresColumnType } from './infer'
-import { normalizePostgresDataType } from './normalize'
+import {
+  normalizePostgresDataType,
+  normalizePostgresDefaultExpression,
+} from './normalize'
 import {
   assertSafePostgresDataType,
+  assertSafePostgresDefaultExpression,
   formatPostgresLiteral,
-  normalizePostgresDefaultExpression,
 } from './validate'
 
 const IDENTITY_BASE_TYPES = new Set([
@@ -52,43 +55,6 @@ function portableExpression(expression: string): string {
 }
 
 /**
- * Validates and trims a PostgreSQL dialect expression.
- *
- * @param expression - Authored dialect expression.
- */
-function assertSafeExpression(expression: string): string {
-  const value = expression.trim()
-  let quoted = false
-  let parentheses = 0
-  let unsafe = !value || /\$|;|--|\/\*|\*\//.test(value)
-
-  for (let index = 0; index < value.length && !unsafe; index++) {
-    const character = value[index]
-
-    if (character === "'") {
-      const escaped: boolean = quoted && value[index + 1] === "'"
-      index += escaped ? 1 : 0
-      quoted = escaped ? quoted : !quoted
-    } else if (!quoted && character === '(') {
-      parentheses++
-    } else if (!quoted && character === ')') {
-      unsafe = parentheses === 0
-      parentheses = Math.max(0, parentheses - 1)
-    }
-  }
-
-  if (quoted || parentheses !== 0) unsafe = true
-
-  if (unsafe) {
-    throw new MigrationError({
-      message: `Unsafe PostgreSQL database expression ${JSON.stringify(expression)}`,
-    })
-  }
-
-  return value
-}
-
-/**
  * Lowers a database default to normalized PostgreSQL SQL.
  *
  * @param value - Authored database default.
@@ -110,7 +76,7 @@ function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
         })
       }
 
-      sql = assertSafeExpression(value.expression)
+      sql = assertSafePostgresDefaultExpression(value.expression)
       break
   }
 
