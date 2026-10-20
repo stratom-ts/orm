@@ -11,7 +11,7 @@ import { MigrationError, SchemaError } from '@/utils/error'
 
 import { postgresNaming } from '../naming'
 
-import type { PostgresAst, PostgresCreateTableAst } from './ast'
+import type { PostgresCreateTableAst, PostgresDdlAst } from './ast'
 
 type PostgresRelationFields = {
   schema: string
@@ -118,7 +118,7 @@ function createTableStepToAst(
 /** Projects an add-column step into its PostgreSQL AST. */
 function addColumnStepToAst(
   step: Extract<MigrationStep, { kind: 'add_column' }>,
-): PostgresAst {
+): PostgresDdlAst {
   const identity = step.target.relation
   const column = step.target.column.spelling
   return {
@@ -160,10 +160,10 @@ function addColumnStepToAst(
 export function stepToAst(
   step: MigrationStep,
   planned: PlannedMigration,
-): PostgresAst | undefined {
+): PostgresDdlAst | undefined {
   switch (step.kind) {
     case 'ensure_namespace': {
-      const ast: PostgresAst = {
+      const ast: PostgresDdlAst = {
         kind: 'create_schema',
         schema: schemaFromNamespace(step.target.namespace),
       }
@@ -339,7 +339,7 @@ export function stepTargetIssues(
  */
 function constraintStepToAst(
   step: Extract<MigrationStep, { kind: 'add_unique_constraint' | 'add_foreign_key' }>,
-): PostgresAst {
+): PostgresDdlAst {
   switch (step.kind) {
     case 'add_unique_constraint':
       return {
@@ -383,7 +383,7 @@ function columnAlterationStepToAst(
     MigrationStep,
     { kind: 'alter_column_type' | 'set_not_null' | 'drop_not_null' | 'drop_column' }
   >,
-): PostgresAst {
+): PostgresDdlAst {
   switch (step.kind) {
     case 'alter_column_type':
       return {

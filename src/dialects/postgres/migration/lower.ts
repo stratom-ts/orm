@@ -13,11 +13,11 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 import { SchemaError, attemptSync } from '@/utils/error'
 
-import { compilePostgres } from '../compile'
 import { postgresIdentity } from '../identity'
 
 import type { ActionDraft } from './orderActions'
 import { orderActions } from './orderActions'
+import { compilePostgresDdl } from './sql'
 import { stepTargetIssues, stepToAst } from './targets'
 
 /**
@@ -293,7 +293,7 @@ function compileMigrationStep(
 
     if (!ast) return undefined
 
-    return compilePostgres(ast)
+    return compilePostgresDdl(ast)
   })
 
   if (!compiled.ok) {

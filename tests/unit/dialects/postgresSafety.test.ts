@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { compilePostgres } from '@/dialects/postgres/compile'
 import type {
   PostgresCreateTableAst as CreateTableAst,
   PostgresCreateTableColumnAst as CreateTableColumnAst,
 } from '@/dialects/postgres/migration/ast'
+import { compilePostgresDdl } from '@/dialects/postgres/migration/sql'
 import {
   assertSafePostgresDataType,
   formatPostgresDefault,
@@ -37,7 +37,7 @@ function col(
   }
 }
 
-const compile = compilePostgres
+const compile = compilePostgresDdl
 
 describe('PostgreSQL SQL safety', () => {
   it('tags unsafe types, unsupported types, and non-finite defaults as schema errors', () => {
