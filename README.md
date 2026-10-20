@@ -36,8 +36,12 @@ and SQLite >=3.37, with no external service. Node 22.5 through 22.12 requires
 on Node 24 before switching to the minimum runtime and running Vitest directly:
 
 ```bash
-node --experimental-sqlite node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/integration/sqlite
+NODE_OPTIONS=--experimental-sqlite node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/integration/sqlite
 ```
+
+On PowerShell, set `$env:NODE_OPTIONS='--experimental-sqlite'` first, then run the
+`node` command without the `NODE_OPTIONS=...` prefix. This environment variable
+passes the flag to Vitest's worker processes.
 
 `pnpm test:integration:postgres` runs native PostgreSQL scenarios. It needs a running
 PostgreSQL service and `POSTGRESQL_URL`. The repeatable suite uses Docker Compose
