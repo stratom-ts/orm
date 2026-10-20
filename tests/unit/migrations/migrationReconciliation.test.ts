@@ -5,17 +5,17 @@ import { MigrationError, column, defineTable, postgresDialect, reference } from 
 import type { TableHandle } from '@/types'
 import { attemptSync } from '@/utils/error'
 
-import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
-import {
-  catalogPrimaryKey as createCatalogPrimaryKey,
-  planMigration,
-} from '../helpers/catalog'
 import {
   columnTarget,
   indexTarget,
   namespaceTarget,
   relationTarget,
 } from '../helpers/planTargets'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/postgresCatalogFixtures'
+import {
+  postgresCatalogPrimaryKey as createCatalogPrimaryKey,
+  planPostgresMigration as planMigration,
+} from '../helpers/postgresCatalogFixtures'
 
 const managedCatalogData: CatalogSnapshot['tables'][number]['columns'] = [
   {

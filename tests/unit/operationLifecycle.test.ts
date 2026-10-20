@@ -9,12 +9,13 @@ import {
   createControllableProvider,
   customConnector,
 } from './helpers/operationSessionFixtures'
+import { createPostgresControllableProvider } from './helpers/postgresOperationSessionFixtures'
 
 describe('operation coordinator lifecycle', () => {
   it('gives query, transaction, planning, and migration distinct FIFO root slots', async () => {
     const firstCall = deferred()
     const finishFirst = deferred()
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (session) => {
         if (session === 1) {
@@ -25,7 +26,7 @@ describe('operation coordinator lifecycle', () => {
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -60,7 +61,7 @@ describe('operation coordinator lifecycle: drains accepted operations and releas
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -89,7 +90,7 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -109,7 +110,7 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
   it('preserves rejection with undefined from callbacks and release cleanup', async () => {
     const callbackControls = createControllableProvider()
     const callbackDb = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: callbackControls.provider,
       schemas: [],
     })
@@ -132,7 +133,7 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
     })
 
     const releaseDb = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: releaseControls.provider,
       schemas: [],
     })

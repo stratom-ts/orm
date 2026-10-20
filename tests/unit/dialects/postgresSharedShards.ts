@@ -1,31 +1,34 @@
-import { pipe, string } from 'valibot'
+import { createPostgresControllableProvider } from '../helpers/postgresOperationSessionFixtures'
 
-import { column, defineTable } from '@/index'
-
+import { postgresSemanticContractInput } from './postgresContractFixtures'
 import {
-  createControllableProvider,
-  createOperationSessionCommonRuntime,
-  customConnector,
-} from '../helpers/operationSessionFixtures'
-import { createPostgresMigrationRuntime } from '../helpers/postgresMigrationRuntimeFixtures'
+  createPostgresCoordinationRuntime,
+  createPostgresOperationSessionCommonRuntime,
+  createPostgresProviderContractConnector,
+  createPostgresProviderMigrationSchemas,
+  createPostgresProviderPlanningFailureSchemas,
+} from './postgresSharedFixtures'
 
-import type { CoordinationContractFactory } from './migrationCoordinationContract'
-
-/**
- * Creates the postgres coordination runtime fixture used by the contract scenario.
- *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
- *
- * @returns The postgres coordination runtime fixture used by the contract scenario.
- */
-const createPostgresCoordinationRuntime: CoordinationContractFactory = (options = {}) => {
-  const runtime = createPostgresMigrationRuntime(options)
-  return {
-    ...runtime,
-    /** Executes fixture SQL with the configured native observations. */
-    execute: (runtimeOptions) => runtime.execute(undefined, runtimeOptions),
-  }
-}
+export const postgresSemanticContractShard = {
+  identity: { state: 'supported', input: postgresSemanticContractInput.identity },
+  naming: { state: 'supported', input: postgresSemanticContractInput.naming },
+  desiredSchema: {
+    state: 'supported',
+    input: postgresSemanticContractInput.desiredSchema,
+  },
+  query: {
+    state: 'supported',
+    core: { state: 'supported', input: postgresSemanticContractInput.query.core },
+    scenarios: postgresSemanticContractInput.query.scenarios,
+    valueMapping: {
+      state: 'supported',
+      input: postgresSemanticContractInput.query.valueMapping,
+    },
+  },
+  catalog: { state: 'supported', input: postgresSemanticContractInput.catalog },
+  migration: { state: 'supported', input: postgresSemanticContractInput.migration },
+  lifecycle: { state: 'supported', input: postgresSemanticContractInput.lifecycle },
+} as const
 
 export const postgresCoordinationContractShard = {
   coordination: { state: 'supported', input: createPostgresCoordinationRuntime },
@@ -36,43 +39,18 @@ export const postgresOperationSessionContractShard = {
     state: 'supported',
     common: {
       state: 'supported',
-      input: {
-        /** Creates the runtime fixture used by the contract scenario. */
-        createRuntime: () => createOperationSessionCommonRuntime().runtime,
-      },
+      input: { createRuntime: createPostgresOperationSessionCommonRuntime },
     },
     controlled: {
       state: 'supported',
       input: {
-        createProvider: createControllableProvider,
+        createProvider: createPostgresControllableProvider,
         migration: {
           state: 'supported',
           input: {
-            connector: customConnector,
-            /**
-             * Returns table handles used to exercise successful migration through the
-             * provider.
-             */
-            appliedSchemas: () => [
-              defineTable(
-                'provider_contract_events',
-                { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-                { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
-              ),
-            ],
-            /** Returns table handles whose metadata forces a planning failure. */
-            planningFailureSchemas: () => [
-              defineTable(
-                'provider_planning_events',
-                { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-                { primaryKey: 'id' },
-              ),
-              defineTable(
-                'provider_planning_events',
-                { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-                { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
-              ),
-            ],
+            connector: createPostgresProviderContractConnector,
+            appliedSchemas: createPostgresProviderMigrationSchemas,
+            planningFailureSchemas: createPostgresProviderPlanningFailureSchemas,
           },
         },
       },

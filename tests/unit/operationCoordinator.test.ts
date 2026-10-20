@@ -54,7 +54,7 @@ function classifiedDatabase(
 
   const unregister = registerDialectForTest(dialect)
   const db = createDatabase({
-    connector: { ...customConnector(), dialect: dialect.id as SQLDialect },
+    connector: customConnector(dialect.id as SQLDialect),
     operationSessionProvider: controls.provider,
     schemas: [],
   })
@@ -125,7 +125,7 @@ it('keeps query context and release cleanup evidence when it wraps a driver fail
   })
 
   const db = createDatabase({
-    connector: customConnector(),
+    connector: customConnector('postgresql'),
     operationSessionProvider: controls.provider,
     schemas: [CoordinatorRecords],
   })
@@ -177,7 +177,7 @@ it('names ping and transaction lifecycle failures without exposing native text',
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -283,7 +283,7 @@ describe('OperationCoordinator: advances the queue and closes after an early pro
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -311,13 +311,13 @@ describe('OperationCoordinator: rejects descendant root use across nested client
     const firstControls = createControllableProvider()
     const secondControls = createControllableProvider()
     const first = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: firstControls.provider,
       schemas: [],
     })
 
     const second = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: secondControls.provider,
       schemas: [],
     })
@@ -338,13 +338,13 @@ describe('OperationCoordinator: rejects descendant root use across nested client
     const firstControls = createControllableProvider()
     const secondControls = createControllableProvider()
     const first = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: firstControls.provider,
       schemas: [],
     })
 
     const second = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: secondControls.provider,
       schemas: [],
     })
@@ -386,7 +386,7 @@ describe('OperationCoordinator queue and shutdown', () => {
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -418,7 +418,7 @@ describe('OperationCoordinator queue and shutdown: rejects callback root reentra
     const finishCallback = deferred()
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -448,7 +448,7 @@ describe('OperationCoordinator queue and shutdown: lets an accepted transaction 
     const resumeCallback = deferred()
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })

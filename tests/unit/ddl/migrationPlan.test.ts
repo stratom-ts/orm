@@ -21,12 +21,6 @@ import {
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
 
-import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
-import {
-  completePostgresCatalog,
-  catalogPrimaryKey as createCatalogPrimaryKey,
-  planMigration,
-} from '../helpers/catalog'
 import {
   columnIdentifiers,
   columnReference,
@@ -35,6 +29,12 @@ import {
   namespaceTarget,
   relationTarget,
 } from '../helpers/planTargets'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/postgresCatalogFixtures'
+import {
+  completePostgresCatalog,
+  postgresCatalogPrimaryKey as createCatalogPrimaryKey,
+  planPostgresMigration as planMigration,
+} from '../helpers/postgresCatalogFixtures'
 import { exactQueryAddressing } from '../helpers/queryAddressing'
 
 const usesTheSuppliedDialectWithoutIntrospectionOrCompilationData = [

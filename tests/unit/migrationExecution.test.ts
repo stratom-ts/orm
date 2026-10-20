@@ -6,10 +6,8 @@ import { DriverError, column, createDatabase, defineTable } from '@/index'
 
 import { deferred } from '../helpers/deferredPromise'
 
-import {
-  createControllableProvider,
-  customConnector,
-} from './helpers/operationSessionFixtures'
+import { customConnector } from './helpers/operationSessionFixtures'
+import { createPostgresControllableProvider } from './helpers/postgresOperationSessionFixtures'
 
 /** Checks that migration context hides driver text while retaining native diagnostics. */
 function expectSafeDriverDiagnostics(
@@ -41,7 +39,7 @@ describe('driver migration classification', () => {
       retryable: false,
     })
 
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Fails at the physical DDL call. */
       beforeCall: async (_session, sql) => {
         if (/^create table/i.test(sql)) throw driver
@@ -55,7 +53,7 @@ describe('driver migration classification', () => {
     )
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [Events],
     })
@@ -85,7 +83,7 @@ describe('public migration execution and session cleanup', () => {
   it('excludes queries from complete migration DDL and cleanup', async () => {
     const ddlStarted = deferred()
     const finishDdl = deferred()
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/^create table/i.test(sql)) {
@@ -102,7 +100,7 @@ describe('public migration execution and session cleanup', () => {
     )
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [Events],
     })
@@ -136,7 +134,7 @@ describe('public migration execution and session cleanup: discards a migration s
     const primary = new Error('primary DDL failure')
     const rollbackFailure = new Error('rollback cleanup failure')
     const unlockFailure = new Error('unlock cleanup failure')
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/^create table/i.test(sql)) throw primary
@@ -152,7 +150,7 @@ describe('public migration execution and session cleanup: discards a migration s
     )
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [Events],
     })
@@ -181,7 +179,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
     const controller = new AbortController()
     const rollbackStarted = deferred()
     const finishRollback = deferred()
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/^create table/i.test(sql)) throw primary
@@ -204,7 +202,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
     )
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [Events],
     })
@@ -225,7 +223,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
     const primaryCause = new Error('primary runtime DDL failure')
     const primaryStack = primaryCause.stack
     const releaseCause = new Error('secondary provider release failure')
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/^create table/i.test(sql)) throw primaryCause
@@ -243,7 +241,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
     )
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [Events],
     })
@@ -282,12 +280,12 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
 describe('public migration coordination failures', () => {
   it('normalizes provider-open failure before the migration callback', async () => {
     const openCause = new Error('migration provider open failed')
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       openFailure: { session: 1, value: openCause },
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -313,7 +311,7 @@ describe('public migration coordination failures', () => {
 
 describe('public migration coordination failures: reports advisory unlock failure after a committed no-op and discards', () => {
   it('reports advisory unlock failure after a committed no-op and discards', async () => {
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/pg_advisory_unlock/i.test(sql)) throw new Error('unlock cleanup failure')
@@ -321,7 +319,7 @@ describe('public migration coordination failures: reports advisory unlock failur
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -346,9 +344,9 @@ describe('public migration coordination failures: reports advisory unlock failur
 
 describe('public migration coordination failures: reports an unverified advisory unlock and discards', () => {
   it('reports an unverified advisory unlock and discards', async () => {
-    const controls = createControllableProvider({ unlockResult: false })
+    const controls = createPostgresControllableProvider({ unlockResult: false })
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -373,7 +371,7 @@ describe('public migration coordination failures: reports an unverified advisory
 describe('public migration coordination failures: discards after migration lock acquisition fails', () => {
   it('discards after migration lock acquisition fails', async () => {
     const lockCause = new Error('lock acquisition failure')
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/pg_try_advisory_lock\(/i.test(sql)) {
@@ -383,7 +381,7 @@ describe('public migration coordination failures: discards after migration lock 
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -420,7 +418,7 @@ describe('public migration coordination failures: cancels the physical session w
       rejectLock = reject
     })
 
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/pg_try_advisory_lock/i.test(sql)) {
@@ -435,7 +433,7 @@ describe('public migration coordination failures: cancels the physical session w
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -465,7 +463,7 @@ describe('public migration coordination failures: cancels the physical session w
 describe('public migration coordination failures: cancels the physical session when a lock try never settles: discards after an ambiguous migration commit failure', () => {
   it('discards after an ambiguous migration commit failure', async () => {
     const commitCause = new Error('commit outcome unknown')
-    const controls = createControllableProvider({
+    const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
         if (/^commit$/i.test(sql)) throw commitCause
@@ -479,7 +477,7 @@ describe('public migration coordination failures: cancels the physical session w
     )
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [Events],
     })

@@ -10,11 +10,11 @@ import { scanPostgresSql } from '@/dialects/postgres/postgresSql'
 import { createDb0PostgresOperationSessionProvider } from '@/index'
 
 import { createNativePostgresClient } from './helpers/nativePostgresClient'
-import { createNativeConnector } from './helpers/operationSessionFixtures'
+import { createPostgresNativeConnector } from './helpers/postgresOperationSessionFixtures'
 
 describe('PostgreSQL SQL lexical classification', () => {
   it('lexically classifies stateful SQL without matching inert quoted text', async () => {
-    const connector = createNativeConnector()
+    const connector = createPostgresNativeConnector()
     const provider = createDb0PostgresOperationSessionProvider(connector)
     const warm = await provider.open()
     await warm.release('reuse')

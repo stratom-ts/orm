@@ -431,6 +431,16 @@ its owned facet inputs. A supported facet needs a supported input, while an unsu
 facet needs a non-blank reason. Composite Query and operation-session inputs also carry
 their top-level `state: 'supported'` declaration. This makes a missing applicable input,
 malformed declaration, or omitted whole shard a type or registration error.
+
+PostgreSQL and SQLite production registrations use the same shard keys:
+`semantic`, `coordination`, and `operation-session`. Keep aggregate test files limited to the exhaustive capability
+declaration and registration of imported shard descriptors. Put case data and runtime
+construction in member `*Fixtures.ts` files; member `*Shards.ts` files export descriptors.
+Generic controlled providers return empty rows for lifecycle-only scenarios; SQL
+scenarios supply their row observations explicitly. Generic query-addressing helpers
+receive their compiler explicitly. PostgreSQL-only catalog observations and native
+connectors live in PostgreSQL-named fixture files.
+
 Catalog inputs state the exact expected evidence for namespaces, relation owners,
 generated identity, and rich objects, so one catalog can mix supported and unsupported
 evidence. Operation-session inputs separately declare the common lifecycle and controlled

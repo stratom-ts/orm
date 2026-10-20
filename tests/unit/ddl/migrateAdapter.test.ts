@@ -10,7 +10,7 @@ import type {
 import { postgresDialect } from '@/dialects/postgres'
 import type { Executor } from '@/query'
 
-import { completePostgresCatalog } from '../helpers/catalog'
+import { completePostgresCatalog } from '../helpers/postgresCatalogFixtures'
 
 const returnsGroupedPhysicalActionsWithStableRedactionAndNoExecutionData2: MigrationProgram['preconditions'] =
   [
