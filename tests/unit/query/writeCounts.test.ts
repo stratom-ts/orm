@@ -80,7 +80,7 @@ it.each(['insert', 'update', 'delete'] as const)(
 /** Creates a client whose custom provider supplies the selected native count. */
 function countDatabase(rowCount?: number) {
   return createDatabase({
-    connector: customConnector(),
+    connector: customConnector('postgresql'),
     schemas: [Records],
     operationSessionProvider: createControllableProvider({ rowCount }).provider,
   })

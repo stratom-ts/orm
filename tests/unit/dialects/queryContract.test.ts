@@ -165,7 +165,7 @@ describe('dialect query contract: resolves reference types by complete structure
       },
       query: {
         ...postgresDialect.query,
-        ...exactQueryAddressing(),
+        ...exactQueryAddressing(postgresDialect.query.resolve([]).compile),
       },
     }
 

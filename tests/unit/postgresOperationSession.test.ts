@@ -17,17 +17,16 @@ import type { DriverError } from '@/utils/error'
 
 import { deferred } from '../helpers/deferredPromise'
 
-import {
-  createNativeConnector,
-  customConnector,
-  withDeadline,
-} from './helpers/operationSessionFixtures'
+import { customConnector, withDeadline } from './helpers/operationSessionFixtures'
+import { createPostgresNativeConnector } from './helpers/postgresOperationSessionFixtures'
 
 it.each([0, 7, null])(
   'returns native PostgreSQL count %s through executor.run',
   async (rowCount) => {
     const coordinator = new OperationCoordinator(
-      createDb0PostgresOperationSessionProvider(createNativeConnector({ rowCount })),
+      createDb0PostgresOperationSessionProvider(
+        createPostgresNativeConnector({ rowCount }),
+      ),
     )
 
     try {
@@ -46,7 +45,7 @@ it('preserves a connector open defect through db.ping()', async () => {
   const defect = new TypeError('connector getInstance failed')
   const stack = defect.stack
   const connector = {
-    ...createNativeConnector(),
+    ...createPostgresNativeConnector(),
     getInstance() {
       throw defect
     },
@@ -67,7 +66,7 @@ it('retains disposal failure beside a frozen connector defect during open', asyn
   const defect = Object.freeze(new TypeError('connector open failed'))
   const cleanup = new Error('disposal failed')
   const connector = {
-    ...createNativeConnector(),
+    ...createPostgresNativeConnector(),
     getInstance() {
       throw defect
     },
@@ -89,13 +88,13 @@ it('retains disposal failure after release verification rejects a primitive', as
   let openings = 0
   const cleanup = new Error('disposal failed')
   const connector = {
-    ...createNativeConnector(),
+    ...createPostgresNativeConnector(),
     getInstance() {
       openings++
 
       if (openings === 2) throw 'identity unavailable'
 
-      return createNativeConnector().getInstance()
+      return createPostgresNativeConnector().getInstance()
     },
     async dispose() {
       throw cleanup
@@ -119,7 +118,7 @@ describe('native PostgreSQL driver classification', () => {
     'retains native rejection %s with the selected dialect and parameter-free SQL',
     async (nativeCause) => {
       const sql = 'insert into records (value) values ($1)'
-      const connector = createNativeConnector({
+      const connector = createPostgresNativeConnector({
         /** Rejects only the statement under test. */
         onQuery: async (text) => {
           if (text === sql) throw nativeCause
@@ -173,7 +172,7 @@ describe('native PostgreSQL lifecycle failure classification', () => {
         code: 'XX000',
       })
 
-      const connector = createNativeConnector({
+      const connector = createPostgresNativeConnector({
         /** Rejects the lifecycle SQL while allowing provider identity checks. */
         onQuery: async (text) => {
           if (text === sql) throw nativeCause
@@ -208,7 +207,7 @@ describe('native PostgreSQL lifecycle failure classification', () => {
 
 describe('db0 PostgreSQL operation-session adapter', () => {
   it('proves identity at every lease and after reuse cleanup', async () => {
-    const connector = createNativeConnector()
+    const connector = createPostgresNativeConnector()
     const provider = createDb0PostgresOperationSessionProvider(connector)
     const plainSql = `select '?' as "?", $1::text as value`
 
@@ -255,7 +254,7 @@ describe('db0 PostgreSQL operation-session adapter', () => {
 describe('db0 PostgreSQL operation-session adapter: reads changed current_schema for a fresh physical-session lease', () => {
   it('reads changed current_schema for a fresh physical-session lease', async () => {
     let schema = 'public'
-    const connector = createNativeConnector({
+    const connector = createPostgresNativeConnector({
       /** Returns the schema currently reported by the native-client fixture. */
       currentSchema: () => schema,
     })
@@ -290,7 +289,7 @@ describe('db0 PostgreSQL operation-session adapter: reads changed current_schema
 describe('db0 PostgreSQL operation-session adapter: discards a reused session when DDL changes current_schema during its lease', () => {
   it('discards a reused session when DDL changes current_schema during its lease', async () => {
     let schema = 'public'
-    const connector = createNativeConnector({
+    const connector = createPostgresNativeConnector({
       /** Returns the schema currently reported by the native-client fixture. */
       currentSchema: () => schema,
       /** Handles native query observations for the configured session scenario. */
@@ -315,7 +314,7 @@ describe('db0 PostgreSQL operation-session adapter: discards a reused session wh
   })
 
   it('discards a reused session when final namespace evidence cannot be read', async () => {
-    const connector = createNativeConnector({ identityFailureAt: 2 })
+    const connector = createPostgresNativeConnector({ identityFailureAt: 2 })
     const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
 
@@ -338,7 +337,7 @@ describe('db0 PostgreSQL operation-session adapter: discards a reused session wh
 describe('db0 PostgreSQL operation-session adapter: retains final namespace-evidence cleanup without replacing a primary operation failure', () => {
   it('retains final namespace-evidence cleanup without replacing a primary operation failure', async () => {
     const primary = new Error('primary native operation failure')
-    const connector = createNativeConnector({
+    const connector = createPostgresNativeConnector({
       identityFailureAt: 2,
       /** Handles native query observations for the configured session scenario. */
       onQuery: async (text) => {
@@ -380,7 +379,7 @@ describe('db0 PostgreSQL operation-session lifecycle', () => {
     const gates = [deferred(), deferred()]
     const firstStarted = deferred()
     let call = 0
-    const connector = createNativeConnector({
+    const connector = createPostgresNativeConnector({
       /** Handles native query observations for the configured session scenario. */
       onQuery: async () => {
         const index = call++
@@ -425,7 +424,7 @@ describe('db0 PostgreSQL operation-session lifecycle: cancels an active call and
     const started = deferred()
     const endStarted = deferred()
     const finishEnd = deferred()
-    const connector = createNativeConnector({
+    const connector = createPostgresNativeConnector({
       /** Handles native query observations for the configured session scenario. */
       onQuery: () => {
         started.resolve()
@@ -478,12 +477,12 @@ describe('db0 PostgreSQL operation-session lifecycle: cancels an active call and
 
 describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that cannot prove native PostgreSQL pinning', () => {
   it('rejects connectors that cannot prove native PostgreSQL pinning', async () => {
-    expect(() => createDb0PostgresOperationSessionProvider(customConnector())).toThrow(
-      /automatic operation sessions/i,
-    )
+    expect(() =>
+      createDb0PostgresOperationSessionProvider(customConnector('postgresql')),
+    ).toThrow(/automatic operation sessions/i)
 
     const connector = {
-      ...customConnector(),
+      ...customConnector('postgresql'),
       name: 'postgresql',
       /** Records disposal and closes owned fixture resources. */
       dispose: async () => {},
@@ -532,7 +531,7 @@ describe('db0 PostgreSQL operation-session lifecycle: rejects connectors that ca
 
 describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rejection from exact-provider release verification', () => {
   it('preserves an undefined rejection from exact-provider release verification', async () => {
-    const connector = createNativeConnector({
+    const connector = createPostgresNativeConnector({
       releaseFailure: { value: undefined },
     })
 
@@ -552,7 +551,7 @@ describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rej
   })
 
   it('waits for an active lease before deduplicated provider close', async () => {
-    const connector = createNativeConnector()
+    const connector = createPostgresNativeConnector()
     const provider = createDb0PostgresOperationSessionProvider(connector)
     const session = await provider.open()
 
@@ -574,7 +573,7 @@ describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rej
 
 describe('db0 PostgreSQL operation-session lifecycle: preserves an undefined rejection from exact-provider release verification: allows provider close cleanup to retry after disposal fails', () => {
   it('allows provider close cleanup to retry after disposal fails', async () => {
-    const connector = createNativeConnector({ disposeFailures: 1 })
+    const connector = createPostgresNativeConnector({ disposeFailures: 1 })
     const provider = createDb0PostgresOperationSessionProvider(connector)
 
     const firstClose = provider.close()

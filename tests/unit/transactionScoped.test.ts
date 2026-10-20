@@ -14,7 +14,7 @@ describe('scoped transaction coordinator behavior', () => {
   it('reuses one token for transaction calls, concurrent calls, and savepoints', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -46,7 +46,7 @@ describe('scoped transaction coordinator behavior: serializes sibling savepoint 
   it('serializes sibling savepoint callbacks while preserving deeper nesting', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -81,7 +81,7 @@ describe('scoped transaction coordinator behavior: rejects ancestor transaction 
   it('rejects ancestor transaction use from a descendant callback', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -122,7 +122,7 @@ describe('scoped transaction coordinator behavior: rejects ancestor transaction 
     const finishNested = deferred()
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -164,7 +164,7 @@ describe('scoped transaction coordinator behavior: queues unrelated ancestor sta
     const failNested = deferred()
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -216,7 +216,7 @@ describe('scoped transaction cleanup failures', () => {
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -257,7 +257,7 @@ describe('scoped transaction cleanup failures: poisons failed savepoint release 
     })
 
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })
@@ -290,7 +290,7 @@ describe('scoped transaction cleanup failures: drains an accepted sibling savepo
   it('drains an accepted sibling savepoint before root rollback', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
-      connector: customConnector(),
+      connector: customConnector('postgresql'),
       operationSessionProvider: controls.provider,
       schemas: [],
     })

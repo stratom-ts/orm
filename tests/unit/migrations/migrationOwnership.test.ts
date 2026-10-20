@@ -9,11 +9,6 @@ import {
 } from '@/migrations/migrationOwnership'
 import { InvariantError, SchemaError, attemptSync } from '@/utils/error'
 
-import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
-import {
-  catalogPrimaryKey as createCatalogPrimaryKey,
-  planMigration,
-} from '../helpers/catalog'
 import { SQLITE_IDENTITY_POLICY } from '../helpers/dialectPolicies'
 import {
   columnTarget,
@@ -21,6 +16,11 @@ import {
   namespaceTarget,
   relationTarget,
 } from '../helpers/planTargets'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/postgresCatalogFixtures'
+import {
+  postgresCatalogPrimaryKey as createCatalogPrimaryKey,
+  planPostgresMigration as planMigration,
+} from '../helpers/postgresCatalogFixtures'
 
 const context = {
   writableDefault: [

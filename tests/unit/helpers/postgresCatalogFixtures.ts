@@ -92,7 +92,7 @@ type SupportedSimpleSemantics = Pick<
  *
  * @returns Catalog primary key evidence for schema reconciliation checks.
  */
-export function catalogPrimaryKey(semantics: SupportedSimpleSemantics) {
+export function postgresCatalogPrimaryKey(semantics: SupportedSimpleSemantics) {
   return (table: string, columns: string[] = ['id']): PostgresCatalogKeyFixture => ({
     name: `${table}_pkey`,
     columns,
@@ -101,7 +101,7 @@ export function catalogPrimaryKey(semantics: SupportedSimpleSemantics) {
 }
 
 /** Completes fixture catalog evidence before invoking migration planning. */
-export const planMigration = (
+export const planPostgresMigration = (
   schemas: Parameters<typeof planMigrationWithContext>[0],
   catalog: PostgresCatalogSnapshotFixture,
   dialect: Parameters<typeof planMigrationWithContext>[2],

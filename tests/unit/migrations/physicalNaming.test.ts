@@ -16,16 +16,16 @@ import {
 } from '@/migrations/physicalNaming'
 import { InvariantError, MigrationError, SchemaError } from '@/utils/error'
 
-import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/catalog'
-import {
-  catalogPrimaryKey as createCatalogPrimaryKey,
-  planMigration,
-} from '../helpers/catalog'
 import {
   SQLITE_IDENTITY_POLICY,
   SQLITE_PHYSICAL_NAMING_FIXTURE,
   TABLE_LOCAL_PHYSICAL_NAMING_FIXTURE,
 } from '../helpers/dialectPolicies'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/postgresCatalogFixtures'
+import {
+  postgresCatalogPrimaryKey as createCatalogPrimaryKey,
+  planPostgresMigration as planMigration,
+} from '../helpers/postgresCatalogFixtures'
 
 const context = {
   writableDefault: [

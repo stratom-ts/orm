@@ -1,18 +1,14 @@
 import type { Dialect, SqlAst } from '@/dialects'
-import { postgresDialect } from '@/dialects/postgres'
 
 /**
  * Returns exact authored relation/member matching for lightweight test dialects.
  *
- * @example
- *   const dialect = { ...postgresDialect, query: { ...postgresDialect.query, ...exactQueryAddressing() } }
+ * @param compile - Compiler supplied by the owning test dialect.
  */
 export function exactQueryAddressing(
   compile: (
     node: SqlAst,
-  ) => ReturnType<
-    ReturnType<Dialect['query']['resolve']>['compile']
-  > = postgresDialect.query.resolve([]).compile,
+  ) => ReturnType<ReturnType<Dialect['query']['resolve']>['compile']>,
 ): Dialect['query'] {
   return {
     /** Binds query compilation and matching to the registered table handles. */
