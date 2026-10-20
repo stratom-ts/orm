@@ -1,7 +1,9 @@
 import nodeSqliteConnector from 'db0/connectors/node-sqlite'
+import { number, pipe } from 'valibot'
 
 import { executeSqliteMigration } from '@/dialects/sqlite/migration/runtime'
 import { createDb0NodeSqliteOperationSessionProvider } from '@/dialects/sqlite/operationSession'
+import { column, defineTable } from '@/index'
 import type { Executor } from '@/query'
 import { MigrationError } from '@/utils/error'
 
@@ -12,6 +14,58 @@ import type {
   CoordinationContractFactory,
   CoordinationContractLockManager,
 } from './migrationCoordinationContract'
+import type { ProviderContractFactoryOptions } from './operationSessionProviderContract'
+
+/** Supplies the catalog observations needed by controlled SQLite migration scenarios. */
+function controlledProviderQueryRows(sql: string, created: boolean): unknown[] {
+  if (sql === 'pragma busy_timeout') return [{ timeout: 0 }]
+  if (sql === 'pragma foreign_keys') return [{ foreign_keys: 0 }]
+  if (sql === 'pragma main.integrity_check') return [{ integrity_check: 'ok' }]
+  if (sql === 'pragma main.foreign_key_check') return []
+  if (sql.includes('sqlite_version()')) return [{ version: '3.50.0' }]
+  if (sql.includes('pragma_database_list')) return [{ seq: 0, name: 'main', file: '' }]
+
+  if (sql.includes('pragma_table_list'))
+    return created
+      ? [
+          {
+            schema: 'main',
+            name: 'provider_contract_events',
+            type: 'table',
+            ncol: 1,
+            wr: 0,
+            strict: 0,
+          },
+        ]
+      : []
+
+  if (sql.includes('sqlite_schema'))
+    return created
+      ? [
+          {
+            type: 'table',
+            name: 'provider_contract_events',
+            tbl_name: 'provider_contract_events',
+            sql: 'CREATE TABLE provider_contract_events (id INTEGER PRIMARY KEY NOT NULL)',
+          },
+        ]
+      : []
+
+  if (sql.includes('pragma_table_xinfo'))
+    return [
+      {
+        cid: 0,
+        name: 'id',
+        type: 'INTEGER',
+        column_notnull: 1,
+        dflt_value: null,
+        pk: 1,
+        hidden: 0,
+      },
+    ]
+
+  return []
+}
 
 /** Adapts native SQLite calls to the reusable semantic session lifecycle. */
 function createCommonRuntime() {
@@ -68,7 +122,51 @@ export const sqliteOperationSessionContractShard = {
     common: { state: 'supported', input: { createRuntime: createCommonRuntime } },
     controlled: {
       state: 'supported',
-      input: { createProvider: createControllableProvider },
+      input: {
+        createProvider: (options?: ProviderContractFactoryOptions) => {
+          let created = false
+          return createControllableProvider({
+            ...options,
+            beforeCall: async (session, sql) => {
+              await options?.beforeCall?.(session, sql)
+
+              if (/^create table/i.test(sql)) created = true
+            },
+            queryRows: (sql: string) => controlledProviderQueryRows(sql, created),
+          })
+        },
+        migration: {
+          state: 'supported',
+          input: {
+            connector: () => nodeSqliteConnector({ name: ':memory:' }),
+            appliedSchemas: () => [
+              defineTable(
+                'provider_contract_events',
+                {
+                  id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })),
+                },
+                { primaryKey: 'id' },
+              ),
+            ],
+            planningFailureSchemas: () => [
+              defineTable(
+                'provider_planning_events',
+                {
+                  id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })),
+                },
+                { primaryKey: 'id' },
+              ),
+              defineTable(
+                'provider_planning_events',
+                {
+                  id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })),
+                },
+                { primaryKey: 'id', namespace: [{ role: 'database', spelling: 'main' }] },
+              ),
+            ],
+          },
+        },
+      },
     },
   },
 } as const

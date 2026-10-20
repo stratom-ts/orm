@@ -1,7 +1,7 @@
 import { date, number, pipe, string } from 'valibot'
 
 import { planMigration } from '@/ddl/migrationPlan'
-import type { MigrationPlan } from '@/ddl/migrationPlan'
+import type { MigrationPlan, PlannedMigration } from '@/ddl/migrationPlan'
 import type { CatalogExecutor, CatalogRequest, OperationCommand } from '@/dialects'
 import { column, defineTable, postgresDialect } from '@/index'
 
@@ -918,8 +918,40 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
           },
         },
         unsupportedLowering: {
-          state: 'unsupported',
-          reason: 'The shared PostgreSQL case exercises supported lowering only',
+          state: 'supported',
+          input: {
+            /** Creates a valid step followed by an invalid database target. */
+            async createCase() {
+              const migrationCatalogRequest: CatalogRequest = {
+                relations: [{ relation: { relation: 'records' }, shape: 'complete' }],
+                absentRelations: [],
+                completeNamespaces: [],
+              }
+
+              const catalog = await postgresDialect.catalog.introspectCatalog(
+                contractCatalogExecutor,
+                migrationCatalogRequest,
+              )
+
+              const base = planMigration(
+                [Records],
+                catalog,
+                postgresDialect.migration.planning,
+              )
+
+              return {
+                dialect: postgresDialect,
+                planned: withInvalidPostgresTarget(base),
+                profile: base.profile,
+                issue: {
+                  code: 'invalid_target',
+                  message:
+                    'Migration target namespace database "other_database" does not match executing database "contract_database"',
+                  sourceStepIndexes: [1],
+                },
+              }
+            },
+          },
         },
       },
     },
@@ -931,6 +963,41 @@ registerDialectContractMember('PostgreSQL', postgresContractCapabilities, {
   coordination: postgresCoordinationContractShard,
   'operation-session': postgresOperationSessionContractShard,
 })
+
+/** Adds one valid step before a target rejected by PostgreSQL lowering. */
+function withInvalidPostgresTarget(base: PlannedMigration): PlannedMigration {
+  const relation = base.identities.resolve({ relation: 'records' })
+  const invalidRelation = {
+    ...relation,
+    namespace: relation.namespace.map((segment, index) =>
+      index === 0
+        ? {
+            ...segment,
+            identifier: {
+              ...segment.identifier,
+              spelling: 'other_database',
+              comparisonKey: 'other_database',
+            },
+          }
+        : segment,
+    ),
+  }
+
+  const column = base.identities.member('column', 'label')
+
+  return {
+    ...base,
+    plan: {
+      steps: [
+        { kind: 'set_not_null', target: { kind: 'column', relation, column } },
+        {
+          kind: 'set_not_null',
+          target: { kind: 'column', relation: invalidRelation, column },
+        },
+      ],
+    },
+  }
+}
 
 /** Creates the identity adapter mismatch fixture used by the contract scenario. */
 function createIdentityAdapterMismatch(

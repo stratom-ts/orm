@@ -146,6 +146,7 @@ function sessionQueryRows(sql: string, unlockResult: boolean): unknown[] {
  */
 export function createControllableProvider(
   options?: ProviderContractFactoryOptions & {
+    queryRows?: (sql: string) => unknown[]
     beforeCancel?: (session: number) => Promise<void>
     beforeRelease?: (session: number) => Promise<void>
     failSession?: number
@@ -352,7 +353,10 @@ async function openControllableSession(
     /** Runs fixture SQL and records physical-session ownership. */
     query(query) {
       return call(query.sql, async () => {
-        return sessionQueryRows(query.sql, options?.unlockResult ?? true)
+        return (
+          options?.queryRows?.(query.sql) ??
+          sessionQueryRows(query.sql, options?.unlockResult ?? true)
+        )
       })
     },
     /** Runs a fixture statement with configured outcomes. */
