@@ -175,6 +175,9 @@ adapter with a reason, or `unavailable` because of permission or version evidenc
 member may therefore omit a feature without pretending that the corresponding database
 objects are absent.
 
+The current acquisition, decoding, consistency, and assembly stages are documented in
+the [catalog observation guide](catalog-stages.md).
+
 ### Operations and connector adaptation
 
 Each member provides `classifyDriverError(cause)`. It walks native cause chains and
