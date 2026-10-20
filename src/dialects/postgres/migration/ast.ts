@@ -1,5 +1,3 @@
-import type { SqlAst } from '@/dialects/types'
-
 export type PostgresCreateTableColumnAst = {
   readonly name: string
   readonly dataType: string
@@ -69,5 +67,3 @@ export type PostgresDdlAst =
   | (PostgresRelationAst & { readonly kind: 'drop_index'; readonly index: string })
   | { readonly kind: 'create_schema'; readonly schema: string }
   | PostgresCreateTableAst
-
-export type PostgresAst = SqlAst | PostgresDdlAst

@@ -207,11 +207,11 @@ it.each([
 })
 
 it('preserves a SQL compilation defect instead of reporting a capability issue', async () => {
-  const compiler = await import('@/dialects/postgres/compile')
+  const compiler = await import('@/dialects/postgres/migration/sql')
   const defect = new TypeError('compiler failed')
   const stack = defect.stack
 
-  const compile = vi.spyOn(compiler, 'compilePostgres').mockImplementation(() => {
+  const compile = vi.spyOn(compiler, 'compilePostgresDdl').mockImplementation(() => {
     throw defect
   })
 

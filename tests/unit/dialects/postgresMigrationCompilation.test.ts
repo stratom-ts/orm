@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { compilePostgres } from '@/dialects/postgres/compile'
+import { compilePostgresDdl } from '@/dialects/postgres/migration/sql'
 
 describe('PostgreSQL migration compilation', () => {
   it('compiles constructive descriptive steps', () => {
     assertCompilesConstructiveDescriptiveSteps()
 
-    const foreignKey = compilePostgres({
+    const foreignKey = compilePostgresDdl({
       kind: 'add_foreign_key',
       schema: 'public',
       table: 'posts',
@@ -28,7 +28,7 @@ describe('PostgreSQL migration compilation', () => {
 describe('PostgreSQL migration compilation', () => {
   it('compiles destructive descriptive steps', () => {
     expect(
-      compilePostgres({
+      compilePostgresDdl({
         kind: 'drop_column',
         schema: 'public',
         table: 'users',
@@ -37,7 +37,7 @@ describe('PostgreSQL migration compilation', () => {
     ).toContain('alter table "public"."users" drop column "legacy"')
 
     expect(
-      compilePostgres({
+      compilePostgresDdl({
         kind: 'drop_index',
         schema: 'public',
         table: 'users',
@@ -46,7 +46,7 @@ describe('PostgreSQL migration compilation', () => {
     ).toContain('drop index "public"."users_legacy_idx"')
 
     expect(
-      compilePostgres({
+      compilePostgresDdl({
         kind: 'drop_table',
         schema: 'public',
         table: 'orphan',
@@ -58,7 +58,7 @@ describe('PostgreSQL migration compilation', () => {
 /** Checks compiles constructive descriptive steps in the current test scenario. */
 function assertCompilesConstructiveDescriptiveSteps() {
   expect(
-    compilePostgres({
+    compilePostgresDdl({
       kind: 'create_index',
       schema: 'public',
       table: 'users',
@@ -69,7 +69,7 @@ function assertCompilesConstructiveDescriptiveSteps() {
   ).toContain('create index "users_email_idx"')
 
   expect(
-    compilePostgres({
+    compilePostgresDdl({
       kind: 'add_column',
       schema: 'public',
       table: 'users',
@@ -84,7 +84,7 @@ function assertCompilesConstructiveDescriptiveSteps() {
   ).toContain('alter table "public"."users" add column "nickname" text not null')
 
   expect(
-    compilePostgres({
+    compilePostgresDdl({
       kind: 'add_unique_constraint',
       schema: 'public',
       table: 'users',
