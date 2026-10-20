@@ -67,7 +67,7 @@ const Events = defineTable(
 beforeAll(waitForPostgres)
 
 describe('PostgreSQL namespace and value integration', () => {
-  it('uses the real current schema when registration omits a namespace', async () => {
+  it('should use the real current schema when registration omits a namespace', async () => {
     await withPostgresDatabase(
       [OmittedItems],
       async ({ db, schema, admin, connector }) => {
@@ -95,7 +95,7 @@ describe('PostgreSQL namespace and value integration', () => {
 })
 
 describe('PostgreSQL namespace and value integration: lets an explicit registration default win over current_schema()', () => {
-  it('lets an explicit registration default win over current_schema()', async () => {
+  it('should let an explicit registration default win over current_schema()', async () => {
     await withPostgresDatabase(
       [OmittedItems],
       async ({ db, schema, alternateSchema, admin, connector }) => {
@@ -128,7 +128,7 @@ describe('PostgreSQL namespace and value integration: lets an explicit registrat
 })
 
 describe('PostgreSQL namespace and value integration: round-trips defaults, identity, references, indexes, and mapped values', () => {
-  it('round-trips defaults, identity, references, indexes, and mapped values', async () => {
+  it('should round-trip defaults, identity, references, indexes, and mapped values', async () => {
     await withPostgresDatabase([Accounts, Events], async ({ db, schema, admin }) => {
       await db.migrate().execute()
       const accountId = randomUUID()

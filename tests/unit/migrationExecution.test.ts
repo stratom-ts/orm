@@ -23,7 +23,7 @@ function expectSafeDriverDiagnostics(
 }
 
 describe('driver migration classification', () => {
-  it('retains a driver failure as the cause of a staged migration error', async () => {
+  it('should retain a driver failure as the cause of a staged migration error', async () => {
     const secret = 'sensitive-driver-detail'
     const native = Object.assign(new Error(`native DDL failure: ${secret}`), {
       code: '23505',
@@ -80,7 +80,7 @@ describe('driver migration classification', () => {
 })
 
 describe('public migration execution and session cleanup', () => {
-  it('excludes queries from complete migration DDL and cleanup', async () => {
+  it('should exclude queries from complete migration DDL and cleanup', async () => {
     const ddlStarted = deferred()
     const finishDdl = deferred()
     const controls = createPostgresControllableProvider({
@@ -130,7 +130,7 @@ describe('public migration execution and session cleanup', () => {
 })
 
 describe('public migration execution and session cleanup: discards a migration session when rollback and unlock cleanup fail', () => {
-  it('discards a migration session when rollback and unlock cleanup fail', async () => {
+  it('should discard a migration session when rollback and unlock cleanup fail', async () => {
     const primary = new Error('primary DDL failure')
     const rollbackFailure = new Error('rollback cleanup failure')
     const unlockFailure = new Error('unlock cleanup failure')
@@ -173,7 +173,7 @@ describe('public migration execution and session cleanup: discards a migration s
 })
 
 describe('public migration execution and session cleanup: keeps a DDL failure primary when rollback cancellation also fails', () => {
-  it('keeps a DDL failure primary when rollback cancellation also fails', async () => {
+  it('should keep a DDL failure primary when rollback cancellation also fails', async () => {
     const primary = new Error('primary DDL failure before rollback cancellation')
     const cancellationFailure = new Error('session cancellation cleanup failed')
     const controller = new AbortController()
@@ -219,7 +219,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
 })
 
 describe('public migration execution and session cleanup: keeps a DDL failure primary when rollback cancellation also fails: keeps a runtime DDL failure primary when provider release also fails', () => {
-  it('keeps a runtime DDL failure primary when provider release also fails', async () => {
+  it('should keep a runtime DDL failure primary when provider release also fails', async () => {
     const primaryCause = new Error('primary runtime DDL failure')
     const primaryStack = primaryCause.stack
     const releaseCause = new Error('secondary provider release failure')
@@ -278,7 +278,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
 })
 
 describe('public migration coordination failures', () => {
-  it('normalizes provider-open failure before the migration callback', async () => {
+  it('should normalize provider-open failure before the migration callback', async () => {
     const openCause = new Error('migration provider open failed')
     const controls = createPostgresControllableProvider({
       openFailure: { session: 1, value: openCause },
@@ -310,7 +310,7 @@ describe('public migration coordination failures', () => {
 })
 
 describe('public migration coordination failures: reports advisory unlock failure after a committed no-op and discards', () => {
-  it('reports advisory unlock failure after a committed no-op and discards', async () => {
+  it('should report advisory unlock failure after a committed no-op and discard', async () => {
     const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
@@ -343,7 +343,7 @@ describe('public migration coordination failures: reports advisory unlock failur
 })
 
 describe('public migration coordination failures: reports an unverified advisory unlock and discards', () => {
-  it('reports an unverified advisory unlock and discards', async () => {
+  it('should report an unverified advisory unlock and discard', async () => {
     const controls = createPostgresControllableProvider({ unlockResult: false })
     const db = createDatabase({
       connector: customConnector('postgresql'),
@@ -369,7 +369,7 @@ describe('public migration coordination failures: reports an unverified advisory
 })
 
 describe('public migration coordination failures: discards after migration lock acquisition fails', () => {
-  it('discards after migration lock acquisition fails', async () => {
+  it('should discard after migration lock acquisition fails', async () => {
     const lockCause = new Error('lock acquisition failure')
     const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
@@ -411,7 +411,7 @@ describe('public migration coordination failures: discards after migration lock 
 })
 
 describe('public migration coordination failures: cancels the physical session when a lock try never settles', () => {
-  it('cancels the physical session when a lock try never settles', async () => {
+  it('should cancel the physical session when a lock try never settles', async () => {
     const lockStarted = deferred()
     let rejectLock!: (cause: Error) => void
     const hangingLock = new Promise<void>((_, reject) => {
@@ -461,7 +461,7 @@ describe('public migration coordination failures: cancels the physical session w
 })
 
 describe('public migration coordination failures: cancels the physical session when a lock try never settles: discards after an ambiguous migration commit failure', () => {
-  it('discards after an ambiguous migration commit failure', async () => {
+  it('should discard after an ambiguous migration commit failure', async () => {
     const commitCause = new Error('commit outcome unknown')
     const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */

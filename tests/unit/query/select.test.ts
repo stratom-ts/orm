@@ -349,7 +349,7 @@ describe('select expressions and aggregates: should compile public expression he
 })
 
 describe('select namespace resolution', () => {
-  it('keeps omitted PostgreSQL relations unqualified for session namespace resolution', async () => {
+  it('should keep omitted PostgreSQL relations unqualified for session namespace resolution', async () => {
     const BareUsers = createBareUsersTable()
     const when = new Date('2026-01-02T03:04:05.000Z')
     const relation = BareUsers.getTableMetadata().relation
@@ -394,7 +394,7 @@ describe('select namespace resolution', () => {
 })
 
 describe('select namespace resolution: uses the registration default for omitted PostgreSQL relations over current_schema', () => {
-  it('uses the registration default for omitted PostgreSQL relations over current_schema', async () => {
+  it('should use the registration default for omitted PostgreSQL relations over current_schema', async () => {
     const TenantUsers = defineTable(
       'tenant_users',
       {
@@ -432,7 +432,7 @@ describe('select namespace resolution: uses the registration default for omitted
 })
 
 describe('select namespace resolution: resolves reference column types through matching omitted relation intent', () => {
-  it('resolves reference column types through matching omitted relation intent', () => {
+  it('should resolve reference column types through matching omitted relation intent', () => {
     const BareUsers = defineTable(
       'users',
       {
@@ -469,7 +469,7 @@ describe('select namespace resolution: resolves reference column types through m
 })
 
 describe('select namespace resolution: fails safely when omitted and explicit-schema handles may coincide by session', () => {
-  it('fails safely when omitted and explicit-schema handles may coincide by session', async () => {
+  it('should fail safely when omitted and explicit-schema handles may coincide by session', async () => {
     const BareUsers = defineTable(
       'users',
       {
@@ -510,7 +510,7 @@ describe('select namespace resolution: fails safely when omitted and explicit-sc
 })
 
 describe('select session identity and mapping', () => {
-  it('aligns omitted query SQL with non-public and public session identity resolution', () => {
+  it('should align omitted query SQL with non-public and public session identity resolution', () => {
     const omitted = { relation: 'users' }
     /** Compiles the current query or command into SQL and ordered bound parameters. */
     const compile = () =>
@@ -558,7 +558,7 @@ describe('select session identity and mapping', () => {
 })
 
 describe('select session identity and mapping: uses one non-public PostgreSQL session schema for migration identity and CRUD', () => {
-  it('uses one non-public PostgreSQL session schema for migration identity and CRUD', async () => {
+  it('should use one non-public PostgreSQL session schema for migration identity and CRUD', async () => {
     const Items = defineTable(
       'items',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
@@ -609,7 +609,7 @@ describe('select session identity and mapping: uses one non-public PostgreSQL se
 })
 
 describe('select reference mapping and database guards', () => {
-  it('conditionally reconciles omitted references with explicit public on a public session', async () => {
+  it('should conditionally reconcile omitted references with explicit public on a public session', async () => {
     const BareUsers = defineTable(
       'users',
       {
@@ -655,7 +655,7 @@ describe('select reference mapping and database guards', () => {
 })
 
 describe('select reference mapping and database guards: rejects omitted-to-public reference mapping on a tenant session before SQL', () => {
-  it('rejects omitted-to-public reference mapping on a tenant session before SQL', async () => {
+  it('should reject omitted-to-public reference mapping on a tenant session before SQL', async () => {
     const BareUsers = defineTable(
       'users',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
@@ -693,7 +693,7 @@ describe('select reference mapping and database guards: rejects omitted-to-publi
 })
 
 describe('select reference mapping and database guards: maps and executes database-plus-schema relations on the matching database', () => {
-  it('maps and executes database-plus-schema relations on the matching database', async () => {
+  it('should map and execute database-plus-schema relations on the matching database', async () => {
     const TenantOwners = defineTable(
       'owners',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
@@ -740,7 +740,7 @@ describe('select reference mapping and database guards: maps and executes databa
 })
 
 describe('select reference mapping and database guards: rejects a mismatched authored PostgreSQL database before issuing query SQL', () => {
-  it('rejects a mismatched authored PostgreSQL database before issuing query SQL', async () => {
+  it('should reject a mismatched authored PostgreSQL database before issuing query SQL', async () => {
     const TenantEvents = defineTable(
       'events',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },

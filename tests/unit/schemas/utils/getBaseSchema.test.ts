@@ -48,7 +48,7 @@ describe('getBaseSchema', () => {
     expect(getBaseSchema(wrapped)).toBe(schema)
   })
 
-  it('unwraps every supported presence and nullability wrapper family', () => {
+  it('should unwrap every supported presence and nullability wrapper family', () => {
     const base = string()
 
     expect(getBaseSchema(exactOptional(base))).toBe(base)
@@ -76,7 +76,7 @@ describe('getBaseSchema: should extract base schema from a pipe', () => {
     expect(getBaseSchema(schema).type).toBe('number')
   })
 
-  it('returns an unsupported schema family unchanged instead of guessing a base', () => {
+  it('should return an unsupported schema family unchanged instead of guessing a base', () => {
     const unsupported = union([string(), number()])
 
     expect(getBaseSchema(unsupported)).toBe(unsupported)

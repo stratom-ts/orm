@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest'
 import { analyzeSchema } from '@/index'
 
 describe('analyzeSchema UUID facts', () => {
-  it('records UUID validation without replacing string or length facts', () => {
+  it('should record UUID validation without replacing string or length facts', () => {
     const schema = pipe(string(), minLength(30), uuid(), maxLength(36))
     const analysis = analyzeSchema(schema)
 
@@ -53,7 +53,7 @@ describe('analyzeSchema UUID facts', () => {
 })
 
 describe('analyzeSchema UUID wrappers', () => {
-  it('retains UUID through every supported wrapper family', () => {
+  it('should retain UUID through every supported wrapper family', () => {
     const validated = pipe(string(), uuid(), maxLength(36))
     const cases = [
       [optional(validated), false, true, true],
@@ -80,7 +80,7 @@ describe('analyzeSchema UUID wrappers', () => {
 })
 
 describe('analyzeSchema UUID nested pipes', () => {
-  it('handles inner and outer pipes on nested and piped wrappers', () => {
+  it('should handle inner and outer pipes on nested and piped wrappers', () => {
     const base = pipe(string(), uuid())
     const inner = nullable(base)
     const outer = pipe(nonNullable(inner), uuid(), maxLength(36))
@@ -123,7 +123,7 @@ describe('analyzeSchema UUID nested pipes', () => {
 })
 
 describe('analyzeSchema UUID defaults', () => {
-  it('retains defaults around and inside piped wrappers', () => {
+  it('should retain defaults around and inside piped wrappers', () => {
     const defaulted = optional(
       pipe(string(), uuid()),
       '550e8400-e29b-41d4-a716-446655440000',
@@ -150,7 +150,7 @@ describe('analyzeSchema UUID defaults', () => {
 })
 
 describe('analyzeSchema', () => {
-  it('reports direct wrapper semantics and dialect-neutral output facts', () => {
+  it('should report direct wrapper semantics and dialect-neutral output facts', () => {
     const cases = [
       [optional(string()), false, true, 'string'],
       [exactOptional(string()), false, true, 'string'],
@@ -169,7 +169,7 @@ describe('analyzeSchema', () => {
     }
   })
 
-  it('reduces nested wrappers inside-out and retains constraints below them', () => {
+  it('should reduce nested wrappers inside-out and retain constraints below them', () => {
     const schema = nonNullable(nullable(optional(pipe(string(), maxLength(80)))))
     const analysis = analyzeSchema(schema)
 
@@ -183,7 +183,7 @@ describe('analyzeSchema', () => {
     expect(numeric.baseSchema.type).toBe('number')
   })
 
-  it('only reports output kinds for homogeneous enum-like options', () => {
+  it('should only report output kinds for homogeneous enum-like options', () => {
     expect(analyzeSchema(picklist(['a', 'b'])).outputKind).toBe('string')
     expect(analyzeSchema(enumSchema({ A: 'a', B: 'b' })).outputKind).toBe('string')
     expect(analyzeSchema(picklist(['a', 1])).outputKind).toBeUndefined()
@@ -192,7 +192,7 @@ describe('analyzeSchema', () => {
 })
 
 describe('analyzeSchema: reports every supported scalar and JSON-shaped output family', () => {
-  it('reports every supported scalar and JSON-shaped output family', () => {
+  it('should report every supported scalar and JSON-shaped output family', () => {
     expect(analyzeSchema(string()).outputKind).toBe('string')
     expect(analyzeSchema(number()).outputKind).toBe('number')
     expect(analyzeSchema(bigint()).outputKind).toBe('bigint')
@@ -202,7 +202,7 @@ describe('analyzeSchema: reports every supported scalar and JSON-shaped output f
     expect(analyzeSchema(array(string())).outputKind).toBe('json')
   })
 
-  it('leaves unsupported mixed-output schemas unclassified', () => {
+  it('should leave unsupported mixed-output schemas unclassified', () => {
     expect(analyzeSchema(union([string(), number()])).outputKind).toBeUndefined()
   })
 })

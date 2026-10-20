@@ -12,7 +12,7 @@ import { registerDialectContractMember } from './dialectContractKit'
 import { postgresSemanticContractShard } from './postgresSharedShards'
 import { sqliteSemanticContractShard } from './sqliteSharedShards'
 
-it('preflights nested controlled migration support before registering any suite', () => {
+it('should preflight nested controlled migration support before registering any suite', () => {
   const unsupported = {
     state: 'unsupported',
     reason: 'Not applicable to this adapter',
@@ -126,9 +126,12 @@ it.each([
     { lowering: { createCase: () => ({}) }, unsupportedLowering: { state: 'other' } },
     /invalid state/i,
   ],
-] as const)('preflights malformed migration lowering: %s', (_name, input, message) => {
-  expect(() => registerMalformedMigration(input)).toThrow(message)
-})
+] as const)(
+  'should preflight malformed migration lowering: %s',
+  (_name, input, message) => {
+    expect(() => registerMalformedMigration(input)).toThrow(message)
+  },
+)
 
 function registerMalformedQuery(query: unknown): void {
   const unsupported = {
@@ -163,7 +166,7 @@ function registerMalformedQuery(query: unknown): void {
   } as never)
 }
 
-it('preflights a missing required compiler scenario before registering suites', () => {
+it('should preflight a missing required compiler scenario before registering suites', () => {
   const scenarios = { ...postgresSemanticContractShard.query.scenarios }
   delete (scenarios as Record<string, unknown>)['select.join.right']
 
@@ -172,7 +175,7 @@ it('preflights a missing required compiler scenario before registering suites', 
   ).toThrow(/omits required scenario select\.join\.right/i)
 })
 
-it('preflights unsupported compiler scenarios without a reason before registering suites', () => {
+it('should preflight unsupported compiler scenarios without a reason before registering suites', () => {
   const scenarios = {
     ...sqliteSemanticContractShard.query.scenarios,
     'select.join.right': {
@@ -189,7 +192,7 @@ it('preflights unsupported compiler scenarios without a reason before registerin
 })
 
 describe('Dialect contract capability registration', () => {
-  it('rejects an omitted applicable unit-contract facet', () => {
+  it('should reject an omitted applicable unit-contract facet', () => {
     expect(() =>
       registerDialectContractMember(
         'incomplete member',
@@ -210,7 +213,7 @@ describe('Dialect contract capability registration', () => {
 })
 
 describe('Dialect contract capability registration: rejects a supported shard whose lifecycle input is omitted', () => {
-  it('rejects a supported shard whose lifecycle input is omitted', () => {
+  it('should reject a supported shard whose lifecycle input is omitted', () => {
     const capabilities = {
       identity: { state: 'supported', shard: 'complete' },
       naming: { state: 'supported', shard: 'complete' },
@@ -241,7 +244,7 @@ describe('Dialect contract capability registration: rejects a supported shard wh
 })
 
 describe('Dialect contract capability registration: rejects an omitted declared shard', () => {
-  it('rejects an omitted declared shard', () => {
+  it('should reject an omitted declared shard', () => {
     const capabilities = {
       identity: { state: 'supported', shard: 'semantic' },
       naming: { state: 'supported', shard: 'semantic' },
@@ -265,7 +268,7 @@ describe('Dialect contract capability registration: rejects an omitted declared 
 
 describe('Dialect contract capability registration: rejects a supported %s composite when the manifest declares it unsupported', () => {
   it.each(['query', 'operationSession'] as const)(
-    'rejects a supported %s composite when the manifest declares it unsupported',
+    'should reject a supported %s composite when the manifest declares it unsupported',
     (facet) => {
       const unsupportedCapability = {
         state: 'unsupported',
@@ -315,7 +318,7 @@ describe('Dialect contract capability registration: rejects a supported %s compo
 })
 
 describe('Dialect contract capability registration: rejects a supported %s composite when the manifest declares it unsupported: rejects blank unsupported integration capability reasons', () => {
-  it('rejects blank unsupported integration capability reasons', () => {
+  it('should reject blank unsupported integration capability reasons', () => {
     expect(() =>
       validateDialectIntegrationCapabilities({
         lifecycle: { state: 'supported' },
@@ -329,7 +332,7 @@ describe('Dialect contract capability registration: rejects a supported %s compo
 })
 
 describe('Dialect contract capability registration: does not register a scenario requiring an unsupported integration capability', () => {
-  it('does not register a scenario requiring an unsupported integration capability', () => {
+  it('should not register a scenario requiring an unsupported integration capability', () => {
     expect(
       shouldRegisterDialectIntegrationScenario(
         {
@@ -344,7 +347,7 @@ describe('Dialect contract capability registration: does not register a scenario
     ).toBe(false)
   })
 
-  it('registers supported scenarios through the actual integration registration seam', () => {
+  it('should register supported scenarios through the actual integration registration seam', () => {
     const registered: string[] = []
     const adapter = {
       capabilities: {
@@ -359,17 +362,17 @@ describe('Dialect contract capability registration: does not register a scenario
     registerDialectIntegrationScenario(
       adapter,
       ['query', 'migration'],
-      'supported scenario',
+      'should run a supported scenario',
       async () => undefined,
       (title) => registered.push(title),
     )
 
-    expect(registered).toEqual(['supported scenario'])
+    expect(registered).toEqual(['should run a supported scenario'])
   })
 })
 
 describe('Dialect contract capability registration: does not register a scenario requiring an unsupported integration capability: does not register unsupported scenarios through the actual integration seam', () => {
-  it('does not register unsupported scenarios through the actual integration seam', () => {
+  it('should not register unsupported scenarios through the actual integration seam', () => {
     const registered: string[] = []
     const adapter = {
       capabilities: {
@@ -384,7 +387,7 @@ describe('Dialect contract capability registration: does not register a scenario
     registerDialectIntegrationScenario(
       adapter,
       ['query', 'migration'],
-      'unsupported scenario',
+      'should run an unsupported scenario',
       async () => undefined,
       (title) => registered.push(title),
     )

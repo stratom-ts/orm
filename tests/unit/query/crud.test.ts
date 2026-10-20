@@ -168,7 +168,7 @@ const WrapperBehavior = defineTable(
 )
 
 describe('CRUD compile', () => {
-  it('applies wrapper omission and nullability semantics during insert validation', async () => {
+  it('should apply wrapper omission and nullability semantics during insert validation', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [WrapperBehavior] })
 
@@ -658,7 +658,7 @@ describe('CRUD safety and validation: should reject invalid update patch', () =>
 })
 
 describe('CRUD execute terminals', () => {
-  it('adds safe operation and target context to native write failures', async () => {
+  it('should add safe operation and target context to native write failures', async () => {
     const secret = 'secret-bound-value'
     const nativeCause = Object.assign(new Error(`native failure: ${secret}`), {
       code: '23505',

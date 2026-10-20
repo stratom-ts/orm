@@ -1166,7 +1166,7 @@ function rawMemberComparisonLeaks(source: ts.SourceFile): string[] {
 }
 
 describe('production dialect source organization', () => {
-  it('requires every registered member to provide the shared source shape and facets', () => {
+  it('should require every registered member to provide the shared source shape and facets', () => {
     const violations = productionDialectSources().flatMap(({ code, directory }) => {
       const missingFiles = REQUIRED_DIALECT_FILES.filter(
         (file) => !existsSync(join(directory, file)),
@@ -1195,7 +1195,7 @@ describe('production dialect source organization', () => {
     expect(violations).toEqual([])
   })
 
-  it('derives the member symbol from its registered directory', () => {
+  it('should derive the member symbol from its registered directory', () => {
     expect(productionDialectSources(parseSource(EXAMPLE_REGISTRY))[0]).toMatchObject({
       code: 'example',
       symbol: 'exampleDialect',
@@ -1210,7 +1210,7 @@ describe('production dialect source organization', () => {
 })
 
 describe('production dialect shared helpers', () => {
-  it('routes desired-schema graphs through the shared lowerer', () => {
+  it('should route desired-schema graphs through the shared lowerer', () => {
     for (const { code, directory } of productionDialectSources()) {
       const imports = namedImportBindings(parse(join(directory, 'lowerDesiredSchema.ts')))
 
@@ -1221,7 +1221,7 @@ describe('production dialect shared helpers', () => {
     }
   })
 
-  it('shares lifecycle SQL only between the members with identical syntax', () => {
+  it('should share lifecycle SQL only between the members with identical syntax', () => {
     const sharedMembers = productionDialectSources().filter(({ code }) =>
       ['postgres', 'sqlite'].includes(code),
     )
@@ -1238,7 +1238,7 @@ describe('production dialect shared helpers', () => {
 })
 
 describe('production dialect source organization: keeps assembly isolated', () => {
-  it('keeps each complete member assembly as the only declaration in dialect.ts', () => {
+  it('should keep each complete member assembly as the only declaration in dialect.ts', () => {
     const violations = productionDialectSources().flatMap((member) =>
       dialectManifestViolations(parse(join(member.directory, 'dialect.ts')), member),
     )
@@ -1246,7 +1246,7 @@ describe('production dialect source organization: keeps assembly isolated', () =
     expect(violations).toEqual([])
   })
 
-  it.each(MANIFEST_CLASSIFICATIONS)('classifies %s', (_name, code, rejected) => {
+  it.each(MANIFEST_CLASSIFICATIONS)('should classify %s', (_name, code, rejected) => {
     const violations = dialectManifestViolations(parseSource(code), {
       symbol: 'exampleDialect',
       code: 'example',
@@ -1255,19 +1255,22 @@ describe('production dialect source organization: keeps assembly isolated', () =
     expect(violations.length > 0).toBe(rejected)
   })
 
-  it.each(OPERATION_PROVIDER_CLASSIFICATIONS)('rejects %s', (_name, code, message) => {
-    expect(() =>
-      assertOperationSessionProvider(
-        parseSource(code),
-        'example',
-        'createDb0ExampleOperationSessionProvider',
-      ),
-    ).toThrow(message)
-  })
+  it.each(OPERATION_PROVIDER_CLASSIFICATIONS)(
+    'should reject %s',
+    (_name, code, message) => {
+      expect(() =>
+        assertOperationSessionProvider(
+          parseSource(code),
+          'example',
+          'createDb0ExampleOperationSessionProvider',
+        ),
+      ).toThrow(message)
+    },
+  )
 })
 
 describe('production dialect source organization: keeps exports explicit', () => {
-  it('uses index.ts only for explicit public exports', () => {
+  it('should use index.ts only for explicit public exports', () => {
     const violations = productionDialectSources().flatMap((member) =>
       dialectIndexViolations(
         parse(join(member.directory, 'index.ts')),
@@ -1280,7 +1283,7 @@ describe('production dialect source organization: keeps exports explicit', () =>
 })
 
 describe('production dialect source organization: classifies public indexes', () => {
-  it('accepts a complete explicit index', () => {
+  it('should accept a complete explicit index', () => {
     expect(
       dialectIndexViolations(parseSource(EXAMPLE_INDEX), EXAMPLE_INDEX_SURFACE),
     ).toEqual([])
@@ -1319,14 +1322,14 @@ describe('production dialect source organization: classifies public indexes', ()
       `${EXAMPLE_INDEX}\nexport { helper } from './operationSession'`,
       'unexpected public export ./operationSession:helper',
     ],
-  ])('classifies %s', (_name, code, expectedViolation) => {
+  ])('should classify %s', (_name, code, expectedViolation) => {
     const violations = dialectIndexViolations(parseSource(code), EXAMPLE_INDEX_SURFACE)
     expect(violations).toContain(expectedViolation)
   })
 })
 
 describe('dialect extension locality architecture', () => {
-  it('keeps concrete dialect imports outside Client, Schema, Query, Migration, and Operations', () => {
+  it('should keep concrete dialect imports outside Client, Schema, Query, Migration, and Operations', () => {
     const violations = coreFiles.flatMap((file) => {
       const source = parse(file)
       return descendants(source).flatMap((node) => {
@@ -1343,7 +1346,7 @@ describe('dialect extension locality architecture', () => {
 
 describe('dialect extension locality architecture: classifies concrete dialect reference %s', () => {
   it.each(structuredClone(classifiesConcreteDialectReferenceSData))(
-    'classifies concrete dialect reference %s',
+    'should classify concrete dialect reference %s',
     (code, rejected) => {
       const source = parseSource(code)
 
@@ -1357,7 +1360,7 @@ describe('dialect extension locality architecture: classifies concrete dialect r
 })
 
 describe('dialect extension locality architecture: keeps db0 transport adaptation out of shared Query, Migration, and Operations', () => {
-  it('keeps db0 transport adaptation out of shared Query, Migration, and Operations', () => {
+  it('should keep db0 transport adaptation out of shared Query, Migration, and Operations', () => {
     const violations = sharedExecutionFiles.flatMap((file) => {
       const source = parse(file)
       return descendants(source).flatMap((node) => {
@@ -1387,7 +1390,7 @@ describe('dialect extension locality architecture: keeps db0 transport adaptatio
     ['executor.run(query)', false],
     ['session.run(query)', false],
     ['executor.execute(query)', false],
-  ])('classifies shared execution reference %s', (code, rejected) => {
+  ])('should classify shared execution reference %s', (code, rejected) => {
     const source = parseSource(code)
 
     const references = descendants(source).flatMap((node) =>
@@ -1399,7 +1402,7 @@ describe('dialect extension locality architecture: keeps db0 transport adaptatio
 })
 
 describe('dialect extension locality architecture: keeps driver codes in members', () => {
-  it('has no concrete driver codes in shared execution or error boundaries', () => {
+  it('should have no concrete driver codes in shared execution or error boundaries', () => {
     expect(
       sharedDriverClassificationFiles.flatMap((file) =>
         nativeDriverCode.test(readFileSync(file, 'utf8')) ? [relative(ROOT, file)] : [],
@@ -1416,13 +1419,13 @@ describe('dialect extension locality architecture: keeps driver codes in members
     ["nativeField(cause, 'extendedErrcode')", true],
     ['ECONNRESET', true],
     ['kind: uniqueViolation', false],
-  ])('classifies code fixture %s', (code, expected) => {
+  ])('should classify code fixture %s', (code, expected) => {
     expect(nativeDriverCode.test(code)).toBe(expected)
   })
 })
 
 describe('dialect extension locality architecture: keeps physical SQL construction inside dialect members', () => {
-  it('keeps physical SQL construction inside dialect members', () => {
+  it('should keep physical SQL construction inside dialect members', () => {
     const violations = coreFiles.flatMap((file) => {
       const source = parse(file)
       return descendants(source).flatMap((node) => {
@@ -1456,7 +1459,7 @@ describe('dialect extension locality architecture: keeps physical SQL constructi
 })
 
 describe('dialect semantic locality', () => {
-  it('keeps engine identifiers and namespace defaults out of executable core code', () => {
+  it('should keep engine identifiers and namespace defaults out of executable core code', () => {
     const engineTerms = new Set(['postgresql', 'postgres', 'sqlite', 'mysql', 'public'])
     const violations = coreFiles.flatMap((file) => {
       const source = parse(file)
@@ -1482,7 +1485,7 @@ describe('dialect semantic locality', () => {
 })
 
 describe('dialect semantic locality: keeps authored Schema metadata contracted to structured relation addressing', () => {
-  it('keeps authored Schema metadata contracted to structured relation addressing', () => {
+  it('should keep authored Schema metadata contracted to structured relation addressing', () => {
     const sharedTypes = parse(join(ROOT, 'src/schemas/actions/types.ts'))
     const tableAction = parse(join(ROOT, 'src/schemas/actions/table.ts'))
     const referenceAction = parse(join(ROOT, 'src/schemas/actions/reference.ts'))
@@ -1508,7 +1511,7 @@ describe('dialect semantic locality: keeps authored Schema metadata contracted t
 })
 
 describe('dialect semantic locality: keeps physical DDL addressing out of generic Migration and Dialect interfaces', () => {
-  it('keeps physical DDL addressing out of generic Migration and Dialect interfaces', () => {
+  it('should keep physical DDL addressing out of generic Migration and Dialect interfaces', () => {
     const migrationFiles = sourceFiles('src/ddl')
     const roleViolations = migrationFiles.flatMap((file) => {
       const source = parse(file)
@@ -1552,7 +1555,7 @@ describe('dialect semantic locality: keeps physical DDL addressing out of generi
 })
 
 describe('dialect semantic locality: uses canonical comparison keys for generic Migration member reconciliation', () => {
-  it('uses canonical comparison keys for generic Migration member reconciliation', () => {
+  it('should use canonical comparison keys for generic Migration member reconciliation', () => {
     const source = parse(join(ROOT, 'src/ddl/migrationPlan.ts'))
     expect(rawMemberComparisonLeaks(source)).toEqual([])
   })
@@ -1560,7 +1563,7 @@ describe('dialect semantic locality: uses canonical comparison keys for generic 
 
 describe('dialect semantic locality: classifies %s comparison', () => {
   it.each(structuredClone(classifiesSComparisonData))(
-    'classifies %s comparison',
+    'should classify %s comparison',
     (_label, code, rejected) => {
       expect(rawMemberComparisonLeaks(parseSource(code)).length > 0).toBe(rejected)
     },
@@ -1568,7 +1571,7 @@ describe('dialect semantic locality: classifies %s comparison', () => {
 })
 
 describe('dialect semantic locality: allows connector dialect only as the resolver input and forbids policy branches', () => {
-  it('allows connector dialect only as the resolver input and forbids policy branches', () => {
+  it('should allow connector dialect only as the resolver input and forbid policy branches', () => {
     const selections: string[] = []
     const branches: string[] = []
 
@@ -1596,7 +1599,7 @@ describe('dialect semantic locality: allows connector dialect only as the resolv
 })
 
 describe('dialect test organization: broad entry points', () => {
-  it('keeps shared concern entry points for every production member', () => {
+  it('should keep shared concern entry points for every production member', () => {
     const concerns = ['Schema', 'DesiredSchema', 'Query', 'Catalog', 'OperationSession']
 
     for (const member of productionDialectSources()) {
@@ -1631,7 +1634,7 @@ describe('dialect test organization: broad entry points', () => {
 })
 
 describe('dialect test organization: contract registration', () => {
-  it('gives each production aggregate sole ownership of contract registration', () => {
+  it('should give each production aggregate sole ownership of contract registration', () => {
     for (const member of productionDialectSources()) {
       const aggregate = parse(
         join(ROOT, 'tests/unit/dialects', `${member.code}ContractKit.test.ts`),
@@ -1667,7 +1670,7 @@ describe('dialect test organization: contract registration', () => {
 })
 
 describe('dialect test organization: deterministic unit profile', () => {
-  it('keeps native connectors out of unit dialect fixtures and runners', () => {
+  it('should keep native connectors out of unit dialect fixtures and runners', () => {
     const nativeModules = /^(?:node:sqlite|db0\/connectors\/(?:node-sqlite|postgresql))$/
     const unitSources = [
       ...sourceFiles('tests/unit/dialects'),
@@ -1709,13 +1712,13 @@ describe('dialect test organization: deterministic unit profile', () => {
       "const sqlite = await import('node:sqlite')",
       ['node:sqlite'],
     ],
-  ] as const)('classifies unit dependency fixture: %s', (_label, code, expected) => {
+  ] as const)('should classify unit dependency fixture: %s', (_label, code, expected) => {
     expect(runtimeModuleReferences(parseSource(code))).toEqual(expected)
   })
 })
 
 describe('dialect test organization: native profile', () => {
-  it('lets each native entry register its reusable adapter once', () => {
+  it('should let each native entry register its reusable adapter once', () => {
     for (const member of productionDialectSources()) {
       const entry = parse(
         join(ROOT, 'tests/integration', member.code, `${member.code}.test.ts`),
@@ -1755,7 +1758,7 @@ describe('dialect test organization: native profile', () => {
 })
 
 describe('dialect test organization: profile discovery', () => {
-  it('keeps Vitest unit and integration discovery in their declared profiles', () => {
+  it('should keep Vitest unit and integration discovery in their declared profiles', () => {
     const unit = configuredTestIncludes(parse(join(ROOT, 'vitest.unit.config.ts')))
     const integration = configuredTestIncludes(
       parse(join(ROOT, 'vitest.integration.config.ts')),

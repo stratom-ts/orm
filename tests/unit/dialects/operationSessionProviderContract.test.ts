@@ -21,7 +21,7 @@ type MissingPlanningFailureFixture = Readonly<{
   }>
 }>
 
-it('requires migration participation and planning failure fixtures in provider contract types', () => {
+it('should require migration participation and planning failure fixtures in provider contract types', () => {
   expectTypeOf<
     Parameters<typeof registerOperationSessionProviderContract>['length']
   >().toEqualTypeOf<3>()
@@ -45,7 +45,7 @@ it('requires migration participation and planning failure fixtures in provider c
   }>().toExtend<ProviderMigrationSupport>()
 })
 
-it('requires explicit provider migration participation before registering controlled scenarios', () => {
+it('should require explicit provider migration participation before registering controlled scenarios', () => {
   expect(() =>
     validateProviderMigrationSupport({
       state: 'unsupported',
@@ -113,7 +113,7 @@ function expectCleanupOrder(
   expect(closeIndex).toBeGreaterThan(releaseIndex)
 }
 
-it('discards and closes after an operation failure', async () => {
+it('should discard and close after an operation failure', async () => {
   const { controls, runtime } = createOperationSessionCommonRuntime({ failSession: 1 })
 
   await expect(runOperationSessionCommonContract(runtime)).rejects.toThrow(
@@ -124,7 +124,7 @@ it('discards and closes after an operation failure', async () => {
   expect(controls.closeCount).toBe(1)
 })
 
-it('cleans up the common session after an assertion failure', async () => {
+it('should clean up the common session after an assertion failure', async () => {
   const { controls, runtime } = createOperationSessionCommonRuntime({
     invalidInitialSession: 'identity',
   })
@@ -137,7 +137,7 @@ it('cleans up the common session after an assertion failure', async () => {
   expect(controls.closeCount).toBe(1)
 })
 
-it('preserves the primary operation failure when release and close also fail', async () => {
+it('should preserve the primary operation failure when release and close also fail', async () => {
   const primary = new Error('primary operation failure')
   const { controls, runtime } = createOperationSessionCommonRuntime({
     /** Runs the configured synchronization or failure control before a fixture SQL call. */
@@ -153,7 +153,7 @@ it('preserves the primary operation failure when release and close also fail', a
   expect(controls.closeCount).toBe(1)
 })
 
-it('surfaces cleanup failure when the operation succeeds and still closes the provider', async () => {
+it('should surface cleanup failure when the operation succeeds and still closes the provider', async () => {
   const release = new Error('release cleanup failure')
   const { controls, runtime } = createOperationSessionCommonRuntime({
     releaseFailure: { session: 1, value: release },
@@ -165,7 +165,7 @@ it('surfaces cleanup failure when the operation succeeds and still closes the pr
   expect(controls.closeCount).toBe(1)
 })
 
-it('surfaces an undefined close failure instead of silently passing', async () => {
+it('should surface an undefined close failure instead of silently passing', async () => {
   const { controls, runtime } = createOperationSessionCommonRuntime({
     closeFailure: { value: undefined },
   })

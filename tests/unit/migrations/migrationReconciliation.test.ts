@@ -231,7 +231,7 @@ function invalidTableHandle(name: string): TableHandle {
 }
 
 describe('Migration reconciliation', () => {
-  it('returns no steps when the catalog matches the registered tables', () => {
+  it('should return no steps when the catalog matches the registered tables', () => {
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
@@ -240,7 +240,7 @@ describe('Migration reconciliation', () => {
     expect(planMigration([Users], catalog, postgresDialect)).toEqual({ steps: [] })
   })
 
-  it('uses PostgreSQL lowering and normalization for comparisons', () => {
+  it('should use PostgreSQL lowering and normalization for comparisons', () => {
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
@@ -268,7 +268,7 @@ describe('Migration reconciliation', () => {
 })
 
 describe('Migration reconciliation: matches a tagged literal that looks like a PostgreSQL expression', () => {
-  it('matches a tagged literal that looks like a PostgreSQL expression', () => {
+  it('should match a tagged literal that looks like a PostgreSQL expression', () => {
     const LiteralDefault = defineTable(
       'literal_defaults',
       {
@@ -308,7 +308,7 @@ describe('Migration reconciliation: matches a tagged literal that looks like a P
 })
 
 describe('Migration reconciliation: returns a constructive step for a missing column', () => {
-  it('returns a constructive step for a missing column', () => {
+  it('should return a constructive step for a missing column', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
 
     expect(planMigration([Users], catalog, postgresDialect)).toEqual({
@@ -325,7 +325,7 @@ describe('Migration reconciliation: returns a constructive step for a missing co
 })
 
 describe('Migration reconciliation: returns every exact-relation destructive step without permission input', () => {
-  it('returns every exact-relation destructive step without permission input', () => {
+  it('should return every exact-relation destructive step without permission input', () => {
     const catalog: CatalogSnapshot = {
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
@@ -367,7 +367,7 @@ describe('Migration reconciliation: returns every exact-relation destructive ste
 })
 
 describe('Migration reconciliation identities and constraint order', () => {
-  it('matches omitted and explicit relations against non-default catalog namespaces', () => {
+  it('should match omitted and explicit relations against non-default catalog namespaces', () => {
     const Omitted = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -410,7 +410,7 @@ describe('Migration reconciliation identities and constraint order', () => {
 })
 
 describe('Migration reconciliation identities and constraint order: matches dotted desired and catalog tuples without collisions', () => {
-  it('matches dotted desired and catalog tuples without collisions', () => {
+  it('should match dotted desired and catalog tuples without collisions', () => {
     const DottedSchema = defineTable(
       'c',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -463,7 +463,7 @@ describe('Migration reconciliation identities and constraint order: matches dott
 })
 
 describe('Migration reconciliation identities and constraint order: matches dotted desired and catalog tuples without collisions: formats relation members structurally in planning diagnostics', () => {
-  it('formats relation members structurally in planning diagnostics', () => {
+  it('should format relation members structurally in planning diagnostics', () => {
     const Dotted = defineTable(
       'c',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -494,7 +494,7 @@ describe('Migration reconciliation identities and constraint order: matches dott
 })
 
 describe('Migration reconciliation constraint ordering', () => {
-  it('ignores non-semantic constraint order but preserves ordered key sequences', () => {
+  it('should ignore non-semantic constraint order but preserves ordered key sequences', () => {
     const Teams = createTeamsTable()
     const Memberships = defineTable(
       'memberships',
@@ -539,7 +539,7 @@ describe('Migration reconciliation constraint ordering', () => {
 })
 
 describe('Migration reconciliation diagnostics', () => {
-  it('throws for unsupported drift', () => {
+  it('should throw for unsupported drift', () => {
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
@@ -601,7 +601,7 @@ describe('Migration reconciliation diagnostics: directly rejects unsupported %s 
         catalog.tables[0]!.indexes![0]!.columns = ['email']
       },
     ],
-  ] as const)('directly rejects unsupported %s drift', (property, mutate) => {
+  ] as const)('should directly reject unsupported %s drift', (property, mutate) => {
     const catalog = managedCatalog()
     mutate(catalog)
 
@@ -611,7 +611,7 @@ describe('Migration reconciliation diagnostics: directly rejects unsupported %s 
 })
 
 describe('Migration reconciliation diagnostics: selects issues by canonical target before property', () => {
-  it('selects issues by canonical target before property', () => {
+  it('should select issues by canonical target before property', () => {
     const catalog = managedCatalog()
     catalog.tables[0]!.primaryKey!.columns = ['email']
     catalog.tables[1]!.foreignKeys![0]!.onDelete = 'restrict'
@@ -635,7 +635,7 @@ describe('Migration reconciliation diagnostics: selects issues by canonical targ
 })
 
 describe('Migration reconciliation diagnostics: uses fixed property order for issues on the same target', () => {
-  it('uses fixed property order for issues on the same target', () => {
+  it('should use fixed property order for issues on the same target', () => {
     const catalog = managedCatalog()
     const users = catalog.tables[0]!
     users.primaryKey!.columns = ['email']
@@ -659,7 +659,7 @@ describe('Migration reconciliation diagnostics: uses fixed property order for is
 })
 
 describe('Migration reconciliation diagnostics: selects the same column issue across desired-property and catalog permutations', () => {
-  it('selects the same column issue across desired-property and catalog permutations', () => {
+  it('should select the same column issue across desired-property and catalog permutations', () => {
     const Forward = createForwardTable()
     const Reversed = createReversedTable()
     const catalog: CatalogSnapshot = {
@@ -701,7 +701,7 @@ describe('Migration reconciliation diagnostics: selects the same column issue ac
 })
 
 describe('Migration reconciliation invalid inputs and ownership', () => {
-  it('rejects invalid desired and catalog inputs deterministically', () => {
+  it('should reject invalid desired and catalog inputs deterministically', () => {
     const alpha = invalidTableHandle('alpha')
     const zeta = invalidTableHandle('zeta')
 
@@ -725,7 +725,7 @@ describe('Migration reconciliation invalid inputs and ownership', () => {
     )
   })
 
-  it('considers invalid issues from every duplicate registered handle', () => {
+  it('should consider invalid issues from every duplicate registered handle', () => {
     const invalidUsers = invalidTableHandle('users')
 
     const validFirst = planningError([Users, invalidUsers], emptyCatalog())
@@ -737,7 +737,7 @@ describe('Migration reconciliation invalid inputs and ownership', () => {
 })
 
 describe('Migration reconciliation invalid inputs and ownership: breaks otherwise identical issue ties deterministically', () => {
-  it('breaks otherwise identical issue ties deterministically', () => {
+  it('should break otherwise identical issue ties deterministically', () => {
     const missingPrimaryKey = {
       /**
        * Returns the relation, primary-key, index, and ownership metadata attached to the
@@ -760,7 +760,7 @@ describe('Migration reconciliation invalid inputs and ownership: breaks otherwis
     expect(first.message).toBe(second.message)
   })
 
-  it('throws instead of exposing constructive steps alongside an issue', () => {
+  it('should throw instead of exposing constructive steps alongside an issue', () => {
     const catalog = managedCatalog()
     catalog.tables[0]!.columns = catalog.tables[0]!.columns.filter(
       (column) => column.name !== 'email',
@@ -772,7 +772,7 @@ describe('Migration reconciliation invalid inputs and ownership: breaks otherwis
     ).toThrow(MigrationError)
   })
 
-  it('names the owning relation when a catalog member cannot be addressed', () => {
+  it('should name the owning relation when a catalog member cannot be addressed', () => {
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },
@@ -786,7 +786,7 @@ describe('Migration reconciliation invalid inputs and ownership: breaks otherwis
 })
 
 describe('Migration reconciliation invalid inputs and ownership: accepts one physical name reported under several catalog relations', () => {
-  it('accepts one physical name reported under several catalog relations', () => {
+  it('should accept one physical name reported under several catalog relations', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
     catalog.tables[0]!.indexes = [
       {
@@ -827,7 +827,7 @@ describe('Migration reconciliation invalid inputs and ownership: accepts one phy
 })
 
 describe('Migration reconciliation invalid inputs and ownership: accepts one physical name reported under several catalog relations: scopes reserved catalog names to their own namespace', () => {
-  it('scopes reserved catalog names to their own namespace', () => {
+  it('should scope reserved catalog names to their own namespace', () => {
     const TenantUsers = defineTable(
       'users',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -851,7 +851,7 @@ describe('Migration reconciliation invalid inputs and ownership: accepts one phy
 })
 
 describe('Migration reconciliation invalid inputs and ownership: does not infer namespace ownership from registered handles', () => {
-  it('does not infer namespace ownership from registered handles', () => {
+  it('should not infer namespace ownership from registered handles', () => {
     const catalog = usersCatalog([
       { name: 'id', dataType: 'uuid', isNullable: false },
       { name: 'email', dataType: 'text', isNullable: false },

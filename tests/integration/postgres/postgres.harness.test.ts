@@ -64,7 +64,7 @@ async function expectBackendsAbsent(sessions: readonly ObservedSession[]): Promi
 describe('PostgreSQL integration harness', () => {
   registerLifecycleIntegration()
 
-  it('retains callback and cleanup failures while still removing both schemas', async () => {
+  it('should retain callback and cleanup failures while still removing both schemas', async () => {
     const primary = new Error('primary callback failure')
     const cleanup = new Error('additional cleanup failure')
     let schemas: readonly string[] = []
@@ -94,7 +94,7 @@ describe('PostgreSQL integration harness', () => {
 function registerLifecycleIntegration() {
   beforeAll(waitForPostgres)
 
-  it('closes every client and removes both isolated schemas', async () => {
+  it('should close every client and remove both isolated schemas', async () => {
     const sessions = new Map<string, ObservedSession>()
     /**
      * Creates a hook that records physical-session ownership for the selected client

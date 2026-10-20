@@ -58,7 +58,7 @@ describe('table action', () => {
 })
 
 describe('table action namespace intent', () => {
-  it('retains ordered portable namespace intent', () => {
+  it('should retain ordered portable namespace intent', () => {
     const action = table({
       name: 'events',
       primaryKey: 'id',
@@ -79,7 +79,7 @@ describe('table action namespace intent', () => {
     })
   })
 
-  it('treats an empty namespace as omitted/default intent', () => {
+  it('should treat an empty namespace as omitted/default intent', () => {
     const action = table({
       name: 'events',
       primaryKey: 'id',
@@ -93,7 +93,7 @@ describe('table action namespace intent', () => {
 })
 
 describe('table action namespace intent: copies the authored namespace list so later list edits cannot retarget a table', () => {
-  it('copies the authored namespace list so later list edits cannot retarget a table', () => {
+  it('should copy the authored namespace list so later list edits cannot retarget a table', () => {
     const namespace = [{ role: 'schema' as const, spelling: 'audit' }]
     const action = table({ name: 'events', primaryKey: 'id', namespace })
 
@@ -105,7 +105,7 @@ describe('table action namespace intent: copies the authored namespace list so l
     })
   })
 
-  it('copies namespace segments so later spelling edits cannot retarget a table', () => {
+  it('should copy namespace segments so later spelling edits cannot retarget a table', () => {
     const segment = { role: 'schema' as const, spelling: 'audit' }
     const action = table({ name: 'events', primaryKey: 'id', namespace: [segment] })
 
@@ -119,7 +119,7 @@ describe('table action namespace intent: copies the authored namespace list so l
 })
 
 describe('table action namespace intent: preserves namespace role, order, and spelling as distinct authored intent', () => {
-  it('preserves namespace role, order, and spelling as distinct authored intent', () => {
+  it('should preserve namespace role, order, and spelling as distinct authored intent', () => {
     const schemaThenDatabase = table({
       name: 'events',
       primaryKey: 'id',
@@ -150,7 +150,7 @@ describe('table action namespace intent: preserves namespace role, order, and sp
 })
 
 describe('table action namespace intent: rejects malformed namespace intent', () => {
-  it('rejects malformed namespace intent', () => {
+  it('should reject malformed namespace intent', () => {
     expect(() =>
       table({
         name: 'events',
@@ -250,7 +250,7 @@ describe('getTableMetadata', () => {
     expect(getTableMetadata(string())).toBeUndefined()
   })
 
-  it('does not confuse non-table or malformed metadata for table metadata', () => {
+  it('should not confuse non-table or malformed metadata for table metadata', () => {
     expect(
       getTableMetadata(pipe(object({ id: string() }), metadata({ kind: 'column' }))),
     ).toBeUndefined()
@@ -260,7 +260,7 @@ describe('getTableMetadata', () => {
     ).toBeUndefined()
   })
 
-  it('has a stable unsupported result for a table schema hidden by a wrapper', () => {
+  it('should have a stable unsupported result for a table schema hidden by a wrapper', () => {
     const schema = nullable(
       pipe(
         object({ id: string() }),
@@ -274,7 +274,7 @@ describe('getTableMetadata', () => {
 })
 
 describe('isTableMetadata', () => {
-  it('matches only the table discriminant for public metadata inspection', () => {
+  it('should match only the table discriminant for public metadata inspection', () => {
     expect(isTableMetadata({ kind: 'table', name: 'accounts' })).toBe(true)
     expect(isTableMetadata({ kind: 'column', name: 'accounts' })).toBe(false)
     expect(isTableMetadata({ name: 'accounts', primaryKey: 'id' })).toBe(false)

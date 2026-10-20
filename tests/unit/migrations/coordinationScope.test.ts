@@ -7,7 +7,7 @@ import {
 } from '@/migrations/coordinationScope'
 
 describe('portable migration coordination scope', () => {
-  it('requires explicit dialect and database identities', () => {
+  it('should require explicit dialect and database identities', () => {
     const scope = createMigrationCoordinationScope({
       dialect: 'postgresql',
       database: 'app_db',
@@ -25,7 +25,7 @@ describe('portable migration coordination scope', () => {
     expect(migrationLockReleaseOrder(scope)).toEqual(migrationLockAcquisitionOrder(scope))
   })
 
-  it('uses only the application-scoped identity when configured', () => {
+  it('should use only the application-scoped identity when configured', () => {
     const scope = createMigrationCoordinationScope({
       dialect: 'postgresql',
       database: 'app.db',
@@ -39,7 +39,7 @@ describe('portable migration coordination scope', () => {
 })
 
 describe('portable migration coordination scope: separates dialect, database, and application tuples', () => {
-  it('separates dialect, database, and application tuples', () => {
+  it('should separate dialect, database, and application tuples', () => {
     const left = migrationLockAcquisitionOrder(
       createMigrationCoordinationScope({
         dialect: 'postgresql',
@@ -70,7 +70,7 @@ describe('portable migration coordination scope: separates dialect, database, an
 })
 
 describe('portable migration coordination scope: validates each stable identity', () => {
-  it('validates each stable identity', () => {
+  it('should validate each stable identity', () => {
     expect(() =>
       createMigrationCoordinationScope({ dialect: '', database: 'db' }),
     ).toThrow(/dialect identity/i)

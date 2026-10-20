@@ -47,7 +47,7 @@ async function formatWhitespace(source: string): Promise<string> {
 }
 
 describe('Oxlint whitespace rule', () => {
-  it('puts exactly one blank line around multiline blocks', async () => {
+  it('should put exactly one blank line around multiline blocks', async () => {
     const source = `export function example() {
   prepare()
   if (ready) {
@@ -71,7 +71,7 @@ describe('Oxlint whitespace rule', () => {
 `)
   })
 
-  it('puts the blank line before a comment attached to a single-line statement', async () => {
+  it('should put the blank line before a comment attached to a single-line statement', async () => {
     const source = `export function example() {
   prepare()
   // Run only when ready.
@@ -90,7 +90,7 @@ describe('Oxlint whitespace rule', () => {
 })
 
 describe('Oxlint whitespace rule: keeps consecutive single-line if statements together', () => {
-  it('keeps consecutive single-line if statements together', async () => {
+  it('should keep consecutive single-line if statements together', async () => {
     const source = `export function example() {
   if (first) { one() }
   if (second) { two() }
@@ -100,7 +100,7 @@ describe('Oxlint whitespace rule: keeps consecutive single-line if statements to
     await expect(formatWhitespace(source)).resolves.toBe(source)
   })
 
-  it('separates a comment attached to the next single-line if statement', async () => {
+  it('should separate a comment attached to the next single-line if statement', async () => {
     const source = `export function example() {
   if (first) one()
   // Handle the second case.
@@ -122,7 +122,7 @@ describe('Oxlint whitespace rule: keeps consecutive single-line if statements to
 })
 
 describe('Oxlint whitespace rule: puts exactly one blank line after a single-line if statement', () => {
-  it('puts exactly one blank line after a single-line if statement', async () => {
+  it('should put exactly one blank line after a single-line if statement', async () => {
     const source = `export function example(value?: string) {
   prepare()
   if (value) use(value)
@@ -145,7 +145,7 @@ describe('Oxlint whitespace rule: puts exactly one blank line after a single-lin
 })
 
 describe('Oxlint whitespace rule: pads a single-line if statement written with a block', () => {
-  it('pads a single-line if statement written with a block', async () => {
+  it('should pad a single-line if statement written with a block', async () => {
     const source = `export function example(value?: string) {
   if (value) { use(value) }
   finish()
@@ -161,7 +161,7 @@ describe('Oxlint whitespace rule: pads a single-line if statement written with a
 `)
   })
 
-  it('keeps consecutive single-line early returns together', async () => {
+  it('should keep consecutive single-line early returns together', async () => {
     const source = `export function example(first?: string, second?: string) {
   if (!first) return
   if (!second) return
@@ -181,7 +181,7 @@ describe('Oxlint whitespace rule: pads a single-line if statement written with a
 })
 
 describe('Oxlint whitespace rule: pads a single-line if statement written with a block: separates a final return from preceding single-line if statements', () => {
-  it('separates a final return from preceding single-line if statements', async () => {
+  it('should separate a final return from preceding single-line if statements', async () => {
     const source = `export function targetMember(target: Target) {
   if (target.kind === 'column') return target.column
   if (target.kind === 'index') return target.index
@@ -205,7 +205,7 @@ describe('Oxlint whitespace rule: separates a related %s declaration from a sing
     ['const', 'const ready = getReady()', 'finish()'],
     ['let', 'let ready = getReady()', 'ready = false\n  finish(ready)'],
   ])(
-    'separates a related %s declaration from a single-line if statement',
+    'should separate a related %s declaration from a single-line if statement',
     async (_, declaration, followingStatements) => {
       const source = `export function example() {
   ${declaration}
@@ -227,7 +227,7 @@ describe('Oxlint whitespace rule: separates a related %s declaration from a sing
 })
 
 describe('Oxlint whitespace declarations: pads a multiline const', () => {
-  it('puts exactly one blank line after a multiline const declaration', async () => {
+  it('should put exactly one blank line after a multiline const declaration', async () => {
     const source = `export async function example() {
   const state: State = {
     ready: false,
@@ -249,7 +249,7 @@ describe('Oxlint whitespace declarations: pads a multiline const', () => {
 `)
   })
 
-  it('does not mistake an ASI-protection semicolon for a multiline const', async () => {
+  it('should not mistake an ASI-protection semicolon for a multiline const', async () => {
     const source = `export function example(connector: Connector) {
   const getInstance = connector.getInstance
   ;(connector as { name: string }).name = 'custom'
@@ -259,7 +259,7 @@ describe('Oxlint whitespace declarations: pads a multiline const', () => {
     await expect(formatWhitespace(source)).resolves.toBe(source)
   })
 
-  it('puts the blank line before an ASI-protection semicolon', async () => {
+  it('should put the blank line before an ASI-protection semicolon', async () => {
     const source = `export function example(connector: Connector) {
   const result = createResult(
     connector,
@@ -281,7 +281,7 @@ describe('Oxlint whitespace declarations: pads a multiline const', () => {
 })
 
 describe('Oxlint whitespace declarations and calls', () => {
-  it('separates a related declaration from a multiline if statement', async () => {
+  it('should separate a related declaration from a multiline if statement', async () => {
     const source = `export function example() {
   const request = createRequest()
   if (ready) {
@@ -300,7 +300,7 @@ describe('Oxlint whitespace declarations and calls', () => {
 `)
   })
 
-  it('still separates an unrelated variable declaration from a multiline block', async () => {
+  it('should still separate an unrelated variable declaration from a multiline block', async () => {
     const source = `export function example() {
   const requestId = createRequestId()
   if (ready) {
@@ -324,7 +324,7 @@ describe('Oxlint whitespace declarations and calls', () => {
 })
 
 describe('Oxlint whitespace declarations and calls: puts exactly one blank line around a multiline function call', () => {
-  it('puts exactly one blank line around a multiline function call', async () => {
+  it('should put exactly one blank line around a multiline function call', async () => {
     const source = `export async function example() {
   prepare()
   await run(
@@ -361,7 +361,7 @@ describe('Oxlint whitespace declarations and calls: keeps a related %s declarati
       'request = updateRequest(request)\n  finish(request)',
     ],
   ])(
-    'keeps a related %s declaration with a multiline function call',
+    'should keep a related %s declaration with a multiline function call',
     async (_, declaration, followingStatements) => {
       const source = `export function example() {
   ${declaration}
@@ -388,7 +388,7 @@ describe('Oxlint whitespace declarations and calls: keeps a related %s declarati
 })
 
 describe('Oxlint whitespace declarations and calls: keeps a related %s declaration with a multiline function call: puts one blank line around a multiline optional call', () => {
-  it('puts one blank line around a multiline optional call', async () => {
+  it('should put one blank line around a multiline optional call', async () => {
     const source = `export function example() {
   prepare()
   run?.(
@@ -412,7 +412,7 @@ describe('Oxlint whitespace declarations and calls: keeps a related %s declarati
 })
 
 describe('Oxlint whitespace declarations and calls: keeps a related %s declaration with a multiline function call: separates an unrelated declaration from a multiline function call', () => {
-  it('separates an unrelated declaration from a multiline function call', async () => {
+  it('should separate an unrelated declaration from a multiline function call', async () => {
     const source = `export function example() {
   const requestId = createRequestId()
   run(
@@ -438,7 +438,7 @@ describe('Oxlint whitespace declarations and calls: keeps a related %s declarati
 })
 
 describe('Oxlint whitespace types and function chains', () => {
-  it('puts exactly one blank line around a multiline type alias', async () => {
+  it('should put exactly one blank line around a multiline type alias', async () => {
     const source = `export function example(value: string) {
   const before = value
   type Result = {
@@ -467,7 +467,7 @@ describe('Oxlint whitespace types and function chains', () => {
 })
 
 describe('Oxlint whitespace types and function chains: puts the leading blank line before a comment on a multiline interface', () => {
-  it('puts the leading blank line before a comment on a multiline interface', async () => {
+  it('should put the leading blank line before a comment on a multiline interface', async () => {
     const source = `export const before = true
 // Public result shape.
 export interface Result {
@@ -487,7 +487,7 @@ export const after = true
 `)
   })
 
-  it('does not pad a single-line type alias', async () => {
+  it('should not pad a single-line type alias', async () => {
     const source = `export const before = true
 export type Result = { value: string }
 export const after = true
@@ -498,7 +498,7 @@ export const after = true
 })
 
 describe('Oxlint whitespace types and function chains: puts exactly one blank line between multiline function chains', () => {
-  it('puts exactly one blank line between multiline function chains', async () => {
+  it('should put exactly one blank line between multiline function chains', async () => {
     const source = `export function example(request: Request) {
   const absentRelations = request.absentRelations
     .map(resolveRelation)
@@ -531,7 +531,7 @@ describe('Oxlint whitespace types and function chains: puts exactly one blank li
 })
 
 describe('Oxlint whitespace types and function chains: handles multiline call initializers', () => {
-  it('still pads a multiline const with a call initializer', async () => {
+  it('should still pad a multiline const with a call initializer', async () => {
     const source = `export function example(value: string) {
   const result = createResult(
     value,
@@ -551,7 +551,7 @@ describe('Oxlint whitespace types and function chains: handles multiline call in
 `)
   })
 
-  it('does not treat an object property as a declaration use', async () => {
+  it('should not treat an object property as a declaration use', async () => {
     const source = `export function example() {
   const request = createRequest()
   run(

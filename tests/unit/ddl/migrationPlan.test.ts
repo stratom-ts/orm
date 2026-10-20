@@ -73,7 +73,7 @@ const SUPPORTED_CATALOG_SEMANTICS = {
   isValid: true,
 }
 
-it('authorizes local unique and foreign-key removal only through explicit source-column drops', () => {
+it('should authorize local unique and foreign-key removal only through explicit source-column drops', () => {
   const Keep = defineTable('keep', { id: string() }, { primaryKey: 'id' })
   const Retain = defineTable(
     'keep',
@@ -145,7 +145,7 @@ function droppedConstraintCatalog(): CatalogSnapshot {
 const catalogPrimaryKey = createCatalogPrimaryKey(SUPPORTED_CATALOG_SEMANTICS)
 
 describe('PostgreSQL inferred UUID Migration Plans', () => {
-  it('leaves an already-UUID catalog unchanged', () => {
+  it('should leave an already-UUID catalog unchanged', () => {
     const Desired = defineTable(
       'uuid_payloads',
       { id: pipe(string(), uuid()) },
@@ -279,7 +279,7 @@ function mixedCatalog(): CatalogSnapshot {
 }
 
 describe('Migration Plan construction', () => {
-  it('plans authored namespace intent from table metadata', () => {
+  it('should plan authored namespace intent from table metadata', () => {
     const Scoped = defineTable(
       'scoped_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -352,7 +352,7 @@ const lowerCustomDesiredSchema = (graph: AuthoredDesiredSchema) => ({
 })
 
 describe('Migration Plan selected dialect semantics', () => {
-  it('uses the supplied dialect without introspection or compilation', () => {
+  it('should use the supplied dialect without introspection or compilation', () => {
     const PortableSettings = createPortableSettingsTable()
     const { dialect, introspect, compile, identity, identityModules, naming } =
       createCustomPlanningDialect()
@@ -394,7 +394,7 @@ describe('Migration Plan selected dialect semantics', () => {
 })
 
 describe('Migration Plan phase and target ordering', () => {
-  it('covers every supported step kind in canonical phase and target order', () => {
+  it('should cover every supported step kind in canonical phase and target order', () => {
     expect(
       planMigration(
         [Comments, Users, AuditEvents, Accounts],
@@ -416,7 +416,7 @@ describe('Migration Plan phase and target ordering', () => {
 })
 
 describe('Migration Plan ordering and semantic profiles', () => {
-  it('uses locale-independent code-unit target ordering', () => {
+  it('should use locale-independent code-unit target ordering', () => {
     const Lowercase = defineTable(
       'alpha',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -441,7 +441,7 @@ describe('Migration Plan ordering and semantic profiles', () => {
 })
 
 describe('Migration Plan ordering and semantic profiles: produces equal Migration Plans for omitted and explicit resolved defaults', () => {
-  it('produces equal Migration Plans for omitted and explicit resolved defaults', () => {
+  it('should produce equal Migration Plans for omitted and explicit resolved defaults', () => {
     const Omitted = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -493,7 +493,7 @@ describe('Migration Plan ordering and semantic profiles: produces equal Migratio
 })
 
 describe('Migration Plan ordering and semantic profiles: uses an explicit registration default before the session writable default', () => {
-  it('uses an explicit registration default before the session writable default', () => {
+  it('should use an explicit registration default before the session writable default', () => {
     const Omitted = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -515,7 +515,7 @@ describe('Migration Plan ordering and semantic profiles: uses an explicit regist
 })
 
 describe('Migration Plan ordering and semantic profiles: uses an explicit registration default before the session writable default: applies the registration default to foreign-key targets', () => {
-  it('applies the registration default to foreign-key targets', () => {
+  it('should apply the registration default to foreign-key targets', () => {
     const Parent = defineTable(
       'parents',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -551,7 +551,7 @@ describe('Migration Plan ordering and semantic profiles: uses an explicit regist
 })
 
 describe('Migration Plan ordering and semantic profiles: keeps structured migration registrations distinct without dotted keys', () => {
-  it('keeps structured migration registrations distinct without dotted keys', () => {
+  it('should keep structured migration registrations distinct without dotted keys', () => {
     const definitions = [
       ['c', 'a.b'],
       ['b.c', 'a'],
@@ -592,7 +592,7 @@ describe('Migration Plan ordering and semantic profiles: keeps structured migrat
 })
 
 describe('Migration Plan determinism and semantic profiles', () => {
-  it('is invariant to registered table and catalog collection order', () => {
+  it('should be invariant to registered table and catalog collection order', () => {
     const handles = [Accounts, AuditEvents, Comments, Users]
     const catalog = mixedCatalog()
     const originalCatalog = structuredClone(catalog)
@@ -621,7 +621,7 @@ describe('Migration Plan determinism and semantic profiles', () => {
 })
 
 describe('Migration Plan determinism and semantic profiles: records the resolved semantic profile every step was built under', () => {
-  it('records the resolved semantic profile every step was built under', () => {
+  it('should record the resolved semantic profile every step was built under', () => {
     const schemas = [Users]
     const registrationDefault = [{ role: 'schema' as const, spelling: 'tenant' }]
 
@@ -644,7 +644,7 @@ describe('Migration Plan determinism and semantic profiles: records the resolved
 })
 
 describe('Migration Plan determinism and semantic profiles: keeps step kinds and phase order stable while targets stay profile-local', () => {
-  it('keeps step kinds and phase order stable while targets stay profile-local', () => {
+  it('should keep step kinds and phase order stable while targets stay profile-local', () => {
     const Items = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },

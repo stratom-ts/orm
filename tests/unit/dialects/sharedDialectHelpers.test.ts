@@ -111,7 +111,7 @@ function tiedColumnGraph(member: Member): AuthoredDesiredSchema {
 }
 
 it.each(members)(
-  '$name resolves reference types and builds one immutable result shape',
+  'should resolve reference types and build one immutable result shape for $name',
   (member) => {
     const lowered = member.schema.lowerDesiredSchema(referenceFixture(member).graph)
     const child = lowered.tables.find(
@@ -135,7 +135,7 @@ it.each(members)(
   },
 )
 
-it.each(members)('$name preserves missing-target diagnostics', (member) => {
+it.each(members)('should preserve missing-target diagnostics for $name', (member) => {
   const { Parent, graph } = referenceFixture(member)
 
   expect(() =>
@@ -147,14 +147,17 @@ it.each(members)('$name preserves missing-target diagnostics', (member) => {
   )
 })
 
-it.each(members)('$name preserves reference-only cycle diagnostics', (member) => {
-  expect(() => member.schema.lowerDesiredSchema(cycleGraph(member))).toThrow(
-    /Cannot resolve reference-only physical type cycle at \[.*relation:"cycle_a", column:"id"\]/,
-  )
-})
+it.each(members)(
+  'should preserve reference-only cycle diagnostics for $name',
+  (member) => {
+    expect(() => member.schema.lowerDesiredSchema(cycleGraph(member))).toThrow(
+      /Cannot resolve reference-only physical type cycle at \[.*relation:"cycle_a", column:"id"\]/,
+    )
+  },
+)
 
 it.each(members)(
-  '$name orders equal canonical column keys by authored spelling',
+  'should order equal canonical column keys by authored spelling for $name',
   (member) => {
     expect(() => member.schema.lowerDesiredSchema(tiedColumnGraph(member))).toThrow(
       new RegExp(
@@ -165,7 +168,7 @@ it.each(members)(
   },
 )
 
-it('uses one replaceable lifecycle command compiler for both production members', () => {
+it('should use one replaceable lifecycle command compiler for both production members', () => {
   const command = { kind: 'rollbackToSavepoint' as const, id: 7 }
   const expected = { sql: 'rollback to savepoint sp_7', params: [] }
 

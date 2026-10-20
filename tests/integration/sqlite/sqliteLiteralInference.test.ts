@@ -6,7 +6,7 @@ import { SchemaError } from '@/utils/error'
 
 import { withSqliteConnector, withSqliteDatabase } from './sqliteIntegration'
 
-it('leaves an existing SQLite catalog and seeded data unchanged when literal lowering fails', async () => {
+it('should leave an existing SQLite catalog and seeded data unchanged when literal lowering fails', async () => {
   await withSqliteConnector(async ({ connector, native }) => {
     native.exec(
       "create table seed(id INTEGER primary key, value TEXT); insert into seed values(7, 'kept')",
@@ -42,7 +42,7 @@ it('leaves an existing SQLite catalog and seeded data unchanged when literal low
   })
 })
 
-it('migrates, round-trips supported number and bigint literal boundaries, then has an empty second dry run', async () => {
+it('should migrate, round-trips supported number and bigint literal boundaries, then has an empty second dry run', async () => {
   const minBigInt = -9223372036854775808n
   const maxBigInt = 9223372036854775807n
   const LiteralValues = defineTable(
@@ -75,7 +75,7 @@ it('migrates, round-trips supported number and bigint literal boundaries, then h
   })
 })
 
-it('allows paired explicit mappings to represent an out-of-range bigint literal in BLOB storage', async () => {
+it('should allow paired explicit mappings to represent an out-of-range bigint literal in BLOB storage', async () => {
   const outOfRange = 9223372036854775808n
   const Records = defineTable(
     'literal_blob_records',

@@ -22,11 +22,11 @@ describe('PostgreSQL native failure classification', () => {
     ['08P01', 'unknown', false],
     ['08garbage', 'unknown', false],
     ['XX000', 'unknown', false],
-  ] as const)('maps SQLSTATE or network code %s', (code, kind, retryable) => {
+  ] as const)('should map SQLSTATE or network code %s', (code, kind, retryable) => {
     expect(postgresClassifyDriverError({ code })).toMatchObject({ kind, retryable })
   })
 
-  it('includes only native PostgreSQL relation and column diagnostics', () => {
+  it('should include only native PostgreSQL relation and column diagnostics', () => {
     expect(
       postgresClassifyDriverError({
         code: '23502',
@@ -55,7 +55,7 @@ describe('SQLite native failure classification', () => {
     ['SQLITE_BUSY_SNAPSHOT', 'transient', true],
     ['SQLITE_LOCKED_SHAREDCACHE', 'transient', true],
     ['SQLITE_CONSTRAINT', 'unknown', false],
-  ] as const)('maps native code %s', (code, kind, retryable) => {
+  ] as const)('should map native code %s', (code, kind, retryable) => {
     expect(sqliteClassifyDriverError({ code })).toEqual({ kind, retryable })
   })
 
@@ -70,7 +70,7 @@ describe('SQLite native failure classification', () => {
     [6, 'transient', true],
     [262, 'transient', true],
     [19, 'unknown', false],
-  ] as const)('maps node:sqlite errcode %i', (errcode, kind, retryable) => {
+  ] as const)('should map node:sqlite errcode %i', (errcode, kind, retryable) => {
     expect(sqliteClassifyDriverError({ code: 'ERR_SQLITE_ERROR', errcode })).toEqual({
       kind,
       retryable,
@@ -79,7 +79,7 @@ describe('SQLite native failure classification', () => {
 })
 
 it.each([postgresClassifyDriverError, sqliteClassifyDriverError])(
-  'finds nested native codes without inferring from messages',
+  'should find nested native codes without inferring from messages',
   (classify) => {
     const native: { code: string; cause?: unknown } = {
       code: classify === sqliteClassifyDriverError ? 'SQLITE_CONSTRAINT_UNIQUE' : '23505',
@@ -100,7 +100,7 @@ it.each([postgresClassifyDriverError, sqliteClassifyDriverError])(
 )
 
 it.each([postgresClassifyDriverError, sqliteClassifyDriverError])(
-  'terminates unknown cyclic and hostile cause chains',
+  'should terminate unknown cyclic and hostile cause chains',
   (classify) => {
     const self: { code: string; cause?: unknown } = { code: 'unrecognized' }
     self.cause = self
@@ -121,7 +121,7 @@ it.each([postgresClassifyDriverError, sqliteClassifyDriverError])(
   },
 )
 
-it('ignores hostile PostgreSQL code and metadata getters while finding a nested failure', () => {
+it('should ignore hostile PostgreSQL code and metadata getters while finding a nested failure', () => {
   const native = Object.defineProperties(
     { code: '23505' },
     Object.fromEntries(
@@ -148,7 +148,7 @@ it('ignores hostile PostgreSQL code and metadata getters while finding a nested 
   })
 })
 
-it('ignores hostile SQLite code and errcode getters while finding an extended code', () => {
+it('should ignore hostile SQLite code and errcode getters while finding an extended code', () => {
   const native = Object.defineProperty(
     { code: 'ERR_SQLITE_ERROR', extendedErrcode: 2067 },
     'errcode',

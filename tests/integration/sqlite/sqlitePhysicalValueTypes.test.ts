@@ -20,7 +20,7 @@ import { QueryError } from '@/utils/error'
 import { withSqliteDatabase } from './sqliteIntegration'
 
 it.each(['INTEGER', 'NUMERIC', 'REAL', 'BLOB', 'FLOATING POINT', 'DECIMAL(10,2)'])(
-  'preserves logical numbers and booleans through %s affinity, predicates and RETURNING',
+  'should preserve logical numbers and booleans through %s affinity, predicates and RETURNING',
   async (type) => {
     const Records = defineTable(
       'records',
@@ -75,7 +75,7 @@ it.each(['INTEGER', 'NUMERIC', 'REAL', 'BLOB', 'FLOATING POINT', 'DECIMAL(10,2)'
 )
 
 it.each(['TEXT', 'CHARACTER VARYING(32)', 'BLOB'])(
-  'preserves string spelling through %s in SELECT, RETURNING and predicates',
+  'should preserve string spelling through %s in SELECT, RETURNING and predicates',
   async (type) => {
     const Records = defineTable(
       'records',
@@ -103,7 +103,7 @@ it.each(['TEXT', 'CHARACTER VARYING(32)', 'BLOB'])(
 )
 
 it.each(['INTEGER', 'NUMERIC', 'BLOB'])(
-  'enforces signed 64-bit bigint values through %s before native execution',
+  'should enforce signed 64-bit bigint values through %s before native execution',
   async (type) => {
     const Records = defineTable(
       'records',
@@ -141,7 +141,7 @@ it.each(['INTEGER', 'NUMERIC', 'BLOB'])(
   },
 )
 
-it('rejects an out-of-range native bigint result', async () => {
+it('should reject an out-of-range native bigint result', async () => {
   const Records = defineTable(
     'records',
     {
@@ -161,7 +161,7 @@ it('rejects an out-of-range native bigint result', async () => {
   })
 })
 
-it('lets paired column hooks own bigint values outside the built-in range', async () => {
+it('should let paired column hooks own bigint values outside the built-in range', async () => {
   const Records = defineTable(
     'records',
     {
@@ -187,7 +187,7 @@ it('lets paired column hooks own bigint values outside the built-in range', asyn
 })
 
 it.each(['column', 'client', 'mixed'])(
-  'uses paired %s hooks for safe numeric/boolean TEXT and numeric-affinity strings',
+  'should use paired %s hooks for safe numeric/boolean TEXT and numeric-affinity strings',
   async (scope) => {
     const encode = (value: unknown) => JSON.stringify({ value })
     const decode = (value: unknown) =>
@@ -231,7 +231,7 @@ it.each(['column', 'client', 'mixed'])(
   },
 )
 
-it('rejects unsafe native integer results for logical numbers', async () => {
+it('should reject unsafe native integer results for logical numbers', async () => {
   const Records = defineTable(
     'records',
     { value: pipe(number(), column({ physicalType: { sqlite: 'INTEGER' } })) },
@@ -247,7 +247,7 @@ it('rejects unsafe native integer results for logical numbers', async () => {
   })
 })
 
-it('keeps compatible built-in mappings when only one column direction is overridden', async () => {
+it('should keep compatible built-in mappings when only one column direction is overridden', async () => {
   const Records = defineTable(
     'records',
     {
@@ -281,7 +281,7 @@ it('keeps compatible built-in mappings when only one column direction is overrid
   })
 })
 
-it('maps transformed references through paired hooks in SELECT and predicates', async () => {
+it('should map transformed references through paired hooks in SELECT and predicates', async () => {
   const Parents = defineTable('parents', { value: string() }, { primaryKey: 'value' })
   const Children = defineTable(
     'children',
@@ -313,7 +313,7 @@ it('maps transformed references through paired hooks in SELECT and predicates', 
   })
 })
 
-it('retains Date and bracketed JSON values with numeric affinity', async () => {
+it('should retain Date and bracketed JSON values with numeric affinity', async () => {
   const Records = defineTable(
     'records',
     {

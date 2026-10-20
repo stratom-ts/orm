@@ -13,7 +13,7 @@ import {
 } from '@/index'
 
 describe('reference action', () => {
-  it('copies complete structured relation intent from raw schemas and handles', () => {
+  it('should copy complete structured relation intent from raw schemas and handles', () => {
     const namespace = [
       { role: 'catalog' as const, spelling: 'app' },
       { role: 'database' as const, spelling: 'tenant' },
@@ -41,7 +41,7 @@ describe('reference action', () => {
     )
   })
 
-  it('copies namespace segment spelling from a raw schema', () => {
+  it('should copy namespace segment spelling from a raw schema', () => {
     const rawSegment = { role: 'schema' as const, spelling: 'raw_audit' }
     const RawTarget = pipe(
       object({ id: string() }),
@@ -60,7 +60,7 @@ describe('reference action', () => {
 })
 
 describe('reference action: copies namespace segment spelling from a table handle', () => {
-  it('copies namespace segment spelling from a table handle', () => {
+  it('should copy namespace segment spelling from a table handle', () => {
     const handleSegment = { role: 'schema' as const, spelling: 'handle_audit' }
     const HandleTarget = defineTable(
       'handle_events',
@@ -207,7 +207,7 @@ describe('getReferenceMetadata', () => {
     expect(getReferenceMetadata(string())).toBeUndefined()
   })
 
-  it('does not confuse column metadata for a reference', () => {
+  it('should not confuse column metadata for a reference', () => {
     expect(
       getReferenceMetadata(
         pipe(string(), column({ physicalType: { postgresql: 'text' } })),
@@ -215,7 +215,7 @@ describe('getReferenceMetadata', () => {
     ).toBeUndefined()
   })
 
-  it('finds the nearest reference through nested pipes and wrappers', () => {
+  it('should find the nearest reference through nested pipes and wrappers', () => {
     const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
     const schema = nullable(
       optional(pipe(reference(Accounts, 'id'), metadata({ note: true }))),
@@ -227,7 +227,7 @@ describe('getReferenceMetadata', () => {
     })
   })
 
-  it('ignores malformed metadata actions instead of treating them as references', () => {
+  it('should ignore malformed metadata actions instead of treating them as references', () => {
     const schema = pipe(string(), metadata({ kind: null, target: 'accounts.id' }))
 
     expect(getReferenceMetadata(schema)).toBeUndefined()
@@ -235,7 +235,7 @@ describe('getReferenceMetadata', () => {
 })
 
 describe('isReferenceMetadata', () => {
-  it('matches only the reference discriminant for public metadata inspection', () => {
+  it('should match only the reference discriminant for public metadata inspection', () => {
     expect(
       isReferenceMetadata({
         kind: 'reference',

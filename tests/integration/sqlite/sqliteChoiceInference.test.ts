@@ -23,7 +23,7 @@ const ChoiceValues = defineTable(
   { primaryKey: 'id' },
 )
 
-it('migrates and round-trips inferred SQLite enum and picklist values', async () => {
+it('should migrate and round-trips inferred SQLite enum and picklist values', async () => {
   await withSqliteDatabase([ChoiceValues], async ({ db }) => {
     await db.migrate().execute()
 

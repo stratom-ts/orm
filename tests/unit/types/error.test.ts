@@ -46,7 +46,7 @@ function describeCaughtError(error: unknown): string {
   return 'unknown'
 }
 
-it('narrows missing rows and database conflicts from unknown', () => {
+it('should narrow missing rows and database conflicts from unknown', () => {
   expect(describeCaughtError(new QueryError({ message: 'No rows returned' }))).toBe(
     'No rows returned',
   )
@@ -65,7 +65,7 @@ it('narrows missing rows and database conflicts from unknown', () => {
   ).toBe('conflict')
 })
 
-it('narrows retryable failures and blocked migrations from unknown', () => {
+it('should narrow retryable failures and blocked migrations from unknown', () => {
   expect(
     describeCaughtError(
       new DriverError({
@@ -93,7 +93,7 @@ it('narrows retryable failures and blocked migrations from unknown', () => {
   ).toBe('lowering: compile_failure')
 })
 
-it('narrows structured validation issues from unknown', () => {
+it('should narrow structured validation issues from unknown', () => {
   expect(
     describeCaughtError(
       new ValidationError({

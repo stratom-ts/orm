@@ -28,7 +28,7 @@ const main = [{ role: 'database' as const, spelling: 'main' }]
 const records = { relation: 'records' } as const
 const events = { relation: 'events' } as const
 
-it('rejects registered wildcard joins whose output names collide', () => {
+it('should reject registered wildcard joins whose output names collide', () => {
   const resolved = sqliteQuery.resolve([Records, Events])
   expect(() =>
     resolved.compile({
@@ -52,7 +52,7 @@ it('rejects registered wildcard joins whose output names collide', () => {
   ).toThrow('SQLite query output columns are ambiguous')
 })
 
-it('expands a relation-scoped wildcard join using authored names and preserves output aliases', () => {
+it('should expand a relation-scoped wildcard join using authored names and preserve output aliases', () => {
   const resolved = sqliteQuery.resolve([Records, Events])
   expect(
     resolved.compile({
@@ -83,7 +83,7 @@ it('expands a relation-scoped wildcard join using authored names and preserves o
 })
 
 describe('SQLite query', () => {
-  it('shares main-defaulted ASCII-insensitive relation and member lookup with compilation', () => {
+  it('should share main-defaulted ASCII-insensitive relation and member lookup with compilation', () => {
     const resolved = sqliteQuery.resolve([Records, Events], { registrationDefault: main })
 
     expect(resolved.findRelationMatches(records)).toEqual([Records])
@@ -103,7 +103,7 @@ describe('SQLite query', () => {
     })
   })
 
-  it('compiles an empty selection as select-all', () => {
+  it('should compile an empty selection as select-all', () => {
     expect(
       compileSqliteQuery({ kind: 'select', relation: records, selection: [] }),
     ).toEqual({
@@ -114,7 +114,7 @@ describe('SQLite query', () => {
 })
 
 describe('SQLite query', () => {
-  it('compiles supported joins and write forms with anonymous placeholders', () => {
+  it('should compile supported joins and write forms with anonymous placeholders', () => {
     assertSqliteJoin()
 
     assertSqliteInserts()
@@ -152,7 +152,7 @@ describe('SQLite query', () => {
 })
 
 describe('SQLite query', () => {
-  it('rejects unsupported SQLite 3.37 forms synchronously', () => {
+  it('should reject unsupported SQLite 3.37 forms synchronously', () => {
     assertUnsupportedSqliteJoinAndDateFunctions()
 
     /**
@@ -199,7 +199,7 @@ describe('SQLite query', () => {
 })
 
 describe('SQLite query', () => {
-  it('requires an explicit full-table opt-in for empty boolean predicate groups', () => {
+  it('should require an explicit full-table opt-in for empty boolean predicate groups', () => {
     /** Starts an update operation for a registered table handle. */
     const update = () =>
       compileSqliteQuery({
@@ -227,7 +227,7 @@ describe('SQLite query', () => {
 })
 
 describe('SQLite query', () => {
-  it('requires allowAll for writes without a predicate', () => {
+  it('should require allowAll for writes without a predicate', () => {
     /** Compiles an unrestricted update to exercise write-safety rejection. */
     const blockedUpdate = () =>
       compileSqliteQuery({

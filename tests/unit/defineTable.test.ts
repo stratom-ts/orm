@@ -112,7 +112,7 @@ describe('defineTable', () => {
 })
 
 describe('defineTable: retains ordered multi-role namespace intent on column refs', () => {
-  it('retains ordered multi-role namespace intent on column refs', () => {
+  it('should retain ordered multi-role namespace intent on column refs', () => {
     const TenantEvents = defineTable(
       'events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
@@ -140,7 +140,7 @@ describe('defineTable: retains ordered multi-role namespace intent on column ref
 })
 
 describe('defineTable: normalizes an empty namespace to omitted intent in runtime and types', () => {
-  it('normalizes an empty namespace to omitted intent in runtime and types', () => {
+  it('should normalize an empty namespace to omitted intent in runtime and types', () => {
     const Events = defineTable(
       'events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
@@ -559,7 +559,7 @@ describe('defineTable structural keys and references: should reject null databas
 })
 
 describe('defineTable structural keys and references: should reject null database defaults and incoherent FK actions structurally: validates structured reference targets instead of legacy flat fields', () => {
-  it('validates structured reference targets instead of legacy flat fields', () => {
+  it('should validate structured reference targets instead of legacy flat fields', () => {
     /** Defines a posts table with the supplied reference metadata for validation checks. */
     const defineWithReferenceMetadata = (referenceMetadata: Record<string, unknown>) =>
       defineTable(

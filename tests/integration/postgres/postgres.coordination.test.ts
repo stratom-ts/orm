@@ -114,7 +114,7 @@ function rejected(settlement: Settlement<unknown>): unknown {
 beforeAll(waitForPostgres)
 
 describe('PostgreSQL transaction and coordination integration', () => {
-  it('uses savepoints for nested success and rollback on one physical session', async () => {
+  it('should use savepoints for nested success and rollback on one physical session', async () => {
     const events: SessionEvent[] = []
 
     await withPostgresDatabase(
@@ -152,7 +152,7 @@ describe('PostgreSQL transaction and coordination integration', () => {
 })
 
 describe('PostgreSQL coordination integration', () => {
-  it('coordinates timeout, cancellation, release, and reacquisition across clients', async () => {
+  it('should coordinate timeout, cancellation, release, and reacquisition across clients', async () => {
     const firstReachedDdl = deferred()
     const releaseFirst = deferred()
     const applicationId = `postgres-integration-${randomUUID()}`

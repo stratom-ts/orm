@@ -40,7 +40,7 @@ function col(
 const compile = compilePostgresDdl
 
 describe('PostgreSQL SQL safety', () => {
-  it('tags unsafe types, unsupported types, and non-finite defaults as schema errors', () => {
+  it('should tag unsafe types, unsupported types, and non-finite defaults as schema errors', () => {
     expect(() => assertSafePostgresDataType('text; drop table users')).toThrow(
       SchemaError,
     )

@@ -47,13 +47,13 @@ describe('PostgreSQL schema', () => {
     )
   })
 
-  it('normalizes a default value to the catalog comparison key', () => {
+  it('should normalize a default value to the catalog comparison key', () => {
     expect(postgresDialect.schema.normalizeDefaultValue?.('pending')).toBe("'pending'")
   })
 })
 
 describe('PostgreSQL schema', () => {
-  it('infers UUID through wrappers and nested pipes before length storage', () => {
+  it('should infer UUID through wrappers and nested pipes before length storage', () => {
     const schemas = [
       pipe(string(), uuid()),
       pipe(string(), uuid(), maxLength(36)),
@@ -76,14 +76,14 @@ describe('PostgreSQL schema', () => {
     for (const schema of schemas) expect(inferColumnType(schema)).toBe('uuid')
   })
 
-  it('keeps Valibot length validation active even when UUID storage wins', () => {
+  it('should keep Valibot length validation active even when UUID storage wins', () => {
     const schema = pipe(string(), uuid(), maxLength(35))
     expect(inferColumnType(schema)).toBe('uuid')
 
     expect(safeParse(schema, '550e8400-e29b-41d4-a716-446655440000').success).toBe(false)
   })
 
-  it('keeps other validators on ordinary string storage', () => {
+  it('should keep other validators on ordinary string storage', () => {
     expect(inferColumnType(pipe(string(), email()))).toBe('text')
     expect(inferColumnType(pipe(string(), regex(/^[a-z]+$/)))).toBe('text')
     expect(inferColumnType(pipe(string(), email(), maxLength(60)))).toBe('varchar(60)')

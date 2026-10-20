@@ -24,7 +24,7 @@ function countDatabase(rowCount?: number) {
   })
 }
 
-it('preserves counts and write-result types through every terminal', async () => {
+it('should preserve counts and write-result types through every terminal', async () => {
   const db = countDatabase(7)
   try {
     const insert = db.insert(Records).values({ id: 1, label: 'one' }).returningNone()
@@ -65,7 +65,7 @@ it('preserves counts and write-result types through every terminal', async () =>
   }
 })
 
-it('clears returning immutably and preserves conflict and filter chains', async () => {
+it('should clear returning immutably and preserve conflict and filter chains', async () => {
   const db = countDatabase(0)
   try {
     const insert = db.insert(Records).values({ id: 1, label: 'one' }).returningAll()
@@ -96,7 +96,7 @@ it('clears returning immutably and preserves conflict and filter chains', async 
 })
 
 it.each([undefined, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
-  'rejects missing or invalid provider count %s as an invariant defect',
+  'should reject missing or invalid provider count %s as an invariant defect',
   async (rowCount) => {
     const db = countDatabase(rowCount)
     try {

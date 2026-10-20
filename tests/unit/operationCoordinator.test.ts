@@ -64,7 +64,7 @@ function classifiedDatabase(
 
 describe('selected member provider failure classification', () => {
   it.each(['query', 'open'] as const)(
-    'applies the selected member classifier to recognized %s provider failures',
+    'should apply the selected member classifier to recognized %s provider failures',
     async (stage) => {
       const native = { code: '23505' }
       const driver = new DriverError({
@@ -102,7 +102,7 @@ describe('selected member provider failure classification', () => {
   )
 })
 
-it('keeps query context and release cleanup evidence when it wraps a driver failure', async () => {
+it('should keep query context and release cleanup evidence when it wraps a driver failure', async () => {
   const secret = 'native-secret-value'
   const nativeCause = new Error(`query failed: ${secret}`)
   const driver = new DriverError({
@@ -146,7 +146,7 @@ it('keeps query context and release cleanup evidence when it wraps a driver fail
   await db.close()
 })
 
-it('names ping and transaction lifecycle failures without exposing native text', async () => {
+it('should name ping and transaction lifecycle failures without exposing native text', async () => {
   for (const [sql, operation, run] of [
     [
       'select 1',
@@ -193,7 +193,7 @@ it('names ping and transaction lifecycle failures without exposing native text',
 })
 
 it.each(['capture', 'verification'] as const)(
-  'preserves a %s identity getter defect and discards the session',
+  'should preserve a %s identity getter defect and discard the session',
   async (stage) => {
     const defect = new TypeError(`${stage} identity getter failed`)
     const stack = defect.stack
@@ -238,7 +238,7 @@ it.each(['capture', 'verification'] as const)(
   },
 )
 
-it('snapshots nested namespace identity and discards when the live context changes', async () => {
+it('should snapshot nested namespace identity and discard when the live context changes', async () => {
   const namespaceContext = {
     writableDefault: [
       { role: 'database' as const, spelling: 'coordinator_test' },
@@ -277,7 +277,7 @@ it('snapshots nested namespace identity and discards when the live context chang
 })
 
 describe('OperationCoordinator: advances the queue and closes after an early provider-open failure', () => {
-  it('advances the queue and closes after an early provider-open failure', async () => {
+  it('should advance the queue and close after an early provider-open failure', async () => {
     const controls = createControllableProvider({
       openFailure: { session: 1, value: new Error('open failed') },
     })
@@ -307,7 +307,7 @@ describe('OperationCoordinator: advances the queue and closes after an early pro
 })
 
 describe('OperationCoordinator: rejects descendant root use across nested clients without deadlocking', () => {
-  it('rejects descendant root use across nested clients without deadlocking', async () => {
+  it('should reject descendant root use across nested clients without deadlocking', async () => {
     const firstControls = createControllableProvider()
     const secondControls = createControllableProvider()
     const first = createDatabase({
@@ -334,7 +334,7 @@ describe('OperationCoordinator: rejects descendant root use across nested client
 })
 
 describe('OperationCoordinator: rejects descendant root use across nested clients without deadlocking: retains savepoint ancestry across another client coordinator', () => {
-  it('retains savepoint ancestry across another client coordinator', async () => {
+  it('should retain savepoint ancestry across another client coordinator', async () => {
     const firstControls = createControllableProvider()
     const secondControls = createControllableProvider()
     const first = createDatabase({
@@ -371,7 +371,7 @@ describe('OperationCoordinator: rejects descendant root use across nested client
 })
 
 describe('OperationCoordinator queue and shutdown', () => {
-  it('keeps FIFO order across failures and release cleanup', async () => {
+  it('should keep FIFO order across failures and release cleanup', async () => {
     const releaseFirst = deferred()
     const releaseStarted = deferred()
     const controls = createControllableProvider({
@@ -413,7 +413,7 @@ describe('OperationCoordinator queue and shutdown', () => {
 })
 
 describe('OperationCoordinator queue and shutdown: rejects callback root reentrancy while unrelated roots wait FIFO', () => {
-  it('rejects callback root reentrancy while unrelated roots wait FIFO', async () => {
+  it('should reject callback root reentrancy while unrelated roots wait FIFO', async () => {
     const callbackStarted = deferred()
     const finishCallback = deferred()
     const controls = createControllableProvider()
@@ -443,7 +443,7 @@ describe('OperationCoordinator queue and shutdown: rejects callback root reentra
 })
 
 describe('OperationCoordinator queue and shutdown: lets an accepted transaction keep using its scoped client while close drains', () => {
-  it('lets an accepted transaction keep using its scoped client while close drains', async () => {
+  it('should let an accepted transaction keep using its scoped client while close drains', async () => {
     const callbackStarted = deferred()
     const resumeCallback = deferred()
     const controls = createControllableProvider()
@@ -478,7 +478,7 @@ describe('OperationCoordinator queue and shutdown: lets an accepted transaction 
 })
 
 describe('OperationCoordinator queue and shutdown: rejects providers without mandatory native transaction semantics', () => {
-  it('rejects providers without mandatory native transaction semantics', () => {
+  it('should reject providers without mandatory native transaction semantics', () => {
     expect(
       () =>
         new OperationCoordinator({

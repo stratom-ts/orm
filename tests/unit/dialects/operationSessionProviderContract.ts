@@ -108,7 +108,7 @@ export function validateProviderMigrationSupport(
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerLifecycleScenarios(createProvider: ProviderContractFactory): void {
-  it('forwards cancellation and honours discard disposition', async () => {
+  it('should forward cancellation and honor discard disposition', async () => {
     const controls = createProvider()
     const coordinator = new OperationCoordinator(controls.provider)
 
@@ -132,7 +132,7 @@ function registerLifecycleScenarios(createProvider: ProviderContractFactory): vo
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerLeaseDrainScenario(createProvider: ProviderContractFactory) {
-  it('serializes leases and drains release before shutdown', async () => {
+  it('should serialize leases and drain release before shutdown', async () => {
     const started = deferred()
     const finish = deferred()
     const controls = createProvider({
@@ -175,7 +175,7 @@ function registerLeaseDrainScenario(createProvider: ProviderContractFactory) {
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerStableIdentityScenario(createProvider: ProviderContractFactory) {
-  it('provides non-empty stable physical identity and a complete lifecycle', async () => {
+  it('should provide non-empty stable physical identity and a complete lifecycle', async () => {
     const controls = createProvider()
     const session = await controls.provider.open()
     const identity = session.identity
@@ -212,7 +212,7 @@ function registerStableIdentityScenario(createProvider: ProviderContractFactory)
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerIdentityScenarios(createProvider: ProviderContractFactory): void {
-  it('keeps a call failure primary when identity verification also fails', async () => {
+  it('should keep a call failure primary when identity verification also fails', async () => {
     const primary = new Error('named statement failure')
     const controls = createProvider({
       mutateIdentityAfterCall: true,
@@ -250,7 +250,7 @@ function registerIdentityScenarios(createProvider: ProviderContractFactory): voi
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerIdentityChangeScenario(createProvider: ProviderContractFactory) {
-  it('discards a session whose physical identity changes', async () => {
+  it('should discard a session whose physical identity changes', async () => {
     const controls = createProvider({ mutateIdentityAfterCall: true })
     const coordinator = new OperationCoordinator(controls.provider)
 
@@ -275,7 +275,7 @@ function registerIdentityChangeScenario(createProvider: ProviderContractFactory)
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerUnsettledCancellationScenario(createProvider: ProviderContractFactory) {
-  it('cancels active unsettled work, settles it, and discards uncertain state', async () => {
+  it('should cancel active unsettled work, settle it, and discard uncertain state', async () => {
     const started = deferred()
     const cancelled = deferred()
     const controls = createProvider({
@@ -322,7 +322,7 @@ function registerUnsettledCancellationScenario(createProvider: ProviderContractF
  */
 function registerInvalidSessionScenario(createProvider: ProviderContractFactory) {
   it.each(['identity', 'capability'] as const)(
-    'discards a session with invalid initial %s evidence',
+    'should discard a session with invalid initial %s evidence',
     async (invalidInitialSession) => {
       const controls = createProvider({ invalidInitialSession })
       const coordinator = new OperationCoordinator(controls.provider)
@@ -351,7 +351,7 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
   registerCombinedIdentityCleanupScenario(createProvider)
   registerPrimitiveFailureScenario(createProvider)
 
-  it('captures immutable context identity before reuse and discards when the next live read fails', async () => {
+  it('should capture immutable context identity before reuse and discard when the next live read fails', async () => {
     const defect = new Error('identity verification failed')
     const controls = createProvider({
       identityReadFailure: {
@@ -400,7 +400,7 @@ function registerIdentityFailureScenarios(createProvider: ProviderContractFactor
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerInitialIdentityFailureScenario(createProvider: ProviderContractFactory) {
-  it('discards when initial identity capture cannot be proven and never invokes the callback', async () => {
+  it('should discard when initial identity capture cannot be proven and never invokes the callback', async () => {
     const defect = new Error('initial identity capture failed')
     const controls = createProvider({
       identityReadFailure: {
@@ -437,7 +437,7 @@ function registerInitialIdentityFailureScenario(createProvider: ProviderContract
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerPrimitiveFailureScenario(createProvider: ProviderContractFactory) {
-  it('preserves a primitive primary when identity verification fails', async () => {
+  it('should preserve a primitive primary when identity verification fails', async () => {
     const controls = createProvider({ mutateIdentityAfterCall: true })
     const coordinator = new OperationCoordinator(controls.provider)
 
@@ -467,7 +467,7 @@ function registerPrimitiveFailureScenario(createProvider: ProviderContractFactor
 function registerCombinedIdentityCleanupScenario(
   createProvider: ProviderContractFactory,
 ) {
-  it('retains identity verification evidence before a later release failure', async () => {
+  it('should retain identity verification evidence before a later release failure', async () => {
     const primary = new Error('named statement failure')
     const release = new Error('release cleanup failure')
     const controls = createProvider({
@@ -509,7 +509,7 @@ function registerCombinedIdentityCleanupScenario(
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerReleaseScenarios(createProvider: ProviderContractFactory): void {
-  it('retains release cleanup without replacing the primary failure', async () => {
+  it('should retain release cleanup without replacing the primary failure', async () => {
     const primary = new Error('primary operation failure')
     const release = new Error('release cleanup failure')
     const controls = createProvider({
@@ -532,7 +532,7 @@ function registerReleaseScenarios(createProvider: ProviderContractFactory): void
     }
   })
 
-  it('retains release cleanup when final identity verification also fails', async () => {
+  it('should retain release cleanup when final identity verification also fails', async () => {
     const release = new Error('release cleanup failure')
     const defect = new Error('identity verification failed')
     const controls = createProvider({
@@ -572,7 +572,7 @@ function registerMigrationScenarios(
 ): void {
   registerMigrationOutcomeScenarios(createProvider, migration)
 
-  it('preserves final identity cleanup evidence across plan and execute wrapping', async () => {
+  it('should preserve final identity cleanup evidence across plan and execute wrapping', async () => {
     const release = new Error('release cleanup failure')
     let verificationFailure = new Error('identity verification failed')
 
@@ -630,7 +630,7 @@ function registerPlanningCleanupFailure(
   migration: ProviderMigrationContract,
   createProvider: ProviderContractFactory,
 ) {
-  it('retains exact release cleanup when planning already failed structurally', async () => {
+  it('should retain exact release cleanup when planning already failed structurally', async () => {
     const release = new Error('release cleanup failure')
     const db = createDatabase({
       connector: migration.connector(),
@@ -691,7 +691,7 @@ function registerMigrationOutcomeScenarios(
   createProvider: ProviderContractFactory,
   migration: ProviderMigrationContract,
 ) {
-  it('preserves applied and unchanged migration outcomes across release failure', async () => {
+  it('should preserve applied and unchanged migration outcomes across release failure', async () => {
     const release = new Error('migration session release failure')
     const appliedControls = createProvider({
       releaseFailure: { session: 1, value: release },
@@ -767,7 +767,7 @@ export function registerOperationSessionProviderContract(
     if (migration.state === 'supported') {
       registerMigrationScenarios(createProvider, migration.input)
     } else {
-      it('declares unsupported provider migration participation with a reason', () => {
+      it('should declare unsupported provider migration participation with a reason', () => {
         expect(migration.reason.trim().length).toBeGreaterThan(0)
       })
     }

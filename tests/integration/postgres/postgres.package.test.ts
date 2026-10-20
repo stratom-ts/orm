@@ -113,7 +113,7 @@ function recordsTable(library: Library) {
 
 type Records = ReturnType<typeof recordsTable>
 
-it('maps, migrates and releases the built package on native PostgreSQL', async () => {
+it('should map, migrate and release the built package on native PostgreSQL', async () => {
   const Records = recordsTable(library)
 
   const sessions = new Set<string>()

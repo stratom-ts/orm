@@ -8,10 +8,10 @@ import {
   createNativeSqliteLifecycleRuntime,
 } from './sqliteNativeLifecycleFixtures'
 
-it('routes the native SQLite public lifecycle, add-column migration, and cleanup through the selected member', async () => {
+it('should route the native SQLite public lifecycle, add-column migration, and cleanup through the selected member', async () => {
   await runDialectLifecycleContract(createNativeSqliteLifecycleRuntime())
 })
 
-it('runs the common session lifecycle on the native SQLite provider', async () => {
+it('should run the common session lifecycle on the native SQLite provider', async () => {
   await runOperationSessionCommonContract(createNativeSqliteCommonRuntime())
 })

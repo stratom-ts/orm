@@ -46,7 +46,7 @@ const InferredUuidChild = defineTable(
 )
 
 describe('inferred UUID client value mapping', () => {
-  it('compiles supplied UUID strings and preserves native UUID strings and null results', async () => {
+  it('should compile supplied UUID strings and preserve native UUID strings and null results', async () => {
     const parentId = '550e8400-e29b-41d4-a716-446655440000'
     const row = { id: 'child', parentId, nullableParentId: null }
     const connector = createMockPostgresConnector({ rowsBySql: () => [row] })
@@ -64,7 +64,7 @@ describe('inferred UUID client value mapping', () => {
 })
 
 describe('inferred UUID client mapping overrides', () => {
-  it('passes inferred and inherited UUID storage to client mapping overrides', async () => {
+  it('should pass inferred and inherited UUID storage to client mapping overrides', async () => {
     const parentId = '550e8400-e29b-41d4-a716-446655440000'
     const connector = createMockPostgresConnector({
       rowsBySql: () => [{ id: 'child', parentId, nullableParentId: null }],
@@ -120,7 +120,7 @@ describe('inferred UUID client mapping overrides', () => {
 })
 
 describe('client value mapping', () => {
-  it('uses column overrides before client overrides for parameters and results', async () => {
+  it('should use column overrides before client overrides for parameters and results', async () => {
     const recordedAt = new Date('2026-09-10T01:02:03.000Z')
     const entry = {
       id: '550e8400-e29b-41d4-a716-446655440000',
@@ -170,7 +170,7 @@ describe('client value mapping', () => {
   })
 })
 
-it('lets result mapping defects reach the caller unchanged', async () => {
+it('should let result mapping defects reach the caller unchanged', async () => {
   const defect = new TypeError('result mapping failed')
   const originalStack = defect.stack
   const connector = createMockPostgresConnector({
@@ -198,7 +198,7 @@ it('lets result mapping defects reach the caller unchanged', async () => {
   await db.close()
 })
 
-it('lets INSERT RETURNING mapping defects reach the caller unchanged', async () => {
+it('should let INSERT RETURNING mapping defects reach the caller unchanged', async () => {
   const defect = new TypeError('insert returning mapping failed')
   const originalStack = defect.stack
   const connector = createMockPostgresConnector({
@@ -234,7 +234,7 @@ it('lets INSERT RETURNING mapping defects reach the caller unchanged', async () 
 })
 
 it.each(['row', 'statement'] as const)(
-  'lets executor TypeErrors reach the caller unchanged for %s queries',
+  'should let executor TypeErrors reach the caller unchanged for %s queries',
   async (kind) => {
     const defect = new TypeError(`executor ${kind} failed`)
     const originalStack = defect.stack
@@ -287,7 +287,7 @@ it.each(['row', 'statement'] as const)(
   },
 )
 
-it('classifies a native QueryError as DriverError while retaining its cause', async () => {
+it('should classify a native QueryError as DriverError while retaining its cause', async () => {
   const expected = new QueryError({ message: 'known query failure' })
   const connector = createMockPostgresConnector({
     onPrepare(sql) {
@@ -315,7 +315,7 @@ it('classifies a native QueryError as DriverError while retaining its cause', as
 })
 
 describe('client value mapping: uses dialect defaults when no client override exists', () => {
-  it('uses dialect defaults when no client override exists', async () => {
+  it('should use dialect defaults when no client override exists', async () => {
     const recordedAt = new Date('2026-09-10T01:02:03.000Z')
     const entry = {
       id: '550e8400-e29b-41d4-a716-446655440000',
@@ -350,7 +350,7 @@ describe('client value mapping: uses dialect defaults when no client override ex
 })
 
 describe('client value mapping: uses dialect defaults when no client override exists: passes through unmapped values and preserves nulls', () => {
-  it('passes through unmapped values and preserves nulls', async () => {
+  it('should pass through unmapped values and preserve nulls', async () => {
     const connector = createMockPostgresConnector({
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
@@ -382,7 +382,7 @@ describe('client value mapping: uses dialect defaults when no client override ex
 })
 
 describe('client value mapping: returns invalid timestamp and JSON text unchanged instead of inventing values', () => {
-  it('returns invalid timestamp and JSON text unchanged instead of inventing values', async () => {
+  it('should return invalid timestamp and JSON text unchanged instead of inventing values', async () => {
     const connector = createMockPostgresConnector({
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql: () => [
@@ -404,7 +404,7 @@ describe('client value mapping: returns invalid timestamp and JSON text unchange
     await db.close()
   })
 
-  it('preserves non-object driver rows instead of coercing them into records', async () => {
+  it('should preserve non-object driver rows instead of coercing them into records', async () => {
     const rows = [null, 'count', 7, ['tuple']]
     const connector = createMockPostgresConnector({
       /** Supplies native result rows for the value-mapping scenario. */

@@ -3,7 +3,7 @@ import { describe, expectTypeOf, it } from 'vitest'
 import type { NamespaceContext, NamespaceIdentifierInput, NamespaceRole } from '@/index'
 
 describe('public migration namespace types', () => {
-  it('exports the custom dialect namespace contract', () => {
+  it('should export the custom dialect namespace contract', () => {
     expectTypeOf<NamespaceRole>().toEqualTypeOf<'catalog' | 'database' | 'schema'>()
 
     expectTypeOf<NamespaceIdentifierInput>().toEqualTypeOf<

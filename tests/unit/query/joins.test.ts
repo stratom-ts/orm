@@ -337,7 +337,7 @@ describe('joins namespace resolution: should keep aliases within the PostgreSQL 
 })
 
 describe('joins namespace resolution: guards conditionally matched omitted and explicit-schema relation references', () => {
-  it('guards conditionally matched omitted and explicit-schema relation references', () => {
+  it('should guard conditionally matched omitted and explicit-schema relation references', () => {
     const compiled = postgresDialect.query.resolve([]).compile({
       kind: 'select',
       relation: { relation: 'events' },

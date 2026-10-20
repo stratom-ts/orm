@@ -74,7 +74,7 @@ const row = {
 }
 
 describe('insert upsert builder compilation', () => {
-  it('compiles candidate-key conflict actions before returning with stable parameters', async () => {
+  it('should compile candidate-key conflict actions before returning with stable parameters', async () => {
     const db = createDatabase({
       connector: createMockPostgresConnector(),
       schemas: [Records],
@@ -133,7 +133,7 @@ describe('insert upsert builder compilation', () => {
 })
 
 describe('insert upsert target validation', () => {
-  it('rejects targets that are not exact authored candidate keys', async () => {
+  it('should reject targets that are not exact authored candidate keys', async () => {
     const db = createDatabase({
       connector: createMockPostgresConnector(),
       schemas: [Records, ForeignRecords],
@@ -160,7 +160,7 @@ describe('insert upsert target validation', () => {
     await db.close()
   })
 
-  it('accepts a composite primary key only in authored order', async () => {
+  it('should accept a composite primary key only in authored order', async () => {
     const db = createDatabase({
       connector: createMockPostgresConnector(),
       schemas: [CompositePrimaryRecords],
@@ -186,7 +186,7 @@ describe('insert upsert target validation', () => {
 })
 
 describe('insert upsert update validation', () => {
-  it('applies update writable rules and validates excluded column ownership', async () => {
+  it('should apply update writable rules and validate excluded column ownership', async () => {
     const db = createDatabase({
       connector: createMockPostgresConnector(),
       schemas: [Records, ForeignRecords],
@@ -232,7 +232,7 @@ describe('insert upsert update validation', () => {
 })
 
 describe('insert upsert structured AST', () => {
-  it('passes a structured target and action through the shared builder seam', () => {
+  it('should pass a structured target and action through the shared builder seam', () => {
     let compiledAst: InsertAst | undefined
     const resolvedQuery = postgresDialect.query.resolve([Records])
     const dialect: Dialect = {
@@ -278,7 +278,7 @@ describe('insert upsert structured AST', () => {
 })
 
 describe('SQLite insert upsert compilation', () => {
-  it('quotes excluded columns and appends literal patch parameters after insert values', () => {
+  it('should quote excluded columns and append literal patch parameters after insert values', () => {
     const ast: InsertAst = {
       kind: 'insert',
       relation: { relation: 'records' },
@@ -303,7 +303,7 @@ describe('SQLite insert upsert compilation', () => {
     })
   })
 
-  it('rejects a conflict clause combined with DEFAULT VALUES', () => {
+  it('should reject a conflict clause combined with DEFAULT VALUES', () => {
     expect(() =>
       compileSqliteQuery({
         kind: 'insert',
@@ -320,7 +320,7 @@ describe('SQLite insert upsert compilation', () => {
 })
 
 describe('PostgreSQL insert upsert compilation', () => {
-  it('preserves conflict literals and returning after DEFAULT VALUES', () => {
+  it('should preserve conflict literals and returning after DEFAULT VALUES', () => {
     expect(
       compilePostgresQuery({
         kind: 'insert',

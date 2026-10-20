@@ -73,7 +73,7 @@ function tableOf(relation: CatalogRelation): CatalogTable {
 }
 
 describe('SQLite catalog introspection with node:sqlite', () => {
-  it('observes a real SQLite catalog with canonical identities and rowid generation', async () => {
+  it('should observe a real SQLite catalog with canonical identities and rowid generation', async () => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')
 
@@ -117,7 +117,7 @@ describe('SQLite catalog introspection with node:sqlite', () => {
 })
 
 describe('SQLite catalog introspection with inherited index collations', () => {
-  it('inherits a native column collation when classifying a bare user-index term', async () => {
+  it('should inherit a native column collation when classifying a bare user-index term', async () => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')
 
@@ -159,7 +159,7 @@ describe('SQLite catalog introspection with inherited index collations', () => {
 })
 
 describe('SQLite catalog introspection with literal index terms', () => {
-  it('preserves literal constant index terms as unsupported rich semantics', async () => {
+  it('should preserve literal constant index terms as unsupported rich semantics', async () => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')
 
@@ -201,7 +201,7 @@ describe('SQLite catalog introspection with literal index terms', () => {
 })
 
 describe('SQLite catalog introspection with quote-bent index terms', () => {
-  it('matches a single-quoted column term to its native table column', async () => {
+  it('should match a single-quoted column term to its native table column', async () => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')
 
@@ -243,7 +243,7 @@ describe('SQLite catalog introspection with quote-bent index terms', () => {
 })
 
 describe('SQLite catalog introspection with quoted declared types', () => {
-  it('compares punctuation-bearing type names independently of identifier quoting', async () => {
+  it('should compare punctuation-bearing type names independently of identifier quoting', async () => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')
 
@@ -320,7 +320,7 @@ function mutatedDeclaredTypeExecutor(
 
 describe('SQLite catalog introspection with contradictory quoted declared types', () => {
   it.each(declaredTypeContradictionCases)(
-    'rejects a stable %s mutation',
+    'should reject a stable %s mutation',
     async (_label, sql, observedType) => {
       const { DatabaseSync } = await import('node:sqlite')
       const database = new DatabaseSync(':memory:')
@@ -357,7 +357,7 @@ describe('SQLite catalog introspection with contradictory quoted declared types'
 })
 
 describe('SQLite catalog introspection with node:sqlite: observes attached and temporary relations and maps UNIQUE auto-indexes conservatively', () => {
-  it('observes attached and temporary relations and maps UNIQUE auto-indexes conservatively', async () => {
+  it('should observe attached and temporary relations and map UNIQUE auto-indexes conservatively', async () => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')
 
@@ -505,7 +505,7 @@ it.each([
     'missing UNIQUE index evidence',
   ],
 ] as const)(
-  'rejects consistently omitted %s metadata',
+  'should reject consistently omitted %s metadata',
   async (_label, sql, name, omittedQuery, affected, message) => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')
@@ -552,7 +552,7 @@ it.each([
   },
 )
 
-it('does not infer rowid generation or nullability when the DESC primary-key index is omitted', async () => {
+it('should not infer rowid generation or nullability when the DESC primary-key index is omitted', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -575,7 +575,7 @@ it('does not infer rowid generation or nullability when the DESC primary-key ind
   }
 })
 
-it('distinguishes real clauses from quoted names, defaults, and comments', async () => {
+it('should distinguish real clauses from quoted names, defaults, and comments', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -601,7 +601,7 @@ it('distinguishes real clauses from quoted names, defaults, and comments', async
   }
 })
 
-it('keeps distinct actions for multiple inline foreign keys', async () => {
+it('should keep distinct actions for multiple inline foreign keys', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -630,7 +630,7 @@ it('keeps distinct actions for multiple inline foreign keys', async () => {
   }
 })
 
-it('accepts SQLite deduplication of opposite UNIQUE sort directions', async () => {
+it('should accept SQLite deduplication of opposite UNIQUE sort directions', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -652,7 +652,7 @@ it('accepts SQLite deduplication of opposite UNIQUE sort directions', async () =
   }
 })
 
-it('accepts a primary key sharing an earlier UNIQUE index direction', async () => {
+it('should accept a primary key sharing an earlier UNIQUE index direction', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -671,7 +671,7 @@ it('accepts a primary key sharing an earlier UNIQUE index direction', async () =
   }
 })
 
-it('rejects an extra UNIQUE autoindex absent from native table SQL', async () => {
+it('should reject an extra UNIQUE autoindex absent from native table SQL', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -697,7 +697,7 @@ it('rejects an extra UNIQUE autoindex absent from native table SQL', async () =>
   }
 })
 
-it('rejects an explicit target forged for an implicit parent-key reference', async () => {
+it('should reject an explicit target forged for an implicit parent-key reference', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -732,7 +732,7 @@ it('rejects an explicit target forged for an implicit parent-key reference', asy
   }
 })
 
-it('rejects a missing collated UNIQUE index despite a same-column BINARY index', async () => {
+it('should reject a missing collated UNIQUE index despite a same-column BINARY index', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -787,7 +787,7 @@ it('rejects a missing collated UNIQUE index despite a same-column BINARY index',
   }
 })
 
-it('rejects primary-key index direction that contradicts INTEGER PRIMARY KEY DESC', async () => {
+it('should reject primary-key index direction that contradicts INTEGER PRIMARY KEY DESC', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const database = new DatabaseSync(':memory:')
   try {
@@ -823,7 +823,7 @@ it('rejects primary-key index direction that contradicts INTEGER PRIMARY KEY DES
 })
 
 it.each(['target', 'action'] as const)(
-  'rejects foreign-key %s observations that contradict native SQL',
+  'should reject foreign-key %s observations that contradict native SQL',
   async (changed) => {
     const { DatabaseSync } = await import('node:sqlite')
     const database = new DatabaseSync(':memory:')

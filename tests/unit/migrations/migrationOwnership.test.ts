@@ -90,7 +90,7 @@ function catalog(): CatalogSnapshot {
 }
 
 describe('migration ownership', () => {
-  it('projects registered handles using their structured relation metadata', () => {
+  it('should project registered handles using their structured relation metadata', () => {
     const Scoped = defineTable(
       'users',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -108,7 +108,7 @@ describe('migration ownership', () => {
     )
   })
 
-  it('owns only the exact registered relation with complete shape by default', () => {
+  it('should own only the exact registered relation with complete shape by default', () => {
     expect(planMigration([Users], catalog(), postgresDialect)).toEqual({
       steps: [
         {
@@ -128,7 +128,7 @@ describe('migration ownership', () => {
 })
 
 describe('migration ownership: additive relations create declared members and preserve undeclared members', () => {
-  it('additive relations create declared members and preserve undeclared members', () => {
+  it('should create declared members and preserve undeclared members for additive relations', () => {
     expect(
       planMigration([Users], catalog(), postgresDialect, {
         migrationOwnership: [{ kind: 'relation', relation: Users, shape: 'additive' }],
@@ -145,7 +145,7 @@ describe('migration ownership: additive relations create declared members and pr
     })
   })
 
-  it('drops only exact tombstones when no namespace is complete', () => {
+  it('should drop only exact tombstones when no namespace is complete', () => {
     expect(
       planMigration([], catalog(), postgresDialect, {
         migrationOwnership: [
@@ -165,7 +165,7 @@ describe('migration ownership: additive relations create declared members and pr
 })
 
 describe('migration ownership: supports an empty complete namespace over observed relations', () => {
-  it('supports an empty complete namespace over observed relations', () => {
+  it('should support an empty complete namespace over observed relations', () => {
     expect(
       planMigration([], catalog(), postgresDialect, {
         migrationOwnership: [
@@ -185,7 +185,7 @@ describe('migration ownership: supports an empty complete namespace over observe
 })
 
 describe('migration ownership: ensures an explicitly complete namespace even with no handles or observed tables', () => {
-  it('ensures an explicitly complete namespace even with no handles or observed tables', () => {
+  it('should ensure an explicitly complete namespace even with no handles or observed tables', () => {
     expect(
       planMigration(
         [],
@@ -207,7 +207,7 @@ describe('migration ownership: ensures an explicitly complete namespace even wit
 })
 
 describe('migration ownership identities and validation', () => {
-  it('uses canonical identities for dotted tombstones and deterministic conflicts', () => {
+  it('should use canonical identities for dotted tombstones and deterministic conflicts', () => {
     const dottedCatalog: CatalogSnapshot = {
       namespaceContext: context,
       ...emptyReservations,
@@ -262,7 +262,7 @@ describe('migration ownership identities and validation', () => {
 })
 
 describe('migration ownership identities and validation: rejects a tombstone that contradicts a registered handle', () => {
-  it('rejects a tombstone that contradicts a registered handle', () => {
+  it('should reject a tombstone that contradicts a registered handle', () => {
     expect(() =>
       planMigration([Users], catalog(), postgresDialect, {
         migrationOwnership: [
@@ -280,7 +280,7 @@ describe('migration ownership identities and validation: rejects a tombstone tha
 })
 
 describe('migration ownership identities and validation: validates identifiers reachable only through ownership declarations', () => {
-  it('validates identifiers reachable only through ownership declarations', () => {
+  it('should validate identifiers reachable only through ownership declarations', () => {
     const emptyCatalog: CatalogSnapshot = {
       namespaceContext: context,
       tables: [],
@@ -312,7 +312,7 @@ describe('migration ownership identities and validation: validates identifiers r
 })
 
 describe('migration ownership identities and validation: validates identifiers reachable only through ownership declarations: validates referenced identities even when their handles are not registered', () => {
-  it('validates referenced identities even when their handles are not registered', () => {
+  it('should validate referenced identities even when their handles are not registered', () => {
     const LongTarget = defineTable(
       'x'.repeat(64),
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -339,7 +339,7 @@ describe('migration ownership identities and validation: validates identifiers r
 })
 
 describe('migration ownership identities and validation: stabilizes SQLite-equivalent relation and namespace diagnostics', () => {
-  it('stabilizes SQLite-equivalent relation and namespace diagnostics', () => {
+  it('should stabilize SQLite-equivalent relation and namespace diagnostics', () => {
     const SqliteUsers = defineTable(
       'Users',
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },

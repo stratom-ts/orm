@@ -113,7 +113,7 @@ export function registerMigrationCoordinationContract(
   describe(`${name} Dialect contract [coordination]`, () => {
     registerCoordinationOrderingScenario(createRuntime)
 
-    it('excludes a same-scope client until the first client releases', async () => {
+    it('should exclude a same-scope client until the first client releases', async () => {
       const owners = new Map<string, string>()
       const sharedLockManager: CoordinationContractLockManager =
         createCoordinationLockManager(owners)
@@ -190,7 +190,7 @@ function createCoordinationLockManager(owners: Map<string, string>): Readonly<{
 
 /** Registers the scenario that rejects protected work before acquisition or after release. */
 function registerProtectedWorkOrderingScenario() {
-  it('rejects protected work before acquisition or after release', () => {
+  it('should reject protected work before acquisition or after release', () => {
     expect(hasOrderedProtectedWork(['transaction', 'acquire', 'release'])).toBe(false)
     expect(hasOrderedProtectedWork(['acquire', 'release', 'ddl'])).toBe(false)
 
@@ -205,7 +205,7 @@ function registerProtectedWorkOrderingScenario() {
  * release.
  */
 function registerTransactionEvidenceScenario() {
-  it('requires a genuine transaction event between acquire and release', () => {
+  it('should require a genuine transaction event between acquire and release', () => {
     expect(hasCoordinatedTransaction(['acquire', 'unclassified', 'release'])).toBe(false)
   })
 }
@@ -220,7 +220,7 @@ function registerTransactionEvidenceScenario() {
 function registerCoordinationOrderingScenario(
   createRuntime: CoordinationContractFactory,
 ) {
-  it('acquires before protected work and releases in reverse phase order', async () => {
+  it('should acquire before protected work and release in reverse phase order', async () => {
     const runtime = createRuntime({ applicationId: 'contract' })
     await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
     expect(hasCoordinatedTransaction(runtime.events())).toBe(true)
@@ -240,7 +240,7 @@ function registerCoordinationFailureScenarios(
 ) {
   registerCoordinationTimeoutScenario(createRuntime)
 
-  it('classifies abort as unchanged and retryable before protected work', async () => {
+  it('should classify abort as unchanged and retryable before protected work', async () => {
     const controller = new AbortController()
     const runtime = createRuntime({ applicationId: 'contract', lockResults: [false] })
     const pending = runtime.execute({ signal: controller.signal })
@@ -256,7 +256,7 @@ function registerCoordinationFailureScenarios(
     expect(protectedWork(runtime.events())).toBe(false)
   })
 
-  it('preserves applied and unchanged outcomes after release cleanup failure', async () => {
+  it('should preserve applied and unchanged outcomes after release cleanup failure', async () => {
     const applied = createRuntime({
       applicationId: 'contract',
       releaseResults: [false],
@@ -290,7 +290,7 @@ function registerCoordinationFailureScenarios(
  *   scenarios.
  */
 function registerCoordinationTimeoutScenario(createRuntime: CoordinationContractFactory) {
-  it('classifies timeout as unchanged and retryable before protected work', async () => {
+  it('should classify timeout as unchanged and retryable before protected work', async () => {
     const runtime = createRuntime({ applicationId: 'contract', lockResults: [false] })
     await expect(runtime.execute({ lockTimeoutMs: 0 })).rejects.toMatchObject({
       stage: 'lock',

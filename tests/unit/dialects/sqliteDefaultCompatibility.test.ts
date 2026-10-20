@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest'
 
 import { assertSqliteDefaultCompatibility } from '@/dialects/sqlite/defaultCompatibility'
 
-it('preserves defects from SQLite result mapping during default validation', async () => {
+it('should preserve defects from SQLite result mapping during default validation', async () => {
   const defect = new TypeError('mapping failed')
   const mapping = await import('@/dialects/sqlite/mapping')
 

@@ -17,7 +17,7 @@ const invalidConnectorCases = [
 ] as const
 
 it.each(invalidConnectorCases)(
-  'rejects exact connector shape mismatch: $label',
+  'should reject exact connector shape mismatch: $label',
   ({ override, ...scenario }) => {
     const connector = {
       ...customConnector('sqlite'),
@@ -59,7 +59,7 @@ const commandCases: readonly { label: string; command: OperationCommand; sql: st
   ]
 
 it.each(commandCases)(
-  'compiles the exact $label operation command',
+  'should compile the exact $label operation command',
   ({ command, sql }) => {
     expect(compileSqliteOperationCommand(command)).toEqual({ sql, params: [] })
   },

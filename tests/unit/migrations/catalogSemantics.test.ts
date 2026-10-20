@@ -157,7 +157,7 @@ const additiveOwnership = [
 ]
 
 describe('catalog semantic adoption', () => {
-  it('fails closed for partial and invalid indexes', () => {
+  it('should fail closed for partial and invalid indexes', () => {
     expect(() =>
       planMigration(
         [IndexedEvents],
@@ -183,7 +183,7 @@ describe('catalog semantic adoption', () => {
 })
 
 describe('catalog semantic adoption: rejects unsupported standalone indexes and unique constraints', () => {
-  it('rejects unsupported standalone indexes and unique constraints', () => {
+  it('should reject unsupported standalone indexes and unique constraints', () => {
     expect(() =>
       planMigration(
         [UniqueIndexedEvents],
@@ -217,7 +217,7 @@ describe('catalog semantic adoption: rejects unsupported standalone indexes and 
 })
 
 describe('catalog semantic adoption: fails closed for NOT VALID and deferrable foreign keys', () => {
-  it('fails closed for NOT VALID and deferrable foreign keys', () => {
+  it('should fail closed for NOT VALID and deferrable foreign keys', () => {
     for (const foreignKey of [
       desiredForeignKey({
         semanticCompleteness: 'supportedSimple',
@@ -249,7 +249,7 @@ describe('catalog semantic adoption: fails closed for NOT VALID and deferrable f
 })
 
 describe('catalog semantic adoption: adds missing declared constraints in additive mode and replans cleanly', () => {
-  it('adds missing declared constraints in additive mode and replans cleanly', () => {
+  it('should add missing declared constraints in additive mode and replan cleanly', () => {
     expect(
       planMigration([Parents, Children], relationCatalog(), postgresDialect, {
         migrationOwnership: additiveOwnership,
@@ -289,7 +289,7 @@ describe('catalog semantic adoption: adds missing declared constraints in additi
 })
 
 describe('catalog semantic adoption: preserves additive constraints and removes authorized source columns', () => {
-  it('preserves additive constraints and removes constraints with their authorized source columns', () => {
+  it('should preserve additive constraints and remove constraints with their authorized source columns', () => {
     const catalog = relationCatalog({
       extraColumns: true,
       uniqueConstraints: [
@@ -317,7 +317,7 @@ describe('catalog semantic adoption: preserves additive constraints and removes 
 })
 
 describe('catalog semantic adoption: reserves check and exclusion constraint names against generated constraints', () => {
-  it('reserves check and exclusion constraint names against generated constraints', () => {
+  it('should reserve check and exclusion constraint names against generated constraints', () => {
     const identities = createCanonicalRelationIdentityModule({
       policy: POSTGRES_IDENTITY_POLICY,
       context: namespaceContext,

@@ -770,7 +770,7 @@ const extensionCatalogContractInput = {
   },
 } satisfies CatalogContractInput
 
-it('rejects relation evidence whose requested namespace was not observed', async () => {
+it('should reject relation evidence whose requested namespace was not observed', async () => {
   await expect(
     semanticDialect.catalog.introspectCatalog(
       {
@@ -821,7 +821,7 @@ it.each([
     },
     message: /fixture row 0.*non-empty relation spelling/i,
   },
-])('rejects $description in catalog fixture rows', async ({ row, message }) => {
+])('should reject $description in catalog fixture rows', async ({ row, message }) => {
   await expect(
     semanticDialect.catalog.introspectCatalog(
       { execute: async () => [row] },
@@ -831,7 +831,7 @@ it.each([
 })
 
 it.each(['relations', 'absentRelations', 'completeNamespaces'] as const)(
-  'shared catalog contract rejects an adapter that ignores the requested %s scope',
+  'should reject an adapter that ignores the requested %s scope in the shared catalog contract',
   async (field) => {
     const faultyDialect: Dialect = {
       ...semanticDialect,
@@ -1090,7 +1090,7 @@ registerDialectLifecycleContract('Extension unsupported migration', () =>
 )
 
 describe('dialect extension contract', () => {
-  it('rejects an empty program that falsely reports an applied migration', async () => {
+  it('should reject an empty program that falsely reports an applied migration', async () => {
     const faultyLifecycle = {
       executionReported: { value: false },
       postMigrationStateObserved: { value: false },
@@ -1106,7 +1106,7 @@ describe('dialect extension contract', () => {
     expect(faultyLifecycle.postMigrationStateObserved.value).toBe(true)
   })
 
-  it('rejects an unsupported lifecycle that returns the wrong Migration Plan', async () => {
+  it('should reject an unsupported lifecycle that returns the wrong Migration Plan', async () => {
     const runtime = createContractRuntime({ migration: 'unsupported' })
     const faultyRuntime = {
       ...runtime,
@@ -1120,7 +1120,7 @@ describe('dialect extension contract', () => {
 })
 
 describe('dialect extension contract: rejects an unsupported lifecycle that mutates observable state', () => {
-  it('rejects an unsupported lifecycle that mutates observable state', async () => {
+  it('should reject an unsupported lifecycle that mutates observable state', async () => {
     const runtime = createContractRuntime({ migration: 'unsupported' })
     const postMigrationStateObserved = { value: false }
     const faultyRuntime = {
@@ -1141,7 +1141,7 @@ describe('dialect extension contract: rejects an unsupported lifecycle that muta
 })
 
 describe('dialect extension contract: rejects a compiler that disagrees with the reusable Query agreement case', () => {
-  it('rejects a compiler that disagrees with the reusable Query agreement case', async () => {
+  it('should reject a compiler that disagrees with the reusable Query agreement case', async () => {
     const runtime = createContractRuntime()
     const matching = runtime.dialect.query
     const mismatched = {
@@ -1186,7 +1186,7 @@ describe('dialect extension contract: rejects a compiler that disagrees with the
 })
 
 describe('dialect extension contract: keeps contract registration isolated and rejects duplicate members', () => {
-  it('keeps contract registration isolated and rejects duplicate members', () => {
+  it('should keep contract registration isolated and reject duplicate members', () => {
     const member = createExtensionContractDialect(createExtensionContractCalls())
     unregister = registerDialectForTest(member)
 
@@ -1201,7 +1201,7 @@ describe('dialect extension contract: keeps contract registration isolated and r
     )
   })
 
-  it('rejects invalid test registration ids without mutating the dispatcher', () => {
+  it('should reject invalid test registration ids without mutating the dispatcher', () => {
     const member = createExtensionContractDialect(createExtensionContractCalls())
 
     expect(() => registerDialectForTest({ ...member, id: ' ' })).toThrow(

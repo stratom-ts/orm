@@ -81,7 +81,7 @@ function runtime(
   return { execute }
 }
 
-it('reports engine version separately from the >=3.37 requirement', () => {
+it('should report engine version separately from the >=3.37 requirement', () => {
   const db = new DatabaseSync(':memory:')
   try {
     const version = (
@@ -96,7 +96,7 @@ it('reports engine version separately from the >=3.37 requirement', () => {
   }
 })
 
-it('excludes the same file before preparation and leaves another file independent', async () => {
+it('should exclude the same file before preparation and leave another file independent', async () => {
   const path = filePath()
   const owner = new DatabaseSync(path)
   const blockedProvider = createDb0NodeSqliteOperationSessionProvider(
@@ -127,7 +127,7 @@ it('excludes the same file before preparation and leaves another file independen
   }
 })
 
-it('starts BEGIN IMMEDIATE before prepare and commits ordered actions', async () => {
+it('should start BEGIN IMMEDIATE before prepare and commit ordered actions', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
   const session = await provider.open()
@@ -156,7 +156,7 @@ it('starts BEGIN IMMEDIATE before prepare and commits ordered actions', async ()
   }
 })
 
-it('rejects forbidden actions before preconditions or DDL and rolls back', async () => {
+it('should reject forbidden actions before preconditions or DDL and roll back', async () => {
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
@@ -192,7 +192,7 @@ it('rejects forbidden actions before preconditions or DDL and rolls back', async
   }
 })
 
-it('rolls back attempted DDL and retains action provenance', async () => {
+it('should roll back attempted DDL and retain action provenance', async () => {
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )

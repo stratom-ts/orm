@@ -115,7 +115,7 @@ it.each([
   ['rollback', { rollbackFailure: true }, 'rollback'],
   ['session cleanup', { fail: 'restore' as const }, 'sessionCleanup'],
 ])(
-  'retains SQLite ownership error origin through %s failure',
+  'should retain SQLite ownership error origin through %s failure',
   async (_, failure, stage) => {
     const invalidOwnership = new MigrationOwnershipSchemaError({
       message: 'missing registered handle',
@@ -138,7 +138,7 @@ it.each([
 )
 
 it.each([true, 'numeric'] as const)(
-  'does not prepare or run DDL after a nonblocking BUSY %s coordination attempt',
+  'should not prepare or run DDL after a nonblocking BUSY %s coordination attempt',
   async (busy) => {
     const test = fixture({ busy })
     await expect(test.execute()).rejects.toMatchObject({
@@ -154,7 +154,7 @@ it.each([true, 'numeric'] as const)(
 )
 
 it.each(['integrity', 'convergence'] as const)(
-  'rolls back %s validation failure with provenance and cleanup evidence',
+  'should roll back %s validation failure with provenance and cleanup evidence',
   async (kind) => {
     const primary = new MigrationError({
       message: 'convergence failed',
@@ -191,7 +191,7 @@ it.each(['integrity', 'convergence'] as const)(
   },
 )
 
-it('retries BUSY only before one monotonic lock deadline', async () => {
+it('should retry BUSY only before one monotonic lock deadline', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
   const test = fixture({ busy: true })
   const attempts = () => test.calls.filter((sql) => sql === 'begin immediate').length
@@ -222,7 +222,7 @@ it('retries BUSY only before one monotonic lock deadline', async () => {
   }
 })
 
-it('classifies pre-coordination abort as retryable without preparation', async () => {
+it('should classify pre-coordination abort as retryable without preparation', async () => {
   const controller = new AbortController()
   controller.abort()
   const aborted = fixture()
@@ -238,7 +238,7 @@ it('classifies pre-coordination abort as retryable without preparation', async (
   ).rejects.toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
 })
 
-it('treats commit acknowledgement failure as unknown without rollback or unsafe cleanup', async () => {
+it('should treat commit acknowledgement failure as unknown without rollback or unsafe cleanup', async () => {
   const test = fixture({ fail: 'commit' })
   const rejection = await test.execute().catch((cause: unknown) => cause)
 
@@ -255,7 +255,7 @@ it('treats commit acknowledgement failure as unknown without rollback or unsafe 
   expect(test.discard).toHaveBeenCalled()
 })
 
-it('retains structured preparation diagnostics and appends rollback cleanup evidence', async () => {
+it('should retain structured preparation diagnostics and append rollback cleanup evidence', async () => {
   const primary = new Error('lowering root')
   const earlierCleanup = new Error('prior cleanup')
   const capabilityIssues = [
@@ -303,7 +303,7 @@ it('retains structured preparation diagnostics and appends rollback cleanup evid
   expect(test.calls).not.toContain(statement.sql)
 })
 
-it('marks wrapped execution defects and retains their original cause and stack', async () => {
+it('should mark wrapped execution defects and retain their original cause and stack', async () => {
   const defect = new TypeError('validation defect')
   const originalStack = defect.stack
   const test = fixture({ validationFailure: defect })
@@ -319,7 +319,7 @@ it('marks wrapped execution defects and retains their original cause and stack',
   expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
 })
 
-it('preserves an existing defect marker while reconstructing migration diagnostics', async () => {
+it('should preserve an existing defect marker while reconstructing migration diagnostics', async () => {
   const defect = new TypeError('already marked defect')
   const originalStack = defect.stack
   const marked = new MigrationError({
@@ -339,7 +339,7 @@ it('preserves an existing defect marker while reconstructing migration diagnosti
   expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
 })
 
-it('preserves an explicitly present undefined defect cause', async () => {
+it('should preserve an explicitly present undefined defect cause', async () => {
   const originalCause = undefined
   const structured = new MigrationError({
     message: 'wrapped nullish defect',
@@ -358,7 +358,7 @@ it('preserves an explicitly present undefined defect cause', async () => {
   expect((rejection as MigrationError).cause).toBe(originalCause)
 })
 
-it('uses an uncaused structured preparation failure as its primary cause', async () => {
+it('should use an uncaused structured preparation failure as its primary cause', async () => {
   const primary = new MigrationError({ message: 'preparation failed', stage: 'planning' })
   const test = fixture({ prepareFailure: primary })
   const rejection = await test.execute().catch((cause: unknown) => cause)
@@ -372,7 +372,7 @@ it('uses an uncaused structured preparation failure as its primary cause', async
   expect(rejection).not.toHaveProperty('defect')
 })
 
-it('retains transaction-incompatible action provenance before any precondition or DDL', async () => {
+it('should retain transaction-incompatible action provenance before any precondition or DDL', async () => {
   const test = fixture()
   const incompatible = {
     ...program(),
@@ -389,7 +389,7 @@ it('retains transaction-incompatible action provenance before any precondition o
 })
 
 it.each(['statement-atomic', 'non-atomic'] as const)(
-  'rejects %s programs before preconditions and DDL',
+  'should reject %s programs before preconditions and DDL',
   async (atomicity) => {
     const test = fixture()
     await expect(
@@ -405,7 +405,7 @@ it.each(['statement-atomic', 'non-atomic'] as const)(
   },
 )
 
-it('reports attempted DDL as rolled back or unknown according to rollback acknowledgement', async () => {
+it('should report attempted DDL as rolled back or unknown according to rollback acknowledgement', async () => {
   const rolledBack = fixture({ fail: 'ddl' })
   const rolledBackError = await rolledBack.execute().catch((cause: unknown) => cause)
 
@@ -437,7 +437,7 @@ it('reports attempted DDL as rolled back or unknown according to rollback acknow
   expect(unknown.discard).toHaveBeenCalled()
 })
 
-it('retains an acknowledged applied outcome when post-commit busy-policy cleanup fails', async () => {
+it('should retain an acknowledged applied outcome when post-commit busy-policy cleanup fails', async () => {
   const test = fixture({ fail: 'restore' })
   const rejection = await test.execute().catch((cause: unknown) => cause)
 
@@ -459,7 +459,7 @@ it('retains an acknowledged applied outcome when post-commit busy-policy cleanup
   expect(test.discard).toHaveBeenCalled()
 })
 
-it('quotes a structured main relation and checks the authoritative NULL count', async () => {
+it('should quote a structured main relation and check the authoritative NULL count', async () => {
   const test = fixture({ nullCount: 1 })
   await expect(
     test.execute({ ...program(), preconditions: [quotedPrecondition] }),
@@ -476,7 +476,7 @@ it('quotes a structured main relation and checks the authoritative NULL count', 
   expect(test.calls).not.toContain(statement.sql)
 })
 
-it('runs DDL and commits after an authoritative zero-null precondition', async () => {
+it('should run DDL and commit after an authoritative zero-null precondition', async () => {
   const test = fixture({ nullCount: 0 })
   await expect(
     test.execute({ ...program(), preconditions: [quotedPrecondition] }),

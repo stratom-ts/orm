@@ -7,7 +7,7 @@ import type { PhysicalNameRegistry } from '@/migrations/physicalNaming'
 import { SchemaError } from '@/utils/error'
 
 describe('SQLite naming', () => {
-  it('allows long SQLite names and validates identifier safety and collisions', () => {
+  it('should allow long SQLite names and validate identifier safety and collisions', () => {
     const identity = sqliteIdentity.create({
       context: {
         writableDefault: [{ role: 'database', spelling: 'main' }],

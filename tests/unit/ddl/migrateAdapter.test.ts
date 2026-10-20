@@ -184,7 +184,7 @@ function createMigrationMember(identityAdapter = 'postgresql') {
 }
 
 describe('dialect-neutral migration adapter contract', () => {
-  it('uses one supplied migration member for plan and execute planning', async () => {
+  it('should use one supplied migration member for plan and execute planning', async () => {
     const member = createMigrationMember()
     const operationRunner = createOperationRunner()
     const builder = createMigrateBuilder({
@@ -213,7 +213,7 @@ describe('dialect-neutral migration adapter contract', () => {
 })
 
 describe('dialect-neutral migration adapter contract: keeps executing Semantic Profile validation explicit at lowering', () => {
-  it('keeps executing Semantic Profile validation explicit at lowering', async () => {
+  it('should keep executing Semantic Profile validation explicit at lowering', async () => {
     const member = createMigrationMember('not-postgresql')
     const builder = createMigrateBuilder({
       schemas: [],
@@ -244,7 +244,7 @@ describe('dialect-neutral migration adapter contract: keeps executing Semantic P
 })
 
 describe('dialect-neutral migration adapter contract: validates the Semantic Profile during dry run', () => {
-  it('validates the Semantic Profile during dry run', async () => {
+  it('should validate the Semantic Profile during dry run', async () => {
     const member = createMigrationMember('not-postgresql')
     const builder = createMigrateBuilder({
       schemas: [],
@@ -275,7 +275,7 @@ describe('dialect-neutral migration adapter contract: validates the Semantic Pro
 })
 
 describe('dialect-neutral migration program preview and issues', () => {
-  it('returns grouped physical actions with stable redaction and no execution', async () => {
+  it('should return grouped physical actions with stable redaction and no execution', async () => {
     const member = createMigrationMember()
     const sourceStepIndexes = [1, 3]
     member.lower.mockReturnValue({
@@ -324,7 +324,7 @@ describe('dialect-neutral migration program preview and issues', () => {
 })
 
 describe('dialect-neutral migration program preview and issues: returns zero lowered actions during dry run', () => {
-  it('returns zero lowered actions during dry run', async () => {
+  it('should return zero lowered actions during dry run', async () => {
     const member = createMigrationMember()
     const builder = createMigrateBuilder({
       schemas: [],
@@ -343,7 +343,7 @@ describe('dialect-neutral migration program preview and issues: returns zero low
 })
 
 describe('dialect-neutral migration program preview and issues: rejects lowering issues atomically with the execution error evidence', () => {
-  it('rejects lowering issues atomically with the execution error evidence', async () => {
+  it('should reject lowering issues atomically with the execution error evidence', async () => {
     const member = createMigrationMember()
     const issues: ReturnType<typeof member.lower>['issues'] = [
       { code: 'compile_failure', message: 'failed second', sourceStepIndexes: [3] },

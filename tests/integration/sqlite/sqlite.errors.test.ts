@@ -9,21 +9,24 @@ import { withSqliteDatabase } from './sqliteIntegration'
 it.each([
   ['NUL', 'has\0nul'],
   ['unpaired surrogate', 'has\ud800surrogate'],
-])('rejects authored SQLite relation identifiers containing %s', async (_, name) => {
-  const Invalid = defineTable(
-    name,
-    { id: pipe(string(), column({})) },
-    { primaryKey: 'id' },
-  )
+])(
+  'should reject authored SQLite relation identifiers containing %s',
+  async (_, name) => {
+    const Invalid = defineTable(
+      name,
+      { id: pipe(string(), column({})) },
+      { primaryKey: 'id' },
+    )
 
-  await withSqliteDatabase([Invalid], async ({ db }) => {
-    await expect(db.migrate().plan()).rejects.toBeInstanceOf(SchemaError)
-    await expect(db.migrate().dryRun()).rejects.toBeInstanceOf(SchemaError)
-    await expect(db.migrate().execute()).rejects.toBeInstanceOf(SchemaError)
-  })
-})
+    await withSqliteDatabase([Invalid], async ({ db }) => {
+      await expect(db.migrate().plan()).rejects.toBeInstanceOf(SchemaError)
+      await expect(db.migrate().dryRun()).rejects.toBeInstanceOf(SchemaError)
+      await expect(db.migrate().execute()).rejects.toBeInstanceOf(SchemaError)
+    })
+  },
+)
 
-it('keeps invalid SQLite ownership as SchemaError through plan, dry run, and execute', async () => {
+it('should keep invalid SQLite ownership as SchemaError through plan, dry run, and execute', async () => {
   await withSqliteDatabase(
     [],
     async ({ db }) => {
@@ -39,7 +42,7 @@ it('keeps invalid SQLite ownership as SchemaError through plan, dry run, and exe
   )
 })
 
-it('reports colliding SQLite index names as a planning failure', async () => {
+it('should report colliding SQLite index names as a planning failure', async () => {
   const First = defineTable(
     'first',
     { id: pipe(string(), column({})) },
