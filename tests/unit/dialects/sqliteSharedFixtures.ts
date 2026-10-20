@@ -1,13 +1,15 @@
-import nodeSqliteConnector from 'db0/connectors/node-sqlite'
 import { number, pipe } from 'valibot'
 
 import { executeSqliteMigration } from '@/dialects/sqlite/migration/runtime'
-import { createDb0NodeSqliteOperationSessionProvider } from '@/dialects/sqlite/operationSession'
 import { column, defineTable } from '@/index'
 import type { Executor } from '@/query'
 import { MigrationError } from '@/utils/error'
 
-import { createControllableProvider } from '../helpers/operationSessionFixtures'
+import {
+  createControllableProvider,
+  createOperationSessionCommonRuntime,
+  customConnector,
+} from '../helpers/operationSessionFixtures'
 
 import type {
   CoordinationContractEvent,
@@ -67,58 +69,14 @@ function controlledProviderQueryRows(sql: string, created: boolean): unknown[] {
   return []
 }
 
-/** Adapts native SQLite calls to the reusable semantic session lifecycle. */
+/** Creates deterministic session controls for the common SQLite contract. */
 export function createSqliteCommonRuntime() {
-  const native = createDb0NodeSqliteOperationSessionProvider(
-    nodeSqliteConnector({ name: ':memory:' }),
-  )
-
-  const events: ('query' | 'run' | 'cancel' | 'release:reuse' | 'close')[] = []
-  return {
-    provider: {
-      nativeTransactions: true as const,
-      /** Opens the real DatabaseSync lease and records semantic calls. */
-      async open() {
-        const session = await native.open()
-        return {
-          identity: session.identity,
-          /** Runs the contract's query through StatementSync.all. */
-          async query() {
-            events.push('query')
-            return session.query({ sql: 'select 1', params: [] })
-          },
-          /** Runs the contract's command through StatementSync.run. */
-          async run() {
-            events.push('run')
-            return session.run({ sql: 'pragma user_version=1', params: [] })
-          },
-          /** Poisons the real lease. */
-          async cancel() {
-            events.push('cancel')
-            await session.cancel()
-          },
-          /** Releases the lease with its requested disposition. */
-          async release(disposition: 'reuse' | 'discard') {
-            if (disposition === 'reuse') events.push('release:reuse')
-
-            await session.release(disposition)
-          },
-        }
-      },
-      /** Closes the native provider. */
-      async close() {
-        events.push('close')
-        await native.close()
-      },
-    },
-    /** Returns the semantic lifecycle recorded by the adapter. */
-    events: () => events,
-  }
+  return createOperationSessionCommonRuntime().runtime
 }
 
-/** Creates an isolated in-memory connector for the SQLite provider contract. */
+/** Creates the connector selected by the controlled SQLite provider contract. */
 export function createSqliteProviderContractConnector() {
-  return nodeSqliteConnector({ name: ':memory:' })
+  return customConnector('sqlite')
 }
 
 export function createSqliteControllableProvider(

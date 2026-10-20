@@ -1,14 +1,18 @@
-import nodeSqliteConnector from 'db0/connectors/node-sqlite'
 import { integer, nullable, number, pipe, string } from 'valibot'
 import { vi } from 'vitest'
 
-import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationSemanticProfile } from '@/ddl/migrationPlan'
+import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationCapabilityIssue } from '@/ddl/migrationProgram'
 import { sqliteDialect } from '@/dialects/sqlite'
 import type { OperationCommand } from '@/dialects/types'
 import { defineTable } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
+
+import {
+  createControllableProvider,
+  customConnector,
+} from '../helpers/operationSessionFixtures'
 
 import type { MigrationContractCase } from './dialectContractKit'
 import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
@@ -162,18 +166,10 @@ export async function createSqliteUnsupportedCase() {
   }
 }
 
-/**
- * Records public lifecycle calls around the real connector and selected production
- * facets.
- */
+/** Runs the public lifecycle against deterministic SQLite catalog and session controls. */
 export function createSqliteLifecycleRuntime(): DialectLifecycleContractRuntime {
-  const connector = nodeSqliteConnector({ name: ':memory:' })
-  const state = {
-    initialized: false,
-    disposed: false,
-    selected: undefined as typeof connector | undefined,
-    params: undefined as readonly unknown[] | undefined,
-  }
+  const connector = customConnector('sqlite')
+  const state: LifecycleState = { migrated: false, disposed: false }
 
   const commands: OperationCommand[] = []
   const compile = sqliteDialect.operations.compile.bind(sqliteDialect.operations)
@@ -182,12 +178,12 @@ export function createSqliteLifecycleRuntime(): DialectLifecycleContractRuntime 
     return compile(command)
   })
 
-  recordProvider(connector, state)
+  recordLifecycleProvider(state)
+
   const directPrepare = vi.fn<() => unknown>()
-  const prepare = connector.prepare.bind(connector)
-  vi.spyOn(connector, 'prepare').mockImplementation((sql) => {
+  vi.spyOn(connector, 'prepare').mockImplementation(() => {
     directPrepare()
-    return prepare(sql)
+    throw new Error('connector methods must go through the provider')
   })
 
   return {
@@ -211,68 +207,116 @@ export function createSqliteLifecycleRuntime(): DialectLifecycleContractRuntime 
       queryRows: [{ id: 1, label: 'connector-selected' }],
       queryParam: 'connector-selected',
     },
-    postMigrationState: async () =>
-      (await connector.getInstance!())
-        .prepare('pragma table_info(lifecycle_records)')
-        .all()
-        .map((row) => row.name),
+    postMigrationState: () =>
+      state.migrated ? ['id', 'label', 'note'] : ['id', 'label'],
     migration: lifecycleMigration,
   }
 }
 
+const lifecycleColumns = [
+  {
+    cid: 0,
+    name: 'id',
+    type: 'INTEGER',
+    column_notnull: 1,
+    dflt_value: null,
+    pk: 1,
+    hidden: 0,
+  },
+  {
+    cid: 1,
+    name: 'label',
+    type: 'TEXT',
+    column_notnull: 1,
+    dflt_value: null,
+    pk: 0,
+    hidden: 0,
+  },
+  {
+    cid: 2,
+    name: 'note',
+    type: 'TEXT',
+    column_notnull: 0,
+    dflt_value: null,
+    pk: 0,
+    hidden: 0,
+  },
+]
+
+/** Supplies independently authored catalog rows before and after the add-column action. */
+function lifecycleRows(sql: string, migrated: boolean): unknown[] {
+  if (sql === 'pragma busy_timeout') return [{ timeout: 0 }]
+  if (sql === 'pragma foreign_keys') return [{ foreign_keys: 0 }]
+  if (sql === 'pragma main.integrity_check') return [{ integrity_check: 'ok' }]
+  if (sql.includes('sqlite_version()')) return [{ version: '3.50.0' }]
+  if (sql.includes('pragma_database_list')) return [{ seq: 0, name: 'main', file: '' }]
+
+  if (sql.includes('pragma_table_list'))
+    return [
+      {
+        schema: 'main',
+        name: 'lifecycle_records',
+        type: 'table',
+        ncol: migrated ? 3 : 2,
+        wr: 0,
+        strict: 0,
+      },
+    ]
+
+  if (sql.includes('sqlite_schema'))
+    return [
+      {
+        type: 'table',
+        name: 'lifecycle_records',
+        tbl_name: 'lifecycle_records',
+        sql: `CREATE TABLE lifecycle_records (id INTEGER PRIMARY KEY NOT NULL, label TEXT NOT NULL${migrated ? ', note TEXT' : ''})`,
+      },
+    ]
+
+  if (sql.includes('pragma_table_xinfo'))
+    return migrated ? lifecycleColumns : lifecycleColumns.slice(0, 2)
+
+  if (sql.startsWith('select') && sql.includes('"lifecycle_records"'))
+    return [{ id: 1, label: 'connector-selected' }]
+
+  return []
+}
+
 type LifecycleState = {
-  initialized: boolean
+  migrated: boolean
   disposed: boolean
-  selected?: ReturnType<typeof nodeSqliteConnector>
+  selected?: DialectLifecycleContractRuntime['connector']
   params?: readonly unknown[]
 }
 
-/** Wraps session observation while retaining the exact native production provider. */
-function recordProvider(
-  connector: ReturnType<typeof nodeSqliteConnector>,
-  state: LifecycleState,
-): void {
-  const createProvider = sqliteDialect.operations.createSessionProvider.bind(
-    sqliteDialect.operations,
-  )
+/** Records selected-provider ownership and query bindings around generic session controls. */
+function recordLifecycleProvider(state: LifecycleState): void {
+  const controls = createControllableProvider({
+    beforeCall: async (_session, sql) => {
+      if (sql === 'alter table "main"."lifecycle_records" add column "note" TEXT')
+        state.migrated = true
+    },
+    queryRows: (sql) => lifecycleRows(sql, state.migrated),
+  })
 
   vi.spyOn(sqliteDialect.operations, 'createSessionProvider').mockImplementation(
-    (selected, dialectId) => {
-      state.selected = selected as typeof connector
-      const provider = createProvider(selected, dialectId)
+    (selected) => {
+      state.selected = selected
       return {
-        ...provider,
-        /** Seeds representative query data once on the actual pinned native session. */
-        open: async () => {
-          const session = await provider.open()
-
-          if (!state.initialized) {
-            await session.run({
-              sql: 'create table lifecycle_records(id INTEGER primary key, label TEXT not null)',
-              params: [],
-            })
-
-            await session.run({
-              sql: 'insert into lifecycle_records values(1, ?)',
-              params: ['connector-selected'],
-            })
-
-            state.initialized = true
-          }
-
+        ...controls.provider,
+        async open() {
+          const session = await controls.provider.open()
           return {
             ...session,
-            /** Records only representative public-query bindings. */
-            query: async (query) => {
+            async query(query) {
               if (query.params.includes('connector-selected')) state.params = query.params
 
               return session.query(query)
             },
           }
         },
-        /** Observes acknowledged native disposal after the public Client closes. */
-        close: async () => {
-          await provider.close()
+        async close() {
+          await controls.provider.close()
           state.disposed = true
         },
       }

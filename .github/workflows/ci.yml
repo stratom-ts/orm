@@ -39,7 +39,6 @@ jobs:
           # Minimum supported Node. pnpm needs a newer Node, so dependencies are
           # installed on 24 before switching, and Vitest runs without pnpm.
           - node: 22.5.0
-            node-options: --experimental-sqlite
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -49,8 +48,6 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - run: node_modules/.bin/vitest run --config vitest.unit.config.ts
-        env:
-          NODE_OPTIONS: ${{ matrix.node-options }}
   test-integration-postgres:
     runs-on: ubuntu-latest
     strategy:
@@ -80,8 +77,6 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - run: node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/postgres
-        env:
-          NODE_OPTIONS: ${{ matrix.node-options }}
   test-integration-sqlite:
     runs-on: ubuntu-latest
     strategy:
@@ -96,4 +91,4 @@ jobs:
           package-manager-cache: false
       - run: node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/sqlite
         env:
-          NODE_OPTIONS: ${{ matrix.node-options }}
+          NODE_OPTIONS: ${{ matrix.node == '22.5.0' && '--experimental-sqlite' || '' }}

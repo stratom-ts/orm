@@ -1,7 +1,4 @@
 import nodeSqliteConnector from 'db0/connectors/node-sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -16,19 +13,11 @@ import type { Executor } from '@/query'
 
 import { inTransaction } from '../../helpers/nativeTransaction'
 
-const directories: string[] = []
+import { closeSqliteProviders, createSqliteFileScope } from './sqliteNativeLifetime'
 
-/** Creates a disposable SQLite database path. */
-function filePath(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'stratom-sqlite-migration-'))
-  directories.push(directory)
-  return join(directory, 'database.sqlite')
-}
-
-afterEach(() => {
-  for (const directory of directories.splice(0))
-    rmSync(directory, { recursive: true, force: true })
-})
+const files = createSqliteFileScope()
+const filePath = files.filePath
+afterEach(files.cleanup)
 
 /** Creates one transaction-compatible physical program. */
 function program(sql = 'create table records (id integer)'): MigrationProgram {
@@ -50,18 +39,6 @@ function executor(session: OperationSession): Executor {
   return { execute: (query) => session.query(query), run: (query) => session.run(query) }
 }
 
-/** Releases opened sessions before closing their owning connectors. */
-async function closeProviders(
-  sessions: OperationSession[],
-  providers: readonly OperationSessionProvider[],
-): Promise<void> {
-  try {
-    await Promise.all(sessions.map((session) => session.release('discard')))
-  } finally {
-    await Promise.all(providers.map((provider) => provider.close()))
-  }
-}
-
 /** Clears the native writer and closes every file-backed resource. */
 async function closeContention(
   owner: DatabaseSync,
@@ -74,7 +51,7 @@ async function closeContention(
     try {
       owner.close()
     } finally {
-      await closeProviders(sessions, providers)
+      await closeSqliteProviders(sessions, providers)
     }
   }
 }
