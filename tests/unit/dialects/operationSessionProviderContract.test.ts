@@ -1,9 +1,101 @@
-import { expect, it } from 'vitest'
+import { expect, expectTypeOf, it } from 'vitest'
 
 import type { createControllableProvider } from '../helpers/operationSessionFixtures'
 import { createOperationSessionCommonRuntime } from '../helpers/operationSessionFixtures'
 
 import { runOperationSessionCommonContract } from './dialectContractKit'
+import {
+  registerOperationSessionProviderContract,
+  validateProviderMigrationSupport,
+} from './operationSessionProviderContract'
+import type {
+  ProviderMigrationContract,
+  ProviderMigrationSupport,
+} from './operationSessionProviderContract'
+
+type MissingPlanningFailureFixture = Readonly<{
+  state: 'supported'
+  input: Readonly<{
+    connector(): never
+    appliedSchemas(): readonly never[]
+  }>
+}>
+
+it('requires migration participation and planning failure fixtures in provider contract types', () => {
+  expectTypeOf<
+    Parameters<typeof registerOperationSessionProviderContract>['length']
+  >().toEqualTypeOf<3>()
+
+  expectTypeOf<ProviderMigrationContract>().not.toExtend<ProviderMigrationSupport>()
+
+  expectTypeOf<MissingPlanningFailureFixture>().not.toExtend<ProviderMigrationSupport>()
+
+  expectTypeOf<{
+    state: 'supported'
+    input: {
+      connector: () => never
+      appliedSchemas: () => never[]
+      planningFailureSchemas: () => never[]
+    }
+  }>().toExtend<ProviderMigrationSupport>()
+
+  expectTypeOf<{
+    state: 'unsupported'
+    reason: string
+  }>().toExtend<ProviderMigrationSupport>()
+})
+
+it('requires explicit provider migration participation before registering controlled scenarios', () => {
+  expect(() =>
+    validateProviderMigrationSupport({
+      state: 'unsupported',
+      reason: 'Custom adapter does not expose provider-backed migrations',
+    }),
+  ).not.toThrow()
+
+  expect(() =>
+    registerOperationSessionProviderContract(
+      'missing migration',
+      (() => ({})) as never,
+      undefined as never,
+    ),
+  ).toThrow(/explicit migration participation/i)
+
+  expect(() =>
+    registerOperationSessionProviderContract(
+      'missing planning failure',
+      (() => ({})) as never,
+      {
+        state: 'supported',
+        input: {
+          connector: () => ({}),
+          appliedSchemas: () => [],
+        },
+      } as never,
+    ),
+  ).toThrow(/planningFailureSchemas/i)
+
+  expect(() =>
+    registerOperationSessionProviderContract(
+      'blank unsupported reason',
+      (() => ({})) as never,
+      {
+        state: 'unsupported',
+        reason: '  ',
+      },
+    ),
+  ).toThrow(/non-empty unsupported reason/i)
+
+  expect(() =>
+    registerOperationSessionProviderContract(
+      'invalid migration state',
+      (() => ({})) as never,
+      {
+        state: 'unknown',
+      } as never,
+    ),
+  ).toThrow(/explicit migration participation/i)
+})
 
 /**
  * Checks that retained cleanup evidence preserves verification and release order.

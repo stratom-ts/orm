@@ -46,31 +46,34 @@ export const postgresOperationSessionContractShard = {
       input: {
         createProvider: createControllableProvider,
         migration: {
-          connector: customConnector,
-          /**
-           * Returns table handles used to exercise successful migration through the
-           * provider.
-           */
-          appliedSchemas: () => [
-            defineTable(
-              'provider_contract_events',
-              { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-              { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
-            ),
-          ],
-          /** Returns table handles whose metadata forces a planning failure. */
-          planningFailureSchemas: () => [
-            defineTable(
-              'provider_planning_events',
-              { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-              { primaryKey: 'id' },
-            ),
-            defineTable(
-              'provider_planning_events',
-              { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
-              { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
-            ),
-          ],
+          state: 'supported',
+          input: {
+            connector: customConnector,
+            /**
+             * Returns table handles used to exercise successful migration through the
+             * provider.
+             */
+            appliedSchemas: () => [
+              defineTable(
+                'provider_contract_events',
+                { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+                { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
+              ),
+            ],
+            /** Returns table handles whose metadata forces a planning failure. */
+            planningFailureSchemas: () => [
+              defineTable(
+                'provider_planning_events',
+                { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+                { primaryKey: 'id' },
+              ),
+              defineTable(
+                'provider_planning_events',
+                { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
+                { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'public' }] },
+              ),
+            ],
+          },
         },
       },
     },

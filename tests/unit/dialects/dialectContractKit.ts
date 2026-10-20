@@ -27,9 +27,12 @@ import type { CoordinationContractFactory } from './migrationCoordinationContrac
 import { registerMigrationCoordinationContract } from './migrationCoordinationContract'
 import type {
   ProviderContractFactory,
-  ProviderMigrationContract,
+  ProviderMigrationSupport,
 } from './operationSessionProviderContract'
-import { registerOperationSessionProviderContract } from './operationSessionProviderContract'
+import {
+  registerOperationSessionProviderContract,
+  validateProviderMigrationSupport,
+} from './operationSessionProviderContract'
 
 type ContractValue =
   | string
@@ -320,7 +323,7 @@ type OperationSessionContract = Readonly<{
   controlled: ContractSupport<
     Readonly<{
       createProvider: ProviderContractFactory
-      migration?: ProviderMigrationContract
+      migration: ProviderMigrationSupport
     }>
   >
 }>
@@ -535,6 +538,62 @@ function validateDialectContractShard(
       throw new Error(`Dialect contract shard ${shard} disagrees about ${facet}`)
     }
   }
+
+  validateOperationSessionMigrationInput(asRecord(inputs)?.operationSession)
+  validateMigrationContractInput(asRecord(inputs)?.migration)
+}
+
+/** Returns object values as records for test-input preflight. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+/** Validates nested provider migration participation before any suite registers. */
+function validateOperationSessionMigrationInput(value: unknown): void {
+  const operationSession = asRecord(value)
+
+  if (operationSession?.state !== 'supported') return
+
+  const controlled = asRecord(operationSession.controlled)
+
+  if (controlled?.state !== 'supported') return
+
+  const input = asRecord(controlled.input)
+  validateProviderMigrationSupport(input?.migration)
+}
+
+/** Validates both supported migration lowering scenarios before suite registration. */
+function validateMigrationContractInput(value: unknown): void {
+  const migration = asRecord(value)
+
+  if (migration?.state !== 'supported') return
+
+  const input = asRecord(migration.input)
+  const lowering = asRecord(input?.lowering)
+
+  if (typeof lowering?.createCase !== 'function')
+    throw new Error('Supported migration contract needs a lowering createCase factory')
+
+  const unsupported = asRecord(input?.unsupportedLowering)
+
+  if (unsupported?.state === 'unsupported') {
+    if (typeof unsupported.reason !== 'string' || unsupported.reason.trim().length === 0)
+      throw new Error('Migration unsupportedLowering needs a non-empty reason')
+
+    return
+  }
+
+  const unsupportedInput = asRecord(unsupported?.input)
+
+  if (
+    unsupported?.state !== 'supported' ||
+    typeof unsupportedInput?.createCase !== 'function'
+  )
+    throw new Error(
+      'Migration unsupportedLowering declaration has an invalid state or createCase factory',
+    )
 }
 
 /**

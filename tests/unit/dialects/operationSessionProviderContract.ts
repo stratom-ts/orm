@@ -53,8 +53,54 @@ export type ProviderMigrationContract = Readonly<{
    *
    * @returns Table handles whose metadata forces a planning failure.
    */
-  planningFailureSchemas?(): readonly TableHandle[]
+  planningFailureSchemas(): readonly TableHandle[]
 }>
+
+export type ProviderMigrationSupport =
+  | Readonly<{ state: 'supported'; input: ProviderMigrationContract }>
+  | Readonly<{ state: 'unsupported'; reason: string }>
+
+/** Validates explicit provider migration participation before any contract registers. */
+export function validateProviderMigrationSupport(
+  migration: unknown,
+): asserts migration is ProviderMigrationSupport {
+  if (typeof migration !== 'object' || migration === null)
+    throw new Error(
+      'Controlled operation-session contract needs explicit migration participation',
+    )
+
+  const support = migration as {
+    state?: unknown
+    reason?: unknown
+    input?: Partial<ProviderMigrationContract>
+  }
+
+  if (support.state === 'unsupported') {
+    if (typeof support.reason !== 'string' || support.reason.trim().length === 0)
+      throw new Error(
+        'Controlled operation-session migration needs a non-empty unsupported reason',
+      )
+
+    return
+  }
+
+  if (support.state !== 'supported')
+    throw new Error(
+      'Controlled operation-session contract needs explicit migration participation',
+    )
+
+  const input = support.input
+
+  if (
+    !input ||
+    typeof input.connector !== 'function' ||
+    typeof input.appliedSchemas !== 'function' ||
+    typeof input.planningFailureSchemas !== 'function'
+  )
+    throw new Error(
+      'Supported controlled operation-session migration needs connector, appliedSchemas, and planningFailureSchemas',
+    )
+}
 
 /**
  * Registers the scenario that forwards cancellation and honours discard disposition.
@@ -581,37 +627,29 @@ function registerMigrationScenarios(
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerPlanningCleanupFailure(
-  migration: Readonly<{
-    connector(): Connector
-    appliedSchemas(): readonly TableHandle[]
-    planningFailureSchemas?(): readonly TableHandle[]
-  }>,
+  migration: ProviderMigrationContract,
   createProvider: ProviderContractFactory,
 ) {
-  const planningFailureSchemas = migration.planningFailureSchemas
-
-  if (planningFailureSchemas) {
-    it('retains exact release cleanup when planning already failed structurally', async () => {
-      const release = new Error('release cleanup failure')
-      const db = createDatabase({
-        connector: migration.connector(),
-        operationSessionProvider: createProvider({
-          releaseFailure: { session: 1, value: release },
-        }).provider,
-        schemas: planningFailureSchemas(),
-      })
-
-      try {
-        await expect(db.migrate().plan()).rejects.toMatchObject({
-          _tag: 'MigrationError',
-          stage: 'planning',
-          cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
-        })
-      } finally {
-        await db.close()
-      }
+  it('retains exact release cleanup when planning already failed structurally', async () => {
+    const release = new Error('release cleanup failure')
+    const db = createDatabase({
+      connector: migration.connector(),
+      operationSessionProvider: createProvider({
+        releaseFailure: { session: 1, value: release },
+      }).provider,
+      schemas: migration.planningFailureSchemas(),
     })
-  }
+
+    try {
+      await expect(db.migrate().plan()).rejects.toMatchObject({
+        _tag: 'MigrationError',
+        stage: 'planning',
+        cleanupFailures: [{ stage: 'sessionCleanup', cause: release }],
+      })
+    } finally {
+      await db.close()
+    }
+  })
 }
 
 /**
@@ -702,15 +740,19 @@ function registerMigrationOutcomeScenarios(
 /**
  * Registers the common contract for an exclusive native operation-session provider.
  *
- * Migration scenarios are optional because not every member advertises migration
- * support. When supplied, the suite also verifies that cleanup retains the member's
- * acknowledged applied/unchanged outcome.
+ * Migration participation is explicit. Supported fixtures exercise cleanup while
+ * unsupported fixtures declare a reason.
  */
 export function registerOperationSessionProviderContract(
   name: string,
   createProvider: ProviderContractFactory,
-  migration?: ProviderMigrationContract,
+  migration: ProviderMigrationSupport,
 ): void {
+  if (typeof createProvider !== 'function')
+    throw new Error('Controlled operation-session contract needs a provider factory')
+
+  validateProviderMigrationSupport(migration)
+
   describe(`${name} Dialect contract [operation-session/controlled]`, () => {
     registerStableIdentityScenario(createProvider)
     registerLeaseDrainScenario(createProvider)
@@ -722,6 +764,12 @@ export function registerOperationSessionProviderContract(
     registerIdentityFailureScenarios(createProvider)
     registerReleaseScenarios(createProvider)
 
-    if (migration) registerMigrationScenarios(createProvider, migration)
+    if (migration.state === 'supported') {
+      registerMigrationScenarios(createProvider, migration.input)
+    } else {
+      it('declares unsupported provider migration participation with a reason', () => {
+        expect(migration.reason.trim().length).toBeGreaterThan(0)
+      })
+    }
   })
 }

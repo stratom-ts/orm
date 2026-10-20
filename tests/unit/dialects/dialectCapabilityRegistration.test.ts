@@ -10,6 +10,124 @@ import type { DialectIntegrationAdapter } from '../../integration/support/dialec
 import type { DialectContractMemberCapabilities } from './dialectContractKit'
 import { registerDialectContractMember } from './dialectContractKit'
 
+it('preflights nested controlled migration support before registering any suite', () => {
+  const unsupported = {
+    state: 'unsupported',
+    reason: 'Not applicable to this adapter',
+  } as const
+
+  const capabilities = {
+    identity: { ...unsupported, shard: 'complete' },
+    naming: { ...unsupported, shard: 'complete' },
+    desiredSchema: { ...unsupported, shard: 'complete' },
+    query: { ...unsupported, shard: 'complete' },
+    catalog: { ...unsupported, shard: 'complete' },
+    operationSession: { state: 'supported', shard: 'complete' },
+    coordination: { ...unsupported, shard: 'complete' },
+    migration: { ...unsupported, shard: 'complete' },
+    lifecycle: { ...unsupported, shard: 'complete' },
+  } as const
+
+  expect(() =>
+    registerDialectContractMember('malformed provider', capabilities, {
+      complete: {
+        identity: unsupported,
+        naming: unsupported,
+        desiredSchema: unsupported,
+        query: unsupported,
+        catalog: unsupported,
+        operationSession: {
+          state: 'supported',
+          common: unsupported,
+          controlled: {
+            state: 'supported',
+            input: { createProvider: () => ({}), migration: undefined },
+          },
+        },
+        coordination: unsupported,
+        migration: unsupported,
+        lifecycle: unsupported,
+      },
+    } as never),
+  ).toThrow(/explicit migration participation/i)
+})
+
+function registerMalformedMigration(migrationInput: unknown): void {
+  const unsupported = {
+    state: 'unsupported',
+    reason: 'Not applicable to this adapter',
+  } as const
+
+  const capabilities = {
+    identity: { ...unsupported, shard: 'complete' },
+    naming: { ...unsupported, shard: 'complete' },
+    desiredSchema: { ...unsupported, shard: 'complete' },
+    query: { ...unsupported, shard: 'complete' },
+    catalog: { ...unsupported, shard: 'complete' },
+    operationSession: {
+      state: 'unsupported',
+      reason: unsupported.reason,
+      shard: 'complete',
+    },
+    coordination: { ...unsupported, shard: 'complete' },
+    migration: { state: 'supported', shard: 'complete' },
+    lifecycle: { ...unsupported, shard: 'complete' },
+  } as const
+
+  registerDialectContractMember('malformed migration', capabilities, {
+    complete: {
+      identity: unsupported,
+      naming: unsupported,
+      desiredSchema: unsupported,
+      query: unsupported,
+      catalog: unsupported,
+      operationSession: unsupported,
+      coordination: unsupported,
+      migration: { state: 'supported', input: migrationInput },
+      lifecycle: unsupported,
+    },
+  } as never)
+}
+
+it.each([
+  [
+    'missing unsupportedLowering',
+    { lowering: { createCase: () => ({}) } },
+    /unsupportedLowering declaration/i,
+  ],
+  [
+    'missing lowering createCase',
+    {
+      lowering: {},
+      unsupportedLowering: { state: 'unsupported', reason: 'adapter limitation' },
+    },
+    /lowering createCase factory/i,
+  ],
+  [
+    'missing supported unsupportedLowering createCase',
+    {
+      lowering: { createCase: () => ({}) },
+      unsupportedLowering: { state: 'supported', input: {} },
+    },
+    /unsupportedLowering declaration/i,
+  ],
+  [
+    'blank unsupported reason',
+    {
+      lowering: { createCase: () => ({}) },
+      unsupportedLowering: { state: 'unsupported', reason: ' ' },
+    },
+    /non-empty reason/i,
+  ],
+  [
+    'invalid unsupportedLowering state',
+    { lowering: { createCase: () => ({}) }, unsupportedLowering: { state: 'other' } },
+    /invalid state/i,
+  ],
+] as const)('preflights malformed migration lowering: %s', (_name, input, message) => {
+  expect(() => registerMalformedMigration(input)).toThrow(message)
+})
+
 describe('Dialect contract capability registration', () => {
   it('rejects an omitted applicable unit-contract facet', () => {
     expect(() =>
