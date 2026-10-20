@@ -244,7 +244,7 @@ function omitRetainedForeignKey(executor: Executor): Executor {
   }
 }
 
-it('rejects an additive rebuild when the live foreign key is missing from repeated catalog reads', async () => {
+it('should reject an additive rebuild when the live foreign key is missing from repeated catalog reads', async () => {
   const opened = await fixture(`
     pragma foreign_keys=on;
     create table fk_owner(id INTEGER PRIMARY KEY);
@@ -299,7 +299,7 @@ it('rejects an additive rebuild when the live foreign key is missing from repeat
   }
 })
 
-it('rejects contradictory native column evidence before exposing a program or DDL', async () => {
+it('should reject contradictory native column evidence before exposing a program or DDL', async () => {
   const Records = defineTable(
     'records',
     {
@@ -359,7 +359,7 @@ it('rejects contradictory native column evidence before exposing a program or DD
   }
 })
 
-it('resolves the production member and creates a desired FK graph through Client', async () => {
+it('should resolve the production member and create a desired FK graph through Client', async () => {
   expect(resolveDialect('sqlite')).toBe(sqliteDialect)
 
   await withSqliteDatabase([Parent, Owner], async ({ db }) => {
@@ -373,7 +373,7 @@ it('resolves the production member and creates a desired FK graph through Client
 })
 
 it.each(['sqlite_reserved', 'SQLITE_reserved', 'sQlItE_reserved'])(
-  'rejects reserved SQLite table name %s before exposing DDL',
+  'should reject reserved SQLite table name %s before exposing DDL',
   async (name) => {
     const Valid = defineTable(
       'aaa_valid',
@@ -415,7 +415,7 @@ it.each([
   ['sqlite_reserved_index', false],
   ['SQLITE_reserved_index', true],
 ])(
-  'rejects reserved index %s on a %s table before exposing any DDL',
+  'should reject reserved index %s on a %s table before exposing any DDL',
   async (indexName, existing) => {
     const relationName = existing ? 'existing_records' : 'new_records'
     const Good = defineTable(
@@ -494,7 +494,7 @@ function expectQuotedMigrationState(
   ).toEqual({ seq: 1 })
 }
 
-it('allows quoted object names, sqlite_ columns and non-ASCII prefix lookalikes', async () => {
+it('should allow quoted object names, sqlite_ columns and non-ASCII prefix lookalikes', async () => {
   const tableName = 'sqlİte_records.with"quote_雪'
   const indexName = 'quoted.index"name_雪'
   const quotedTableName = `"${tableName.replaceAll('"', '""')}"`
@@ -585,7 +585,7 @@ const insertedLiteralDefaults = {
 }
 
 it.each([false, true])(
-  'preserves native literal defaults and storage through migration (rebuild: %s)',
+  'should preserve native literal defaults and storage through migration (rebuild: %s)',
   async (rebuild) => {
     const Records = defineTable(
       'records',
@@ -653,7 +653,7 @@ it.each([
   "abs(cast('-9223372036854775808' as integer))",
   'abs(-2147483648 * 4294967296)',
 ])(
-  'rejects invalid default %s before exposing a program or executing DDL',
+  'should reject invalid default %s before exposing a program or executing DDL',
   async (expression) => {
     const Bad = defineTable(
       'zzz_invalid',
@@ -731,7 +731,7 @@ it.each([
   ['NULL', null, 'null'],
   ['(null)', null, 'null'],
 ])(
-  'migrates, converges and evaluates expression default %s on a native insert',
+  'should migrate, converge and evaluate expression default %s on a native insert',
   async (expression, value, storage) => {
     const Records = defineTable(
       'records',
@@ -804,7 +804,7 @@ it.each([
   ['TEXT\u00a0INTEGER', 'unsupported SQLite column data type'],
   ['DECIMAL(\u000b10, 2)', 'unsupported SQLite column data type'],
 ])(
-  'rejects unsupported SQLite physical type grammar before DDL: %s',
+  'should reject unsupported SQLite physical type grammar before DDL: %s',
   async (dataType, reason) => {
     const Bad = defineTable(
       'zzz_invalid',
@@ -891,7 +891,7 @@ const LegalPhysicalTypes = defineTable(
   { primaryKey: 'id' },
 )
 
-it('preserves legal multiword and parameterized SQLite types through execution', async () => {
+it('should preserve legal multiword and parameterized SQLite types through execution', async () => {
   await withSqliteDatabase([LegalPhysicalTypes], async ({ db, native }) => {
     await db.migrate().execute()
 
@@ -929,7 +929,7 @@ it('preserves legal multiword and parameterized SQLite types through execution',
   })
 })
 
-it('rejects an implicit rowid alias conversion even when the semantic plan is empty', async () => {
+it('should reject an implicit rowid alias conversion even when the semantic plan is empty', async () => {
   const Records = defineTable(
     'records',
     { id: pipe(number(), integer()) },
@@ -968,7 +968,7 @@ it('rejects an implicit rowid alias conversion even when the semantic plan is em
   })
 })
 
-it('coalesces touching changes and retains additive data, constraints, indexes and sequence state', async () => {
+it('should coalesce touching changes and retain additive data, constraints, indexes and sequence state', async () => {
   const test = await fixture()
   try {
     const before = await planned(test.executor)
@@ -1086,7 +1086,7 @@ function expectRetainedForeignKeys(
   ])
 }
 
-it('uses direct legal ADD COLUMN without rebuilding existing rowids', async () => {
+it('should use direct legal ADD COLUMN without rebuilding existing rowids', async () => {
   const Add = defineTable(
     'records',
     {
@@ -1163,7 +1163,7 @@ function failingExecutor(
   }
 }
 
-it('rolls back catalog, data and FK policy after failure at every rebuild statement', async () => {
+it('should roll back catalog, data and FK policy after failure at every rebuild statement', async () => {
   const seed = await fixture()
   const program = (await planned(seed.executor)).program
   await seed.close()
@@ -1200,7 +1200,7 @@ async function assertRebuildRollback(program: MigrationProgram, index: number) {
   }
 }
 
-it('permits owned drops with complete incoming dependency evidence and converges', async () => {
+it('should permit owned drops with complete incoming dependency evidence and converge', async () => {
   const Keep = defineTable(
     'keep',
     { id: pipe(number(), integer()), label: string() },
@@ -1232,7 +1232,7 @@ it('permits owned drops with complete incoming dependency evidence and converges
   }
 })
 
-it('preserves hidden rowids and storage values for a proven INTEGER to NUMERIC affinity change', async () => {
+it('should preserve hidden rowids and storage values for a proven INTEGER to NUMERIC affinity change', async () => {
   const Records = defineTable(
     'records',
     {
@@ -1271,7 +1271,7 @@ it('preserves hidden rowids and storage values for a proven INTEGER to NUMERIC a
   }
 })
 
-it('checks existing NULL values before any rebuild DDL', async () => {
+it('should check existing NULL values before any rebuild DDL', async () => {
   const Required = defineTable(
     'records',
     { id: pipe(number(), integer()), label: string() },
@@ -1321,7 +1321,7 @@ async function lowerOnly(
   return sqliteDialect.migration.lower(migration, migration.profile)
 }
 
-it('rejects unproven conversion without exposing a partial program or changing data', async () => {
+it('should reject unproven conversion without exposing a partial program or changing data', async () => {
   const Unsafe = defineTable(
     'records',
     {
@@ -1356,7 +1356,7 @@ it('rejects unproven conversion without exposing a partial program or changing d
   }
 })
 
-it('suppresses the whole SQLite program when a later declared type fails lowering', async () => {
+it('should suppress the whole SQLite program when a later declared type fails lowering', async () => {
   const Valid = defineTable(
     'aaa_valid',
     { id: pipe(number(), integer()) },
@@ -1417,7 +1417,7 @@ it('suppresses the whole SQLite program when a later declared type fails lowerin
 })
 
 it.each([undefined, '(NULL)', 'CURRENT_TIMESTAMP'])(
-  'rejects required-column backfill with default %s before DDL',
+  'should reject required-column backfill with default %s before DDL',
   async (defaultSql) => {
     const Required = defineTable(
       'records',
@@ -1463,7 +1463,7 @@ it.each([undefined, '(NULL)', 'CURRENT_TIMESTAMP'])(
   },
 )
 
-it('rejects destructive drops with incomplete incoming dependency coverage', async () => {
+it('should reject destructive drops with incomplete incoming dependency coverage', async () => {
   const Keep = defineTable(
     'records',
     { id: pipe(number(), integer()) },
@@ -1487,7 +1487,7 @@ it('rejects destructive drops with incomplete incoming dependency coverage', asy
   }
 })
 
-it('rejects a unique-index drop with unobserved incoming FK dependencies before DDL', async () => {
+it('should reject a unique-index drop with unobserved incoming FK dependencies before DDL', async () => {
   const Keep = defineTable(
     'parent',
     { id: pipe(number(), integer()), label: string() },
@@ -1538,7 +1538,7 @@ it('rejects a unique-index drop with unobserved incoming FK dependencies before 
 })
 
 it.each([true, false])(
-  'permits a safe index drop (unique: %s) with appropriate evidence',
+  'should permit a safe index drop (unique: %s) with appropriate evidence',
   async (unique) => {
     const Keep = defineTable(
       'parent',
@@ -1569,7 +1569,7 @@ it.each([true, false])(
   },
 )
 
-it('permits a scoped unique-index drop when its candidate key remains', async () => {
+it('should permit a scoped unique-index drop when its candidate key remains', async () => {
   const Keep = defineTable(
     'parent',
     { id: pipe(number(), integer()), label: pipe(string(), column({ unique: true })) },
@@ -1592,7 +1592,7 @@ it('permits a scoped unique-index drop when its candidate key remains', async ()
   }
 })
 
-it('rejects a unique-index drop with a retained FK under complete evidence', async () => {
+it('should reject a unique-index drop with a retained FK under complete evidence', async () => {
   const Keep = defineTable(
     'parent',
     { id: pipe(number(), integer()), label: string() },
@@ -1642,7 +1642,7 @@ it('rejects a unique-index drop with a retained FK under complete evidence', asy
   }
 })
 
-it('preflights FINAL FK dependencies when dropping a referencing column and its parent together', async () => {
+it('should preflight FINAL FK dependencies when dropping a referencing column and its parent together', async () => {
   const Keep = defineTable(
     'child',
     { id: pipe(number(), integer()) },
@@ -1665,7 +1665,7 @@ it('preflights FINAL FK dependencies when dropping a referencing column and its 
   }
 })
 
-it('fails closed for opaque views, actual temporary objects and attached databases', async () => {
+it('should fail closed for opaque views, actual temporary objects and attached databases', async () => {
   for (const unsupported of [
     'create view opaque as select * from owners',
     'create temp table temporary_object(id INTEGER)',
@@ -1687,7 +1687,7 @@ async function assertUnsupportedCatalog(unsupported: string) {
   }
 }
 
-it('rolls back a rebuild when final FK validation finds an existing orphan', async () => {
+it('should roll back a rebuild when final FK validation finds an existing orphan', async () => {
   const Child = defineTable(
     'child',
     { id: pipe(number(), integer()), owner_id: nullable(reference(Owner, 'id')) },
@@ -1724,7 +1724,7 @@ it('rolls back a rebuild when final FK validation finds an existing orphan', asy
   }
 })
 
-it('reserves deterministic replacement names against existing namespace objects', async () => {
+it('should reserve deterministic replacement names against existing namespace objects', async () => {
   const test = await fixture()
   try {
     const first = await planned(test.executor)
@@ -1748,7 +1748,7 @@ it('reserves deterministic replacement names against existing namespace objects'
 })
 
 it.each([false, true])(
-  'retains the acknowledged outcome and primary error when FK restoration fails (DDL failure: %s)',
+  'should retain the acknowledged outcome and primary error when FK restoration fails (DDL failure: %s)',
   async (failDdl) => {
     const test = await fixture()
     const discard = vi.fn<() => void>()

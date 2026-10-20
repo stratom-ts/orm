@@ -28,7 +28,7 @@ const invalidNumericLiterals: readonly [string, number | bigint][] = [
 ]
 
 it.each(invalidNumericLiterals)(
-  'rejects a %s literal before acquiring a connector or exposing a Migration Program',
+  'should reject a %s literal before acquiring a connector or exposing a Migration Program',
   async (_name, value) => {
     const InvalidRecords = defineTable(
       'invalid_records',
@@ -58,7 +58,7 @@ it.each([
   ['client parameter hook only', undefined, undefined, () => 'encoded', undefined],
   ['client result hook only', undefined, undefined, undefined, () => 1],
 ])(
-  'rejects an unsafe numeric literal with an explicit physical type and %s during lowering',
+  'should reject an unsafe numeric literal with an explicit physical type and %s during lowering',
   async (_name, mapParam, mapResult, mapParamValue, mapResultValue) => {
     const InvalidRecords = defineTable(
       'invalid_explicit_records',
@@ -98,7 +98,7 @@ it.each([
   },
 )
 
-it('rejects an out-of-range bigint literal with an explicit BIGINT type for direct desired-schema lowering', () => {
+it('should reject an out-of-range bigint literal with an explicit BIGINT type for direct desired-schema lowering', () => {
   const InvalidRecords = defineTable(
     'invalid_explicit_bigint_records',
     {

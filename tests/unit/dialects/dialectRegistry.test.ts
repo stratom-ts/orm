@@ -11,7 +11,7 @@ import {
 import type { Dialect } from '@/dialects/types'
 
 describe('production dialect construction and registration', () => {
-  it('requires every facet and only dialect-specific Migration behavior', () => {
+  it('should require every facet and only dialect-specific Migration behavior', () => {
     type Definition = Parameters<typeof defineDialect>[0]
 
     type ExpectedDefinition = Omit<Dialect, 'migration'> &
@@ -20,7 +20,7 @@ describe('production dialect construction and registration', () => {
     expectTypeOf<Definition>().toEqualTypeOf<ExpectedDefinition>()
   })
 
-  it('resolves every production member with exact Migration facet bindings', () => {
+  it('should resolve every production member with exact Migration facet bindings', () => {
     for (const dialect of productionDialects) {
       expect(resolveDialect(dialect.id as SQLDialect)).toBe(dialect)
       expect(typeof dialect.classifyDriverError).toBe('function')
@@ -39,7 +39,7 @@ describe('production dialect registry validation', () => {
     ['leading whitespace', ' dialect'],
     ['trailing whitespace', 'dialect '],
     ['NUL', 'dia\0lect'],
-  ])('rejects a %s production member id', (_name, id) => {
+  ])('should reject a %s production member id', (_name, id) => {
     const dialect = { ...productionDialects[0], id } as unknown as Dialect
 
     expect(() => createDialectRegistry([dialect])).toThrow(
@@ -47,7 +47,7 @@ describe('production dialect registry validation', () => {
     )
   })
 
-  it('rejects duplicate production member ids', () => {
+  it('should reject duplicate production member ids', () => {
     const dialect = productionDialects[0]
 
     expect(() => createDialectRegistry([dialect, dialect])).toThrow(
@@ -55,7 +55,7 @@ describe('production dialect registry validation', () => {
     )
   })
 
-  it('reports every supported id in deterministic order', () => {
+  it('should report every supported id in deterministic order', () => {
     const testDialect = { ...productionDialects[0], id: 'aaa-test-dialect' }
     const unregister = registerDialectForTest(testDialect)
 

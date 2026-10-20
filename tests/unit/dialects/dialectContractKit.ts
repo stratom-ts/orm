@@ -676,7 +676,7 @@ function registerUnsupported(
   support: UnsupportedContract,
 ): void {
   describe(`${name} Dialect contract [${facet}]`, () => {
-    it('scenario [declares unsupported behavior with a reason]', () => {
+    it('should declare unsupported behavior with a reason', () => {
       expect(support.reason.trim().length).toBeGreaterThan(0)
     })
   })
@@ -694,7 +694,7 @@ function registerIdentity(name: string, support: ContractSupport<IdentityContrac
     return
   }
 
-  it(`${name} Dialect contract [identity] scenario [resolves canonical structured identity]`, () => {
+  it(`should resolve canonical structured identity for ${name} Dialect contract [identity]`, () => {
     const input = support.input
 
     const actual = input.dialect.identity
@@ -722,7 +722,7 @@ function registerNaming(name: string, support: ContractSupport<NamingContractInp
     return
   }
 
-  it(`${name} Dialect contract [naming] scenario [generates validates and collision-checks names]`, () => {
+  it(`should generate, validate and collision-check names for ${name} Dialect contract [naming]`, () => {
     const input = support.input
 
     const owner = input.dialect.identity
@@ -772,7 +772,7 @@ function registerDesiredSchema(
     return
   }
 
-  it(`${name} Dialect contract [desired-schema] scenario [lowers the complete authored graph]`, () => {
+  it(`should lower the complete authored graph for ${name} Dialect contract [desired-schema]`, () => {
     const input = support.input
     const identities = input.dialect.identity.create({
       context: input.context,
@@ -815,7 +815,7 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
     registerUnsupported(name, 'query', contract.core)
   } else {
     const input = contract.core.input
-    it(`${name} Dialect contract [query] scenario [agrees across lookup and compilation]`, () => {
+    it(`should agree across lookup and compilation for ${name} Dialect contract [query]`, () => {
       const resolved = input.dialect.query.resolve(input.handles, {
         ...(input.registrationDefault === undefined
           ? {}
@@ -856,7 +856,7 @@ function registerValueMappingScenario(
     registerUnsupported(name, 'query/value-mapping', contract.valueMapping)
   } else {
     const input = contract.valueMapping.input
-    it(`${name} Dialect contract [query] scenario [maps parameter and result values]`, () => {
+    it(`should map parameter and result values for ${name} Dialect contract [query]`, () => {
       const mapParam = input.dialect.query.mapParamValue
       const mapResult = input.dialect.query.mapResultValue
       expect(mapParam).toBeTypeOf('function')
@@ -896,7 +896,7 @@ function registerCompilerScenarios(
     const support = scenario.support
 
     if (support.state === 'unsupported') {
-      it(`${name} [query/compiler] scenario [${scenarioId}] declares unsupported behavior and fails before execution`, () => {
+      it(`should declare unsupported behavior and fail before execution for ${name} [query/compiler] scenario [${scenarioId}]`, () => {
         expect(support.reason.trim().length).toBeGreaterThan(0)
         expect(support.expectedMessage.trim().length).toBeGreaterThan(0)
 
@@ -912,7 +912,7 @@ function registerCompilerScenarios(
     }
 
     const input = support.input
-    it(`${name} [query/compiler] scenario [${scenarioId}]`, () => {
+    it(`should satisfy ${name} [query/compiler] scenario [${scenarioId}]`, () => {
       const compiled = resolveCompiler(input).compile(input.node)
       expect({ sql: compiled.sql, params: compiled.params }).toEqual({
         sql: input.expected.sql,
@@ -996,7 +996,7 @@ function registerCatalog(name: string, support: ContractSupport<CatalogContractI
     return
   }
 
-  it(`${name} Dialect contract [catalog] scenario [returns explicit evidence and capabilities]`, async () => {
+  it(`should return explicit evidence and capabilities for ${name} Dialect contract [catalog]`, async () => {
     await runCatalogContract(support.input)
   })
 }
@@ -1020,7 +1020,7 @@ function registerOperationSession(
     registerUnsupported(name, 'operation-session/common', contract.common)
   } else {
     const common = contract.common.input
-    it(`${name} Dialect contract [operation-session] scenario [provides a semantic session lifecycle]`, async () => {
+    it(`should provide a semantic session lifecycle for ${name} Dialect contract [operation-session]`, async () => {
       await runOperationSessionCommonContract(common.createRuntime())
     })
   }
@@ -1062,7 +1062,7 @@ function registerMigration(name: string, support: ContractSupport<MigrationContr
   }
 
   describe(`${name} Dialect contract [migration]`, () => {
-    it('scenario [lowers one complete program and validates every Semantic Profile field]', async () => {
+    it('should lower one complete program and validate every Semantic Profile field', async () => {
       const input = await support.input.lowering.createCase()
       const lowered = input.dialect.migration.lower(input.planned, input.profile)
       expect(lowered.program).toEqual(input.expectedProgram)
@@ -1086,7 +1086,7 @@ function registerMigration(name: string, support: ContractSupport<MigrationContr
       )
     } else {
       const unsupported = support.input.unsupportedLowering.input
-      it('scenario [returns unsupported issues without a partial program]', async () => {
+      it('should return unsupported issues without a partial program', async () => {
         const input = await unsupported.createCase()
         const lowered = input.dialect.migration.lower(input.planned, input.profile)
         expect(lowered.program).toBeUndefined()

@@ -17,7 +17,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { column, getColumnMetadata, unwrapDeep } from '@/index'
 
 describe('unwrapDeep public contract', () => {
-  it('removes presence and nullability wrappers while preserving the inner pipe', () => {
+  it('should remove presence and nullability wrappers while preserving the inner pipe', () => {
     const inner = pipe(string(), maxLength(40), column({ unique: true }))
     const schema = nonNullish(
       nonNullable(

@@ -104,7 +104,7 @@ function fakeSqliteDialect(): Dialect {
 }
 
 describe('whole-graph desired-schema lowering', () => {
-  it('defers structured namespace validation to the selected identity member', () => {
+  it('should defer structured namespace validation to the selected identity member', () => {
     const Attached = defineTable(
       'events',
       { id: pipe(string(), column({ physicalType: { sqlite: 'text' } })) },
@@ -134,7 +134,7 @@ describe('whole-graph desired-schema lowering', () => {
     ).toThrow(MigrationError)
   })
 
-  it('binds SQLite identity semantics behind the test dialect facet', () => {
+  it('should bind SQLite identity semantics behind the test dialect facet', () => {
     const identity = fakeSqliteDialect().identity.create({
       context: { writableDefault: [{ role: 'database', spelling: 'main' }] },
     })
@@ -147,7 +147,7 @@ describe('whole-graph desired-schema lowering', () => {
 })
 
 describe('whole-graph desired-schema lowering: preserves an unsupported result from the selected desired-schema lowerer', () => {
-  it('preserves an unsupported result from the selected desired-schema lowerer', () => {
+  it('should preserve an unsupported result from the selected desired-schema lowerer', () => {
     const PostgresOnly = defineTable(
       'postgres_only',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -165,7 +165,7 @@ describe('whole-graph desired-schema lowering: preserves an unsupported result f
 })
 
 describe('whole-graph desired-schema lowering: inherits the selected adapter target type without PostgreSQL leakage', () => {
-  it('inherits the selected adapter target type without PostgreSQL leakage', () => {
+  it('should inherit the selected adapter target type without PostgreSQL leakage', () => {
     const Parent = defineTable(
       'parents',
       {
@@ -210,7 +210,7 @@ describe('whole-graph desired-schema lowering: inherits the selected adapter tar
 })
 
 describe('desired-schema references', () => {
-  it('rejects dangling and non-candidate reference targets before planning', () => {
+  it('should reject dangling and non-candidate reference targets before planning', () => {
     const Composite = defineTable(
       'composite',
       {
@@ -240,7 +240,7 @@ describe('desired-schema references', () => {
 })
 
 describe('desired-schema references: accepts table cycles when reference targets have ordinary physical types', () => {
-  it('accepts table cycles when reference targets have ordinary physical types', () => {
+  it('should accept table cycles when reference targets have ordinary physical types', () => {
     const InitialA = defineTable(
       'a',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -272,7 +272,7 @@ describe('desired-schema references: accepts table cycles when reference targets
 })
 
 describe('desired-schema references: resolves reference chains and reports reference-only cycles deterministically', () => {
-  it('resolves reference chains and reports reference-only cycles deterministically', () => {
+  it('should resolve reference chains and report reference-only cycles deterministically', () => {
     const Root = defineTable(
       'root',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -328,7 +328,7 @@ describe('desired-schema references: resolves reference chains and reports refer
 })
 
 describe('desired-schema references: resolves reference chains and reports reference-only cycles deterministically: accepts an independent single-column unique index as a candidate key', () => {
-  it('accepts an independent single-column unique index as a candidate key', () => {
+  it('should accept an independent single-column unique index as a candidate key', () => {
     const Target = defineTable(
       'indexed_target',
       {
@@ -354,7 +354,7 @@ describe('desired-schema references: resolves reference chains and reports refer
 })
 
 describe('desired-schema references: resolves reference chains and reports reference-only cycles deterministically: preserves unique on a composite-primary-key member only when independently set', () => {
-  it('preserves unique on a composite-primary-key member only when independently set', () => {
+  it('should preserve unique on a composite-primary-key member only when independently set', () => {
     const Membership = defineTable(
       'memberships',
       {
@@ -380,7 +380,7 @@ describe('desired-schema references: resolves reference chains and reports refer
 })
 
 describe('desired-schema reference metadata and value mapping', () => {
-  it('lowers composed reference metadata without copying target column options', () => {
+  it('should lower composed reference metadata without copying target column options', () => {
     const Target = createTargetTable()
     const Source = createSourceTable(Target)
     const source = lowerDesiredSchema(
@@ -394,7 +394,7 @@ describe('desired-schema reference metadata and value mapping', () => {
 })
 
 describe('desired-schema reference metadata and value mapping: maps reference values with the target type and local mapping functions', () => {
-  it('maps reference values with the target type and local mapping functions', () => {
+  it('should map reference values with the target type and local mapping functions', () => {
     const Target = defineTable(
       'mapped_targets',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -427,7 +427,7 @@ describe('desired-schema reference metadata and value mapping: maps reference va
 })
 
 describe('desired-schema reference metadata and value mapping: validates reference targets before global or dialect mapping', () => {
-  it('validates reference targets before global or dialect mapping', () => {
+  it('should validate reference targets before global or dialect mapping', () => {
     const Target = defineTable(
       'mapper_targets',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },

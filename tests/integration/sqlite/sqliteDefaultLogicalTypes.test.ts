@@ -40,7 +40,7 @@ it.each<[string, AnySchema, DatabaseDefault, string]>([
     'create table records(id INTEGER primary key not null,value JSON not null default \'wrong\'); insert into records values(7,\'{"label":"seed"}\')',
   ],
 ])(
-  'rejects incompatible defaults before %s DDL and preserves catalog/data',
+  'should reject incompatible defaults before %s DDL and preserve catalog/data',
   async (_path, schema, databaseDefault, setup) => {
     const Records = defineTable(
       'records',
@@ -90,27 +90,30 @@ it.each<[string, AnySchema, DatabaseDefault, string]>([
 it.each<[string | number, bigint]>([
   ['9007199254740993.0', 9007199254740992n],
   [9007199254740992, 9007199254740992n],
-])('preserves native integer storage for bigint default %s', async (value, expected) => {
-  const Records = defineTable(
-    'records',
-    {
-      id: number(),
-      value: pipe(bigint(), column({ databaseDefault: { kind: 'literal', value } })),
-    },
-    { primaryKey: 'id' },
-  )
+])(
+  'should preserve native integer storage for bigint default %s',
+  async (value, expected) => {
+    const Records = defineTable(
+      'records',
+      {
+        id: number(),
+        value: pipe(bigint(), column({ databaseDefault: { kind: 'literal', value } })),
+      },
+      { primaryKey: 'id' },
+    )
 
-  await withSqliteDatabase([Records], async ({ db }) => {
-    await db.migrate().execute()
+    await withSqliteDatabase([Records], async ({ db }) => {
+      await db.migrate().execute()
 
-    expect(await db.insert(Records).values({ id: 1 }).execute()).toEqual([
-      { id: 1, value: expected },
-    ])
+      expect(await db.insert(Records).values({ id: 1 }).execute()).toEqual([
+        { id: 1, value: expected },
+      ])
 
-    expect(await db.from(Records).execute()).toEqual([{ id: 1, value: expected }])
-    expect((await db.migrate().dryRun()).actions).toEqual([])
-  })
-})
+      expect(await db.from(Records).execute()).toEqual([{ id: 1, value: expected }])
+      expect((await db.migrate().dryRun()).actions).toEqual([])
+    })
+  },
+)
 
 const ValidDefaults = defineTable(
   'records',
@@ -183,7 +186,7 @@ const ValidDefaults = defineTable(
   { primaryKey: 'id' },
 )
 
-it('preserves built-in logical types for omitted defaults in RETURNING and SELECT and converges', async () => {
+it('should preserve built-in logical types for omitted defaults in RETURNING and SELECT and converge', async () => {
   await withSqliteDatabase([ValidDefaults], async ({ db }) => {
     await db.migrate().execute()
     const rows = await db.insert(ValidDefaults).values({ id: 1 }).execute()
@@ -237,7 +240,7 @@ function timeDefaultTable(
 }
 
 it.each(['column', 'client', 'mixed'])(
-  'uses explicit %s hooks to supply time-only Date policy without running hooks during planning',
+  'should use explicit %s hooks to supply time-only Date policy without running hooks during planning',
   async (scope) => {
     const encode = vi.fn<(value: unknown) => string>((value) =>
       (value as Date).toISOString(),
@@ -288,7 +291,7 @@ it.each(['column', 'client', 'mixed'])(
   },
 )
 
-it('keeps client result contracts local to each client using the same handle', async () => {
+it('should keep client result contracts local to each client using the same handle', async () => {
   const Records = defineTable(
     'records',
     {

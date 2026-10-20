@@ -13,7 +13,7 @@ import { createNativePostgresClient } from '../helpers/nativePostgresClient'
 import { createPostgresNativeConnector } from '../helpers/postgresOperationSessionFixtures'
 
 describe('PostgreSQL SQL classification', () => {
-  it('lexically classifies stateful SQL without matching inert quoted text', async () => {
+  it('should lexically classify stateful SQL without matching inert quoted text', async () => {
     const connector = createPostgresNativeConnector()
     const provider = createDb0PostgresOperationSessionProvider(connector)
     const warm = await provider.open()
@@ -64,7 +64,7 @@ describe('PostgreSQL SQL classification', () => {
 })
 
 describe('PostgreSQL SQL classification', () => {
-  it('rewrites only executable PostgreSQL parameters in the test adapter', async () => {
+  it('should rewrite only executable PostgreSQL parameters in the test adapter', async () => {
     const prepared: string[] = []
     const binds: unknown[][] = []
     const statement: Statement = {
@@ -111,7 +111,7 @@ describe('PostgreSQL SQL classification', () => {
 })
 
 describe('PostgreSQL SQL classification', () => {
-  it('distinguishes standard strings from PostgreSQL escape strings', () => {
+  it('should distinguish standard strings from PostgreSQL escape strings', () => {
     const standard = scanPostgresSql(String.raw`select 'a\' || $1`)
     const escaped = scanPostgresSql(String.raw`select E'a\'' || $1`)
 
@@ -123,7 +123,7 @@ describe('PostgreSQL SQL classification', () => {
 })
 
 describe('PostgreSQL SQL classification', () => {
-  it('uses row execution for commented and parenthesized result queries', async () => {
+  it('should use row execution for commented and parenthesized result queries', async () => {
     let allCalls = 0
     let runCalls = 0
     const statement: Statement = {

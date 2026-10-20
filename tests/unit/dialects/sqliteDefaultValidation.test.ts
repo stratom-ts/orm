@@ -17,7 +17,7 @@ it.each([
   "'a'';--b'",
   'null',
   '0xFF',
-])('recognizes and preserves the native literal %s', (value) => {
+])('should recognize and preserve the native literal %s', (value) => {
   expect(isSqliteDefaultLiteral(value)).toBe(true)
   expect(assertSafeSqliteDefaultExpression(value)).toBe(value)
 })
@@ -58,7 +58,7 @@ it.each([
   "abs(cast('-9223372036854775808' as integer))",
   'abs(-2147483648 * 4294967296)',
   'abs(min(-9223372036854775808, 1))',
-])('rejects unusable default syntax or call %s deterministically', (value) => {
+])('should reject unusable default syntax or call %s deterministically', (value) => {
   expect(() => assertSafeSqliteDefaultExpression(value)).toThrow(
     `Unsafe SQLite database expression ${JSON.stringify(value)}`,
   )
@@ -81,11 +81,11 @@ it.each([
   "abs(length('value'))",
   "abs(cast('-9223372036854775808' as REAL))",
   'abs(\t\r\n\f 1)',
-])('accepts the supported constant expression %s', (value) => {
+])('should accept the supported constant expression %s', (value) => {
   expect(assertSafeSqliteDefaultExpression(value)).toBe(value)
 })
 
-it('fails closed on nesting beyond the supported expression bound', () => {
+it('should fail closed on nesting beyond the supported expression bound', () => {
   const value = `${'('.repeat(30)}1${')'.repeat(30)}`
   expect(() => assertSafeSqliteDefaultExpression(value)).toThrow(/Unsafe SQLite/)
 })
@@ -94,7 +94,7 @@ it.each([
   { value: `+${Array.from({ length: 128 }, () => '1').join('+')}`, accepted: true },
   { value: Array.from({ length: 129 }, () => '1').join('+'), accepted: false },
 ])(
-  'enforces the token bound for a flat expression (accepted: $accepted)',
+  'should enforce the token bound for a flat expression (accepted: $accepted)',
   ({ value, accepted }) => {
     expect(isSqliteDefaultExpression(value)).toBe(accepted)
   },

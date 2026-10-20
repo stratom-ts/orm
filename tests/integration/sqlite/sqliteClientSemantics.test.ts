@@ -20,7 +20,7 @@ it.each([
   { label: 'closes during the transaction', closeDuringTransaction: true },
   { label: 'closes after the transaction', closeDuringTransaction: false },
 ])(
-  'keeps a shared connector open when another Client fails and $label',
+  'should keep a shared connector open when another Client fails and $label',
   async ({ closeDuringTransaction }) => {
     const Records = defineTable(
       'records',
@@ -64,7 +64,7 @@ it.each([
   },
 )
 
-it('does not retain a provider when Client creation rejects an invalid SQLite namespace', async () => {
+it('should not retain a provider when Client creation rejects an invalid SQLite namespace', async () => {
   await withSqliteConnector(async ({ connector, native }) => {
     expect(() =>
       createDatabase({
@@ -86,7 +86,7 @@ it('does not retain a provider when Client creation rejects an invalid SQLite na
 })
 
 it.each([42n, 9007199254740993n, 9223372036854775807n, -9223372036854775808n])(
-  'round-trips BIGINT %s through RETURNING and SELECT without changing storage',
+  'should round-trip BIGINT %s through RETURNING and SELECT without changing storage',
   async (value) => {
     const Records = defineTable(
       'records',
@@ -109,7 +109,7 @@ it.each([42n, 9007199254740993n, 9223372036854775807n, -9223372036854775808n])(
   },
 )
 
-it('returns authored names and logical values from case-equivalent native columns', async () => {
+it('should return authored names and logical values from case-equivalent native columns', async () => {
   const Records = defineTable(
     'records',
     { id: pipe(number(), integer()), active: boolean() },
@@ -158,7 +158,7 @@ it('returns authored names and logical values from case-equivalent native column
   })
 })
 
-it('uses logical boolean, Date and JSON mapping with physical INTEGER and TEXT overrides', async () => {
+it('should use logical boolean, Date and JSON mapping with physical INTEGER and TEXT overrides', async () => {
   const Records = defineTable(
     'records',
     {
@@ -195,7 +195,7 @@ it('uses logical boolean, Date and JSON mapping with physical INTEGER and TEXT o
   })
 })
 
-it('retains target logical context for reference-only columns with physical overrides', async () => {
+it('should retain target logical context for reference-only columns with physical overrides', async () => {
   const Parents = defineTable(
     'parents',
     {
@@ -238,7 +238,7 @@ it('retains target logical context for reference-only columns with physical over
 })
 
 it.each(['a  b', "x;y -- /* select DROP $ :: 'quote'"])(
-  'preserves a literal default %s and converges after native insertion',
+  'should preserve a literal default %s and converge after native insertion',
   async (value) => {
     const Records = defineTable(
       'records',
@@ -258,7 +258,7 @@ it.each(['a  b', "x;y -- /* select DROP $ :: 'quote'"])(
   },
 )
 
-it('does not treat different whitespace inside expression literals as default convergence', async () => {
+it('should not treat different whitespace inside expression literals as default convergence', async () => {
   const Records = defineTable(
     'records',
     {
@@ -294,7 +294,7 @@ it('does not treat different whitespace inside expression literals as default co
   })
 })
 
-it('keeps column and client mapping precedence and passes physical types to custom mappers', async () => {
+it('should keep column and client mapping precedence and pass physical types to custom mappers', async () => {
   const Records = defineTable(
     'records',
     {
@@ -348,7 +348,7 @@ it('keeps column and client mapping precedence and passes physical types to cust
   )
 })
 
-it('fails closed for repeated FK target columns instead of deduplicating candidate keys', async () => {
+it('should fail closed for repeated FK target columns instead of deduplicating candidate keys', async () => {
   await withSqliteDatabase([], async ({ native }) => {
     native.exec(
       'create table parent(a INTEGER,b INTEGER,unique(a,b)); create table child(x INTEGER,y INTEGER,foreign key(x,y) references parent(a,a))',
@@ -388,7 +388,7 @@ it('fails closed for repeated FK target columns instead of deduplicating candida
 })
 
 it.each(['unique(a,b)', 'primary key(a,b)'])(
-  'adopts a valid FK permutation of %s and preserves source/target pair order',
+  'should adopt a valid FK permutation of %s and preserve source/target pair order',
   async (key) => {
     await withSqliteDatabase([], async ({ native }) => {
       native.exec(

@@ -22,14 +22,14 @@ const members = [
   },
 ] as const
 
-it('keeps shared query core and value mapping supported for both production members', () => {
+it('should keep shared query core and value mapping supported for both production members', () => {
   for (const member of members) {
     expect(member.semantic.query.core.state).toBe('supported')
     expect(member.semantic.query.valueMapping.state).toBe('supported')
   }
 })
 
-it('keeps whole-plan lowering and rejection cases supported for both production members', () => {
+it('should keep whole-plan lowering and rejection cases supported for both production members', () => {
   for (const member of members) {
     const migration = member.semantic.migration
 
@@ -40,7 +40,7 @@ it('keeps whole-plan lowering and rejection cases supported for both production 
   }
 })
 
-it('provides common and controlled provider migration cases for both members', () => {
+it('should provide common and controlled provider migration cases for both members', () => {
   for (const member of members) {
     const operationSession = member.operationSession.operationSession
     const controlled = operationSession.controlled.input
@@ -58,7 +58,7 @@ it('provides common and controlled provider migration cases for both members', (
   }
 })
 
-it('declares SQLite right joins unsupported with a pre-execution rejection case', () => {
+it('should declare SQLite right joins unsupported with a pre-execution rejection case', () => {
   const rightJoin =
     sqliteSemanticContractShard.query.scenarios['select.join.right'].support
 

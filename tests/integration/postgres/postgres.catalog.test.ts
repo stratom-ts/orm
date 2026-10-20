@@ -104,7 +104,7 @@ function assertCatalogRelations(
 describe('PostgreSQL catalog integration', () => {
   beforeAll(waitForPostgres)
 
-  it('reports present, absent, complete-empty, and unsupported evidence', async () => {
+  it('should report present, absent, complete-empty, and unsupported evidence', async () => {
     await withPostgresDatabase(
       [CatalogParents, CatalogChildren],
       async ({ db, schema, alternateSchema, admin }) => {

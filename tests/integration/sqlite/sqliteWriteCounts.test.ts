@@ -9,7 +9,7 @@ import { withSqliteDatabase } from './sqliteIntegration'
 const Counted = defineTable('counted', { rowCount: number() }, { primaryKey: 'rowCount' })
 
 it.each(['insert', 'update', 'delete'] as const)(
-  'keeps numeric rowCount columns distinct from %s write counts',
+  'should keep numeric rowCount columns distinct from %s write counts',
   async (operation) => {
     await withSqliteDatabase([Counted], async ({ db }) => {
       await db.migrate().execute()

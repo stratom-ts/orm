@@ -12,7 +12,7 @@ import {
 import { createPostgresControllableProvider } from './helpers/postgresOperationSessionFixtures'
 
 describe('operation coordinator lifecycle', () => {
-  it('gives query, transaction, planning, and migration distinct FIFO root slots', async () => {
+  it('should give query, transaction, planning, and migration distinct FIFO root slots', async () => {
     const firstCall = deferred()
     const finishFirst = deferred()
     const controls = createPostgresControllableProvider({
@@ -47,7 +47,7 @@ describe('operation coordinator lifecycle', () => {
 })
 
 describe('operation coordinator lifecycle: drains accepted operations and releases them before provider close', () => {
-  it('drains accepted operations and releases them before provider close', async () => {
+  it('should drain accepted operations and release them before provider close', async () => {
     const firstStarted = deferred()
     const finishFirst = deferred()
     const controls = createControllableProvider({
@@ -83,7 +83,7 @@ describe('operation coordinator lifecycle: drains accepted operations and releas
 })
 
 describe('operation coordinator lifecycle: returns one shutdown promise and preserves provider close rejection', () => {
-  it('returns one shutdown promise and preserves provider close rejection', async () => {
+  it('should return one shutdown promise and preserve provider close rejection', async () => {
     const closeError = new Error('provider close failed')
     const controls = createControllableProvider({
       closeFailure: { value: closeError },
@@ -107,7 +107,7 @@ describe('operation coordinator lifecycle: returns one shutdown promise and pres
 })
 
 describe('operation coordinator lifecycle: returns one shutdown promise and preserves provider close rejection: preserves rejection with undefined from callbacks and release cleanup', () => {
-  it('preserves rejection with undefined from callbacks and release cleanup', async () => {
+  it('should preserve rejection with undefined from callbacks and release cleanup', async () => {
     const callbackControls = createControllableProvider()
     const callbackDb = createDatabase({
       connector: customConnector('postgresql'),

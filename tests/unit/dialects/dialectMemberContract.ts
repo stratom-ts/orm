@@ -224,7 +224,7 @@ export function registerDialectLifecycleContract(
   createRuntime: DialectLifecycleContractFactory,
 ): void {
   describe(`${name} Dialect contract [lifecycle]`, () => {
-    it('scenario [routes public work, migration, and cleanup through the selected member]', async () => {
+    it('should route public work, migration, and cleanup through the selected member', async () => {
       await runDialectLifecycleContract(createRuntime())
     })
   })

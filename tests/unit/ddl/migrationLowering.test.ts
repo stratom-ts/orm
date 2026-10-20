@@ -181,7 +181,7 @@ function lower(planned: PlannedMigration, profile = expectedProfile): MigrationP
 it.each([
   new TypeError('identity adapter failed'),
   new InvariantError('identity invariant failed'),
-])('preserves a namespace identity defect %s', (defect) => {
+])('should preserve a namespace identity defect %s', (defect) => {
   const planned = plan()
   const stack = defect.stack
   const identities = new Proxy(planned.identities, {
@@ -206,7 +206,7 @@ it.each([
   expect((failure as Error).stack).toBe(stack)
 })
 
-it('preserves a SQL compilation defect instead of reporting a capability issue', async () => {
+it('should preserve a SQL compilation defect instead of reporting a capability issue', async () => {
   const compiler = await import('@/dialects/postgres/migration/sql')
   const defect = new TypeError('compiler failed')
   const stack = defect.stack
@@ -231,7 +231,7 @@ it('preserves a SQL compilation defect instead of reporting a capability issue',
 })
 
 describe('PostgreSQL whole-plan lowering', () => {
-  it('lowers an empty plan to an exact zero-action program', () => {
+  it('should lower an empty plan to an exact zero-action program', () => {
     const planned = plan()
 
     expect(
@@ -250,7 +250,7 @@ describe('PostgreSQL whole-plan lowering', () => {
 })
 
 describe('PostgreSQL whole-plan lowering: lowers one semantic step to one exact action with its source provenance', () => {
-  it('lowers one semantic step to one exact action with its source provenance', () => {
+  it('should lower one semantic step to one exact action with its source provenance', () => {
     const planned = plan()
     const audit = planned.identities.resolveNamespace([
       { role: 'schema', spelling: 'audit' },
@@ -288,7 +288,7 @@ describe('PostgreSQL whole-plan lowering: lowers one semantic step to one exact 
 })
 
 describe('PostgreSQL inferred UUID plan lowering', () => {
-  it('compiles inferred UUID primary and foreign key declarations', () => {
+  it('should compile inferred UUID primary and foreign key declarations', () => {
     const Parent = defineTable(
       'inferred_parent',
       { id: pipe(string(), uuid()) },
@@ -333,7 +333,7 @@ describe('PostgreSQL inferred UUID plan lowering', () => {
 })
 
 describe('PostgreSQL whole-plan lowering: compiles a plan-atomic program with canonical source provenance', () => {
-  it('compiles a plan-atomic program with canonical source provenance', () => {
+  it('should compile a plan-atomic program with canonical source provenance', () => {
     const program = lower(plan())
 
     expect(program).toEqual(
@@ -341,7 +341,7 @@ describe('PostgreSQL whole-plan lowering: compiles a plan-atomic program with ca
     )
   })
 
-  it('removes fresh foreign keys from table creation and defers them until both tables exist', () => {
+  it('should remove fresh foreign keys from table creation and defer them until both tables exist', () => {
     const statements = lower(plan()).actions.flatMap((action) => action.statements)
     const postsCreate = statements.find((statement) =>
       /create table "public"\."posts"/i.test(statement.sql),
@@ -365,7 +365,7 @@ describe('PostgreSQL whole-plan lowering: compiles a plan-atomic program with ca
 })
 
 describe('PostgreSQL whole-plan validation', () => {
-  it('reports a different executing database as a profile mismatch', () => {
+  it('should report a different executing database as a profile mismatch', () => {
     const result = postgresDialect.migration!.lower(plan(), {
       ...expectedProfile,
       namespaceContext: {
@@ -383,7 +383,7 @@ describe('PostgreSQL whole-plan validation', () => {
     expect(result.program).toBeUndefined()
   })
 
-  it('returns profile capability issues without a partial program', () => {
+  it('should return profile capability issues without a partial program', () => {
     const result = postgresDialect.migration!.lower(plan(), {
       identityAdapter: 'sqlite',
       namespaceContext: {
@@ -442,7 +442,7 @@ const rejectsAMismatchedCaseBeforePhysicalStepCompilationCases1 = [
 
 describe('PostgreSQL whole-plan validation: rejects a mismatched $field before physical step compilation', () => {
   it.each(rejectsAMismatchedCaseBeforePhysicalStepCompilationCases1)(
-    'rejects a mismatched $field before physical step compilation',
+    'should reject a mismatched $field before physical step compilation',
     (testCase) => {
       const planned = plan()
       const traversal = vi.fn<() => never>(() => {
@@ -487,7 +487,7 @@ describe('PostgreSQL whole-plan validation: rejects a mismatched $field before p
 })
 
 describe('PostgreSQL whole-plan validation: treats an empty registration default as none', () => {
-  it('treats an empty registration default as none', () => {
+  it('should treat an empty registration default as none', () => {
     expect(
       postgresDialect.migration!.lower(plan(), {
         ...expectedProfile,
@@ -498,7 +498,7 @@ describe('PostgreSQL whole-plan validation: treats an empty registration default
 })
 
 describe('PostgreSQL whole-plan validation: accepts equivalent spellings of one resolved registration default', () => {
-  it('accepts equivalent spellings of one resolved registration default', () => {
+  it('should accept equivalent spellings of one resolved registration default', () => {
     const schemas = [Users, Posts]
     const registrationDefault = [{ role: 'schema' as const, spelling: 'public' }]
     const planned = planMigration(
@@ -524,7 +524,7 @@ describe('PostgreSQL whole-plan validation: accepts equivalent spellings of one 
 })
 
 describe('PostgreSQL lowering dependencies and malformed steps', () => {
-  it('returns every deterministic issue and no partial program for malformed steps', () => {
+  it('should return every deterministic issue and no partial program for malformed steps', () => {
     const planned = plan()
     const users = planned.identities.resolve({ relation: 'users' })
     const otherDatabase = {
@@ -572,7 +572,7 @@ describe('PostgreSQL lowering dependencies and malformed steps', () => {
 })
 
 describe('PostgreSQL lowering dependencies and malformed steps: orders child table drops before retained catalog parents', () => {
-  it('orders child table drops before retained catalog parents', () => {
+  it('should order child table drops before retained catalog parents', () => {
     const planned = plan()
     const parent = planned.identities.resolve({
       namespace: [{ role: 'schema', spelling: 'public' }],
@@ -594,7 +594,7 @@ describe('PostgreSQL lowering dependencies and malformed steps: orders child tab
 })
 
 describe('PostgreSQL lowering dependencies and malformed steps: reports unsupported retained foreign-key drop cycles without a program', () => {
-  it('reports unsupported retained foreign-key drop cycles without a program', () => {
+  it('should report unsupported retained foreign-key drop cycles without a program', () => {
     const planned = plan()
     const parent = planned.identities.resolve({ relation: 'users' })
     const child = planned.identities.resolve({ relation: 'posts' })
@@ -634,7 +634,7 @@ describe('PostgreSQL lowering dependencies and malformed steps: reports unsuppor
 })
 
 describe('PostgreSQL lowering preconditions and target validation', () => {
-  it('declares SET NOT NULL as a semantic precondition', () => {
+  it('should declare SET NOT NULL as a semantic precondition', () => {
     const planned = plan()
     const relation = planned.identities.resolve({ relation: 'users' })
     const column = planned.identities.member('column', 'email')
@@ -662,7 +662,7 @@ describe('PostgreSQL lowering preconditions and target validation', () => {
 })
 
 describe('PostgreSQL lowering preconditions and target validation: rejects cross-database step and foreign-key reference targets', () => {
-  it('rejects cross-database step and foreign-key reference targets', () => {
+  it('should reject cross-database step and foreign-key reference targets', () => {
     const planned = plan()
     const users = planned.identities.resolve({ relation: 'users' })
     const posts = planned.identities.resolve({ relation: 'posts' })
@@ -739,7 +739,7 @@ const rejectsPostgreSQLTargetsWithSCases2 = [
 
 describe('PostgreSQL lowering preconditions and target validation: rejects PostgreSQL targets with %s', () => {
   it.each(rejectsPostgreSQLTargetsWithSCases2)(
-    'rejects PostgreSQL targets with %s',
+    'should reject PostgreSQL targets with %s',
     (_label, namespace) => {
       const planned = plan()
       const users = planned.identities.resolve({ relation: 'users' })

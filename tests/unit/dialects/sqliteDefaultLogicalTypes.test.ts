@@ -25,39 +25,42 @@ it.each<[string, AnySchema, string | number | boolean | null, string]>([
   ['object with array JSON', object({}), '[]', 'JSON'],
   ['array with object JSON', array(string()), '{}', 'TEXT'],
   ['Date with time-only text', date(), '12:34:56', 'TEXT'],
-])('rejects %s during desired-schema validation', async (_name, schema, value, type) => {
-  const Records = defineTable(
-    'records',
-    {
-      id: number(),
-      value: pipe(
-        schema,
-        column({
-          physicalType: { sqlite: type },
-          databaseDefault: { kind: 'literal', value },
-        }),
-      ),
-    },
-    { primaryKey: 'id' },
-  )
+])(
+  'should reject %s during desired-schema validation',
+  async (_name, schema, value, type) => {
+    const Records = defineTable(
+      'records',
+      {
+        id: number(),
+        value: pipe(
+          schema,
+          column({
+            physicalType: { sqlite: type },
+            databaseDefault: { kind: 'literal', value },
+          }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
 
-  const db = createDatabase({
-    connector: customConnector('sqlite'),
-    schemas: [Records],
-    operationSessionProvider: createSqliteControllableProvider().provider,
-  })
-
-  try {
-    await expect(db.migrate().dryRun()).rejects.toMatchObject({
-      stage: 'planning',
-      outcome: 'unchanged',
+    const db = createDatabase({
+      connector: customConnector('sqlite'),
+      schemas: [Records],
+      operationSessionProvider: createSqliteControllableProvider().provider,
     })
-  } finally {
-    await db.close()
-  }
-})
 
-it('does not let a parameter-only mapping approve incompatible omitted defaults', async () => {
+    try {
+      await expect(db.migrate().dryRun()).rejects.toMatchObject({
+        stage: 'planning',
+        outcome: 'unchanged',
+      })
+    } finally {
+      await db.close()
+    }
+  },
+)
+
+it('should not let a parameter-only mapping approve incompatible omitted defaults', async () => {
   const Records = defineTable(
     'records',
     {

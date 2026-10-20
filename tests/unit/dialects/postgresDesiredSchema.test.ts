@@ -95,7 +95,7 @@ function loweredColumn(
 }
 
 describe('PostgreSQL desired schema', () => {
-  it('infers a UUID primary key and nullable UUID column, with selected overrides winning', () => {
+  it('should infer a UUID primary key and nullable UUID column, with selected overrides winning', () => {
     const Users = defineTable(
       'uuid_users',
       {
@@ -143,7 +143,7 @@ describe('PostgreSQL desired schema', () => {
 
 describe('PostgreSQL desired schema', () => {
   it.each(['uuid', 'text', 'varchar(36)'])(
-    'inherits selected %s storage through direct, nullable, and chained references',
+    'should inherit selected %s storage through direct, nullable, and chained references',
     (targetType) => {
       const Parent = uuidReferenceParent(targetType)
       const Child = defineTable(
@@ -188,7 +188,7 @@ describe('PostgreSQL desired schema', () => {
 
 describe('PostgreSQL desired schema', () => {
   it.each(['uuid', 'text', 'varchar(36)'])(
-    'accepts matching %s and rejects mismatched local storage',
+    'should accept matching %s and reject mismatched local storage',
     (targetType) => {
       const Parent = uuidReferenceParent(targetType)
       const Matching = defineTable(
@@ -238,7 +238,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('lowers every supported metadata and reference form to one fixed schema graph', () => {
+  it('should lower every supported metadata and reference form to one fixed schema graph', () => {
     const { Accounts, Memberships, References } = supportedSchemaHandles()
 
     const lowered = lowerDesiredSchema(
@@ -258,7 +258,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('reports the same first lowering error across column-order permutations', () => {
+  it('should report the same first lowering error across column-order permutations', () => {
     /**
      * Lowers ing error for the current fixture scenario.
      *
@@ -304,7 +304,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('acknowledges matching local reference types and rejects mismatches', () => {
+  it('should acknowledge matching local reference types and reject mismatches', () => {
     const Target = defineTable(
       'typed_targets',
       { id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })) },
@@ -353,7 +353,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('distinguishes tagged literals from portable and dialect expressions', () => {
+  it('should distinguish tagged literals from portable and dialect expressions', () => {
     const Defaults = createDefaultsTable()
     const table = lowerDesiredSchema(
       [Defaults],
@@ -371,7 +371,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('rejects unbalanced or dollar-quoted dialect expressions', () => {
+  it('should reject unbalanced or dollar-quoted dialect expressions', () => {
     for (const expression of [
       "'unterminated",
       '(now()',
@@ -411,7 +411,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('reports missing direct-lowering reference targets as MigrationError', () => {
+  it('should report missing direct-lowering reference targets as MigrationError', () => {
     const Target = defineTable(
       'direct_targets',
       {
@@ -454,7 +454,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('rejects mismatched tags and unsupported generation with MigrationError', () => {
+  it('should reject mismatched tags and unsupported generation with MigrationError', () => {
     const Mismatched = defineTable(
       'mismatched',
       {
@@ -502,7 +502,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('defers comments, onUpdate, and identity type checks to PostgreSQL lowering', () => {
+  it('should defer comments, onUpdate, and identity type checks to PostgreSQL lowering', () => {
     const BadIdentity = createBadIdentityTable()
     const Commented = defineTable(
       'commented',
@@ -545,7 +545,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('rejects unsupported local metadata on composed reference columns', () => {
+  it('should reject unsupported local metadata on composed reference columns', () => {
     const Target = defineTable(
       'reference_option_targets',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -597,7 +597,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('keeps by-default identity explicitly insertable and always/computed omitted', () => {
+  it('should keep by-default identity explicitly insertable and always/computed omitted', () => {
     const Generated = defineTable(
       'generated',
       {
@@ -644,7 +644,7 @@ describe('PostgreSQL desired schema', () => {
 })
 
 describe('PostgreSQL desired schema', () => {
-  it('lowers identity generation modes', () => {
+  it('should lower identity generation modes', () => {
     const Identities = defineTable(
       'identities',
       {

@@ -31,7 +31,7 @@ const Parent = defineTable(
   { primaryKey: 'id', indexes: [{ name: 'parent_label', columns: ['label'] }] },
 )
 
-it('does not turn an unexpected SQLite lowering failure into a capability issue', async () => {
+it('should not turn an unexpected SQLite lowering failure into a capability issue', async () => {
   const connector = customConnector('sqlite')
   const db = createDatabase({
     connector,
@@ -60,7 +60,7 @@ it('does not turn an unexpected SQLite lowering failure into a capability issue'
   }
 })
 
-it('rethrows defects from the real SQLite lowerer without capability conversion', async () => {
+it('should rethrow defects from the real SQLite lowerer without capability conversion', async () => {
   const connector = customConnector('sqlite')
   const db = createDatabase({
     connector,
@@ -97,7 +97,7 @@ it('rethrows defects from the real SQLite lowerer without capability conversion'
   }
 })
 
-it('suppresses the whole SQLite Migration Program when one table name is reserved', async () => {
+it('should suppress the whole SQLite Migration Program when one table name is reserved', async () => {
   const Valid = defineTable(
     'aaa_valid',
     { id: pipe(number(), integer()) },

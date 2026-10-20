@@ -79,7 +79,7 @@ function usersCatalog() {
 }
 
 describe('catalog evidence', () => {
-  it('keeps every scalar evidence state distinct', () => {
+  it('should keep every scalar evidence state distinct', () => {
     const facts: CatalogFact<string>[] = [
       { state: 'present', value: 'value' },
       { state: 'absent' },
@@ -105,7 +105,7 @@ describe('catalog evidence', () => {
 })
 
 describe('catalog evidence: requires complete empty coverage before creating a relation', () => {
-  it('requires complete empty coverage before creating a relation', () => {
+  it('should require complete empty coverage before creating a relation', () => {
     const empty = emptyCatalog()
     const original = structuredClone(empty)
 
@@ -147,7 +147,7 @@ describe('catalog evidence: requires complete empty coverage before creating a r
 })
 
 describe('catalog evidence: fails closed for every non-complete collection coverage state', () => {
-  it('fails closed for every non-complete collection coverage state', () => {
+  it('should fail closed for every non-complete collection coverage state', () => {
     const cases = createIncompleteCoverageCases()
 
     for (const { coverage, evidence } of cases) {
@@ -219,7 +219,7 @@ const reportsCaseColumnEvidenceWithoutMutatingTheSnapshotCases1 = [
 
 describe('catalog collection coverage states', () => {
   it.each(reportsCaseColumnEvidenceWithoutMutatingTheSnapshotCases1)(
-    'reports $state column evidence without mutating the snapshot',
+    'should report $state column evidence without mutating the snapshot',
     (testCase) => {
       const catalog = usersCatalog()
       const relation = catalog.namespaces.items[0]!.relations.items[0]!
@@ -244,7 +244,7 @@ describe('catalog collection coverage states', () => {
 })
 
 describe('catalog evidence management and ownership', () => {
-  it('blocks a managed comparison when one observed fact is unavailable', () => {
+  it('should block a managed comparison when one observed fact is unavailable', () => {
     const catalog = usersCatalog()
     const namespace = catalog.namespaces.items[0]!
     const relation = namespace.relations.items[0]!
@@ -268,7 +268,7 @@ describe('catalog evidence management and ownership', () => {
 })
 
 describe('catalog evidence management and ownership: does not treat an unmanaged collision as confirmed absence', () => {
-  it('does not treat an unmanaged collision as confirmed absence', () => {
+  it('should not treat an unmanaged collision as confirmed absence', () => {
     const catalog = usersCatalog()
     const namespace = catalog.namespaces.items[0]!
     const relation = namespace.relations.items[0]!
@@ -295,7 +295,7 @@ describe('catalog evidence management and ownership: does not treat an unmanaged
 })
 
 describe('catalog evidence management and ownership: allows partial unmanaged remainder for an exact relation request', () => {
-  it('allows partial unmanaged remainder for an exact relation request', () => {
+  it('should allow partial unmanaged remainder for an exact relation request', () => {
     const catalog = usersCatalog()
     const namespace = catalog.namespaces.items[0]!
     ;(namespace as { relations: typeof namespace.relations }).relations = {
@@ -313,7 +313,7 @@ describe('catalog evidence management and ownership: allows partial unmanaged re
 })
 
 describe('catalog evidence management and ownership: rejects partial unmanaged remainder for complete namespace ownership', () => {
-  it('rejects partial unmanaged remainder for complete namespace ownership', () => {
+  it('should reject partial unmanaged remainder for complete namespace ownership', () => {
     const catalog = usersCatalog()
     const namespace = catalog.namespaces.items[0]!
     const ownership = [
@@ -350,7 +350,7 @@ describe('catalog evidence management and ownership: rejects partial unmanaged r
 })
 
 describe('catalog evidence management and ownership: preserves opaque objects and blocks destructive changes that could lose them', () => {
-  it('preserves opaque objects and blocks destructive changes that could lose them', () => {
+  it('should preserve opaque objects and block destructive changes that could lose them', () => {
     const catalog = completePostgresCatalog(
       {
         namespaceContext: context,
@@ -391,7 +391,7 @@ describe('catalog evidence management and ownership: preserves opaque objects an
 })
 
 describe('catalog evidence management and ownership: preserves opaque objects and blocks destructive changes that could lose them: represents an observed empty namespace without recreating it', () => {
-  it('represents an observed empty namespace without recreating it', () => {
+  it('should represent an observed empty namespace without recreating it', () => {
     const ownership = [
       {
         kind: 'completeNamespace' as const,

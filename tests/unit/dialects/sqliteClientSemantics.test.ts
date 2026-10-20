@@ -3,7 +3,7 @@ import { expect, it } from 'vitest'
 import { normalizeSqliteDefaultExpression } from '@/dialects/sqlite/normalize'
 import { assertSafeSqliteDefaultExpression } from '@/dialects/sqlite/validate'
 
-it('normalizes only unquoted spacing and retains escaped quotes in SQL strings', () => {
+it('should normalize only unquoted spacing and retain escaped quotes in SQL strings', () => {
   expect(normalizeSqliteDefaultExpression(" ( lower(  'a''  b' ) ) ")).toBe(
     "lower( 'a''  b' )",
   )
@@ -20,7 +20,7 @@ it.each([
   '(select 1)',
   "lower('unterminated)",
 ])(
-  'rejects executable or malformed SQL default %s outside string literals',
+  'should reject executable or malformed SQL default %s outside string literals',
   (expression) => {
     expect(() => assertSafeSqliteDefaultExpression(expression)).toThrow(
       /Unsafe SQLite database expression/,

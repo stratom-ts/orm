@@ -68,7 +68,7 @@ function provedTable(input: SqliteProofBatchInput) {
   return { result, relation, facts: relation.table.value }
 }
 
-it('proves an ordinary rowid table, native SQL and valid empty member inventories', () => {
+it('should prove an ordinary rowid table, native SQL and valid empty member inventories', () => {
   const { result, relation, facts } = provedTable(fixture())
   expect(result.errors.size).toBe(0)
   expect(relation.management).toBe('managed')
@@ -95,7 +95,7 @@ it('proves an ordinary rowid table, native SQL and valid empty member inventorie
   expect(facts.foreignKeys).toEqual({ items: [], coverage: { state: 'complete' } })
 })
 
-it('keeps columns and proven rowid facts beside a damaged user index member', () => {
+it('should keep columns and proven rowid facts beside a damaged user index member', () => {
   const input = fixture()
   const index: IndexListRow = {
     seq: 0,
@@ -122,7 +122,7 @@ it('keeps columns and proven rowid facts beside a damaged user index member', ()
   expect(facts.indexes.coverage.state).toBe('unknown')
 })
 
-it('withholds possible rowid facts when index inventory is malformed or missing', () => {
+it('should withhold possible rowid facts when index inventory is malformed or missing', () => {
   for (const indexes of [
     [{ seq: 1, name: 'bad', origin: 'u', unique: 1, partial: 0 }],
     undefined,
@@ -142,7 +142,7 @@ it('withholds possible rowid facts when index inventory is malformed or missing'
   }
 })
 
-it('recovers options and columns independently under contradictions', () => {
+it('should recover options and columns independently under contradictions', () => {
   const columnsBad = fixture()
   columnsBad.scopeRows = [table('t', 2)]
   columnsBad.mainTables = columnsBad.scopeRows
@@ -159,7 +159,7 @@ it('recovers options and columns independently under contradictions', () => {
   expect(badOptions.facts.columns.coverage.state).toBe('complete')
 })
 
-it('keeps view, virtual and shadow classifications in local proof', () => {
+it('should keep view, virtual and shadow classifications in local proof', () => {
   const input = fixture()
   const view = { ...table('v'), type: 'view' }
   const virtual = { ...table('virt'), type: 'virtual' }
@@ -213,7 +213,7 @@ it('keeps view, virtual and shadow classifications in local proof', () => {
   }
 })
 
-it('applies the original single-pass invalid-parent downgrade and retains outside-scope failures', () => {
+it('should apply the original single-pass invalid-parent downgrade and retain outside-scope failures', () => {
   const input = fixture()
   const child = table('child', 2)
   input.scopeRows = [child]
@@ -252,7 +252,7 @@ it('applies the original single-pass invalid-parent downgrade and retains outsid
 })
 
 it.each(['healthy', 'damaged'])(
-  'preserves input observations and failure collections with %s evidence',
+  'should preserve input observations and failure collections with %s evidence',
   (state) => {
     const input = fixture()
 
@@ -268,7 +268,7 @@ it.each(['healthy', 'damaged'])(
   },
 )
 
-it('rethrows unrelated errors, invariant errors and primitive defects by identity', () => {
+it('should rethrow unrelated errors, invariant errors and primitive defects by identity', () => {
   for (const defect of [
     new Error('defect'),
     new InvariantError('defect'),
@@ -296,7 +296,7 @@ it('rethrows unrelated errors, invariant errors and primitive defects by identit
   }
 })
 
-it('proves UNIQUE and rich user-index semantics from native and member evidence', () => {
+it('should prove UNIQUE and rich user-index semantics from native and member evidence', () => {
   const input = fixture()
   input.scopeRows = [table('t', 2)]
   input.mainTables = input.scopeRows
@@ -351,7 +351,7 @@ it('proves UNIQUE and rich user-index semantics from native and member evidence'
   })
 })
 
-it('keeps the first reason when independent observations are damaged', () => {
+it('should keep the first reason when independent observations are damaged', () => {
   const input = fixture()
   input.scopeRows = [{ ...input.scopeRows[0]!, strict: 1 }]
   input.mainTables = input.scopeRows
@@ -367,7 +367,7 @@ it('keeps the first reason when independent observations are damaged', () => {
   expect(facts.options.coverage.state).toBe('unknown')
 })
 
-it('keeps the same first failing index under reversed decoded inventories', () => {
+it('should keep the same first failing index under reversed decoded inventories', () => {
   const input = fixture()
   const indexes: IndexListRow[] = [
     { seq: 0, name: 'a', origin: 'u', unique: 0, partial: 0 },
@@ -383,7 +383,7 @@ it('keeps the same first failing index under reversed decoded inventories', () =
   expect(reversed.relations).toEqual(forward.relations)
 })
 
-it('keeps the single ordered invalid-parent pass under reversed scope rows', () => {
+it('should keep the single ordered invalid-parent pass under reversed scope rows', () => {
   const input = fixture()
   const rows = [table('a', 2), table('b', 2), table('c')]
   input.scopeRows = [...rows].reverse()
@@ -436,7 +436,7 @@ it('keeps the single ordered invalid-parent pass under reversed scope rows', () 
   expect(forward.errors.get('b')).toContain('references invalid parent metadata')
 })
 
-it('canonicalizes relation facts after the ordered parent recovery pass', () => {
+it('should canonicalize relation facts after the ordered parent recovery pass', () => {
   const input = fixture()
   const other = table('a')
   input.scopeRows = [input.scopeRows[0]!, other]
@@ -466,7 +466,7 @@ it('canonicalizes relation facts after the ordered parent recovery pass', () => 
   ).toEqual(['a', 't'])
 })
 
-it('proves a backed WITHOUT ROWID primary key', () => {
+it('should prove a backed WITHOUT ROWID primary key', () => {
   const input = fixture()
   input.scopeRows = [{ ...table('wr'), wr: 1 }]
   input.mainTables = input.scopeRows
@@ -504,7 +504,7 @@ it('proves a backed WITHOUT ROWID primary key', () => {
   ])
 })
 
-it('keeps a proven STRICT table unmanaged with retained options', () => {
+it('should keep a proven STRICT table unmanaged with retained options', () => {
   const input = fixture()
   input.scopeRows = [{ ...table('strict_t'), strict: 1 }]
   input.mainTables = input.scopeRows
@@ -533,7 +533,7 @@ it.each([
   { title: 'explicit', target: 'id', suffix: '(id)' },
   { title: 'implicit', target: null, suffix: '' },
 ])(
-  'proves an $title foreign-key target against the parent primary key',
+  'should prove an $title foreign-key target against the parent primary key',
   ({ target, suffix }) => {
     const input = fixture()
     const child = table('child', 2)
@@ -576,7 +576,7 @@ it.each([
   },
 )
 
-it('retains unsupported table clauses as opaque native evidence', () => {
+it('should retain unsupported table clauses as opaque native evidence', () => {
   const input = fixture()
   input.scopeRows = [table('t', 2)]
   input.mainTables = input.scopeRows
@@ -596,7 +596,7 @@ it('retains unsupported table clauses as opaque native evidence', () => {
   ])
 })
 
-it('keeps index failure precedence and column recovery under reversed member arrays', () => {
+it('should keep index failure precedence and column recovery under reversed member arrays', () => {
   const input = fixture()
   input.scopeRows = [table('t', 2)]
   input.mainTables = input.scopeRows

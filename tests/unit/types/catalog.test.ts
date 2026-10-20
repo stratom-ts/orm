@@ -10,7 +10,7 @@ import type {
 } from '@/index'
 
 describe('public catalog evidence types', () => {
-  it('exports evidence separately from collection coverage and capabilities', () => {
+  it('should export evidence separately from collection coverage and capabilities', () => {
     expectTypeOf<CatalogFact<string>>().toEqualTypeOf<
       | { readonly state: 'present'; readonly value: string }
       | { readonly state: 'absent' }
@@ -29,7 +29,7 @@ describe('public catalog evidence types', () => {
     }>()
   })
 
-  it('exposes one scoped catalog module on a dialect', () => {
+  it('should expose one scoped catalog module on a dialect', () => {
     expectTypeOf<Dialect['catalog']>().toEqualTypeOf<CatalogIntrospector>()
     expectTypeOf<Dialect>().not.toHaveProperty('introspect')
   })

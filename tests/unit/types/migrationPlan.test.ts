@@ -86,7 +86,7 @@ type ExpectedMigrationStep =
   | Readonly<{ kind: 'drop_index'; target: ExpectedIndexTarget }>
 
 describe('public Migration Plan types', () => {
-  it('names semantic planning separately from physical dry runs', () => {
+  it('should name semantic planning separately from physical dry runs', () => {
     expectTypeOf<MigrateBuilder['plan']>().toEqualTypeOf<() => Promise<MigrationPlan>>()
 
     expectTypeOf<MigrateBuilder['dryRun']>().toEqualTypeOf<
@@ -105,7 +105,7 @@ describe('public Migration Plan types', () => {
     expectTypeOf<import('@/index').MigrationPreviewStatement>()
   })
 
-  it('keeps the descriptive plan and step shapes exact', () => {
+  it('should keep the descriptive plan and step shapes exact', () => {
     expectTypeOf<MigrationPlan>().toEqualTypeOf<
       Readonly<{ steps: readonly MigrationStep[] }>
     >()
@@ -119,7 +119,7 @@ describe('public Migration Plan types', () => {
 })
 
 describe('public Migration Plan types: keeps the preview grouped and non-executable', () => {
-  it('keeps the preview grouped and non-executable', () => {
+  it('should keep the preview grouped and non-executable', () => {
     expectTypeOf<MigrationDryRunStatement>().toEqualTypeOf<
       Readonly<{ sql: string; params: readonly '[REDACTED]'[] }>
     >()
@@ -151,7 +151,7 @@ describe('public Migration Plan types: keeps the preview grouped and non-executa
 })
 
 describe('public Migration Plan types: addresses every step through one exact structured target union', () => {
-  it('addresses every step through one exact structured target union', () => {
+  it('should address every step through one exact structured target union', () => {
     expectTypeOf<MigrationNamespaceTarget>().toEqualTypeOf<ExpectedNamespaceTarget>()
     expectTypeOf<MigrationRelationTarget>().toEqualTypeOf<ExpectedRelationTarget>()
     expectTypeOf<MigrationColumnTarget>().toEqualTypeOf<ExpectedColumnTarget>()

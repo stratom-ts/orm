@@ -26,7 +26,7 @@ import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
 describe('SQLite schema', () => {
-  it('infers distinct logical declared types while comparing their affinities stably', () => {
+  it('should infer distinct logical declared types while comparing their affinities stably', () => {
     expect(sqliteSchema.inferColumnType(string())).toBe('TEXT')
     expect(sqliteSchema.inferColumnType(pipe(number(), integer()))).toBe('INTEGER')
     expect(sqliteSchema.inferColumnType(number())).toBe('REAL')
@@ -38,7 +38,7 @@ describe('SQLite schema', () => {
     expect(sqliteSchema.normalizeDataType('INTEGER')).toBe('integer')
   })
 
-  it('infers homogeneous enum and picklist storage from their output values', () => {
+  it('should infer homogeneous enum and picklist storage from their output values', () => {
     expect(sqliteSchema.inferColumnType(enumSchema({ first: 'a', second: 'b' }))).toBe(
       'TEXT',
     )
@@ -58,7 +58,7 @@ describe('SQLite schema', () => {
     )
   })
 
-  it('infers boolean and bigint choice storage', () => {
+  it('should infer boolean and bigint choice storage', () => {
     const booleanChoices = (
       picklist as unknown as (options: readonly boolean[]) => AnySchema
     )([true, false])
@@ -67,7 +67,7 @@ describe('SQLite schema', () => {
     expect(sqliteSchema.inferColumnType(picklist([1n, 2n]))).toBe('BIGINT')
   })
 
-  it('rejects mixed choices with the explicit mapping contract', () => {
+  it('should reject mixed choices with the explicit mapping contract', () => {
     for (const schema of [
       picklist(['1', 1]),
       picklist([null, 'a'] as unknown as [string, string]),
@@ -93,7 +93,7 @@ describe('SQLite schema', () => {
     ['nonNullable', nonNullable(picklist([1, 2]))],
     ['nonNullish', nonNullish(picklist([1, 2]))],
     ['nested wrappers and pipe', nullable(optional(pipe(picklist([1, 2]), minValue(1))))],
-  ])('infers numeric choice storage through %s wrappers', (_name, schema) => {
+  ])('should infer numeric choice storage through %s wrappers', (_name, schema) => {
     expect(sqliteSchema.inferColumnType(schema)).toBe('INTEGER')
   })
 })
@@ -105,11 +105,11 @@ describe('SQLite schema', () => {
     ['negative infinity', picklist([0, Number.NEGATIVE_INFINITY])],
     ['unsafe positive integer', picklist([0, Number.MAX_SAFE_INTEGER + 1])],
     ['unsafe negative integer', picklist([0, Number.MIN_SAFE_INTEGER - 1])],
-  ])('rejects numeric choice option %s after a valid option', (_name, schema) => {
+  ])('should reject numeric choice option %s after a valid option', (_name, schema) => {
     expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
   })
 
-  it('accepts safe-integer boundary choices and rejects their invalid neighbors', () => {
+  it('should accept safe-integer boundary choices and reject their invalid neighbors', () => {
     expect(
       sqliteSchema.inferColumnType(
         picklist([Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]),
@@ -127,7 +127,7 @@ describe('SQLite schema', () => {
 })
 
 describe('SQLite schema', () => {
-  it('accepts signed 64-bit bigint boundaries and rejects their invalid neighbors', () => {
+  it('should accept signed 64-bit bigint boundaries and reject their invalid neighbors', () => {
     const min = -9223372036854775808n
     const max = 9223372036854775807n
 
@@ -144,7 +144,7 @@ describe('SQLite schema', () => {
 })
 
 describe('SQLite schema', () => {
-  it('accepts finite safe number literals and rejects non-finite values consistently', () => {
+  it('should accept finite safe number literals and reject non-finite values consistently', () => {
     expect(sqliteSchema.inferColumnType(literal(Number.MIN_SAFE_INTEGER))).toBe('INTEGER')
     expect(sqliteSchema.inferColumnType(literal(Number.MAX_SAFE_INTEGER))).toBe('INTEGER')
     expect(sqliteSchema.inferColumnType(literal(1.25))).toBe('REAL')

@@ -27,7 +27,7 @@ const relation = {
   relation: { spelling: 'events', comparisonKey: 'events' },
 }
 
-it('retains PostgreSQL ownership error origin and rollback/unlock cleanup evidence', async () => {
+it('should retain PostgreSQL ownership error origin and rollback/unlock cleanup evidence', async () => {
   const invalidOwnership = new MigrationOwnershipSchemaError({
     message: 'missing registered handle',
   })
@@ -56,7 +56,7 @@ it('retains PostgreSQL ownership error origin and rollback/unlock cleanup eviden
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('preserves an explicitly present null defect cause', async () => {
+  it('should preserve an explicitly present null defect cause', async () => {
     const originalCause = null
     const structured = new MigrationError({
       message: 'wrapped nullish defect',
@@ -80,7 +80,7 @@ describe('PostgreSQL migration runtime', () => {
     expect((rejection as MigrationError).cause).toBe(originalCause)
   })
 
-  it('classifies arbitrary SQL as a non-transaction event', async () => {
+  it('should classify arbitrary SQL as a non-transaction event', async () => {
     const runtime = harness()
 
     await expect(
@@ -108,7 +108,7 @@ describe('PostgreSQL migration runtime', () => {
 
 describe('PostgreSQL migration runtime', () => {
   it.each(['statement-atomic', 'non-atomic'] as const)(
-    'rejects %s programs before preconditions or DDL',
+    'should reject %s programs before preconditions or DDL',
     async (atomicity) => {
       const runtime = harness()
       const error = await runtime
@@ -143,7 +143,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('classifies an acknowledged DDL rollback with action provenance', async () => {
+  it('should classify an acknowledged DDL rollback with action provenance', async () => {
     const runtime = harness({ failRun: /^create table/i })
     const error = await runtime.execute().catch((cause: unknown) => cause)
 
@@ -167,7 +167,7 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.cancel).not.toHaveBeenCalled()
   })
 
-  it('does not assume a failed transaction start is retryable', async () => {
+  it('should not assume a failed transaction start is retryable', async () => {
     const runtime = harness({ failRun: /^begin/i })
     const error = await runtime.execute().catch((cause: unknown) => cause)
 
@@ -183,7 +183,7 @@ describe('PostgreSQL migration runtime', () => {
   })
 })
 
-it('retains a reported validation stage and its exact execution message', async () => {
+it('should retain a reported validation stage and its exact execution message', async () => {
   const primary = new MigrationError({
     message: 'validation rejected',
     stage: 'validation',
@@ -204,7 +204,7 @@ it('retains a reported validation stage and its exact execution message', async 
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('classifies rollback failure as unknown and discards the session', async () => {
+  it('should classify rollback failure as unknown and discard the session', async () => {
     const runtime = harness({ failRun: /^create table|^rollback$/i })
     const error = await runtime.execute().catch((cause: unknown) => cause)
 
@@ -218,7 +218,7 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.discard).toHaveBeenCalled()
   })
 
-  it('does not roll back an ambiguously acknowledged commit', async () => {
+  it('should not roll back an ambiguously acknowledged commit', async () => {
     const runtime = harness({ failRun: /^commit$/i })
     const error = await runtime.execute().catch((cause: unknown) => cause)
 
@@ -234,7 +234,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('classifies a failed semantic precondition as unchanged', async () => {
+  it('should classify a failed semantic precondition as unchanged', async () => {
     const runtime = harness({ nullCount: 1 })
     const error = await runtime
       .execute(
@@ -264,7 +264,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('keeps a pre-DDL precondition failure unchanged when rollback also fails', async () => {
+  it('should keep a pre-DDL precondition failure unchanged when rollback also fails', async () => {
     const runtime = harness({ nullCount: 1, failRun: /^rollback$/i })
     const error = await runtime
       .execute(
@@ -292,7 +292,7 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.calls.some((sql) => /^create table/i.test(sql))).toBe(false)
   })
 
-  it('reports unlock cleanup after commit as applied and discards', async () => {
+  it('should report unlock cleanup after commit as applied and discard', async () => {
     const runtime = harness({ failUnlock: true })
     const error = await runtime.execute().catch((cause: unknown) => cause)
 
@@ -308,7 +308,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('acquires coordination immediately before transaction work', async () => {
+  it('should acquire coordination immediately before transaction work', async () => {
     const runtime = harness({ lockResults: [true] })
     await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
 
@@ -317,7 +317,7 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.calls.at(-1)).toMatch(/pg_advisory_unlock/i)
   })
 
-  it('times out after one nonblocking try when lockTimeoutMs is zero', async () => {
+  it('should time out after one nonblocking try when lockTimeoutMs is zero', async () => {
     const runtime = harness({ lockResults: [false] })
     const error = await runtime
       .execute(program(), { lockTimeoutMs: 0 })
@@ -347,7 +347,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('allows an asynchronous successful first try when lockTimeoutMs is zero', async () => {
+  it('should allow an asynchronous successful first try when lockTimeoutMs is zero', async () => {
     let release!: () => void
     const lockGate = new Promise<void>((resolve) => {
       release = resolve
@@ -370,7 +370,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('cancels and drains a never-settling physical lock query at its deadline', async () => {
+  it('should cancel and drain a never-settling physical lock query at its deadline', async () => {
     vi.useFakeTimers()
 
     try {
@@ -401,7 +401,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('cancels a hung post-commit unlock while retaining applied outcome', async () => {
+  it('should cancel a hung post-commit unlock while retaining applied outcome', async () => {
     const runtime = harness({ hangQuery: /pg_advisory_unlock/i })
     const controller = new AbortController()
     const pending = runtime.execute(program(), { signal: controller.signal })
@@ -426,7 +426,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('bounds a hung post-commit unlock without an external signal', async () => {
+  it('should bound a hung post-commit unlock without an external signal', async () => {
     vi.useFakeTimers()
 
     try {
@@ -452,7 +452,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('cancels in-flight DDL and reports unknown without further SQL', async () => {
+  it('should cancel in-flight DDL and report unknown without further SQL', async () => {
     const runtime = harness({ hangRun: /^create table/i })
     const controller = new AbortController()
     const pending = runtime.execute(program(), { signal: controller.signal })
@@ -478,7 +478,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('stops polling when lock acquisition is aborted', async () => {
+  it('should stop polling when lock acquisition is aborted', async () => {
     const runtime = harness({ lockResults: [false] })
     const controller = new AbortController()
     const pending = runtime.execute(program(), { signal: controller.signal })
@@ -504,7 +504,7 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.prepare).not.toHaveBeenCalled()
   })
 
-  it('discards an uncertain acquisition-query failure without unlocking', async () => {
+  it('should discard an uncertain acquisition-query failure without unlocking', async () => {
     const runtime = harness({ lockResults: [new Error('lock query failed')] })
     const error = await runtime.execute().catch((cause: unknown) => cause)
 
@@ -521,7 +521,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('acquires and releases only the scoped key for an application', async () => {
+  it('should acquire and release only the scoped key for an application', async () => {
     const runtime = harness({ applicationId: 'billing', lockResults: [true] })
     await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
 
@@ -539,7 +539,7 @@ describe('PostgreSQL migration runtime', () => {
     expect(locks[0]!.params).not.toEqual([0x7363_686d, 0x6f72_6d00])
   })
 
-  it('derives stable scoped keys and separates database/application identities', () => {
+  it('should derive stable scoped keys and separate database/application identities', () => {
     /** Computes the advisory-lock identity for the fixture database and application scope. */
     const scoped = (database: string, applicationId: string) =>
       mapPostgresAdvisoryLockIdentity(
@@ -559,7 +559,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('performs one nonblocking attempt for the scoped lock', async () => {
+  it('should perform one nonblocking attempt for the scoped lock', async () => {
     const runtime = harness({
       applicationId: 'billing',
       lockResults: [false],
@@ -588,7 +588,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('enforces the deadline while the scoped lock is unavailable', async () => {
+  it('should enforce the deadline while the scoped lock is unavailable', async () => {
     vi.useFakeTimers()
 
     try {
@@ -625,7 +625,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('reports the configured lock deadline when an in-flight attempt reaches it', async () => {
+  it('should report the configured lock deadline when an in-flight attempt reaches it', async () => {
     vi.useFakeTimers()
 
     try {
@@ -664,7 +664,7 @@ describe('PostgreSQL migration runtime', () => {
 })
 
 describe('PostgreSQL migration runtime', () => {
-  it('preserves the applied outcome when scoped release verification fails', async () => {
+  it('should preserve the applied outcome when scoped release verification fails', async () => {
     const runtime = harness({
       applicationId: 'billing',
       lockResults: [true],
@@ -687,7 +687,7 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.discard).toHaveBeenCalled()
   })
 
-  it('aborts before coordination completes without transaction work', async () => {
+  it('should abort before coordination completes without transaction work', async () => {
     const controller = new AbortController()
     const runtime = harness({ applicationId: 'billing', lockResults: [false] })
     const pending = runtime.execute(program(), { signal: controller.signal })

@@ -18,7 +18,7 @@ import { createTableBuilder, createValueMapper } from '@/query'
 import { exactQueryAddressing } from '../helpers/queryAddressing'
 
 describe('dialect compiler AST invariants', () => {
-  it('treats malformed builder ASTs as invariants in both compilers', () => {
+  it('should treat malformed builder ASTs as invariants in both compilers', () => {
     const relation = { relation: 'events' }
 
     expect(() =>
@@ -36,7 +36,7 @@ describe('dialect compiler AST invariants', () => {
 })
 
 describe('dialect query contract', () => {
-  it('delivers authored relation intent to the selected query member', () => {
+  it('should deliver authored relation intent to the selected query member', () => {
     const Events = createEventsTable()
     const selectedCompile = vi.fn<(node: SelectAst) => CompiledQuery>(
       (node: SelectAst) => {
@@ -88,7 +88,7 @@ describe('dialect query contract', () => {
 })
 
 describe('dialect query contract: keeps omitted qualification omitted for the selected member', () => {
-  it('keeps omitted qualification omitted for the selected member', () => {
+  it('should keep omitted qualification omitted for the selected member', () => {
     const Events = defineTable(
       'events',
       { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
@@ -129,7 +129,7 @@ describe('dialect query contract: keeps omitted qualification omitted for the se
 })
 
 describe('dialect query contract: resolves reference types by complete structured relation intent', () => {
-  it('resolves reference types by complete structured relation intent', () => {
+  it('should resolve reference types by complete structured relation intent', () => {
     const NumericItem = defineTable(
       'items',
       { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
@@ -178,7 +178,7 @@ describe('dialect query contract: resolves reference types by complete structure
 })
 
 describe('Dialect query relation lookup errors', () => {
-  it('throws tagged errors when semantic relation lookup finds zero matches', () => {
+  it('should throw tagged errors when semantic relation lookup finds zero matches', () => {
     const Events = defineTable(
       'events',
       { id: pipe(number(), column({ physicalType: { sqlite: 'integer' } })) },
@@ -202,7 +202,7 @@ describe('Dialect query relation lookup errors', () => {
 })
 
 describe('Dialect query relation lookup errors: throws tagged errors when semantic relation lookup finds multiple matches', () => {
-  it('throws tagged errors when semantic relation lookup finds multiple matches', () => {
+  it('should throw tagged errors when semantic relation lookup finds multiple matches', () => {
     const Events = createAmbiguousEventsTable()
     const DuplicateEvents = defineTable(
       'events',

@@ -9,7 +9,7 @@ describe('PostgreSQL default-expression normalization', () => {
     '(CURRENT_TIMESTAMP)',
     '((CURRENT_TIMESTAMP))::timestamp with time zone',
     '(CURRENT_TIMESTAMP::timestamp with time zone)',
-  ])('canonicalizes the current timestamp catalog form %j', (expression) => {
+  ])('should canonicalize the current timestamp catalog form %j', (expression) => {
     expect(normalizePostgresDefaultExpression(expression)).toBe('current_timestamp')
   })
 
@@ -21,7 +21,10 @@ describe('PostgreSQL default-expression normalization', () => {
       "CURRENT_TIMESTAMP + interval '1 second'",
       "CURRENT_TIMESTAMP + interval '1 second'",
     ],
-  ])('keeps the literal or unrelated expression %j distinct', (expression, expected) => {
-    expect(normalizePostgresDefaultExpression(expression)).toBe(expected)
-  })
+  ])(
+    'should keep the literal or unrelated expression %j distinct',
+    (expression, expected) => {
+      expect(normalizePostgresDefaultExpression(expression)).toBe(expected)
+    },
+  )
 })

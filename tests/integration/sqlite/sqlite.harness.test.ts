@@ -5,7 +5,7 @@ import { expect, it } from 'vitest'
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
-it('returns the callback value and closes a native-only in-memory connection', async () => {
+it('should return the callback value and close a native-only in-memory connection', async () => {
   const { native, value } = await withSqliteDatabase(
     [],
     async ({ native, nativeSql }) => {
@@ -20,7 +20,7 @@ it('returns the callback value and closes a native-only in-memory connection', a
 })
 
 it.each([new Error('callback failed'), undefined])(
-  'closes the connection and preserves callback rejection %s',
+  'should close the connection and preserve callback rejection %s',
   async (primary) => {
     let native: DatabaseSync | undefined
 
@@ -35,7 +35,7 @@ it.each([new Error('callback failed'), undefined])(
   },
 )
 
-it('isolates file databases and removes each owned directory', async () => {
+it('should isolate file databases and remove each owned directory', async () => {
   const first = await withSqliteDatabase(
     [],
     async ({ native, filePath }) => {
@@ -66,7 +66,7 @@ it('isolates file databases and removes each owned directory', async () => {
   expect(first.filePath && existsSync(dirname(first.filePath))).toBe(false)
 })
 
-it('keeps callback and cleanup failures while closing and removing a file database', async () => {
+it('should keep callback and cleanup failures while closing and removing a file database', async () => {
   const primary = new Error('callback failed')
   const cleanup = new Error('additional cleanup failed')
   let native: DatabaseSync | undefined
@@ -95,7 +95,7 @@ it('keeps callback and cleanup failures while closing and removing a file databa
   expect(filePath && existsSync(dirname(filePath))).toBe(false)
 })
 
-it('reports cleanup-only failure after closing the native connection', async () => {
+it('should report cleanup-only failure after closing the native connection', async () => {
   const cleanup = new Error('additional cleanup failed')
   let native: DatabaseSync | undefined
 

@@ -134,7 +134,7 @@ describe('TaggedError', () => {
     expect(error._tag).toBe('SimpleError')
   })
 
-  it('uses native non-enumerable message and cause fields', () => {
+  it('should use native non-enumerable message and cause fields', () => {
     const cause = new Error('driver rejected the write')
     const error = new MigrationError({ message: 'Migration DDL failed', cause })
 
@@ -145,12 +145,12 @@ describe('TaggedError', () => {
 })
 
 describe('TaggedError serialization', () => {
-  it('serializes nested driver diagnostics, shared causes, and cycles', () => {
+  it('should serialize nested driver diagnostics, shared causes, and cycles', () => {
     expect.assertions(1)
     expectNestedErrorJson(nestedErrorJson())
   })
 
-  it('serializes arbitrary causes without mistaking access failures for cycles', () => {
+  it('should serialize arbitrary causes without mistaking access failures for cycles', () => {
     const [wrapper, bigInt] = arbitraryErrorJson()
 
     expect(wrapper).toMatchObject({
@@ -167,7 +167,7 @@ describe('TaggedError serialization', () => {
     })
   })
 
-  it('serializes non-enumerable diagnostics on class-valued causes and cycles', () => {
+  it('should serialize non-enumerable diagnostics on class-valued causes and cycles', () => {
     class Diagnostic {
       readonly cause = new Error('nested class failure')
       readonly self = this
@@ -195,7 +195,7 @@ describe('TaggedError serialization', () => {
 })
 
 describe('TaggedError serialization with special property names', () => {
-  it('preserves own __proto__ diagnostics without changing the output prototype', () => {
+  it('should preserve own __proto__ diagnostics without changing the output prototype', () => {
     const cause = JSON.parse(
       '{"__proto__":{"reason":"structured detail"},"code":"E"}',
     ) as Record<string, unknown>
@@ -240,7 +240,7 @@ describe('QueryError', () => {
 describe('DriverError', () => {
   const classifyUnknown = () => ({ kind: 'unknown' as const, retryable: false })
 
-  it('keeps an object whose diagnostic getters throw as the cause', () => {
+  it('should keep an object whose diagnostic getters throw as the cause', () => {
     const cause = Object.defineProperties(
       {},
       {
@@ -274,7 +274,7 @@ describe('DriverError', () => {
     { cause: undefined, code: undefined },
     { cause: 0, code: undefined },
   ])(
-    'retains thrown value %# and exposes only native code and SQL text',
+    'should retain thrown value %# and expose only native code and SQL text',
     ({ cause, code }) => {
       const sql = 'insert into records (value) values ($1)'
       const error = driverError(cause, 'selected-dialect', sql, classifyUnknown)
@@ -295,7 +295,7 @@ describe('DriverError', () => {
 })
 
 describe('ValidationError', () => {
-  it('derives its message from required structured issues', () => {
+  it('should derive its message from required structured issues', () => {
     const error = new ValidationError({
       table: 'users',
       operation: 'insert',
@@ -329,7 +329,7 @@ describe('InvariantError', () => {
   })
 })
 
-it('recognizes public error tags and rejects other tags', () => {
+it('should recognize public error tags and reject other tags', () => {
   const errors = [
     new SchemaError({ message: 'schema' }),
     new ValidationError({
@@ -368,7 +368,7 @@ it('recognizes public error tags and rejects other tags', () => {
   expect(isStratomError(new (TaggedError('ForeignError'))())).toBe(false)
 })
 
-it('rejects unbranded and hostile unknown values without throwing', () => {
+it('should reject unbranded and hostile unknown values without throwing', () => {
   const throwingTag = Object.defineProperty({}, '_tag', {
     get() {
       throw new Error('tag')
@@ -398,7 +398,7 @@ it('rejects unbranded and hostile unknown values without throwing', () => {
   }
 })
 
-it('keeps the brand private, non-enumerable, and protected from payload overwrite', () => {
+it('should keep the brand private, non-enumerable, and protected from payload overwrite', () => {
   const brandSymbol = Symbol.for('stratom.error')
   const error = new QueryError({
     message: 'query',
@@ -420,7 +420,7 @@ it('keeps the brand private, non-enumerable, and protected from payload overwrit
   expect(isErrorTag(error, 'QueryError')).toBe(true)
 })
 
-it('rejects a branded object whose tag getter throws on a second read', () => {
+it('should reject a branded object whose tag getter throws on a second read', () => {
   let reads = 0
   const error = new Proxy(new QueryError({ message: 'query' }), {
     get(target, key, receiver): unknown {
@@ -433,7 +433,7 @@ it('rejects a branded object whose tag getter throws on a second read', () => {
   expect(isErrorTag(error, 'QueryError')).toBe(false)
 })
 
-it('recognizes an error constructed before a second module copy is loaded', async () => {
+it('should recognize an error constructed before a second module copy is loaded', async () => {
   const error = new DriverError({
     message: 'driver',
     dialect: 'sqlite',

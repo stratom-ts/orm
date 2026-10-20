@@ -18,7 +18,7 @@ describe('client lifecycle', () => {
     ['unpaired-surrogate', '\ud800'],
     ['non-string', 42],
   ])(
-    'rejects a %s application identity before opening database work',
+    'should reject a %s application identity before opening database work',
     (_, applicationId) => {
       const connector = createMockPostgresConnector()
       const getInstance = vi.spyOn(connector, 'getInstance')
@@ -36,7 +36,7 @@ describe('client lifecycle', () => {
     },
   )
 
-  it('returns one close operation and disposes the connector only once', async () => {
+  it('should return one close operation and dispose the connector only once', async () => {
     const connector = createMockPostgresConnector()
     const dispose = vi.spyOn(connector, 'dispose')
     const db = createDatabase({ connector, schemas: [Accounts] })
@@ -53,7 +53,7 @@ describe('client lifecycle', () => {
 })
 
 describe('client lifecycle: closes the client through asynchronous disposal', () => {
-  it('closes the client through asynchronous disposal', async () => {
+  it('should close the client through asynchronous disposal', async () => {
     const connector = createMockPostgresConnector()
 
     {
@@ -64,7 +64,7 @@ describe('client lifecycle: closes the client through asynchronous disposal', ()
     expect(connector.disposed).toBe(true)
   })
 
-  it('rejects every root operation after close instead of building stale work', async () => {
+  it('should reject every root operation after close instead of building stale work', async () => {
     const connector = createMockPostgresConnector()
     const db = createDatabase({ connector, schemas: [Accounts] })
     await db.close()
@@ -85,7 +85,7 @@ describe('client lifecycle: closes the client through asynchronous disposal', ()
 })
 
 describe('client lifecycle: rejects root and scoped close calls during active transaction work', () => {
-  it('rejects root and scoped close calls during active transaction work', async () => {
+  it('should reject root and scoped close calls during active transaction work', async () => {
     const connector = createMockPostgresConnector()
     const db = createDatabase({ connector, schemas: [Accounts] })
 

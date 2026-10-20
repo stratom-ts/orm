@@ -16,7 +16,7 @@ const executionFacts = {
 }
 
 it.each([0, 2])(
-  'keeps an absent primary cause absent and action index %i through phase enrichment',
+  'should keep an absent primary cause absent and action index %i through phase enrichment',
   (actionIndex) => {
     const issues = [
       { code: 'invalid_target' as const, message: 'invalid', sourceStepIndexes: [4] },
@@ -55,7 +55,7 @@ it.each([0, 2])(
   },
 )
 
-it.each([null, undefined])('retains an explicitly present %s cause', (cause) => {
+it.each([null, undefined])('should retain an explicitly present %s cause', (cause) => {
   const existing = new MigrationError({ message: 'failure', cause })
   const result = enrichMigrationError(existing, { stage: 'planning' })
 
@@ -76,7 +76,7 @@ it.each([
       cleanupFailures: [{ stage: 'unlock' as const, cause: new Error('unlock') }],
     },
   },
-])('does not promote an inherited cause during $name enrichment', ({ changes }) => {
+])('should not promote an inherited cause during $name enrichment', ({ changes }) => {
   const inheritedCause = new Error('inherited')
   class InheritedCauseMigrationError extends MigrationError {}
 
@@ -95,34 +95,37 @@ it.each([
   expect(executed.cause).toBe(enriched)
 })
 
-it.each([0, 2])('appends cleanup in order and keeps action index %i', (actionIndex) => {
-  const first = new Error('first')
-  const second = new Error('second')
-  const existing = new MigrationError({
-    message: 'failure',
-    actionIndex,
-    cleanupFailures: [{ stage: 'rollback', cause: first }],
-  })
+it.each([0, 2])(
+  'should append cleanup in order and keep action index %i',
+  (actionIndex) => {
+    const first = new Error('first')
+    const second = new Error('second')
+    const existing = new MigrationError({
+      message: 'failure',
+      actionIndex,
+      cleanupFailures: [{ stage: 'rollback', cause: first }],
+    })
 
-  const result = enrichMigrationError(existing, {
-    cleanupFailures: [
+    const result = enrichMigrationError(existing, {
+      cleanupFailures: [
+        { stage: 'unlock', cause: second },
+        { stage: 'unlock', cause: second },
+      ],
+    })
+
+    expect(result.cleanupFailures).toEqual([
+      { stage: 'rollback', cause: first },
       { stage: 'unlock', cause: second },
       { stage: 'unlock', cause: second },
-    ],
-  })
+    ])
 
-  expect(result.cleanupFailures).toEqual([
-    { stage: 'rollback', cause: first },
-    { stage: 'unlock', cause: second },
-    { stage: 'unlock', cause: second },
-  ])
+    expect(result.actionIndex).toBe(actionIndex)
 
-  expect(result.actionIndex).toBe(actionIndex)
+    expect(existing.cleanupFailures).toEqual([{ stage: 'rollback', cause: first }])
+  },
+)
 
-  expect(existing.cleanupFailures).toEqual([{ stage: 'rollback', cause: first }])
-})
-
-it('retains an existing empty cleanup array when no cleanup is added', () => {
+it('should retain an existing empty cleanup array when no cleanup is added', () => {
   const empty: readonly never[] = []
   const result = enrichMigrationError(
     new MigrationError({ message: 'failure', cleanupFailures: empty }),
@@ -133,7 +136,7 @@ it('retains an existing empty cleanup array when no cleanup is added', () => {
   expect(result.cleanupFailures).toBe(empty)
 })
 
-it('uses the structured error itself when it has no own cause', () => {
+it('should use the structured error itself when it has no own cause', () => {
   const existing = new MigrationError({ message: 'expected', retryable: true })
   const result = migrationExecutionError(existing, { ...executionFacts, defect: true })
 
@@ -143,7 +146,7 @@ it('uses the structured error itself when it has no own cause', () => {
   expect(result.retryable).toBe(true)
 })
 
-it.each([null, undefined])('retains a structured %s primary cause', (cause) => {
+it.each([null, undefined])('should retain a structured %s primary cause', (cause) => {
   const existing = new MigrationError({ message: 'expected', cause })
   const result = migrationExecutionError(existing, executionFacts)
 
@@ -151,7 +154,7 @@ it.each([null, undefined])('retains a structured %s primary cause', (cause) => {
   expect(result.cause).toBe(cause)
 })
 
-it('preserves a defect cause and its original stack', () => {
+it('should preserve a defect cause and its original stack', () => {
   const cause = new TypeError('defect')
   const stack = cause.stack
   const existing = new MigrationError({
@@ -171,7 +174,7 @@ it('preserves a defect cause and its original stack', () => {
   )
 })
 
-it('prefers supplied action provenance and retains missing provenance', () => {
+it('should prefer supplied action provenance and retain missing provenance', () => {
   const retainedIndexes = [3]
   const existing = new MigrationError({
     message: 'expected',
@@ -193,7 +196,7 @@ it('prefers supplied action provenance and retains missing provenance', () => {
   expect(retained.actionIndex).toBe(1)
 })
 
-it('prefers supplied source indexes and capability issues while retaining missing values', () => {
+it('should prefer supplied source indexes and capability issues while retaining missing values', () => {
   const retainedIssues = [
     { code: 'invalid_target' as const, message: 'retained', sourceStepIndexes: [2] },
   ]
@@ -222,7 +225,7 @@ it('prefers supplied source indexes and capability issues while retaining missin
   expect(retained.capabilityIssues).toBe(retainedIssues)
 })
 
-it('uses structured retryability except when the database outcome is unknown', () => {
+it('should use structured retryability except when the database outcome is unknown', () => {
   const existing = new MigrationError({ message: 'retry', retryable: true })
   expect(migrationExecutionError(existing, executionFacts).retryable).toBe(true)
 
@@ -238,7 +241,7 @@ it('uses structured retryability except when the database outcome is unknown', (
   ).toBe(false)
 })
 
-it('merges cleanup in order and preserves explicitly supplied undefined optionals', () => {
+it('should merge cleanup in order and preserve explicitly supplied undefined optionals', () => {
   const failure = { stage: 'unlock' as const, cause: new Error('unlock') }
   const existing = new MigrationError({
     message: 'expected',

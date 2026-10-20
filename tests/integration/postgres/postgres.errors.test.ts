@@ -9,7 +9,7 @@ import { withPostgresDatabase } from './postgresIntegration'
 
 beforeAll(waitForPostgres)
 
-it('keeps invalid PostgreSQL ownership as SchemaError through execution', async () => {
+it('should keep invalid PostgreSQL ownership as SchemaError through execution', async () => {
   await withPostgresDatabase([], async ({ createDatabase }) => {
     const db = createDatabase([], {
       migrationOwnership: [
@@ -23,7 +23,7 @@ it('keeps invalid PostgreSQL ownership as SchemaError through execution', async 
   })
 })
 
-it('reports an unsafe PostgreSQL physical type as a planning error', async () => {
+it('should report an unsafe PostgreSQL physical type as a planning error', async () => {
   const Invalid = defineTable(
     'invalid_type',
     {

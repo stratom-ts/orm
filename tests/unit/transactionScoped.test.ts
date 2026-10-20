@@ -11,7 +11,7 @@ import {
 } from './helpers/operationSessionFixtures'
 
 describe('scoped transaction coordinator behavior', () => {
-  it('reuses one token for transaction calls, concurrent calls, and savepoints', async () => {
+  it('should reuse one token for transaction calls, concurrent calls, and savepoints', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
       connector: customConnector('postgresql'),
@@ -43,7 +43,7 @@ describe('scoped transaction coordinator behavior', () => {
 })
 
 describe('scoped transaction coordinator behavior: serializes sibling savepoint callbacks while preserving deeper nesting', () => {
-  it('serializes sibling savepoint callbacks while preserving deeper nesting', async () => {
+  it('should serialize sibling savepoint callbacks while preserving deeper nesting', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
       connector: customConnector('postgresql'),
@@ -78,7 +78,7 @@ describe('scoped transaction coordinator behavior: serializes sibling savepoint 
 })
 
 describe('scoped transaction coordinator behavior: rejects ancestor transaction use from a descendant callback', () => {
-  it('rejects ancestor transaction use from a descendant callback', async () => {
+  it('should reject ancestor transaction use from a descendant callback', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
       connector: customConnector('postgresql'),
@@ -117,7 +117,7 @@ describe('scoped transaction coordinator behavior: rejects ancestor transaction 
 })
 
 describe('scoped transaction coordinator behavior: rejects ancestor transaction use from a descendant callback: queues unrelated ancestor statements until a successful savepoint releases', () => {
-  it('queues unrelated ancestor statements until a successful savepoint releases', async () => {
+  it('should queue unrelated ancestor statements until a successful savepoint releases', async () => {
     const nestedStarted = deferred()
     const finishNested = deferred()
     const controls = createControllableProvider()
@@ -159,7 +159,7 @@ describe('scoped transaction coordinator behavior: rejects ancestor transaction 
 })
 
 describe('scoped transaction coordinator behavior: queues unrelated ancestor statements until a failing savepoint cleans up', () => {
-  it('queues unrelated ancestor statements until a failing savepoint cleans up', async () => {
+  it('should queue unrelated ancestor statements until a failing savepoint cleans up', async () => {
     const nestedStarted = deferred()
     const failNested = deferred()
     const controls = createControllableProvider()
@@ -205,7 +205,7 @@ describe('scoped transaction coordinator behavior: queues unrelated ancestor sta
 })
 
 describe('scoped transaction cleanup failures', () => {
-  it('poisons cleanup failure and suppresses queued sibling and ancestor SQL', async () => {
+  it('should poison cleanup failure and suppress queued sibling and ancestor SQL', async () => {
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
@@ -246,7 +246,7 @@ describe('scoped transaction cleanup failures', () => {
 })
 
 describe('scoped transaction cleanup failures: poisons failed savepoint release and suppresses all queued scoped SQL', () => {
-  it('poisons failed savepoint release and suppresses all queued scoped SQL', async () => {
+  it('should poison failed savepoint release and suppress all queued scoped SQL', async () => {
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
@@ -287,7 +287,7 @@ describe('scoped transaction cleanup failures: poisons failed savepoint release 
 })
 
 describe('scoped transaction cleanup failures: drains an accepted sibling savepoint before root rollback', () => {
-  it('drains an accepted sibling savepoint before root rollback', async () => {
+  it('should drain an accepted sibling savepoint before root rollback', async () => {
     const controls = createControllableProvider()
     const db = createDatabase({
       connector: customConnector('postgresql'),

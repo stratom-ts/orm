@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { compilePostgresDdl } from '@/dialects/postgres/migration/sql'
 
 describe('PostgreSQL migration compilation', () => {
-  it('compiles constructive descriptive steps', () => {
+  it('should compile constructive descriptive steps', () => {
     assertCompilesConstructiveDescriptiveSteps()
 
     const foreignKey = compilePostgresDdl({
@@ -26,7 +26,7 @@ describe('PostgreSQL migration compilation', () => {
 })
 
 describe('PostgreSQL migration compilation', () => {
-  it('compiles destructive descriptive steps', () => {
+  it('should compile destructive descriptive steps', () => {
     expect(
       compilePostgresDdl({
         kind: 'drop_column',

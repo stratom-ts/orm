@@ -134,7 +134,7 @@ async function exerciseSqlite({ db, native, filePath }: Context, Records: Record
   return { native, filePath: filePath! }
 }
 
-it('maps, migrates and converges through the built package on native SQLite', async () => {
+it('should map, migrate and converge through the built package on native SQLite', async () => {
   const Records = recordsTable(library)
   const state = await withSqliteDatabase(
     [Records],

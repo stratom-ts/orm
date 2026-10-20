@@ -5,7 +5,7 @@ import { mapSqliteParamValue, mapSqliteResultValue } from '@/dialects/sqlite/map
 import { QueryError } from '@/utils/error'
 
 describe('SQLite value mapping', () => {
-  it('maps boolean, date, JSON, bigint, and numeric declarations independently', () => {
+  it('should map boolean, date, JSON, bigint, and numeric declarations independently', () => {
     const date = new Date('2026-01-02T03:04:05.000Z')
 
     expect(mapSqliteParamValue('BOOLEAN', true)).toBe(1)
@@ -37,7 +37,7 @@ describe('SQLite bigint value mapping', () => {
     '-9223372036854775808',
     '9223372036854775807',
   ])(
-    'maps signed 64-bit BIGINT value %s at the parameter and result boundary',
+    'should map signed 64-bit BIGINT value %s at the parameter and result boundary',
     (value) => {
       const expected = BigInt(value)
 
@@ -59,7 +59,7 @@ describe('SQLite bigint value mapping', () => {
       '9223372036854775808',
       '-18446744073709551616',
       '18446744073709551616',
-    ])('rejects out-of-range BIGINT value %s', (value) => {
+    ])('should reject out-of-range BIGINT value %s', (value) => {
       expect(() => map('BIGINT', value)).toThrow(QueryError)
 
       expect(() => map('BIGINT', value)).toThrow(
@@ -70,7 +70,7 @@ describe('SQLite bigint value mapping', () => {
 })
 
 describe('SQLite numeric value validation', () => {
-  it('preserves nullish values and rejects lossy numeric mappings', () => {
+  it('should preserve nullish values and reject lossy numeric mappings', () => {
     expect(mapSqliteParamValue('INTEGER', null)).toBeNull()
     expect(mapSqliteResultValue('BIGINT', undefined)).toBeUndefined()
 
@@ -87,7 +87,7 @@ describe('SQLite numeric value validation', () => {
 })
 
 describe('SQLite value mapping', () => {
-  it('rejects invalid Date and cyclic JSON parameter values with query diagnostics', () => {
+  it('should reject invalid Date and cyclic JSON parameter values with query diagnostics', () => {
     /** Maps an invalid date to exercise value-validation rejection. */
     const invalidDate = () => mapSqliteParamValue('DATETIME', new Date('invalid'))
     const cyclic: { self?: unknown } = {}
@@ -103,7 +103,7 @@ describe('SQLite value mapping', () => {
   })
 })
 
-it('preserves JSON callback defects and serializes shared references once per property', () => {
+it('should preserve JSON callback defects and serialize shared references once per property', () => {
   const defect = new TypeError('toJSON failed')
   const stack = defect.stack
   let calls = 0
@@ -141,7 +141,7 @@ it('preserves JSON callback defects and serializes shared references once per pr
   expect(mapSqliteParamValue('JSON', Object.create(BigInt.prototype))).toBe('{}')
 })
 
-it('preserves JSON getter defects and non-syntax parser failures', () => {
+it('should preserve JSON getter defects and non-syntax parser failures', () => {
   const defect = new RangeError('getter failed')
   const stack = defect.stack
   const value = Object.defineProperty({}, 'field', {

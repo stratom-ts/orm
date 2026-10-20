@@ -124,7 +124,7 @@ function startQuery(
 }
 
 describe('client query table handles', () => {
-  it('createDatabase rejects a fully shaped forged handle before connector work', () => {
+  it('should reject a fully shaped forged handle before connector work in createDatabase', () => {
     const connector = createMockPostgresConnector()
     const getInstance = vi.spyOn(connector, 'getInstance')
 
@@ -137,7 +137,7 @@ describe('client query table handles', () => {
   })
 
   it.each(malformedHandleMutations)(
-    'createDatabase rejects a defined handle with %s before connector work',
+    'should reject a defined handle with %s before connector work in createDatabase',
     (_description, mutation) => {
       const handle = createMalformedDefinedHandle(mutation)
       const connector = createMockPostgresConnector()
@@ -155,7 +155,7 @@ describe('client query table handles', () => {
 
 describe('client query table handles: %s rejects a fully shaped forged handle before database work', () => {
   it.each<QueryRoot>(['from', 'insert', 'update', 'delete'])(
-    '%s rejects a fully shaped forged handle before database work',
+    'should reject a fully shaped forged handle before database work through %s',
     async (method) => {
       const connector = createMockPostgresConnector()
       const getInstance = vi.spyOn(connector, 'getInstance')
@@ -175,7 +175,7 @@ describe('client query table handles: %s rejects a fully shaped forged handle be
   )
 
   it.each(malformedHandleMutations)(
-    'query roots reject a defined handle with %s before database work',
+    'should reject a defined handle with %s before database work through query roots',
     async (_description, mutation) => {
       const handle = createMalformedDefinedHandle(mutation)
       const connector = createMockPostgresConnector()
@@ -199,7 +199,7 @@ describe('client query table handles: %s rejects a fully shaped forged handle be
 })
 
 describe('client query table handles: recognizes handles created by a reloaded package module', () => {
-  it('recognizes handles created by a reloaded package module', async () => {
+  it('should recognize handles created by a reloaded package module', async () => {
     vi.resetModules()
     const { isTableHandle } = await import('@/defineTable')
 
@@ -209,7 +209,7 @@ describe('client query table handles: recognizes handles created by a reloaded p
 
 describe('client query table handles: %s rejects a non-handle with a tagged schema error before database work', () => {
   it.each<QueryRoot>(['from', 'insert', 'update', 'delete'])(
-    '%s rejects a non-handle with a tagged schema error before database work',
+    'should reject a non-handle with a tagged schema error before database work through %s',
     async (method) => {
       const connector = createMockPostgresConnector()
       const db = createDatabase({ connector, schemas: [Accounts] })
@@ -229,7 +229,7 @@ describe('client query table handles: %s rejects a non-handle with a tagged sche
 
 describe('client query table handles: %s rejects an unregistered handle with the same tagged error contract before database work', () => {
   it.each<QueryRoot>(['from', 'insert', 'update', 'delete'])(
-    '%s rejects an unregistered handle with the same tagged error contract before database work',
+    'should reject an unregistered handle with the same tagged error contract before database work through %s',
     async (method) => {
       const connector = createMockPostgresConnector()
       const db = createDatabase({ connector, schemas: [Accounts] })

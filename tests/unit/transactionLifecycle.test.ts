@@ -12,7 +12,7 @@ const Accounts = defineTable(
 )
 
 describe('transaction client lifecycle', () => {
-  it('expires a transaction client and a builder captured from its callback', async () => {
+  it('should expire a transaction client and a builder captured from its callback', async () => {
     const connector = createMockPostgresConnector()
     const db = createDatabase({ connector, schemas: [Accounts] })
     let scopedClient: typeof db | undefined

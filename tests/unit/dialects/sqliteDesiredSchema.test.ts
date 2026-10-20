@@ -29,7 +29,7 @@ function identities() {
 }
 
 describe('SQLite desired schema', () => {
-  it('retains TEXT for UUID validation, wrappers, references, and PostgreSQL-only overrides', () => {
+  it('should retain TEXT for UUID validation, wrappers, references, and PostgreSQL-only overrides', () => {
     const Parent = defineTable(
       'uuid_parent',
       {
@@ -65,7 +65,7 @@ describe('SQLite desired schema', () => {
     ['negative infinity', Number.NEGATIVE_INFINITY],
     ['unsafe positive integer', Number.MAX_SAFE_INTEGER + 1],
     ['unsafe negative integer', Number.MIN_SAFE_INTEGER - 1],
-  ])('rejects %s during desired-schema lowering', (_name, value) => {
+  ])('should reject %s during desired-schema lowering', (_name, value) => {
     const Records = defineTable(
       'literal_records',
       { value: literal(value) },
@@ -77,7 +77,7 @@ describe('SQLite desired schema', () => {
     )
   })
 
-  it('accepts signed 64-bit bigint literals and rejects their invalid neighbors', () => {
+  it('should accept signed 64-bit bigint literals and reject their invalid neighbors', () => {
     const min = -9223372036854775808n
     const max = 9223372036854775807n
 
@@ -100,7 +100,7 @@ describe('SQLite desired schema', () => {
 })
 
 describe('SQLite desired schema', () => {
-  it('preserves explicit type spellings and uses by-default identity as legal AUTOINCREMENT intent', () => {
+  it('should preserve explicit type spellings and use by-default identity as legal AUTOINCREMENT intent', () => {
     const Parent = defineTable(
       'parents',
       {
@@ -142,7 +142,7 @@ describe('SQLite desired schema', () => {
 })
 
 describe('SQLite desired schema', () => {
-  it('rejects non-rowid identity and aliases outside main', () => {
+  it('should reject non-rowid identity and aliases outside main', () => {
     const NotRowid = defineTable(
       'not_rowid',
       {
@@ -180,7 +180,7 @@ describe('SQLite desired schema', () => {
 })
 
 describe('SQLite desired schema', () => {
-  it('lowers literals and SQLite defaults without accepting unsafe expressions', () => {
+  it('should lower literals and SQLite defaults without accepting unsafe expressions', () => {
     const Defaults = createDefaultsTable()
     const table = lowerDesiredSchema([Defaults], identities(), sqliteSchema).tables[0]!
 

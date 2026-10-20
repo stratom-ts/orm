@@ -110,7 +110,7 @@ async function assertInferredUuidCatalog(admin: Client, schema: string) {
 }
 
 describe('PostgreSQL inferred UUID migration', () => {
-  it('migrates inferred UUID keys and references, maps supplied strings, and converges', async () => {
+  it('should migrate inferred UUID keys and references, map supplied strings, and converge', async () => {
     const Parent = defineTable(
       'inferred_uuid_parent',
       { id: pipe(string(), uuid()), optionalId: nullable(pipe(string(), uuid())) },
@@ -147,7 +147,7 @@ describe('PostgreSQL inferred UUID migration', () => {
 })
 
 describe('PostgreSQL migration runtime integration', () => {
-  it('drops an ordinary index from a PostgreSQL 18 table with NOT NULL constraints', async ({
+  it('should drop an ordinary index from a PostgreSQL 18 table with NOT NULL constraints', async ({
     skip,
   }) => {
     await withPostgresDatabase(
@@ -189,7 +189,7 @@ describe('PostgreSQL migration runtime integration', () => {
 })
 
 describe('PostgreSQL migration runtime integration: rolls back a partial DDL attempt and converges on retry without data loss', () => {
-  it('rolls back a partial DDL attempt and converges on retry without data loss', async () => {
+  it('should roll back a partial DDL attempt and converge on retry without data loss', async () => {
     await withPostgresDatabase(
       [RollbackBefore],
       async ({ db, schema, admin, createDatabase }) => {
@@ -232,7 +232,7 @@ describe('PostgreSQL migration runtime integration: rolls back a partial DDL att
 })
 
 describe('PostgreSQL constructive migration integration', () => {
-  it('executes constructive and an explicitly permitted absent-relation plan', async () => {
+  it('should execute constructive and an explicitly permitted absent-relation plan', async () => {
     await withPostgresDatabase(
       [ManagedBaseline],
       async ({ db, schema, admin, createDatabase }) => {

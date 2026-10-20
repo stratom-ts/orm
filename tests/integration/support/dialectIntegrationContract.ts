@@ -164,7 +164,7 @@ export function registerDialectIntegrationScenarios(
     registerDialectIntegrationScenario(
       adapter,
       ['migration', 'query'],
-      'executes a portable Migration Plan',
+      'should execute a portable Migration Plan',
       async () => {
         await adapter.withDatabase([ContractRecords], async ({ db }) => {
           const plan = await db.migrate().plan()
@@ -187,7 +187,7 @@ export function registerDialectIntegrationScenarios(
     registerDialectIntegrationScenario(
       adapter,
       ['convergence', 'migration'],
-      'converges to an empty second plan',
+      'should converge to an empty second plan',
       async () => {
         await adapter.withDatabase([ContractRecords], async ({ db }) => {
           const initial = await db.migrate().plan()
@@ -210,7 +210,7 @@ function registerTransactionIntegration(adapter: DialectIntegrationAdapter) {
   registerDialectIntegrationScenario(
     adapter,
     ['transaction', 'migration', 'query'],
-    'commits and rolls back root transactions',
+    'should commit and roll back root transactions',
     async () => {
       await adapter.withDatabase([ContractRecords], async ({ db }) => {
         await db.migrate().execute()
@@ -270,7 +270,7 @@ function registerDriverErrorIntegration(adapter: DialectIntegrationAdapter): voi
   registerDialectIntegrationScenario(
     adapter,
     ['migration', 'query', 'transaction'],
-    'reports native constraint failures with dialect, code, SQL, and cause',
+    'should report native constraint failures with dialect, code, SQL, and cause',
     async () => {
       await adapter.withDatabase([ContractRecords], async ({ db }) => {
         await db.migrate().execute()
@@ -312,7 +312,7 @@ function registerConstraintDriverErrorIntegration(
   registerDialectIntegrationScenario(
     adapter,
     ['query'],
-    'classifies real constraint failures across write operations',
+    'should classify real constraint failures across write operations',
     async () => {
       await adapter.withDatabase(
         [ContractParents, ContractFailures],
@@ -475,7 +475,7 @@ function registerQueryDriverErrorIntegration(adapter: DialectIntegrationAdapter)
   registerDialectIntegrationScenario(
     adapter,
     ['query'],
-    'reports missing-relation queries as parameter-free driver errors',
+    'should report missing-relation queries as parameter-free driver errors',
     async () => {
       await adapter.withDatabase([ContractRecords], async ({ db }) => {
         const secret = 'secret-bound-value'
@@ -517,7 +517,7 @@ function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
   registerDialectIntegrationScenario(
     adapter,
     ['query', 'migration'],
-    'round-trips representative CRUD',
+    'should round-trip representative CRUD',
     async () => {
       await adapter.withDatabase([ContractRecords], async ({ db }) => {
         await db.migrate().execute()
@@ -565,7 +565,7 @@ function registerWriteCountIntegration(adapter: DialectIntegrationAdapter) {
     registerDialectIntegrationScenario(
       adapter,
       scope === 'root' ? ['query', 'migration'] : ['query', 'migration', 'transaction'],
-      `returns affected-row counts in a ${scope} scope`,
+      `should return affected-row counts in a ${scope} scope`,
       async () => {
         await adapter.withDatabase([ContractRecords], async ({ db }) => {
           await db.migrate().execute()
@@ -667,7 +667,7 @@ function registerUpsertIntegration(adapter: DialectIntegrationAdapter) {
   registerDialectIntegrationScenario(
     adapter,
     ['query', 'migration'],
-    'round-trips insert conflict actions, composite targets, bulk rows, and returning',
+    'should round-trip insert conflict actions, composite targets, bulk rows, and returning',
     async () => {
       await adapter.withDatabase(
         [ContractRecords, ContractScopedRecords],
@@ -734,7 +734,7 @@ function registerLifecycleIntegration(adapter: DialectIntegrationAdapter) {
   registerDialectIntegrationScenario(
     adapter,
     ['lifecycle'],
-    'connects and closes idempotently',
+    'should connect and close idempotently',
     async () => {
       await adapter.withDatabase([ContractRecords], async ({ db }) => {
         await expect(db.ping()).resolves.toBeUndefined()

@@ -23,7 +23,7 @@ const files = createSqliteFileScope()
 const filePath = files.filePath
 afterEach(files.cleanup)
 
-it('returns native SQLite counts through executor.run, including bigint changes', async () => {
+it('should return native SQLite counts through executor.run, including bigint changes', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const native = await connector.getInstance!()
   const prepare = native.prepare.bind(native)
@@ -60,7 +60,7 @@ it('returns native SQLite counts through executor.run, including bigint changes'
   }
 })
 
-it('classifies a native SQLite open probe failure as DriverError', async () => {
+it('should classify a native SQLite open probe failure as DriverError', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const native = await connector.getInstance!()
   const prepareNative = native.prepare.bind(native)
@@ -99,7 +99,7 @@ it.each([
     call: 'run' as const,
   },
 ])(
-  'classifies a failed SQLite $command.kind native call',
+  'should classify a failed SQLite $command.kind native call',
   async ({ command, sql, call }) => {
     const connector = nodeSqliteConnector({ name: ':memory:' })
     const provider = createDb0NodeSqliteOperationSessionProvider(
@@ -159,7 +159,7 @@ it.each([
 )
 
 it.each([undefined, null, 9, { code: 'SQLITE_CONSTRAINT_UNIQUE' }])(
-  'classifies SQLite prepare rejection %s and retains its exact cause',
+  'should classify SQLite prepare rejection %s and retain its exact cause',
   async (nativeCause) => {
     const connector = nodeSqliteConnector({ name: ':memory:' })
     const provider = createDb0NodeSqliteOperationSessionProvider(
@@ -205,7 +205,7 @@ it.each([undefined, null, 9, { code: 'SQLITE_CONSTRAINT_UNIQUE' }])(
   },
 )
 
-it('preserves a result-normalization defect with its original identity and stack', async () => {
+it('should preserve a result-normalization defect with its original identity and stack', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
   const session = await provider.open()
@@ -252,7 +252,7 @@ it.each([
     defect: Object.freeze(new TypeError('identity getter failed')),
   },
   { name: 'primitive', defect: 17 },
-])('retains a $name identity defect and disposal failure', async ({ defect }) => {
+])('should retain a $name identity defect and disposal failure', async ({ defect }) => {
   const nativeConnector = nodeSqliteConnector({ name: ':memory:' })
   const database = await nativeConnector.getInstance!()
   const prepareNative = database.prepare.bind(database)
@@ -331,7 +331,7 @@ async function baselineFixture() {
   return { native, connector: { ...connector, getInstance: () => legacy } }
 }
 
-it('proves reuse and rolls back external native transactions when modern flags are absent', async () => {
+it('should prove reuse and roll back external native transactions when modern flags are absent', async () => {
   const { connector, native } = await baselineFixture()
 
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
@@ -385,7 +385,7 @@ async function closeBaseline(
   if (primary !== undefined) throw primary
 }
 
-it('rejects a caller transaction when modern flags are absent and discards the instance', async () => {
+it('should reject a caller transaction when modern flags are absent and discard the instance', async () => {
   const { connector, native } = await baselineFixture()
 
   native.exec('begin')
@@ -402,7 +402,7 @@ it('rejects a caller transaction when modern flags are absent and discards the i
   }
 })
 
-it('discards a baseline session when native rollback cannot prove cleanliness', async () => {
+it('should discard a baseline session when native rollback cannot prove cleanliness', async () => {
   const { connector, native } = await baselineFixture()
 
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
@@ -427,7 +427,7 @@ it('discards a baseline session when native rollback cannot prove cleanliness', 
   }
 })
 
-it('binds values, selects all/run members, and retains one physical instance on reuse', async () => {
+it('should bind values, select all/run members, and retain one physical instance on reuse', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
   const session = await provider.open()
@@ -478,7 +478,7 @@ it('binds values, selects all/run members, and retains one physical instance on 
   await expect(provider.open()).rejects.toMatchObject({ _tag: 'QueryError' })
 })
 
-it('rolls back an open transaction before reuse and supports savepoints', async () => {
+it('should roll back an open transaction before reuse and support savepoints', async () => {
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
@@ -505,7 +505,7 @@ it('rolls back an open transaction before reuse and supports savepoints', async 
   await provider.close()
 })
 
-it('shares a connector lease across providers without closing the active transaction', async () => {
+it('should share a connector lease across providers without closing the active transaction', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const first = createDb0NodeSqliteOperationSessionProvider(connector)
   const second = createDb0NodeSqliteOperationSessionProvider(connector)
@@ -549,7 +549,7 @@ it('shares a connector lease across providers without closing the active transac
   }
 })
 
-it('keeps a handed-off native lease alive when the earlier provider closes', async () => {
+it('should keep a handed-off native lease alive when the earlier provider closes', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const first = createDb0NodeSqliteOperationSessionProvider(connector)
   const second = createDb0NodeSqliteOperationSessionProvider(connector)
@@ -584,7 +584,7 @@ it('keeps a handed-off native lease alive when the earlier provider closes', asy
   }
 })
 
-it('reserves the shared lease before an asynchronous native lookup completes', async () => {
+it('should reserve the shared lease before an asynchronous native lookup completes', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
   const lookupStarted = deferred()
   const finishLookup = deferred()
@@ -638,7 +638,7 @@ it('reserves the shared lease before an asynchronous native lookup completes', a
   }
 })
 
-it('rejects connector aliases to an owned DatabaseSync without probing or disposing it', async () => {
+it('should reject connector aliases to an owned DatabaseSync without probing or disposing it', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const native = await connector.getInstance!()
   const first = createDb0NodeSqliteOperationSessionProvider(connector)
@@ -684,7 +684,7 @@ it('rejects connector aliases to an owned DatabaseSync without probing or dispos
 })
 
 it.each(['native', 'legacy'] as const)(
-  'rejects a stale native alias on the %s surface without disposing the live replacement',
+  'should reject a stale native alias on the %s surface without disposing the live replacement',
   async (surface) => {
     const connector = nodeSqliteConnector({ name: ':memory:' })
     const stale = await connector.getInstance!()
@@ -730,7 +730,7 @@ it.each(['native', 'legacy'] as const)(
 )
 
 it.each(['reuse', 'discard'] as const)(
-  'does not affect another connector after a leased connector switches native targets on %s',
+  'should not affect another connector after a leased connector switches native targets on %s',
   async (disposition) => {
     const original = nodeSqliteConnector({ name: ':memory:' })
     const other = nodeSqliteConnector({ name: ':memory:' })
@@ -783,7 +783,7 @@ it.each(['reuse', 'discard'] as const)(
   },
 )
 
-it('serializes concurrent native writes and binds a DataView without coercion', async () => {
+it('should serialize concurrent native writes and bind a DataView without coercion', async () => {
   const provider = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
@@ -822,7 +822,7 @@ it('serializes concurrent native writes and binds a DataView without coercion', 
   }
 })
 
-it('gives separate file and memory databases separate identities and poisons cancellation', async () => {
+it('should give separate file and memory databases separate identities and poison cancellation', async () => {
   const first = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
@@ -851,7 +851,7 @@ it('gives separate file and memory databases separate identities and poisons can
   await second.close()
 })
 
-it('uses one canonical file identity across connectors while keeping physical sessions distinct', async () => {
+it('should use one canonical file identity across connectors while keeping physical sessions distinct', async () => {
   const path = filePath()
   const junction = join(dirname(filePath()), 'main-alias')
   symlinkSync(dirname(path), junction, 'junction')
@@ -888,7 +888,7 @@ it('uses one canonical file identity across connectors while keeping physical se
   }
 })
 
-it('keeps file database identity distinct from independent memory identities', async () => {
+it('should keep file database identity distinct from independent memory identities', async () => {
   const file = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ path: filePath() }),
   )
@@ -918,7 +918,7 @@ it('keeps file database identity distinct from independent memory identities', a
   }
 })
 
-it('drains an active lease on close and retries a failed connector disposal', async () => {
+it('should drain an active lease on close and retry a failed connector disposal', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
   const defect = new Error('dispose failed')
   let disposals = 0
@@ -951,7 +951,7 @@ it('drains an active lease on close and retries a failed connector disposal', as
   await expect(provider.open()).rejects.toMatchObject({ _tag: 'QueryError' })
 })
 
-it('waits for the last provider teardown before a newly adapted provider opens', async () => {
+it('should wait for the last provider teardown before a newly adapted provider opens', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
   const disposalStarted = deferred()
   const finishDisposal = deferred()
@@ -1002,7 +1002,7 @@ it('waits for the last provider teardown before a newly adapted provider opens',
   }
 })
 
-it('retries failed disposal after another provider adapts the connector', async () => {
+it('should retry failed disposal after another provider adapts the connector', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
   const defect = new Error('dispose failed')
   let disposals = 0
@@ -1042,7 +1042,7 @@ it('retries failed disposal after another provider adapts the connector', async 
   }
 })
 
-it('blocks new leases after repeated discard failure until close disposes the native database', async () => {
+it('should block new leases after repeated discard failure until close disposes the native database', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
   const primary = new Error('dispose attempt 1')
   const cleanup = new Error('dispose attempt 2')
@@ -1087,7 +1087,7 @@ it('blocks new leases after repeated discard failure until close disposes the na
   await recovered.close()
 })
 
-it('shares one successful close promise and disposes once after the active lease', async () => {
+it('should share one successful close promise and dispose once after the active lease', async () => {
   const native = nodeSqliteConnector({ name: ':memory:' })
   let disposals = 0
   const provider = createDb0NodeSqliteOperationSessionProvider({

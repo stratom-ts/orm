@@ -929,7 +929,7 @@ function malformedFixtureRows(
 }
 
 it.each(['table-name-nul', 'table-name-surrogate'])(
-  'keeps malformed SQLite returned identifiers as unknown evidence: %s',
+  'should keep malformed SQLite returned identifiers as unknown evidence: %s',
   async (malformed) => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed }),
@@ -1229,7 +1229,7 @@ const emptyFixture = (version = '3.37.0'): CatalogExecutor => ({
 })
 
 describe('SQLite catalog', () => {
-  it('fixture decodes all affinity families and native spelling', async () => {
+  it('should decode all affinity families and native spelling in the fixture', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const parent = relationNamed(s, 'parent')
     expect(parent.nativeDefinition.state).toBe('present')
@@ -1248,7 +1248,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('fixture preserves defaults and rowid generation', async () => {
+  it('should preserve defaults and rowid generation in the fixture', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const columns = tableOf(relationNamed(s, 'parent')).columns.items
     assertSqliteColumnEvidence(columns)
@@ -1275,7 +1275,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('fixture retains composite FK ordering and actions', async () => {
+  it('should retain composite FK ordering and actions in the fixture', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const child = relationNamed(s, 'child')
     expect(tableOf(child).foreignKeys.items[0]).toMatchObject({
@@ -1287,7 +1287,7 @@ describe('SQLite catalog', () => {
     })
   })
 
-  it('fixture reversals are deeply equal', async () => {
+  it('should produce deeply equal fixture reversals', async () => {
     expect(
       await sqliteCatalog.introspectCatalog(fixtureExecutor({ reverse: true }), request),
     ).toEqual(await sqliteCatalog.introspectCatalog(fixtureExecutor(), request))
@@ -1295,7 +1295,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('blocks main management when attached or temporary objects are present', async () => {
+  it('should block main management when attached or temporary objects are present', async () => {
     const executeExternal = createExternalSqliteExecutor
 
     const snapshot = await sqliteCatalog.introspectCatalog(
@@ -1311,7 +1311,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('preserves CHECK, generated-column, and rich-index evidence', async () => {
+  it('should preserve CHECK, generated-column, and rich-index evidence', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const generated = relationNamed(snapshot, 'generated_t')
     const generatedTable = tableOf(generated)
@@ -1355,7 +1355,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('does not claim unknown constraint names or rowid planning support', async () => {
+  it('should not claim unknown constraint names or rowid planning support', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ namedConstraint: true, withoutOpaqueDependencies: true }),
       request,
@@ -1400,7 +1400,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('fixture preserves trigger opaque evidence', async () => {
+  it('should preserve trigger opaque evidence in the fixture', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const parent = relationNamed(s, 'parent')
     expect(
@@ -1408,7 +1408,7 @@ describe('SQLite catalog', () => {
     ).toBe(true)
   })
 
-  it('allows trigger names to share relation names without reserving trigger-only names', async () => {
+  it('should allow trigger names to share relation names without reserving trigger-only names', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ triggerNameCollision: true }),
       request,
@@ -1427,7 +1427,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('keeps rowid aliases and unnamed simple constraints in the managed profile', async () => {
+  it('should keep rowid aliases and unnamed simple constraints in the managed profile', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true, simpleForeignKey: true }),
       request,
@@ -1451,7 +1451,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('keeps uncomparable native defaults opaque and unmanaged', async () => {
+  it('should keep uncomparable native defaults opaque and unmanaged', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true, opaqueDefault: true }),
       request,
@@ -1482,7 +1482,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('keeps rich auto-index UNIQUE constraints unmanaged', async () => {
+  it('should keep rich auto-index UNIQUE constraints unmanaged', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true, richUniqueIndex: true }),
       request,
@@ -1503,7 +1503,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('treats authored MATCH clauses as opaque despite PRAGMA match NONE', async () => {
+  it('should treat authored MATCH clauses as opaque despite PRAGMA match NONE', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({
         withoutOpaqueDependencies: true,
@@ -1535,7 +1535,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('reports SQLite owner facts as unsupported by the engine', async () => {
+  it('should report SQLite owner facts as unsupported by the engine', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
 
     expect(snapshot.namespaces.items[0]!.owner).toEqual({
@@ -1551,7 +1551,7 @@ describe('SQLite catalog', () => {
     })
   })
 
-  it('keeps trigger dependencies opaque across candidate tables', async () => {
+  it('should keep trigger dependencies opaque across candidate tables', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true, crossTableTrigger: true }),
       request,
@@ -1580,7 +1580,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('marks unrepresented table clauses opaque without false positives in literals or comments', async () => {
+  it('should mark unrepresented table clauses opaque without false positives in literals or comments', async () => {
     for (const richerClause of [
       'collate',
       'conflict',
@@ -1633,7 +1633,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('preserves the INTEGER PRIMARY KEY DESC exception', async () => {
+  it('should preserve the INTEGER PRIMARY KEY DESC exception', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ withoutOpaqueDependencies: true }),
       request,
@@ -1657,7 +1657,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('blocks tables when view dependencies are unknown and preserves view triggers', async () => {
+  it('should block tables when view dependencies are unknown and preserve view triggers', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ viewTrigger: true }),
       request,
@@ -1686,7 +1686,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('reserves unrelated indexes and auto-indexes outside relation scope', async () => {
+  it('should reserve unrelated indexes and auto-indexes outside relation scope', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
       ...request,
       completeNamespaces: [],
@@ -1698,7 +1698,7 @@ describe('SQLite catalog', () => {
     expect(s.nameReservations.items.map((n) => n.name)).toContain('u_auto')
   })
 
-  it('marks duplicate database rows as unknown inventory', async () => {
+  it('should mark duplicate database rows as unknown inventory', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed: 'duplicate' }),
       request,
@@ -1710,7 +1710,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('observes requested absence without claiming complete namespace coverage', async () => {
+  it('should observe requested absence without claiming complete namespace coverage', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
       relations: [],
       absentRelations: [{ relation: 'missing' }],
@@ -1728,7 +1728,7 @@ describe('SQLite catalog', () => {
     expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
   })
 
-  it('does not fabricate absence when the requested identity is present', async () => {
+  it('should not fabricate absence when the requested identity is present', async () => {
     const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
       relations: [],
       absentRelations: [{ relation: 'child' }],
@@ -1742,7 +1742,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('fixture rejects attached relation scopes', async () => {
+  it('should reject attached relation scopes in the fixture', async () => {
     await expect(
       sqliteCatalog.introspectCatalog(fixtureExecutor(), {
         ...request,
@@ -1761,7 +1761,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('fixture gates exact minimum version', async () => {
+  it('should gate exact minimum version in the fixture', async () => {
     const executed: string[] = []
     const fixture = fixtureExecutor({ version: '3.37.0' })
     const snapshot = await sqliteCatalog.introspectCatalog(
@@ -1792,7 +1792,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('gates versions before querying any PRAGMA', async () => {
+  it('should gate versions before querying any PRAGMA', async () => {
     const calls: string[] = []
     const old = await sqliteCatalog.introspectCatalog(
       {
@@ -1822,7 +1822,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('resolves omitted namespace to main', async () => {
+  it('should resolve omitted namespace to main', async () => {
     expect(
       (
         await sqliteCatalog.introspectCatalog(emptyFixture(), {
@@ -1834,14 +1834,14 @@ describe('SQLite catalog', () => {
     ).toBe('main')
   })
 
-  it('emits complete empty main', async () => {
+  it('should emit complete empty main', async () => {
     expect(
       (await sqliteCatalog.introspectCatalog(emptyFixture(), request)).namespaces
         .items[0]!.relations.items,
     ).toEqual([])
   })
 
-  it('emits partial empty main', async () => {
+  it('should emit partial empty main', async () => {
     expect(
       (
         await sqliteCatalog.introspectCatalog(emptyFixture(), {
@@ -1853,7 +1853,7 @@ describe('SQLite catalog', () => {
     ).toBe('partial')
   })
 
-  it('deduplicates request identities', async () => {
+  it('should deduplicate request identities', async () => {
     const result = await sqliteCatalog.introspectCatalog(emptyFixture(), {
       relations: [
         { relation: { relation: 'x' }, shape: 'complete' },
@@ -1868,7 +1868,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('rejects attached registration defaults', async () => {
+  it('should reject attached registration defaults', async () => {
     await expect(
       sqliteCatalog.introspectCatalog(emptyFixture(), {
         ...request,
@@ -1879,7 +1879,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('parameterizes and observes quoted table and index names', async () => {
+  it('should parameterize and observe quoted table and index names', async () => {
     const calls: { sql: string; params: unknown[] }[] = []
     const tableName = 'odd"table'
     const indexName = 'odd"index'
@@ -1926,14 +1926,14 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('reports unsupported old versions deterministically', async () => {
+  it('should report unsupported old versions deterministically', async () => {
     expect(
       (await sqliteCatalog.introspectCatalog(emptyFixture('3.36.9'), request))
         .diagnostics[0]!.code,
     ).toBe('catalog.capability.version')
   })
 
-  it('preserves resolved request shape', async () => {
+  it('should preserve resolved request shape', async () => {
     const result = await sqliteCatalog.introspectCatalog(emptyFixture(), {
       ...request,
       relations: [{ relation: { relation: 'x' }, shape: 'additive' }],
@@ -1944,7 +1944,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('returns unknown evidence for malformed cross-PRAGMA observations', async () => {
+  it('should return unknown evidence for malformed cross-PRAGMA observations', async () => {
     for (const [malformed, message] of [
       ['xinfo-gap', 'SQLite table "parent" table_xinfo cids must be contiguous'],
       ['ncol', 'SQLite table "parent" table_list ncol does not match table_xinfo'],
@@ -1963,7 +1963,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('returns unknown evidence and stable diagnostics', async () => {
+  it('should return unknown evidence and stable diagnostics', async () => {
     const cases = structuredClone(
       rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData,
     )
@@ -1981,7 +1981,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('returns unknown evidence for malformed schema rows', async () => {
+  it('should return unknown evidence for malformed schema rows', async () => {
     await assertMalformedSqliteIdentityRows()
 
     expectUnknownMetadata(
@@ -2019,7 +2019,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('returns unknown evidence for catalog races including reservation-only indexes', async () => {
+  it('should return unknown evidence for catalog races including reservation-only indexes', async () => {
     for (const race of ['table_list', 'table_xinfo', 'sqlite_schema', 'index_list']) {
       const snapshot = await sqliteCatalog.introspectCatalog(
         fixtureExecutor({ race }),
@@ -2033,7 +2033,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('keeps a sound relation and column facts alongside a damaged index', async () => {
+  it('should keep a sound relation and column facts alongside a damaged index', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({
         malformed: 'index-xinfo-wrong-flag',
@@ -2075,7 +2075,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('keeps unrelated relations when one schema definition disagrees', async () => {
+  it('should keep unrelated relations when one schema definition disagrees', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({
         malformed: 'schema-relation-name-mismatch',
@@ -2096,7 +2096,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('returns the same invalid evidence when native rows are reversed', async () => {
+  it('should return the same invalid evidence when native rows are reversed', async () => {
     for (const malformed of [
       'schema-case-duplicate',
       'index-xinfo-wrong-flag',
@@ -2119,7 +2119,7 @@ describe('SQLite catalog', () => {
 
 describe('SQLite catalog', () => {
   it.each(nativeDefinitionCrossCheckCases)(
-    'rejects stable %s observations before planning',
+    'should reject stable %s observations before planning',
     async (malformed, relationName, affected, message) => {
       const observe = (reverse: boolean) =>
         sqliteCatalog.introspectCatalog(
@@ -2170,7 +2170,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('treats successful malformed version rows as unknown catalog evidence', async () => {
+  it('should treat successful malformed version rows as unknown catalog evidence', async () => {
     for (const rows of [[], [{ version: 42 }], [{ version: '3.bad.0' }]]) {
       const executor = emptyFixture()
       const snapshot = await sqliteCatalog.introspectCatalog(
@@ -2192,7 +2192,7 @@ describe('SQLite catalog', () => {
     }
   })
 
-  it('does not infer a main namespace when database_list omits it', async () => {
+  it('should not infer a main namespace when database_list omits it', async () => {
     const executor = fixtureExecutor()
     const snapshot = await sqliteCatalog.introspectCatalog(
       {
@@ -2212,7 +2212,7 @@ describe('SQLite catalog', () => {
   })
 })
 
-it('reports malformed reservation-only metadata for a narrow relation request', async () => {
+it('should report malformed reservation-only metadata for a narrow relation request', async () => {
   const snapshot = await sqliteCatalog.introspectCatalog(
     fixtureExecutor({ malformed: 'index-wrong-shape', withoutOpaqueDependencies: true }),
     {
@@ -2236,7 +2236,7 @@ it('reports malformed reservation-only metadata for a narrow relation request', 
   ).toHaveLength(1)
 })
 
-it('gives final database-list decoding the same diagnostic in either row order', async () => {
+it('should give final database-list decoding the same diagnostic in either row order', async () => {
   const observe = (reverse: boolean) => {
     const executor = fixtureExecutor()
     let reads = 0
@@ -2265,7 +2265,7 @@ it('gives final database-list decoding the same diagnostic in either row order',
   expect(forward.namespaces.coverage.state).toBe('unknown')
 })
 
-it('keeps shared SQL parser failures at their reservation or relation scope', async () => {
+it('should keep shared SQL parser failures at their reservation or relation scope', async () => {
   for (const [sql, message, global] of [
     [
       'CREATE TABLE parent /*',
@@ -2304,7 +2304,7 @@ it('keeps shared SQL parser failures at their reservation or relation scope', as
   }
 })
 
-it('keeps invalid foreign-key actions as relation-local metadata failures', async () => {
+it('should keep invalid foreign-key actions as relation-local metadata failures', async () => {
   const fixture = fixtureExecutor({ withoutOpaqueDependencies: true })
   const snapshot = await sqliteCatalog.introspectCatalog(
     {
@@ -2337,39 +2337,42 @@ it('keeps invalid foreign-key actions as relation-local metadata failures', asyn
 it.each([
   ['normal assembly', undefined],
   ['recovery', 'index-wrong-shape'],
-] as const)('lets unrelated proof failures escape %s unchanged', async (_, malformed) => {
-  const sqliteNormalize = await import('@/dialects/sqlite/normalize')
+] as const)(
+  'should let unrelated proof failures escape %s unchanged',
+  async (_, malformed) => {
+    const sqliteNormalize = await import('@/dialects/sqlite/normalize')
 
-  for (const failure of [
-    new InvariantError('proof defect'),
-    new Error('proof defect'),
-    'proof defect',
-  ]) {
-    const stack = failure instanceof Error ? failure.stack : undefined
+    for (const failure of [
+      new InvariantError('proof defect'),
+      new Error('proof defect'),
+      'proof defect',
+    ]) {
+      const stack = failure instanceof Error ? failure.stack : undefined
 
-    const spy = vi
-      .spyOn(sqliteNormalize, 'normalizeSqliteDataType')
-      .mockImplementation(() => {
-        throw failure
-      })
+      const spy = vi
+        .spyOn(sqliteNormalize, 'normalizeSqliteDataType')
+        .mockImplementation(() => {
+          throw failure
+        })
 
-    try {
-      await expect(
-        sqliteCatalog.introspectCatalog(
-          fixtureExecutor({ malformed, withoutOpaqueDependencies: true }),
-          request,
-        ),
-      ).rejects.toBe(failure)
+      try {
+        await expect(
+          sqliteCatalog.introspectCatalog(
+            fixtureExecutor({ malformed, withoutOpaqueDependencies: true }),
+            request,
+          ),
+        ).rejects.toBe(failure)
 
-      expect(failure instanceof Error ? failure.stack : undefined).toBe(stack)
-    } finally {
-      spy.mockRestore()
+        expect(failure instanceof Error ? failure.stack : undefined).toBe(stack)
+      } finally {
+        spy.mockRestore()
+      }
     }
-  }
-})
+  },
+)
 
 describe('SQLite catalog', () => {
-  it('preserves the exact executor failure, including an invariant error', async () => {
+  it('should preserve the exact executor failure, including an invariant error', async () => {
     for (const queryPart of ['sqlite_version', 'table_xinfo']) {
       const failure = new InvariantError(`query failed: ${queryPart}`)
       const executor = fixtureExecutor()
@@ -2387,7 +2390,7 @@ describe('SQLite catalog', () => {
     }
   })
 
-  it('rejects planning with damaged relation evidence before a plan exists', async () => {
+  it('should reject planning with damaged relation evidence before a plan exists', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(
       fixtureExecutor({ malformed: 'index-xinfo-wrong-flag' }),
       request,
@@ -2404,7 +2407,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('keeps unresolved foreign keys fail-closed', async () => {
+  it('should keep unresolved foreign keys fail-closed', async () => {
     const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
       ...request,
       completeNamespaces: [],
@@ -2420,7 +2423,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('matches explicit foreign-key targets by canonical column identity', async () => {
+  it('should match explicit foreign-key targets by canonical column identity', async () => {
     const fixture = fixtureExecutor()
     const snapshot = await sqliteCatalog.introspectCatalog(
       {
@@ -2468,7 +2471,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('totally orders tied foreign keys regardless of native row order', async () => {
+  it('should totally order tied foreign keys regardless of native row order', async () => {
     const execute = executeSqliteCatalogFixture
 
     const snapshot = await sqliteCatalog.introspectCatalog(execute(false), request)
@@ -2497,7 +2500,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('orders unresolved FK targets with ASCII-case-equivalent identities deterministically', async () => {
+  it('should order unresolved FK targets with ASCII-case-equivalent identities deterministically', async () => {
     /**
      * Creates a catalog executor with configurable native observations and query-order
      * tracking.
@@ -2553,7 +2556,7 @@ describe('SQLite catalog', () => {
 })
 
 describe('SQLite catalog', () => {
-  it('preserves unsupported native evidence for rich objects', async () => {
+  it('should preserve unsupported native evidence for rich objects', async () => {
     const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
     const virtual = result.namespaces.items[0]!.relations.items.find(
       (entry) => entry.identity.relation.spelling === 'virt',
@@ -2564,7 +2567,7 @@ describe('SQLite catalog', () => {
     expect(virtual.nativeDefinition.state).toBe('present')
   })
 
-  it('rejects attached scopes before version gating', async () => {
+  it('should reject attached scopes before version gating', async () => {
     for (const variant of [
       {
         relations: [

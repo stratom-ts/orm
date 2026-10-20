@@ -38,7 +38,7 @@ it.each<[string, AnySchema, string]>([
     'TEXT',
   ],
 ])(
-  'rejects %s at client construction before opening a session or issuing SQL',
+  'should reject %s at client construction before opening a session or issuing SQL',
   (_name, schema, type) => {
     const Records = defineTable(
       'records',
@@ -63,7 +63,7 @@ it.each<[string, AnySchema, string]>([
 )
 
 it.each(['column parameter', 'column result', 'client parameter', 'client result'])(
-  'rejects an unsupported mapping with only a %s override',
+  'should reject an unsupported mapping with only a %s override',
   (direction) => {
     const Records = defineTable(
       'records',
@@ -93,7 +93,7 @@ it.each(['column parameter', 'column result', 'client parameter', 'client result
   },
 )
 
-it('rejects a reference override whose affinity cannot preserve its target logical strings', () => {
+it('should reject a reference override whose affinity cannot preserve its target logical strings', () => {
   const Parents = defineTable(
     'parents',
     { value: pipe(string(), column({ unique: true })) },
@@ -120,7 +120,7 @@ it('rejects a reference override whose affinity cannot preserve its target logic
 })
 
 it.each([false, true])(
-  'rejects local reference transformations before SQL (nullable: %s)',
+  'should reject local reference transformations before SQL (nullable: %s)',
   (allowNull) => {
     const Parents = defineTable('parents', { value: string() }, { primaryKey: 'value' })
     const transformed = pipe(reference(Parents, 'value'), transform(Number))

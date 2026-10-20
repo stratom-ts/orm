@@ -75,7 +75,7 @@ function sqliteOwner(database: string, relation: string) {
 }
 
 describe('generated physical naming', () => {
-  it('has a stable documented digest vector and always includes it', () => {
+  it('should have a stable documented digest vector and always include it', () => {
     const seed = {
       kind: 'index' as const,
       owner: owner('public', 'users'),
@@ -92,7 +92,7 @@ describe('generated physical naming', () => {
 })
 
 describe('generated physical naming: generates fixed names for every constraint seed and referential action', () => {
-  it('generates fixed names for every constraint seed and referential action', () => {
+  it('should generate fixed names for every constraint seed and referential action', () => {
     const users = owner('public', 'users')
     const accounts = owner('public', 'accounts')
     const omittedActions = generatedUserAccountForeignKey(
@@ -138,7 +138,7 @@ describe('generated physical naming: generates fixed names for every constraint 
 })
 
 describe('generated physical naming: uses structured seeds and does not flatten ambiguous column tuples', () => {
-  it('uses structured seeds and does not flatten ambiguous column tuples', () => {
+  it('should use structured seeds and not flatten ambiguous column tuples', () => {
     const relation = owner('public', 'events')
     expect(
       generatedIndexName(relation, ['a_b', 'c'], false, POSTGRES_PHYSICAL_NAMING),
@@ -149,7 +149,7 @@ describe('generated physical naming: uses structured seeds and does not flatten 
 })
 
 describe('generated physical naming: truncates only the readable UTF-8 prefix without splitting scalars', () => {
-  it('truncates only the readable UTF-8 prefix without splitting scalars', () => {
+  it('should truncate only the readable UTF-8 prefix without splitting scalars', () => {
     const relation = owner('public', `events_${'😀'.repeat(30)}`)
     const name = generatedIndexName(
       relation,
@@ -163,13 +163,13 @@ describe('generated physical naming: truncates only the readable UTF-8 prefix wi
     expect(name).not.toMatch(/[\ud800-\udbff]$/)
   })
 
-  it('rejects a terminal high surrogate', () => {
+  it('should reject a terminal high surrogate', () => {
     expect(() =>
       validatePhysicalName('invalid\ud800', 'index name', POSTGRES_PHYSICAL_NAMING),
     ).toThrow(SchemaError)
   })
 
-  it('keeps an impossible naming profile as an invariant defect', () => {
+  it('should keep an impossible naming profile as an invariant defect', () => {
     expect(() =>
       generatedIndexName(owner('public', 'users'), ['id'], false, {
         ...POSTGRES_PHYSICAL_NAMING,
@@ -178,7 +178,7 @@ describe('generated physical naming: truncates only the readable UTF-8 prefix wi
     ).toThrow(InvariantError)
   })
 
-  it('measures the same Unicode spelling in bytes or scalars as configured', () => {
+  it('should measure the same Unicode spelling in bytes or scalars as configured', () => {
     const twoBytes = { ...POSTGRES_PHYSICAL_NAMING, maximumLength: 2 }
     const twoScalars = { ...SQLITE_PHYSICAL_NAMING_FIXTURE, maximumLength: 2 }
 
@@ -192,7 +192,7 @@ describe('generated physical naming: truncates only the readable UTF-8 prefix wi
 })
 
 describe('physical name reservations', () => {
-  it('collides equal PostgreSQL names within one schema but not across schemas', () => {
+  it('should collide equal PostgreSQL names within one schema but not across schemas', () => {
     const publicUsers = owner('public', 'users')
     const publicPosts = owner('public', 'posts')
     const auditPosts = owner('audit', 'posts')
@@ -228,7 +228,7 @@ describe('physical name reservations', () => {
 })
 
 describe('physical name reservations: collides equal SQLite names within one database alias but not across aliases', () => {
-  it('collides equal SQLite names within one database alias but not across aliases', () => {
+  it('should collide equal SQLite names within one database alias but not across aliases', () => {
     const mainUsers = sqliteOwner('main', 'users')
     const mainPosts = sqliteOwner('main', 'posts')
     const archivePosts = sqliteOwner('archive', 'posts')
@@ -264,7 +264,7 @@ describe('physical name reservations: collides equal SQLite names within one dat
 })
 
 describe('physical name reservations: preserves table-local naming profiles', () => {
-  it('preserves table-local naming profiles', () => {
+  it('should preserve table-local naming profiles', () => {
     const publicUsers = owner('public', 'users')
     const publicPosts = owner('public', 'posts')
 
@@ -290,7 +290,7 @@ describe('physical name reservations: preserves table-local naming profiles', ()
 })
 
 describe('physical name reservations: makes relation-constraint reservations idempotent and owner-scoped', () => {
-  it('makes relation-constraint reservations idempotent and owner-scoped', () => {
+  it('should make relation-constraint reservations idempotent and owner-scoped', () => {
     const users = owner('public', 'users')
     const posts = owner('public', 'posts')
     const registry = createPhysicalNameRegistry(POSTGRES_PHYSICAL_NAMING)
@@ -324,7 +324,7 @@ describe('physical name reservations: makes relation-constraint reservations ide
   })
 })
 
-it('rejects explicit PostgreSQL physical names above the identifier limit', () => {
+it('should reject explicit PostgreSQL physical names above the identifier limit', () => {
   const TooLong = defineTable(
     'too_long',
     {
@@ -354,7 +354,7 @@ it('rejects explicit PostgreSQL physical names above the identifier limit', () =
   ).toThrow(/identifier limit of 63 UTF-8 bytes/i)
 })
 
-it('rejects colliding PostgreSQL physical names in one schema', () => {
+it('should reject colliding PostgreSQL physical names in one schema', () => {
   const First = defineTable(
     'first',
     {
@@ -391,7 +391,7 @@ it('rejects colliding PostgreSQL physical names in one schema', () => {
 })
 
 describe('physical name validation and legacy adoption: adopts one legacy generated index by semantics and rejects ambiguity', () => {
-  it('adopts one legacy generated index by semantics and rejects ambiguity', () => {
+  it('should adopt one legacy generated index by semantics and reject ambiguity', () => {
     const Events = defineTable(
       'events',
       {
@@ -441,7 +441,7 @@ describe('physical name validation and legacy adoption: adopts one legacy genera
 })
 
 describe('physical name validation and legacy adoption: checks generated names against non-table PostgreSQL catalog reservations', () => {
-  it('checks generated names against non-table PostgreSQL catalog reservations', () => {
+  it('should check generated names against non-table PostgreSQL catalog reservations', () => {
     const Events = defineTable(
       'events',
       {
@@ -474,7 +474,7 @@ describe('physical name validation and legacy adoption: checks generated names a
 })
 
 describe('physical name validation and legacy adoption: adopts legacy constraint names by unique semantics and rejects ambiguity', () => {
-  it('adopts legacy constraint names by unique semantics and rejects ambiguity', () => {
+  it('should adopt legacy constraint names by unique semantics and reject ambiguity', () => {
     const Accounts = defineTable(
       'accounts',
       {

@@ -328,7 +328,7 @@ const destructiveCatalog = (): LiveTable[] => [
 ]
 
 describe('db.migrate() adapters and execution', () => {
-  it('returns a stable PostgreSQL SQL preview without running DDL', async () => {
+  it('should return a stable PostgreSQL SQL preview without running DDL', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
@@ -361,7 +361,7 @@ describe('db.migrate() adapters and execution', () => {
 })
 
 describe('db.migrate() adapters and execution: lowers wrapper nullability and inferred types consistently in plan and execute', () => {
-  it('lowers wrapper nullability and inferred types consistently in plan and execute', async () => {
+  it('should lower wrapper nullability and inferred types consistently in plan and execute', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [WrapperMigration] })
 
@@ -390,7 +390,7 @@ describe('db.migrate() adapters and execution: lowers wrapper nullability and in
 })
 
 describe('db.migrate() adapters and execution: lowers the desired schema once per migration operation', () => {
-  it('lowers the desired schema once per migration operation', async () => {
+  it('should lower the desired schema once per migration operation', async () => {
     const connector = createMockConnector()
     const lower = vi.spyOn(postgresDialect.schema, 'lowerDesiredSchema')
     const db = createDatabase({ connector, schemas: [Users] })
@@ -410,7 +410,7 @@ describe('db.migrate() adapters and execution: lowers the desired schema once pe
 })
 
 describe('db.migrate() adapters and execution: treats omitted and public schemas as the same resolved registry target', () => {
-  it('treats omitted and public schemas as the same resolved registry target', async () => {
+  it('should treat omitted and public schemas as the same resolved registry target', async () => {
     const BareItems = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -448,7 +448,7 @@ describe('db.migrate() adapters and execution: treats omitted and public schemas
 })
 
 describe('db.migrate() adapters and execution: treats omitted and public schemas as the same resolved registry target: resolves target-only table steps, compiles dependencies, and commits', () => {
-  it('resolves target-only table steps, compiles dependencies, and commits', async () => {
+  it('should resolve target-only table steps, compile dependencies, and commit', async () => {
     const connector = createMockConnector()
     const db = createDatabase({
       connector,
@@ -490,7 +490,7 @@ describe('db.migrate() adapters and execution: treats omitted and public schemas
 })
 
 describe('db.migrate() adapters and execution: keeps planning free of locking, transactions, and DDL', () => {
-  it('keeps planning free of locking, transactions, and DDL', async () => {
+  it('should keep planning free of locking, transactions, and DDL', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
@@ -505,7 +505,7 @@ describe('db.migrate() adapters and execution: keeps planning free of locking, t
 })
 
 describe('db.migrate() lowering and rollback', () => {
-  it('reuses planned generated index names during AST lowering', async () => {
+  it('should reuse planned generated index names during AST lowering', async () => {
     const IndexedEvents = defineTable(
       'indexed_events',
       {
@@ -539,7 +539,7 @@ describe('db.migrate() lowering and rollback', () => {
 })
 
 describe('db.migrate() lowering and rollback: preflights generated names against pg_class reservations', () => {
-  it('preflights generated names against pg_class reservations', async () => {
+  it('should preflight generated names against pg_class reservations', async () => {
     const ReservedEvents = defineTable(
       'reserved_events',
       {
@@ -583,7 +583,7 @@ describe('db.migrate() lowering and rollback: preflights generated names against
 })
 
 describe('db.migrate() lowering and rollback: lowers additive unique-constraint steps with the planned naming profile', () => {
-  it('lowers additive unique-constraint steps with the planned naming profile', async () => {
+  it('should lower additive unique-constraint steps with the planned naming profile', async () => {
     const UniqueUsers = defineTable(
       'users',
       {
@@ -627,7 +627,7 @@ describe('db.migrate() lowering and rollback: lowers additive unique-constraint 
 })
 
 describe('db.migrate() lowering and rollback: lowers additive unique-constraint steps with the planned naming profile: executes an explicit registration default through canonical handle lookup', () => {
-  it('executes an explicit registration default through canonical handle lookup', async () => {
+  it('should execute an explicit registration default through canonical handle lookup', async () => {
     const TenantItems = defineTable(
       'items',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -665,7 +665,7 @@ describe('db.migrate() lowering and rollback: lowers additive unique-constraint 
 })
 
 describe('db.migrate() lowering and rollback: executes dotted relation tuples through distinct canonical handle lookups', () => {
-  it('executes dotted relation tuples through distinct canonical handle lookups', async () => {
+  it('should execute dotted relation tuples through distinct canonical handle lookups', async () => {
     const DottedSchema = defineTable(
       'c',
       {
@@ -712,7 +712,7 @@ describe('db.migrate() lowering and rollback: executes dotted relation tuples th
 })
 
 describe('db.migrate() runtime rollback', () => {
-  it('checks runtime data and rolls back before setting NOT NULL', async () => {
+  it('should check runtime data and roll back before setting NOT NULL', async () => {
     const RequiredUsers = defineTable(
       'users',
       {
@@ -761,7 +761,7 @@ describe('db.migrate() runtime rollback', () => {
 })
 
 describe('db.migrate() runtime rollback: wraps executor errors, rolls back, and releases the lock', () => {
-  it('wraps executor errors, rolls back, and releases the lock', async () => {
+  it('should wrap executor errors, roll back, and release the lock', async () => {
     const connector = createMockConnector({ failRun: /^create table/ })
     const db = createDatabase({ connector, schemas: [Users] })
 
@@ -791,7 +791,7 @@ describe('db.migrate() runtime rollback: wraps executor errors, rolls back, and 
 
 describe('db.migrate() policy and coordination', () => {
   it.each([-1, Number.POSITIVE_INFINITY, Number.NaN])(
-    'rejects invalid lock timeout %s before opening an operation',
+    'should reject invalid lock timeout %s before opening an operation',
     async (lockTimeoutMs) => {
       const connector = createMockConnector()
       const db = createDatabase({ connector, schemas: [] })
@@ -814,7 +814,7 @@ describe('db.migrate() policy and coordination', () => {
 })
 
 describe('db.migrate() policy and coordination: classifies authoritative catalog observation failures as introspection', () => {
-  it('classifies authoritative catalog observation failures as introspection', async () => {
+  it('should classify authoritative catalog observation failures as introspection', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [] })
 
@@ -852,7 +852,7 @@ describe('db.migrate() policy and coordination: classifies authoritative catalog
   })
 })
 
-it('preserves planning defects by identity and stack in preview', async () => {
+it('should preserve planning defects by identity and stack in preview', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
   const db = createDatabase({ connector, schemas: [] })
@@ -892,7 +892,7 @@ it.each([
     'Migration introspection failed',
   ],
 ] as const)(
-  'formats a raw %s failure at the preview boundary',
+  'should format a raw %s failure at the preview boundary',
   async (_kind, cause, message) => {
     const builder = createMigrateBuilder({
       schemas: [],
@@ -917,7 +917,7 @@ it.each([
 )
 
 it.each(['plan', 'dryRun'] as const)(
-  'preserves a desired-schema lowerer defect through migrate().%s()',
+  'should preserve a desired-schema lowerer defect through migrate().%s()',
   async (terminal) => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
@@ -945,7 +945,7 @@ it.each(['plan', 'dryRun'] as const)(
   },
 )
 
-it('retains the original desired-schema lowerer defect in migration execution', async () => {
+it('should retain the original desired-schema lowerer defect in migration execution', async () => {
   const connector = createMockConnector()
   const db = createDatabase({ connector, schemas: [Users] })
   const defect = new TypeError('desired-schema lowerer failed')
@@ -1011,7 +1011,7 @@ function releaseFailingProvider(
   }
 }
 
-it('preserves preview defect identity and transfers provider release cleanup evidence', async () => {
+it('should preserve preview defect identity and transfer provider release cleanup evidence', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
   const releaseFailure = new Error('provider release failed')
@@ -1040,7 +1040,7 @@ it('preserves preview defect identity and transfers provider release cleanup evi
   await db.close()
 })
 
-it('keeps a primitive preview defect structured when provider release also fails', async () => {
+it('should keep a primitive preview defect structured when provider release also fails', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
   const releaseFailure = new Error('provider release failed')
@@ -1072,7 +1072,7 @@ it('keeps a primitive preview defect structured when provider release also fails
   await db.close()
 })
 
-it('reports provider release SchemaError after an applied migration as session cleanup', async () => {
+it('should report provider release SchemaError after an applied migration as session cleanup', async () => {
   const connector = createMockConnector()
   const releaseFailure = new SchemaError({ message: 'provider release failed' })
   const db = createDatabase({
@@ -1106,7 +1106,7 @@ it('reports provider release SchemaError after an applied migration as session c
   await db.close()
 })
 
-it('preserves a pre-existing defect MigrationError and its cleanup evidence in preview', async () => {
+it('should preserve a pre-existing defect MigrationError and its cleanup evidence in preview', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
   const db = createDatabase({ connector, schemas: [] })
@@ -1141,7 +1141,7 @@ it('preserves a pre-existing defect MigrationError and its cleanup evidence in p
   await db.close()
 })
 
-it('preserves an explicitly undefined cause when preview adds a stage', async () => {
+it('should preserve an explicitly undefined cause when preview adds a stage', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
   const db = createDatabase({ connector, schemas: [] })
@@ -1177,7 +1177,7 @@ it('preserves an explicitly undefined cause when preview adds a stage', async ()
   await db.close()
 })
 
-it('retains the planning stage when execution wraps a planning defect', async () => {
+it('should retain the planning stage when execution wraps a planning defect', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
   const db = createDatabase({ connector, schemas: [] })
@@ -1210,7 +1210,7 @@ it('retains the planning stage when execution wraps a planning defect', async ()
 })
 
 describe('db.migrate() policy and coordination: executes no DDL when whole-plan lowering reports a capability issue', () => {
-  it('executes no DDL when whole-plan lowering reports a capability issue', async () => {
+  it('should execute no DDL when whole-plan lowering reports a capability issue', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
     const capabilityIssues = [
@@ -1257,7 +1257,7 @@ describe('db.migrate() policy and coordination: executes no DDL when whole-plan 
 })
 
 describe('db.migrate() permissions and coordination', () => {
-  it('keeps allow permissions out of planning', async () => {
+  it('should keep allow permissions out of planning', async () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({ connector, schemas: [Users] })
 
@@ -1273,7 +1273,7 @@ describe('db.migrate() permissions and coordination', () => {
     await db.close()
   })
 
-  it('rejects missing destructive permission in the authoritative transaction before DDL', async () => {
+  it('should reject missing destructive permission in the authoritative transaction before DDL', async () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({ connector, schemas: [Users] })
     const lower = vi.spyOn(postgresDialect.migration!, 'lower')
@@ -1300,7 +1300,7 @@ describe('db.migrate() permissions and coordination', () => {
 })
 
 describe('db.migrate() permissions and coordination: normalizes a plain nonconforming adapter failure as unknown and discards', () => {
-  it('normalizes a plain nonconforming adapter failure as unknown and discards', async () => {
+  it('should normalize a plain nonconforming adapter failure as unknown and discard', async () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [] })
 
@@ -1326,7 +1326,7 @@ describe('db.migrate() permissions and coordination: normalizes a plain nonconfo
 })
 
 describe('db.migrate() permissions and coordination: executes the complete plan with all required permissions', () => {
-  it('executes the complete plan with all required permissions', async () => {
+  it('should execute the complete plan with all required permissions', async () => {
     const AuditEvents = defineTable(
       'audit_events',
       { id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })) },
@@ -1366,7 +1366,7 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
 })
 
 describe('db.migrate() permissions and coordination: executes the complete plan with all required permissions: locks before fresh introspection and always unlocks', () => {
-  it('locks before fresh introspection and always unlocks', async () => {
+  it('should lock before fresh introspection and always unlock', async () => {
     const connector = createMockConnector({ tables: [matchingUsers()] })
     const db = createDatabase({ connector, schemas: [Users] })
 

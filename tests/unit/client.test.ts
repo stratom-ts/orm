@@ -116,7 +116,7 @@ const Users = defineTable(
 )
 
 describe('client registration', () => {
-  it('rejects duplicate authored relations before opening database work', () => {
+  it('should reject duplicate authored relations before opening database work', () => {
     const DuplicateUsers = defineTable(
       'users',
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
@@ -141,7 +141,7 @@ describe('client registration', () => {
 })
 
 describe('client registration: allows equal relation names in different structured namespaces', () => {
-  it('allows equal relation names in different structured namespaces', async () => {
+  it('should allow equal relation names in different structured namespaces', async () => {
     const AppUsers = defineTable(
       'users',
       { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },
@@ -183,7 +183,7 @@ describe('client registration: allows equal relation names in different structur
 })
 
 describe('client registration: keeps dotted namespace and relation boundaries independent through the public handle seam', () => {
-  it('keeps dotted namespace and relation boundaries independent through the public handle seam', async () => {
+  it('should keep dotted namespace and relation boundaries independent through the public handle seam', async () => {
     const DottedNamespace = defineTable(
       'c',
       { id: string() },
@@ -254,7 +254,7 @@ describe('client registration: should retain registered schemas on the client', 
     expect(compiled.sql).toContain('"users"')
   })
 
-  it('passes the exact connector to the selected dialect operation provider', async () => {
+  it('should pass the exact connector to the selected dialect operation provider', async () => {
     const connector = createMockConnector()
     const createProvider = vi.spyOn(postgresDialect.operations, 'createSessionProvider')
 
@@ -268,7 +268,7 @@ describe('client registration: should retain registered schemas on the client', 
 })
 
 describe('client registration: does not call the dialect provider when an explicit provider is supplied', () => {
-  it('does not call the dialect provider when an explicit provider is supplied', async () => {
+  it('should not call the dialect provider when an explicit provider is supplied', async () => {
     const connector = createMockConnector()
     const createProvider = vi.spyOn(postgresDialect.operations, 'createSessionProvider')
     const provider = {
@@ -291,7 +291,7 @@ describe('client registration: does not call the dialect provider when an explic
     createProvider.mockRestore()
   })
 
-  it('rejects an invalid automatic connector/member combination before database work', () => {
+  it('should reject an invalid automatic connector/member combination before database work', () => {
     const connector = createMockConnector()
     const getInstance = vi.spyOn(connector, 'getInstance')
     ;(connector as { name: string }).name = 'custom'

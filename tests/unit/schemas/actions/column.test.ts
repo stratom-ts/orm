@@ -55,13 +55,13 @@ describe('getColumnMetadata', () => {
     expect(metadata!.physicalType).toEqual({ postgresql: 'varchar(255)' })
   })
 
-  it('does not confuse another metadata kind for local column options', () => {
+  it('should not confuse another metadata kind for local column options', () => {
     const schema = pipe(string(), metadata({ kind: 'reference', target: {} }))
 
     expect(getColumnMetadata(schema)).toBeUndefined()
   })
 
-  it('finds the nearest local column metadata through nested pipes and wrappers', () => {
+  it('should find the nearest local column metadata through nested pipes and wrappers', () => {
     const schema = nullable(
       optional(
         pipe(
@@ -76,7 +76,7 @@ describe('getColumnMetadata', () => {
 })
 
 describe('getColumnMetadata: ignores malformed metadata actions instead of treating them as columns', () => {
-  it('ignores malformed metadata actions instead of treating them as columns', () => {
+  it('should ignore malformed metadata actions instead of treating them as columns', () => {
     const schema = pipe(
       string(),
       metadata({ kind: 42, physicalType: { postgresql: 'integer' } }),
@@ -87,7 +87,7 @@ describe('getColumnMetadata: ignores malformed metadata actions instead of treat
 })
 
 describe('isColumnMetadata', () => {
-  it('matches only the column discriminant for public metadata inspection', () => {
+  it('should match only the column discriminant for public metadata inspection', () => {
     expect(isColumnMetadata({ kind: 'column', unique: true })).toBe(true)
     expect(isColumnMetadata({ kind: 'reference' })).toBe(false)
     expect(isColumnMetadata({ physicalType: { postgresql: 'text' } })).toBe(false)
