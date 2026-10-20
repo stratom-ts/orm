@@ -26,8 +26,8 @@ import {
   compareSqliteOpaque,
   containsNamedSqliteConstraint,
   proveSqliteTables,
-  stableSqliteObservation as stable,
-  stableSqliteRows as stableRows,
+  serializeSqliteObservation as stable,
+  sortSqliteRows as stableRows,
 } from './tableProof'
 import type {
   ForeignKeyRow,
@@ -1363,7 +1363,7 @@ function catalogCapabilities(): CatalogSnapshot['capabilities'] {
 }
 
 /** Production SQLite evidence-bearing catalog introspector. */
-async function introspectSqlite(
+async function introspectSqliteCatalog(
   executor: CatalogExecutor,
   request: CatalogRequest,
 ): Promise<CatalogSnapshot> {
@@ -1457,7 +1457,9 @@ async function collectConsistentNameReservations(
   )
 }
 
-export const sqliteCatalog: CatalogIntrospector = { introspectCatalog: introspectSqlite }
+export const sqliteCatalog: CatalogIntrospector = {
+  introspectCatalog: introspectSqliteCatalog,
+}
 
 /**
  * Assembles the SQLite catalog snapshot after inventory and consistency checks.

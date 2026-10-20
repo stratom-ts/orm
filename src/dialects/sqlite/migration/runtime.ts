@@ -243,7 +243,7 @@ function validateProgram(program: MigrationProgram): void {
 }
 
 /** Quotes one identifier without treating dots or quotes as separators. */
-function quote(identifier: string): string {
+function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
 }
 
@@ -274,7 +274,7 @@ async function assertPrecondition(
   }
 
   const rows = await options.executor.execute({
-    sql: `select count(*) as count from "main".${quote(table)} where ${quote(precondition.column)} is null`,
+    sql: `select count(*) as count from "main".${quoteIdentifier(table)} where ${quoteIdentifier(precondition.column)} is null`,
     params: [],
   })
 
@@ -288,7 +288,7 @@ async function assertPrecondition(
 
   if (count > 0)
     throw new MigrationError({
-      message: `Column ${quote(precondition.column)} contains NULL values`,
+      message: `Column ${quoteIdentifier(precondition.column)} contains NULL values`,
       stage: 'precondition',
       outcome: 'unchanged',
       retryable: false,

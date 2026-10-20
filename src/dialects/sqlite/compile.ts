@@ -833,7 +833,7 @@ function compileDelete(
 }
 
 /** Compiles SQLite 3.37's supported public query AST forms. */
-export function compileSqlite(
+export function compileSqliteQuery(
   node: SqlAst,
   resolveRelation: SqliteQueryRelationResolver = createSqliteQueryRelationResolver(),
 ): CompiledQuery {

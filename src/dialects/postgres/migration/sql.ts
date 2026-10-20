@@ -14,7 +14,7 @@ import type {
  *
  * @returns Quoted identifier safe for SQL
  */
-function quoteIdent(ident: string): string {
+function quoteIdentifier(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
 }
 
@@ -28,7 +28,7 @@ function quoteIdent(ident: string): string {
  */
 function qualifyPostgresTable(schema: string | undefined, table: string): string {
   const schemaName = schema ?? 'public'
-  return `${quoteIdent(schemaName)}.${quoteIdent(table)}`
+  return `${quoteIdentifier(schemaName)}.${quoteIdentifier(table)}`
 }
 
 /**
@@ -55,7 +55,7 @@ function compileColumnDefinition(
   isPrimaryKey = false,
 ): string {
   const safeType = assertSafePostgresDataType(col.dataType)
-  const parts: string[] = [quoteIdent(col.name), safeType]
+  const parts: string[] = [quoteIdentifier(col.name), safeType]
 
   if (col.generated === 'always') {
     parts.push('generated always as identity')
@@ -70,7 +70,7 @@ function compileColumnDefinition(
 
   if (col.unique) {
     if (col.uniqueConstraintName) {
-      parts.push(`constraint ${quoteIdent(col.uniqueConstraintName)} unique`)
+      parts.push(`constraint ${quoteIdentifier(col.uniqueConstraintName)} unique`)
     } else {
       parts.push('unique')
     }
@@ -84,7 +84,7 @@ function compileColumnDefinition(
 
   if (col.references) {
     const refTable = qualifyPostgresTable(col.references.schema, col.references.table)
-    const refCol = quoteIdent(col.references.column)
+    const refCol = quoteIdentifier(col.references.column)
     let ref = `references ${refTable} (${refCol})`
 
     if (col.references.onDelete) {
@@ -127,11 +127,11 @@ function compileCreateTable(node: PostgresCreateTableAst): string {
 
   if (primaryKey.length > 1 || node.primaryKeyName) {
     const name = node.primaryKeyName
-      ? `constraint ${quoteIdent(node.primaryKeyName)} `
+      ? `constraint ${quoteIdentifier(node.primaryKeyName)} `
       : ''
 
     columnSql.push(
-      `${name}primary key (${primaryKey.map((c) => quoteIdent(c)).join(', ')})`,
+      `${name}primary key (${primaryKey.map((c) => quoteIdentifier(c)).join(', ')})`,
     )
   }
 
@@ -154,8 +154,8 @@ function compileCreateIndex(node: {
 }): string {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
   const unique = node.unique ? 'unique ' : ''
-  const cols = node.columns.map((c) => quoteIdent(c)).join(', ')
-  return `create ${unique}index ${quoteIdent(node.name)} on ${tableSql} (${cols})`
+  const cols = node.columns.map((c) => quoteIdentifier(c)).join(', ')
+  return `create ${unique}index ${quoteIdentifier(node.name)} on ${tableSql} (${cols})`
 }
 
 /**
@@ -203,8 +203,8 @@ function compileAddForeignKey(node: {
     node.references.table,
   )
 
-  const constraint = node.name ? `constraint ${quoteIdent(node.name)} ` : ''
-  let sql = `alter table ${tableSql} add ${constraint}foreign key (${quoteIdent(node.column)}) references ${referenceTableSql} (${quoteIdent(node.references.column)})`
+  const constraint = node.name ? `constraint ${quoteIdentifier(node.name)} ` : ''
+  let sql = `alter table ${tableSql} add ${constraint}foreign key (${quoteIdentifier(node.column)}) references ${referenceTableSql} (${quoteIdentifier(node.references.column)})`
 
   if (node.references.onDelete) {
     sql += ` on delete ${formatReferentialAction(node.references.onDelete)}`
@@ -229,7 +229,7 @@ function compileAddUniqueConstraint(node: {
   name: string
 }): string {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
-  return `alter table ${tableSql} add constraint ${quoteIdent(node.name)} unique (${quoteIdent(node.column)})`
+  return `alter table ${tableSql} add constraint ${quoteIdentifier(node.name)} unique (${quoteIdentifier(node.column)})`
 }
 
 /**
@@ -245,7 +245,7 @@ function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
       const tableSql = qualifyPostgresTable(node.schema, node.table)
       const safeType = assertSafePostgresDataType(node.dataType)
       return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} type ${safeType}`,
+        sql: `alter table ${tableSql} alter column ${quoteIdentifier(node.column)} type ${safeType}`,
         params: [],
       }
     }
@@ -256,7 +256,7 @@ function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
     case 'drop_column': {
       const tableSql = qualifyPostgresTable(node.schema, node.table)
       return {
-        sql: `alter table ${tableSql} drop column ${quoteIdent(node.column)}`,
+        sql: `alter table ${tableSql} drop column ${quoteIdentifier(node.column)}`,
         params: [],
       }
     }
@@ -270,7 +270,7 @@ function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
     case 'drop_index': {
       const schemaName = (node as { readonly schema?: string }).schema ?? 'public'
       return {
-        sql: `drop index ${quoteIdent(schemaName)}.${quoteIdent(node.index)}`,
+        sql: `drop index ${quoteIdentifier(schemaName)}.${quoteIdentifier(node.index)}`,
         params: [],
       }
     }
@@ -292,7 +292,7 @@ export function compilePostgresDdl(node: PostgresDdlAst): CompiledQuery {
   switch (node.kind) {
     case 'create_schema':
       return {
-        sql: `create schema if not exists ${quoteIdent(node.schema)}`,
+        sql: `create schema if not exists ${quoteIdentifier(node.schema)}`,
         params: [],
       }
     case 'create_table':
@@ -351,14 +351,14 @@ function compileNullabilityAlteration(
     case 'set_not_null': {
       const tableSql = qualifyPostgresTable(node.schema, node.table)
       return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} set not null`,
+        sql: `alter table ${tableSql} alter column ${quoteIdentifier(node.column)} set not null`,
         params: [],
       }
     }
     case 'drop_not_null': {
       const tableSql = qualifyPostgresTable(node.schema, node.table)
       return {
-        sql: `alter table ${tableSql} alter column ${quoteIdent(node.column)} drop not null`,
+        sql: `alter table ${tableSql} alter column ${quoteIdentifier(node.column)} drop not null`,
         params: [],
       }
     }

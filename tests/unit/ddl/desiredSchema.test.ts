@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
 import type { AuthoredDesiredSchema, CompiledQuery, Dialect } from '@/dialects'
 import { postgresDialect } from '@/dialects'
-import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import type { LoweredDesiredSchema } from '@/dialects/types'
 import type { TableHandle } from '@/index'
 import {
@@ -42,7 +42,7 @@ afterEach(() => {
 /** Creates canonical PostgreSQL identities under the fixture's writable namespace default. */
 const postgresIdentities = () =>
   createCanonicalRelationIdentityModule({
-    policy: POSTGRES_POLICY,
+    policy: POSTGRES_IDENTITY_POLICY,
     context: {
       writableDefault: [
         { role: 'database', spelling: 'test' },

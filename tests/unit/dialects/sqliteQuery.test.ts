@@ -1,7 +1,7 @@
 import { number, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { compileSqlite } from '@/dialects/sqlite/compile'
+import { compileSqliteQuery } from '@/dialects/sqlite/compile'
 import { sqliteQuery } from '@/dialects/sqlite/query'
 import { column, defineTable } from '@/index'
 import { InvariantError, QueryError } from '@/utils/error'
@@ -104,7 +104,9 @@ describe('SQLite query', () => {
   })
 
   it('compiles an empty selection as select-all', () => {
-    expect(compileSqlite({ kind: 'select', relation: records, selection: [] })).toEqual({
+    expect(
+      compileSqliteQuery({ kind: 'select', relation: records, selection: [] }),
+    ).toEqual({
       sql: 'select * from "main"."records" as "main.records"',
       params: [],
     })
@@ -118,7 +120,7 @@ describe('SQLite query', () => {
     assertSqliteInserts()
 
     expect(
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'update',
         relation: records,
         set: [
@@ -135,7 +137,7 @@ describe('SQLite query', () => {
     })
 
     expect(
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'delete',
         relation: records,
         where: { kind: 'cmp', column: 'id', op: 'eq', value: 1 },
@@ -158,7 +160,7 @@ describe('SQLite query', () => {
      * rejection.
      */
     const insertDefault = () =>
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'insert',
         relation: records,
         columns: ['id'],
@@ -182,7 +184,7 @@ describe('SQLite query', () => {
 
     /** Compiles an attached SQLite relation to exercise namespace rejection. */
     const attachedRelation = () =>
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'select',
         relation: {
           namespace: [{ role: 'database', spelling: 'archive' }],
@@ -200,7 +202,7 @@ describe('SQLite query', () => {
   it('requires an explicit full-table opt-in for empty boolean predicate groups', () => {
     /** Starts an update operation for a registered table handle. */
     const update = () =>
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'update',
         relation: records,
         set: [{ column: 'label', value: 'updated' }],
@@ -210,7 +212,7 @@ describe('SQLite query', () => {
 
     /** Compiles an empty nested delete predicate to exercise write-safety rejection. */
     const nestedDelete = () =>
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'delete',
         relation: records,
         where: { kind: 'not', pred: { kind: 'or', preds: [] } },
@@ -228,7 +230,7 @@ describe('SQLite query', () => {
   it('requires allowAll for writes without a predicate', () => {
     /** Compiles an unrestricted update to exercise write-safety rejection. */
     const blockedUpdate = () =>
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'update',
         relation: records,
         set: [{ column: 'label', value: 'updated' }],
@@ -237,7 +239,7 @@ describe('SQLite query', () => {
 
     /** Compiles an unrestricted delete to exercise write-safety rejection. */
     const blockedDelete = () =>
-      compileSqlite({ kind: 'delete', relation: records, allowAll: false })
+      compileSqliteQuery({ kind: 'delete', relation: records, allowAll: false })
 
     expect(blockedUpdate).toThrow(QueryError)
     expect(blockedUpdate).toThrow(/full-table update requires allowAll/i)
@@ -245,7 +247,7 @@ describe('SQLite query', () => {
     expect(blockedDelete).toThrow(/full-table delete requires allowAll/i)
 
     expect(
-      compileSqlite({
+      compileSqliteQuery({
         kind: 'update',
         relation: records,
         set: [{ column: 'label', value: 'updated' }],
@@ -256,7 +258,9 @@ describe('SQLite query', () => {
       params: ['updated'],
     })
 
-    expect(compileSqlite({ kind: 'delete', relation: records, allowAll: true })).toEqual({
+    expect(
+      compileSqliteQuery({ kind: 'delete', relation: records, allowAll: true }),
+    ).toEqual({
       sql: 'delete from "main"."records" as "main.records"',
       params: [],
     })
@@ -267,7 +271,7 @@ describe('SQLite query', () => {
 function assertUnsupportedSqliteJoinAndDateFunctions() {
   /** Adds a right join and its ON predicate to the current query. */
   const rightJoin = () =>
-    compileSqlite({
+    compileSqliteQuery({
       kind: 'select',
       relation: records,
       selection: [{ kind: 'all' }],
@@ -288,7 +292,7 @@ function assertUnsupportedSqliteJoinAndDateFunctions() {
    * rejection.
    */
   const dateTrunc = () =>
-    compileSqlite({
+    compileSqliteQuery({
       kind: 'select',
       relation: records,
       selection: [
@@ -314,7 +318,7 @@ function assertUnsupportedSqliteJoinAndDateFunctions() {
  */
 function assertSqliteInserts() {
   expect(
-    compileSqlite({
+    compileSqliteQuery({
       kind: 'insert',
       relation: records,
       columns: ['id', 'label'],
@@ -330,7 +334,7 @@ function assertSqliteInserts() {
   })
 
   expect(
-    compileSqlite({
+    compileSqliteQuery({
       kind: 'insert',
       relation: records,
       columns: [],
@@ -342,7 +346,7 @@ function assertSqliteInserts() {
 /** Checks SQLite join qualification, aliases, and result-column selection. */
 function assertSqliteJoin() {
   expect(
-    compileSqlite({
+    compileSqliteQuery({
       kind: 'select',
       relation: records,
       selection: [

@@ -19,7 +19,7 @@ import {
   literalDefault,
   observedDefinition,
   observedTable,
-  quote,
+  quoteSqliteIdentifier,
   sameName,
 } from './definition'
 import { SqliteMigrationCapabilityError, capabilityCheck } from './error'
@@ -286,7 +286,7 @@ function directAction(planned: PlannedMigration, group: TableGroup): MigrationAc
   const statements = group.steps.map(({ step }) => {
     if (step.kind === 'drop_column')
       return statement(
-        `alter table ${address(name)} drop column ${quote(step.target.column.spelling)}`,
+        `alter table ${address(name)} drop column ${quoteSqliteIdentifier(step.target.column.spelling)}`,
       )
 
     if (step.kind === 'drop_index')

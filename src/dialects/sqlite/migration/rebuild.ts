@@ -11,7 +11,7 @@ import {
   literalDefault,
   observedDefinition,
   observedTable,
-  quote,
+  quoteSqliteIdentifier,
   sameName,
 } from './definition'
 import { capabilityError } from './error'
@@ -30,7 +30,9 @@ function applyColumn(definition: Definition, step: MigrationStep): void {
   const column = definition.columns.find((candidate) => sameName(candidate.name, name))
 
   if (!column)
-    throw capabilityError(`SQLite column ${quote(name)} has no observed definition`)
+    throw capabilityError(
+      `SQLite column ${quoteSqliteIdentifier(name)} has no observed definition`,
+    )
 
   if (step.kind === 'alter_column_type') changeType(column, step.dataType)
   if (step.kind === 'set_not_null') column.notNull = true
@@ -89,7 +91,7 @@ function removeColumn(definition: Definition, name: string): void {
     definition.indexes.some((index) => touches(index.columns))
   )
     throw capabilityError(
-      `SQLite dropped column ${quote(name)} has a retained key/index dependency`,
+      `SQLite dropped column ${quoteSqliteIdentifier(name)} has a retained key/index dependency`,
     )
 
   definition.columns = definition.columns.filter((column) => !sameName(column.name, name))
@@ -189,13 +191,13 @@ function copySql(name: string, replacement: string, old: Definition, final: Defi
   const columns = final.columns.map((column) => column.name)
   const expressions = final.columns.map((column) =>
     old.columns.some((source) => sameName(source.name, column.name))
-      ? quote(column.name)
+      ? quoteSqliteIdentifier(column.name)
       : (column.defaultSql ?? 'null'),
   )
 
   if (rowid) {
     columns.unshift(rowid)
-    expressions.unshift(quote(rowid))
+    expressions.unshift(quoteSqliteIdentifier(rowid))
   }
 
   return statement(
@@ -241,7 +243,9 @@ export function rebuild(
 
   statements.push(
     statement(`drop table ${address(name)}`),
-    statement(`alter table ${address(replacement)} rename to ${quote(name)}`),
+    statement(
+      `alter table ${address(replacement)} rename to ${quoteSqliteIdentifier(name)}`,
+    ),
     ...final.indexes.map((index) => indexSql(name, index)),
   )
 

@@ -27,7 +27,7 @@ import type {
  *
  * @returns Quoted identifier safe for SQL
  */
-function quoteIdent(ident: string): string {
+function quoteIdentifier(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
 }
 
@@ -169,8 +169,8 @@ function qualifyPostgresQueryRelation(
 ): string {
   const resolved = resolveRelation(relation)
   return resolved.schema
-    ? `${quoteIdent(resolved.schema)}.${quoteIdent(resolved.table)}`
-    : quoteIdent(resolved.table)
+    ? `${quoteIdentifier(resolved.schema)}.${quoteIdentifier(resolved.table)}`
+    : quoteIdentifier(resolved.table)
 }
 
 /**
@@ -332,7 +332,7 @@ function compileReturning(returning: ReturningAst | undefined): string {
     throw new InvariantError('returning columns must not be empty')
   }
 
-  return ` returning ${(returning.columns as readonly string[]).map((c) => quoteIdent(c)).join(', ')}`
+  return ` returning ${(returning.columns as readonly string[]).map((c) => quoteIdentifier(c)).join(', ')}`
 }
 
 /**
@@ -350,9 +350,9 @@ function qualifyColumn(
   relation: RelationIdentityInput | undefined,
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
-  const col = quoteIdent(column)
+  const col = quoteIdentifier(column)
   return relation
-    ? `${quoteIdent(resolveRelationAlias(relations, relation, resolveRelation))}.${col}`
+    ? `${quoteIdentifier(resolveRelationAlias(relations, relation, resolveRelation))}.${col}`
     : col
 }
 
@@ -511,14 +511,14 @@ function compileSelectItem(
   switch (item.kind) {
     case 'all':
       return item.relation
-        ? `${quoteIdent(resolveRelationAlias(relations, item.relation, resolveRelation))}.*`
+        ? `${quoteIdentifier(resolveRelationAlias(relations, item.relation, resolveRelation))}.*`
         : '*'
     case 'column': {
       const col = qualifyColumn(item.column, relations, item.relation, resolveRelation)
-      return item.alias ? `${col} as ${quoteIdent(item.alias)}` : col
+      return item.alias ? `${col} as ${quoteIdentifier(item.alias)}` : col
     }
     case 'expr':
-      return `${compileExpr(item.expr, params, relations, resolveRelation)} as ${quoteIdent(item.alias)}`
+      return `${compileExpr(item.expr, params, relations, resolveRelation)} as ${quoteIdentifier(item.alias)}`
     default: {
       const _exhaustive: never = item
       return _exhaustive
@@ -567,7 +567,7 @@ function compileJoin(
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
   const tableSql = qualifyPostgresQueryRelation(join.relation, resolveRelation)
-  const tableAlias = quoteIdent(relation.alias)
+  const tableAlias = quoteIdentifier(relation.alias)
 
   let type: string
 
@@ -603,7 +603,7 @@ function compileSelect(
     resolveRelation,
   )
 
-  const tableAlias = quoteIdent(relations[0]!.alias)
+  const tableAlias = quoteIdentifier(relations[0]!.alias)
   const params: unknown[] = []
   const selection = (node as Partial<SelectAst>).selection
 
@@ -712,7 +712,7 @@ function compileInsert(
   const cols = node.columns
     .map((column) => {
       assertIdentifier(column, 'insert column')
-      return quoteIdent(column)
+      return quoteIdentifier(column)
     })
     .join(', ')
 
@@ -747,7 +747,7 @@ function compileInsertConflict(
   const target = conflict.target
     .map((column) => {
       assertIdentifier(column, 'insert conflict target column')
-      return quoteIdent(column)
+      return quoteIdentifier(column)
     })
     .join(', ')
 
@@ -803,7 +803,7 @@ function compileInsertConflictAssignment(input: unknown, params: unknown[]): str
 
   if (structuredValue.kind === 'excluded') {
     assertIdentifier(structuredValue.column, 'excluded column')
-    return `${quoteIdent(assignment.column)} = excluded.${quoteIdent(structuredValue.column)}`
+    return `${quoteIdentifier(assignment.column)} = excluded.${quoteIdentifier(structuredValue.column)}`
   }
 
   if (structuredValue.kind !== 'value') {
@@ -811,7 +811,7 @@ function compileInsertConflictAssignment(input: unknown, params: unknown[]): str
   }
 
   params.push(structuredValue.value)
-  return `${quoteIdent(assignment.column)} = $${params.length}`
+  return `${quoteIdentifier(assignment.column)} = $${params.length}`
 }
 
 /**
@@ -829,7 +829,7 @@ function compileUpdate(
 ): CompiledQuery {
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const relations = createRelationContext([node.relation], resolveRelation)
-  const tableAlias = quoteIdent(relations[0]!.alias)
+  const tableAlias = quoteIdentifier(relations[0]!.alias)
   const params: unknown[] = []
 
   if (!Array.isArray(node.set) || node.set.length === 0) {
@@ -839,7 +839,7 @@ function compileUpdate(
   const setSql = (node.set as UpdateAst['set'])
     .map((item) => {
       params.push(item.value)
-      return `${quoteIdent(item.column)} = $${params.length}`
+      return `${quoteIdentifier(item.column)} = $${params.length}`
     })
     .join(', ')
 
@@ -861,7 +861,7 @@ function compileDelete(
 ): CompiledQuery {
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const relations = createRelationContext([node.relation], resolveRelation)
-  const tableAlias = quoteIdent(relations[0]!.alias)
+  const tableAlias = quoteIdentifier(relations[0]!.alias)
   const params: unknown[] = []
   const whereSql = compileWhereClause(node.where, params, relations, resolveRelation)
   const sql = `delete from ${tableSql} as ${tableAlias}${whereSql}${compileReturning(node.returning)}`
@@ -1088,7 +1088,7 @@ function collectSessionRequirements(
  * Compiles a PostgreSQL AST node to a parameterized SQL query.
  *
  * @example
- *   compilePostgres({
+ *   compilePostgresQuery({
  *     kind: 'select',
  *     relation: { relation: 'users' },
  *     selection: [{ kind: 'all' }],
@@ -1099,7 +1099,7 @@ function collectSessionRequirements(
  *
  * @returns Compiled query with SQL string and bound parameters
  */
-export function compilePostgres(
+export function compilePostgresQuery(
   node: SqlAst,
   resolveRelation: PostgresQueryRelationResolver = createPostgresQueryRelationResolver(),
 ): CompiledQuery {

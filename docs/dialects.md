@@ -393,10 +393,18 @@ schema facet. Engine-specific parser and compatibility modules remain where thei
 responsibilities justify them.
 
 Use `postgres` and `sqlite` as code prefixes and PostgreSQL and SQLite in prose. The exact
-db0 connector selector remains `postgresql`. Functions use a verb followed by the member
-prefix and subject, such as `createDb0PostgresOperationSessionProvider`. Constants use
-upper snake case. Use `const` unless a binding is reassigned, use `let` for reassignment,
-and do not use `var`.
+db0 connector selector remains `postgresql`. Complete facet constants and classifier facet
+symbols use a member prefix and lower camel case, such as `postgresCatalog` and
+`sqliteClassifyDriverError`. Functions shared across a member's concern modules use a verb,
+member prefix, and subject, such as `compilePostgresQuery` and
+`serializeSqliteObservation`. Other constants use upper snake case; policy constants add
+the member and descriptive subject, such as `POSTGRES_IDENTITY_POLICY` and
+`SQLITE_IDENTITY_POLICY`. Identifier-quoting helpers use `quoteIdentifier` when private to
+a file and `quoteSqliteIdentifier` when shared across SQLite migration modules. Export
+complete catalog facets; keep their introspection implementations private to `catalog.ts`.
+File-private helpers can use concise descriptive names, as can helpers within a tightly
+scoped engine-specific migration implementation. Use `const` unless a binding is
+reassigned, use `let` for reassignment, and do not use `var`.
 
 Each member `index.ts` exports its complete Dialect and advanced operation-session provider
 factory. The package root exposes those exports symmetrically. Do not expose dialect

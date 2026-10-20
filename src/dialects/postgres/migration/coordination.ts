@@ -62,11 +62,11 @@ export type PostgresAdvisoryLockIdentity = Readonly<{
  * Maps a portable coordination identity to PostgreSQL's two-int32 key space.
  *
  * @example
- *   const key = postgresAdvisoryLockIdentity(identity)
+ *   const key = mapPostgresAdvisoryLockIdentity(identity)
  *
  * @param identity - Canonical portable identity to map to an advisory-lock key.
  */
-export function postgresAdvisoryLockIdentity(
+export function mapPostgresAdvisoryLockIdentity(
   identity: MigrationCoordinationLockIdentity,
 ): PostgresAdvisoryLockIdentity {
   if (identity.kind === 'database') {
@@ -107,7 +107,7 @@ function lockAttemptTimeoutMessage(
  *
  * @param identifier - Identifier spelling to quote.
  */
-function quoteIdent(identifier: string): string {
+function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
 }
 
@@ -601,7 +601,7 @@ export async function acquireCoordination(
   })
 
   const identities = migrationLockAcquisitionOrder(scope).map(
-    postgresAdvisoryLockIdentity,
+    mapPostgresAdvisoryLockIdentity,
   )
 
   const acquired: PostgresAdvisoryLockIdentity[] = []
@@ -700,9 +700,9 @@ export async function assertPrecondition(
   precondition: MigrationPrecondition,
 ): Promise<void> {
   const schema = schemaFromNamespace(precondition.relation.namespace)
-  const relation = `${quoteIdent(schema)}.${quoteIdent(precondition.relation.relation.spelling)}`
+  const relation = `${quoteIdentifier(schema)}.${quoteIdentifier(precondition.relation.relation.spelling)}`
   const [row] = await options.executor.execute({
-    sql: `select count(*)::int as count from ${relation} where ${quoteIdent(precondition.column)} is null`,
+    sql: `select count(*)::int as count from ${relation} where ${quoteIdentifier(precondition.column)} is null`,
     params: [],
   })
 

@@ -1,5 +1,5 @@
 import { planMigration as planMigrationWithContext } from '@/ddl/migrationPlan'
-import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import type {
   CatalogFact,
   CatalogForeignKey,
@@ -331,7 +331,7 @@ export function completePostgresCatalog(
 ): CompletePostgresCatalogFixture {
   const tables = input.tables
   const identities = createCanonicalRelationIdentityModule({
-    policy: POSTGRES_POLICY,
+    policy: POSTGRES_IDENTITY_POLICY,
     context: input.namespaceContext,
     ...(request.registrationDefault === undefined
       ? {}

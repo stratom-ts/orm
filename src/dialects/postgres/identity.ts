@@ -8,7 +8,7 @@ import type {
 import { InvariantError, SchemaError } from '@/utils/error'
 
 const POSTGRES_IDENTITY = 'postgresql' as const
-const POSTGRES_POLICY: CanonicalRelationIdentityPolicy = {
+export const POSTGRES_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
   id: POSTGRES_IDENTITY,
   /** Converts an identifier spelling into the selected policy's comparison key. */
   comparisonKey: (spelling) => spelling,
@@ -63,8 +63,9 @@ export const postgresIdentity = {
     context: NamespaceContext
     registrationDefault?: readonly NamespaceIdentifierInput[]
   }): CanonicalRelationIdentityModule {
-    return createCanonicalRelationIdentityModule({ policy: POSTGRES_POLICY, ...options })
+    return createCanonicalRelationIdentityModule({
+      policy: POSTGRES_IDENTITY_POLICY,
+      ...options,
+    })
   },
 }
-
-export { POSTGRES_POLICY }

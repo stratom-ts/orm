@@ -1,7 +1,7 @@
 import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { POSTGRES_POLICY } from '@/dialects/postgres/identity'
+import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import { column, defineTable, postgresDialect } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
@@ -35,7 +35,7 @@ const context = {
 }
 
 const identities = createCanonicalRelationIdentityModule({
-  policy: POSTGRES_POLICY,
+  policy: POSTGRES_IDENTITY_POLICY,
   context,
 })
 
