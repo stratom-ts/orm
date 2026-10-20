@@ -11,6 +11,7 @@ import type { ValueMapConfig } from '@/query'
 import type { DialectIntegrationAdapter } from '../support/dialectIntegrationContract'
 
 type SqliteDatabaseOptions = Readonly<{
+  library?: Pick<typeof import('@/index'), 'createDatabase'>
   map?: ValueMapConfig
   file?: boolean
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -50,7 +51,7 @@ export async function withSqliteDatabase<
 
   try {
     connector = nodeSqliteConnector(filePath ? { path: filePath } : { name: ':memory:' })
-    db = createDatabase({
+    db = (options.library?.createDatabase ?? createDatabase)({
       connector,
       schemas,
       map: options.map,

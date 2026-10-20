@@ -39,6 +39,10 @@ on Node 24 before switching to the minimum runtime and running Vitest directly:
 NODE_OPTIONS=--experimental-sqlite node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/integration/sqlite
 ```
 
+The integration Vitest configuration builds `stratom` once before its workers run.
+Each native profile, including a direct Vitest invocation, imports that fresh build
+in its package smoke test. The unit profile does not build the package.
+
 On PowerShell, set `$env:NODE_OPTIONS='--experimental-sqlite'` first, then run the
 `node` command without the `NODE_OPTIONS=...` prefix. This environment variable
 passes the flag to Vitest's worker processes.
