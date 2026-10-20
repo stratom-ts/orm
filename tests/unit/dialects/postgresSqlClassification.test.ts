@@ -9,10 +9,10 @@ import {
 import { scanPostgresSql } from '@/dialects/postgres/postgresSql'
 import { createDb0PostgresOperationSessionProvider } from '@/index'
 
-import { createNativePostgresClient } from './helpers/nativePostgresClient'
-import { createPostgresNativeConnector } from './helpers/postgresOperationSessionFixtures'
+import { createNativePostgresClient } from '../helpers/nativePostgresClient'
+import { createPostgresNativeConnector } from '../helpers/postgresOperationSessionFixtures'
 
-describe('PostgreSQL SQL lexical classification', () => {
+describe('PostgreSQL SQL classification', () => {
   it('lexically classifies stateful SQL without matching inert quoted text', async () => {
     const connector = createPostgresNativeConnector()
     const provider = createDb0PostgresOperationSessionProvider(connector)
@@ -63,7 +63,7 @@ describe('PostgreSQL SQL lexical classification', () => {
   })
 })
 
-describe('PostgreSQL SQL lexical classification: rewrites only executable PostgreSQL parameters in the test adapter', () => {
+describe('PostgreSQL SQL classification', () => {
   it('rewrites only executable PostgreSQL parameters in the test adapter', async () => {
     const prepared: string[] = []
     const binds: unknown[][] = []
@@ -110,7 +110,7 @@ describe('PostgreSQL SQL lexical classification: rewrites only executable Postgr
   })
 })
 
-describe('PostgreSQL SQL lexical classification: rewrites only executable PostgreSQL parameters in the test adapter: distinguishes standard strings from PostgreSQL escape strings', () => {
+describe('PostgreSQL SQL classification', () => {
   it('distinguishes standard strings from PostgreSQL escape strings', () => {
     const standard = scanPostgresSql(String.raw`select 'a\' || $1`)
     const escaped = scanPostgresSql(String.raw`select E'a\'' || $1`)
@@ -122,7 +122,7 @@ describe('PostgreSQL SQL lexical classification: rewrites only executable Postgr
   })
 })
 
-describe('PostgreSQL SQL lexical classification: rewrites only executable PostgreSQL parameters in the test adapter: uses row execution for commented and parenthesized result queries', () => {
+describe('PostgreSQL SQL classification', () => {
   it('uses row execution for commented and parenthesized result queries', async () => {
     let allCalls = 0
     let runCalls = 0

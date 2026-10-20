@@ -86,7 +86,7 @@ describe('SQLite numeric value validation', () => {
   })
 })
 
-describe('SQLite value mapping: rejects invalid Date and cyclic JSON parameter values with query diagnostics', () => {
+describe('SQLite value mapping', () => {
   it('rejects invalid Date and cyclic JSON parameter values with query diagnostics', () => {
     /** Maps an invalid date to exercise value-validation rejection. */
     const invalidDate = () => mapSqliteParamValue('DATETIME', new Date('invalid'))

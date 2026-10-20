@@ -424,6 +424,15 @@ scenarios and assertions. Adapters supply typed Dialect inputs, narrow physical-
 observations where required, and independent semantic expected results. They cannot
 replace a shared scenario with an adapter-authored test.
 
+Keep member-specific unit specs flat in `tests/unit/dialects/`, named
+`<member><Concern>.test.ts` (for example, `postgresSchema.test.ts` and
+`sqliteDesiredSchema.test.ts`). `Schema` covers direct type inference and normalization;
+`DesiredSchema` covers lowering a registered table graph. Keep shared core behavior in its
+shared test file, and name engine-specific fixtures with their member prefix. Use short
+database and facet suite titles, leaving the behavior description in each test title.
+To run one concern, pass its file to Vitest, for example:
+`pnpm exec vitest run --config vitest.unit.config.ts tests/unit/dialects/postgresDesiredSchema.test.ts`.
+
 Create one exhaustive capability declaration for the complete member. It assigns each
 facet to one named isolated shard. Register the complete member once; the aggregate
 accepts one descriptor for every declared shard, and each descriptor accepts all and only
