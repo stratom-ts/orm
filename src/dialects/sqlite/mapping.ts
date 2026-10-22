@@ -13,18 +13,6 @@ import {
   isSqliteSupportedNumber,
 } from './numeric'
 
-/** Finds output-changing actions beneath pipes and schema wrappers. */
-function hasTransformation(schema: unknown): boolean {
-  if (!schema || typeof schema !== 'object') return false
-
-  const node = schema as { kind?: string; wrapped?: unknown; pipe?: readonly unknown[] }
-  return (
-    node.kind === 'transformation' ||
-    hasTransformation(node.wrapped) ||
-    (node.pipe?.some(hasTransformation) ?? false)
-  )
-}
-
 /** Rejects affinities that cannot preserve the schema's values with built-in mapping. */
 export function validateSqliteValueMapping(
   dataType: string,
@@ -33,6 +21,8 @@ export function validateSqliteValueMapping(
   const analysis = analyzeSchema(context.schema)
   const affinity = normalizeSqliteDataType(dataType)
   const kind = analysis.outputKind
+  const authored = context.authoredSchema && analyzeSchema(context.authoredSchema)
+  const incompatibleAuthoredOutput = authored && authored.outputKind !== kind
   const supported =
     kind === 'date' ||
     kind === 'json' ||
@@ -41,11 +31,7 @@ export function validateSqliteValueMapping(
     (kind === 'bigint' &&
       (affinity === 'integer' || affinity === 'numeric' || affinity === 'blob'))
 
-  if (
-    !supported ||
-    hasTransformation(context.schema) ||
-    hasTransformation(context.authoredSchema)
-  ) {
+  if (!supported || analysis.unresolvedTransformation || incompatibleAuthoredOutput) {
     throw new SchemaError({
       message: `SQLite ${kind ?? analysis.baseSchema.type} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
     })
@@ -63,8 +49,8 @@ function mappingType(dataType: string, context?: DialectValueMappingContext): st
       return 'TEXT'
     case 'number':
       if (
-        analysis.baseSchema.type === 'enum' ||
-        analysis.baseSchema.type === 'picklist'
+        analysis.outputSchema?.type === 'enum' ||
+        analysis.outputSchema?.type === 'picklist'
       ) {
         return inferSqliteChoiceType(analysis)
       }

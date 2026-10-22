@@ -1,4 +1,23 @@
-import { bigint, boolean, date, integer, number, object, pipe, string } from 'valibot'
+import {
+  bigint,
+  boolean,
+  date,
+  integer,
+  maxValue,
+  minValue,
+  nullable,
+  number,
+  object,
+  parseBoolean,
+  parseJson,
+  pipe,
+  string,
+  toBoolean,
+  toDate,
+  toNumber,
+  toString,
+  transform,
+} from 'valibot'
 import { beforeAll, expect, it } from 'vitest'
 
 import { waitForPostgres } from './postgres.setup'
@@ -29,7 +48,14 @@ async function expectPhysicalColumns(
 
   expect(result.rows).toEqual([
     { column_name: 'id', data_type: 'integer' },
-    { column_name: 'value', data_type: 'bigint' },
+    { column_name: 'value', data_type: 'numeric' },
+    { column_name: 'parsed', data_type: 'smallint' },
+    { column_name: 'truthy', data_type: 'boolean' },
+    { column_name: 'parsed_boolean', data_type: 'boolean' },
+    { column_name: 'parsed_date', data_type: 'timestamp with time zone' },
+    { column_name: 'rendered', data_type: 'text' },
+    { column_name: 'payload', data_type: 'jsonb' },
+    { column_name: 'recovered', data_type: 'text' },
     { column_name: 'active', data_type: 'boolean' },
     { column_name: 'stamp', data_type: 'timestamp with time zone' },
     { column_name: 'data', data_type: 'jsonb' },
@@ -58,6 +84,20 @@ async function expectReleased(schemas: readonly string[], sessions: readonly str
 }
 
 /** Proves the built client maps values and enforces root transaction routing. */
+function mappedPostgresRow(row: Record<string, unknown>, parsed: number) {
+  return {
+    ...row,
+    value: 9007199254740993n,
+    parsed,
+    truthy: true,
+    parsed_boolean: true,
+    parsed_date: new Date('2026-02-03T04:05:06.000Z'),
+    rendered: '42',
+    payload: { count: 7 },
+    recovered: null,
+  }
+}
+
 async function expectPostgresValues(
   db: PostgresDatabaseContext<readonly [Records]>['db'],
   Records: Records,
@@ -65,6 +105,13 @@ async function expectPostgresValues(
   const row = {
     id: 1,
     value: 9007199254740993n,
+    parsed: '42',
+    truthy: 'yes',
+    parsed_boolean: 'true',
+    parsed_date: '2026-02-03T04:05:06.000Z',
+    rendered: 42,
+    payload: '{"count":7}',
+    recovered: 'recover',
     active: true,
     stamp: new Date('2026-01-02T03:04:05.000Z'),
     data: { label: 'committed' },
@@ -73,7 +120,13 @@ async function expectPostgresValues(
   await db.insert(Records).values(row).execute()
 
   expect(await db.from(Records).where({ id: 1 }).execute()).toEqual([
-    { ...row, value: '9007199254740993' },
+    mappedPostgresRow(row, 42),
+  ])
+
+  await db.update(Records).set({ parsed: '43' }).where({ id: 1 }).execute()
+
+  expect(await db.from(Records).where({ id: 1 }).execute()).toEqual([
+    mappedPostgresRow(row, 43),
   ])
 
   const transactionRow = { ...row, id: 2 }
@@ -92,7 +145,7 @@ async function expectPostgresValues(
   })
 
   expect(await db.from(Records).where({ id: 2 }).execute()).toEqual([
-    { ...transactionRow, value: '9007199254740993' },
+    mappedPostgresRow(transactionRow, 42),
   ])
 }
 
@@ -103,6 +156,17 @@ function recordsTable(library: Library) {
     {
       id: pipe(number(), integer()),
       value: bigint(),
+      parsed: pipe(string(), toNumber(), integer(), minValue(0), maxValue(100)),
+      truthy: pipe(string(), toBoolean()),
+      parsed_boolean: pipe(string(), parseBoolean()),
+      parsed_date: pipe(string(), toDate()),
+      rendered: pipe(number(), toString()),
+      payload: pipe(string(), parseJson(), object({ count: number() })),
+      recovered: pipe(
+        string(),
+        transform((value) => (value ? null : value)),
+        nullable(string()),
+      ),
       active: boolean(),
       stamp: date(),
       data: object({ label: string() }),

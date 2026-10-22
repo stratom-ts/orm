@@ -20,12 +20,19 @@ import {
   nullish,
   number,
   object,
+  parseBoolean,
+  parseJson,
   picklist,
   pipe,
   record,
   regex,
+  safeInteger,
   safeParse,
   string,
+  toBoolean,
+  toDate,
+  toNumber,
+  toString,
   undefinedable,
   union,
   uuid,
@@ -37,6 +44,19 @@ import { SchemaError, postgresDialect } from '@/index'
 const { inferColumnType } = postgresDialect.schema
 
 describe('PostgreSQL schema', () => {
+  it('should infer physical types from supported transformed outputs', () => {
+    expect(inferColumnType(pipe(string(), toBoolean()))).toBe('boolean')
+    expect(inferColumnType(pipe(string(), parseBoolean()))).toBe('boolean')
+    expect(inferColumnType(pipe(string(), toDate()))).toBe('timestamptz')
+    expect(inferColumnType(pipe(number(), toString()))).toBe('text')
+
+    expect(
+      inferColumnType(pipe(string(), parseJson(), object({ value: number() }))),
+    ).toBe('jsonb')
+
+    expect(() => inferColumnType(pipe(string(), parseJson()))).toThrow(/physicalType/)
+  })
+
   it('should keep real and double precision distinct', () => {
     expect(postgresDialect.schema.normalizeDataType('float4')).toBe('real')
     expect(postgresDialect.schema.normalizeDataType('real')).toBe('real')
@@ -159,6 +179,14 @@ describe('PostgreSQL schema', () => {
       ),
     ).toBe('bigint')
   })
+
+  it('should infer transformed number output from post-transform bounds', () => {
+    expect(
+      inferColumnType(pipe(string(), toNumber(), integer(), minValue(0), maxValue(100))),
+    ).toBe('smallint')
+
+    expect(inferColumnType(pipe(string(), toNumber(), safeInteger()))).toBe('bigint')
+  })
 })
 
 describe('PostgreSQL schema', () => {
@@ -184,8 +212,12 @@ describe('PostgreSQL schema', () => {
     expect(inferColumnType(date())).toBe('timestamptz')
   })
 
-  it('should return bigint for bigint schema', () => {
-    expect(inferColumnType(bigint())).toBe('bigint')
+  it('should use numeric for unbounded bigint schema', () => {
+    expect(inferColumnType(bigint())).toBe('numeric')
+
+    expect(
+      inferColumnType(pipe(bigint(), minValue(-(2n ** 63n)), maxValue(2n ** 63n - 1n))),
+    ).toBe('bigint')
   })
 
   it('should return boolean for boolean schema', () => {

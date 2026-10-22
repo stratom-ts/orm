@@ -1,4 +1,48 @@
+import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
+import { QueryError } from '@/utils/error'
+
+import type { DialectValueMappingContext } from '../types'
+
 import { extractPostgresBaseType } from './normalize'
+
+function numericMappingError(): never {
+  throw new QueryError({
+    message: 'PostgreSQL numeric value cannot be represented safely by the schema output',
+  })
+}
+
+function mapBigintResult(value: unknown): bigint {
+  if (typeof value === 'bigint') return value
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return BigInt(value)
+
+  if (typeof value === 'string' && /^-?\d+(?:\.0+)?$/.test(value))
+    return BigInt(value.replace(/\.0+$/, ''))
+
+  return numericMappingError()
+}
+
+function mapSafeNumberResult(value: unknown): number {
+  if (typeof value === 'bigint') {
+    const number = Number(value)
+    return Number.isSafeInteger(number) && BigInt(number) === value
+      ? number
+      : numericMappingError()
+  }
+
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) ? value : numericMappingError()
+  }
+
+  if (typeof value === 'string' && /^-?\d+(?:\.0+)?$/.test(value)) {
+    const number = Number(value)
+    return Number.isSafeInteger(number) &&
+      BigInt(number).toString() === BigInt(value.replace(/\.0+$/, '')).toString()
+      ? number
+      : numericMappingError()
+  }
+
+  return numericMappingError()
+}
 
 /**
  * Normalizes supported UUID representations while preserving other result values.
@@ -41,10 +85,21 @@ function mapUuidValue(value: unknown): unknown {
  *
  * @returns Mapped JavaScript value
  */
-export function mapPostgresResultValue(dataType: string, value: unknown): unknown {
+export function mapPostgresResultValue(
+  dataType: string,
+  value: unknown,
+  context?: DialectValueMappingContext,
+): unknown {
   if (value === null || value === undefined) return value
 
   const base = extractPostgresBaseType(dataType)
+
+  const kind = context ? analyzeSchema(context.schema).outputKind : undefined
+
+  if (kind === 'bigint' && (base === 'numeric' || base === 'bigint'))
+    return mapBigintResult(value)
+
+  if (kind === 'number' && base === 'bigint') return mapSafeNumberResult(value)
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value
@@ -96,10 +151,21 @@ function parseJsonResult(value: string): unknown {
  *
  * @returns PostgreSQL-compatible parameter value
  */
-export function mapPostgresParamValue(dataType: string, value: unknown): unknown {
+export function mapPostgresParamValue(
+  dataType: string,
+  value: unknown,
+  context?: DialectValueMappingContext,
+): unknown {
   if (value === null || value === undefined) return value
 
   const base = extractPostgresBaseType(dataType)
+  const kind = context ? analyzeSchema(context.schema).outputKind : undefined
+
+  if (kind === 'bigint' && (base === 'numeric' || base === 'bigint')) {
+    if (typeof value === 'bigint') return value.toString()
+
+    return value
+  }
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value.toISOString()

@@ -14,4 +14,6 @@ export interface NumberConstraints {
   maxValue?: number
   /** Whether the schema requires an integer. */
   isInteger?: boolean
+  /** Whether the schema requires JavaScript's safe-integer range. */
+  isSafeInteger?: boolean
 }

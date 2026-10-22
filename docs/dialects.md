@@ -296,11 +296,21 @@ Dates use ISO text, and JSON-shaped schemas use bracketed JSON text. These text 
 remain text even with numeric affinity. Nullable wrappers preserve SQL NULL.
 Homogeneous enum and picklist outputs follow their primitive output kind.
 
+Inference follows transformations from left to right. A known conversion selects
+storage from its output, so `pipe(string(), toNumber())` accepts a string on insert
+and reads as a number. `parseJson()` requires a following supported structured
+schema, for example `pipe(string(), parseJson(), object({ enabled: boolean() }))`.
+A later supported schema can recover output inference after an unknown
+transformation. Output constraints after a conversion apply to the converted value;
+input string length, UUID format, and numeric bounds do not carry across it.
+
 Built-in mapping rejects numeric or boolean schemas with TEXT affinity, strings with
-numeric affinity, bigint with REAL or TEXT affinity, unknown or mixed output kinds,
-and output-changing pipeline actions. This prevents type changes and loss of string
-spelling such as leading zeros. An explicit physical type alone does not prove a
-mapping contract.
+numeric affinity, bigint with REAL or TEXT affinity, and unknown or mixed output kinds.
+Known conversions use their effective output kind for built-in mapping. Unknown
+output and bare `parseJson()` require a selected `physicalType` for inference and
+both explicit parameter and result hooks for value mapping. A physical type alone
+does not establish a mapping contract. The hooks must preserve the transformed value
+in both directions.
 
 For an unsupported combination, both effective mapping directions must come from
 existing column hooks (`mapParam`, `mapResult`) or client hooks (`mapParamValue`,
@@ -310,6 +320,12 @@ One custom direction still requires a compatible built-in mapping in the other.
 Reference columns retain their target's logical schema and validate their selected
 physical storage under the same policy.
 Validation also checks wrappers and pipeline actions on the authored reference schema.
+
+SQLite's value limits remain in force after conversions: numbers must be finite,
+integral numbers must be safe JavaScript integers, and bigints must fit signed
+64-bit range. Inferred storage changes can add a type-change step to an existing
+database migration. Select the previous `physicalType` to keep that storage when
+required.
 
 Mapper construction owns this check because client mapping hooks are available there.
 Pure desired-schema lowering validates physical SQL type syntax and reference storage

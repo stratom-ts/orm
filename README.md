@@ -217,22 +217,24 @@ database default; the application supplies each value.
 
 Inference rules (PostgreSQL):
 
-| Valibot schema                                           | Inferred type                    |
-| -------------------------------------------------------- | -------------------------------- |
-| `string()`                                               | `text`                           |
-| `pipe(string(), uuid())`                                 | `uuid`                           |
-| `pipe(string(), maxLength(n))` (n ≤ 255)                 | `varchar(n)`                     |
-| `number()`                                               | `double precision`               |
-| `pipe(number(), integer())`                              | `integer`                        |
-| `pipe(number(), integer(), minValue, maxValue)` in int16 | `smallint`                       |
-| `pipe(number(), integer())` with a bound outside int32   | `bigint`                         |
-| `boolean()`                                              | `boolean`                        |
-| `bigint()`                                               | `bigint`                         |
-| `date()`                                                 | `timestamptz`                    |
-| `enum(...)` / `picklist([...])`                          | `text`                           |
-| `object(...)` / `array(...)` / `record(...)`             | `jsonb`                          |
-| `nullable(x)` / `nullish(x)`                             | wrapped column becomes NULL-able |
-| `optional(x)`                                            | may be omitted; remains NOT NULL |
+| Valibot schema                                                      | Inferred type                    |
+| ------------------------------------------------------------------- | -------------------------------- |
+| `string()`                                                          | `text`                           |
+| `pipe(string(), uuid())`                                            | `uuid`                           |
+| `pipe(string(), maxLength(n))` (n ≤ 255)                            | `varchar(n)`                     |
+| `number()`                                                          | `double precision`               |
+| `pipe(number(), integer())`                                         | `integer`                        |
+| `pipe(number(), integer(), minValue, maxValue)` in int16            | `smallint`                       |
+| `pipe(number(), integer())` with a bound outside int32              | `bigint`                         |
+| `boolean()`                                                         | `boolean`                        |
+| `bigint()`                                                          | `numeric`                        |
+| `pipe(number(), safeInteger())`                                     | `bigint`                         |
+| `pipe(string(), toNumber(), integer(), minValue(0), maxValue(100))` | `smallint`                       |
+| `date()`                                                            | `timestamptz`                    |
+| `enum(...)` / `picklist([...])`                                     | `text`                           |
+| `object(...)` / `array(...)` / `record(...)`                        | `jsonb`                          |
+| `nullable(x)` / `nullish(x)`                                        | wrapped column becomes NULL-able |
+| `optional(x)`                                                       | may be omitted; remains NOT NULL |
 
 For PostgreSQL strings, a selected `physicalType.postgresql` override wins first.
 Otherwise, `uuid()` validation selects `uuid` before `minLength`, `maxLength`,
@@ -248,10 +250,43 @@ PostgreSQL returns UUID values in canonical lowercase form.
 
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),
-and integer widths only narrow/widen when an `integer()` constraint and bounds
-justify it. A schema type with no sensible selected-adapter mapping (for
-example, a `union`) throws `MigrationError` during desired-schema lowering
-rather than silently becoming text.
+and integer widths only narrow/widen when an `integer()` or `safeInteger()`
+constraint and bounds justify it. PostgreSQL uses `numeric` for an unbounded
+`bigint()` schema; two bounds within signed 64-bit range allow `bigint` storage.
+Known Valibot conversions such as `toNumber()`, `toBoolean()`, `parseBoolean()`,
+`toDate()`, and `toString()` select storage from their output. Pipeline analysis
+follows transformations in order. For example, `pipe(string(), toNumber())`
+accepts a string on insert and returns a number on select:
+
+```typescript
+const Count = defineTable(
+  'counts',
+  { value: pipe(string(), toNumber()) },
+  { primaryKey: 'value' },
+)
+await db.insert(Count).values({ value: '42' }).execute()
+const row = await db.from(Count).executeTakeFirstOrThrow() // row.value is 42
+```
+
+`parseJson()` needs a following supported structured schema, such as
+`pipe(string(), parseJson(), object({ enabled: boolean() }))`, to establish its
+output type. A later supported schema can also recover output inference after an
+unknown transformation. Unknown output without that recovery requires an explicit
+selected `physicalType`; SQLite additionally needs both parameter and result mapping
+hooks. Known conversions clear facts from the input type, so old string lengths,
+UUID format, or numeric bounds do not narrow the converted output. Later constraints
+apply to that output.
+
+An unbounded PostgreSQL `safeInteger()` output uses `bigint`; PostgreSQL converts
+that storage back to a JS number only when the value is safe. Two bounds can narrow
+`safeInteger()` storage to `smallint` or `integer` when they prove the range.
+Unbounded `bigint()` uses `numeric` and returns JS `bigint`; it uses PostgreSQL
+`bigint` only when both bounds prove the signed 64-bit range. SQLite still requires
+finite numbers, safe integral JS numbers, and bigints within signed 64-bit range. A change to inferred storage can produce a type
+change migration step for an existing database. Set the selected `physicalType` to
+pin the previous storage when needed. A schema type with no sensible selected-adapter
+mapping (for example, a `union`) throws `MigrationError` during desired-schema
+lowering rather than silently becoming text.
 
 Use `physicalType` when you need exact
 adapter-selected storage and tagged database defaults/generation when database

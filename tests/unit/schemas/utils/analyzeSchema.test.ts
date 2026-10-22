@@ -10,6 +10,7 @@ import {
   maxLength,
   maxValue,
   minLength,
+  minValue,
   nonNullable,
   nonNullish,
   nonOptional,
@@ -18,9 +19,17 @@ import {
   number,
   object,
   optional,
+  parseBoolean,
+  parseJson,
   picklist,
   pipe,
+  safeParse,
   string,
+  toBoolean,
+  toDate,
+  toNumber,
+  toString,
+  transform,
   undefinedable,
   union,
   uuid,
@@ -205,4 +214,111 @@ describe('analyzeSchema: reports every supported scalar and JSON-shaped output f
   it('should leave unsupported mixed-output schemas unclassified', () => {
     expect(analyzeSchema(union([string(), number()])).outputKind).toBeUndefined()
   })
+})
+
+describe('analyzeSchema ordered transformations', () => {
+  it('should derive output kinds and retain only constraints on the current output', () => {
+    expect(
+      analyzeSchema(
+        pipe(string(), maxLength(10), toNumber(), minValue(0), maxValue(100)),
+      ),
+    ).toMatchObject({
+      outputKind: 'number',
+      stringConstraints: {},
+      numberConstraints: { minValue: 0, maxValue: 100 },
+    })
+
+    expect(analyzeSchema(pipe(string(), toBoolean())).outputKind).toBe('boolean')
+    expect(analyzeSchema(pipe(string(), parseBoolean())).outputKind).toBe('boolean')
+    expect(analyzeSchema(pipe(string(), toDate())).outputKind).toBe('date')
+    expect(analyzeSchema(pipe(number(), toString())).outputKind).toBe('string')
+  })
+
+  it('should leave unknown outputs unresolved until a supported schema restores them', () => {
+    expect(analyzeSchema(pipe(string(), parseJson())).outputKind).toBeUndefined()
+    expect(analyzeSchema(pipe(string(), transform(Number))).outputKind).toBeUndefined()
+
+    expect(
+      analyzeSchema(pipe(string(), parseJson(), object({ value: number() }))).outputKind,
+    ).toBe('json')
+  })
+
+  it('should retain output nullability restored by a later schema', () => {
+    const analysis = analyzeSchema(
+      pipe(
+        string(),
+        transform((value) => (value ? null : value)),
+        nullable(string()),
+      ),
+    )
+
+    expect(analysis).toMatchObject({
+      outputKind: 'string',
+      nullable: true,
+      omitOnInsert: false,
+    })
+  })
+})
+
+describe('analyzeSchema recovered wrapper semantics', () => {
+  it('should retain output undefined tolerance without making required input omittable', () => {
+    const optionalSchema = pipe(
+      pipe(
+        string(),
+        transform((value): number | undefined => (value ? undefined : 0)),
+      ),
+      optional(number()),
+    )
+
+    const analysis = analyzeSchema(optionalSchema)
+
+    expect(analysis).toMatchObject({
+      outputKind: 'number',
+      allowsUndefined: true,
+      omitOnInsert: false,
+    })
+
+    expect(safeParse(optionalSchema, 'required')).toMatchObject({
+      success: true,
+      output: undefined,
+    })
+
+    const nonOptionalSchema = pipe(
+      pipe(
+        string(),
+        transform((): number => 0),
+      ),
+      nonOptional(optional(number())),
+    )
+
+    const nonOptionalAnalysis = analyzeSchema(nonOptionalSchema)
+
+    expect(nonOptionalAnalysis).toMatchObject({
+      allowsUndefined: false,
+      omitOnInsert: false,
+    })
+
+    expect(safeParse(nonOptionalSchema, 'required')).toMatchObject({
+      success: true,
+      output: 0,
+    })
+  })
+})
+
+it('should preserve wrapper semantics around nested transformed pipes', () => {
+  const transformed = pipe(pipe(string(), toNumber()), minValue(0))
+  const wrappers = [
+    optional(transformed),
+    exactOptional(transformed),
+    undefinedable(transformed),
+    nullable(transformed),
+    nullish(transformed),
+    nonOptional(optional(transformed)),
+    nonNullable(nullable(transformed)),
+    nonNullish(nullish(transformed)),
+  ]
+
+  expect(wrappers.map((schema) => analyzeSchema(schema).outputKind)).toEqual(
+    Array(8).fill('number'),
+  )
 })

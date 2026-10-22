@@ -1,4 +1,4 @@
-import type { InferOutput } from 'valibot'
+import type { InferInput, InferOutput } from 'valibot'
 
 import type { ColumnGeneration, TableSchema } from '@/schemas'
 import type { Prettify } from '@/types/prettify'
@@ -131,6 +131,8 @@ type NonNullColumnValue<S> = S extends AnySchema
     : never
   : never
 
+type NullableOutputValue<S> = S extends AnySchema ? Extract<InferOutput<S>, null> : never
+
 /**
  * Select value: SQL-nullable columns are `T | null`; optional-only stays non-null
  * (omit-on-insert with NOT NULL + default, or application always supplies a value).
@@ -138,12 +140,18 @@ type NonNullColumnValue<S> = S extends AnySchema
 type SelectColumnValue<S> =
   IsSqlNullableSchema<S> extends true
     ? NonNullColumnValue<S> | null
-    : NonNullColumnValue<S>
+    : NonNullColumnValue<S> | NullableOutputValue<S>
 
 type InsertColumnValue<S> =
   IsSqlNullableSchema<S> extends true
-    ? NonNullColumnValue<S> | null
-    : NonNullColumnValue<S>
+    ? NonNullInputColumnValue<S> | null
+    : NonNullInputColumnValue<S>
+
+type NonNullInputColumnValue<S> = S extends AnySchema
+  ? DBType<InferInput<S>> extends infer V
+    ? Exclude<V, null>
+    : never
+  : never
 
 /**
  * Select view: full row as returned from the database.

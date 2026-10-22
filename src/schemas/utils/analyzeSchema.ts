@@ -50,6 +50,12 @@ export interface SchemaAnalysis {
   schemaDefault: unknown
   /** Dialect-neutral output family, when the schema kind is known. */
   outputKind: SchemaOutputKind | undefined
+  /** Schema that proves the effective output, when one remains available. */
+  outputSchema?: AnySchema
+  /** Bigint bounds kept separate from number bounds. */
+  bigintConstraints: { minValue?: bigint; maxValue?: bigint }
+  /** Whether the ordered pipeline still has an unresolved output. */
+  unresolvedTransformation: boolean
 }
 
 /** Checks whether a runtime value exposes the Valibot schema contract. */
@@ -144,10 +150,11 @@ function outputKind(schema: AnySchema): SchemaOutputKind | undefined {
 
 type RecursiveAnalysis = Omit<
   SchemaAnalysis,
-  'stringConstraints' | 'numberConstraints'
+  'stringConstraints' | 'numberConstraints' | 'bigintConstraints'
 > & {
   stringConstraints: StringConstraints
   numberConstraints: NumberConstraints
+  bigintConstraints: { minValue?: bigint; maxValue?: bigint }
 }
 
 /**
@@ -192,56 +199,141 @@ function applyWrapperSemantics(result: RecursiveAnalysis, type: string): void {
   }
 }
 
-/**
- * Adds numeric, string, and metadata facts from a schema's pipe actions.
- *
- * @param result - Captured execution result or validated input whose outcome is being
- *   interpreted.
- * @param actions - Physical migration actions in their execution order.
- */
+type PipeAction = { kind?: string; type: string; requirement?: number | bigint }
+
+function resetOutputFacts(result: RecursiveAnalysis): void {
+  result.outputSchema = undefined
+  result.stringConstraints = {}
+  result.numberConstraints = {}
+  result.bigintConstraints = {}
+  result.stringFormat = undefined
+}
+
+function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
+  const facts = analyzeNode(schema)
+  Object.assign(result, {
+    outputKind: facts.outputKind,
+    outputSchema: facts.outputSchema,
+    stringConstraints: { ...facts.stringConstraints },
+    numberConstraints: { ...facts.numberConstraints },
+    bigintConstraints: { ...facts.bigintConstraints },
+    stringFormat: facts.stringFormat,
+    nullable: facts.nullable,
+    allowsUndefined: facts.allowsUndefined,
+    unresolvedTransformation: facts.unresolvedTransformation,
+  })
+}
+
+function applyTransformation(result: RecursiveAnalysis, action: PipeAction): void {
+  const conversions: Partial<Record<string, SchemaOutputKind>> = {
+    to_number: 'number',
+    to_boolean: 'boolean',
+    parse_boolean: 'boolean',
+    to_date: 'date',
+    to_string: 'string',
+  }
+
+  result.outputKind = conversions[action.type]
+  result.unresolvedTransformation = result.outputKind === undefined
+  resetOutputFacts(result)
+}
+
+function applyLengthAction(result: RecursiveAnalysis, action: PipeAction): void {
+  if (result.outputKind !== 'string' || typeof action.requirement !== 'number') return
+
+  const length = action.requirement
+
+  if (action.type !== 'max_length')
+    result.stringConstraints.minLength = Math.max(
+      result.stringConstraints.minLength ?? 0,
+      length,
+    )
+
+  if (action.type !== 'min_length')
+    result.stringConstraints.maxLength = Math.min(
+      result.stringConstraints.maxLength ?? Infinity,
+      length,
+    )
+}
+
+function applyValueAction(result: RecursiveAnalysis, action: PipeAction): void {
+  const requirement = action.requirement
+
+  if (result.outputKind === 'number' && typeof requirement === 'number') {
+    if (action.type === 'min_value')
+      result.numberConstraints.minValue = Math.max(
+        result.numberConstraints.minValue ?? -Infinity,
+        requirement,
+      )
+    else
+      result.numberConstraints.maxValue = Math.min(
+        result.numberConstraints.maxValue ?? Infinity,
+        requirement,
+      )
+  }
+
+  if (result.outputKind === 'bigint' && typeof requirement === 'bigint') {
+    const key = action.type === 'min_value' ? 'minValue' : 'maxValue'
+    const previous = result.bigintConstraints[key]
+
+    if (
+      previous === undefined ||
+      (action.type === 'min_value' ? requirement > previous : requirement < previous)
+    )
+      result.bigintConstraints[key] = requirement
+  }
+}
+
+function applyValidationAction(result: RecursiveAnalysis, action: PipeAction): void {
+  if (
+    action.kind === 'validation' &&
+    action.type === 'uuid' &&
+    result.outputKind === 'string'
+  )
+    result.stringFormat = 'uuid'
+
+  if (
+    action.type === 'min_length' ||
+    action.type === 'max_length' ||
+    action.type === 'length'
+  ) {
+    applyLengthAction(result, action)
+    return
+  }
+
+  if (action.type === 'min_value' || action.type === 'max_value') {
+    applyValueAction(result, action)
+    return
+  }
+
+  if (action.type === 'integer' && result.outputKind === 'number')
+    result.numberConstraints.isInteger = true
+
+  if (action.type === 'safe_integer' && result.outputKind === 'number') {
+    result.numberConstraints.isInteger = true
+    result.numberConstraints.isSafeInteger = true
+  }
+
+  if (action.type === 'nullable' || action.type === 'nullish') result.nullable = true
+
+  if (
+    action.type === 'nullish' ||
+    action.type === 'optional' ||
+    action.type === 'exact_optional'
+  )
+    result.allowsUndefined = true
+}
+
+/** Adds facts from a pipe's schemas, transformations, and validations in order. */
 function applyPipeActions(result: RecursiveAnalysis, actions: readonly unknown[]): void {
   for (const item of actions) {
     if (!item || typeof item !== 'object' || !('type' in item)) continue
 
-    const action = item as { kind?: string; type: string; requirement?: number }
+    const action = item as PipeAction
 
-    if (action.kind === 'validation' && action.type === 'uuid') {
-      result.stringFormat = 'uuid'
-    }
-
-    switch (action.type) {
-      case 'min_length':
-        result.stringConstraints.minLength = action.requirement
-        break
-      case 'max_length':
-        result.stringConstraints.maxLength = action.requirement
-        break
-      case 'length':
-        result.stringConstraints.minLength = action.requirement
-        result.stringConstraints.maxLength = action.requirement
-        break
-      case 'min_value':
-        result.numberConstraints.minValue = action.requirement
-        break
-      case 'max_value':
-        result.numberConstraints.maxValue = action.requirement
-        break
-      case 'integer':
-      case 'safe_integer':
-        result.numberConstraints.isInteger = true
-        break
-      case 'nullable':
-        result.nullable = true
-        break
-      case 'nullish':
-        result.nullable = true
-        result.allowsUndefined = true
-        break
-      case 'optional':
-      case 'exact_optional':
-        result.allowsUndefined = true
-        break
-    }
+    if (action.kind === 'schema') applySchemaItem(result, item as AnySchema)
+    else if (action.kind === 'transformation') applyTransformation(result, action)
+    else applyValidationAction(result, action)
   }
 }
 
@@ -280,8 +372,11 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
         omitOnInsert: false,
         stringConstraints: {},
         numberConstraints: {},
+        bigintConstraints: {},
+        unresolvedTransformation: false,
         schemaDefault: undefined,
         outputKind: outputKind(schema),
+        outputSchema: schema,
       }
 
   if (Array.isArray(traversable.pipe)) {
@@ -304,5 +399,6 @@ export function analyzeSchema(schema: AnySchema): SchemaAnalysis {
     ...result,
     stringConstraints: Object.freeze(result.stringConstraints),
     numberConstraints: Object.freeze(result.numberConstraints),
+    bigintConstraints: Object.freeze(result.bigintConstraints),
   })
 }

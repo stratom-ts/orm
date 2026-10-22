@@ -14,9 +14,15 @@ import {
   number,
   object,
   optional,
+  parseBoolean,
+  parseJson,
   picklist,
   pipe,
   string,
+  toBoolean,
+  toDate,
+  toString,
+  transform,
   undefinedable,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
@@ -80,6 +86,29 @@ describe('SQLite schema', () => {
       )
     }
   })
+})
+
+it('should recover choice inference from a later supported schema', () => {
+  expect(
+    sqliteSchema.inferColumnType(pipe(string(), transform(Number), picklist([1, 2]))),
+  ).toBe('INTEGER')
+})
+
+it('should infer physical types from supported transformed outputs', () => {
+  expect(sqliteSchema.inferColumnType(pipe(string(), toBoolean()))).toBe('BOOLEAN')
+  expect(sqliteSchema.inferColumnType(pipe(string(), parseBoolean()))).toBe('BOOLEAN')
+  expect(sqliteSchema.inferColumnType(pipe(string(), toDate()))).toBe('DATETIME')
+  expect(sqliteSchema.inferColumnType(pipe(number(), toString()))).toBe('TEXT')
+
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(string(), parseJson(), object({ value: number() })),
+    ),
+  ).toBe('JSON')
+
+  expect(() => sqliteSchema.inferColumnType(pipe(string(), parseJson()))).toThrow(
+    /physicalType/,
+  )
 })
 
 describe('SQLite schema', () => {

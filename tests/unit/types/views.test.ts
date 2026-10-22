@@ -16,6 +16,7 @@ import {
   pipe,
   string,
   title,
+  toNumber,
   undefinedable,
 } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
@@ -60,6 +61,12 @@ const User = defineTable(
     ),
   },
   { primaryKey: 'id' },
+)
+
+const ParsedValue = defineTable(
+  'parsed_values',
+  { value: pipe(string(), toNumber()) },
+  { primaryKey: 'value' },
 )
 
 const NestedWrappers = defineTable(
@@ -262,6 +269,16 @@ describe('InferSelectedColumns: should distinguish same-named tables by ordered 
 })
 
 describe('InferInsert', () => {
+  it('should use schema input for writes and transformed output for reads', () => {
+    expectTypeOf<InferInsert<typeof ParsedValue>['value']>().toEqualTypeOf<string>()
+
+    expectTypeOf<InferUpdate<typeof ParsedValue>['value']>().toEqualTypeOf<
+      string | undefined
+    >()
+
+    expectTypeOf<InferSelect<typeof ParsedValue>['value']>().toEqualTypeOf<number>()
+  })
+
   it('should preserve nested wrapper omission and nullability regardless of order', () => {
     type Insert = InferInsert<typeof NestedWrappers>
 
