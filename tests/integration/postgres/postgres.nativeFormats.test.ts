@@ -78,7 +78,7 @@ const canonical = {
 }
 
 /** Checks native declarations before applying the Migration Plan. */
-async function migrateNativeFormats(db: NativeDatabase) {
+async function migrateFormatStrings(db: NativeDatabase) {
   const plan = await db.migrate().plan()
   expect(plan.steps.filter((step) => step.kind === 'create_table')).toHaveLength(2)
 
@@ -99,7 +99,7 @@ async function migrateNativeFormats(db: NativeDatabase) {
 }
 
 /** Checks the native catalog independently of desired-schema inference. */
-async function assertNativeCatalog({
+async function assertFormatCatalog({
   admin,
   schema,
 }: Pick<PostgresDatabaseContext<typeof schemas>, 'admin' | 'schema'>) {
@@ -136,8 +136,8 @@ async function assertNativeCatalog({
 it('should round-trip PostgreSQL native strings and references, introspect types, and converge', async () => {
   await withPostgresDatabase(schemas, async (context) => {
     const { db } = context
-    await migrateNativeFormats(db)
-    await assertNativeCatalog(context)
+    await migrateFormatStrings(db)
+    await assertFormatCatalog(context)
     expect(await db.insert(Parent).values(row).execute()).toEqual([canonical])
     const child = {
       id: 'child',

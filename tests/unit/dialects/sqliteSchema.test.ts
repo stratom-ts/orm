@@ -1,10 +1,20 @@
 import {
   boolean,
   date,
+  decimal,
   enum as enumSchema,
   exactOptional,
   integer,
+  ip,
+  ipv4,
+  ipv6,
+  length,
   literal,
+  mac,
+  mac48,
+  mac64,
+  maxLength,
+  minLength,
   minValue,
   nonNullable,
   nonNullish,
@@ -24,6 +34,7 @@ import {
   toString,
   transform,
   undefinedable,
+  uuid,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -178,4 +189,40 @@ describe('SQLite schema', () => {
     expect(sqliteSchema.inferColumnType(literal(Number.MAX_SAFE_INTEGER))).toBe('INTEGER')
     expect(sqliteSchema.inferColumnType(literal(1.25))).toBe('REAL')
   })
+})
+
+describe('SQLite schema', () => {
+  it.each([uuid(), ip(), ipv4(), ipv6(), mac48(), mac(), mac64(), decimal()])(
+    'should keep $type format validation on TEXT storage',
+    (format) => {
+      const schemas = [
+        pipe(string(), format),
+        pipe(string(), format, format),
+        nullable(pipe(string(), format)),
+        pipe(string(), maxLength(80), format),
+        pipe(string(), format, minLength(1), maxLength(80)),
+        pipe(pipe(string(), length(36)), format),
+        pipe(number(), toString(), format),
+      ]
+
+      for (const schema of schemas) {
+        expect(sqliteSchema.inferColumnType(schema)).toBe('TEXT')
+      }
+    },
+  )
+
+  const nativeTargets = [uuid(), ip(), mac48(), mac64(), decimal()] as const
+  const conflicts = nativeTargets.flatMap((first, index) =>
+    nativeTargets.slice(index + 1).map((second) => ({ first, second })),
+  )
+
+  it.each(conflicts)(
+    'should keep $first.type with $second.type on TEXT storage in either order',
+    ({ first, second }) => {
+      const forward = pipe(string(), first, second)
+      const reverse = pipe(string(), second, first)
+      expect(sqliteSchema.inferColumnType(forward)).toBe('TEXT')
+      expect(sqliteSchema.inferColumnType(reverse)).toBe('TEXT')
+    },
+  )
 })
