@@ -16,6 +16,31 @@ const INT32_MAX = 2147483647
 const INT64_MIN = -(2n ** 63n)
 const INT64_MAX = 2n ** 63n - 1n
 
+const STRING_FORMAT_STORAGE = {
+  uuid: 'uuid',
+  ip: 'inet',
+  ipv4: 'inet',
+  ipv6: 'inet',
+  mac48: 'macaddr',
+  mac: 'macaddr8',
+  mac64: 'macaddr8',
+  decimal: 'numeric',
+} as const satisfies Record<SchemaAnalysis['stringFormats'][number], SqlDataType>
+
+/** Selects native storage only when all retained formats agree on one target. */
+function inferPostgresFormatType(analysis: SchemaAnalysis): SqlDataType | undefined {
+  const targets = [
+    ...new Set(analysis.stringFormats.map((format) => STRING_FORMAT_STORAGE[format])),
+  ].sort()
+
+  if (targets.length > 1)
+    throw new SchemaError({
+      message: `conflicting PostgreSQL string formats select ${targets.join(', ')}. Use one format or column({ physicalType: { postgresql: ... } })`,
+    })
+
+  return targets[0]
+}
+
 /**
  * Maps string length constraints to a PostgreSQL string type.
  *
@@ -117,9 +142,10 @@ function inferEffectivePostgresType(analysis: SchemaAnalysis): SqlDataType | und
 
   switch (analysis.outputKind) {
     case 'string':
-      return analysis.stringFormat === 'uuid'
-        ? 'uuid'
-        : inferPostgresStringType(analysis.stringConstraints)
+      return (
+        inferPostgresFormatType(analysis) ??
+        inferPostgresStringType(analysis.stringConstraints)
+      )
     case 'number': {
       return inferPostgresNumberOutputType(analysis.numberConstraints)
     }

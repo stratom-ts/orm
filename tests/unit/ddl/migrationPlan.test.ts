@@ -1,4 +1,4 @@
-import { nullable, pipe, string, uuid } from 'valibot'
+import { decimal, ip, mac48, mac64, nullable, pipe, string, uuid } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { PlannedMigration } from '@/ddl/migrationPlan'
@@ -166,6 +166,44 @@ describe('PostgreSQL inferred UUID Migration Plans', () => {
 
     expect(planMigration([Desired], catalog, postgresDialect)).toEqual({ steps: [] })
   })
+})
+
+describe('should plan PostgreSQL native string formats', () => {
+  it.each([
+    [ip(), 'inet'],
+    [mac48(), 'macaddr'],
+    [mac64(), 'macaddr8'],
+    [decimal(), 'numeric'],
+  ] as const)(
+    'should leave an existing %s catalog unchanged as %s',
+    (format, dataType) => {
+      const Desired = defineTable(
+        'native_payloads',
+        { id: pipe(string(), format) },
+        { primaryKey: 'id' },
+      )
+
+      const catalog: CatalogSnapshot = {
+        ...emptyCatalog(),
+        tables: [
+          {
+            schema: 'public',
+            name: 'native_payloads',
+            columns: [{ name: 'id', dataType, isNullable: false }],
+            primaryKey: catalogPrimaryKey('native_payloads'),
+          },
+        ],
+      }
+
+      expect(planMigration([Desired], catalog, postgresDialect)).toEqual({ steps: [] })
+
+      catalog.tables[0]!.columns[0]!.dataType = 'text'
+
+      expect(planMigration([Desired], catalog, postgresDialect).steps).toMatchObject([
+        { kind: 'alter_column_type', dataType },
+      ])
+    },
+  )
 })
 
 /** Builds empty catalog evidence for schema reconciliation checks. */

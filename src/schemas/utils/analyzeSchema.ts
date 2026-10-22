@@ -19,6 +19,19 @@ type TraversableSchema = AnySchema & {
   default?: unknown
 }
 
+const STRING_FORMATS = [
+  'uuid',
+  'ip',
+  'ipv4',
+  'ipv6',
+  'mac',
+  'mac48',
+  'mac64',
+  'decimal',
+] as const
+
+type StringFormat = (typeof STRING_FORMATS)[number]
+
 /** Broad value families understood by dialect-neutral schema analysis. */
 export type SchemaOutputKind =
   | 'string'
@@ -44,6 +57,8 @@ export interface SchemaAnalysis {
   stringConstraints: StringConstraints
   /** String format validation found beneath wrappers and in nested pipes. */
   stringFormat?: 'uuid'
+  /** Distinct format validators retained for the current string output. */
+  stringFormats: readonly StringFormat[]
   /** Number constraints found beneath wrappers and in nested pipes. */
   numberConstraints: NumberConstraints
   /** A Valibot default found on a wrapper, if one is present. */
@@ -207,6 +222,7 @@ function resetOutputFacts(result: RecursiveAnalysis): void {
   result.numberConstraints = {}
   result.bigintConstraints = {}
   result.stringFormat = undefined
+  result.stringFormats = []
 }
 
 function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
@@ -218,6 +234,7 @@ function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
     numberConstraints: { ...facts.numberConstraints },
     bigintConstraints: { ...facts.bigintConstraints },
     stringFormat: facts.stringFormat,
+    stringFormats: [...facts.stringFormats],
     nullable: facts.nullable,
     allowsUndefined: facts.allowsUndefined,
     unresolvedTransformation: facts.unresolvedTransformation,
@@ -285,12 +302,14 @@ function applyValueAction(result: RecursiveAnalysis, action: PipeAction): void {
 }
 
 function applyValidationAction(result: RecursiveAnalysis, action: PipeAction): void {
-  if (
-    action.kind === 'validation' &&
-    action.type === 'uuid' &&
-    result.outputKind === 'string'
-  )
-    result.stringFormat = 'uuid'
+  const format = STRING_FORMATS.find((format) => format === action.type)
+
+  if (action.kind === 'validation' && result.outputKind === 'string' && format) {
+    if (!result.stringFormats.includes(format))
+      result.stringFormats = [...result.stringFormats, format]
+
+    if (format === 'uuid') result.stringFormat = 'uuid'
+  }
 
   if (
     action.type === 'min_length' ||
@@ -371,6 +390,7 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
         allowsUndefined: false,
         omitOnInsert: false,
         stringConstraints: {},
+        stringFormats: [],
         numberConstraints: {},
         bigintConstraints: {},
         unresolvedTransformation: false,
@@ -398,6 +418,7 @@ export function analyzeSchema(schema: AnySchema): SchemaAnalysis {
   return Object.freeze({
     ...result,
     stringConstraints: Object.freeze(result.stringConstraints),
+    stringFormats: Object.freeze(result.stringFormats),
     numberConstraints: Object.freeze(result.numberConstraints),
     bigintConstraints: Object.freeze(result.bigintConstraints),
   })
