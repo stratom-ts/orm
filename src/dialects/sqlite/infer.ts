@@ -18,7 +18,8 @@ function unsupportedChoiceType(type: string): never {
 
 /** Infers storage for enum and picklist values from their validated output options. */
 export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
-  const schema = analysis.baseSchema as typeof analysis.baseSchema & {
+  const schema = (analysis.outputSchema ??
+    analysis.baseSchema) as typeof analysis.baseSchema & {
     options?: unknown[]
   }
 
@@ -51,19 +52,6 @@ export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
 
   return unsupportedChoiceType(schema.type)
 }
-
-const JSON_SHAPED_SCHEMA_TYPES = new Set([
-  'object',
-  'loose_object',
-  'strict_object',
-  'object_with_rest',
-  'record',
-  'array',
-  'tuple',
-  'loose_tuple',
-  'strict_tuple',
-  'tuple_with_rest',
-])
 
 /**
  * Maps supported literal values to SQLite logical storage types.
@@ -108,23 +96,49 @@ export function inferSqliteColumnType(
   schema: AnySchema,
   analysis: SchemaAnalysis = analyzeSchema(schema),
 ): SqlDataType {
-  const baseSchema = analysis.baseSchema
+  const inferred = inferEffectiveSqliteType(analysis)
 
-  switch (baseSchema.type) {
+  if (inferred) return inferred
+
+  const effectiveSchema = analysis.outputSchema ?? analysis.baseSchema
+  const detail = analysis.unresolvedTransformation
+    ? 'an unresolved transformation'
+    : `a "${effectiveSchema.type}" schema`
+
+  throw new SchemaError({
+    message: `cannot infer a SQLite column type for ${detail}; specify it explicitly with column({ physicalType: { sqlite: ... } })`,
+  })
+}
+
+function inferEffectiveSqliteType(analysis: SchemaAnalysis): SqlDataType | undefined {
+  const effectiveSchema = analysis.outputSchema
+
+  if (effectiveSchema?.type === 'literal')
+    return inferSqliteLiteralType(
+      (effectiveSchema as LiteralSchema<Literal, ErrorMessage<BaseIssue<unknown>>>)
+        .literal,
+    )
+
+  if (effectiveSchema?.type === 'enum' || effectiveSchema?.type === 'picklist')
+    return inferSqliteChoiceType(analysis)
+
+  switch (analysis.outputKind) {
     case 'string':
       return 'TEXT'
-    case 'enum':
-    case 'picklist':
-      return inferSqliteChoiceType(analysis)
-    case 'number':
-      return analysis.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
-    case 'literal': {
-      const literalSchema = baseSchema as LiteralSchema<
-        Literal,
-        ErrorMessage<BaseIssue<unknown>>
-      >
+    case 'number': {
+      const { minValue, maxValue, isInteger, isSafeInteger } = analysis.numberConstraints
 
-      return inferSqliteLiteralType(literalSchema.literal)
+      if (isSafeInteger || isInteger) return 'INTEGER'
+
+      if (
+        (minValue !== undefined && !Number.isFinite(minValue)) ||
+        (maxValue !== undefined && !Number.isFinite(maxValue))
+      )
+        throw new SchemaError({
+          message: 'cannot infer a SQLite column type for non-finite number bounds',
+        })
+
+      return 'REAL'
     }
     case 'bigint':
       return 'BIGINT'
@@ -132,11 +146,9 @@ export function inferSqliteColumnType(
       return 'BOOLEAN'
     case 'date':
       return 'DATETIME'
-    default:
-      if (JSON_SHAPED_SCHEMA_TYPES.has(baseSchema.type)) return 'JSON'
-
-      throw new SchemaError({
-        message: `cannot infer a SQLite column type for a "${baseSchema.type}" schema; specify it explicitly with column({ physicalType: { sqlite: ... } })`,
-      })
+    case 'json':
+      return 'JSON'
+    case undefined:
+      return undefined
   }
 }

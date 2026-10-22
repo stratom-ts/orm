@@ -1,5 +1,24 @@
 import { access } from 'node:fs/promises'
-import { bigint, boolean, date, integer, number, object, pipe, string } from 'valibot'
+import {
+  bigint,
+  boolean,
+  date,
+  integer,
+  maxValue,
+  minValue,
+  nullable,
+  number,
+  object,
+  parseBoolean,
+  parseJson,
+  pipe,
+  string,
+  toBoolean,
+  toDate,
+  toNumber,
+  toString,
+  transform,
+} from 'valibot'
 import { beforeAll, expect, it } from 'vitest'
 
 import type { SqliteDatabaseContext } from './sqliteIntegration'
@@ -22,6 +41,17 @@ function recordsTable(library: Library) {
     {
       id: pipe(number(), integer()),
       value: bigint(),
+      parsed: pipe(string(), toNumber(), integer(), minValue(0), maxValue(100)),
+      truthy: pipe(string(), toBoolean()),
+      parsed_boolean: pipe(string(), parseBoolean()),
+      parsed_date: pipe(string(), toDate()),
+      rendered: pipe(number(), toString()),
+      payload: pipe(string(), parseJson(), object({ count: number() })),
+      recovered: pipe(
+        string(),
+        transform((value) => (value ? null : value)),
+        nullable(string()),
+      ),
       active: pipe(boolean(), library.column({ physicalType: { sqlite: 'INTEGER' } })),
       stamp: pipe(date(), library.column({ physicalType: { sqlite: 'TEXT' } })),
       data: pipe(
@@ -49,14 +79,44 @@ async function expectBigintRoundTrips(
     const row = {
       id: index + 1,
       value,
+      parsed: '42',
+      truthy: 'yes',
+      parsed_boolean: 'true',
+      parsed_date: '2026-02-03T04:05:06.000Z',
+      rendered: 42,
+      payload: '{"count":7}',
+      recovered: 'recover',
       active: true,
       stamp: new Date('2026-01-02T03:04:05.000Z'),
       data: { label: 'value' },
       note: 'a  b',
     }
 
-    expect(await db.insert(Records).values(row).execute()).toEqual([row])
-    expect(await db.from(Records).where({ id: row.id }).execute()).toEqual([row])
+    expect(await db.insert(Records).values(row).execute()).toEqual([
+      {
+        ...row,
+        parsed: 42,
+        truthy: true,
+        parsed_boolean: true,
+        parsed_date: new Date('2026-02-03T04:05:06.000Z'),
+        rendered: '42',
+        payload: { count: 7 },
+        recovered: null,
+      },
+    ])
+
+    expect(await db.from(Records).where({ id: row.id }).execute()).toEqual([
+      {
+        ...row,
+        parsed: 42,
+        truthy: true,
+        parsed_boolean: true,
+        parsed_date: new Date('2026-02-03T04:05:06.000Z'),
+        rendered: '42',
+        payload: { count: 7 },
+        recovered: null,
+      },
+    ])
 
     const stored = native.prepare('select VALUE from records where ID=?')
     stored.setReadBigInts(true)
@@ -72,6 +132,13 @@ async function expectSqliteTransactions(
   const value = {
     id: 4,
     value: 42n,
+    parsed: '42',
+    truthy: 'yes',
+    parsed_boolean: 'true',
+    parsed_date: '2026-02-03T04:05:06.000Z',
+    rendered: 42,
+    payload: '{"count":7}',
+    recovered: 'recover',
     active: false,
     stamp: new Date('2026-02-03T04:05:06.000Z'),
     data: { label: 'rollback' },
@@ -92,7 +159,17 @@ async function expectSqliteTransactions(
   })
 
   expect(await db.from(Records).where({ id: 4 }).execute()).toEqual([
-    { ...value, note: 'a  b' },
+    {
+      ...value,
+      parsed: 42,
+      truthy: true,
+      parsed_boolean: true,
+      parsed_date: new Date('2026-02-03T04:05:06.000Z'),
+      rendered: '42',
+      payload: { count: 7 },
+      recovered: null,
+      note: 'a  b',
+    },
   ])
 
   expect(
@@ -107,7 +184,7 @@ async function expectSqliteTransactions(
 /** Exercises a pre-existing uppercase table and a converged Migration Plan. */
 async function exerciseSqlite({ db, native, filePath }: Context, Records: Records) {
   native.exec(
-    'create table records(ID INTEGER primary key,VALUE BIGINT not null,ACTIVE INTEGER not null,STAMP TEXT not null,DATA TEXT not null)',
+    'create table records(ID INTEGER primary key,VALUE BIGINT not null,PARSED INTEGER not null,TRUTHY BOOLEAN not null,PARSED_BOOLEAN BOOLEAN not null,PARSED_DATE DATETIME not null,RENDERED TEXT not null,PAYLOAD JSON not null,RECOVERED TEXT,ACTIVE INTEGER not null,STAMP TEXT not null,DATA TEXT not null)',
   )
 
   expect((await db.migrate().plan()).steps.length).toBeGreaterThan(0)
@@ -123,6 +200,13 @@ async function exerciseSqlite({ db, native, filePath }: Context, Records: Record
   ).toEqual([
     ['ID', 'INTEGER'],
     ['VALUE', 'BIGINT'],
+    ['PARSED', 'INTEGER'],
+    ['TRUTHY', 'BOOLEAN'],
+    ['PARSED_BOOLEAN', 'BOOLEAN'],
+    ['PARSED_DATE', 'DATETIME'],
+    ['RENDERED', 'TEXT'],
+    ['PAYLOAD', 'JSON'],
+    ['RECOVERED', 'TEXT'],
     ['ACTIVE', 'INTEGER'],
     ['STAMP', 'TEXT'],
     ['DATA', 'TEXT'],
@@ -130,6 +214,12 @@ async function exerciseSqlite({ db, native, filePath }: Context, Records: Record
   ])
 
   await expectBigintRoundTrips({ db, native }, Records)
+  await db.update(Records).set({ parsed: '43' }).where({ id: 1 }).execute()
+
+  expect(await db.from(Records).where({ id: 1 }).execute()).toMatchObject([
+    { parsed: 43 },
+  ])
+
   await expectSqliteTransactions({ db, native }, Records)
   return { native, filePath: filePath! }
 }

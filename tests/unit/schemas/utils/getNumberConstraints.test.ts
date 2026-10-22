@@ -32,9 +32,12 @@ describe('getNumberConstraints', () => {
     expect(getNumberConstraints(schema)).toEqual({ isInteger: true })
   })
 
-  it('should extract isInteger from safeInteger action', () => {
+  it('should extract integer and safe integer facts from safeInteger action', () => {
     const schema = pipe(number(), safeInteger())
-    expect(getNumberConstraints(schema)).toEqual({ isInteger: true })
+    expect(getNumberConstraints(schema)).toEqual({
+      isInteger: true,
+      isSafeInteger: true,
+    })
   })
 
   it('should combine all constraints', () => {

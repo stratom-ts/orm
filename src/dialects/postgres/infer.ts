@@ -13,19 +13,8 @@ const INT16_MIN = -32768
 const INT16_MAX = 32767
 const INT32_MIN = -2147483648
 const INT32_MAX = 2147483647
-
-const JSON_SHAPED_SCHEMA_TYPES = new Set([
-  'object',
-  'loose_object',
-  'strict_object',
-  'object_with_rest',
-  'record',
-  'array',
-  'tuple',
-  'loose_tuple',
-  'strict_tuple',
-  'tuple_with_rest',
-])
+const INT64_MIN = -(2n ** 63n)
+const INT64_MAX = 2n ** 63n - 1n
 
 /**
  * Maps string length constraints to a PostgreSQL string type.
@@ -102,39 +91,64 @@ export function inferPostgresColumnType(
   schema: AnySchema,
   analysis: SchemaAnalysis = analyzeSchema(schema),
 ): SqlDataType {
-  const baseSchema = analysis.baseSchema
+  const inferred = inferEffectivePostgresType(analysis)
 
-  switch (baseSchema.type) {
-    case 'string': {
+  if (inferred) return inferred
+
+  const baseSchema = analysis.outputSchema ?? analysis.baseSchema
+  const detail = analysis.unresolvedTransformation
+    ? 'an unresolved transformation'
+    : `a "${baseSchema.type}" schema`
+
+  throw new SchemaError({
+    message: `cannot infer a SQL column type for ${detail}; specify it explicitly with column({ physicalType: { postgresql: ... } })`,
+  })
+}
+
+function inferEffectivePostgresType(analysis: SchemaAnalysis): SqlDataType | undefined {
+  const schema = analysis.outputSchema
+
+  if (schema?.type === 'literal')
+    return inferPostgresLiteralType(
+      (schema as LiteralSchema<Literal, ErrorMessage<BaseIssue<unknown>>>).literal,
+    )
+
+  if (schema?.type === 'enum' || schema?.type === 'picklist') return 'text'
+
+  switch (analysis.outputKind) {
+    case 'string':
       return analysis.stringFormat === 'uuid'
         ? 'uuid'
         : inferPostgresStringType(analysis.stringConstraints)
-    }
     case 'number': {
-      return inferPostgresNumberType(analysis.numberConstraints)
+      return inferPostgresNumberOutputType(analysis.numberConstraints)
     }
-    case 'literal': {
-      const literalSchema = baseSchema as LiteralSchema<
-        Literal,
-        ErrorMessage<BaseIssue<unknown>>
-      >
-
-      return inferPostgresLiteralType(literalSchema.literal)
+    case 'bigint': {
+      const { minValue, maxValue } = analysis.bigintConstraints
+      return minValue !== undefined &&
+        maxValue !== undefined &&
+        minValue >= INT64_MIN &&
+        maxValue <= INT64_MAX
+        ? 'bigint'
+        : 'numeric'
     }
-    case 'date':
-      return 'timestamptz'
-    case 'enum':
-    case 'picklist':
-      return 'text'
-    case 'bigint':
-      return 'bigint'
     case 'boolean':
       return 'boolean'
-    default:
-      if (JSON_SHAPED_SCHEMA_TYPES.has(baseSchema.type)) return 'jsonb'
-
-      throw new SchemaError({
-        message: `cannot infer a SQL column type for a "${baseSchema.type}" schema; specify it explicitly with column({ physicalType: { postgresql: ... } })`,
-      })
+    case 'date':
+      return 'timestamptz'
+    case 'json':
+      return 'jsonb'
+    case undefined:
+      return undefined
   }
+}
+
+function inferPostgresNumberOutputType(constraints: NumberConstraints): SqlDataType {
+  if (
+    constraints.isSafeInteger &&
+    (constraints.minValue === undefined || constraints.maxValue === undefined)
+  )
+    return 'bigint'
+
+  return inferPostgresNumberType(constraints)
 }
