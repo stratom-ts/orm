@@ -3,10 +3,17 @@ import {
   bigint,
   boolean,
   date,
+  decimal,
   email,
   enum as enumSchema,
   exactOptional,
+  ip,
+  ipv4,
+  ipv6,
   length,
+  mac,
+  mac48,
+  mac64,
   maxLength,
   maxValue,
   minLength,
@@ -37,6 +44,75 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { analyzeSchema } from '@/index'
+
+it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(
+  'should retain %s through wrappers, nested pipes, and length constraints',
+  (format) => {
+    const validated = pipe(string(), format, maxLength(80))
+    const schemas = [
+      optional(validated),
+      exactOptional(validated),
+      undefinedable(validated),
+      nullable(validated),
+      nullish(validated),
+      nonOptional(optional(validated)),
+      nonNullable(nullable(validated)),
+      nonNullish(nullish(validated)),
+      nullable(nonNullable(nullable(validated))),
+      optional(nonOptional(optional(validated))),
+      nullish(nonNullish(nullish(validated))),
+      pipe(pipe(string(), format), maxLength(80)),
+      pipe(nonNullable(nullable(string())), format, maxLength(80)),
+      pipe(nonNullable(nullable(validated)), format),
+    ]
+
+    for (const schema of schemas) {
+      const analysis = analyzeSchema(schema)
+      expect(analysis.stringFormats).toEqual([format.type])
+      expect(analysis.stringConstraints).toEqual({ maxLength: 80 })
+      expect(Object.isFrozen(analysis.stringFormats)).toBe(true)
+    }
+  },
+)
+
+it('should retain conflicting formats without selecting dialect storage', () => {
+  const analysis = analyzeSchema(pipe(string(), uuid(), ip(), uuid(), decimal()))
+  expect(analysis.stringFormats).toEqual(['uuid', 'ip', 'decimal'])
+  expect(analysis.stringFormat).toBe('uuid')
+})
+
+it('should clear every format fact on conversions and later schemas', () => {
+  const original = pipe(string(), uuid(), ip(), decimal())
+  const schemas = [
+    pipe(original, toNumber()),
+    pipe(original, toBoolean()),
+    pipe(original, toDate()),
+    pipe(original, toString()),
+    pipe(
+      original,
+      transform((value) => value),
+    ),
+    pipe(original, string()),
+    pipe(original, parseJson(), object({ value: number() })),
+  ]
+
+  for (const schema of schemas) {
+    expect(analyzeSchema(schema).stringFormats).toEqual([])
+    expect(analyzeSchema(schema).stringFormat).toBeUndefined()
+  }
+
+  expect(analyzeSchema(pipe(original, string(), mac48())).stringFormats).toEqual([
+    'mac48',
+  ])
+
+  expect(analyzeSchema(pipe(original, pipe(string(), ipv6()))).stringFormats).toEqual([
+    'ipv6',
+  ])
+
+  expect(analyzeSchema(pipe(number(), toString(), decimal())).stringFormats).toEqual([
+    'decimal',
+  ])
+})
 
 describe('analyzeSchema UUID facts', () => {
   it('should record UUID validation without replacing string or length facts', () => {

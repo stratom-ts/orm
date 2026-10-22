@@ -1,12 +1,85 @@
-import { date, nullable, pipe, string, unknown, uuid } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import {
+  date,
+  decimal,
+  ip,
+  mac48,
+  mac64,
+  nullable,
+  pipe,
+  string,
+  unknown,
+  uuid,
+} from 'valibot'
+import { describe, expect, it, vi } from 'vitest'
 
-import { column, createDatabase, defineTable, reference } from '@/index'
+import { SchemaError, column, createDatabase, defineTable, reference } from '@/index'
 import type { OperationSessionProvider } from '@/operations/operationSession'
 import type { CompiledQuery } from '@/query/builder'
 import { QueryError } from '@/utils/error'
 
 import { createMockPostgresConnector } from './helpers/nativePostgresClient'
+
+const Native = defineTable(
+  'native_values',
+  {
+    id: pipe(string(), ip()),
+    shortMac: pipe(string(), mac48()),
+    longMac: pipe(string(), mac64()),
+    amount: nullable(pipe(string(), decimal())),
+  },
+  { primaryKey: 'id' },
+)
+
+const row = {
+  id: '192.0.2.1',
+  shortMac: 'ab:cd:ef:12:34:56',
+  longMac: 'ab:cd:ef:12:34:56:78:90',
+  amount: '12345678901234567890.1200',
+}
+
+it('should reject conflicting inference at client creation before connector access', () => {
+  const Conflict = defineTable(
+    'native_conflict',
+    {
+      id: pipe(string(), mac48(), mac64()),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const connector = createMockPostgresConnector()
+  const getInstance = vi.spyOn(connector, 'getInstance')
+  const prepare = vi.spyOn(connector, 'prepare')
+  expect(() => createDatabase({ connector, schemas: [Conflict] })).toThrow(SchemaError)
+  expect(getInstance).not.toHaveBeenCalled()
+  expect(prepare).not.toHaveBeenCalled()
+})
+
+it('should preserve native numeric strings and pass selected storage to mapping hooks', async () => {
+  const connector = createMockPostgresConnector({
+    rowsBySql: () => [row, { ...row, amount: null }],
+  })
+
+  const db = createDatabase({ connector, schemas: [Native] })
+  expect(db.insert(Native).values(row).compile().params).toEqual(Object.values(row))
+  expect(await db.from(Native).execute()).toEqual([row, { ...row, amount: null }])
+  await db.close()
+
+  const seen: string[] = []
+  const mapped = createDatabase({
+    connector: createMockPostgresConnector(),
+    schemas: [Native],
+    map: {
+      mapParamValue(type, value) {
+        seen.push(type)
+        return value
+      },
+    },
+  })
+
+  mapped.insert(Native).values(row).compile()
+  expect(seen).toEqual(['inet', 'macaddr', 'macaddr8', 'numeric'])
+  await mapped.close()
+})
 
 const LedgerEntries = defineTable(
   'ledger_entries',

@@ -6,7 +6,18 @@ import type {
   StringSchema,
   TitleAction,
 } from 'valibot'
-import { maxLength, nullable, number, pipe, string, uuid } from 'valibot'
+import {
+  decimal,
+  ip,
+  mac48,
+  mac64,
+  maxLength,
+  nullable,
+  number,
+  pipe,
+  string,
+  uuid,
+} from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { lowerDesiredSchema, registerDesiredSchema } from '@/ddl/desiredSchema'
@@ -14,10 +25,11 @@ import { postgresDialect } from '@/dialects'
 import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import type { LoweredDesiredTable } from '@/dialects/types'
 import type { TableMetadata } from '@/index'
-import { MigrationError, column, defineTable, reference } from '@/index'
+import { MigrationError, SchemaError, column, defineTable, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { validateInsertRow } from '@/query'
 import type { TableHandle } from '@/types'
+import type { AnySchema } from '@/types/schema'
 import { attemptSync } from '@/utils/error'
 
 import { relation as canonicalRelation, identifier } from '../helpers/planTargets'
@@ -37,6 +49,128 @@ const postgresIdentities = () =>
       ],
     },
   })
+
+/** Creates direct, nullable, and chained references to one formatted target. */
+function nativeReferenceHandles(schema: AnySchema) {
+  const Parent = defineTable('native_parents', { id: schema }, { primaryKey: 'id' })
+  const Child = defineTable(
+    'native_children',
+    {
+      id: string(),
+      parentId: reference(Parent, 'id'),
+      nullableId: nullable(reference(Parent, 'id')),
+    },
+    { primaryKey: 'id', indexes: [{ columns: ['parentId'], unique: true }] },
+  )
+
+  const Grandchild = defineTable(
+    'native_grandchildren',
+    {
+      id: string(),
+      parentId: reference(Child, 'parentId'),
+    },
+    { primaryKey: 'id' },
+  )
+
+  return { Parent, Child, Grandchild }
+}
+
+it.each([
+  [ip(), 'inet'],
+  [mac48(), 'macaddr'],
+  [mac64(), 'macaddr8'],
+  [decimal(), 'numeric'],
+] as const)(
+  'should inherit selected storage for %s through direct, nullable, and chained references',
+  (format, nativeType) => {
+    for (const override of [undefined, 'text', 'varchar(80)']) {
+      const { Parent, Child, Grandchild } = nativeReferenceHandles(
+        pipe(
+          string(),
+          format,
+          column({
+            physicalType: override ? { postgresql: override } : { sqlite: 'BLOB' },
+          }),
+        ),
+      )
+
+      const tables = lowerDesiredSchema(
+        [Grandchild, Child, Parent],
+        postgresIdentities(),
+        postgresDialect.schema,
+      ).tables
+
+      const selected = override ?? nativeType
+      expect(loweredColumn(tables, 'native_parents', 'id')?.dataType).toBe(selected)
+
+      expect(loweredColumn(tables, 'native_children', 'parentId')?.dataType).toBe(
+        selected,
+      )
+
+      expect(loweredColumn(tables, 'native_children', 'nullableId')).toMatchObject({
+        dataType: selected,
+        notNull: false,
+      })
+
+      expect(loweredColumn(tables, 'native_grandchildren', 'parentId')?.dataType).toBe(
+        selected,
+      )
+    }
+  },
+)
+
+it('should permit portable conflicts and retain SchemaError as the migration cause', () => {
+  const Conflict = defineTable(
+    'native_conflict',
+    {
+      id: pipe(string(), uuid(), ip(), column({ physicalType: { sqlite: 'TEXT' } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const result = attemptSync(() =>
+    lowerDesiredSchema([Conflict], postgresIdentities(), postgresDialect.schema),
+  )
+
+  expect(result.ok).toBe(false)
+
+  if (result.ok) throw new Error('Expected PostgreSQL lowering to fail')
+
+  expect(result.error).toBeInstanceOf(MigrationError)
+
+  if (!(result.error instanceof MigrationError))
+    throw new Error('Expected MigrationError')
+
+  expect(result.error.cause).toBeInstanceOf(SchemaError)
+
+  if (!(result.error.cause instanceof SchemaError))
+    throw new Error('Expected SchemaError cause')
+
+  expect(result.error.cause.message).toContain('Use one format or column(')
+})
+
+it('should let a selected PostgreSQL override resolve conflicts before inference', () => {
+  const Explicit = defineTable(
+    'native_explicit',
+    {
+      id: pipe(
+        string(),
+        mac48(),
+        mac64(),
+        column({ physicalType: { postgresql: 'text' } }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const tables = lowerDesiredSchema(
+    [Explicit],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'native_explicit', 'id')?.dataType).toBe('text')
+})
 
 /**
  * Builds table handles covering supported PostgreSQL storage, keys, and indexes.

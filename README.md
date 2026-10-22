@@ -221,6 +221,10 @@ Inference rules (PostgreSQL):
 | ------------------------------------------------------------------- | -------------------------------- |
 | `string()`                                                          | `text`                           |
 | `pipe(string(), uuid())`                                            | `uuid`                           |
+| `pipe(string(), ip())` / `ipv4()` / `ipv6()`                        | `inet`                           |
+| `pipe(string(), mac48())`                                           | `macaddr`                        |
+| `pipe(string(), mac())` / `mac64()`                                 | `macaddr8`                       |
+| `pipe(string(), decimal())`                                         | `numeric`                        |
 | `pipe(string(), maxLength(n))` (n ≤ 255)                            | `varchar(n)`                     |
 | `number()`                                                          | `double precision`               |
 | `pipe(number(), integer())`                                         | `integer`                        |
@@ -237,16 +241,35 @@ Inference rules (PostgreSQL):
 | `optional(x)`                                                       | may be omitted; remains NOT NULL |
 
 For PostgreSQL strings, a selected `physicalType.postgresql` override wins first.
-Otherwise, `uuid()` validation selects `uuid` before `minLength`, `maxLength`,
-or `length` can select length-based storage. The length validators still run.
-UUID inference works through `optional`, `exactOptional`, `undefinedable`,
+Otherwise, the format validators above select native storage before `minLength`,
+`maxLength`, or `length` can select length-based storage. The length validators still run.
+Format inference works through `optional`, `exactOptional`, `undefinedable`,
 `nullable`, `nullish`, `nonOptional`, `nonNullable`, and `nonNullish`, including
 nested pipes. A reference inherits the target column's selected physical type,
-including inferred `uuid` or an explicit `text` or `varchar(36)` override.
-SQLite continues to store UUID-validated strings and references as `TEXT` unless
-its own physical type is selected explicitly.
+including inferred native storage or an explicit `text` or `varchar(n)` override.
+An override for SQLite does not suppress PostgreSQL inference.
 
-PostgreSQL returns UUID values in canonical lowercase form.
+Repeated validators and validators for the same native storage are compatible.
+For example, `ip()` with `ipv4()` selects `inet`, and `mac()` with `mac64()` selects `macaddr8`.
+Different native storage targets, such as `uuid()` with `ip()` or `mac48()` with
+`mac64()`, raise `SchemaError` in PostgreSQL inference regardless of order.
+Use one format or select storage explicitly with
+`column({ physicalType: { postgresql: 'text' } })` to resolve the storage conflict.
+All authored Valibot validators still run.
+
+PostgreSQL returns UUID values in canonical lowercase form. Native IP and MAC storage
+can also change spelling, including IPv6 compression and MAC case or separators.
+`macaddr8` expands a six-byte MAC address to eight bytes.
+Decimal-validated `numeric` values remain JavaScript strings by default, preserving
+precision without conversion to JS numbers. PostgreSQL can remove leading decimal zeros.
+SQLite stores UUID, IP, MAC, and decimal strings and references as `TEXT` unless
+its own physical type is selected explicitly. It preserves exact string spelling,
+including leading and trailing decimal zeros.
+
+Existing PostgreSQL `text` or `varchar` columns with these validators now request
+native storage. Pin their current storage with a selected `physicalType.postgresql`
+override when needed. Review and apply data conversions separately before removing
+that override. Inference does not provide automatic casts for legacy data.
 
 The defaults favour safe, unsurprising types: a JS `number` is a double, so
 `number()` maps to `double precision` (not `real`, which would lose precision),
@@ -274,7 +297,7 @@ output type. A later supported schema can also recover output inference after an
 unknown transformation. Unknown output without that recovery requires an explicit
 selected `physicalType`; SQLite additionally needs both parameter and result mapping
 hooks. Known conversions clear facts from the input type, so old string lengths,
-UUID format, or numeric bounds do not narrow the converted output. Later constraints
+string formats, or numeric bounds do not narrow the converted output. Later constraints
 apply to that output.
 
 An unbounded PostgreSQL `safeInteger()` output uses `bigint`; PostgreSQL converts

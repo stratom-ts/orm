@@ -1,8 +1,12 @@
 import {
   boolean,
   date,
+  decimal,
   exactOptional,
   integer,
+  ip,
+  mac48,
+  mac64,
   maxLength,
   maxValue,
   minValue,
@@ -29,7 +33,38 @@ import type {
   InferUpdate,
   TableIdentityOf,
 } from '@/index'
-import { column, defineTable, table } from '@/index'
+import { column, defineTable, reference, table } from '@/index'
+
+describe('should retain native format string row types', () => {
+  it('should keep insert, select, update, and reference values as strings', () => {
+    const Native = defineTable(
+      'native_formats',
+      {
+        id: pipe(string(), ip()),
+        shortMac: pipe(string(), mac48()),
+        longMac: pipe(string(), mac64()),
+        amount: nullable(pipe(string(), decimal())),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'native_format_refs',
+      {
+        id: string(),
+        parentId: nullable(reference(Native, 'id')),
+      },
+      { primaryKey: 'id' },
+    )
+
+    type Row = { id: string; shortMac: string; longMac: string; amount: string | null }
+    expectTypeOf<InferInsert<typeof Native>>().toEqualTypeOf<Row>()
+    expectTypeOf<InferSelect<typeof Native>>().toEqualTypeOf<Row>()
+    expectTypeOf<InferUpdate<typeof Native>>().toEqualTypeOf<Partial<Row>>()
+    expectTypeOf<InferSelect<typeof Child>['parentId']>().toEqualTypeOf<string | null>()
+    expectTypeOf<InferInsert<typeof Child>['parentId']>().toEqualTypeOf<string | null>()
+  })
+})
 
 const User = defineTable(
   'users',

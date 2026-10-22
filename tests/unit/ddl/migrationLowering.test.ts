@@ -1,4 +1,4 @@
-import { pipe, string, uuid } from 'valibot'
+import { decimal, ip, mac48, mac64, pipe, string, uuid } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
@@ -328,6 +328,40 @@ describe('PostgreSQL inferred UUID plan lowering', () => {
       expect.stringMatching(
         /foreign key \("parentId"\) references "public"\."inferred_parent" \("id"\)/,
       ),
+    )
+  })
+})
+
+describe('should lower native format Migration Plans', () => {
+  it('should compile every new PostgreSQL native storage declaration', () => {
+    const Native = defineTable(
+      'native_formats',
+      {
+        id: pipe(string(), ip()),
+        shortMac: pipe(string(), mac48()),
+        longMac: pipe(string(), mac64()),
+        amount: pipe(string(), decimal()),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const schemas = [Native]
+    const planned = planMigration(
+      schemas,
+      completePostgresCatalog(emptyCatalog(), createCatalogRequest(schemas, [])),
+      postgresDialect,
+    )
+
+    expect(planned.plan.steps.map((step) => step.kind)).toEqual(['create_table'])
+
+    const sql = lower(planned).actions.flatMap((action) =>
+      action.statements.map((statement) => statement.sql),
+    )
+
+    expect(sql).toHaveLength(1)
+
+    expect(sql[0]).toContain(
+      '"id" inet not null, "shortMac" macaddr not null, "longMac" macaddr8 not null, "amount" numeric not null',
     )
   })
 })
