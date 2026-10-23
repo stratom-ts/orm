@@ -13,6 +13,7 @@ import {
   literal,
   null as nullSchema,
   nullable,
+  nullish,
   number,
   object,
   optional,
@@ -20,6 +21,8 @@ import {
   safeParse,
   string,
   toDate,
+  toNumber,
+  toString,
   union,
   variant,
 } from 'valibot'
@@ -209,6 +212,32 @@ const ContractCompositeRef = defineTable(
 
 const CONTRACT_COMPOSITE_TABLES = [ContractComposite, ContractCompositeRef] as const
 type CompositeDb = Db<typeof CONTRACT_COMPOSITE_TABLES>
+
+const ContractTransformedNull = defineTable(
+  'contract_transformed_null',
+  {
+    id: string(),
+    convertedNumber: pipe(nullable(string()), toNumber()),
+    convertedString: pipe(nullable(string()), toString()),
+    convertedNullish: pipe(
+      nullish(string()),
+      toString(),
+      column({ databaseDefault: { kind: 'literal', value: 'fallback' } }),
+    ),
+    convertedUnion: pipe(union([string(), nullSchema()]), toString(), string()),
+    ordinaryNullable: nullable(string()),
+  },
+  { primaryKey: 'id' },
+)
+
+const convertedNullOutput = {
+  id: 'insert-null',
+  convertedNumber: 0,
+  convertedString: 'null',
+  convertedNullish: 'null',
+  convertedUnion: 'null',
+  ordinaryNullable: null,
+}
 
 /** Returns whether every capability required for an integration scenario is supported. */
 export function shouldRegisterDialectIntegrationScenario(
@@ -607,6 +636,8 @@ function registerQueryDriverErrorIntegration(adapter: DialectIntegrationAdapter)
 }
 
 function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
+  registerTransformedNullIntegration(adapter)
+
   registerDialectIntegrationScenario(
     adapter,
     ['query', 'migration'],
@@ -1059,6 +1090,91 @@ function registerCompositeIntegration(adapter: DialectIntegrationAdapter): void 
         await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
         await assertCompositeInsert(db)
         await assertCompositeUpdate(db)
+      })
+    },
+  )
+}
+
+/** Checks native insert returning and selection after null inputs are consumed. */
+async function assertTransformedNullInsert(
+  db: Db<readonly [typeof ContractTransformedNull]>,
+): Promise<void> {
+  expect(
+    await db
+      .insert(ContractTransformedNull)
+      .values({
+        id: 'insert-null',
+        convertedNumber: null,
+        convertedString: null,
+        convertedNullish: null,
+        convertedUnion: null,
+        ordinaryNullable: null,
+      })
+      .executeTakeFirstOrThrow(),
+  ).toEqual(convertedNullOutput)
+
+  expect(
+    await db.from(ContractTransformedNull).where({ id: 'insert-null' }).execute(),
+  ).toEqual([convertedNullOutput])
+}
+
+/** Checks non-null insert values and update returning and selection for null inputs. */
+async function assertTransformedNullUpdate(
+  db: Db<readonly [typeof ContractTransformedNull]>,
+): Promise<void> {
+  expect(
+    await db
+      .insert(ContractTransformedNull)
+      .values({
+        id: 'update-null',
+        convertedNumber: '7',
+        convertedString: 'before',
+        convertedNullish: 'before',
+        convertedUnion: 'before',
+        ordinaryNullable: 'before',
+      })
+      .executeTakeFirstOrThrow(),
+  ).toEqual({
+    id: 'update-null',
+    convertedNumber: 7,
+    convertedString: 'before',
+    convertedNullish: 'before',
+    convertedUnion: 'before',
+    ordinaryNullable: 'before',
+  })
+
+  const updated = { ...convertedNullOutput, id: 'update-null' }
+  expect(
+    await db
+      .update(ContractTransformedNull)
+      .set({
+        convertedNumber: null,
+        convertedString: null,
+        convertedNullish: null,
+        convertedUnion: null,
+        ordinaryNullable: null,
+      })
+      .where({ id: 'update-null' })
+      .executeTakeFirstOrThrow(),
+  ).toEqual(updated)
+
+  expect(
+    await db.from(ContractTransformedNull).where({ id: 'update-null' }).execute(),
+  ).toEqual([updated])
+}
+
+/** Exercises transformed null inputs and stored nullability on both native engines. */
+function registerTransformedNullIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should store converted null inputs as non-null values',
+    async () => {
+      await adapter.withDatabase([ContractTransformedNull], async ({ db }) => {
+        await db.migrate().execute()
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+        await assertTransformedNullInsert(db)
+        await assertTransformedNullUpdate(db)
       })
     },
   )

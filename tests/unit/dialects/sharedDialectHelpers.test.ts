@@ -1,4 +1,13 @@
-import { pipe, string } from 'valibot'
+import {
+  null as nullSchema,
+  nullable,
+  nullish,
+  pipe,
+  string,
+  toNumber,
+  toString,
+  union,
+} from 'valibot'
 import { expect, it } from 'vitest'
 
 import { registerDesiredSchema } from '@/ddl/desiredSchema'
@@ -132,6 +141,48 @@ it.each(members)(
         ...child.columns,
       ].every(Object.isFrozen),
     ).toBe(true)
+  },
+)
+
+it.each(members)(
+  'should lower converted null inputs as non-null storage for $name',
+  (member) => {
+    const Converted = defineTable(
+      'converted_nulls',
+      {
+        id: string(),
+        convertedNumber: pipe(nullable(string()), toNumber()),
+        convertedString: pipe(nullable(string()), toString()),
+        convertedNullish: pipe(
+          nullish(string()),
+          toString(),
+          column({ databaseDefault: { kind: 'literal', value: 'fallback' } }),
+        ),
+        convertedUnion: pipe(union([string(), nullSchema()]), toString(), string()),
+        ordinaryNullable: nullable(string()),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const lowered = member.schema.lowerDesiredSchema(
+      registerDesiredSchema([Converted], member.identities()),
+    )
+
+    expect(
+      Object.fromEntries(
+        lowered.tables[0]!.columns.map((column) => [
+          column.identifier.spelling,
+          column.notNull,
+        ]),
+      ),
+    ).toEqual({
+      id: true,
+      convertedNumber: true,
+      convertedString: true,
+      convertedNullish: true,
+      convertedUnion: true,
+      ordinaryNullable: false,
+    })
   },
 )
 
