@@ -167,8 +167,9 @@ defineTable(
 
 Schema construction records logical Valibot value intent; it does not import a
 dialect or infer a physical type. During migration, the selected adapter lowers
-the complete registered graph. PostgreSQL then infers a SQL column type from
-the Valibot schema, including length and range refinements:
+the complete registered graph and infers physical storage from the Valibot schema.
+PostgreSQL and SQLite use their own type and mapping rules, including length and
+range refinements. This example shows PostgreSQL storage:
 
 ```typescript
 import { defineTable } from 'stratom'
@@ -215,38 +216,98 @@ await db.insert(User).values({ id: crypto.randomUUID() }).execute()
 This selects PostgreSQL `uuid` storage. It does not generate UUID values or add a
 database default; the application supplies each value.
 
-Inference rules (PostgreSQL):
+Inference rules depend on the selected dialect. The table shows both the physical
+storage selected by `postgresDialect.schema.inferColumnType` and
+`sqliteDialect.schema.inferColumnType`, and the JavaScript value returned by the
+built-in query mapper. Physical overrides can change storage; they do not change a
+column's inferred JavaScript output. The direct facet methods are available through
+the exported `postgresDialect` and `sqliteDialect` constants.
 
-| Valibot schema                                                      | Inferred type                     |
-| ------------------------------------------------------------------- | --------------------------------- |
-| `string()`                                                          | `text`                            |
-| `pipe(string(), uuid())`                                            | `uuid`                            |
-| `pipe(string(), ip())` / `ipv4()` / `ipv6()`                        | `inet`                            |
-| `pipe(string(), mac48())`                                           | `macaddr`                         |
-| `pipe(string(), mac())` / `mac64()`                                 | `macaddr8`                        |
-| `pipe(string(), decimal())`                                         | `numeric`                         |
-| `pipe(string(), maxLength(n))` (n ≤ 255)                            | `varchar(n)`                      |
-| `number()`                                                          | `double precision`                |
-| `pipe(number(), integer())`                                         | `integer`                         |
-| `pipe(number(), integer(), minValue, maxValue)` in int16            | `smallint`                        |
-| `pipe(number(), integer())` with a bound outside int32              | `bigint`                          |
-| `boolean()`                                                         | `boolean`                         |
-| `bigint()`                                                          | `numeric`                         |
-| `pipe(number(), safeInteger())`                                     | `bigint`                          |
-| `pipe(string(), toNumber(), integer(), minValue(0), maxValue(100))` | `smallint`                        |
-| `date()`                                                            | `timestamptz`                     |
-| String `enum(...)` / `picklist([...])`                              | `text`                            |
-| Integer-number choices within int16 / int32 / JS-safe range         | `smallint` / `integer` / `bigint` |
-| Fractional-number choices                                           | `double precision`                |
-| Bigint choices within / beyond signed int64                         | `bigint` / `numeric`              |
-| `object(...)` / `array(...)` / `record(...)`                        | `jsonb`                           |
-| `nullable(x)` / `nullish(x)`                                        | wrapped column becomes NULL-able  |
-| `union([x, null()])`                                                | `x` storage, NULL allowed         |
-| `optional(x)`                                                       | may be omitted; remains NOT NULL  |
+| Schema or output                                                     | PostgreSQL storage                          | SQLite declared type                        | JavaScript output  |
+| -------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------- | ------------------ |
+| `string()`                                                           | `text`                                      | `TEXT`                                      | `string`           |
+| `maxLength(n)` string, n ≤ 255; otherwise string                     | `varchar(n)` / `text`                       | `TEXT`                                      | `string`           |
+| `uuid()` string format                                               | `uuid`                                      | `TEXT`                                      | `string`           |
+| `ip()` / `ipv4()` / `ipv6()`                                         | `inet`                                      | `TEXT`                                      | `string`           |
+| `mac48()`; `mac()` / `mac64()`                                       | `macaddr`; `macaddr8`                       | `TEXT`                                      | `string`           |
+| `decimal()` string format                                            | `numeric`                                   | `TEXT`                                      | `string`           |
+| `number()`                                                           | `double precision`                          | `REAL`                                      | `number`           |
+| `integer()`                                                          | `integer`                                   | `INTEGER`                                   | `number`           |
+| `boolean()`                                                          | `boolean`                                   | `BOOLEAN`                                   | `boolean`          |
+| Integer number with int16 bounds                                     | `smallint`                                  | `INTEGER`                                   | `number`           |
+| Integer number with a bound outside int32                            | `bigint`                                    | `INTEGER`                                   | `number`           |
+| `safeInteger()` without bounds                                       | `bigint`                                    | `INTEGER`                                   | `number`           |
+| `bigint()` without two signed-int64 bounds                           | `numeric`                                   | `BIGINT`                                    | `bigint`           |
+| `date()`                                                             | `timestamptz`                               | `DATETIME`                                  | `Date`             |
+| `isoDate()`                                                          | `date`                                      | `TEXT`                                      | `string`           |
+| `isoTime()` / `isoTimeSecond()`                                      | `time`                                      | `TEXT`                                      | `string`           |
+| `isoDateTime()` / `isoDateTimeSecond()`                              | `timestamp`                                 | `TEXT`                                      | `string`           |
+| `isoTimestamp()`                                                     | `timestamptz`                               | `TEXT`                                      | `string`           |
+| Proven `toDate()` output                                             | `timestamptz`                               | `DATETIME`                                  | `Date`             |
+| Proven `toNumber()` output                                           | `double precision` / integer width          | `REAL` / `INTEGER`                          | `number`           |
+| Proven `toBoolean()` output                                          | `boolean`                                   | `BOOLEAN`                                   | `boolean`          |
+| Proven `parseBoolean()` output                                       | `boolean`                                   | `BOOLEAN`                                   | `boolean`          |
+| Proven `toString()` output                                           | `text`                                      | `TEXT`                                      | `string`           |
+| Object, array, record output                                         | `jsonb`                                     | `JSON`                                      | structured value   |
+| Compatible same-output unions, variants, and intersections           | widened by output family                    | widened compatible storage                  | shared output type |
+| Incompatible output identities, such as Date/string or number/bigint | requires explicit storage and both mappings | requires explicit storage and both mappings | custom mapped type |
+| String / number / bigint choices                                     | see choice rules below                      | `TEXT` / `INTEGER` or `REAL` / `BIGINT`     | choice primitive   |
+| Boolean choices                                                      | `boolean`                                   | `BOOLEAN`                                   | `boolean`          |
+
+Pipeline actions such as `maxLength`, `integer`, the six ISO format validators, and
+known conversions refine an input schema or its output. Enum and picklist constructors
+are schemas; their actual options determine storage and output.
+
+PostgreSQL `numeric` does not convert a number schema's values automatically.
+Numeric strings remain strings by default. A bigint output stored as PostgreSQL
+`numeric` is returned as an integer-valued `bigint` exactly; a number output stored
+as PostgreSQL `bigint` converts only within JavaScript's safe integer range and
+otherwise raises `QueryError`. SQLite requires finite numbers and safe integral
+JavaScript numbers, and limits bigint values to signed 64-bit range. SQLite `NUMERIC`
+affinity does not provide arbitrary precision.
+
+SQLite keeps UUID, IP, MAC, decimal, and ISO temporal strings as `TEXT` with their
+authored spelling. PostgreSQL native UUID, network, MAC, numeric, and temporal storage
+can canonicalize or otherwise change string spelling. Its ISO temporal types preserve local
+wall fields and supported precision within engine limits: PostgreSQL keeps at most six
+fractional digits, JavaScript `Date` keeps milliseconds, and minute/second mapper pairs
+reject finer nonzero precision. `timestamptz` instant spelling may change with the
+session time zone.
+
+| Valibot schema                     | Insert omission                                                       | SQL NULL allowed              |
+| ---------------------------------- | --------------------------------------------------------------------- | ----------------------------- |
+| `optional(x)` / `exactOptional(x)` | yes                                                                   | follows `x`                   |
+| `undefinedable(x)`                 | no; the required insert value cannot be omitted or set to `undefined` | follows `x`                   |
+| `nullable(x)`                      | follows `x`                                                           | yes                           |
+| `nullish(x)`                       | yes                                                                   | yes                           |
+| `nonOptional(x)`                   | no                                                                    | follows nullable state of `x` |
+| `nonNullable(x)`                   | no                                                                    | no                            |
+| `nonNullish(x)`                    | no                                                                    | no                            |
+| `union([x, null()])`               | no                                                                    | yes                           |
+
+Wrappers reduce from the inside out. `optional` and `exactOptional` add omission while
+preserving nullability; `undefinedable` removes omission, allows undefined in the
+wrapped schema, and preserves nullability; `nullable` adds SQL NULL while preserving
+omission; and `nullish` adds both. Schema analysis records `allowsUndefined` for both
+`optional` and `exactOptional`, but an explicitly present `undefined` with
+`exactOptional(x)` is still checked by `x` during Valibot validation. The `non*`
+wrappers remove the named permission: `nonOptional` removes omission and `undefined`,
+`nonNullable` removes SQL NULL and omission while retaining whether `undefined` is
+allowed, and `nonNullish` removes omission, `undefined`, and SQL NULL. A bare null-union
+is nullable but remains required on insert. Omittable `NOT NULL` columns need a
+non-null application default, database default, or generated value in both dialects.
+`undefinedable` alone does not make a required field omittable; accepting `undefined`
+is not enough to satisfy a missing insert field.
+
+`InferSelect`, selected-column result types, `InferInsert`, and `InferUpdate` follow
+Valibot `InferOutput`/`InferInput` plus SQL nullability, omission, defaults, and
+generation rules. A selected or returned column uses its mapped output type.
 
 For PostgreSQL strings, a selected `physicalType.postgresql` override wins first.
-Otherwise, the format validators above select native storage before `minLength`,
-`maxLength`, or `length` can select length-based storage. The length validators still run.
+Otherwise, a recognized format selects native storage before `minLength`, `maxLength`,
+or `length` can select length-based storage. Strings without a recognized format use
+`varchar(n)` through a maximum length of 255 and `text` above that length; the length
+validators still run.
 Format inference works through `optional`, `exactOptional`, `undefinedable`,
 `nullable`, `nullish`, `nonOptional`, `nonNullable`, and `nonNullish`, including
 nested pipes. A reference inherits the target column's selected physical type,
@@ -266,9 +327,6 @@ can also change spelling, including IPv6 compression and MAC case or separators.
 `macaddr8` expands a six-byte MAC address to eight bytes.
 Decimal-validated `numeric` values remain JavaScript strings by default, preserving
 precision without conversion to JS numbers. PostgreSQL can remove leading decimal zeros.
-SQLite stores UUID, IP, MAC, and decimal strings and references as `TEXT` unless
-its own physical type is selected explicitly. It preserves exact string spelling,
-including leading and trailing decimal zeros.
 
 Existing PostgreSQL `text` or `varchar` columns with these validators now request
 native storage. Pin their current storage with a selected `physicalType.postgresql`
@@ -282,17 +340,31 @@ constraint and bounds justify it. PostgreSQL uses `numeric` for an unbounded
 `bigint()` schema; two bounds within signed 64-bit range allow `bigint` storage.
 Known Valibot conversions such as `toNumber()`, `toBoolean()`, `parseBoolean()`,
 `toDate()`, and `toString()` select storage from their output. Pipeline analysis
-follows transformations in order. For example, `pipe(string(), toNumber())`
-accepts a string on insert and returns a number on select:
+follows transformations in order. This PostgreSQL example accepts a string on insert
+and returns a number on select:
 
 ```typescript
+import postgresql from 'db0/connectors/postgresql'
+import { createDatabase, defineTable } from 'stratom'
+import { number, pipe, string, toNumber } from 'valibot'
+
 const Count = defineTable(
   'counts',
-  { value: pipe(string(), toNumber()) },
-  { primaryKey: 'value' },
+  {
+    id: number(),
+    value: pipe(string(), toNumber()),
+  },
+  { primaryKey: 'id' },
 )
-await db.insert(Count).values({ value: '42' }).execute()
+const db = createDatabase({
+  connector: postgresql({ url: process.env.DATABASE_URL! }),
+  schemas: [Count],
+})
+await db.migrate().execute()
+await db.insert(Count).values({ id: 1, value: '42' }).execute()
 const row = await db.from(Count).executeTakeFirstOrThrow() // row.value is 42
+console.log(row.value)
+await db.close()
 ```
 
 `parseJson()` needs a following supported structured schema, such as
@@ -334,8 +406,9 @@ choice returns a JavaScript number only while it remains safe. Bigint choices
 return JavaScript bigints from either `bigint` or `numeric` storage, including
 values outside signed int64 in `numeric`. Mixed or unsupported choice outputs
 require `column({ physicalType: { postgresql: '...' } })`. PostgreSQL does not
-create native ENUM types. SQLite keeps its own INTEGER, REAL, and BIGINT choice
-rules and rejects bigint choices outside signed int64.
+create native ENUM types. Numeric TypeScript enum reverse-mapping entries are
+filtered before storage is inferred. SQLite keeps its own INTEGER, REAL, and BIGINT
+choice rules and rejects bigint choices outside signed int64.
 
 Use `physicalType` when you need exact
 adapter-selected storage and tagged database defaults/generation when database
@@ -446,10 +519,10 @@ Valibot defaults, such as `optional(string(), 'new')`, are application defaults
 applied during validation. They are not database defaults and do not satisfy a
 foreign key using `SET DEFAULT`.
 
-An `optional(x)` column is still `NOT NULL` in PostgreSQL. It must declare a
-non-null `column({ databaseDefault })`, use identity generation, or provide a Valibot
-optional default so every insert has a value. Use `nullable(x)` or `nullish(x)`
-when the stored value itself may be `NULL`.
+Wrapping a non-nullable `x` in `optional(x)` keeps the column `NOT NULL` in both
+dialects. It needs a non-null `column({ databaseDefault })`, identity generation, or
+a Valibot optional default so every insert has a value. Use `nullable(x)` or
+`nullish(x)` when the stored value itself may be `NULL`.
 
 ## Relations
 

@@ -100,6 +100,58 @@ Do not copy the graph algorithm into a member or widen `DialectSchema` with thes
 default, generation, or reference forms fail with `MigrationError`; they never degrade
 to a convenient PostgreSQL or text default.
 
+Schema analysis in `src/schemas/utils/analyzeSchema.ts` is shared and reports logical
+facts such as effective output kind, constraints, formats, wrappers, transformations,
+and composite branches. It does not choose physical storage. The member-owned
+`src/dialects/postgres/infer.ts` and `src/dialects/sqlite/infer.ts` select that storage;
+the corresponding `mapping.ts` files map query parameters and results while preserving
+the proven JavaScript output. `postgresDialect.schema.inferColumnType()` and
+`sqliteDialect.schema.inferColumnType()` are the direct inference entry points. The
+public package exports both complete dialect constants from `stratom`; it does not
+export the implementation helpers. Keep `schema.ts` as the facet assembly point and
+`lowerDesiredSchema.ts` as each member's desired-graph lowering owner. The README
+inference reference and the PostgreSQL and SQLite production profiles below describe
+the shipped formats, transforms, composites, numeric limits, and output mappings.
+
+Column wrappers track three separate permissions: omission on insert, JavaScript
+`undefined`, and SQL `NULL`. Analysis reduces nested wrappers from the inside out:
+
+| Wrapper                      | Insert omission | `allowsUndefined` analysis fact | SQL `NULL` |
+| ---------------------------- | --------------- | ------------------------------- | ---------- |
+| `optional` / `exactOptional` | added           | added                           | unchanged  |
+| `undefinedable`              | removed         | allowed                         | unchanged  |
+| `nullable`                   | unchanged       | unchanged                       | added      |
+| `nullish`                    | added           | added                           | added      |
+| `nonOptional`                | removed         | removed                         | unchanged  |
+| `nonNullable`                | removed         | unchanged                       | removed    |
+| `nonNullish`                 | removed         | removed                         | removed    |
+
+An outer wrapper changes the permissions left by its inner schema. `allowsUndefined`
+is an analysis fact; Valibot still validates an explicitly supplied value. In
+particular, `exactOptional(x)` permits omission but sends an explicit `undefined`
+through `x`, which can reject it. A bare union with `null()` is SQL-nullable but
+required on insert. Omission alone does not make a column nullable. An omittable
+`NOT NULL` column needs a non-null application default, database default, identity, or
+other generated value. `undefinedable` does not make a required field omittable, and
+an explicit `undefined` does not satisfy that insert field.
+
+`InferSelect`, selected-column results, `InferInsert`, and `InferUpdate` follow
+Valibot `InferOutput` and `InferInput` together with SQL nullability, omission,
+defaults, and generation rules in `src/types/views.ts`.
+
+Portable table structure and omission/default rules are checked by `defineTable()`;
+this does not infer dialect storage. Direct `schema.inferColumnType()` and invalid
+client mapping configuration fail with `SchemaError`. When desired-graph lowering
+cannot select or lower a member's storage, the migration planning boundary reports
+`MigrationError` with the original expected schema failure as its cause. Unexpected
+defects retain their identity except at an execution boundary that must add stage and
+database outcome, as described by ADR 0003. Inferred storage changes can add a type
+change to the Migration Plan. After a supported Migration Plan executes, re-introspect
+the catalog and build the next plan in the same Semantic Profile; it should contain no
+steps when the observed catalog matches the desired schema. PostgreSQL does not add
+automatic casts for legacy data, and SQLite rejects conversions its affinity rules
+cannot prove lossless, so this convergence does not promise arbitrary data conversion.
+
 ### Query compilation and values
 
 The complete Query facet is intentionally small:
