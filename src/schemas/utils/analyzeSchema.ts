@@ -86,6 +86,34 @@ export interface SchemaAnalysis {
   nullOnly: boolean
 }
 
+/** Adds enclosing numeric constraints while retaining branch-specific facts. */
+export function withNumberConstraints(
+  analysis: SchemaAnalysis,
+  outer: NumberConstraints,
+): SchemaAnalysis {
+  const numberConstraints = { ...analysis.numberConstraints }
+
+  if (outer.minValue !== undefined)
+    numberConstraints.minValue = Math.max(
+      numberConstraints.minValue ?? -Infinity,
+      outer.minValue,
+    )
+
+  if (outer.maxValue !== undefined)
+    numberConstraints.maxValue = Math.min(
+      numberConstraints.maxValue ?? Infinity,
+      outer.maxValue,
+    )
+
+  if (outer.isInteger) numberConstraints.isInteger = true
+  if (outer.isSafeInteger) numberConstraints.isSafeInteger = true
+
+  return {
+    ...analysis,
+    numberConstraints,
+  }
+}
+
 /** Checks whether a runtime value exposes the Valibot schema contract. */
 function isSchema(value: unknown): value is AnySchema {
   return typeof value === 'object' && value !== null && 'kind' in value

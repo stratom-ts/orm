@@ -22,6 +22,7 @@ import {
   mac48,
   mac64,
   maxLength,
+  maxValue,
   minLength,
   minValue,
   nonNullable,
@@ -37,6 +38,7 @@ import {
   parseJson,
   picklist,
   pipe,
+  safeInteger,
   string,
   toBoolean,
   toDate,
@@ -76,6 +78,30 @@ describe('SQLite schema', () => {
     ).toBe('TEXT')
   })
 
+  it('should apply outer constraints through nested numeric composites', () => {
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          union([
+            union([pipe(number(), integer()), pipe(number(), integer())]),
+            number(),
+          ]),
+          safeInteger(),
+        ),
+      ),
+    ).toBe('INTEGER')
+  })
+
+  it('should use outer integer bounds for numeric composite storage', () => {
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(union([number(), number()]), integer(), minValue(0), maxValue(100)),
+      ),
+    ).toBe('INTEGER')
+  })
+})
+
+describe('SQLite schema', () => {
   it('should infer JSON variants and object intersections', () => {
     const schema = variant('kind', [
       object({ kind: literal('a'), value: string() }),
@@ -98,6 +124,7 @@ describe('SQLite schema', () => {
       union([date(), string()]),
       intersect([string(), number()]),
       union([literal(Number.MAX_SAFE_INTEGER + 1), number()]),
+      pipe(union([literal(Number.MAX_SAFE_INTEGER + 1), number()]), safeInteger()),
     ])
       expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
   })

@@ -9,11 +9,13 @@ import type {
 import {
   decimal,
   enum as enumSchema,
+  integer,
   ip,
-  literal,
   mac48,
   mac64,
   maxLength,
+  maxValue,
+  minValue,
   null as nullSchema,
   nullable,
   number,
@@ -48,7 +50,7 @@ describe('PostgreSQL desired schema', () => {
     const Parent = defineTable(
       'composite_parent',
       {
-        id: union([literal('one'), literal('two')]),
+        id: pipe(union([number(), number()]), integer(), minValue(0), maxValue(100)),
         value: pipe(
           union([string(), nullSchema()]),
           column({ physicalType: { postgresql: 'varchar(20)', sqlite: 'BLOB' } }),
@@ -81,12 +83,16 @@ describe('PostgreSQL desired schema', () => {
     )!
 
     expect(
+      parent.columns.find((column) => column.identifier.spelling === 'id'),
+    ).toMatchObject({ dataType: 'smallint', notNull: true })
+
+    expect(
       parent.columns.find((column) => column.identifier.spelling === 'value'),
     ).toMatchObject({ dataType: 'varchar(20)', notNull: false })
 
     expect(
       child.columns.find((column) => column.identifier.spelling === 'parentId'),
-    ).toMatchObject({ dataType: 'text', notNull: true })
+    ).toMatchObject({ dataType: 'smallint', notNull: true })
   })
 })
 

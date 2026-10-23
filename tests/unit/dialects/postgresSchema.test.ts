@@ -135,6 +135,50 @@ describe('PostgreSQL schema', () => {
   })
 })
 
+describe('PostgreSQL numeric composite schema', () => {
+  it('should apply outer numeric constraints to compatible branches', () => {
+    expect(
+      inferColumnType(
+        pipe(
+          union([pipe(number(), integer()), pipe(number(), integer())]),
+          safeInteger(),
+        ),
+      ),
+    ).toBe('bigint')
+
+    expect(
+      inferColumnType(
+        pipe(
+          union([
+            union([pipe(number(), integer()), pipe(number(), integer())]),
+            pipe(number(), integer()),
+          ]),
+          safeInteger(),
+        ),
+      ),
+    ).toBe('bigint')
+
+    expect(
+      inferColumnType(
+        pipe(union([number(), number()]), integer(), minValue(0), maxValue(100)),
+      ),
+    ).toBe('smallint')
+
+    expect(
+      inferColumnType(
+        pipe(
+          union([
+            pipe(number(), integer(), minValue(-100), maxValue(100)),
+            pipe(number(), integer(), minValue(-100), maxValue(100)),
+          ]),
+          minValue(-100000),
+          maxValue(100000),
+        ),
+      ),
+    ).toBe('smallint')
+  })
+})
+
 describe('PostgreSQL schema', () => {
   it('should infer JSON variants and object intersections', () => {
     const schema = variant('kind', [
