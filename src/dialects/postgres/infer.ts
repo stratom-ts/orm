@@ -94,10 +94,24 @@ function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
 function inferPostgresLiteralType(literal: Literal) {
   if (typeof literal === 'string') return 'text'
 
-  if (typeof literal === 'number')
-    return Number.isInteger(literal) ? 'integer' : 'double precision'
+  if (typeof literal === 'number') {
+    if (
+      !Number.isFinite(literal) ||
+      (Number.isInteger(literal) && !Number.isSafeInteger(literal))
+    )
+      throw new SchemaError({
+        message: 'cannot infer PostgreSQL storage for an unsafe number literal',
+      })
+
+    if (!Number.isInteger(literal)) return 'double precision'
+
+    return literal < INT32_MIN || literal > INT32_MAX ? 'bigint' : 'integer'
+  }
 
   if (typeof literal === 'boolean') return 'boolean'
+
+  if (typeof literal === 'bigint')
+    return literal < INT64_MIN || literal > INT64_MAX ? 'numeric' : 'bigint'
 
   return 'text'
 }
@@ -198,6 +212,8 @@ export function inferPostgresColumnType(
 }
 
 function inferEffectivePostgresType(analysis: SchemaAnalysis): SqlDataType | undefined {
+  if (analysis.composite) return inferPostgresCompositeType(analysis)
+
   const schema = analysis.outputSchema
 
   if (schema?.type === 'literal')
@@ -235,6 +251,144 @@ function inferEffectivePostgresType(analysis: SchemaAnalysis): SqlDataType | und
     case undefined:
       return undefined
   }
+}
+
+/** Widens compatible branch storage without changing the output family. */
+function inferPostgresCompositeType(analysis: SchemaAnalysis): SqlDataType {
+  const composite = analysis.composite!
+  const branches = composite.branches.filter((branch) => !branch.nullOnly)
+  const kind = analysis.outputKind
+
+  if (
+    !branches.length ||
+    !kind ||
+    (composite.type === 'intersect' && branches.length !== composite.branches.length)
+  )
+    return unsupportedCompositeType(composite.type)
+
+  const types = branches.map((branch) => inferEffectivePostgresType(branch))
+
+  if (types.some((type) => !type)) return unsupportedCompositeType(composite.type)
+
+  const storage = types as SqlDataType[]
+  const inferred =
+    kind === 'string'
+      ? inferPostgresCompositeStringType(analysis, branches, storage)
+      : kind === 'number'
+        ? inferPostgresCompositeNumberType(branches, storage)
+        : kind === 'bigint' &&
+            storage.every((type) => type === 'bigint' || type === 'numeric')
+          ? storage.includes('numeric')
+            ? 'numeric'
+            : 'bigint'
+          : storage.every((type) => type === storage[0])
+            ? storage[0]
+            : undefined
+
+  return inferred ?? unsupportedCompositeType(composite.type)
+}
+
+function isPostgresTextStorage(type: SqlDataType): boolean {
+  return type === 'text' || /^varchar\(\d+\)$/.test(type)
+}
+
+/** Keeps one result format for every string branch before widening its width. */
+function inferPostgresCompositeStringType(
+  analysis: SchemaAnalysis,
+  branches: readonly SchemaAnalysis[],
+  types: readonly SqlDataType[],
+): SqlDataType | undefined {
+  const outerFormat = inferPostgresFormatType(analysis)
+  const allText = types.every(isPostgresTextStorage)
+
+  if (outerFormat && allText) return outerFormat
+
+  if (types.every((type) => type === types[0])) {
+    const type = types[0]!
+    const formats = [...branches[0]!.stringFormats].sort().join(',')
+
+    if (
+      (type === 'time' || type === 'timestamp') &&
+      branches.some((branch) => [...branch.stringFormats].sort().join(',') !== formats)
+    )
+      return undefined
+
+    if (outerFormat && outerFormat !== type) return undefined
+
+    if (allText && analysis.stringConstraints.maxLength !== undefined)
+      return inferPostgresStringType(analysis.stringConstraints)
+
+    return type
+  }
+
+  if (!allText) return undefined
+
+  if (analysis.stringConstraints.maxLength !== undefined)
+    return inferPostgresStringType(analysis.stringConstraints)
+
+  if (types.includes('text')) return 'text'
+
+  return `varchar(${Math.max(...types.map((type) => Number(type.match(/\d+/)![0])))})`
+}
+
+function isSafePostgresNumberBranch(branch: SchemaAnalysis): boolean {
+  const { minValue, maxValue, isSafeInteger } = branch.numberConstraints
+
+  if (isSafeInteger) return true
+
+  if (
+    minValue !== undefined &&
+    maxValue !== undefined &&
+    minValue >= Number.MIN_SAFE_INTEGER &&
+    maxValue <= Number.MAX_SAFE_INTEGER
+  )
+    return true
+
+  if (branch.composite) {
+    const members = branch.composite.branches.filter((member) => !member.nullOnly)
+    return members.length > 0 && members.every(isSafePostgresNumberBranch)
+  }
+
+  const literal = (branch.outputSchema as (AnySchema & { literal?: unknown }) | undefined)
+    ?.literal
+
+  if (typeof literal === 'number' && Number.isSafeInteger(literal)) return true
+
+  const options = (
+    branch.outputSchema as (AnySchema & { options?: unknown[] }) | undefined
+  )?.options
+
+  return (
+    Array.isArray(options) &&
+    options.every((value) => typeof value === 'number' && Number.isSafeInteger(value))
+  )
+}
+
+/** Promotes integer widths, and uses doubles only for safe integer branches. */
+function inferPostgresCompositeNumberType(
+  branches: readonly SchemaAnalysis[],
+  types: readonly SqlDataType[],
+): SqlDataType | undefined {
+  const integers = ['smallint', 'integer', 'bigint']
+
+  if (types.every((type) => integers.includes(type)))
+    return integers[Math.max(...types.map((type) => integers.indexOf(type)))]!
+
+  if (
+    types.every((type) => integers.includes(type) || type === 'double precision') &&
+    branches.every(
+      (branch, index) => types[index] !== 'bigint' || isSafePostgresNumberBranch(branch),
+    )
+  )
+    return 'double precision'
+
+  return undefined
+}
+
+function unsupportedCompositeType(type: string): never {
+  throw new SchemaError({
+    message: `cannot infer a SQL column type for incompatible PostgreSQL ${type} branches; provide explicit physical type and parameter and result mappings`,
+  })
 }
 
 function inferPostgresNumberOutputType(constraints: NumberConstraints): SqlDataType {

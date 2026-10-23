@@ -5,7 +5,7 @@ import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
-import { inferSqliteChoiceType } from './infer'
+import { inferSqliteChoiceType, inferSqliteColumnType } from './infer'
 import { normalizeSqliteDataType } from './normalize'
 import {
   isSqliteSafeInteger,
@@ -23,6 +23,9 @@ export function validateSqliteValueMapping(
   const kind = analysis.outputKind
   const authored = context.authoredSchema && analyzeSchema(context.authoredSchema)
   const incompatibleAuthoredOutput = authored && authored.outputKind !== kind
+
+  validateSqliteCompositeMapping(context, analysis, authored)
+
   const supported =
     kind === 'date' ||
     kind === 'json' ||
@@ -38,12 +41,24 @@ export function validateSqliteValueMapping(
   }
 }
 
+function validateSqliteCompositeMapping(
+  context: DialectValueMappingContext,
+  analysis: ReturnType<typeof analyzeSchema>,
+  authored: ReturnType<typeof analyzeSchema> | undefined,
+): void {
+  if (analysis.composite) inferSqliteColumnType(context.schema, analysis)
+  if (authored?.composite) inferSqliteColumnType(context.authoredSchema!, authored)
+}
+
 /** Resolves logical value semantics independently of physical storage overrides. */
 function mappingType(dataType: string, context?: DialectValueMappingContext): string {
   if (!context) return declaredType(dataType)
 
   validateSqliteValueMapping(dataType, context)
   const analysis = analyzeSchema(context.schema)
+
+  if (analysis.composite) return inferSqliteColumnType(context.schema, analysis)
+
   switch (analysis.outputKind) {
     case 'string':
       return 'TEXT'

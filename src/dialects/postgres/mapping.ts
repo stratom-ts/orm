@@ -4,6 +4,7 @@ import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
+import { inferPostgresColumnType } from './infer'
 import { extractPostgresBaseType } from './normalize'
 
 const BIGINT_OUTPUT_STORAGE = new Set([
@@ -140,13 +141,18 @@ function mapTemporalResult(
 
 /** Rejects reference outputs that built-in target mapping cannot preserve. */
 export function validatePostgresValueMapping(
-  _dataType: string,
+  dataType: string,
   context: DialectValueMappingContext,
 ): void {
+  const target = analyzeSchema(context.schema)
+
+  validatePostgresCompositeMapping(dataType, context.schema, target)
+
   if (!context.authoredSchema) return
 
-  const target = analyzeSchema(context.schema)
   const authored = analyzeSchema(context.authoredSchema)
+
+  validatePostgresCompositeMapping(dataType, context.authoredSchema, authored)
 
   if (authored.outputKind !== target.outputKind) {
     throw new SchemaError({
@@ -154,6 +160,46 @@ export function validatePostgresValueMapping(
         'PostgreSQL reference transformations must preserve the resolved target output kind or provide explicit parameter and result mappings',
     })
   }
+}
+
+function validatePostgresCompositeMapping(
+  dataType: string,
+  schema: DialectValueMappingContext['schema'],
+  analysis: SchemaAnalysis,
+): void {
+  if (!analysis.composite) return
+
+  const base = extractPostgresBaseType(dataType)
+
+  if (analysis.outputKind === 'string' && (base === 'text' || base === 'varchar')) return
+
+  const inferred = extractPostgresBaseType(inferPostgresColumnType(schema, analysis))
+  const kind = analysis.outputKind
+  const compatible =
+    kind === 'number'
+      ? isPostgresCompositeNumberStorage(inferred, base)
+      : kind === 'bigint'
+        ? base === 'numeric' ||
+          base === 'decimal' ||
+          (inferred === 'bigint' && base === 'bigint')
+        : kind === 'json'
+          ? base === 'json' || base === 'jsonb'
+          : base === inferred
+
+  if (!compatible)
+    throw new SchemaError({
+      message: `PostgreSQL ${kind ?? 'unknown'} composite with ${JSON.stringify(dataType)} requires explicit parameter and result mappings`,
+    })
+}
+
+function isPostgresCompositeNumberStorage(inferred: string, selected: string): boolean {
+  const widths = ['smallint', 'integer', 'bigint']
+  const minimum = widths.indexOf(inferred)
+
+  if (minimum < 0) return selected === inferred
+  if (selected === 'double precision') return inferred !== 'bigint'
+
+  return widths.indexOf(selected) >= minimum
 }
 
 function numericMappingError(): never {

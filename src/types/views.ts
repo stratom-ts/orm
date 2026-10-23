@@ -99,7 +99,7 @@ type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }
           ? IsOptionalSchema<W>
           : false
 
-/** SQL NULL-capable: nullable / nullish only (not plain optional). */
+/** SQL NULL-capable after wrappers and effective composite output. */
 type IsSqlNullableSchema<S> = S extends { kind: 'schema'; type: 'nullable' }
   ? true
   : S extends { kind: 'schema'; type: 'nullish' }
@@ -112,7 +112,16 @@ type IsSqlNullableSchema<S> = S extends { kind: 'schema'; type: 'nullable' }
             wrapped: infer W
           }
         ? IsSqlNullableSchema<W>
-        : false
+        : S extends {
+              kind: 'schema'
+              type: 'union' | 'variant' | 'intersect' | 'null' | 'literal'
+            }
+          ? S extends AnySchema
+            ? null extends InferOutput<S>
+              ? true
+              : false
+            : false
+          : false
 
 type IsInsertOptional<S> =
   IsGeneratedAlways<S> extends true

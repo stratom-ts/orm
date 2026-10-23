@@ -7,6 +7,7 @@ import {
   email,
   enum as enumSchema,
   exactOptional,
+  intersect,
   ip,
   ipv4,
   ipv6,
@@ -17,6 +18,7 @@ import {
   isoTimeSecond,
   isoTimestamp,
   length,
+  literal,
   mac,
   mac48,
   mac64,
@@ -27,6 +29,7 @@ import {
   nonNullable,
   nonNullish,
   nonOptional,
+  null as nullSchema,
   nullable,
   nullish,
   number,
@@ -46,6 +49,7 @@ import {
   undefinedable,
   union,
   uuid,
+  variant,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -309,6 +313,84 @@ describe('analyzeSchema: reports every supported scalar and JSON-shaped output f
 
   it('should leave unsupported mixed-output schemas unclassified', () => {
     expect(analyzeSchema(union([string(), number()])).outputKind).toBeUndefined()
+  })
+})
+
+describe('analyzeSchema composites', () => {
+  it('should derive nullable storage branches without making null an insert omission', () => {
+    const schema = union([
+      union([nullSchema(), literal(null as never)]),
+      pipe(string(), maxLength(12)),
+    ])
+
+    const analysis = analyzeSchema(schema)
+
+    expect(analysis).toMatchObject({
+      outputKind: 'string',
+      nullable: true,
+      omitOnInsert: false,
+    })
+
+    expect(analysis.composite?.branches[0]?.nullOnly).toBe(true)
+    expect(analysis.composite?.branches[1]?.stringConstraints.maxLength).toBe(12)
+    expect(analyzeSchema(nonNullable(schema)).nullable).toBe(false)
+  })
+
+  it('should require an outer wrapper for insert omission and retain its default', () => {
+    const schema = union([optional(string(), 'fallback'), string()])
+    expect(analyzeSchema(schema)).toMatchObject({
+      outputKind: 'string',
+      allowsUndefined: true,
+      omitOnInsert: false,
+    })
+
+    expect(analyzeSchema(optional(schema, 'outer'))).toMatchObject({
+      omitOnInsert: true,
+      schemaDefault: 'outer',
+    })
+
+    expect(safeParse(schema, undefined).output).toBe('fallback')
+  })
+
+  it('should clear nullability when a known conversion produces a non-null output', () => {
+    const schema = pipe(union([string(), nullSchema()]), toString())
+    expect(analyzeSchema(schema)).toMatchObject({ outputKind: 'string', nullable: false })
+    expect(safeParse(schema, null).output).toBe('null')
+  })
+})
+
+describe('analyzeSchema composites', () => {
+  it('should retain nested variant and intersect output facts and clear them after conversion', () => {
+    const choice = variant('kind', [
+      object({ kind: literal('a'), value: string() }),
+      variant('kind', [object({ kind: literal('b'), value: number() })]),
+    ])
+
+    const merged = intersect([object({ name: string() }), object({ age: number() })])
+
+    expect(analyzeSchema(choice).outputKind).toBe('json')
+    expect(analyzeSchema(merged).composite?.type).toBe('intersect')
+
+    expect(
+      analyzeSchema(pipe(union([string(), string()]), maxLength(20))).stringConstraints
+        .maxLength,
+    ).toBe(20)
+
+    expect(
+      analyzeSchema(pipe(union([string(), string()]), toNumber())).composite,
+    ).toBeUndefined()
+
+    expect(
+      analyzeSchema(pipe(union([string(), string()]), toNumber(), number())).composite,
+    ).toBeUndefined()
+  })
+
+  it('should leave mixed or unknown branch outputs unclassified', () => {
+    expect(analyzeSchema(union([string(), number()])).outputKind).toBeUndefined()
+
+    expect(
+      analyzeSchema(union([string(), pipe(string(), transform(Number))])).outputKind,
+    ).toBeUndefined()
   })
 })
 

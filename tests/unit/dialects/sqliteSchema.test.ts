@@ -1,10 +1,12 @@
 import {
+  bigint,
   boolean,
   date,
   decimal,
   enum as enumSchema,
   exactOptional,
   integer,
+  intersect,
   ip,
   ipv4,
   ipv6,
@@ -25,6 +27,7 @@ import {
   nonNullable,
   nonNullish,
   nonOptional,
+  null as nullSchema,
   nullable,
   nullish,
   number,
@@ -40,13 +43,65 @@ import {
   toString,
   transform,
   undefinedable,
+  union,
   uuid,
+  variant,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
+
+describe('SQLite schema', () => {
+  it('should infer compatible composite logical storage', () => {
+    expect(
+      sqliteSchema.inferColumnType(union([pipe(number(), integer()), number()])),
+    ).toBe('REAL')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        union([pipe(number(), integer()), pipe(number(), integer())]),
+      ),
+    ).toBe('INTEGER')
+
+    expect(sqliteSchema.inferColumnType(union([string(), literal('a')]))).toBe('TEXT')
+    expect(sqliteSchema.inferColumnType(union([bigint(), literal(42n)]))).toBe('BIGINT')
+    expect(sqliteSchema.inferColumnType(union([date(), date()]))).toBe('DATETIME')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        union([union([nullSchema(), literal(null as never)]), string()]),
+      ),
+    ).toBe('TEXT')
+  })
+
+  it('should infer JSON variants and object intersections', () => {
+    const schema = variant('kind', [
+      object({ kind: literal('a'), value: string() }),
+      variant('kind', [object({ kind: literal('b'), value: number() })]),
+    ])
+
+    expect(sqliteSchema.inferColumnType(schema)).toBe('JSON')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        intersect([object({ a: string() }), object({ b: number() })]),
+      ),
+    ).toBe('JSON')
+  })
+
+  it('should reject composite branches with incompatible JavaScript output', () => {
+    for (const schema of [
+      union([string(), number()]),
+      union([number(), bigint()]),
+      union([date(), string()]),
+      intersect([string(), number()]),
+      union([literal(Number.MAX_SAFE_INTEGER + 1), number()]),
+    ])
+      expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
+  })
+})
 
 describe('SQLite schema', () => {
   it.each([

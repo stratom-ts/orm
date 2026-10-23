@@ -3,11 +3,13 @@ import {
   date,
   literal,
   nonNullable,
+  null as nullSchema,
   nullable,
   number,
   optional,
   pipe,
   string,
+  union,
   uuid,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
@@ -27,6 +29,48 @@ const context = {
 function identities() {
   return sqliteIdentity.create({ context })
 }
+
+describe('SQLite desired schema', () => {
+  it('should lower composite nullability, selected override, and inherited reference storage', () => {
+    const Parent = defineTable(
+      'composite_parent',
+      {
+        id: union([literal('one'), literal('two')]),
+        value: pipe(
+          union([string(), nullSchema()]),
+          column({ physicalType: { postgresql: 'varchar(20)', sqlite: 'TEXT' } }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'composite_child',
+      {
+        id: string(),
+        parentId: reference(Parent, 'id'),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const tables = lowerDesiredSchema([Child, Parent], identities(), sqliteSchema).tables
+    const parent = tables.find(
+      (table) => table.identity.relation.spelling === 'composite_parent',
+    )!
+
+    const child = tables.find(
+      (table) => table.identity.relation.spelling === 'composite_child',
+    )!
+
+    expect(
+      parent.columns.find((column) => column.identifier.spelling === 'value'),
+    ).toMatchObject({ dataType: 'TEXT', notNull: false })
+
+    expect(
+      child.columns.find((column) => column.identifier.spelling === 'parentId'),
+    ).toMatchObject({ dataType: 'TEXT', notNull: true })
+  })
+})
 
 describe('SQLite desired schema', () => {
   it('should retain TEXT for UUID validation, wrappers, references, and PostgreSQL-only overrides', () => {

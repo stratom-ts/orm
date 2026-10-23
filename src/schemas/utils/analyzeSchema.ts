@@ -77,6 +77,13 @@ export interface SchemaAnalysis {
   bigintConstraints: { minValue?: bigint; maxValue?: bigint }
   /** Whether the ordered pipeline still has an unresolved output. */
   unresolvedTransformation: boolean
+  /** Analyzed alternatives or intersected operands of the effective output. */
+  composite?: {
+    type: 'union' | 'variant' | 'intersect'
+    branches: readonly SchemaAnalysis[]
+  }
+  /** This branch produces only null and requires no physical storage of its own. */
+  nullOnly: boolean
 }
 
 /** Checks whether a runtime value exposes the Valibot schema contract. */
@@ -224,6 +231,8 @@ type PipeAction = { kind?: string; type: string; requirement?: number | bigint }
 
 function resetOutputFacts(result: RecursiveAnalysis): void {
   result.outputSchema = undefined
+  result.composite = undefined
+  result.nullOnly = false
   result.stringConstraints = {}
   result.numberConstraints = {}
   result.bigintConstraints = {}
@@ -236,6 +245,8 @@ function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
   Object.assign(result, {
     outputKind: facts.outputKind,
     outputSchema: facts.outputSchema,
+    composite: facts.composite,
+    nullOnly: facts.nullOnly,
     stringConstraints: { ...facts.stringConstraints },
     numberConstraints: { ...facts.numberConstraints },
     bigintConstraints: { ...facts.bigintConstraints },
@@ -258,6 +269,9 @@ function applyTransformation(result: RecursiveAnalysis, action: PipeAction): voi
 
   result.outputKind = conversions[action.type]
   result.unresolvedTransformation = result.outputKind === undefined
+
+  if (!result.unresolvedTransformation) result.nullable = false
+
   resetOutputFacts(result)
 }
 
@@ -362,13 +376,84 @@ function applyPipeActions(result: RecursiveAnalysis, actions: readonly unknown[]
   }
 }
 
-/**
- * Collects storage and validation facts without losing wrapper semantics.
- *
- * @param schema - Valibot schema used to read validation, storage, and metadata facts.
- *
- * @returns Storage and insert-omission facts derived from this schema node.
- */
+/** Builds the effective facts for a leaf or composite schema. */
+function analyzeLeaf(schema: AnySchema): RecursiveAnalysis {
+  const nullOnly =
+    schema.type === 'null' ||
+    (schema.type === 'literal' &&
+      (schema as AnySchema & { literal?: unknown }).literal === null)
+
+  const result: RecursiveAnalysis = {
+    baseSchema: schema,
+    unwrappedSchema: schema,
+    nullable: nullOnly,
+    allowsUndefined: false,
+    omitOnInsert: false,
+    stringConstraints: {},
+    stringFormats: [],
+    numberConstraints: {},
+    bigintConstraints: {},
+    unresolvedTransformation: false,
+    schemaDefault: undefined,
+    outputKind: outputKind(schema),
+    outputSchema: schema,
+    nullOnly,
+  }
+
+  if (schema.type === 'union' || schema.type === 'variant' || schema.type === 'intersect')
+    applyCompositeFacts(schema, result)
+
+  return result
+}
+
+function applyCompositeFacts(schema: AnySchema, result: RecursiveAnalysis): void {
+  const type = schema.type as 'union' | 'variant' | 'intersect'
+  const options = (schema as AnySchema & { options?: readonly AnySchema[] }).options
+  const branches = options?.map(analyzeNode) ?? []
+  const nonNull = branches.filter((branch) => !branch.nullOnly)
+  const commonKind = nonNull[0]?.outputKind
+  result.composite = { type, branches }
+  result.nullOnly = branches.length > 0 && branches.every((branch) => branch.nullOnly)
+  result.nullable =
+    type === 'intersect'
+      ? branches.every((branch) => branch.nullable)
+      : branches.some((branch) => branch.nullable)
+  result.allowsUndefined =
+    type === 'intersect'
+      ? branches.every((branch) => branch.allowsUndefined)
+      : branches.some((branch) => branch.allowsUndefined)
+  result.unresolvedTransformation = branches.some(
+    (branch) => branch.unresolvedTransformation,
+  )
+  result.outputKind =
+    commonKind && nonNull.every((branch) => branch.outputKind === commonKind)
+      ? commonKind
+      : undefined
+
+  applyCommonStringFormats(result, nonNull)
+}
+
+function applyCommonStringFormats(
+  result: RecursiveAnalysis,
+  nonNull: readonly SchemaAnalysis[],
+): void {
+  if (result.outputKind !== 'string') return
+
+  const formats = nonNull[0]!.stringFormats
+  const common = nonNull.every(
+    (branch) =>
+      branch.stringFormats.length === formats.length &&
+      branch.stringFormats.every((format) => formats.includes(format)),
+  )
+
+  if (!common) return
+
+  result.stringFormats = [...formats]
+
+  if (formats.includes('uuid')) result.stringFormat = 'uuid'
+}
+
+/** Collects storage and validation facts without losing wrapper semantics. */
 function analyzeNode(schema: AnySchema): RecursiveAnalysis {
   const traversable = schema as TraversableSchema
   const wrapped = wrappedSchema(traversable)
@@ -376,9 +461,7 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
   const piped = isSchema(first)
 
   if (wrapped && !piped) {
-    const inner = analyzeNode(wrapped)
-    const result: RecursiveAnalysis = { ...inner }
-
+    const result = { ...analyzeNode(wrapped) }
     applyWrapperSemantics(result, schema.type)
 
     if (traversable.default !== undefined) result.schemaDefault = traversable.default
@@ -387,27 +470,11 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
   }
 
   const inner = piped ? analyzeNode(first) : undefined
-  const result: RecursiveAnalysis = inner
+  const result = inner
     ? { ...inner, unwrappedSchema: wrapped ? inner.unwrappedSchema : schema }
-    : {
-        baseSchema: schema,
-        unwrappedSchema: schema,
-        nullable: false,
-        allowsUndefined: false,
-        omitOnInsert: false,
-        stringConstraints: {},
-        stringFormats: [],
-        numberConstraints: {},
-        bigintConstraints: {},
-        unresolvedTransformation: false,
-        schemaDefault: undefined,
-        outputKind: outputKind(schema),
-        outputSchema: schema,
-      }
+    : analyzeLeaf(schema)
 
-  if (Array.isArray(traversable.pipe)) {
-    applyPipeActions(result, traversable.pipe.slice(1))
-  }
+  if (Array.isArray(traversable.pipe)) applyPipeActions(result, traversable.pipe.slice(1))
 
   return result
 }
