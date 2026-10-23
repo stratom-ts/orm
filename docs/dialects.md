@@ -265,6 +265,16 @@ SQL literals embedded by an adapter are verbatim and are outside parameter redac
 `dryRun()` resolves and validates the same Semantic Profile as execution and performs no
 DDL.
 
+PostgreSQL value mapping uses the analyzed schema output when one is available.
+`bigint` and `int8` results become JavaScript numbers only for number output within
+the safe integer range. Bigint output maps integer-valued `bigint`, `numeric`, and
+`decimal` values exactly; a numeric value such as `42.000` becomes `42n`.
+Unsafe JavaScript numbers and fractional values fail with `QueryError` before a
+lossy numeric conversion. PostgreSQL numeric result strings remain strings unless
+the schema output is bigint, including a number schema with an explicit numeric
+physical type. Context-free mapping retains the driver's numeric representation. Timestamp
+mapping follows Date or string output; broader temporal inference belongs to #44.
+
 ## SQLite production profile
 
 SQLite requires the exact db0 0.4.0 `node-sqlite` connector and SQLite >=3.37. Node 22.5

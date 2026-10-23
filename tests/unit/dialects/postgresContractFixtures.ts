@@ -1,4 +1,4 @@
-import { date, number, pipe, string } from 'valibot'
+import { bigint, date, number, pipe, safeInteger, string } from 'valibot'
 
 import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationPlan, PlannedMigration } from '@/ddl/migrationPlan'
@@ -737,13 +737,34 @@ export const postgresSemanticContractInput = {
     scenarios: queryCompilerScenarios,
     valueMapping: {
       dialect: postgresDialect,
-      dataType: 'jsonb',
-      paramValue: { key: 'value' },
-      resultValue: '{"key":"value"}',
-      expected: {
-        mappedParam: '{"key":"value"}',
-        mappedResult: { key: 'value' },
-      },
+      scenarios: [
+        {
+          dataType: 'jsonb',
+          paramValue: { key: 'value' },
+          resultValue: '{"key":"value"}',
+          expected: {
+            mappedParam: '{"key":"value"}',
+            mappedResult: { key: 'value' },
+          },
+        },
+        {
+          dataType: 'numeric',
+          context: { schema: bigint() },
+          paramValue: 9007199254740993n,
+          resultValue: '9007199254740993',
+          expected: {
+            mappedParam: '9007199254740993',
+            mappedResult: 9007199254740993n,
+          },
+        },
+        {
+          dataType: 'bigint',
+          context: { schema: pipe(number(), safeInteger()) },
+          paramValue: 42,
+          resultValue: '42',
+          expected: { mappedParam: 42, mappedResult: 42 },
+        },
+      ],
     },
   },
   catalog: {

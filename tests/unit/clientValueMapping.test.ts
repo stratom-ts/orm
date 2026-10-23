@@ -1,11 +1,14 @@
 import {
+  bigint,
   date,
   decimal,
   ip,
   mac48,
   mac64,
   nullable,
+  number,
   pipe,
+  safeInteger,
   string,
   unknown,
   uuid,
@@ -79,6 +82,53 @@ it('should preserve native numeric strings and pass selected storage to mapping 
   mapped.insert(Native).values(row).compile()
   expect(seen).toEqual(['inet', 'macaddr', 'macaddr8', 'numeric'])
   await mapped.close()
+})
+
+it('should pass numeric schema context through writes, predicates, and result mapping', async () => {
+  const Numbers = defineTable(
+    'mapped_numbers',
+    {
+      id: string(),
+      exact: bigint(),
+      safe: pipe(number(), safeInteger()),
+      decimalText: pipe(string(), decimal()),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const connector = createMockPostgresConnector({
+    rowsBySql: () => [
+      {
+        id: 'row',
+        exact: '9223372036854775808',
+        safe: '9007199254740991',
+        decimalText: '12345678901234567890.125',
+      },
+    ],
+  })
+
+  const db = createDatabase({ connector, schemas: [Numbers] })
+  const row = {
+    id: 'row',
+    exact: 9223372036854775808n,
+    safe: Number.MAX_SAFE_INTEGER,
+    decimalText: '12345678901234567890.125',
+  }
+
+  expect(db.insert(Numbers).values(row).compile().params).toEqual([
+    row.id,
+    row.exact.toString(),
+    row.safe,
+    row.decimalText,
+  ])
+
+  expect(db.from(Numbers).where({ exact: row.exact }).compile().params).toEqual([
+    row.exact.toString(),
+  ])
+
+  expect(db.from(Numbers).where({ safe: row.safe }).compile().params).toEqual([row.safe])
+  expect(await db.from(Numbers).execute()).toEqual([row])
+  await db.close()
 })
 
 const LedgerEntries = defineTable(

@@ -1,4 +1,4 @@
-import { date, integer, number, pipe, string } from 'valibot'
+import { bigint, date, integer, number, pipe, string } from 'valibot'
 
 import type { CompiledQuery, SqlAst } from '@/dialects'
 import { sqliteDialect as sqliteContractDialect } from '@/dialects/sqlite'
@@ -452,13 +452,24 @@ export const sqliteSemanticContractInput = {
     scenarios: queryCompilerScenarios,
     valueMapping: {
       dialect: sqliteContractDialect,
-      dataType: 'JSON',
-      paramValue: { key: 'value' },
-      resultValue: '{"key":"value"}',
-      expected: {
-        mappedParam: '{"key":"value"}',
-        mappedResult: { key: 'value' },
-      },
+      scenarios: [
+        {
+          dataType: 'JSON',
+          paramValue: { key: 'value' },
+          resultValue: '{"key":"value"}',
+          expected: {
+            mappedParam: '{"key":"value"}',
+            mappedResult: { key: 'value' },
+          },
+        },
+        {
+          dataType: 'BIGINT',
+          context: { schema: bigint() },
+          paramValue: 42n,
+          resultValue: 42n,
+          expected: { mappedParam: 42n, mappedResult: 42n },
+        },
+      ],
     },
   },
   catalog: {

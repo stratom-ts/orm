@@ -950,13 +950,17 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
         state: 'supported',
         input: {
           dialect: semanticDialect,
-          dataType: 'fixture_text',
-          paramValue: 'authored-value',
-          resultValue: 'stored-value',
-          expected: {
-            mappedParam: 'fixture-param:authored-value',
-            mappedResult: 'fixture-result:stored-value',
-          },
+          scenarios: [
+            {
+              dataType: 'fixture_text',
+              paramValue: 'authored-value',
+              resultValue: 'stored-value',
+              expected: {
+                mappedParam: 'fixture-param:authored-value',
+                mappedResult: 'fixture-result:stored-value',
+              },
+            },
+          ],
         },
       },
     },
