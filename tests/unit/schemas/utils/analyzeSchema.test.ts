@@ -10,6 +10,12 @@ import {
   ip,
   ipv4,
   ipv6,
+  isoDate,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
+  isoTimestamp,
   length,
   mac,
   mac48,
@@ -44,6 +50,20 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { analyzeSchema } from '@/index'
+
+it.each([
+  isoDate(),
+  isoTime(),
+  isoTimeSecond(),
+  isoDateTime(),
+  isoDateTimeSecond(),
+  isoTimestamp(),
+])('should retain %s only while string output remains', (format) => {
+  const schema = nullable(pipe(string(), format))
+  expect(analyzeSchema(schema).stringFormats).toEqual([format.type])
+  expect(analyzeSchema(pipe(string(), format, toDate())).stringFormats).toEqual([])
+  expect(analyzeSchema(pipe(string(), format, string())).stringFormats).toEqual([])
+})
 
 it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(
   'should retain %s through wrappers, nested pipes, and length constraints',

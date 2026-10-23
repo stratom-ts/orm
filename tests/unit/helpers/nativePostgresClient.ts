@@ -79,6 +79,8 @@ export function createNativePostgresClient(
     readyForQuery: true,
     activeQuery: null,
     queryQueue: [],
+    /** Supplies the native parser for types without a query override. */
+    getTypeParser: (_oid: number, _format?: string) => (value: string) => value,
     /** Closes the native PostgreSQL client and its physical connection. */
     async end() {},
     /** Runs fixture SQL and records physical-session ownership. */

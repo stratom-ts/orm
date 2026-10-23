@@ -1,10 +1,33 @@
 import { runInNewContext } from 'node:vm'
+import { date, isoTimestamp, pipe, string, toDate } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { mapSqliteParamValue, mapSqliteResultValue } from '@/dialects/sqlite/mapping'
 import { QueryError } from '@/utils/error'
 
 describe('SQLite value mapping', () => {
+  it('should preserve ISO string output and map proven transformed Date output', () => {
+    const isoSchema = { schema: pipe(string(), isoTimestamp()) }
+    const convertedSchema = { schema: pipe(string(), isoTimestamp(), toDate()) }
+    const isoValue = '2026-01-02T03:04:05.123456Z'
+    const dateValue = new Date('2026-01-02T03:04:05.123Z')
+
+    expect(mapSqliteParamValue('TEXT', isoValue, isoSchema)).toBe(isoValue)
+    expect(mapSqliteResultValue('TEXT', isoValue, isoSchema)).toBe(isoValue)
+
+    expect(mapSqliteParamValue('DATETIME', dateValue, convertedSchema)).toBe(
+      dateValue.toISOString(),
+    )
+
+    expect(
+      mapSqliteResultValue('DATETIME', dateValue.toISOString(), convertedSchema),
+    ).toEqual(dateValue)
+
+    expect(
+      mapSqliteResultValue('DATETIME', dateValue.toISOString(), { schema: date() }),
+    ).toEqual(dateValue)
+  })
+
   it('should map boolean, date, JSON, bigint, and numeric declarations independently', () => {
     const date = new Date('2026-01-02T03:04:05.000Z')
 

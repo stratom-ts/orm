@@ -11,6 +11,12 @@ import {
   ip,
   ipv4,
   ipv6,
+  isoDate,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
+  isoTimestamp,
   length,
   literal,
   mac,
@@ -52,6 +58,28 @@ import { attemptSync } from '@/utils/error'
 const { inferColumnType } = postgresDialect.schema
 
 describe('PostgreSQL schema', () => {
+  it.each([
+    [isoDate(), 'date'],
+    [isoTime(), 'time'],
+    [isoTimeSecond(), 'time'],
+    [isoDateTime(), 'timestamp'],
+    [isoDateTimeSecond(), 'timestamp'],
+    [isoTimestamp(), 'timestamptz'],
+  ] as const)('should infer %s as %s through wrappers', (format, expected) => {
+    expect(inferColumnType(nullable(pipe(string(), format)))).toBe(expected)
+    expect(inferColumnType(pipe(string(), format, toDate()))).toBe('timestamptz')
+  })
+
+  it('should normalize catalog temporal aliases', () => {
+    expect(postgresDialect.schema.normalizeDataType('time without time zone')).toBe(
+      'time',
+    )
+
+    expect(postgresDialect.schema.normalizeDataType('timestamp without time zone')).toBe(
+      'timestamp',
+    )
+  })
+
   it('should infer physical types from supported transformed outputs', () => {
     expect(inferColumnType(pipe(string(), toBoolean()))).toBe('boolean')
     expect(inferColumnType(pipe(string(), parseBoolean()))).toBe('boolean')

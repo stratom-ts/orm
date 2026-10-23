@@ -1,4 +1,17 @@
-import { bigint, date, number, pipe, safeInteger, string } from 'valibot'
+import {
+  bigint,
+  date,
+  isoDate,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
+  isoTimestamp,
+  number,
+  pipe,
+  safeInteger,
+  string,
+} from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -10,6 +23,73 @@ import { QueryError } from '@/utils/error'
 const bigintContext = { schema: bigint() }
 const numberContext = { schema: pipe(number(), safeInteger()) }
 const stringContext = { schema: string() }
+
+describe('PostgreSQL temporal value mapping', () => {
+  it.each([
+    ['date', '0042-01-02', pipe(string(), isoDate()), '0042-01-02'],
+    ['time', '03:04:00', pipe(string(), isoTime()), '03:04'],
+    ['time', '03:04:05', pipe(string(), isoTimeSecond()), '03:04:05'],
+    [
+      'timestamp',
+      '2026-01-02 03:04:00',
+      pipe(string(), isoDateTime()),
+      '2026-01-02T03:04',
+    ],
+    [
+      'timestamp',
+      '2026-01-02 03:04:05',
+      pipe(string(), isoDateTimeSecond()),
+      '2026-01-02T03:04:05',
+    ],
+    [
+      'timestamptz',
+      '2026-01-02 08:34:05.123456+11',
+      pipe(string(), isoTimestamp()),
+      '2026-01-02T08:34:05.123456+11:00',
+    ],
+    [
+      'timestamptz',
+      '0042-01-02 12:53:21.123456+09:49:16',
+      pipe(string(), isoTimestamp()),
+      '0042-01-02T03:04:05.123456Z',
+    ],
+  ] as const)(
+    'should map %s native text to the schema output',
+    (type, raw, schema, expected) => {
+      expect(mapPostgresResultValue(type, raw, { schema })).toBe(expected)
+    },
+  )
+})
+
+describe('PostgreSQL temporal value mapping', () => {
+  it('should map raw local timestamps to Date without host-timezone conversion', () => {
+    expect(
+      mapPostgresResultValue('timestamp', '2026-01-02 03:04:05', { schema: date() }),
+    ).toEqual(new Date('2026-01-02T03:04:05Z'))
+
+    expect(mapPostgresResultValue('timestamp', '2026-01-02T03:04:05Z')).toEqual(
+      new Date('2026-01-02T03:04:05Z'),
+    )
+
+    expect(
+      mapPostgresResultValue('timestamptz', '0042-01-02 12:53:21.123456+09:49:16', {
+        schema: date(),
+      }),
+    ).toEqual(new Date('0042-01-02T03:04:05.123Z'))
+  })
+
+  it('should reject native seconds or fractions finer than a strict ISO schema', () => {
+    expect(() =>
+      mapPostgresResultValue('time', '03:04:05', { schema: pipe(string(), isoTime()) }),
+    ).toThrow(QueryError)
+
+    expect(() =>
+      mapPostgresResultValue('timestamp', '2026-01-02 03:04:05.123456', {
+        schema: pipe(string(), isoDateTimeSecond()),
+      }),
+    ).toThrow(QueryError)
+  })
+})
 
 describe('PostgreSQL context-free value mapping', () => {
   it('should preserve context-free values and nullable values', () => {

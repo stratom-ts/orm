@@ -1,8 +1,24 @@
-import { boolean, integer, nullable, number, pipe, string } from 'valibot'
+import {
+  boolean,
+  date,
+  integer,
+  isoDate,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
+  isoTimestamp,
+  nullable,
+  number,
+  pipe,
+  safeParse,
+  string,
+  toDate,
+} from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import type { Db, TableHandle } from '@/index'
-import { DriverError, column, defineTable, excluded } from '@/index'
+import type { Db, InferSelect, TableHandle } from '@/index'
+import { DriverError, column, defineTable, excluded, reference } from '@/index'
 
 const integrationCapabilityNames = [
   'lifecycle',
@@ -119,6 +135,39 @@ const ContractFailures = defineTable(
   { primaryKey: 'id', indexes: [{ columns: ['value'], unique: true }] },
 )
 
+const ContractTemporal = defineTable(
+  'contract_temporal',
+  {
+    id: pipe(string(), isoDate()),
+    minuteTime: pipe(string(), isoTime()),
+    secondTime: pipe(string(), isoTimeSecond()),
+    minuteLocal: pipe(string(), isoDateTime()),
+    secondLocal: pipe(string(), isoDateTimeSecond()),
+    instant: pipe(string(), isoTimestamp()),
+    nullableInstant: nullable(
+      pipe(
+        string(),
+        isoTimestamp(),
+        column({
+          physicalType: { postgresql: 'timestamp with time zone', sqlite: 'VARCHAR(40)' },
+        }),
+      ),
+    ),
+    asDate: date(),
+    convertedDate: pipe(string(), isoTimestamp(), toDate()),
+  },
+  { primaryKey: 'id' },
+)
+
+const ContractTemporalReference = defineTable(
+  'contract_temporal_reference',
+  { id: string(), temporalId: nullable(reference(ContractTemporal, 'id')) },
+  { primaryKey: 'id' },
+)
+
+const CONTRACT_TEMPORAL_TABLES = [ContractTemporal, ContractTemporalReference] as const
+type TemporalDb = Db<typeof CONTRACT_TEMPORAL_TABLES>
+
 /** Returns whether every capability required for an integration scenario is supported. */
 export function shouldRegisterDialectIntegrationScenario(
   capabilities: DialectIntegrationAdapter['capabilities'],
@@ -154,6 +203,7 @@ export function registerDialectIntegrationScenarios(
   describe(`${adapter.name} shared integration scenarios`, () => {
     registerLifecycleIntegration(adapter)
     registerCrudIntegration(adapter)
+    registerTemporalIntegration(adapter)
     registerWriteCountIntegration(adapter)
     registerUpsertIntegration(adapter)
     registerTransactionIntegration(adapter)
@@ -740,6 +790,141 @@ function registerLifecycleIntegration(adapter: DialectIntegrationAdapter) {
         await expect(db.ping()).resolves.toBeUndefined()
         await db.close()
         await expect(db.close()).resolves.toBeUndefined()
+      })
+    },
+  )
+}
+
+/** Checks both returning and selected values after temporal insertion. */
+async function assertTemporalInsert(db: TemporalDb): Promise<void> {
+  const input = {
+    id: '0042-01-02',
+    minuteTime: '03:04',
+    secondTime: '03:04:05',
+    minuteLocal: '2026-01-02T03:04',
+    secondLocal: '2026-01-02T03:04:05',
+    instant: '2026-01-02T03:04:05.123456Z',
+    nullableInstant: null,
+    asDate: new Date('2026-01-02T03:04:05.123Z'),
+    convertedDate: '2026-01-02T03:04:05.123Z',
+  }
+
+  const inserted = await db
+    .insert(ContractTemporal)
+    .values(input)
+    .executeTakeFirstOrThrow()
+
+  expect(inserted).toMatchObject({
+    id: input.id,
+    minuteTime: input.minuteTime,
+    secondTime: input.secondTime,
+    minuteLocal: input.minuteLocal,
+    secondLocal: input.secondLocal,
+    nullableInstant: null,
+    asDate: input.asDate,
+    convertedDate: new Date(input.convertedDate),
+  })
+
+  expect(safeParse(pipe(string(), isoTimestamp()), inserted.instant).success).toBe(true)
+  expect(new Date(inserted.instant).getTime()).toBe(new Date(input.instant).getTime())
+  expect(inserted.instant).toMatch(/\.123456(?:Z|[+-]\d{2}:\d{2})$/)
+
+  const selected = await db
+    .from(ContractTemporal)
+    .where({ id: input.id })
+    .executeTakeFirstOrThrow()
+
+  expect(selected).toEqual(inserted)
+}
+
+/** Checks the updated logical values without requiring a particular session offset. */
+function assertTemporalUpdateResult(updated: InferSelect<typeof ContractTemporal>): void {
+  expect(updated).toMatchObject({
+    id: '0042-01-03',
+    minuteTime: '04:05',
+    secondTime: '04:05:06',
+    minuteLocal: '2026-01-03T04:05',
+    secondLocal: '2026-01-03T04:05:06',
+    asDate: new Date('2026-01-03T04:05:06.789Z'),
+    convertedDate: new Date('2026-01-03T04:05:06.789Z'),
+  })
+
+  expect(safeParse(pipe(string(), isoTimestamp()), updated.instant).success).toBe(true)
+
+  expect(new Date(updated.instant).getTime()).toBe(
+    new Date('2026-01-02T03:04:06.654321+05:30').getTime(),
+  )
+
+  expect(updated.instant).toMatch(/\.654321(?:Z|[+-]\d{2}:\d{2})$/)
+
+  expect(safeParse(pipe(string(), isoTimestamp()), updated.nullableInstant).success).toBe(
+    true,
+  )
+
+  expect(new Date(updated.nullableInstant!).getTime()).toBe(
+    new Date('2026-01-03T04:05:06Z').getTime(),
+  )
+}
+
+/** Checks update returning against a later selected row. */
+async function assertTemporalUpdate(db: TemporalDb): Promise<string> {
+  const updated = await db
+    .update(ContractTemporal)
+    .set({
+      id: '0042-01-03',
+      minuteTime: '04:05',
+      secondTime: '04:05:06',
+      minuteLocal: '2026-01-03T04:05',
+      secondLocal: '2026-01-03T04:05:06',
+      instant: '2026-01-02T03:04:06.654321+05:30',
+      nullableInstant: '2026-01-03T04:05:06Z',
+      asDate: new Date('2026-01-03T04:05:06.789Z'),
+      convertedDate: '2026-01-03T04:05:06.789Z',
+    })
+    .where({ id: '0042-01-02' })
+    .executeTakeFirstOrThrow()
+
+  assertTemporalUpdateResult(updated)
+
+  const selected = await db
+    .from(ContractTemporal)
+    .where({ id: updated.id })
+    .executeTakeFirstOrThrow()
+
+  expect(selected).toEqual(updated)
+  return updated.id
+}
+
+/** Checks that temporal primary keys retain their string reference representation. */
+async function assertTemporalReference(
+  db: TemporalDb,
+  temporalId: string,
+): Promise<void> {
+  const referenceRow = { id: 'child', temporalId }
+
+  expect(
+    await db.insert(ContractTemporalReference).values(referenceRow).execute(),
+  ).toEqual([referenceRow])
+
+  expect(
+    await db.from(ContractTemporalReference).where({ id: 'child' }).execute(),
+  ).toEqual([referenceRow])
+}
+
+/** Exercises the shared temporal result contract on both native engines. */
+function registerTemporalIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should round-trip ISO strings and Dates through temporal storage',
+    async () => {
+      await adapter.withDatabase(CONTRACT_TEMPORAL_TABLES, async ({ db }) => {
+        await db.migrate().execute()
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+        await assertTemporalInsert(db)
+        const updatedId = await assertTemporalUpdate(db)
+        await assertTemporalReference(db, updatedId)
       })
     },
   )

@@ -25,6 +25,12 @@ const STRING_FORMAT_STORAGE = {
   mac: 'macaddr8',
   mac64: 'macaddr8',
   decimal: 'numeric',
+  iso_date: 'date',
+  iso_time: 'time',
+  iso_time_second: 'time',
+  iso_date_time: 'timestamp',
+  iso_date_time_second: 'timestamp',
+  iso_timestamp: 'timestamptz',
 } as const satisfies Record<SchemaAnalysis['stringFormats'][number], SqlDataType>
 
 /** Selects native storage only when all retained formats agree on one target. */
