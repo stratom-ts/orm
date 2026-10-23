@@ -8,6 +8,7 @@ import {
   enum as enumSchema,
   exactOptional,
   integer,
+  intersect,
   ip,
   ipv4,
   ipv6,
@@ -29,6 +30,7 @@ import {
   nonNullable,
   nonNullish,
   nonOptional,
+  null as nullSchema,
   nullable,
   nullish,
   number,
@@ -51,6 +53,7 @@ import {
   undefinedable,
   union,
   uuid,
+  variant,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -58,6 +61,106 @@ import { SchemaError, postgresDialect } from '@/index'
 import { attemptSync } from '@/utils/error'
 
 const { inferColumnType } = postgresDialect.schema
+
+describe('PostgreSQL schema', () => {
+  it('should widen compatible composite storage and retain nullability independently', () => {
+    expect(
+      inferColumnType(
+        union([
+          pipe(number(), integer(), minValue(0), maxValue(10)),
+          pipe(number(), integer()),
+        ]),
+      ),
+    ).toBe('integer')
+
+    expect(
+      inferColumnType(
+        union([pipe(string(), maxLength(12)), pipe(string(), maxLength(40))]),
+      ),
+    ).toBe('varchar(40)')
+
+    expect(inferColumnType(union([pipe(string(), maxLength(12)), string()]))).toBe('text')
+
+    expect(inferColumnType(pipe(union([string(), string()]), maxLength(20)))).toBe(
+      'varchar(20)',
+    )
+
+    expect(
+      inferColumnType(union([union([nullSchema(), literal(null as never)]), string()])),
+    ).toBe('text')
+  })
+})
+
+describe('PostgreSQL schema', () => {
+  it('should widen safe numeric branches without losing precision', () => {
+    expect(inferColumnType(union([pipe(number(), safeInteger()), number()]))).toBe(
+      'double precision',
+    )
+
+    expect(inferColumnType(union([literal(1), literal(2147483648)]))).toBe('bigint')
+    expect(inferColumnType(union([literal(1n), literal(2n)]))).toBe('bigint')
+    expect(inferColumnType(union([literal(1n), bigint()]))).toBe('numeric')
+
+    expect(inferColumnType(union([literal(2147483648), literal(0.5)]))).toBe(
+      'double precision',
+    )
+
+    expect(inferColumnType(union([picklist([2147483648]), literal(0.5)]))).toBe(
+      'double precision',
+    )
+
+    expect(
+      inferColumnType(
+        union([
+          union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+          number(),
+        ]),
+      ),
+    ).toBe('double precision')
+
+    expect(
+      inferColumnType(
+        union([
+          pipe(
+            union([
+              pipe(number(), integer(), minValue(2147483648)),
+              pipe(number(), integer(), minValue(2147483648)),
+            ]),
+            safeInteger(),
+          ),
+          number(),
+        ]),
+      ),
+    ).toBe('double precision')
+  })
+})
+
+describe('PostgreSQL schema', () => {
+  it('should infer JSON variants and object intersections', () => {
+    const schema = variant('kind', [
+      object({ kind: literal('a'), value: string() }),
+      variant('kind', [object({ kind: literal('b'), value: number() })]),
+    ])
+
+    expect(inferColumnType(schema)).toBe('jsonb')
+
+    expect(
+      inferColumnType(intersect([object({ a: string() }), object({ b: number() })])),
+    ).toBe('jsonb')
+  })
+
+  it('should reject incompatible output identities and native formats', () => {
+    for (const schema of [
+      union([string(), number()]),
+      union([number(), bigint()]),
+      union([literal(Number.MAX_SAFE_INTEGER + 1), literal(1)]),
+      union([pipe(string(), uuid()), string()]),
+      union([pipe(string(), isoTime()), pipe(string(), isoTimeSecond())]),
+      intersect([string(), number()]),
+    ])
+      expect(() => inferColumnType(schema)).toThrow(SchemaError)
+  })
+})
 
 describe('PostgreSQL schema', () => {
   it.each([

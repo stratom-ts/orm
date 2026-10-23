@@ -111,6 +111,8 @@ export function inferSqliteColumnType(
 }
 
 function inferEffectiveSqliteType(analysis: SchemaAnalysis): SqlDataType | undefined {
+  if (analysis.composite) return inferSqliteCompositeType(analysis)
+
   const effectiveSchema = analysis.outputSchema
 
   if (effectiveSchema?.type === 'literal')
@@ -125,21 +127,8 @@ function inferEffectiveSqliteType(analysis: SchemaAnalysis): SqlDataType | undef
   switch (analysis.outputKind) {
     case 'string':
       return 'TEXT'
-    case 'number': {
-      const { minValue, maxValue, isInteger, isSafeInteger } = analysis.numberConstraints
-
-      if (isSafeInteger || isInteger) return 'INTEGER'
-
-      if (
-        (minValue !== undefined && !Number.isFinite(minValue)) ||
-        (maxValue !== undefined && !Number.isFinite(maxValue))
-      )
-        throw new SchemaError({
-          message: 'cannot infer a SQLite column type for non-finite number bounds',
-        })
-
-      return 'REAL'
-    }
+    case 'number':
+      return inferSqliteNumberOutputType(analysis)
     case 'bigint':
       return 'BIGINT'
     case 'boolean':
@@ -151,4 +140,50 @@ function inferEffectiveSqliteType(analysis: SchemaAnalysis): SqlDataType | undef
     case undefined:
       return undefined
   }
+}
+
+function inferSqliteNumberOutputType(analysis: SchemaAnalysis): SqlDataType {
+  const { minValue, maxValue, isInteger, isSafeInteger } = analysis.numberConstraints
+
+  if (isSafeInteger || isInteger) return 'INTEGER'
+
+  if (
+    (minValue !== undefined && !Number.isFinite(minValue)) ||
+    (maxValue !== undefined && !Number.isFinite(maxValue))
+  )
+    throw new SchemaError({
+      message: 'cannot infer a SQLite column type for non-finite number bounds',
+    })
+
+  return 'REAL'
+}
+
+/** Selects one logical declared type for compatible output branches. */
+function inferSqliteCompositeType(analysis: SchemaAnalysis): SqlDataType {
+  const composite = analysis.composite!
+  const branches = composite.branches.filter((branch) => !branch.nullOnly)
+  const kind = analysis.outputKind
+
+  if (
+    !branches.length ||
+    !kind ||
+    (composite.type === 'intersect' && branches.length !== composite.branches.length)
+  )
+    return unsupportedCompositeType(composite.type)
+
+  const types = branches.map((branch) => inferEffectiveSqliteType(branch))
+
+  if (types.some((type) => !type)) return unsupportedCompositeType(composite.type)
+  if (types.every((type) => type === types[0])) return types[0]!
+
+  if (kind === 'number' && types.every((type) => type === 'INTEGER' || type === 'REAL'))
+    return 'REAL'
+
+  return unsupportedCompositeType(composite.type)
+}
+
+function unsupportedCompositeType(type: string): never {
+  throw new SchemaError({
+    message: `cannot infer SQLite storage for incompatible ${type} branches; provide explicit physical type and parameter and result mappings`,
+  })
 }

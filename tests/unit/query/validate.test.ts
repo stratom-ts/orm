@@ -7,6 +7,7 @@ import {
   optional,
   pipe,
   string,
+  union,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -34,6 +35,35 @@ function captureValidationError(operation: () => unknown): ValidationError {
 
   throw new Error('Expected validation to fail')
 }
+
+describe('insert validation issues', () => {
+  it('should apply a default on an outer optional composite wrapper', () => {
+    const Defaults = defineTable(
+      'union_defaults',
+      {
+        id: string(),
+        value: optional(union([string(), string()]), 'fallback'),
+      },
+      { primaryKey: 'id' },
+    )
+
+    expect(validateInsertRow(Defaults, { id: 'a' })).toEqual({
+      id: 'a',
+      value: 'fallback',
+    })
+
+    const InnerDefault = defineTable(
+      'inner_union_default',
+      {
+        id: string(),
+        value: union([optional(string(), 'inner'), string()]),
+      },
+      { primaryKey: 'id' },
+    )
+
+    expect(() => validateInsertRow(InnerDefault, { id: 'a' })).toThrow(ValidationError)
+  })
+})
 
 describe('insert validation issues', () => {
   it.each([

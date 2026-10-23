@@ -1,24 +1,101 @@
 import {
   bigint,
   date,
+  ip,
   isoDate,
   isoDateTime,
   isoDateTimeSecond,
   isoTime,
   isoTimeSecond,
   isoTimestamp,
+  literal,
   number,
+  object,
   pipe,
   safeInteger,
   string,
+  union,
+  uuid,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import {
   mapPostgresParamValue,
   mapPostgresResultValue,
+  validatePostgresValueMapping,
 } from '@/dialects/postgres/mapping'
-import { QueryError } from '@/utils/error'
+import { QueryError, SchemaError } from '@/utils/error'
+
+describe('PostgreSQL composite value mapping', () => {
+  it('should retain second-precision ISO output for homogeneous branches', () => {
+    const schema = union([
+      pipe(string(), isoTimeSecond()),
+      pipe(string(), isoTimeSecond()),
+    ])
+
+    expect(mapPostgresResultValue('time', '03:04:05', { schema })).toBe('03:04:05')
+  })
+
+  it('should reject mixed output identities and native temporal precision', () => {
+    expect(() =>
+      validatePostgresValueMapping('text', { schema: union([number(), bigint()]) }),
+    ).toThrow(SchemaError)
+
+    const temporal = union([pipe(string(), isoTime()), pipe(string(), isoTimeSecond())])
+    expect(() => validatePostgresValueMapping('time', { schema: temporal })).toThrow(
+      SchemaError,
+    )
+
+    expect(() => validatePostgresValueMapping('text', { schema: temporal })).not.toThrow()
+
+    expect(mapPostgresResultValue('text', '03:04:05', { schema: temporal })).toBe(
+      '03:04:05',
+    )
+  })
+
+  it('should keep native-format strings exact under an explicit text type', () => {
+    const schema = union([pipe(string(), uuid()), pipe(string(), ip())])
+    expect(() => validatePostgresValueMapping('text', { schema })).not.toThrow()
+    expect(mapPostgresResultValue('text', '192.0.2.1', { schema })).toBe('192.0.2.1')
+  })
+})
+
+describe('PostgreSQL composite value mapping', () => {
+  it('should reject selected storage that changes composite output identity', () => {
+    expect(() =>
+      validatePostgresValueMapping('double precision', {
+        schema: union([bigint(), literal(1n)]),
+      }),
+    ).toThrow(SchemaError)
+
+    expect(() =>
+      validatePostgresValueMapping('text', {
+        schema: union([number(), literal(2)]),
+      }),
+    ).toThrow(SchemaError)
+
+    expect(() =>
+      validatePostgresValueMapping('text', {
+        schema: union([object({ a: string() }), object({ b: number() })]),
+      }),
+    ).toThrow(SchemaError)
+
+    expect(() =>
+      validatePostgresValueMapping('text', {
+        schema: union([date(), date()]),
+      }),
+    ).toThrow(SchemaError)
+  })
+
+  it('should map widened safe integer and fractional number branches as numbers', () => {
+    const schema = union([pipe(number(), safeInteger()), number()])
+    expect(
+      mapPostgresParamValue('double precision', Number.MAX_SAFE_INTEGER, { schema }),
+    ).toBe(Number.MAX_SAFE_INTEGER)
+
+    expect(mapPostgresResultValue('double precision', 1.25, { schema })).toBe(1.25)
+  })
+})
 
 const bigintContext = { schema: bigint() }
 const numberContext = { schema: pipe(number(), safeInteger()) }

@@ -10,14 +10,17 @@ import {
   decimal,
   enum as enumSchema,
   ip,
+  literal,
   mac48,
   mac64,
   maxLength,
+  null as nullSchema,
   nullable,
   number,
   picklist,
   pipe,
   string,
+  union,
   uuid,
 } from 'valibot'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -38,6 +41,53 @@ import { relation as canonicalRelation, identifier } from '../helpers/planTarget
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+describe('PostgreSQL desired schema', () => {
+  it('should lower composite nullability, selected override, and inherited reference storage', () => {
+    const Parent = defineTable(
+      'composite_parent',
+      {
+        id: union([literal('one'), literal('two')]),
+        value: pipe(
+          union([string(), nullSchema()]),
+          column({ physicalType: { postgresql: 'varchar(20)', sqlite: 'BLOB' } }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const Child = defineTable(
+      'composite_child',
+      {
+        id: string(),
+        parentId: reference(Parent, 'id'),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const tables = lowerDesiredSchema(
+      [Child, Parent],
+      postgresIdentities(),
+      postgresDialect.schema,
+    ).tables
+
+    const parent = tables.find(
+      (table) => table.identity.relation.spelling === 'composite_parent',
+    )!
+
+    const child = tables.find(
+      (table) => table.identity.relation.spelling === 'composite_child',
+    )!
+
+    expect(
+      parent.columns.find((column) => column.identifier.spelling === 'value'),
+    ).toMatchObject({ dataType: 'varchar(20)', notNull: false })
+
+    expect(
+      child.columns.find((column) => column.identifier.spelling === 'parentId'),
+    ).toMatchObject({ dataType: 'text', notNull: true })
+  })
 })
 
 /** Creates canonical PostgreSQL identities under the fixture's writable namespace default. */

@@ -16,6 +16,7 @@ import {
   nonNullable,
   nonNullish,
   nonOptional,
+  null as nullSchema,
   nullable,
   number,
   object,
@@ -26,7 +27,9 @@ import {
   title,
   toDate,
   toNumber,
+  toString,
   undefinedable,
+  union,
 } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
 
@@ -340,6 +343,42 @@ describe('InferSelectedColumns: should distinguish same-named tables by ordered 
       id: number
       label: string | null
     }>()
+  })
+})
+
+describe('InferInsert', () => {
+  it('should carry null unions through insert, update, and select views', () => {
+    const Composite = defineTable(
+      'composite_views',
+      {
+        id: string(),
+        value: union([string(), nullSchema()]),
+        required: nonNullable(union([nullable(string()), nullSchema()])),
+      },
+      { primaryKey: 'id' },
+    )
+
+    expectTypeOf<InferInsert<typeof Composite>['value']>().toEqualTypeOf<string | null>()
+
+    expectTypeOf<InferUpdate<typeof Composite>['value']>().toEqualTypeOf<
+      string | null | undefined
+    >()
+
+    expectTypeOf<InferSelect<typeof Composite>['value']>().toEqualTypeOf<string | null>()
+    expectTypeOf<InferInsert<typeof Composite>['required']>().toEqualTypeOf<string>()
+  })
+
+  it('should use a later pipeline schema to remove composite nullability', () => {
+    const Recovered = defineTable(
+      'recovered_composite_views',
+      {
+        id: string(),
+        value: pipe(union([string(), nullSchema()]), toString(), string()),
+      },
+      { primaryKey: 'id' },
+    )
+
+    expectTypeOf<InferSelect<typeof Recovered>['value']>().toEqualTypeOf<string>()
   })
 })
 

@@ -334,6 +334,14 @@ input string length, UUID format, and numeric bounds do not carry across it.
 
 Built-in mapping rejects numeric or boolean schemas with TEXT affinity, strings with
 numeric affinity, bigint with REAL or TEXT affinity, and unknown or mixed output kinds.
+Composite branch output facts come from shared schema analysis; each member's `infer.ts`
+selects compatible storage and its `mapping.ts` preserves the result identity. SQLite
+maps compatible number unions through the inferred `INTEGER` or `REAL` logical type
+even when the selected declared type differs. PostgreSQL keeps native temporal
+formats only when every branch has one compatible result representation; mixed ISO
+minute and second formats need explicit `text` storage to retain their exact strings.
+A selected physical type does not
+make mixed JavaScript outputs compatible without both mapping directions.
 Known conversions use their effective output kind for built-in mapping. Unknown
 output and bare `parseJson()` require a selected `physicalType` for inference and
 both explicit parameter and result hooks for value mapping. A physical type alone

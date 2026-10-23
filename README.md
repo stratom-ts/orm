@@ -241,6 +241,7 @@ Inference rules (PostgreSQL):
 | Bigint choices within / beyond signed int64                         | `bigint` / `numeric`              |
 | `object(...)` / `array(...)` / `record(...)`                        | `jsonb`                           |
 | `nullable(x)` / `nullish(x)`                                        | wrapped column becomes NULL-able  |
+| `union([x, null()])`                                                | `x` storage, NULL allowed         |
 | `optional(x)`                                                       | may be omitted; remains NOT NULL  |
 
 For PostgreSQL strings, a selected `physicalType.postgresql` override wins first.
@@ -311,8 +312,20 @@ Unbounded `bigint()` uses `numeric` and returns JS `bigint`; it uses PostgreSQL
 finite numbers, safe integral JS numbers, and bigints within signed 64-bit range. A change to inferred storage can produce a type
 change migration step for an existing database. Set the selected `physicalType` to
 pin the previous storage when needed. A schema type with no sensible selected-adapter
-mapping (for example, a `union`) throws `MigrationError` during desired-schema
+mapping (for example, a mixed string/number union) throws `MigrationError` during desired-schema
 lowering rather than silently becoming text.
+
+Compatible unions, object variants, and object intersections infer one storage type.
+PostgreSQL widens integer widths and `varchar` lengths across branches, and uses
+`text` when a string branch has no length bound. JSON-shaped branches use `jsonb`.
+SQLite uses `INTEGER` or `REAL` for compatible number branches, `TEXT` for strings,
+`BIGINT` for bigint, `DATETIME` for Date, and `JSON` for JSON-shaped branches.
+`union([string(), null()])` accepts SQL NULL but still requires a value on insert.
+Mixed JavaScript output identities, such as number with bigint or Date with string,
+need both parameter and result mappings in addition to a selected physical type.
+PostgreSQL rejects inferred native storage for a union of minute- and second-precision
+ISO time formats, because one result conversion cannot preserve both formats. Select
+`physicalType.postgresql: 'text'` to retain their exact string spelling.
 
 PostgreSQL choice inference uses every actual enum or picklist value. Integer-number
 choices must be safe JavaScript integers; non-finite and unsafe numeric choices

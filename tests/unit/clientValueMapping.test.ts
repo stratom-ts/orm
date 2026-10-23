@@ -3,6 +3,7 @@ import {
   date,
   decimal,
   ip,
+  literal,
   mac48,
   mac64,
   nullable,
@@ -11,6 +12,7 @@ import {
   pipe,
   safeInteger,
   string,
+  union,
   unknown,
   uuid,
 } from 'valibot'
@@ -56,6 +58,70 @@ it('should reject conflicting inference at client creation before connector acce
   expect(() => createDatabase({ connector, schemas: [Conflict] })).toThrow(SchemaError)
   expect(getInstance).not.toHaveBeenCalled()
   expect(prepare).not.toHaveBeenCalled()
+})
+
+it('should require both mapping directions for a mixed composite with selected storage', async () => {
+  const Mixed = defineTable(
+    'mixed_composite',
+    {
+      id: string(),
+      value: pipe(
+        union([string(), number()]),
+        column({ physicalType: { postgresql: 'text' } }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const connector = createMockPostgresConnector()
+  const getInstance = vi.spyOn(connector, 'getInstance')
+
+  expect(() => createDatabase({ connector, schemas: [Mixed] })).toThrow(SchemaError)
+  expect(getInstance).not.toHaveBeenCalled()
+
+  const Mapped = defineTable(
+    'mapped_composite',
+    {
+      id: string(),
+      value: pipe(
+        union([string(), number()]),
+        column({
+          physicalType: { postgresql: 'text' },
+          mapParam: (value) => JSON.stringify(value),
+          mapResult: (value) => JSON.parse(String(value)) as string | number,
+        }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const db = createDatabase({ connector, schemas: [Mapped] })
+  expect(db.insert(Mapped).values({ id: 'one', value: 42 }).compile().params).toEqual([
+    'one',
+    '42',
+  ])
+
+  await db.close()
+})
+
+it('should reject lossy selected composite storage before connector access', () => {
+  const Lossy = defineTable(
+    'lossy_composite',
+    {
+      id: string(),
+      value: pipe(
+        union([bigint(), literal(1n)]),
+        column({ physicalType: { postgresql: 'double precision' } }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const connector = createMockPostgresConnector()
+  const getInstance = vi.spyOn(connector, 'getInstance')
+
+  expect(() => createDatabase({ connector, schemas: [Lossy] })).toThrow(SchemaError)
+  expect(getInstance).not.toHaveBeenCalled()
 })
 
 it('should require a selected PostgreSQL override for mixed choices at client creation', async () => {

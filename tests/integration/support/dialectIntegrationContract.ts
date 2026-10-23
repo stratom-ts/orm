@@ -1,19 +1,27 @@
 import {
+  bigint,
   boolean,
   date,
   integer,
+  intersect,
   isoDate,
   isoDateTime,
   isoDateTimeSecond,
   isoTime,
   isoTimeSecond,
   isoTimestamp,
+  literal,
+  null as nullSchema,
   nullable,
   number,
+  object,
+  optional,
   pipe,
   safeParse,
   string,
   toDate,
+  union,
+  variant,
 } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
@@ -168,6 +176,40 @@ const ContractTemporalReference = defineTable(
 const CONTRACT_TEMPORAL_TABLES = [ContractTemporal, ContractTemporalReference] as const
 type TemporalDb = Db<typeof CONTRACT_TEMPORAL_TABLES>
 
+const ContractComposite = defineTable(
+  'contract_composite',
+  {
+    id: union([literal('one'), literal('two')]),
+    value: pipe(
+      union([string(), nullSchema()]),
+      column({ physicalType: { postgresql: 'varchar(30)', sqlite: 'TEXT' } }),
+    ),
+    integerValue: union([pipe(number(), integer()), literal(2)]),
+    realValue: union([pipe(number(), integer()), number()]),
+    bigValue: union([bigint(), literal(42n)]),
+    when: union([date(), date()]),
+    merged: intersect([object({ name: string() }), object({ age: number() })]),
+    defaulted: optional(union([string(), string()]), 'fallback'),
+    payload: variant('kind', [
+      object({ kind: literal('text'), text: string() }),
+      object({ kind: literal('count'), count: number() }),
+    ]),
+  },
+  { primaryKey: 'id' },
+)
+
+const ContractCompositeRef = defineTable(
+  'contract_composite_ref',
+  {
+    id: string(),
+    compositeId: reference(ContractComposite, 'id'),
+  },
+  { primaryKey: 'id' },
+)
+
+const CONTRACT_COMPOSITE_TABLES = [ContractComposite, ContractCompositeRef] as const
+type CompositeDb = Db<typeof CONTRACT_COMPOSITE_TABLES>
+
 /** Returns whether every capability required for an integration scenario is supported. */
 export function shouldRegisterDialectIntegrationScenario(
   capabilities: DialectIntegrationAdapter['capabilities'],
@@ -204,6 +246,7 @@ export function registerDialectIntegrationScenarios(
     registerLifecycleIntegration(adapter)
     registerCrudIntegration(adapter)
     registerTemporalIntegration(adapter)
+    registerCompositeIntegration(adapter)
     registerWriteCountIntegration(adapter)
     registerUpsertIntegration(adapter)
     registerTransactionIntegration(adapter)
@@ -925,6 +968,97 @@ function registerTemporalIntegration(adapter: DialectIntegrationAdapter): void {
         await assertTemporalInsert(db)
         const updatedId = await assertTemporalUpdate(db)
         await assertTemporalReference(db, updatedId)
+      })
+    },
+  )
+}
+
+/** Checks insert, returning, selection, default, and inherited reference mapping. */
+async function assertCompositeInsert(db: CompositeDb): Promise<void> {
+  const inserted = await db
+    .insert(ContractComposite)
+    .values({
+      id: 'one',
+      value: null,
+      integerValue: 2,
+      realValue: 1.25,
+      bigValue: 42n,
+      when: new Date('2026-01-02T03:04:05.000Z'),
+      merged: { name: 'first', age: 1 },
+      payload: { kind: 'text', text: 'first' },
+    })
+    .executeTakeFirstOrThrow()
+
+  expect(inserted).toEqual({
+    id: 'one',
+    value: null,
+    integerValue: 2,
+    realValue: 1.25,
+    bigValue: 42n,
+    when: new Date('2026-01-02T03:04:05.000Z'),
+    merged: { name: 'first', age: 1 },
+    defaulted: 'fallback',
+    payload: { kind: 'text', text: 'first' },
+  })
+
+  await expect(
+    db.from(ContractComposite).where({ id: 'one' }).execute(),
+  ).resolves.toEqual([inserted])
+
+  await expect(
+    db.insert(ContractCompositeRef).values({ id: 'child', compositeId: 'one' }).execute(),
+  ).resolves.toEqual([{ id: 'child', compositeId: 'one' }])
+}
+
+/** Checks update returning and selected composite outputs after native storage. */
+async function assertCompositeUpdate(db: CompositeDb): Promise<void> {
+  const updated = await db
+    .update(ContractComposite)
+    .set({
+      value: 'second',
+      integerValue: 3,
+      realValue: 2.5,
+      bigValue: 43n,
+      when: new Date('2026-01-03T04:05:06.000Z'),
+      merged: { name: 'second', age: 2 },
+      payload: { kind: 'count', count: 2 },
+    })
+    .where({ id: 'one' })
+    .executeTakeFirstOrThrow()
+
+  expect(updated).toEqual({
+    id: 'one',
+    value: 'second',
+    integerValue: 3,
+    realValue: 2.5,
+    bigValue: 43n,
+    when: new Date('2026-01-03T04:05:06.000Z'),
+    merged: { name: 'second', age: 2 },
+    defaulted: 'fallback',
+    payload: { kind: 'count', count: 2 },
+  })
+
+  await expect(
+    db.from(ContractComposite).where({ id: 'one' }).execute(),
+  ).resolves.toEqual([updated])
+
+  await expect(
+    db.from(ContractCompositeRef).where({ id: 'child' }).execute(),
+  ).resolves.toEqual([{ id: 'child', compositeId: 'one' }])
+}
+
+/** Exercises composite inference, validation, mapping, and native convergence. */
+function registerCompositeIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should round-trip nullable unions and JSON variants through CRUD',
+    async () => {
+      await adapter.withDatabase(CONTRACT_COMPOSITE_TABLES, async ({ db }) => {
+        await db.migrate().execute()
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+        await assertCompositeInsert(db)
+        await assertCompositeUpdate(db)
       })
     },
   )

@@ -1,9 +1,31 @@
 import { runInNewContext } from 'node:vm'
-import { date, isoTimestamp, pipe, string, toDate } from 'valibot'
+import { date, integer, isoTimestamp, number, pipe, string, toDate, union } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { mapSqliteParamValue, mapSqliteResultValue } from '@/dialects/sqlite/mapping'
-import { QueryError } from '@/utils/error'
+import {
+  mapSqliteParamValue,
+  mapSqliteResultValue,
+  validateSqliteValueMapping,
+} from '@/dialects/sqlite/mapping'
+import { QueryError, SchemaError } from '@/utils/error'
+
+describe('SQLite composite value mapping', () => {
+  it('should use REAL when integer and fractional branches share number output', () => {
+    const context = { schema: union([pipe(number(), integer()), number()]) }
+    expect(mapSqliteParamValue('REAL', 1.25, context)).toBe(1.25)
+    expect(mapSqliteResultValue('REAL', 1.25, context)).toBe(1.25)
+
+    expect(() =>
+      mapSqliteParamValue('REAL', Number.MAX_SAFE_INTEGER + 1, context),
+    ).toThrow(QueryError)
+  })
+
+  it('should reject mixed output identities despite a physical override', () => {
+    expect(() =>
+      validateSqliteValueMapping('TEXT', { schema: union([string(), number()]) }),
+    ).toThrow(SchemaError)
+  })
+})
 
 describe('SQLite value mapping', () => {
   it('should preserve ISO string output and map proven transformed Date output', () => {
