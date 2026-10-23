@@ -8,12 +8,14 @@ import type {
 } from 'valibot'
 import {
   decimal,
+  enum as enumSchema,
   ip,
   mac48,
   mac64,
   maxLength,
   nullable,
   number,
+  picklist,
   pipe,
   string,
   uuid,
@@ -170,6 +172,119 @@ it('should let a selected PostgreSQL override resolve conflicts before inference
   ).tables
 
   expect(loweredColumn(tables, 'native_explicit', 'id')?.dataType).toBe('text')
+})
+
+it('should lower inferred choices, selected overrides, and inherited reference storage', () => {
+  const Parent = defineTable(
+    'choice_parents',
+    {
+      id: picklist([1, 2]),
+      wider: picklist([0, 2147483648]),
+      exact: picklist([0n, 2n ** 63n]),
+      selected: pipe(
+        picklist([1, 2]),
+        column({ physicalType: { postgresql: 'integer' } }),
+      ),
+      unrelated: pipe(picklist([1, 2]), column({ physicalType: { sqlite: 'REAL' } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const Child = defineTable(
+    'choice_children',
+    {
+      id: number(),
+      parentId: reference(Parent, 'id'),
+      nullableId: nullable(reference(Parent, 'id')),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const tables = lowerDesiredSchema(
+    [Child, Parent],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'choice_parents', 'id')?.dataType).toBe('smallint')
+  expect(loweredColumn(tables, 'choice_parents', 'wider')?.dataType).toBe('bigint')
+  expect(loweredColumn(tables, 'choice_parents', 'exact')?.dataType).toBe('numeric')
+  expect(loweredColumn(tables, 'choice_parents', 'selected')?.dataType).toBe('integer')
+  expect(loweredColumn(tables, 'choice_parents', 'unrelated')?.dataType).toBe('smallint')
+  expect(loweredColumn(tables, 'choice_children', 'parentId')?.dataType).toBe('smallint')
+
+  expect(loweredColumn(tables, 'choice_children', 'nullableId')).toMatchObject({
+    dataType: 'smallint',
+    notNull: false,
+  })
+})
+
+it('should retain a choice inference SchemaError as the migration cause', () => {
+  const Mixed = defineTable(
+    'mixed_choices',
+    { id: enumSchema({ first: 1, second: 'two' }) },
+    { primaryKey: 'id' },
+  )
+
+  const result = attemptSync(() =>
+    lowerDesiredSchema([Mixed], postgresIdentities(), postgresDialect.schema),
+  )
+
+  expect(result.ok).toBe(false)
+
+  if (result.ok) throw new Error('Expected mixed choice lowering to fail')
+
+  expect(result.error).toBeInstanceOf(MigrationError)
+
+  if (!(result.error instanceof MigrationError))
+    throw new Error('Expected MigrationError')
+
+  expect(result.error.cause).toBeInstanceOf(SchemaError)
+
+  expect((result.error.cause as SchemaError).message).toContain(
+    'column({ physicalType: { postgresql: ... } })',
+  )
+})
+
+it('should apply a selected PostgreSQL type before inferring a mixed choice', () => {
+  const Mixed = defineTable(
+    'mixed_choice_override',
+    {
+      id: pipe(picklist(['one', 1]), column({ physicalType: { postgresql: 'text' } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const tables = lowerDesiredSchema(
+    [Mixed],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'mixed_choice_override', 'id')?.dataType).toBe('text')
+
+  const Unrelated = defineTable(
+    'mixed_choice_unrelated',
+    {
+      id: pipe(picklist(['one', 1]), column({ physicalType: { sqlite: 'TEXT' } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const result = attemptSync(() =>
+    lowerDesiredSchema([Unrelated], postgresIdentities(), postgresDialect.schema),
+  )
+
+  expect(result.ok).toBe(false)
+
+  if (result.ok) throw new Error('Expected mixed choice lowering to fail')
+
+  expect(result.error).toBeInstanceOf(MigrationError)
+
+  if (!(result.error instanceof MigrationError))
+    throw new Error('Expected MigrationError')
+
+  expect(result.error.cause).toBeInstanceOf(SchemaError)
 })
 
 /**

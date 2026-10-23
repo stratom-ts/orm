@@ -102,6 +102,67 @@ function inferPostgresLiteralType(literal: Literal) {
   return 'text'
 }
 
+/** Rejects choices whose output cannot select safe PostgreSQL storage. */
+function unsupportedChoiceType(type: string): never {
+  throw new SchemaError({
+    message: `cannot infer a PostgreSQL column type for a mixed or unsupported ${type} output; specify column({ physicalType: { postgresql: ... } })`,
+  })
+}
+
+/** Infers storage from the effective enum or picklist output options. */
+function inferPostgresChoiceType(analysis: SchemaAnalysis): SqlDataType {
+  const schema = analysis.outputSchema as typeof analysis.baseSchema & {
+    options?: unknown[]
+  }
+
+  const options = schema.options
+  const kind = analysis.outputKind
+
+  if (!options?.length || !kind) return unsupportedChoiceType(schema.type)
+
+  if (kind === 'string') return 'text'
+  if (kind === 'boolean') return 'boolean'
+
+  if (kind === 'number') {
+    const numbers = options as number[]
+
+    if (
+      numbers.some(
+        (value) =>
+          !Number.isFinite(value) ||
+          (Number.isInteger(value) && !Number.isSafeInteger(value)),
+      )
+    )
+      return unsupportedChoiceType(schema.type)
+
+    let min = Infinity
+    let max = -Infinity
+    let fractional = false
+
+    for (const value of numbers) {
+      fractional ||= !Number.isInteger(value)
+      min = Math.min(min, value)
+      max = Math.max(max, value)
+    }
+
+    return inferPostgresNumberType({
+      isInteger: !fractional,
+      minValue: min,
+      maxValue: max,
+    })
+  }
+
+  if (kind === 'bigint') {
+    return options.some(
+      (option) => (option as bigint) < INT64_MIN || (option as bigint) > INT64_MAX,
+    )
+      ? 'numeric'
+      : 'bigint'
+  }
+
+  return unsupportedChoiceType(schema.type)
+}
+
 /**
  * Infers a PostgreSQL column type from a Valibot schema.
  *
@@ -144,7 +205,8 @@ function inferEffectivePostgresType(analysis: SchemaAnalysis): SqlDataType | und
       (schema as LiteralSchema<Literal, ErrorMessage<BaseIssue<unknown>>>).literal,
     )
 
-  if (schema?.type === 'enum' || schema?.type === 'picklist') return 'text'
+  if (schema?.type === 'enum' || schema?.type === 'picklist')
+    return inferPostgresChoiceType(analysis)
 
   switch (analysis.outputKind) {
     case 'string':

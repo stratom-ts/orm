@@ -2,6 +2,7 @@ import {
   boolean,
   date,
   decimal,
+  enum as enumSchema,
   exactOptional,
   integer,
   ip,
@@ -19,6 +20,7 @@ import {
   number,
   object,
   optional,
+  picklist,
   pipe,
   string,
   title,
@@ -556,6 +558,36 @@ describe('columns with inferred types (no column() metadata)', () => {
     expectTypeOf<Update['title']>().toEqualTypeOf<string | undefined>()
     expectTypeOf<Update['attendees']>().toEqualTypeOf<number | undefined>()
     expectTypeOf<Update['endedAt']>().toEqualTypeOf<Date | null | undefined>()
+  })
+})
+
+describe('choice schema views', () => {
+  const beyondInt64 = 9223372036854775808n
+  const Choices = defineTable(
+    'choice_views',
+    {
+      id: string(),
+      status: enumSchema({ ready: 'ready', done: 'done' }),
+      count: picklist([1, 2]),
+      exact: picklist([0n, beyondInt64]),
+      nullableExact: nullable(picklist([1n, 2n])),
+    },
+    { primaryKey: 'id' },
+  )
+
+  it('should preserve choice values and wrappers in select, insert, and update views', () => {
+    type Row = InferSelect<typeof Choices>
+    type Insert = InferInsert<typeof Choices>
+    type Update = InferUpdate<typeof Choices>
+
+    expectTypeOf<Row['status']>().toEqualTypeOf<'ready' | 'done'>()
+    expectTypeOf<Row['count']>().toEqualTypeOf<1 | 2>()
+    expectTypeOf<Row['exact']>().toEqualTypeOf<0n | 9223372036854775808n>()
+    expectTypeOf<Row['nullableExact']>().toEqualTypeOf<1n | 2n | null>()
+    expectTypeOf<Insert['count']>().toEqualTypeOf<1 | 2>()
+    expectTypeOf<Insert['exact']>().toEqualTypeOf<0n | 9223372036854775808n>()
+    expectTypeOf<Update['count']>().toEqualTypeOf<1 | 2 | undefined>()
+    expectTypeOf<Update['nullableExact']>().toEqualTypeOf<1n | 2n | null | undefined>()
   })
 })
 
