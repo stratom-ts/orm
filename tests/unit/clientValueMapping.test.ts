@@ -7,6 +7,7 @@ import {
   mac64,
   nullable,
   number,
+  picklist,
   pipe,
   safeInteger,
   string,
@@ -55,6 +56,29 @@ it('should reject conflicting inference at client creation before connector acce
   expect(() => createDatabase({ connector, schemas: [Conflict] })).toThrow(SchemaError)
   expect(getInstance).not.toHaveBeenCalled()
   expect(prepare).not.toHaveBeenCalled()
+})
+
+it('should require a selected PostgreSQL override for mixed choices at client creation', async () => {
+  const Unrelated = defineTable(
+    'unrelated_choice',
+    { id: pipe(picklist(['one', 1]), column({ physicalType: { sqlite: 'TEXT' } })) },
+    { primaryKey: 'id' },
+  )
+
+  const connector = createMockPostgresConnector()
+  const getInstance = vi.spyOn(connector, 'getInstance')
+  expect(() => createDatabase({ connector, schemas: [Unrelated] })).toThrow(SchemaError)
+  expect(getInstance).not.toHaveBeenCalled()
+
+  const Selected = defineTable(
+    'selected_choice',
+    { id: pipe(picklist(['one', 1]), column({ physicalType: { postgresql: 'text' } })) },
+    { primaryKey: 'id' },
+  )
+
+  const db = createDatabase({ connector, schemas: [Selected] })
+  expect(db.insert(Selected).values({ id: 'one' }).compile().params).toEqual(['one'])
+  await db.close()
 })
 
 it('should preserve native numeric strings and pass selected storage to mapping hooks', async () => {

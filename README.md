@@ -217,28 +217,31 @@ database default; the application supplies each value.
 
 Inference rules (PostgreSQL):
 
-| Valibot schema                                                      | Inferred type                    |
-| ------------------------------------------------------------------- | -------------------------------- |
-| `string()`                                                          | `text`                           |
-| `pipe(string(), uuid())`                                            | `uuid`                           |
-| `pipe(string(), ip())` / `ipv4()` / `ipv6()`                        | `inet`                           |
-| `pipe(string(), mac48())`                                           | `macaddr`                        |
-| `pipe(string(), mac())` / `mac64()`                                 | `macaddr8`                       |
-| `pipe(string(), decimal())`                                         | `numeric`                        |
-| `pipe(string(), maxLength(n))` (n ≤ 255)                            | `varchar(n)`                     |
-| `number()`                                                          | `double precision`               |
-| `pipe(number(), integer())`                                         | `integer`                        |
-| `pipe(number(), integer(), minValue, maxValue)` in int16            | `smallint`                       |
-| `pipe(number(), integer())` with a bound outside int32              | `bigint`                         |
-| `boolean()`                                                         | `boolean`                        |
-| `bigint()`                                                          | `numeric`                        |
-| `pipe(number(), safeInteger())`                                     | `bigint`                         |
-| `pipe(string(), toNumber(), integer(), minValue(0), maxValue(100))` | `smallint`                       |
-| `date()`                                                            | `timestamptz`                    |
-| `enum(...)` / `picklist([...])`                                     | `text`                           |
-| `object(...)` / `array(...)` / `record(...)`                        | `jsonb`                          |
-| `nullable(x)` / `nullish(x)`                                        | wrapped column becomes NULL-able |
-| `optional(x)`                                                       | may be omitted; remains NOT NULL |
+| Valibot schema                                                      | Inferred type                     |
+| ------------------------------------------------------------------- | --------------------------------- |
+| `string()`                                                          | `text`                            |
+| `pipe(string(), uuid())`                                            | `uuid`                            |
+| `pipe(string(), ip())` / `ipv4()` / `ipv6()`                        | `inet`                            |
+| `pipe(string(), mac48())`                                           | `macaddr`                         |
+| `pipe(string(), mac())` / `mac64()`                                 | `macaddr8`                        |
+| `pipe(string(), decimal())`                                         | `numeric`                         |
+| `pipe(string(), maxLength(n))` (n ≤ 255)                            | `varchar(n)`                      |
+| `number()`                                                          | `double precision`                |
+| `pipe(number(), integer())`                                         | `integer`                         |
+| `pipe(number(), integer(), minValue, maxValue)` in int16            | `smallint`                        |
+| `pipe(number(), integer())` with a bound outside int32              | `bigint`                          |
+| `boolean()`                                                         | `boolean`                         |
+| `bigint()`                                                          | `numeric`                         |
+| `pipe(number(), safeInteger())`                                     | `bigint`                          |
+| `pipe(string(), toNumber(), integer(), minValue(0), maxValue(100))` | `smallint`                        |
+| `date()`                                                            | `timestamptz`                     |
+| String `enum(...)` / `picklist([...])`                              | `text`                            |
+| Integer-number choices within int16 / int32 / JS-safe range         | `smallint` / `integer` / `bigint` |
+| Fractional-number choices                                           | `double precision`                |
+| Bigint choices within / beyond signed int64                         | `bigint` / `numeric`              |
+| `object(...)` / `array(...)` / `record(...)`                        | `jsonb`                           |
+| `nullable(x)` / `nullish(x)`                                        | wrapped column becomes NULL-able  |
+| `optional(x)`                                                       | may be omitted; remains NOT NULL  |
 
 For PostgreSQL strings, a selected `physicalType.postgresql` override wins first.
 Otherwise, the format validators above select native storage before `minLength`,
@@ -310,6 +313,16 @@ change migration step for an existing database. Set the selected `physicalType` 
 pin the previous storage when needed. A schema type with no sensible selected-adapter
 mapping (for example, a `union`) throws `MigrationError` during desired-schema
 lowering rather than silently becoming text.
+
+PostgreSQL choice inference uses every actual enum or picklist value. Integer-number
+choices must be safe JavaScript integers; non-finite and unsafe numeric choices
+need an explicit PostgreSQL physical type. Inferred `bigint` storage for a number
+choice returns a JavaScript number only while it remains safe. Bigint choices
+return JavaScript bigints from either `bigint` or `numeric` storage, including
+values outside signed int64 in `numeric`. Mixed or unsupported choice outputs
+require `column({ physicalType: { postgresql: '...' } })`. PostgreSQL does not
+create native ENUM types. SQLite keeps its own INTEGER, REAL, and BIGINT choice
+rules and rejects bigint choices outside signed int64.
 
 Use `physicalType` when you need exact
 adapter-selected storage and tagged database defaults/generation when database

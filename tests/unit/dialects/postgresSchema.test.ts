@@ -33,6 +33,7 @@ import {
   nullish,
   number,
   object,
+  optional,
   parseBoolean,
   parseJson,
   picklist,
@@ -46,6 +47,7 @@ import {
   toDate,
   toNumber,
   toString,
+  transform,
   undefinedable,
   union,
   uuid,
@@ -240,6 +242,108 @@ describe('PostgreSQL schema', () => {
 
   it('should return boolean for boolean literal', () => {
     expect(inferColumnType(literal(true))).toBe('boolean')
+  })
+})
+
+describe('PostgreSQL schema', () => {
+  it('should infer homogeneous choice families from their output values', () => {
+    expect(inferColumnType(enumSchema({ first: 'first', second: 'second' }))).toBe('text')
+    expect(inferColumnType(picklist(['first', 'second']))).toBe('text')
+    expect(inferColumnType(picklist([1, 2]))).toBe('smallint')
+    expect(inferColumnType(enumSchema({ first: 1, second: 2 }))).toBe('smallint')
+    expect(inferColumnType(picklist([1, 1.5]))).toBe('double precision')
+    expect(inferColumnType(picklist([1.5, 1]))).toBe('double precision')
+    expect(inferColumnType(picklist([1n, 2n]))).toBe('bigint')
+    expect(inferColumnType(picklist([1n, 2n ** 63n]))).toBe('numeric')
+  })
+
+  it('should use the actual values of a TypeScript numeric enum', () => {
+    enum Status {
+      First = 1,
+      Second = 2,
+    }
+
+    expect(inferColumnType(enumSchema(Status))).toBe('smallint')
+  })
+
+  it.each([
+    [[-32768, 32767], 'smallint'],
+    [[32767, -32768], 'smallint'],
+    [[-32769, 32767], 'integer'],
+    [[-32768, 32768], 'integer'],
+    [[-2147483648, 2147483647], 'integer'],
+    [[2147483647, -2147483648], 'integer'],
+    [[-2147483649, 2147483647], 'bigint'],
+    [[-2147483648, 2147483648], 'bigint'],
+    [[Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER], 'bigint'],
+  ] as const)('should infer %s as %s from both integer extremes', (options, expected) => {
+    expect(inferColumnType(picklist(options))).toBe(expected)
+  })
+
+  it('should use numeric for bigint choices outside either int64 boundary', () => {
+    const min = -(2n ** 63n)
+    const max = 2n ** 63n - 1n
+    expect(inferColumnType(picklist([min, max]))).toBe('bigint')
+    expect(inferColumnType(picklist([0n, min - 1n]))).toBe('numeric')
+    expect(inferColumnType(picklist([0n, max + 1n]))).toBe('numeric')
+  })
+})
+
+describe('PostgreSQL schema', () => {
+  it.each([
+    ['NaN', picklist([0, Number.NaN])],
+    ['positive infinity', picklist([0, Number.POSITIVE_INFINITY])],
+    ['negative infinity', picklist([0, Number.NEGATIVE_INFINITY])],
+    ['unsafe positive integer', picklist([0, Number.MAX_SAFE_INTEGER + 1])],
+    ['unsafe negative integer', picklist([0, Number.MIN_SAFE_INTEGER - 1])],
+    ['fraction before unsafe integer', picklist([1.5, Number.MAX_SAFE_INTEGER + 1])],
+  ])('should reject unsupported numeric choice %s', (_label, schema) => {
+    expect(() => inferColumnType(schema)).toThrow(SchemaError)
+
+    expect(() => inferColumnType(schema)).toThrow(
+      /physicalType: \{ postgresql: \.\.\. \}/,
+    )
+  })
+
+  it.each([picklist(['one', 1]), enumSchema({ first: 1, second: 'two' })])(
+    'should reject mixed choice outputs with an actionable error',
+    (schema) => {
+      expect(() => inferColumnType(schema)).toThrow(SchemaError)
+
+      expect(() => inferColumnType(schema)).toThrow(
+        /physicalType: \{ postgresql: \.\.\. \}/,
+      )
+    },
+  )
+
+  it('should reject an empty choice with explicit-type guidance', () => {
+    expect(() => inferColumnType(picklist([]))).toThrow(SchemaError)
+
+    expect(() => inferColumnType(picklist([]))).toThrow(
+      /physicalType: \{ postgresql: \.\.\. \}/,
+    )
+  })
+
+  it.each([
+    ['optional', optional(picklist([1, 2]))],
+    ['exactOptional', exactOptional(picklist([1, 2]))],
+    ['undefinedable', undefinedable(picklist([1, 2]))],
+    ['nullable', nullable(picklist([1, 2]))],
+    ['nullish', nullish(picklist([1, 2]))],
+    ['nonOptional', nonOptional(picklist([1, 2]))],
+    ['nonNullable', nonNullable(picklist([1, 2]))],
+    ['nonNullish', nonNullish(picklist([1, 2]))],
+    ['nested wrappers and pipe', nullable(optional(pipe(picklist([1, 2]), minValue(1))))],
+  ])('should infer numeric choice storage through %s', (_name, schema) => {
+    expect(inferColumnType(schema)).toBe('smallint')
+  })
+
+  it('should use the effective choice after a pipeline and clear it after a transform', () => {
+    expect(inferColumnType(pipe(string(), transform(Number), picklist([1, 2])))).toBe(
+      'smallint',
+    )
+
+    expect(inferColumnType(pipe(picklist([1, 2]), toString()))).toBe('text')
   })
 })
 
