@@ -18,6 +18,7 @@ import {
   nonOptional,
   null as nullSchema,
   nullable,
+  nullish,
   number,
   object,
   optional,
@@ -31,6 +32,7 @@ import {
   undefinedable,
   union,
 } from 'valibot'
+import type { InferInput, InferOutput } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
 
 import type {
@@ -369,17 +371,158 @@ describe('InferInsert', () => {
   })
 
   it('should use a later pipeline schema to remove composite nullability', () => {
+    const transformed = pipe(union([string(), nullSchema()]), toString(), string())
     const Recovered = defineTable(
       'recovered_composite_views',
       {
         id: string(),
-        value: pipe(union([string(), nullSchema()]), toString(), string()),
+        value: transformed,
       },
       { primaryKey: 'id' },
     )
 
+    expectTypeOf<InferInput<typeof transformed>>().toEqualTypeOf<string | null>()
+    expectTypeOf<InferOutput<typeof transformed>>().toEqualTypeOf<string>()
+    expectTypeOf<InferInsert<typeof Recovered>['value']>().toEqualTypeOf<string | null>()
+
+    expectTypeOf<InferUpdate<typeof Recovered>['value']>().toEqualTypeOf<
+      string | null | undefined
+    >()
+
     expectTypeOf<InferSelect<typeof Recovered>['value']>().toEqualTypeOf<string>()
   })
+})
+
+it('should keep nullable transform inputs separate from non-null stored outputs', () => {
+  const numberFromNullable = pipe(nullable(string()), toNumber())
+  const stringFromNullable = pipe(nullable(string()), toString())
+  const Transformed = defineTable(
+    'transformed_nullable_views',
+    { id: string(), numberFromNullable, stringFromNullable },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferInput<typeof numberFromNullable>>().toEqualTypeOf<string | null>()
+  expectTypeOf<InferOutput<typeof numberFromNullable>>().toEqualTypeOf<number>()
+  expectTypeOf<InferInput<typeof stringFromNullable>>().toEqualTypeOf<string | null>()
+  expectTypeOf<InferOutput<typeof stringFromNullable>>().toEqualTypeOf<string>()
+
+  expectTypeOf<InferSelect<typeof Transformed>>().toEqualTypeOf<{
+    id: string
+    numberFromNullable: number
+    stringFromNullable: string
+  }>()
+
+  expectTypeOf<InferInsert<typeof Transformed>['numberFromNullable']>().toEqualTypeOf<
+    string | null
+  >()
+
+  expectTypeOf<InferInsert<typeof Transformed>['stringFromNullable']>().toEqualTypeOf<
+    string | null
+  >()
+})
+
+it('should keep nullish transform inputs and omission separate from stored outputs', () => {
+  const numberFromNullish = pipe(
+    nullish(string()),
+    toNumber(),
+    column({ databaseDefault: { kind: 'literal', value: 0 } }),
+  )
+
+  const stringFromNullish = pipe(
+    nullish(string()),
+    toString(),
+    column({ databaseDefault: { kind: 'literal', value: 'fallback' } }),
+  )
+
+  const Transformed = defineTable(
+    'transformed_nullish_views',
+    { id: string(), numberFromNullish, stringFromNullish },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferInput<typeof numberFromNullish>>().toEqualTypeOf<
+    string | null | undefined
+  >()
+
+  expectTypeOf<InferOutput<typeof numberFromNullish>>().toEqualTypeOf<number>()
+
+  expectTypeOf<InferInput<typeof stringFromNullish>>().toEqualTypeOf<
+    string | null | undefined
+  >()
+
+  expectTypeOf<InferOutput<typeof stringFromNullish>>().toEqualTypeOf<string>()
+
+  expectTypeOf<InferSelect<typeof Transformed>>().toEqualTypeOf<{
+    id: string
+    numberFromNullish: number
+    stringFromNullish: string
+  }>()
+
+  expectTypeOf<InferUpdate<typeof Transformed>['numberFromNullish']>().toEqualTypeOf<
+    string | null | undefined
+  >()
+
+  expectTypeOf<InferInsert<typeof Transformed>['numberFromNullish']>().toEqualTypeOf<
+    string | null | undefined
+  >()
+
+  expectTypeOf<InferUpdate<typeof Transformed>['stringFromNullish']>().toEqualTypeOf<
+    string | null | undefined
+  >()
+})
+
+it('should preserve SQL nullability for defaulted nullable schemas without a conversion', () => {
+  const defaulted = nullable(string(), 'fallback')
+  const validated = pipe(defaulted, title('validated'))
+  const converted = pipe(defaulted, toString())
+  const Defaults = defineTable(
+    'nullable_default_views',
+    { id: string(), defaulted, validated, converted },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferOutput<typeof defaulted>>().toEqualTypeOf<string>()
+  expectTypeOf<InferInput<typeof defaulted>>().toEqualTypeOf<string | null>()
+
+  expectTypeOf<InferSelect<typeof Defaults>['defaulted']>().toEqualTypeOf<string | null>()
+
+  expectTypeOf<InferSelect<typeof Defaults>['validated']>().toEqualTypeOf<string | null>()
+
+  expectTypeOf<InferSelect<typeof Defaults>['converted']>().toEqualTypeOf<string>()
+
+  expectTypeOf<InferInsert<typeof Defaults>['defaulted']>().toEqualTypeOf<string | null>()
+})
+
+it('should apply outer nullability wrappers after a converted pipeline', () => {
+  const converted = pipe(nullable(string()), toNumber())
+  const Wrapped = defineTable(
+    'wrapped_transformed_views',
+    {
+      id: string(),
+      nullableOutput: nullable(converted),
+      nullishOutput: nullish(converted),
+      requiredNullable: nonNullable(nullable(converted)),
+      requiredNullish: nonNullish(nullish(converted)),
+    },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferSelect<typeof Wrapped>['nullableOutput']>().toEqualTypeOf<
+    number | null
+  >()
+
+  expectTypeOf<InferSelect<typeof Wrapped>['nullishOutput']>().toEqualTypeOf<
+    number | null
+  >()
+
+  expectTypeOf<InferSelect<typeof Wrapped>['requiredNullable']>().toEqualTypeOf<number>()
+
+  expectTypeOf<InferSelect<typeof Wrapped>['requiredNullish']>().toEqualTypeOf<number>()
+
+  expectTypeOf<InferInsert<typeof Wrapped>['nullableOutput']>().toEqualTypeOf<
+    string | null
+  >()
 })
 
 describe('InferInsert', () => {

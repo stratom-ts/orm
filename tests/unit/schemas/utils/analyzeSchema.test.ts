@@ -394,6 +394,27 @@ describe('analyzeSchema composites', () => {
   })
 })
 
+it('should distinguish consumed null inputs from stored null outputs', () => {
+  const cases = [
+    [pipe(nullable(string()), toNumber()), 'number', false, false],
+    [pipe(nullable(string()), toString()), 'string', false, false],
+    [pipe(nullish(string()), toNumber()), 'number', false, true],
+    [pipe(nullish(string()), toString()), 'string', false, true],
+    [pipe(union([string(), nullSchema()]), toString(), string()), 'string', false, false],
+    [nullable(string()), 'string', true, false],
+    [pipe(nullable(string(), 'fallback'), toString()), 'string', false, false],
+    [pipe(nullable(string(), 'fallback'), maxLength(20)), 'string', true, false],
+  ] as const
+
+  for (const [schema, outputKind, nullableValue, omitOnInsert] of cases) {
+    expect(analyzeSchema(schema)).toMatchObject({
+      outputKind,
+      nullable: nullableValue,
+      omitOnInsert,
+    })
+  }
+})
+
 describe('analyzeSchema ordered transformations', () => {
   it('should derive output kinds and retain only constraints on the current output', () => {
     expect(

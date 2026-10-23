@@ -99,29 +99,48 @@ type IsOptionalSchema<S> = S extends { kind: 'schema'; type: 'optional' }
           ? IsOptionalSchema<W>
           : false
 
-/** SQL NULL-capable after wrappers and effective composite output. */
-type IsSqlNullableSchema<S> = S extends { kind: 'schema'; type: 'nullable' }
-  ? true
-  : S extends { kind: 'schema'; type: 'nullish' }
+type IsSqlNullablePipe<
+  TItems extends readonly unknown[],
+  TNullable extends boolean,
+> = TItems extends readonly [infer TItem, ...infer TRest]
+  ? IsSqlNullablePipe<
+      TRest,
+      TItem extends { kind: 'schema' }
+        ? IsSqlNullableSchema<TItem>
+        : TItem extends {
+              kind: 'transformation'
+              type: 'to_number' | 'to_boolean' | 'parse_boolean' | 'to_date' | 'to_string'
+            }
+          ? false
+          : TNullable
+    >
+  : TNullable
+
+/** SQL NULL-capable after wrappers and pipeline actions in their runtime order. */
+type IsSqlNullableSchema<S> = S extends { pipe: readonly [infer TFirst, ...infer TRest] }
+  ? IsSqlNullablePipe<TRest, IsSqlNullableSchema<TFirst>>
+  : S extends { kind: 'schema'; type: 'nullable' }
     ? true
-    : S extends { kind: 'schema'; type: 'non_nullable' | 'non_nullish' }
-      ? false
-      : S extends {
-            kind: 'schema'
-            type: 'optional' | 'exact_optional' | 'undefinedable' | 'non_optional'
-            wrapped: infer W
-          }
-        ? IsSqlNullableSchema<W>
+    : S extends { kind: 'schema'; type: 'nullish' }
+      ? true
+      : S extends { kind: 'schema'; type: 'non_nullable' | 'non_nullish' }
+        ? false
         : S extends {
               kind: 'schema'
-              type: 'union' | 'variant' | 'intersect' | 'null' | 'literal'
+              type: 'optional' | 'exact_optional' | 'undefinedable' | 'non_optional'
+              wrapped: infer W
             }
-          ? S extends AnySchema
-            ? null extends InferOutput<S>
-              ? true
+          ? IsSqlNullableSchema<W>
+          : S extends {
+                kind: 'schema'
+                type: 'union' | 'variant' | 'intersect' | 'null' | 'literal'
+              }
+            ? S extends AnySchema
+              ? null extends InferOutput<S>
+                ? true
+                : false
               : false
             : false
-          : false
 
 type IsInsertOptional<S> =
   IsGeneratedAlways<S> extends true
@@ -151,15 +170,8 @@ type SelectColumnValue<S> =
     ? NonNullColumnValue<S> | null
     : NonNullColumnValue<S> | NullableOutputValue<S>
 
-type InsertColumnValue<S> =
-  IsSqlNullableSchema<S> extends true
-    ? NonNullInputColumnValue<S> | null
-    : NonNullInputColumnValue<S>
-
-type NonNullInputColumnValue<S> = S extends AnySchema
-  ? DBType<InferInput<S>> extends infer V
-    ? Exclude<V, null>
-    : never
+type InsertColumnValue<S> = S extends AnySchema
+  ? DBType<InferInput<S>> | (IsSqlNullableSchema<S> extends true ? null : never)
   : never
 
 /**
