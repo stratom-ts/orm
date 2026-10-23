@@ -141,6 +141,8 @@ function createNativeFixtureClient(
       return queryState.activeQuery
     },
     queryQueue: [],
+    /** Supplies the native parser for types without a query override. */
+    getTypeParser: (_oid: number, _format?: string) => (value: string) => value,
     /** Closes the native PostgreSQL client and its physical connection. */
     async end() {
       state.endCount++

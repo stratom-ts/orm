@@ -601,6 +601,8 @@ async function assertMissingPostgresReadiness(
   const missingReadiness = {
     processID: 123,
     database: 'test',
+    /** Supplies the native parser for types without a query override. */
+    getTypeParser: (_oid: number, _format?: string) => (value: string) => value,
     /** Runs fixture SQL and records physical-session ownership. */
     query: async () => ({
       rows: [{ physicalSession: '123', database: 'test' }],

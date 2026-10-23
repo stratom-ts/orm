@@ -8,6 +8,12 @@ import {
   ip,
   ipv4,
   ipv6,
+  isoDate,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
+  isoTimestamp,
   length,
   literal,
   mac,
@@ -41,6 +47,23 @@ import { describe, expect, it } from 'vitest'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
+
+describe('SQLite schema', () => {
+  it.each([
+    isoDate(),
+    isoTime(),
+    isoTimeSecond(),
+    isoDateTime(),
+    isoDateTimeSecond(),
+    isoTimestamp(),
+  ])('should infer TEXT for %s and DATETIME after toDate', (format) => {
+    expect(sqliteSchema.inferColumnType(nullable(pipe(string(), format)))).toBe('TEXT')
+
+    expect(sqliteSchema.inferColumnType(pipe(string(), format, toDate()))).toBe(
+      'DATETIME',
+    )
+  })
+})
 
 describe('SQLite schema', () => {
   it('should infer distinct logical declared types while comparing their affinities stably', () => {

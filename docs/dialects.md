@@ -272,8 +272,22 @@ the safe integer range. Bigint output maps integer-valued `bigint`, `numeric`, a
 Unsafe JavaScript numbers and fractional values fail with `QueryError` before a
 lossy numeric conversion. PostgreSQL numeric result strings remain strings unless
 the schema output is bigint, including a number schema with an explicit numeric
-physical type. Context-free mapping retains the driver's numeric representation. Timestamp
-mapping follows Date or string output; broader temporal inference belongs to #44.
+physical type. Context-free mapping retains the driver's numeric representation.
+
+PostgreSQL selects `date` for `isoDate`, `time` for `isoTime` and
+`isoTimeSecond`, `timestamp` for `isoDateTime` and `isoDateTimeSecond`, and
+`timestamptz` for `isoTimestamp`. These schemas return strings. `date()` and a
+proven `toDate()` output select `timestamptz` and return JavaScript `Date` values.
+The operation's native query reads temporal columns as text before logical result
+mapping. Local timestamps therefore retain their wall-clock fields regardless of
+the JavaScript host timezone, and ISO timestamp strings retain submillisecond digits.
+Results use `T` between date and time and a `Z` or colon-separated timezone offset.
+PostgreSQL stores at most six fractional second digits and may change the spelling
+of an input offset to the session timezone. Minute and second schemas cannot
+represent finer nonzero stored precision; result mapping rejects such values
+instead of discarding it. JavaScript `Date` results retain only milliseconds.
+Validation transformations run on input only; result mapping uses the proven output
+kind and does not rerun the input pipeline.
 
 ## SQLite production profile
 
@@ -305,6 +319,10 @@ Bigints use SQLite's signed 64-bit integer range. Boolean values use `0` and `1`
 Dates use ISO text, and JSON-shaped schemas use bracketed JSON text. These text forms
 remain text even with numeric affinity. Nullable wrappers preserve SQL NULL.
 Homogeneous enum and picklist outputs follow their primitive output kind.
+All six ISO temporal validators infer `TEXT` and return the stored string. `date()`
+and proven `toDate()` output infer `DATETIME` and return `Date`; `DATETIME` is a
+declared SQLite type whose values are stored as ISO text. Compatible explicit
+declared types follow the same logical string or Date mapping.
 
 Inference follows transformations from left to right. A known conversion selects
 storage from its output, so `pipe(string(), toNumber())` accepts a string on insert

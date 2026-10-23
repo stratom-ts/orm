@@ -28,6 +28,12 @@ const STRING_FORMATS = [
   'mac48',
   'mac64',
   'decimal',
+  'iso_date',
+  'iso_time',
+  'iso_time_second',
+  'iso_date_time',
+  'iso_date_time_second',
+  'iso_timestamp',
 ] as const
 
 type StringFormat = (typeof STRING_FORMATS)[number]

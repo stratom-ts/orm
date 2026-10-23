@@ -17,7 +17,11 @@ type NativePostgresResult = {
   rowCount?: number | null
 }
 
+/** PostgreSQL date, time, local timestamp, and instant timestamp text OIDs. */
+const TEMPORAL_TEXT_OIDS = new Set([1082, 1083, 1114, 1184])
+
 type NativePostgresClient = {
+  getTypeParser(oid: number, format?: string): (value: string) => unknown
   processID?: number
   database?: string
   readyForQuery?: boolean
@@ -60,6 +64,9 @@ type NativePostgresClient = {
           text: string
           values: unknown[]
           signal?: AbortSignal
+          types?: {
+            getTypeParser(oid: number, format?: string): (value: string) => unknown
+          }
         },
     values?: unknown[],
   ): Promise<NativePostgresResult>
@@ -213,6 +220,13 @@ async function queryNativeSql(
  * @param client - Native PostgreSQL client.
  */
 function assertReusableNativeClient(client: NativePostgresClient): void {
+  if (typeof client.getTypeParser !== 'function') {
+    throw new QueryError({
+      message:
+        'The db0 PostgreSQL connector did not expose the exact native pg.Client type parser capability',
+    })
+  }
+
   if (
     client.readyForQuery !== undefined &&
     (client.readyForQuery !== true ||
@@ -362,6 +376,12 @@ async function executeNativeQuery(
       text: query.sql,
       values: query.params,
       signal: controller.signal,
+      types: {
+        getTypeParser: (oid, format) =>
+          format !== 'binary' && TEMPORAL_TEXT_OIDS.has(oid)
+            ? (value) => value
+            : client.getTypeParser(oid, format),
+      },
     })
   } catch (cause) {
     throw driverError(cause, dialectId, query.sql, postgresClassifyDriverError)

@@ -5,6 +5,8 @@ import {
   exactOptional,
   integer,
   ip,
+  isoDate,
+  isoTimestamp,
   mac48,
   mac64,
   maxLength,
@@ -20,6 +22,7 @@ import {
   pipe,
   string,
   title,
+  toDate,
   toNumber,
   undefinedable,
 } from 'valibot'
@@ -34,6 +37,41 @@ import type {
   TableIdentityOf,
 } from '@/index'
 import { column, defineTable, reference, table } from '@/index'
+
+describe('temporal schema views', () => {
+  it('should keep ISO string and transformed Date outputs distinct', () => {
+    const Temporal = defineTable(
+      'temporal_views',
+      {
+        id: pipe(string(), isoDate()),
+        instant: nullable(pipe(string(), isoTimestamp())),
+        converted: pipe(string(), isoTimestamp(), toDate()),
+        nativeDate: date(),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const Reference = defineTable(
+      'temporal_view_references',
+      { id: string(), temporalId: nullable(reference(Temporal, 'id')) },
+      { primaryKey: 'id' },
+    )
+
+    expectTypeOf<InferSelect<typeof Temporal>['id']>().toEqualTypeOf<string>()
+    expectTypeOf<InferSelect<typeof Temporal>['instant']>().toEqualTypeOf<string | null>()
+    expectTypeOf<InferSelect<typeof Temporal>['converted']>().toEqualTypeOf<Date>()
+    expectTypeOf<InferSelect<typeof Temporal>['nativeDate']>().toEqualTypeOf<Date>()
+    expectTypeOf<InferInsert<typeof Temporal>['converted']>().toEqualTypeOf<string>()
+
+    expectTypeOf<InferUpdate<typeof Temporal>['converted']>().toEqualTypeOf<
+      string | undefined
+    >()
+
+    expectTypeOf<InferSelect<typeof Reference>['temporalId']>().toEqualTypeOf<
+      string | null
+    >()
+  })
+})
 
 describe('should retain native format string row types', () => {
   it('should keep insert, select, update, and reference values as strings', () => {

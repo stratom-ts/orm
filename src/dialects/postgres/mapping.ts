@@ -1,4 +1,5 @@
 import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
+import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
@@ -12,6 +13,130 @@ const BIGINT_OUTPUT_STORAGE = new Set([
   'integer',
   'smallint',
 ])
+
+/** Formats PostgreSQL's textual time at the precision promised by the schema. */
+function isoTimeResult(value: string, withSeconds: boolean): string {
+  const match = /^(\d{2}:\d{2}):(\d{2})(?:\.(\d+))?$/.exec(value)
+
+  if (!match) return value
+
+  const [, minute, second, fraction] = match
+
+  if (fraction && /[1-9]/.test(fraction))
+    throw new QueryError({
+      message: 'PostgreSQL time has finer precision than the schema output',
+    })
+
+  if (!withSeconds && second !== '00')
+    throw new QueryError({
+      message: 'PostgreSQL time has finer precision than the schema output',
+    })
+
+  return withSeconds ? `${minute}:${second}` : minute!
+}
+
+/** Converts PostgreSQL's session-offset spelling to an ISO timestamp offset. */
+function isoTimestampResult(value: string): string {
+  const normalized = value.replace(' ', 'T')
+
+  const historical =
+    /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(\.\d+)?([+-])(\d{2}):?(\d{2}):?(\d{2})$/.exec(
+      normalized,
+    )
+
+  if (historical) {
+    const [, day, time, , direction, hour, minute, second] = historical
+    const fraction = historical.at(3) ?? ''
+    const wallClock = new Date(`${day}T${time}Z`)
+
+    if (Number.isNaN(wallClock.getTime())) return normalized
+
+    const offsetSeconds =
+      (Number(hour) * 3600 + Number(minute) * 60 + Number(second)) *
+      (direction === '+' ? 1 : -1)
+
+    const utc = new Date(wallClock.getTime() - offsetSeconds * 1000)
+    return `${utc.toISOString().slice(0, 19)}${fraction}Z`
+  }
+
+  return normalized.replace(
+    /([+-]\d{2})(?::?(\d{2}))?$/,
+    (_all, hour: string, minute?: string) =>
+      hour === '+00' && (!minute || minute === '00') ? 'Z' : `${hour}:${minute ?? '00'}`,
+  )
+}
+
+/** Restores the strict Valibot minute or second form from native timestamp text. */
+function isoDateTimeResult(value: string, withSeconds: boolean): string {
+  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/.exec(value)
+  return match ? `${match[1]}T${isoTimeResult(match[2]!, withSeconds)}` : value
+}
+
+/** Applies an ISO format only when its native storage matches the selected type. */
+function mapIsoStringResult(
+  base: string,
+  value: string,
+  formats: SchemaAnalysis['stringFormats'],
+): string | undefined {
+  if (base === 'time' && formats.includes('iso_time')) return isoTimeResult(value, false)
+
+  if (base === 'time' && formats.includes('iso_time_second'))
+    return isoTimeResult(value, true)
+
+  if (base === 'timestamp' && formats.includes('iso_date_time'))
+    return isoDateTimeResult(value, false)
+
+  if (base === 'timestamp' && formats.includes('iso_date_time_second'))
+    return isoDateTimeResult(value, true)
+
+  if (base === 'timestamptz' && formats.includes('iso_timestamp'))
+    return isoTimestampResult(value)
+
+  return undefined
+}
+
+/** Parses an instant or UTC wall clock while leaving unparseable native text alone. */
+function parseNativeTimestamp(base: string, value: string | number): Date | undefined {
+  const date = new Date(
+    typeof value === 'string'
+      ? base === 'timestamp'
+        ? `${value.replace(' ', 'T')}${/[Zz]|[+-]\d{2}(?::?\d{2})?$/.test(value) ? '' : 'Z'}`
+        : isoTimestampResult(value)
+      : value,
+  )
+
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+/** Maps one native temporal value after the schema's output family is known. */
+function mapTemporalResult(
+  base: string,
+  value: unknown,
+  analysis: SchemaAnalysis | undefined,
+): unknown {
+  const kind = analysis?.outputKind
+
+  if (kind === 'string' && typeof value === 'string') {
+    const iso = mapIsoStringResult(base, value, analysis?.stringFormats ?? [])
+
+    if (iso !== undefined) return iso
+  }
+
+  if (base === 'date' && kind === 'date' && typeof value === 'string') {
+    const date = new Date(`${value}T00:00:00Z`)
+    return Number.isNaN(date.getTime()) ? value : date
+  }
+
+  if (base !== 'timestamp' && base !== 'timestamptz') return value
+  if (value instanceof Date) return kind === 'string' ? value.toISOString() : value
+  if (typeof value !== 'string' && typeof value !== 'number') return value
+
+  const date = parseNativeTimestamp(base, value)
+
+  if (!date) return value
+
+  return kind === 'string' ? date.toISOString() : date
+}
 
 /** Rejects reference outputs that built-in target mapping cannot preserve. */
 export function validatePostgresValueMapping(
@@ -120,20 +245,20 @@ export function mapPostgresResultValue(
 
   const base = extractPostgresBaseType(dataType)
 
-  const kind = context ? analyzeSchema(context.schema).outputKind : undefined
+  const analysis = context ? analyzeSchema(context.schema) : undefined
+  const kind = analysis?.outputKind
 
   if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base)) return mapBigintResult(value)
 
   if (kind === 'number' && base === 'bigint') return mapSafeNumberResult(value)
 
-  if (base === 'timestamp' || base === 'timestamptz') {
-    if (kind === 'string') return value instanceof Date ? value.toISOString() : value
-    if (value instanceof Date) return value
-    if (typeof value !== 'string' && typeof value !== 'number') return value
-
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? value : date
-  }
+  if (
+    base === 'date' ||
+    base === 'time' ||
+    base === 'timestamp' ||
+    base === 'timestamptz'
+  )
+    return mapTemporalResult(base, value, analysis)
 
   if (base === 'json' || base === 'jsonb')
     return typeof value === 'string' ? parseJsonResult(value) : value
