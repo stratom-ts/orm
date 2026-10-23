@@ -9,7 +9,13 @@ import type {
   CatalogExecutor,
   CatalogRequest,
 } from '@/dialects/catalog'
-import type { CompiledQuery, Dialect, SqlAst, SqlDataType } from '@/dialects/types'
+import type {
+  CompiledQuery,
+  Dialect,
+  DialectValueMappingContext,
+  SqlAst,
+  SqlDataType,
+} from '@/dialects/types'
 import type {
   CanonicalRelationIdentity,
   NamespaceContext,
@@ -37,6 +43,7 @@ import {
 type ContractValue =
   | string
   | number
+  | bigint
   | boolean
   | null
   | undefined
@@ -195,13 +202,16 @@ type QueryCoreContractInput = Readonly<{
 
 type QueryValueMappingContractInput = Readonly<{
   dialect: Dialect
-  dataType: SqlDataType
-  paramValue: ContractValue
-  resultValue: ContractValue
-  expected: Readonly<{
-    mappedParam: ContractValue
-    mappedResult: ContractValue
-  }>
+  scenarios: readonly Readonly<{
+    dataType: SqlDataType
+    context?: DialectValueMappingContext
+    paramValue: ContractValue
+    resultValue: ContractValue
+    expected: Readonly<{
+      mappedParam: ContractValue
+      mappedResult: ContractValue
+    }>
+  }>[]
 }>
 
 type QueryContract = Readonly<{
@@ -856,23 +866,33 @@ function registerValueMappingScenario(
     registerUnsupported(name, 'query/value-mapping', contract.valueMapping)
   } else {
     const input = contract.valueMapping.input
-    it(`should map parameter and result values for ${name} Dialect contract [query]`, () => {
-      const mapParam = input.dialect.query.mapParamValue
-      const mapResult = input.dialect.query.mapResultValue
-      expect(mapParam).toBeTypeOf('function')
-      expect(mapResult).toBeTypeOf('function')
 
-      if (!mapParam || !mapResult) {
-        throw new Error(
-          'The adapter declared value mapping without both mapping functions',
-        )
-      }
+    if (input.scenarios.length === 0)
+      throw new Error('The adapter declared value mapping without scenarios')
 
-      expect({
-        mappedParam: mapParam(input.dataType, input.paramValue),
-        mappedResult: mapResult(input.dataType, input.resultValue),
-      }).toEqual(input.expected)
-    })
+    for (const scenario of input.scenarios) {
+      it(`should map ${scenario.dataType} values for ${name} Dialect contract [query]`, () => {
+        const mapParam = input.dialect.query.mapParamValue
+        const mapResult = input.dialect.query.mapResultValue
+        expect(mapParam).toBeTypeOf('function')
+        expect(mapResult).toBeTypeOf('function')
+
+        if (!mapParam || !mapResult) {
+          throw new Error(
+            'The adapter declared value mapping without both mapping functions',
+          )
+        }
+
+        expect({
+          mappedParam: mapParam(scenario.dataType, scenario.paramValue, scenario.context),
+          mappedResult: mapResult(
+            scenario.dataType,
+            scenario.resultValue,
+            scenario.context,
+          ),
+        }).toEqual(scenario.expected)
+      })
+    }
   }
 }
 

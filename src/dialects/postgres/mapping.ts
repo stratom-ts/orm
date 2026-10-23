@@ -5,6 +5,14 @@ import type { DialectValueMappingContext } from '../types'
 
 import { extractPostgresBaseType } from './normalize'
 
+const BIGINT_OUTPUT_STORAGE = new Set([
+  'numeric',
+  'decimal',
+  'bigint',
+  'integer',
+  'smallint',
+])
+
 /** Rejects reference outputs that built-in target mapping cannot preserve. */
 export function validatePostgresValueMapping(
   _dataType: string,
@@ -114,12 +122,12 @@ export function mapPostgresResultValue(
 
   const kind = context ? analyzeSchema(context.schema).outputKind : undefined
 
-  if (kind === 'bigint' && (base === 'numeric' || base === 'bigint'))
-    return mapBigintResult(value)
+  if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base)) return mapBigintResult(value)
 
   if (kind === 'number' && base === 'bigint') return mapSafeNumberResult(value)
 
   if (base === 'timestamp' || base === 'timestamptz') {
+    if (kind === 'string') return value instanceof Date ? value.toISOString() : value
     if (value instanceof Date) return value
     if (typeof value !== 'string' && typeof value !== 'number') return value
 
@@ -179,11 +187,10 @@ export function mapPostgresParamValue(
   const base = extractPostgresBaseType(dataType)
   const kind = context ? analyzeSchema(context.schema).outputKind : undefined
 
-  if (kind === 'bigint' && (base === 'numeric' || base === 'bigint')) {
-    if (typeof value === 'bigint') return value.toString()
+  if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base))
+    return mapBigintResult(value).toString()
 
-    return value
-  }
+  if (kind === 'number' && base === 'bigint') return mapSafeNumberResult(value)
 
   if (base === 'timestamp' || base === 'timestamptz') {
     if (value instanceof Date) return value.toISOString()
