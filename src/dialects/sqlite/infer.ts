@@ -1,6 +1,6 @@
 import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 
-import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
+import { analyzeSchema, withNumberConstraints } from '@/schemas/utils/analyzeSchema'
 import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
@@ -171,7 +171,14 @@ function inferSqliteCompositeType(analysis: SchemaAnalysis): SqlDataType {
   )
     return unsupportedCompositeType(composite.type)
 
-  const types = branches.map((branch) => inferEffectiveSqliteType(branch))
+  const numericBranches =
+    kind === 'number'
+      ? branches.map((branch) =>
+          withNumberConstraints(branch, analysis.numberConstraints),
+        )
+      : branches
+
+  const types = numericBranches.map((branch) => inferEffectiveSqliteType(branch))
 
   if (types.some((type) => !type)) return unsupportedCompositeType(composite.type)
   if (types.every((type) => type === types[0])) return types[0]!

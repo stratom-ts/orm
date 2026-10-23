@@ -1,6 +1,6 @@
 import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
 
-import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
+import { analyzeSchema, withNumberConstraints } from '@/schemas/utils/analyzeSchema'
 import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
@@ -266,7 +266,14 @@ function inferPostgresCompositeType(analysis: SchemaAnalysis): SqlDataType {
   )
     return unsupportedCompositeType(composite.type)
 
-  const types = branches.map((branch) => inferEffectivePostgresType(branch))
+  const numericBranches =
+    kind === 'number'
+      ? branches.map((branch) =>
+          withNumberConstraints(branch, analysis.numberConstraints),
+        )
+      : branches
+
+  const types = numericBranches.map((branch) => inferEffectivePostgresType(branch))
 
   if (types.some((type) => !type)) return unsupportedCompositeType(composite.type)
 
@@ -275,7 +282,7 @@ function inferPostgresCompositeType(analysis: SchemaAnalysis): SqlDataType {
     kind === 'string'
       ? inferPostgresCompositeStringType(analysis, branches, storage)
       : kind === 'number'
-        ? inferPostgresCompositeNumberType(branches, storage)
+        ? inferPostgresCompositeNumberType(numericBranches, storage)
         : kind === 'bigint' &&
             storage.every((type) => type === 'bigint' || type === 'numeric')
           ? storage.includes('numeric')
