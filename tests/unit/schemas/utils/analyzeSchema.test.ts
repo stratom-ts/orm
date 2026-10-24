@@ -316,6 +316,40 @@ describe('analyzeSchema: reports every supported scalar and JSON-shaped output f
   })
 })
 
+describe('analyzeSchema bigint composites', () => {
+  it('should retain outer bigint bounds separately from nested branch bounds', () => {
+    const min = -(2n ** 63n)
+    const max = 2n ** 63n - 1n
+    const schema = nullable(
+      pipe(
+        union([
+          pipe(bigint(), minValue(min + 1n)),
+          pipe(intersect([bigint(), bigint()]), maxValue(max - 1n)),
+        ]),
+        minValue(min),
+        maxValue(max),
+      ),
+    )
+
+    const analysis = analyzeSchema(schema)
+    expect(analysis).toMatchObject({
+      outputKind: 'bigint',
+      nullable: true,
+      numberConstraints: {},
+      bigintConstraints: { minValue: min, maxValue: max },
+    })
+
+    expect(analysis.composite?.branches[0]?.bigintConstraints).toEqual({
+      minValue: min + 1n,
+    })
+
+    expect(analysis.composite?.branches[1]).toMatchObject({
+      bigintConstraints: { maxValue: max - 1n },
+      composite: { type: 'intersect' },
+    })
+  })
+})
+
 describe('analyzeSchema composites', () => {
   it('should derive nullable storage branches without making null an insert omission', () => {
     const schema = union([

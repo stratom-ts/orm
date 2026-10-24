@@ -7,6 +7,7 @@ import type {
   TitleAction,
 } from 'valibot'
 import {
+  bigint,
   decimal,
   enum as enumSchema,
   integer,
@@ -132,6 +133,41 @@ function nativeReferenceHandles(schema: AnySchema) {
 
   return { Parent, Child, Grandchild }
 }
+
+it.each([undefined, 'numeric'])(
+  'should inherit bounded bigint composite storage with PostgreSQL override %s',
+  (override) => {
+    const { Parent, Child, Grandchild } = nativeReferenceHandles(
+      pipe(
+        union([bigint(), bigint()]),
+        minValue(-(2n ** 63n)),
+        maxValue(2n ** 63n - 1n),
+        column({
+          physicalType: override ? { postgresql: override } : { sqlite: 'BLOB' },
+        }),
+      ),
+    )
+
+    const tables = lowerDesiredSchema(
+      [Grandchild, Child, Parent],
+      postgresIdentities(),
+      postgresDialect.schema,
+    ).tables
+
+    const selected = override ?? 'bigint'
+    expect(loweredColumn(tables, 'native_parents', 'id')?.dataType).toBe(selected)
+    expect(loweredColumn(tables, 'native_children', 'parentId')?.dataType).toBe(selected)
+
+    expect(loweredColumn(tables, 'native_children', 'nullableId')).toMatchObject({
+      dataType: selected,
+      notNull: false,
+    })
+
+    expect(loweredColumn(tables, 'native_grandchildren', 'parentId')?.dataType).toBe(
+      selected,
+    )
+  },
+)
 
 it.each([
   [ip(), 'inet'],

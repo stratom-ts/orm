@@ -91,7 +91,23 @@ describe('SQLite schema', () => {
       ),
     ).toBe('INTEGER')
   })
+})
 
+describe('SQLite bigint composite schema', () => {
+  it('should retain BIGINT for bounded and unbounded bigint composites', () => {
+    for (const schema of [
+      union([bigint(), bigint()]),
+      pipe(
+        union([intersect([bigint(), bigint()]), bigint()]),
+        minValue(-(2n ** 63n)),
+        maxValue(2n ** 63n - 1n),
+      ),
+    ])
+      expect(sqliteSchema.inferColumnType(schema)).toBe('BIGINT')
+  })
+})
+
+describe('SQLite schema', () => {
   it('should use outer integer bounds for numeric composite storage', () => {
     expect(
       sqliteSchema.inferColumnType(

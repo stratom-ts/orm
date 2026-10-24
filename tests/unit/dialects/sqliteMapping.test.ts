@@ -1,5 +1,17 @@
 import { runInNewContext } from 'node:vm'
-import { date, integer, isoTimestamp, number, pipe, string, toDate, union } from 'valibot'
+import {
+  bigint,
+  date,
+  integer,
+  isoTimestamp,
+  maxValue,
+  minValue,
+  number,
+  pipe,
+  string,
+  toDate,
+  union,
+} from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -10,6 +22,27 @@ import {
 import { QueryError, SchemaError } from '@/utils/error'
 
 describe('SQLite composite value mapping', () => {
+  it('should retain signed-int64 safeguards for bounded bigint composite output', () => {
+    const min = -(2n ** 63n)
+    const max = 2n ** 63n - 1n
+    const context = {
+      schema: pipe(union([bigint(), bigint()]), minValue(min), maxValue(max)),
+    }
+
+    for (const value of [min, max]) {
+      expect(mapSqliteParamValue('BIGINT', value, context)).toBe(value)
+      expect(mapSqliteResultValue('BIGINT', String(value), context)).toBe(value)
+    }
+
+    for (const value of [min - 1n, max + 1n]) {
+      expect(() => mapSqliteParamValue('BIGINT', value, context)).toThrow(QueryError)
+
+      expect(() => mapSqliteResultValue('BIGINT', String(value), context)).toThrow(
+        QueryError,
+      )
+    }
+  })
+
   it('should use REAL when integer and fractional branches share number output', () => {
     const context = { schema: union([pipe(number(), integer()), number()]) }
     expect(mapSqliteParamValue('REAL', 1.25, context)).toBe(1.25)
