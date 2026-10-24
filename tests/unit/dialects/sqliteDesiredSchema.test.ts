@@ -9,6 +9,7 @@ import {
   optional,
   pipe,
   string,
+  transform,
   union,
   uuid,
 } from 'valibot'
@@ -29,6 +30,29 @@ const context = {
 function identities() {
   return sqliteIdentity.create({ context })
 }
+
+it('should lower a nullable transformed output to nullable number storage', () => {
+  const Transformed = defineTable(
+    'nullable_output',
+    {
+      id: string(),
+      value: pipe(
+        string(),
+        transform((value): number | null => (value === 'null' ? null : Number(value))),
+        nullable(number()),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const tables = lowerDesiredSchema([Transformed], identities(), sqliteSchema).tables
+  expect(
+    tables[0]!.columns.find((column) => column.identifier.spelling === 'value'),
+  ).toMatchObject({
+    dataType: 'REAL',
+    notNull: false,
+  })
+})
 
 describe('SQLite desired schema', () => {
   it('should lower composite nullability, selected override, and inherited reference storage', () => {

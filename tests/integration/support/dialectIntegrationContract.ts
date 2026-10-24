@@ -23,13 +23,21 @@ import {
   toDate,
   toNumber,
   toString,
+  transform,
   union,
   variant,
 } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Db, InferSelect, TableHandle } from '@/index'
-import { DriverError, column, defineTable, excluded, reference } from '@/index'
+import {
+  DriverError,
+  ValidationError,
+  column,
+  defineTable,
+  excluded,
+  reference,
+} from '@/index'
 
 const integrationCapabilityNames = [
   'lifecycle',
@@ -226,6 +234,19 @@ const ContractTransformedNull = defineTable(
     ),
     convertedUnion: pipe(union([string(), nullSchema()]), toString(), string()),
     ordinaryNullable: nullable(string()),
+  },
+  { primaryKey: 'id' },
+)
+
+const ContractNullableOutput = defineTable(
+  'contract_nullable_output',
+  {
+    id: string(),
+    value: pipe(
+      string(),
+      transform((value): number | null => (value === 'null' ? null : Number(value))),
+      nullable(number()),
+    ),
   },
   { primaryKey: 'id' },
 )
@@ -637,6 +658,7 @@ function registerQueryDriverErrorIntegration(adapter: DialectIntegrationAdapter)
 
 function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
   registerTransformedNullIntegration(adapter)
+  registerNullableOutputIntegration(adapter)
 
   registerDialectIntegrationScenario(
     adapter,
@@ -1175,6 +1197,125 @@ function registerTransformedNullIntegration(adapter: DialectIntegrationAdapter):
         await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
         await assertTransformedNullInsert(db)
         await assertTransformedNullUpdate(db)
+      })
+    },
+  )
+}
+
+/** Checks null and number insert results and stored values from string inputs. */
+async function assertNullableOutputInsert(
+  db: Db<readonly [typeof ContractNullableOutput]>,
+): Promise<void> {
+  expect(
+    await db
+      .insert(ContractNullableOutput)
+      .values({ id: 'null', value: 'null' })
+      .executeTakeFirstOrThrow(),
+  ).toEqual({ id: 'null', value: null })
+
+  expect(await db.from(ContractNullableOutput).where({ id: 'null' }).execute()).toEqual([
+    { id: 'null', value: null },
+  ])
+
+  expect(
+    await db
+      .insert(ContractNullableOutput)
+      .values({ id: 'number', value: '7.5' })
+      .returning([ContractNullableOutput.value])
+      .executeTakeFirstOrThrow(),
+  ).toEqual({ value: 7.5 })
+
+  expect(
+    await db
+      .from(ContractNullableOutput)
+      .select([ContractNullableOutput.value])
+      .where({ id: 'number' })
+      .execute(),
+  ).toEqual([{ value: 7.5 }])
+}
+
+/** Checks updates in both directions between stored null and number values. */
+async function assertNullableOutputUpdate(
+  db: Db<readonly [typeof ContractNullableOutput]>,
+): Promise<void> {
+  expect(
+    await db
+      .update(ContractNullableOutput)
+      .set({ value: 'null' })
+      .where({ id: 'number' })
+      .returning([ContractNullableOutput.value])
+      .executeTakeFirstOrThrow(),
+  ).toEqual({ value: null })
+
+  expect(
+    await db
+      .from(ContractNullableOutput)
+      .select([ContractNullableOutput.value])
+      .where({ id: 'number' })
+      .execute(),
+  ).toEqual([{ value: null }])
+
+  expect(
+    await db
+      .update(ContractNullableOutput)
+      .set({ value: '9.5' })
+      .where({ id: 'null' })
+      .executeTakeFirstOrThrow(),
+  ).toEqual({ id: 'null', value: 9.5 })
+
+  expect(await db.from(ContractNullableOutput).where({ id: 'null' }).execute()).toEqual([
+    { id: 'null', value: 9.5 },
+  ])
+}
+
+/** Checks that rejected direct null inputs leave all stored rows unchanged. */
+async function assertNullableOutputRejectedWrites(
+  db: Db<readonly [typeof ContractNullableOutput]>,
+): Promise<void> {
+  expect(() =>
+    db
+      .insert(ContractNullableOutput)
+      .values({ id: 'invalid', value: null as never })
+      .compile(),
+  ).toThrow(ValidationError)
+
+  expect(
+    await db.from(ContractNullableOutput).orderBy(ContractNullableOutput.id).execute(),
+  ).toEqual([
+    { id: 'null', value: 9.5 },
+    { id: 'number', value: null },
+  ])
+
+  expect(() =>
+    db
+      .update(ContractNullableOutput)
+      .set({ value: null as never })
+      .where({ id: 'null' })
+      .compile(),
+  ).toThrow(ValidationError)
+
+  expect(
+    await db.from(ContractNullableOutput).orderBy(ContractNullableOutput.id).execute(),
+  ).toEqual([
+    { id: 'null', value: 9.5 },
+    { id: 'number', value: null },
+  ])
+}
+
+/** Exercises nullable transformed outputs without accepting direct null write inputs. */
+function registerNullableOutputIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should round-trip nullable number outputs from string write inputs',
+    async () => {
+      await adapter.withDatabase([ContractNullableOutput], async ({ db }) => {
+        await db.migrate().execute()
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+        await assertNullableOutputInsert(db)
+        await assertNullableOutputUpdate(db)
+        await assertNullableOutputRejectedWrites(db)
       })
     },
   )

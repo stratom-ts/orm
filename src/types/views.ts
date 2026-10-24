@@ -170,9 +170,8 @@ type SelectColumnValue<S> =
     ? NonNullColumnValue<S> | null
     : NonNullColumnValue<S> | NullableOutputValue<S>
 
-type InsertColumnValue<S> = S extends AnySchema
-  ? DBType<InferInput<S>> | (IsSqlNullableSchema<S> extends true ? null : never)
-  : never
+// Write values follow the input contract, independently of SQL output nullability.
+type InsertColumnValue<S> = S extends AnySchema ? DBType<InferInput<S>> : never
 
 /**
  * Select view: full row as returned from the database.

@@ -7,6 +7,7 @@ import {
   optional,
   pipe,
   string,
+  transform,
   union,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
@@ -191,5 +192,64 @@ describe('update validation issues', () => {
 
   it('should allow undefined update values when another column remains', () => {
     expect(validateUpdatePatch(Rows, { name: undefined, count: 1 })).toEqual({ count: 1 })
+  })
+})
+
+describe('nullable transformed outputs', () => {
+  const Transformed = defineTable(
+    'validation_nullable_outputs',
+    {
+      id: string(),
+      label: string(),
+      value: pipe(
+        string(),
+        transform((value): number | null => (value === 'null' ? null : Number(value))),
+        nullable(number()),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  it('should reject direct null insert input at the value column', () => {
+    const error = captureValidationError(() =>
+      validateInsertRow(Transformed, { id: 'a', label: 'A', value: null }),
+    )
+
+    expect(error.operation).toBe('insert')
+    expect(getDotPath(error.issues[0]!)).toBe('value')
+  })
+
+  it('should reject direct null update input at the value column', () => {
+    const error = captureValidationError(() =>
+      validateUpdatePatch(Transformed, { value: null }),
+    )
+
+    expect(error.operation).toBe('update')
+    expect(getDotPath(error.issues[0]!)).toBe('value')
+  })
+
+  it.each([
+    { input: 'null', output: null },
+    { input: '7.5', output: 7.5 },
+  ])('should transform $input for inserts and updates', ({ input, output }) => {
+    expect(validateInsertRow(Transformed, { id: 'a', label: 'A', value: input })).toEqual(
+      {
+        id: 'a',
+        label: 'A',
+        value: output,
+      },
+    )
+
+    expect(validateUpdatePatch(Transformed, { value: input })).toEqual({ value: output })
+  })
+
+  it('should require the value on insert and allow omission on update', () => {
+    const error = captureValidationError(() =>
+      validateInsertRow(Transformed, { id: 'a', label: 'A' }),
+    )
+
+    expect(error.operation).toBe('insert')
+    expect(getDotPath(error.issues[0]!)).toBe('value')
+    expect(validateUpdatePatch(Transformed, { label: 'B' })).toEqual({ label: 'B' })
   })
 })

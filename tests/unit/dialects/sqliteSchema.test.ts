@@ -55,6 +55,18 @@ import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
+it('should infer number storage for a nullable transformed output', () => {
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(
+        string(),
+        transform((value): number | null => (value === 'null' ? null : Number(value))),
+        nullable(number()),
+      ),
+    ),
+  ).toBe('REAL')
+})
+
 describe('SQLite schema', () => {
   it('should infer compatible composite logical storage', () => {
     expect(

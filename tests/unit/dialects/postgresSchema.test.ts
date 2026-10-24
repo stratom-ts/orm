@@ -63,6 +63,18 @@ import { attemptSync } from '@/utils/error'
 
 const { inferColumnType } = postgresDialect.schema
 
+it('should infer number storage for a nullable transformed output', () => {
+  expect(
+    inferColumnType(
+      pipe(
+        string(),
+        transform((value): number | null => (value === 'null' ? null : Number(value))),
+        nullable(number()),
+      ),
+    ),
+  ).toBe('double precision')
+})
+
 describe('PostgreSQL schema', () => {
   it('should widen compatible composite storage and retain nullability independently', () => {
     expect(

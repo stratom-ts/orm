@@ -592,6 +592,23 @@ describe('analyzeSchema ordered transformations', () => {
   })
 })
 
+it('should resolve nullable number output without allowing insert omission', () => {
+  const analysis = analyzeSchema(
+    pipe(
+      string(),
+      transform((value): number | null => (value === 'null' ? null : Number(value))),
+      nullable(number()),
+    ),
+  )
+
+  expect(analysis).toMatchObject({
+    outputKind: 'number',
+    nullable: true,
+    omitOnInsert: false,
+    unresolvedTransformation: false,
+  })
+})
+
 describe('analyzeSchema recovered wrapper semantics', () => {
   it('should retain output undefined tolerance without making required input omittable', () => {
     const optionalSchema = pipe(
