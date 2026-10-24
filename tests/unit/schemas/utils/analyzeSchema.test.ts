@@ -56,7 +56,7 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { analyzeSchema } from '@/index'
+import { analyzeSchema, defineTable, reference } from '@/index'
 
 it.each([
   isoDate(),
@@ -654,3 +654,36 @@ it('should preserve wrapper semantics around nested transformed pipes', () => {
     Array(8).fill('number'),
   )
 })
+
+it.each([
+  [isoTime(), isoTimeSecond()],
+  [isoDateTime(), isoDateTimeSecond()],
+])(
+  'should retain only the revalidated temporal reference output format',
+  (minute, second) => {
+    const Parent = defineTable(
+      'temporal_parent',
+      { value: pipe(string(), minute) },
+      { primaryKey: 'value' },
+    )
+
+    const child = pipe(
+      reference(Parent, 'value'),
+      transform((value) => `${value}:00`),
+      string(),
+      second,
+    )
+
+    for (const schema of [
+      child,
+      nullable(child),
+      pipe(nullable(child), nullable(string())),
+    ]) {
+      expect(analyzeSchema(schema)).toMatchObject({
+        outputKind: 'string',
+        stringFormats: [second.type],
+        unresolvedTransformation: false,
+      })
+    }
+  },
+)

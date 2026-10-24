@@ -314,6 +314,41 @@ nested pipes. A reference inherits the target column's selected physical type,
 including inferred native storage or an explicit `text` or `varchar(n)` override.
 An override for SQLite does not suppress PostgreSQL inference.
 
+PostgreSQL references can declare a different temporal output precision without
+changing inherited storage. For example, this child returns `03:04:00` while the
+parent returns `03:04`, with SQL `time` storage for both:
+
+```typescript
+const Parent = defineTable(
+  'time_parent',
+  { time: pipe(string(), isoTime()) },
+  { primaryKey: 'time' },
+)
+const Child = defineTable(
+  'time_child',
+  {
+    time: pipe(
+      reference(Parent, 'time'),
+      transform((value) => `${value}:00`),
+      string(),
+      isoTimeSecond(),
+    ),
+  },
+  { primaryKey: 'time' },
+)
+```
+
+This also supports minute/second datetime strings with `timestamp` storage.
+`date` supports `isoDate()`, and `timestamptz` supports `isoTimestamp()`.
+Incompatible temporal formats, ambiguous native representations, and reference
+changes between strings and Date raise `SchemaError` at client creation before
+SQL. Unsupported contracts require paired column `mapParam`/`mapResult` or client
+`mapParamValue`/`mapResultValue` hooks, including mixed column/client pairs.
+Column hooks take precedence in each direction. Native result mapping rejects
+finer nonzero seconds or fractions with `QueryError`. It never reruns write
+transforms. Explicit PostgreSQL `text`/`varchar` storage and SQLite TEXT preserve
+stored spelling. SQLite TEXT keys `03:04` and `03:04:00` differ.
+
 Repeated validators and validators for the same native storage are compatible.
 For example, `ip()` with `ipv4()` selects `inet`, and `mac()` with `mac64()` selects `macaddr8`.
 Different native storage targets, such as `uuid()` with `ip()` or `mac48()` with

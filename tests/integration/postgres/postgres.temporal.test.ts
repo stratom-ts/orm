@@ -1,3 +1,4 @@
+import type { Client } from 'pg'
 import {
   date,
   isoDate,
@@ -10,13 +11,14 @@ import {
   safeParse,
   string,
   toDate,
+  transform,
 } from 'valibot'
 import { beforeAll, expect, it } from 'vitest'
 
-import { defineTable } from '@/index'
+import { column, defineTable, reference } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
-import { withPostgresDatabase } from './postgresIntegration'
+import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
 
 beforeAll(waitForPostgres)
 
@@ -115,3 +117,130 @@ it('should preserve a year-42 instant across a historical second-resolution offs
     expect(historical.convertedDate).toEqual(new Date('0042-01-02T03:04:05.123Z'))
   })
 })
+
+const Parent = defineTable(
+  'temporal_parent',
+  {
+    time: pipe(string(), isoTime()),
+    local: pipe(string(), isoDateTime(), column({ unique: true })),
+  },
+  { primaryKey: 'time' },
+)
+
+const Child = defineTable(
+  'temporal_child',
+  {
+    time: pipe(
+      reference(Parent, 'time'),
+      transform((value) => `${value}:00`),
+      string(),
+      isoTimeSecond(),
+    ),
+    local: pipe(
+      reference(Parent, 'local'),
+      transform((value) => `${value}:00`),
+      string(),
+      isoDateTimeSecond(),
+    ),
+  },
+  { primaryKey: 'time' },
+)
+
+it('should preserve authored temporal reference precision with native foreign keys and convergent migrations', async () => {
+  await withPostgresDatabase(
+    [Child, Parent],
+    async ({ db, admin, connector, schema }) => {
+      const native = await connector.getInstance!()
+      await native.query("set time zone 'Australia/Hobart'")
+      await db.migrate().execute()
+      await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+      const input = { time: '03:04', local: '2026-01-02T03:04' }
+      const output = { time: '03:04:00', local: '2026-01-02T03:04:00' }
+
+      expect(
+        await db
+          .insert(Parent)
+          .values(input)
+          .returning([Parent.time, Parent.local])
+          .executeTakeFirstOrThrow(),
+      ).toEqual(input)
+
+      expect(
+        await db
+          .insert(Child)
+          .values(input)
+          .returning([Child.time, Child.local])
+          .executeTakeFirstOrThrow(),
+      ).toEqual(output)
+
+      expect(await db.from(Parent).execute()).toEqual([input])
+      expect(await db.from(Child).execute()).toEqual([output])
+      await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+      await assertTemporalReferenceStorage(admin, schema)
+      await assertTemporalReferenceTargets(admin, schema)
+    },
+  )
+})
+
+/** Checks native temporal types and stored values independently of result mapping. */
+async function assertTemporalReferenceStorage(admin: Client, schema: string) {
+  const types = await admin.query<{
+    table_name: string
+    column_name: string
+    data_type: string
+  }>(
+    `select table_name, column_name, data_type from information_schema.columns
+   where table_schema = $1 and table_name in ('temporal_parent', 'temporal_child')`,
+    [schema],
+  )
+
+  for (const table of ['temporal_parent', 'temporal_child']) {
+    expect(types.rows).toContainEqual({
+      table_name: table,
+      column_name: 'time',
+      data_type: 'time without time zone',
+    })
+
+    expect(types.rows).toContainEqual({
+      table_name: table,
+      column_name: 'local',
+      data_type: 'timestamp without time zone',
+    })
+
+    const stored = await admin.query(
+      `select "time"::text, "local"::text from ${quoteIdentifier(schema)}.${quoteIdentifier(table)}`,
+    )
+
+    expect(stored.rows).toEqual([{ time: '03:04:00', local: '2026-01-02 03:04:00' }])
+  }
+}
+
+/** Checks the actual referenced tables and columns independently of schema metadata. */
+async function assertTemporalReferenceTargets(admin: Client, schema: string) {
+  const foreignKeys = await admin.query<{
+    column_name: string
+    foreign_table_name: string
+    foreign_column_name: string
+  }>(
+    `select kcu.column_name, ccu.table_name as foreign_table_name, ccu.column_name as foreign_column_name
+   from information_schema.table_constraints tc
+   join information_schema.key_column_usage kcu using (constraint_catalog, constraint_schema, constraint_name)
+   join information_schema.constraint_column_usage ccu using (constraint_catalog, constraint_schema, constraint_name)
+   where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = $1 and tc.table_name = 'temporal_child' order by kcu.column_name`,
+    [schema],
+  )
+
+  expect(foreignKeys.rows).toEqual([
+    {
+      column_name: 'local',
+      foreign_table_name: 'temporal_parent',
+      foreign_column_name: 'local',
+    },
+    {
+      column_name: 'time',
+      foreign_table_name: 'temporal_parent',
+      foreign_column_name: 'time',
+    },
+  ])
+}

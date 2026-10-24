@@ -1,7 +1,12 @@
 import {
   bigint,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
   maxValue,
   minValue,
+  nullable,
   number,
   pipe,
   safeInteger,
@@ -9,7 +14,7 @@ import {
   toNumber,
   transform,
 } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { compilePostgresQuery } from '@/dialects/postgres/compile'
 import {
@@ -158,4 +163,225 @@ describe('PostgreSQL query compilation', () => {
       }),
     ).toThrow(/returning columns must not be empty/)
   })
+})
+
+it.each([
+  [isoTime(), isoTimeSecond(), 'time', '03:04:00', '03:04'],
+  [
+    isoDateTime(),
+    isoDateTimeSecond(),
+    'timestamp',
+    '2026-01-02 03:04:00',
+    '2026-01-02T03:04',
+  ],
+])(
+  'should preserve authored formats through nullable and chained references',
+  (minute, second, type, raw, parentValue) => {
+    const Parent = defineTable(
+      'temporal_parent',
+      { value: pipe(string(), minute) },
+      { primaryKey: 'value' },
+    )
+
+    const secondReference = pipe(
+      reference(Parent, 'value'),
+      transform((value) => `${value}:00`),
+      string(),
+      second,
+    )
+
+    const Child = defineTable(
+      'temporal_child',
+      {
+        value: secondReference,
+        nullableValue: nullable(secondReference),
+        matching: reference(Parent, 'value'),
+      },
+      { primaryKey: 'value' },
+    )
+
+    const Grandchild = defineTable(
+      'temporal_chain',
+      { value: reference(Child, 'value') },
+      { primaryKey: 'value' },
+    )
+
+    const mapper = createValueMapper(postgresDialect, undefined, [
+      Grandchild,
+      Child,
+      Parent,
+    ])
+
+    expect(mapper.columnTypes(Child)).toEqual({
+      value: type,
+      nullableValue: type,
+      matching: type,
+    })
+
+    expect(mapper.columnTypes(Grandchild).value).toBe(type)
+    expect(mapper.mapResultValue(Parent, 'value', raw)).toBe(parentValue)
+    expect(mapper.mapResultValue(Child, 'matching', raw)).toBe(parentValue)
+    expect(mapper.mapResultValue(Child, 'value', raw)).toBe(`${parentValue}:00`)
+    expect(mapper.mapResultValue(Child, 'nullableValue', raw)).toBe(`${parentValue}:00`)
+    expect(mapper.mapResultValue(Child, 'nullableValue', null)).toBeNull()
+    expect(mapper.mapResultValue(Grandchild, 'value', raw)).toBe(`${parentValue}:00`)
+  },
+)
+
+it.each(['time(0)', 'text', 'varchar(40)'])(
+  'should respect selected %s storage and ignore SQLite overrides',
+  (type) => {
+    const Parent = defineTable(
+      'temporal_parent',
+      {
+        value: pipe(
+          string(),
+          isoTime(),
+          column({ physicalType: { postgresql: type, sqlite: 'BLOB' } }),
+        ),
+      },
+      { primaryKey: 'value' },
+    )
+
+    const Child = defineTable(
+      'temporal_child',
+      {
+        value: pipe(
+          reference(Parent, 'value'),
+          transform((value) => `${value}:00`),
+          string(),
+          isoTimeSecond(),
+          column({ physicalType: { sqlite: 'INTEGER' } }),
+        ),
+        selected: pipe(
+          reference(Parent, 'value'),
+          column({ physicalType: { postgresql: 'text' } }),
+        ),
+      },
+      { primaryKey: 'value' },
+    )
+
+    const mapper = createValueMapper(postgresDialect, undefined, [Parent, Child])
+    expect(mapper.columnTypes(Child)).toEqual({ value: type, selected: 'text' })
+    expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('03:04:00')
+    expect(mapper.mapResultValue(Child, 'selected', '03:04:00')).toBe('03:04:00')
+  },
+)
+
+it.each([
+  ['column', 'column'],
+  ['client', 'client'],
+  ['column', 'client'],
+  ['client', 'column'],
+])(
+  'should allow incompatible temporal output with paired %s parameter and %s result hooks',
+  (param, result) => {
+    const Parent = defineTable(
+      'hook_parent',
+      { value: pipe(string(), isoTime()) },
+      { primaryKey: 'value' },
+    )
+
+    const Child = defineTable(
+      'hook_child',
+      {
+        value: pipe(
+          reference(Parent, 'value'),
+          transform((value) => `2026-01-02T${value}:00`),
+          string(),
+          isoDateTimeSecond(),
+          column({
+            ...(param === 'column' ? { mapParam: () => '03:04' } : {}),
+            ...(result === 'column' ? { mapResult: () => '2026-01-02T03:04:00' } : {}),
+          }),
+        ),
+      },
+      { primaryKey: 'value' },
+    )
+
+    const mapper = createValueMapper(
+      postgresDialect,
+      {
+        ...(param === 'client' ? { mapParamValue: () => '03:04' } : {}),
+        ...(result === 'client' ? { mapResultValue: () => '2026-01-02T03:04:00' } : {}),
+      },
+      [Parent, Child],
+    )
+
+    expect(mapper.mapParam(Child, 'value', '2026-01-02T03:04:00')).toBe('03:04')
+
+    expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('2026-01-02T03:04:00')
+  },
+)
+
+it.each(['column parameter', 'column result', 'client parameter', 'client result'])(
+  'should reject an incompatible temporal reference with only a %s hook',
+  (direction) => {
+    const Parent = defineTable(
+      'hook_parent',
+      { value: pipe(string(), isoTime()) },
+      { primaryKey: 'value' },
+    )
+
+    const Child = defineTable(
+      'hook_child',
+      {
+        value: pipe(
+          reference(Parent, 'value'),
+          column({
+            physicalType: { postgresql: 'timestamp' },
+            ...(direction === 'column parameter' ? { mapParam: () => '03:04' } : {}),
+            ...(direction === 'column result' ? { mapResult: () => '03:04' } : {}),
+          }),
+        ),
+      },
+      { primaryKey: 'value' },
+    )
+
+    expect(() =>
+      createValueMapper(
+        postgresDialect,
+        {
+          ...(direction === 'client parameter' ? { mapParamValue: () => '03:04' } : {}),
+          ...(direction === 'client result' ? { mapResultValue: () => '03:04' } : {}),
+        },
+        [Parent, Child],
+      ),
+    ).toThrow(/paired column mapParam/)
+  },
+)
+
+it('should retain column hook precedence independently in each direction', () => {
+  const Parent = defineTable(
+    'hook_parent',
+    { value: pipe(string(), isoTime()) },
+    { primaryKey: 'value' },
+  )
+
+  const Child = defineTable(
+    'hook_child',
+    {
+      value: pipe(
+        reference(Parent, 'value'),
+        column({
+          physicalType: { postgresql: 'timestamp' },
+          mapParam: () => 'column parameter',
+          mapResult: () => 'column result',
+        }),
+      ),
+    },
+    { primaryKey: 'value' },
+  )
+
+  const mapParamValue = vi.fn<() => string>(() => 'client parameter')
+  const mapResultValue = vi.fn<() => string>(() => 'client result')
+  const mapper = createValueMapper(postgresDialect, { mapParamValue, mapResultValue }, [
+    Parent,
+    Child,
+  ])
+
+  expect(mapper.mapParam(Child, 'value', '03:04')).toBe('column parameter')
+  expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('column result')
+  expect(mapParamValue).not.toHaveBeenCalled()
+  expect(mapResultValue).not.toHaveBeenCalled()
 })

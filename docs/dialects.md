@@ -341,6 +341,23 @@ instead of discarding it. JavaScript `Date` results retain only milliseconds.
 Validation transformations run on input only; result mapping uses the proven output
 kind and does not rerun the input pipeline.
 
+A reference inherits physical storage while its proven authored temporal format
+controls PostgreSQL result mapping. A minute-time target can return `03:04`, while
+a transformed and revalidated `isoTimeSecond()` reference returns `03:04:00`.
+Both columns still use `time`. The same rule applies to minute and second
+`timestamp` strings. `date` supports `isoDate()`, and `timestamptz` supports
+`isoTimestamp()`. Explicit `text` and `varchar` storage preserve stored spelling.
+References without proven temporal output formats retain target-based mapping.
+
+Client creation rejects incompatible temporal formats, ambiguous native temporal
+representations, and reference changes between ISO strings and Date output with
+`SchemaError`, before opening a session or issuing SQL. To own an unsupported
+contract, provide both effective mapping directions through column `mapParam` and
+`mapResult`, client `mapParamValue` and `mapResultValue`, or one of each.
+Column hooks take precedence independently in each direction. A single hook does
+not bypass validation. Result mapping still rejects finer nonzero native precision
+with `QueryError` instead of truncating seconds or fractions.
+
 ## SQLite production profile
 
 SQLite requires the exact db0 0.4.0 `node-sqlite` connector and SQLite >=3.37. Node 22.5
@@ -375,6 +392,12 @@ All six ISO temporal validators infer `TEXT` and return the stored string. `date
 and proven `toDate()` output infer `DATETIME` and return `Date`; `DATETIME` is a
 declared SQLite type whose values are stored as ISO text. Compatible explicit
 declared types follow the same logical string or Date mapping.
+
+SQLite references preserve exact temporal TEXT spelling and Date output under the
+same rules. SQLite does not apply PostgreSQL temporal formatting: TEXT keys
+`03:04` and `03:04:00` differ. Use matching stored strings for foreign keys.
+A local reference change from ISO string output to Date requires paired mapping
+hooks.
 
 Inference follows transformations from left to right. A known conversion selects
 storage from its output, so `pipe(string(), toNumber())` accepts a string on insert

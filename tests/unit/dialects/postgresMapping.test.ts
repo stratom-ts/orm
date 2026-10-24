@@ -276,3 +276,96 @@ describe('PostgreSQL numeric safety and representations', () => {
     )
   })
 })
+
+it.each([
+  ['time', isoTime(), isoTimeSecond(), '03:04:00', '03:04:00'],
+  ['time', isoTimeSecond(), isoTime(), '03:04:00', '03:04'],
+  ['time without time zone', isoTimeSecond(), isoTimeSecond(), '03:04:05', '03:04:05'],
+  [
+    'timestamp',
+    isoDateTime(),
+    isoDateTimeSecond(),
+    '2026-01-02 03:04:00',
+    '2026-01-02T03:04:00',
+  ],
+  [
+    'timestamp',
+    isoDateTimeSecond(),
+    isoDateTime(),
+    '2026-01-02 03:04:00',
+    '2026-01-02T03:04',
+  ],
+  ['date', isoDate(), isoDate(), '2026-01-02', '2026-01-02'],
+  [
+    'timestamptz',
+    isoTimestamp(),
+    isoTimestamp(),
+    '2026-01-02 03:04:05+11',
+    '2026-01-02T03:04:05+11:00',
+  ],
+])(
+  'should use the authored format with %s storage',
+  (type, target, local, raw, expected) => {
+    const context = {
+      schema: pipe(string(), target),
+      authoredSchema: pipe(string(), local),
+    }
+
+    expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
+    expect(mapPostgresResultValue(type, raw, context)).toBe(expected)
+  },
+)
+
+it.each([
+  ['time', isoDateTimeSecond()],
+  ['timestamp', isoTimeSecond()],
+  ['timestamptz', isoDateTimeSecond()],
+  ['date', isoTimestamp()],
+  ['time', isoDate()],
+])('should reject incompatible authored formats with %s storage', (type, format) => {
+  const context = { schema: string(), authoredSchema: pipe(string(), format) }
+  expect(() => validatePostgresValueMapping(type, context)).toThrow(SchemaError)
+  expect(() => validatePostgresValueMapping(type, context)).toThrow(format.type)
+  expect(() => validatePostgresValueMapping(type, context)).toThrow(type)
+
+  expect(() => validatePostgresValueMapping(type, context)).toThrow(
+    /paired column mapParam\/mapResult or client mapParamValue\/mapResultValue/,
+  )
+})
+
+it('should reject ambiguous native formats and preserve explicit text spelling', () => {
+  const context = {
+    schema: pipe(string(), isoTime()),
+    authoredSchema: pipe(string(), isoTime(), isoTimeSecond()),
+  }
+
+  expect(() => validatePostgresValueMapping('time', context)).toThrow(SchemaError)
+
+  for (const type of ['text', 'varchar(40)']) {
+    expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
+    expect(mapPostgresResultValue(type, '03:04:00', context)).toBe('03:04:00')
+  }
+})
+
+it.each([
+  ['time', isoTime(), '03:04:05'],
+  ['time', isoTimeSecond(), '03:04:05.001'],
+  ['timestamp', isoDateTime(), '2026-01-02 03:04:05'],
+  ['timestamp', isoDateTimeSecond(), '2026-01-02 03:04:05.001'],
+])('should reject finer stored precision for authored %s output', (type, format, raw) => {
+  expect(() =>
+    mapPostgresResultValue(type, raw, {
+      schema: string(),
+      authoredSchema: pipe(string(), format),
+    }),
+  ).toThrow(QueryError)
+})
+
+it('should retain target formatting when no authored temporal facts remain', () => {
+  expect(
+    mapPostgresResultValue('time', '03:04:00', {
+      schema: pipe(string(), isoTime()),
+      authoredSchema: string(),
+    }),
+  ).toBe('03:04')
+})

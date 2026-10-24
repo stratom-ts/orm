@@ -1,18 +1,23 @@
 import {
   bigint,
   boolean,
+  date,
   integer,
+  isoTime,
+  isoTimestamp,
   nullable,
   number,
   picklist,
   pipe,
   string,
+  toDate,
   transform,
   unknown,
 } from 'valibot'
 import { expect, it, vi } from 'vitest'
 
-import { column, createDatabase, defineTable, reference } from '@/index'
+import { column, createDatabase, defineTable, reference, sqliteDialect } from '@/index'
+import { createValueMapper } from '@/query/mapping'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
@@ -146,3 +151,64 @@ it.each([false, true])(
     expect(getInstance).not.toHaveBeenCalled()
   },
 )
+
+it('should inherit SQLite TEXT and DATETIME representations for matching temporal references', () => {
+  const Parent = defineTable(
+    'temporal_parent',
+    {
+      time: pipe(string(), isoTime()),
+      instant: date(),
+    },
+    { primaryKey: 'time' },
+  )
+
+  const Child = defineTable(
+    'temporal_child',
+    {
+      time: reference(Parent, 'time'),
+      instant: reference(Parent, 'instant'),
+    },
+    { primaryKey: 'time' },
+  )
+
+  const mapper = createValueMapper(sqliteDialect, undefined, [Parent, Child])
+  expect(mapper.columnTypes(Child)).toEqual({ time: 'TEXT', instant: 'DATETIME' })
+  expect(mapper.mapResultValue(Child, 'time', '03:04')).toBe('03:04')
+
+  expect(mapper.mapResultValue(Child, 'instant', '2026-01-02T03:04:05.000Z')).toEqual(
+    new Date('2026-01-02T03:04:05Z'),
+  )
+})
+
+it('should require paired hooks for a SQLite ISO-string-to-Date reference', () => {
+  const Parent = defineTable(
+    'temporal_parent',
+    { value: pipe(string(), isoTimestamp()) },
+    { primaryKey: 'value' },
+  )
+
+  const Child = defineTable(
+    'temporal_child',
+    { value: pipe(reference(Parent, 'value'), toDate()) },
+    { primaryKey: 'value' },
+  )
+
+  const mapParamValue = (_type: string, value: unknown) =>
+    value instanceof Date ? value.toISOString() : value
+
+  const mapResultValue = (_type: string, value: unknown) => new Date(String(value))
+  for (const map of [undefined, { mapParamValue }, { mapResultValue }]) {
+    expect(() => createValueMapper(sqliteDialect, map, [Parent, Child])).toThrow(
+      SchemaError,
+    )
+  }
+
+  const mapper = createValueMapper(sqliteDialect, { mapParamValue, mapResultValue }, [
+    Parent,
+    Child,
+  ])
+
+  const value = new Date('2026-01-02T03:04:05Z')
+  expect(mapper.mapParam(Child, 'value', value)).toBe(value.toISOString())
+  expect(mapper.mapResultValue(Child, 'value', value.toISOString())).toEqual(value)
+})
