@@ -17,6 +17,7 @@ type TraversableSchema = AnySchema & {
   wrapped?: AnySchema
   pipe?: readonly unknown[]
   default?: unknown
+  fallback?: unknown
 }
 
 const STRING_FORMATS = [
@@ -292,8 +293,85 @@ function resetOutputFacts(result: RecursiveAnalysis): void {
   result.stringFormats = []
 }
 
+function changesValue(schema: AnySchema): boolean {
+  const traversable = schema as TraversableSchema
+  const pipe = traversable.pipe ?? []
+  const composite = schema as AnySchema & { options?: readonly AnySchema[] }
+
+  return (
+    traversable.default !== undefined ||
+    'fallback' in traversable ||
+    pipe.some(
+      (item) =>
+        typeof item === 'object' &&
+        item !== null &&
+        'kind' in item &&
+        (item.kind === 'transformation' ||
+          (item.kind === 'schema' && changesValue(item as AnySchema))),
+    ) ||
+    (isSchema(traversable.wrapped) && changesValue(traversable.wrapped)) ||
+    ((schema.type === 'union' ||
+      schema.type === 'variant' ||
+      schema.type === 'intersect') &&
+      (composite.options?.some(changesValue) ?? false))
+  )
+}
+
+function mergeSameKindFacts(result: RecursiveAnalysis, facts: RecursiveAnalysis): void {
+  switch (result.outputKind) {
+    case 'string': {
+      const minLength = Math.max(
+        result.stringConstraints.minLength ?? 0,
+        facts.stringConstraints.minLength ?? 0,
+      )
+
+      const maxLength = Math.min(
+        result.stringConstraints.maxLength ?? Infinity,
+        facts.stringConstraints.maxLength ?? Infinity,
+      )
+
+      facts.stringConstraints = {
+        ...facts.stringConstraints,
+        ...(minLength > 0 ? { minLength } : {}),
+        ...(maxLength < Infinity ? { maxLength } : {}),
+      }
+      facts.stringFormats = [
+        ...new Set([...result.stringFormats, ...facts.stringFormats]),
+      ]
+      facts.stringFormat = facts.stringFormats.includes('uuid') ? 'uuid' : undefined
+      break
+    }
+    case 'number':
+      facts.numberConstraints = withNumberConstraints(
+        facts,
+        result.numberConstraints,
+      ).numberConstraints
+      break
+    case 'bigint':
+      facts.bigintConstraints = withBigintConstraints(
+        facts,
+        result.bigintConstraints,
+      ).bigintConstraints
+      break
+    case 'boolean':
+    case 'date':
+    case 'json':
+    case undefined:
+      break
+  }
+}
+
 function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
   const facts = analyzeNode(schema)
+
+  if (
+    !changesValue(schema) &&
+    result.outputKind !== undefined &&
+    result.outputKind === facts.outputKind
+  ) {
+    mergeSameKindFacts(result, facts)
+  }
+
   Object.assign(result, {
     outputKind: facts.outputKind,
     outputSchema: facts.outputSchema,
