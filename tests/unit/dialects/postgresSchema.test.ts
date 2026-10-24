@@ -135,6 +135,75 @@ describe('PostgreSQL schema', () => {
   })
 })
 
+describe('PostgreSQL bigint composite schema', () => {
+  it('should apply outer bigint bounds through compatible nested branches', () => {
+    const min = -(2n ** 63n)
+    const max = 2n ** 63n - 1n
+    const schemas = [
+      pipe(union([bigint(), bigint()]), minValue(min), maxValue(max)),
+      nullable(pipe(intersect([bigint(), bigint()]), minValue(min), maxValue(max))),
+      pipe(
+        union([intersect([bigint(), bigint()]), union([bigint(), bigint()])]),
+        minValue(min),
+        maxValue(max),
+      ),
+      pipe(
+        union([
+          pipe(bigint(), minValue(min)),
+          pipe(union([bigint(), bigint()]), minValue(min)),
+        ]),
+        maxValue(max),
+      ),
+      pipe(
+        union([
+          pipe(bigint(), minValue(min), maxValue(max)),
+          pipe(bigint(), minValue(min), maxValue(max)),
+        ]),
+        minValue(min - 1n),
+        maxValue(max + 1n),
+      ),
+    ]
+
+    for (const schema of schemas) {
+      expect(inferColumnType(schema)).toBe('bigint')
+      expect(safeParse(schema, max)).toMatchObject({ success: true, output: max })
+    }
+  })
+})
+
+describe('PostgreSQL bigint composite schema', () => {
+  it('should retain numeric when effective bigint branch bounds do not prove int64 storage', () => {
+    const min = -(2n ** 63n)
+    const max = 2n ** 63n - 1n
+    const schemas = [
+      union([bigint(), bigint()]),
+      pipe(union([bigint(), bigint()]), minValue(min)),
+      pipe(union([bigint(), bigint()]), maxValue(max)),
+      pipe(union([bigint(), bigint()]), minValue(min - 1n), maxValue(max)),
+      pipe(union([bigint(), bigint()]), minValue(min), maxValue(max + 1n)),
+      pipe(union([pipe(bigint(), minValue(min)), bigint()]), maxValue(max)),
+    ]
+
+    for (const schema of schemas) expect(inferColumnType(schema)).toBe('numeric')
+  })
+})
+
+describe('PostgreSQL bigint composite schema', () => {
+  it('should reject incompatible or unresolved composite output despite outer bigint bounds', () => {
+    const schemas = [
+      pipe(union([bigint(), number()]), minValue(0n), maxValue(100n)),
+      pipe(
+        union([bigint(), pipe(bigint(), transform(String))]),
+        minValue(0n),
+        maxValue(100n),
+      ),
+    ]
+
+    for (const schema of schemas)
+      expect(() => inferColumnType(schema)).toThrow(SchemaError)
+  })
+})
+
 describe('PostgreSQL numeric composite schema', () => {
   it('should apply outer numeric constraints to compatible branches', () => {
     expect(

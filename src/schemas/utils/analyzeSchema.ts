@@ -114,6 +114,30 @@ export function withNumberConstraints(
   }
 }
 
+/** Adds enclosing bigint bounds while retaining tighter branch bounds. */
+export function withBigintConstraints(
+  analysis: SchemaAnalysis,
+  outer: SchemaAnalysis['bigintConstraints'],
+): SchemaAnalysis {
+  const bigintConstraints = { ...analysis.bigintConstraints }
+
+  if (
+    outer.minValue !== undefined &&
+    (bigintConstraints.minValue === undefined ||
+      outer.minValue > bigintConstraints.minValue)
+  )
+    bigintConstraints.minValue = outer.minValue
+
+  if (
+    outer.maxValue !== undefined &&
+    (bigintConstraints.maxValue === undefined ||
+      outer.maxValue < bigintConstraints.maxValue)
+  )
+    bigintConstraints.maxValue = outer.maxValue
+
+  return { ...analysis, bigintConstraints }
+}
+
 /** Checks whether a runtime value exposes the Valibot schema contract. */
 function isSchema(value: unknown): value is AnySchema {
   return typeof value === 'object' && value !== null && 'kind' in value
