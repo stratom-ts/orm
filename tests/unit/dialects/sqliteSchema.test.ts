@@ -91,6 +91,12 @@ describe('SQLite schema', () => {
       ),
     ).toBe('INTEGER')
   })
+
+  it('should retain safe-integer validation through a repeated number schema', () => {
+    expect(sqliteSchema.inferColumnType(pipe(number(), safeInteger(), number()))).toBe(
+      'INTEGER',
+    )
+  })
 })
 
 describe('SQLite bigint composite schema', () => {

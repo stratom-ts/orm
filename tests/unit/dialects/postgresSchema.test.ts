@@ -7,6 +7,7 @@ import {
   email,
   enum as enumSchema,
   exactOptional,
+  fallback,
   integer,
   intersect,
   ip,
@@ -626,19 +627,16 @@ describe('PostgreSQL schema', () => {
       pipe(string(), format),
       pipe(string(), format, format),
       nullable(pipe(string(), format)),
+      pipe(string(), format, string()),
       pipe(string(), maxLength(80), format),
       pipe(string(), format, minLength(1), maxLength(80)),
       pipe(pipe(string(), length(36)), format),
       pipe(number(), toString(), format),
     ]
 
-    for (const schema of schemas) {
-      expect(inferColumnType(schema)).toBe(expected)
-    }
+    for (const schema of schemas) expect(inferColumnType(schema)).toBe(expected)
 
     expect(inferColumnType(pipe(string(), format, toNumber()))).toBe('double precision')
-    expect(inferColumnType(pipe(string(), format, string()))).toBe('text')
-    expect(inferColumnType(pipe(string(), format, string(), decimal()))).toBe('numeric')
   })
 
   it('should accept different validators that select the same native storage in either order', () => {
@@ -646,6 +644,26 @@ describe('PostgreSQL schema', () => {
     expect(inferColumnType(pipe(string(), ipv6(), ipv4(), ip()))).toBe('inet')
     expect(inferColumnType(pipe(string(), mac(), mac64()))).toBe('macaddr8')
     expect(inferColumnType(pipe(string(), mac64(), mac()))).toBe('macaddr8')
+  })
+
+  it('should retain safe-integer validation through a repeated number schema', () => {
+    expect(inferColumnType(pipe(number(), safeInteger(), number(), integer()))).toBe(
+      'bigint',
+    )
+  })
+
+  it('should clear earlier bounds when a fallback can produce another number', () => {
+    expect(
+      inferColumnType(
+        pipe(
+          number(),
+          integer(),
+          minValue(0),
+          maxValue(10),
+          fallback(pipe(number(), minValue(20)), 100_000),
+        ),
+      ),
+    ).toBe('double precision')
   })
 })
 
@@ -691,4 +709,18 @@ describe('PostgreSQL schema', () => {
       expect(postgresDialect.schema.normalizeDataType(type)).toBe(type)
     },
   )
+
+  it('should reject UUID with IPv4 validation across a repeated string schema', () => {
+    const forward = attemptSync(() =>
+      inferColumnType(pipe(string(), uuid(), string(), ipv4())),
+    )
+
+    const reverse = attemptSync(() =>
+      inferColumnType(pipe(string(), ipv4(), string(), uuid())),
+    )
+
+    expect(forward.ok ? undefined : forward.error).toBeInstanceOf(SchemaError)
+
+    expect(reverse.ok ? undefined : reverse.error).toBeInstanceOf(SchemaError)
+  })
 })

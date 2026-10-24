@@ -7,6 +7,8 @@ import {
   email,
   enum as enumSchema,
   exactOptional,
+  fallback,
+  integer,
   intersect,
   ip,
   ipv4,
@@ -39,6 +41,7 @@ import {
   parseJson,
   picklist,
   pipe,
+  safeInteger,
   safeParse,
   string,
   toBoolean,
@@ -65,8 +68,12 @@ it.each([
 ])('should retain %s only while string output remains', (format) => {
   const schema = nullable(pipe(string(), format))
   expect(analyzeSchema(schema).stringFormats).toEqual([format.type])
+
   expect(analyzeSchema(pipe(string(), format, toDate())).stringFormats).toEqual([])
-  expect(analyzeSchema(pipe(string(), format, string())).stringFormats).toEqual([])
+
+  expect(analyzeSchema(pipe(string(), format, string())).stringFormats).toEqual([
+    format.type,
+  ])
 })
 
 it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(
@@ -105,7 +112,7 @@ it('should retain conflicting formats without selecting dialect storage', () => 
   expect(analysis.stringFormat).toBe('uuid')
 })
 
-it('should clear every format fact on conversions and later schemas', () => {
+it('should clear format facts on conversions and retain them across validation schemas', () => {
   const original = pipe(string(), uuid(), ip(), decimal())
   const schemas = [
     pipe(original, toNumber()),
@@ -116,7 +123,6 @@ it('should clear every format fact on conversions and later schemas', () => {
       original,
       transform((value) => value),
     ),
-    pipe(original, string()),
     pipe(original, parseJson(), object({ value: number() })),
   ]
 
@@ -125,11 +131,23 @@ it('should clear every format fact on conversions and later schemas', () => {
     expect(analyzeSchema(schema).stringFormat).toBeUndefined()
   }
 
+  expect(analyzeSchema(pipe(original, string())).stringFormats).toEqual([
+    'uuid',
+    'ip',
+    'decimal',
+  ])
+
   expect(analyzeSchema(pipe(original, string(), mac48())).stringFormats).toEqual([
+    'uuid',
+    'ip',
+    'decimal',
     'mac48',
   ])
 
   expect(analyzeSchema(pipe(original, pipe(string(), ipv6()))).stringFormats).toEqual([
+    'uuid',
+    'ip',
+    'decimal',
     'ipv6',
   ])
 
@@ -447,6 +465,87 @@ it('should distinguish consumed null inputs from stored null outputs', () => {
       omitOnInsert,
     })
   }
+})
+
+it('should combine constraints from repeated same-kind schemas', () => {
+  expect(
+    analyzeSchema(pipe(number(), safeInteger(), number(), integer())).numberConstraints,
+  ).toEqual({ isInteger: true, isSafeInteger: true })
+
+  expect(
+    analyzeSchema(
+      pipe(
+        number(),
+        minValue(5),
+        maxValue(10),
+        pipe(number(), minValue(0), maxValue(20)),
+      ),
+    ).numberConstraints,
+  ).toEqual({ minValue: 5, maxValue: 10 })
+
+  expect(
+    analyzeSchema(
+      pipe(
+        bigint(),
+        minValue(5n),
+        maxValue(10n),
+        pipe(bigint(), minValue(0n), maxValue(20n)),
+      ),
+    ).bigintConstraints,
+  ).toEqual({ minValue: 5n, maxValue: 10n })
+
+  expect(
+    analyzeSchema(
+      pipe(
+        string(),
+        uuid(),
+        minLength(30),
+        maxLength(36),
+        pipe(string(), minLength(1), maxLength(80)),
+      ),
+    ),
+  ).toMatchObject({
+    stringFormats: ['uuid'],
+    stringConstraints: { minLength: 30, maxLength: 36 },
+  })
+})
+
+it('should reset facts when a nested same-kind schema pipe transforms its input', () => {
+  const nested = pipe(pipe(number(), safeInteger(), toNumber()), number())
+  const analysis = analyzeSchema(
+    pipe(number(), integer(), safeInteger(), pipe(nested), integer()),
+  )
+
+  expect(analysis.outputKind).toBe('number')
+
+  expect(analysis.numberConstraints).toEqual({ isInteger: true })
+})
+
+it('should not carry numeric bounds across a later schema default', () => {
+  const schema = pipe(
+    nullable(pipe(number(), integer(), minValue(0), maxValue(10))),
+    pipe(nullable(number(), Number.MAX_SAFE_INTEGER)),
+  )
+
+  expect(safeParse(schema, null)).toMatchObject({
+    success: true,
+    output: Number.MAX_SAFE_INTEGER,
+  })
+
+  expect(analyzeSchema(schema).numberConstraints).toEqual({})
+})
+
+it('should not carry numeric bounds across a fallback schema', () => {
+  const schema = pipe(
+    number(),
+    integer(),
+    minValue(0),
+    maxValue(10),
+    fallback(pipe(number(), minValue(20)), 100_000),
+  )
+
+  expect(safeParse(schema, 5)).toMatchObject({ success: true, output: 100_000 })
+  expect(analyzeSchema(schema).numberConstraints).toEqual({ minValue: 20 })
 })
 
 describe('analyzeSchema ordered transformations', () => {

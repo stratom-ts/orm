@@ -374,7 +374,8 @@ unknown transformation. Unknown output without that recovery requires an explici
 selected `physicalType`; SQLite additionally needs both parameter and result mapping
 hooks. Known conversions clear facts from the input type, so old string lengths,
 string formats, or numeric bounds do not narrow the converted output. Later constraints
-apply to that output.
+apply to that output. Repeated same-kind validation schemas retain and combine applicable
+facts, including nested pipes that do not transform the value.
 
 An unbounded PostgreSQL `safeInteger()` output uses `bigint`; PostgreSQL converts
 that storage back to a JS number only when the value is safe. Two bounds can narrow
