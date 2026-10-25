@@ -29,6 +29,7 @@ import {
   toDate,
   toNumber,
   toString,
+  transform,
   undefinedable,
   union,
 } from 'valibot'
@@ -393,6 +394,63 @@ describe('InferInsert', () => {
   })
 })
 
+it('should keep string write inputs separate from nullable transformed outputs', () => {
+  const transformed = pipe(
+    string(),
+    transform((value): number | null => (value === 'null' ? null : Number(value))),
+    nullable(number()),
+  )
+
+  const Transformed = defineTable(
+    'transformed_nullable_output_views',
+    { id: string(), value: transformed },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferInput<typeof transformed>>().toEqualTypeOf<string>()
+  expectTypeOf<InferOutput<typeof transformed>>().toEqualTypeOf<number | null>()
+  expectTypeOf<InferInsert<typeof Transformed>['value']>().toEqualTypeOf<string>()
+
+  expectTypeOf<InferUpdate<typeof Transformed>['value']>().toEqualTypeOf<
+    string | undefined
+  >()
+
+  expectTypeOf<InferSelect<typeof Transformed>['value']>().toEqualTypeOf<number | null>()
+
+  expectTypeOf<
+    InferSelectedColumns<typeof Transformed, readonly [typeof Transformed.value]>
+  >().toEqualTypeOf<{ value: number | null }>()
+})
+
+it('should preserve string input and nullable number output through references', () => {
+  const Target = defineTable(
+    'nullable_output_reference_targets',
+    {
+      id: string(),
+      value: pipe(
+        string(),
+        transform((value): number | null => (value === 'null' ? null : Number(value))),
+        nullable(number()),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const Referencing = defineTable(
+    'nullable_output_references',
+    { id: string(), value: reference(Target, 'value') },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferInsert<typeof Referencing>['value']>().toEqualTypeOf<string>()
+
+  expectTypeOf<InferUpdate<typeof Referencing>['value']>().toEqualTypeOf<
+    string | undefined
+  >()
+
+  expectTypeOf<InferSelect<typeof Referencing>['value']>().toEqualTypeOf<number | null>()
+})
+
 it('should keep nullable transform inputs separate from non-null stored outputs', () => {
   const numberFromNullable = pipe(nullable(string()), toNumber())
   const stringFromNullable = pipe(nullable(string()), toString())
@@ -664,6 +722,19 @@ describe('InferInsert: should model identity and computed generation', () => {
 })
 
 describe('InferUpdate', () => {
+  it('should preserve nested wrapper inputs in optional update patches', () => {
+    expectTypeOf<InferUpdate<typeof NestedWrappers>>().toEqualTypeOf<{
+      id?: string
+      optionalNullable?: string | null
+      nullableOptional?: string | null
+      exactOptional?: string
+      undefinedable?: string
+      nonOptionalNullableOptional?: string | null
+      nonNullableOptionalNullable?: string
+      nonNullishNullableOptional?: string
+    }>()
+  })
+
   it('should exclude readonly and always-generated on partial patch', () => {
     const Schema = pipe(
       object({

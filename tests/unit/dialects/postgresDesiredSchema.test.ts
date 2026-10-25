@@ -23,6 +23,7 @@ import {
   picklist,
   pipe,
   string,
+  transform,
   union,
   uuid,
 } from 'valibot'
@@ -44,6 +45,32 @@ import { relation as canonicalRelation, identifier } from '../helpers/planTarget
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+it('should lower a nullable transformed output to nullable number storage', () => {
+  const Transformed = defineTable(
+    'nullable_output',
+    {
+      id: string(),
+      value: pipe(
+        string(),
+        transform((value): number | null => (value === 'null' ? null : Number(value))),
+        nullable(number()),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const tables = lowerDesiredSchema(
+    [Transformed],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'nullable_output', 'value')).toMatchObject({
+    dataType: 'double precision',
+    notNull: false,
+  })
 })
 
 describe('PostgreSQL desired schema', () => {
