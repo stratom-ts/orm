@@ -3,6 +3,11 @@ import {
   bigint,
   date,
   integer,
+  isoDate,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
   isoTimestamp,
   maxValue,
   minValue,
@@ -259,4 +264,43 @@ it('should preserve JSON getter defects and non-syntax parser failures', () => {
   } finally {
     JSON.parse = originalParse
   }
+})
+
+it.each([
+  [isoDate(), '2026-01-02'],
+  [isoTime(), '03:04'],
+  [isoTimeSecond(), '03:04:00'],
+  [isoDateTime(), '2026-01-02T03:04'],
+  [isoDateTimeSecond(), '2026-01-02T03:04:00'],
+  [isoTimestamp(), '2026-01-02T03:04:05.123456+11:00'],
+])('should preserve exact ISO text for matching SQLite references', (format, value) => {
+  const schema = pipe(string(), format)
+  const context = { schema, authoredSchema: schema }
+  expect(mapSqliteParamValue('TEXT', value, context)).toBe(value)
+  expect(mapSqliteResultValue('TEXT', value, context)).toBe(value)
+})
+
+it('should preserve SQLite temporal text without native precision formatting', () => {
+  const context = {
+    schema: pipe(string(), isoTime()),
+    authoredSchema: pipe(string(), isoTimeSecond()),
+  }
+
+  expect(mapSqliteResultValue('TEXT', '03:04', context)).toBe('03:04')
+  expect(mapSqliteResultValue('TEXT', '03:04:00', context)).toBe('03:04:00')
+})
+
+it('should retain Date output for SQLite references and reject local string-to-Date changes', () => {
+  const schema = date()
+  const value = new Date('2026-01-02T03:04:05Z')
+  const context = { schema, authoredSchema: schema }
+  expect(mapSqliteParamValue('DATETIME', value, context)).toBe(value.toISOString())
+  expect(mapSqliteResultValue('DATETIME', value.toISOString(), context)).toEqual(value)
+
+  expect(() =>
+    validateSqliteValueMapping('TEXT', {
+      schema: pipe(string(), isoTimestamp()),
+      authoredSchema: pipe(string(), isoTimestamp(), toDate()),
+    }),
+  ).toThrow(SchemaError)
 })

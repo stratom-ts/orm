@@ -15,6 +15,41 @@ const BIGINT_OUTPUT_STORAGE = new Set([
   'smallint',
 ])
 
+const TEMPORAL_FORMAT_STORAGE: Partial<
+  Record<SchemaAnalysis['stringFormats'][number], string>
+> = {
+  iso_date: 'date',
+  iso_time: 'time',
+  iso_time_second: 'time',
+  iso_date_time: 'timestamp',
+  iso_date_time_second: 'timestamp',
+  iso_timestamp: 'timestamptz',
+}
+
+/** Selects authored reference formats only when native storage can preserve them. */
+function referenceTemporalAnalysis(
+  base: string,
+  schema: DialectValueMappingContext['authoredSchema'],
+): SchemaAnalysis | undefined {
+  if (!schema) return undefined
+
+  const authored = analyzeSchema(schema)
+  const formats = authored.stringFormats.filter(
+    (format) => TEMPORAL_FORMAT_STORAGE[format],
+  )
+
+  if (!formats.length) return undefined
+  if (base === 'text' || base === 'varchar') return authored
+
+  if (formats.length !== 1 || TEMPORAL_FORMAT_STORAGE[formats[0]!] !== base) {
+    throw new SchemaError({
+      message: `PostgreSQL reference output formats ${formats.join(', ')} cannot use ${JSON.stringify(base)} storage unambiguously. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
+    })
+  }
+
+  return authored
+}
+
 /** Formats PostgreSQL's textual time at the precision promised by the schema. */
 function isoTimeResult(value: string, withSeconds: boolean): string {
   const match = /^(\d{2}:\d{2}):(\d{2})(?:\.(\d+))?$/.exec(value)
@@ -157,9 +192,11 @@ export function validatePostgresValueMapping(
   if (authored.outputKind !== target.outputKind) {
     throw new SchemaError({
       message:
-        'PostgreSQL reference transformations must preserve the resolved target output kind or provide explicit parameter and result mappings',
+        'PostgreSQL reference transformations must preserve the resolved target output kind. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.',
     })
   }
+
+  referenceTemporalAnalysis(extractPostgresBaseType(dataType), context.authoredSchema)
 }
 
 function validatePostgresCompositeMapping(
@@ -291,7 +328,10 @@ export function mapPostgresResultValue(
 
   const base = extractPostgresBaseType(dataType)
 
-  const analysis = context ? analyzeSchema(context.schema) : undefined
+  const analysis =
+    referenceTemporalAnalysis(base, context?.authoredSchema) ??
+    (context ? analyzeSchema(context.schema) : undefined)
+
   const kind = analysis?.outputKind
 
   if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base)) return mapBigintResult(value)

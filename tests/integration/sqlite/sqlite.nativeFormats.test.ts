@@ -1,10 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 import {
+  date,
   decimal,
   exactOptional,
   ip,
   ipv4,
   ipv6,
+  isoDateTime,
+  isoTime,
   mac,
   mac48,
   mac64,
@@ -163,6 +166,65 @@ it('should migrate PostgreSQL format conflicts as SQLite TEXT and converge', asy
     expect(native.prepare('pragma table_info("format_conflict")').all()).toMatchObject([
       { name: 'id', type: 'TEXT' },
     ])
+
+    await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+  })
+})
+
+it('should preserve matching SQLite temporal reference strings and Date output with stable declarations', async () => {
+  const Parent = defineTable(
+    'temporal_parent',
+    {
+      time: pipe(string(), isoTime()),
+      local: pipe(string(), isoDateTime(), column({ unique: true })),
+      instant: pipe(date(), column({ unique: true })),
+    },
+    { primaryKey: 'time' },
+  )
+
+  const Child = defineTable(
+    'temporal_child',
+    {
+      time: reference(Parent, 'time'),
+      local: reference(Parent, 'local'),
+      instant: reference(Parent, 'instant'),
+    },
+    { primaryKey: 'time' },
+  )
+
+  await withSqliteDatabase([Child, Parent], async ({ db, native }) => {
+    await db.migrate().execute()
+    await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+    for (const table of ['temporal_parent', 'temporal_child']) {
+      const columns = native.prepare(`pragma table_info("${table}")`).all()
+      expect(
+        Object.fromEntries(columns.map((column) => [column.name, column.type])),
+      ).toEqual({ time: 'TEXT', local: 'TEXT', instant: 'DATETIME' })
+    }
+
+    const row = {
+      time: '03:04',
+      local: '2026-01-02T03:04',
+      instant: new Date('2026-01-02T03:04:05Z'),
+    }
+
+    expect(await db.insert(Parent).values(row).execute()).toEqual([row])
+
+    expect(
+      await db
+        .insert(Child)
+        .values(row)
+        .returning([Child.time, Child.local, Child.instant])
+        .execute(),
+    ).toEqual([row])
+
+    expect(await db.from(Child).execute()).toEqual([row])
+    expect(native.prepare('pragma foreign_key_check').all()).toEqual([])
+
+    expect(
+      native.prepare('select "time", "local", "instant" from "temporal_child"').all(),
+    ).toEqual([{ time: row.time, local: row.local, instant: row.instant.toISOString() }])
 
     await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
   })

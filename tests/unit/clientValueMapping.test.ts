@@ -3,6 +3,11 @@ import {
   date,
   decimal,
   ip,
+  isoDateTime,
+  isoDateTimeSecond,
+  isoTime,
+  isoTimeSecond,
+  isoTimestamp,
   literal,
   mac48,
   mac64,
@@ -11,7 +16,10 @@ import {
   picklist,
   pipe,
   safeInteger,
+  safeParse,
   string,
+  toDate,
+  transform,
   union,
   unknown,
   uuid,
@@ -690,3 +698,108 @@ function assertMappedParameters(compiled: CompiledQuery, recordedAt: Date) {
     value: 'api',
   })
 }
+
+it.each([
+  [isoTime(), isoTimeSecond(), '03:04', '03:04:00'],
+  [isoDateTime(), isoDateTimeSecond(), '2026-01-02T03:04', '2026-01-02 03:04:00'],
+])(
+  'should preserve authored temporal reference output on select and explicit returning',
+  async (minute, second, input, raw) => {
+    const Parent = defineTable(
+      'temporal_parent',
+      { value: pipe(string(), minute) },
+      { primaryKey: 'value' },
+    )
+
+    const writeTransform = vi.fn<(value: string) => string>((value) => `${value}:00`)
+    const Child = defineTable(
+      'temporal_child',
+      {
+        value: pipe(
+          reference(Parent, 'value'),
+          transform(writeTransform),
+          string(),
+          second,
+        ),
+        matching: reference(Parent, 'value'),
+      },
+      { primaryKey: 'value' },
+    )
+
+    const expected = { value: `${input}:00`, matching: input }
+    const connector = createMockPostgresConnector({
+      rowsBySql: (sql) =>
+        sql.includes('"temporal_parent"')
+          ? [{ value: raw }]
+          : [{ value: raw, matching: raw }],
+    })
+
+    const db = createDatabase({ connector, schemas: [Parent, Child] })
+    try {
+      const insert = db.insert(Child).values({ value: input, matching: input })
+      expect(insert.compile().params).toEqual([expected.value, input])
+      expect(writeTransform).toHaveBeenCalledWith(input)
+      const writes = writeTransform.mock.calls.length
+      expect(await db.from(Child).execute()).toEqual([expected])
+      expect(writeTransform).toHaveBeenCalledTimes(writes)
+      expect(await db.from(Parent).execute()).toEqual([{ value: input }])
+      const returned = await insert
+        .returning([Child.value, Child.matching])
+        .executeTakeFirstOrThrow()
+
+      expect(returned).toEqual(expected)
+      expect(safeParse(pipe(string(), second), returned.value).success).toBe(true)
+      expect(safeParse(pipe(string(), minute), returned.matching).success).toBe(true)
+      expect(writeTransform).toHaveBeenCalledTimes(writes)
+      expect(connector.binds).toContainEqual([expected.value, input])
+    } finally {
+      await db.close()
+    }
+  },
+)
+
+it.each(['native family', 'ambiguous precision', 'Date output'])(
+  'should reject unsupported reference %s before connector access or SQL preparation',
+  (scenario) => {
+    const Parent = defineTable(
+      'temporal_parent',
+      { value: pipe(string(), scenario === 'Date output' ? isoTimestamp() : isoTime()) },
+      { primaryKey: 'value' },
+    )
+
+    const incompatible = pipe(
+      reference(Parent, 'value'),
+      transform((value) => `2026-01-02T${value}:00`),
+      string(),
+      isoDateTimeSecond(),
+    )
+
+    const Child = defineTable(
+      'temporal_child',
+      {
+        value:
+          scenario === 'native family'
+            ? incompatible
+            : scenario === 'Date output'
+              ? pipe(reference(Parent, 'value'), toDate())
+              : pipe(reference(Parent, 'value'), isoTimeSecond()),
+      },
+      { primaryKey: 'value' },
+    )
+
+    const connector = createMockPostgresConnector()
+    const getInstance = vi.spyOn(connector, 'getInstance')
+    const prepare = vi.spyOn(connector, 'prepare')
+
+    expect(() => createDatabase({ connector, schemas: [Parent, Child] })).toThrow(
+      SchemaError,
+    )
+
+    expect(() => createDatabase({ connector, schemas: [Parent, Child] })).toThrow(
+      /paired column mapParam\/mapResult or client mapParamValue\/mapResultValue/,
+    )
+
+    expect(getInstance).not.toHaveBeenCalled()
+    expect(prepare).not.toHaveBeenCalled()
+  },
+)

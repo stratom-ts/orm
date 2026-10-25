@@ -12,6 +12,8 @@ import {
   enum as enumSchema,
   integer,
   ip,
+  isoTime,
+  isoTimeSecond,
   mac48,
   mac64,
   maxLength,
@@ -1642,3 +1644,39 @@ function createTemporalAccountColumns() {
     ),
   }
 }
+
+it('should retain inherited TIME storage and foreign-key metadata with authored second output', () => {
+  const Parent = defineTable(
+    'temporal_parent',
+    { value: pipe(string(), isoTime()) },
+    { primaryKey: 'value' },
+  )
+
+  const Child = defineTable(
+    'temporal_child',
+    {
+      value: pipe(
+        reference(Parent, 'value'),
+        transform((value) => `${value}:00`),
+        string(),
+        isoTimeSecond(),
+      ),
+    },
+    { primaryKey: 'value' },
+  )
+
+  const { tables } = lowerDesiredSchema(
+    [Child, Parent],
+    postgresIdentities(),
+    postgresDialect.schema,
+  )
+
+  const parent = tables.find((table) => table.handle === Parent)!
+  const child = tables.find((table) => table.handle === Child)!
+  expect(parent.columns[0]).toMatchObject({ dataType: 'time' })
+
+  expect(child.columns[0]).toMatchObject({
+    dataType: 'time',
+    reference: { relation: parent.identity, column: identifier('value') },
+  })
+})
