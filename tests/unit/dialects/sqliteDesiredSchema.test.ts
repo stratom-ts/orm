@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   literal,
@@ -6,6 +7,7 @@ import {
   null as nullSchema,
   nullable,
   number,
+  object,
   optional,
   pipe,
   string,
@@ -20,7 +22,7 @@ import { sqliteIdentity } from '@/dialects/sqlite/identity'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AuthoredDesiredSchema, LoweredDesiredTable } from '@/dialects/types'
 import { column, defineTable, reference } from '@/index'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, SchemaError, attemptSync } from '@/utils/error'
 
 const context = {
   writableDefault: [{ role: 'database' as const, spelling: 'main' }],
@@ -30,6 +32,31 @@ const context = {
 function identities() {
   return sqliteIdentity.create({ context })
 }
+
+it('should keep unsafe JSON composite inference as the MigrationError cause', () => {
+  const Unsafe = defineTable(
+    'sqlite_unsafe_json_composite',
+    { id: string(), value: union([object({ id: bigint() }), object({ id: bigint() })]) },
+    { primaryKey: 'id' },
+  )
+
+  const result = attemptSync(() =>
+    lowerDesiredSchema([Unsafe], identities(), sqliteSchema),
+  )
+
+  expect(result.ok).toBe(false)
+
+  if (result.ok) throw new Error('Expected unsafe JSON composite lowering to fail')
+
+  if (!(result.error instanceof MigrationError))
+    throw new Error('Expected MigrationError')
+
+  expect(result.error.cause).toBeInstanceOf(SchemaError)
+
+  expect((result.error.cause as SchemaError).message).toContain(
+    'JSON composite output is not preserved',
+  )
+})
 
 it('should lower a nullable transformed output to nullable number storage', () => {
   const Transformed = defineTable(

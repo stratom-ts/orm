@@ -292,12 +292,36 @@ export function mapSqliteParamValue(
 
   if (BOOLEAN_TYPES.has(type)) return typeof value === 'boolean' ? (value ? 1 : 0) : value
   if (DATE_TYPES.has(type)) return mapDateParamValue(dataType, value)
-  if (type === 'JSON') return mapJsonParamValue(value)
+
+  if (type === 'JSON') {
+    const authored = context?.authoredSchema && analyzeSchema(context.authoredSchema)
+
+    if (
+      context &&
+      (analyzeSchema(context.schema).composite || authored?.composite) &&
+      containsNonFiniteNumber(value)
+    )
+      throw new QueryError({
+        message:
+          'SQLite JSON composite cannot serialize a non-finite number without changing it to null',
+      })
+
+    return mapJsonParamValue(value)
+  }
+
   if (type === 'BIGINT') return bigintValue(dataType, value) ?? value
   if (type === 'INTEGER') return mapIntegerValue(dataType, value)
   if (type === 'REAL') return mapRealValue(dataType, value)
 
   return value
+}
+
+function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): boolean {
+  if (typeof value === 'number') return !Number.isFinite(value)
+  if (typeof value !== 'object' || value === null || seen.has(value)) return false
+
+  seen.add(value)
+  return Object.values(value).some((item) => containsNonFiniteNumber(item, seen))
 }
 
 /** Maps a SQLite result value to the declared logical JavaScript type. */

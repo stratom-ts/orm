@@ -58,6 +58,8 @@ export interface SchemaAnalysis {
   nullable: boolean
   /** Whether parsing the schema accepts an explicit or omitted undefined. */
   allowsUndefined: boolean
+  /** Whether the effective parsed output can be undefined. */
+  outputMayBeUndefined: boolean
   /** Whether the application may omit the column on insert. */
   omitOnInsert: boolean
   /** String length constraints found beneath wrappers and in nested pipes. */
@@ -85,6 +87,8 @@ export interface SchemaAnalysis {
     type: 'union' | 'variant' | 'intersect'
     branches: readonly SchemaAnalysis[]
   }
+  /** Whether a JSON-shaped output survives the built-in JSON round trip. */
+  jsonOutputCompatible?: boolean
   /** This branch produces only null and requires no physical storage of its own. */
   nullOnly: boolean
 }
@@ -231,6 +235,22 @@ function outputKind(schema: AnySchema): SchemaOutputKind | undefined {
   return undefined
 }
 
+function isOutputUndefinedPossible(schema: AnySchema, nullOnly: boolean): boolean {
+  if (nullOnly) return false
+
+  if (schema.type === 'literal')
+    return (schema as AnySchema & { literal?: unknown }).literal === undefined
+
+  if (schema.type === 'enum' || schema.type === 'picklist')
+    return (
+      (schema as AnySchema & { options?: readonly unknown[] }).options?.includes(
+        undefined,
+      ) ?? false
+    )
+
+  return outputKind(schema) === undefined
+}
+
 type RecursiveAnalysis = Omit<
   SchemaAnalysis,
   'stringConstraints' | 'numberConstraints' | 'bigintConstraints'
@@ -247,16 +267,22 @@ type RecursiveAnalysis = Omit<
  *   interpreted.
  * @param type - Physical type spelling used to build storage evidence.
  */
-function applyWrapperSemantics(result: RecursiveAnalysis, type: string): void {
+function applyWrapperSemantics(
+  result: RecursiveAnalysis,
+  type: string,
+  hasDefault: boolean,
+): void {
   switch (type) {
     case 'optional':
     case 'exact_optional':
       result.omitOnInsert = true
       result.allowsUndefined = true
+      result.outputMayBeUndefined = !hasDefault || result.outputMayBeUndefined
       break
     case 'undefinedable':
       result.omitOnInsert = false
       result.allowsUndefined = true
+      result.outputMayBeUndefined = !hasDefault || result.outputMayBeUndefined
       break
     case 'nullable':
       result.nullable = true
@@ -265,10 +291,12 @@ function applyWrapperSemantics(result: RecursiveAnalysis, type: string): void {
       result.nullable = true
       result.omitOnInsert = true
       result.allowsUndefined = true
+      result.outputMayBeUndefined = !hasDefault || result.outputMayBeUndefined
       break
     case 'non_optional':
       result.omitOnInsert = false
       result.allowsUndefined = false
+      result.outputMayBeUndefined = false
       break
     case 'non_nullable':
       result.nullable = false
@@ -278,6 +306,7 @@ function applyWrapperSemantics(result: RecursiveAnalysis, type: string): void {
       result.nullable = false
       result.omitOnInsert = false
       result.allowsUndefined = false
+      result.outputMayBeUndefined = false
       break
   }
 }
@@ -288,6 +317,8 @@ function resetOutputFacts(result: RecursiveAnalysis): void {
   result.outputSchema = undefined
   result.finiteValues = undefined
   result.composite = undefined
+  result.jsonOutputCompatible = undefined
+  result.outputMayBeUndefined = true
   result.nullOnly = false
   result.stringConstraints = {}
   result.numberConstraints = {}
@@ -424,6 +455,7 @@ function retainSameKindEvidence(
       : (previous.finiteValues ?? facts.finiteValues),
     retained,
   )
+  retained.outputMayBeUndefined = facts.outputMayBeUndefined
 
   if (previous.composite) {
     const branchFacts =
@@ -446,6 +478,8 @@ function retainSameKindEvidence(
     retained.composite = undefined
   }
 
+  if (previous.jsonOutputCompatible === false) retained.jsonOutputCompatible = false
+
   return hasValidFiniteOutput(retained) ? retained : undefined
 }
 
@@ -463,6 +497,8 @@ function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
   if (!effectiveFacts) {
     result.composite = { type: 'union', branches: [] }
     result.outputSchema = undefined
+    result.jsonOutputCompatible = false
+    result.outputMayBeUndefined = true
     result.numberConstraints = {}
     result.bigintConstraints = {}
     return
@@ -471,6 +507,8 @@ function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
   Object.assign(result, {
     outputKind: effectiveFacts.outputKind,
     outputSchema: effectiveFacts.outputSchema,
+    jsonOutputCompatible: effectiveFacts.jsonOutputCompatible,
+    outputMayBeUndefined: effectiveFacts.outputMayBeUndefined,
     finiteValues: effectiveFacts.finiteValues,
     composite: effectiveFacts.composite,
     nullOnly: effectiveFacts.nullOnly,
@@ -502,6 +540,11 @@ function applyTransformation(result: RecursiveAnalysis, action: PipeAction): voi
   if (!result.unresolvedTransformation) result.nullable = false
 
   resetOutputFacts(result)
+  result.jsonOutputCompatible =
+    result.outputKind === 'string' ||
+    result.outputKind === 'number' ||
+    result.outputKind === 'boolean'
+  result.outputMayBeUndefined = result.unresolvedTransformation
 }
 
 function applyLengthAction(result: RecursiveAnalysis, action: PipeAction): void {
@@ -671,6 +714,7 @@ function analyzeLeaf(schema: AnySchema): RecursiveAnalysis {
     unwrappedSchema: schema,
     nullable: nullOnly,
     allowsUndefined: false,
+    outputMayBeUndefined: isOutputUndefinedPossible(schema, nullOnly),
     omitOnInsert: false,
     stringConstraints: {},
     stringFormats: [],
@@ -691,8 +735,26 @@ function analyzeLeaf(schema: AnySchema): RecursiveAnalysis {
 
   if (schema.type === 'union' || schema.type === 'variant' || schema.type === 'intersect')
     applyCompositeFacts(schema, result)
+  else result.jsonOutputCompatible = jsonOutputCompatibleForLeaf(schema, result)
 
   return result
+}
+
+function jsonOutputCompatibleForLeaf(
+  schema: AnySchema,
+  result: RecursiveAnalysis,
+): boolean {
+  return (
+    result.nullOnly ||
+    result.outputKind === 'string' ||
+    (result.outputKind === 'number' && schema.type === 'number') ||
+    result.outputKind === 'boolean' ||
+    ((schema.type === 'enum' || schema.type === 'picklist') &&
+      isJsonChoiceSchema(schema)) ||
+    (schema.type === 'literal' &&
+      isJsonPrimitiveValue((schema as AnySchema & { literal?: unknown }).literal)) ||
+    (result.outputKind === 'json' && isJsonShapeSchema(schema, new Set([schema])))
+  )
 }
 
 function applyCommonNumberConstraints(
@@ -742,6 +804,10 @@ function applyCompositeFacts(schema: AnySchema, result: RecursiveAnalysis): void
     type === 'intersect'
       ? branches.every((branch) => branch.allowsUndefined)
       : branches.some((branch) => branch.allowsUndefined)
+  result.outputMayBeUndefined =
+    type === 'intersect'
+      ? branches.every((branch) => branch.outputMayBeUndefined)
+      : branches.some((branch) => branch.outputMayBeUndefined)
   result.unresolvedTransformation = branches.some(
     (branch) => branch.unresolvedTransformation,
   )
@@ -750,6 +816,14 @@ function applyCompositeFacts(schema: AnySchema, result: RecursiveAnalysis): void
       ? commonKind
       : undefined
 
+  result.jsonOutputCompatible =
+    branches.length > 0 &&
+    branches.every(
+      (branch) =>
+        branch.nullOnly ||
+        (!branch.outputMayBeUndefined && branch.jsonOutputCompatible === true),
+    )
+
   if (result.outputKind === 'number' && nonNull.length)
     applyCommonNumberConstraints(result, type, nonNull)
 
@@ -757,6 +831,100 @@ function applyCompositeFacts(schema: AnySchema, result: RecursiveAnalysis): void
     result.finiteValues = branches.flatMap((branch) => branch.finiteValues ?? [])
 
   applyCommonStringFormats(result, nonNull)
+}
+
+/** Proves that a JSON-shaped schema contains only values preserved by JSON. */
+function isJsonSchemaOutputCompatible(
+  schema: AnySchema,
+  position: 'object' | 'array',
+  seen: Set<AnySchema>,
+): boolean {
+  if (seen.has(schema)) return false
+
+  seen.add(schema)
+
+  const traversable = schema as TraversableSchema
+  const analysis = analyzeNode(schema)
+
+  if (analysis.jsonOutputCompatible !== true) return false
+  if (!analysis.outputMayBeUndefined) return true
+
+  const wrapped = wrappedSchema(traversable)
+
+  if (!wrapped) return false
+
+  const wrappedAnalysis = analyzeNode(wrapped)
+
+  return (
+    position === 'object' &&
+    analysis.omitOnInsert &&
+    wrappedAnalysis.jsonOutputCompatible === true
+  )
+}
+
+function isJsonChoiceSchema(schema: AnySchema): boolean {
+  const options = (schema as AnySchema & { options?: unknown[] }).options
+  return !!options?.length && options.every(isJsonPrimitiveValue)
+}
+
+function isJsonShapeSchema(schema: AnySchema, seen: Set<AnySchema>): boolean {
+  const shaped = schema as AnySchema & {
+    entries?: Record<string, AnySchema>
+    item?: AnySchema
+    items?: readonly AnySchema[]
+    rest?: AnySchema
+    value?: AnySchema
+  }
+
+  if (schema.type === 'object' || schema.type === 'strict_object')
+    return Object.values(shaped.entries ?? {}).every((entry) =>
+      isJsonSchemaOutputCompatible(entry, 'object', new Set(seen)),
+    )
+
+  if (schema.type === 'object_with_rest')
+    return (
+      Object.values(shaped.entries ?? {}).every((entry) =>
+        isJsonSchemaOutputCompatible(entry, 'object', new Set(seen)),
+      ) &&
+      !!shaped.rest &&
+      isJsonSchemaOutputCompatible(shaped.rest, 'object', new Set(seen))
+    )
+
+  if (schema.type === 'record')
+    return (
+      !!shaped.value &&
+      isJsonSchemaOutputCompatible(shaped.value, 'object', new Set(seen))
+    )
+
+  if (schema.type === 'array')
+    return (
+      !!shaped.item && isJsonSchemaOutputCompatible(shaped.item, 'array', new Set(seen))
+    )
+
+  if (schema.type === 'tuple' || schema.type === 'strict_tuple')
+    return (shaped.items ?? []).every((item) =>
+      isJsonSchemaOutputCompatible(item, 'array', new Set(seen)),
+    )
+
+  if (schema.type === 'tuple_with_rest')
+    return (
+      (shaped.items ?? []).every((item) =>
+        isJsonSchemaOutputCompatible(item, 'array', new Set(seen)),
+      ) &&
+      !!shaped.rest &&
+      isJsonSchemaOutputCompatible(shaped.rest, 'array', new Set(seen))
+    )
+
+  return false
+}
+
+function isJsonPrimitiveValue(value: unknown): boolean {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  )
 }
 
 function applyCommonStringFormats(
@@ -788,7 +956,7 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
 
   if (wrapped && !piped) {
     const result = { ...analyzeNode(wrapped) }
-    applyWrapperSemantics(result, schema.type)
+    applyWrapperSemantics(result, schema.type, traversable.default !== undefined)
 
     if (traversable.default !== undefined) result.schemaDefault = traversable.default
 

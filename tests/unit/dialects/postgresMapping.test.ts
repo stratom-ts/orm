@@ -26,6 +26,38 @@ import {
 } from '@/dialects/postgres/mapping'
 import { QueryError, SchemaError } from '@/utils/error'
 
+it('should reject unsafe JSON outputs even when JSON storage is selected', () => {
+  for (const schema of [
+    union([object({ at: date() }), object({ at: date() })]),
+    union([object({ id: bigint() }), object({ id: bigint() })]),
+  ]) {
+    expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(SchemaError)
+
+    expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(
+      /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
+    )
+  }
+})
+
+it('should reject non-finite nested numbers before JSON serialization', () => {
+  const schema = union([object({ value: number() }), object({ value: number() })])
+  expect(() =>
+    mapPostgresParamValue('jsonb', { value: Number.POSITIVE_INFINITY }, { schema }),
+  ).toThrow(QueryError)
+})
+
+it('should check authored JSON composites for non-finite parameters', () => {
+  const target = object({ value: number() })
+  const authoredSchema = union([object({ value: number() }), object({ value: number() })])
+  expect(() =>
+    mapPostgresParamValue(
+      'jsonb',
+      { value: Number.POSITIVE_INFINITY },
+      { schema: target, authoredSchema },
+    ),
+  ).toThrow(QueryError)
+})
+
 describe('PostgreSQL composite value mapping', () => {
   it('should retain second-precision ISO output for homogeneous branches', () => {
     const schema = union([

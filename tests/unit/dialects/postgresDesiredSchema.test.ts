@@ -8,6 +8,7 @@ import type {
 } from 'valibot'
 import {
   bigint,
+  date,
   decimal,
   enum as enumSchema,
   integer,
@@ -22,6 +23,7 @@ import {
   null as nullSchema,
   nullable,
   number,
+  object,
   picklist,
   pipe,
   string,
@@ -73,6 +75,31 @@ it('should lower a nullable transformed output to nullable number storage', () =
     dataType: 'double precision',
     notNull: false,
   })
+})
+
+it('should keep unsafe JSON composite inference as the MigrationError cause', () => {
+  const Unsafe = defineTable(
+    'unsafe_json_composite',
+    { id: string(), value: union([object({ at: date() }), object({ at: date() })]) },
+    { primaryKey: 'id' },
+  )
+
+  const result = attemptSync(() =>
+    lowerDesiredSchema([Unsafe], postgresIdentities(), postgresDialect.schema),
+  )
+
+  expect(result.ok).toBe(false)
+
+  if (result.ok) throw new Error('Expected unsafe JSON composite lowering to fail')
+
+  if (!(result.error instanceof MigrationError))
+    throw new Error('Expected MigrationError')
+
+  expect(result.error.cause).toBeInstanceOf(SchemaError)
+
+  expect((result.error.cause as SchemaError).message).toContain(
+    'JSON composite output is not preserved',
+  )
 })
 
 describe('PostgreSQL desired schema', () => {

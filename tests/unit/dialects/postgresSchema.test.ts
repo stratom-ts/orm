@@ -341,6 +341,40 @@ describe('PostgreSQL schema', () => {
     expect(
       inferColumnType(intersect([object({ a: string() }), object({ b: number() })])),
     ).toBe('jsonb')
+
+    const nullishSchema = object({ label: nullish(string()) })
+    expect(inferColumnType(union([nullishSchema, nullishSchema]))).toBe('jsonb')
+
+    const defaulted = object({
+      label: optional(pipe(date(), toString()), new Date('2026-01-01T00:00:00Z')),
+    })
+
+    expect(inferColumnType(union([defaulted, defaulted]))).toBe('jsonb')
+
+    const defaultedUndefinedable = union([
+      object({ values: array(undefinedable(string(), 'fallback')) }),
+      object({ values: array(undefinedable(string(), 'fallback')) }),
+    ])
+
+    expect(inferColumnType(defaultedUndefinedable)).toBe('jsonb')
+  })
+
+  it('should reject JSON composites whose nested outputs lose identity', () => {
+    for (const schema of [
+      union([object({ at: date() }), object({ at: date() })]),
+      union([object({ id: bigint() }), object({ id: bigint() })]),
+      variant('kind', [
+        object({ kind: literal('a'), at: date() }),
+        object({ kind: literal('b'), at: date() }),
+      ]),
+      intersect([object({ at: date() }), object({ label: string() })]),
+    ]) {
+      expect(() => inferColumnType(schema)).toThrow(SchemaError)
+
+      expect(() => inferColumnType(schema)).toThrow(
+        /JSON composite output is not preserved.*paired parameter and result mappings/,
+      )
+    }
   })
 
   it('should reject incompatible output identities and native formats', () => {

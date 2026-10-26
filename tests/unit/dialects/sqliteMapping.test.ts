@@ -12,6 +12,7 @@ import {
   maxValue,
   minValue,
   number,
+  object,
   pipe,
   string,
   toDate,
@@ -19,12 +20,112 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { sqliteDialect } from '@/dialects/sqlite/dialect'
 import {
   mapSqliteParamValue,
   mapSqliteResultValue,
   validateSqliteValueMapping,
 } from '@/dialects/sqlite/mapping'
+import { column, defineTable } from '@/index'
+import { createValueMapper } from '@/query/mapping'
 import { QueryError, SchemaError } from '@/utils/error'
+
+it('should reject unsafe JSON outputs even when JSON storage is selected', () => {
+  for (const schema of [
+    union([object({ at: date() }), object({ at: date() })]),
+    union([object({ id: bigint() }), object({ id: bigint() })]),
+  ]) {
+    expect(() => validateSqliteValueMapping('JSON', { schema })).toThrow(SchemaError)
+
+    expect(() => validateSqliteValueMapping('JSON', { schema })).toThrow(
+      /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
+    )
+  }
+})
+
+it('should reject non-finite nested numbers before JSON serialization', () => {
+  const schema = union([object({ value: number() }), object({ value: number() })])
+  expect(() =>
+    mapSqliteParamValue('JSON', { value: Number.POSITIVE_INFINITY }, { schema }),
+  ).toThrow(QueryError)
+})
+
+it('should check authored JSON composites for non-finite parameters', () => {
+  const target = object({ value: number() })
+  const authoredSchema = union([object({ value: number() }), object({ value: number() })])
+  expect(() =>
+    mapSqliteParamValue(
+      'JSON',
+      { value: Number.POSITIVE_INFINITY },
+      { schema: target, authoredSchema },
+    ),
+  ).toThrow(QueryError)
+})
+
+it('should reject unsafe JSON outputs before mapping when both hooks are not paired', () => {
+  const schema = pipe(
+    union([object({ at: date() }), object({ at: date() })]),
+    column({ physicalType: { sqlite: 'JSON' } }),
+  )
+
+  const Invalid = defineTable(
+    'sqlite_unsafe_json_mapper',
+    { id: string(), value: schema },
+    { primaryKey: 'id' },
+  )
+
+  expect(() => createValueMapper(sqliteDialect, undefined, [Invalid])).toThrow(
+    /JSON composite output is not preserved/,
+  )
+
+  expect(() =>
+    createValueMapper(
+      sqliteDialect,
+      { mapParamValue: (_type, value) => JSON.stringify(value) },
+      [Invalid],
+    ),
+  ).toThrow(/JSON composite output is not preserved/)
+})
+
+it('should let paired client mappings preserve nested Date JSON output', () => {
+  const schema = pipe(
+    union([object({ at: date() }), object({ at: date() })]),
+    column({ physicalType: { sqlite: 'JSON' } }),
+  )
+
+  const Mapped = defineTable(
+    'sqlite_mapped_json_mapper',
+    { id: string(), value: schema },
+    { primaryKey: 'id' },
+  )
+
+  const mapper = createValueMapper(
+    sqliteDialect,
+    {
+      mapParamValue: (type, value) =>
+        type === 'JSON'
+          ? JSON.stringify({ at: (value as { at: Date }).at.toISOString() })
+          : value,
+      mapResultValue: (type, value) => {
+        if (type !== 'JSON') return value
+
+        const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value
+        return { at: new Date((parsed as { at: string }).at) }
+      },
+    },
+    [Mapped],
+  )
+
+  const value = { at: new Date('2026-01-01T00:00:00.000Z') }
+
+  expect(mapper.mapParam(Mapped, 'value', value)).toBe(
+    '{"at":"2026-01-01T00:00:00.000Z"}',
+  )
+
+  expect(
+    mapper.mapResultValue(Mapped, 'value', '{"at":"2026-01-01T00:00:00.000Z"}'),
+  ).toEqual(value)
+})
 
 describe('SQLite composite value mapping', () => {
   it('should retain signed-int64 safeguards for bounded bigint composite output', () => {

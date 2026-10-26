@@ -13,6 +13,7 @@ import {
   mac64,
   nullable,
   number,
+  object,
   picklist,
   pipe,
   safeInteger,
@@ -109,6 +110,83 @@ it('should require both mapping directions for a mixed composite with selected s
     '42',
   ])
 
+  await db.close()
+})
+
+it('should reject unsafe JSON composites before connector access', () => {
+  const schema = pipe(
+    union([object({ at: date() }), object({ at: date() })]),
+    column({ physicalType: { postgresql: 'jsonb' } }),
+  )
+
+  const Invalid = defineTable(
+    'unsafe_json_composite',
+    { id: string(), value: schema },
+    {
+      primaryKey: 'id',
+    },
+  )
+
+  const rejectedConnector = createMockPostgresConnector()
+  const getInstance = vi.spyOn(rejectedConnector, 'getInstance')
+  const prepare = vi.spyOn(rejectedConnector, 'prepare')
+
+  expect(() =>
+    createDatabase({ connector: rejectedConnector, schemas: [Invalid] }),
+  ).toThrow(/JSON composite output is not preserved/)
+
+  expect(getInstance).not.toHaveBeenCalled()
+  expect(prepare).not.toHaveBeenCalled()
+
+  expect(() =>
+    createDatabase({
+      connector: createMockPostgresConnector(),
+      schemas: [Invalid],
+      map: { mapParamValue: (_type, item) => JSON.stringify(item) },
+    }),
+  ).toThrow(/JSON composite output is not preserved/)
+})
+
+it('should allow paired client hooks to preserve nested Date output', async () => {
+  const schema = pipe(
+    union([object({ at: date() }), object({ at: date() })]),
+    column({ physicalType: { postgresql: 'jsonb' } }),
+  )
+
+  const value = { at: new Date('2026-01-01T00:00:00Z') }
+  const Mapped = defineTable(
+    'mapped_unsafe_json_composite',
+    { id: string(), value: schema },
+    {
+      primaryKey: 'id',
+    },
+  )
+
+  const db = createDatabase({
+    connector: createMockPostgresConnector({
+      rowsBySql: () => [{ id: 'one', value: { at: '2026-01-01T00:00:00.000Z' } }],
+    }),
+    schemas: [Mapped],
+    map: {
+      mapParamValue: (type, item) =>
+        type === 'jsonb'
+          ? JSON.stringify({ at: (item as typeof value).at.toISOString() })
+          : item,
+      mapResultValue: (type, item) => {
+        if (type !== 'jsonb') return item
+
+        const parsed: unknown = typeof item === 'string' ? JSON.parse(item) : item
+        return { at: new Date((parsed as { at: string }).at) }
+      },
+    },
+  })
+
+  expect(db.insert(Mapped).values({ id: 'one', value }).compile().params).toEqual([
+    'one',
+    '{"at":"2026-01-01T00:00:00.000Z"}',
+  ])
+
+  await expect(db.from(Mapped).execute()).resolves.toEqual([{ id: 'one', value }])
   await db.close()
 })
 
