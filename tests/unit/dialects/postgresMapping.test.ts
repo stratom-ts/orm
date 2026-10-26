@@ -14,6 +14,7 @@ import {
   pipe,
   safeInteger,
   string,
+  toString,
   union,
   uuid,
 } from 'valibot'
@@ -37,6 +38,16 @@ it('should reject unsafe JSON outputs even when JSON storage is selected', () =>
       /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
     )
   }
+})
+
+it('should use built-in JSON mapping for a recovered structured output', () => {
+  const branch = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
+  const schema = union([branch, branch])
+  const output = { at: new Date('2026-01-01T00:00:00.000Z').toString() }
+
+  expect(() => validatePostgresValueMapping('jsonb', { schema })).not.toThrow()
+  expect(mapPostgresParamValue('jsonb', output, { schema })).toBe(JSON.stringify(output))
+  expect(mapPostgresResultValue('jsonb', JSON.stringify(output))).toEqual(output)
 })
 
 it('should reject non-finite nested numbers before JSON serialization', () => {

@@ -27,9 +27,9 @@ import {
   union,
   variant,
 } from 'valibot'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, expectTypeOf, it } from 'vitest'
 
-import type { Db, InferSelect, TableHandle } from '@/index'
+import type { Db, InferInsert, InferSelect, TableHandle } from '@/index'
 import {
   DriverError,
   ValidationError,
@@ -252,6 +252,31 @@ const ContractMappedJsonComposite = defineTable(
   },
   { primaryKey: 'id' },
 )
+
+const recoveredJsonBranch = pipe(
+  object({ at: date(), label: string() }),
+  object({ at: pipe(date(), toString()), label: string() }),
+)
+
+const ContractRecoveredJsonComposite = defineTable(
+  'contract_recovered_json_composite',
+  { id: string(), value: union([recoveredJsonBranch, recoveredJsonBranch]) },
+  { primaryKey: 'id' },
+)
+
+expectTypeOf<
+  InferInsert<typeof ContractRecoveredJsonComposite>['value']
+>().toEqualTypeOf<{
+  at: Date
+  label: string
+}>()
+
+expectTypeOf<
+  InferSelect<typeof ContractRecoveredJsonComposite>['value']
+>().toEqualTypeOf<{
+  at: string
+  label: string
+}>()
 
 const ContractTransformedNull = defineTable(
   'contract_transformed_null',
@@ -1134,7 +1159,66 @@ async function assertCompositeUpdate(db: CompositeDb): Promise<void> {
 /** Exercises composite inference, validation, mapping, and native convergence. */
 function registerCompositeIntegrations(adapter: DialectIntegrationAdapter): void {
   registerCompositeIntegration(adapter)
+  registerRecoveredJsonCompositeIntegration(adapter)
   registerMappedJsonCompositeIntegration(adapter)
+}
+
+/** Checks the final structured output through native JSON storage and reads. */
+function registerRecoveredJsonCompositeIntegration(
+  adapter: DialectIntegrationAdapter,
+): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should round-trip a recovered JSON composite through CRUD',
+    async () => {
+      await adapter.withDatabase([ContractRecoveredJsonComposite], async ({ db }) => {
+        const preview = await db.migrate().dryRun()
+
+        const createTable = preview.actions
+          .flatMap((action) => action.statements)
+          .find((statement) => /create table/i.test(statement.sql))?.sql
+
+        expect(createTable).toMatch(/\bvalue\b["`]?\s+(?:jsonb|JSON)\b/i)
+
+        await db.migrate().execute()
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+        const first = {
+          id: 'one',
+          value: { at: new Date('2026-01-01T00:00:00.000Z'), label: 'first' },
+        }
+
+        const inserted = await db
+          .insert(ContractRecoveredJsonComposite)
+          .values(first)
+          .executeTakeFirstOrThrow()
+
+        expect(inserted).toEqual({
+          id: 'one',
+          value: { at: first.value.at.toString(), label: 'first' },
+        })
+
+        await expect(db.from(ContractRecoveredJsonComposite).execute()).resolves.toEqual([
+          inserted,
+        ])
+
+        const next = { at: new Date('2026-01-02T00:00:00.000Z'), label: 'second' }
+        const returned = await db
+          .update(ContractRecoveredJsonComposite)
+          .set({ value: next })
+          .where({ id: 'one' })
+          .returning([ContractRecoveredJsonComposite.value])
+          .executeTakeFirstOrThrow()
+
+        expect(returned).toEqual({ value: { at: next.at.toString(), label: 'second' } })
+
+        await expect(db.from(ContractRecoveredJsonComposite).execute()).resolves.toEqual([
+          { id: 'one', value: returned.value },
+        ])
+      })
+    },
+  )
 }
 
 function registerCompositeIntegration(adapter: DialectIntegrationAdapter): void {

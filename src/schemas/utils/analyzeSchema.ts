@@ -331,10 +331,31 @@ function changesValue(schema: AnySchema): boolean {
   const traversable = schema as TraversableSchema
   const pipe = traversable.pipe ?? []
   const composite = schema as AnySchema & { options?: readonly AnySchema[] }
+  const shaped = schema as AnySchema & {
+    entries?: Record<string, AnySchema>
+    item?: AnySchema
+    items?: readonly AnySchema[]
+    key?: AnySchema
+    rest?: AnySchema
+    value?: AnySchema
+  }
+
+  const members = [
+    ...Object.values(shaped.entries ?? {}),
+    ...(shaped.items ?? []),
+    shaped.item,
+    shaped.rest,
+    shaped.key,
+    shaped.value,
+  ]
 
   return (
+    // These schemas construct a new shape and discard undeclared members.
+    schema.type === 'object' ||
+    schema.type === 'tuple' ||
     traversable.default !== undefined ||
     'fallback' in traversable ||
+    members.some((member) => member && changesValue(member)) ||
     pipe.some(
       (item) =>
         typeof item === 'object' &&
@@ -867,11 +888,28 @@ function isJsonChoiceSchema(schema: AnySchema): boolean {
   return !!options?.length && options.every(isJsonPrimitiveValue)
 }
 
+/** Record keys must become ordinary JSON object property names. */
+function isJsonRecordShapeSchema(
+  keySchema: AnySchema | undefined,
+  valueSchema: AnySchema | undefined,
+  seen: Set<AnySchema>,
+): boolean {
+  if (!keySchema || !valueSchema) return false
+
+  const key = analyzeNode(keySchema)
+  return (
+    ['string', 'number', 'bigint', 'boolean'].includes(key.outputKind ?? '') &&
+    !key.outputMayBeUndefined &&
+    isJsonSchemaOutputCompatible(valueSchema, 'object', new Set(seen))
+  )
+}
+
 function isJsonShapeSchema(schema: AnySchema, seen: Set<AnySchema>): boolean {
   const shaped = schema as AnySchema & {
     entries?: Record<string, AnySchema>
     item?: AnySchema
     items?: readonly AnySchema[]
+    key?: AnySchema
     rest?: AnySchema
     value?: AnySchema
   }
@@ -891,10 +929,7 @@ function isJsonShapeSchema(schema: AnySchema, seen: Set<AnySchema>): boolean {
     )
 
   if (schema.type === 'record')
-    return (
-      !!shaped.value &&
-      isJsonSchemaOutputCompatible(shaped.value, 'object', new Set(seen))
-    )
+    return isJsonRecordShapeSchema(shaped.key, shaped.value, seen)
 
   if (schema.type === 'array')
     return (

@@ -16,6 +16,7 @@ import {
   pipe,
   string,
   toDate,
+  toString,
   union,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
@@ -26,9 +27,13 @@ import {
   mapSqliteResultValue,
   validateSqliteValueMapping,
 } from '@/dialects/sqlite/mapping'
-import { column, defineTable } from '@/index'
+import { column, createDatabase, defineTable } from '@/index'
 import { createValueMapper } from '@/query/mapping'
 import { QueryError, SchemaError } from '@/utils/error'
+
+import { customConnector } from '../helpers/operationSessionFixtures'
+
+import { createSqliteControllableProvider } from './sqliteSharedFixtures'
 
 it('should reject unsafe JSON outputs even when JSON storage is selected', () => {
   for (const schema of [
@@ -41,6 +46,38 @@ it('should reject unsafe JSON outputs even when JSON storage is selected', () =>
       /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
     )
   }
+})
+
+it('should use built-in JSON mapping for a recovered structured output', () => {
+  const branch = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
+  const schema = union([branch, branch])
+  const output = { at: new Date('2026-01-01T00:00:00.000Z').toString() }
+
+  expect(() => validateSqliteValueMapping('JSON', { schema })).not.toThrow()
+  expect(mapSqliteParamValue('JSON', output, { schema })).toBe(JSON.stringify(output))
+  expect(mapSqliteResultValue('JSON', JSON.stringify(output))).toEqual(output)
+})
+
+it('should create a SQLite client with inferred JSON for a recovered composite', async () => {
+  const branch = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
+  const Recovered = defineTable(
+    'sqlite_recovered_json_composite',
+    { id: string(), value: union([branch, branch]) },
+    { primaryKey: 'id' },
+  )
+
+  const at = new Date('2026-01-01T00:00:00.000Z')
+  const db = createDatabase({
+    connector: customConnector('sqlite'),
+    schemas: [Recovered],
+    operationSessionProvider: createSqliteControllableProvider().provider,
+  })
+
+  expect(
+    db.insert(Recovered).values({ id: 'one', value: { at } }).compile().params,
+  ).toEqual(['one', JSON.stringify({ at: at.toString() })])
+
+  await db.close()
 })
 
 it('should reject non-finite nested numbers before JSON serialization', () => {
