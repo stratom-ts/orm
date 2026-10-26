@@ -74,6 +74,8 @@ export interface SchemaAnalysis {
   outputKind: SchemaOutputKind | undefined
   /** Schema that proves the effective output, when one remains available. */
   outputSchema?: AnySchema
+  /** Finite output values retained after later same-kind validation. */
+  finiteValues?: readonly unknown[]
   /** Bigint bounds kept separate from number bounds. */
   bigintConstraints: { minValue?: bigint; maxValue?: bigint }
   /** Whether the ordered pipeline still has an unresolved output. */
@@ -284,6 +286,7 @@ type PipeAction = { kind?: string; type: string; requirement?: number | bigint }
 
 function resetOutputFacts(result: RecursiveAnalysis): void {
   result.outputSchema = undefined
+  result.finiteValues = undefined
   result.composite = undefined
   result.nullOnly = false
   result.stringConstraints = {}
@@ -361,31 +364,127 @@ function mergeSameKindFacts(result: RecursiveAnalysis, facts: RecursiveAnalysis)
   }
 }
 
+function isFiniteOutputSchema(schema: AnySchema | undefined): boolean {
+  return (
+    schema?.type === 'literal' || schema?.type === 'enum' || schema?.type === 'picklist'
+  )
+}
+
+function hasValidFiniteOutput(analysis: RecursiveAnalysis): boolean {
+  return (
+    analysis.finiteValues === undefined ||
+    analysis.outputKind === undefined ||
+    (narrowFiniteValues(analysis.finiteValues, analysis)?.length ?? 0) > 0
+  )
+}
+
+function narrowFiniteValues(
+  values: readonly unknown[] | undefined,
+  analysis: RecursiveAnalysis,
+): readonly unknown[] | undefined {
+  if (!values) return undefined
+
+  const { minValue, maxValue, isInteger, isSafeInteger } = analysis.numberConstraints
+  const bigint = analysis.bigintConstraints
+
+  return values.filter((value) => {
+    if (analysis.outputKind === 'number' && typeof value === 'number')
+      return (
+        (minValue === undefined || value >= minValue) &&
+        (maxValue === undefined || value <= maxValue) &&
+        (!isInteger || Number.isInteger(value)) &&
+        (!isSafeInteger || Number.isSafeInteger(value))
+      )
+
+    if (analysis.outputKind === 'bigint' && typeof value === 'bigint')
+      return (
+        (bigint.minValue === undefined || value >= bigint.minValue) &&
+        (bigint.maxValue === undefined || value <= bigint.maxValue)
+      )
+
+    return true
+  })
+}
+
+function retainSameKindEvidence(
+  previous: RecursiveAnalysis,
+  facts: RecursiveAnalysis,
+): RecursiveAnalysis | undefined {
+  if (
+    previous.nullOnly ||
+    (previous.outputKind && previous.outputKind !== facts.outputKind)
+  )
+    return undefined
+
+  const retained = { ...facts }
+  mergeSameKindFacts(previous, retained)
+  retained.finiteValues = narrowFiniteValues(
+    previous.finiteValues && facts.finiteValues
+      ? previous.finiteValues.filter((value) => facts.finiteValues!.includes(value))
+      : (previous.finiteValues ?? facts.finiteValues),
+    retained,
+  )
+
+  if (previous.composite) {
+    const branchFacts =
+      facts.outputKind === 'bigint' ? { ...facts, bigintConstraints: {} } : facts
+
+    const branches = previous.composite.branches
+      .map((branch) => retainSameKindEvidence(branch, branchFacts))
+      .filter((branch): branch is RecursiveAnalysis => branch !== undefined)
+
+    retained.composite = {
+      ...previous.composite,
+      branches,
+    }
+    retained.outputSchema = previous.outputSchema
+  } else if (
+    isFiniteOutputSchema(previous.outputSchema) &&
+    !isFiniteOutputSchema(facts.outputSchema)
+  ) {
+    retained.outputSchema = previous.outputSchema
+    retained.composite = undefined
+  }
+
+  return hasValidFiniteOutput(retained) ? retained : undefined
+}
+
 function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
   const facts = analyzeNode(schema)
+  let effectiveFacts: RecursiveAnalysis | undefined = facts
 
   if (
     !changesValue(schema) &&
     result.outputKind !== undefined &&
     result.outputKind === facts.outputKind
-  ) {
-    mergeSameKindFacts(result, facts)
+  )
+    effectiveFacts = retainSameKindEvidence(result, facts)
+
+  if (!effectiveFacts) {
+    result.composite = { type: 'union', branches: [] }
+    result.outputSchema = undefined
+    result.numberConstraints = {}
+    result.bigintConstraints = {}
+    return
   }
 
   Object.assign(result, {
-    outputKind: facts.outputKind,
-    outputSchema: facts.outputSchema,
-    composite: facts.composite,
-    nullOnly: facts.nullOnly,
-    stringConstraints: { ...facts.stringConstraints },
-    numberConstraints: { ...facts.numberConstraints },
-    bigintConstraints: { ...facts.bigintConstraints },
-    stringFormat: facts.stringFormat,
-    stringFormats: [...facts.stringFormats],
-    nullable: facts.nullable,
-    allowsUndefined: facts.allowsUndefined,
-    unresolvedTransformation: facts.unresolvedTransformation,
+    outputKind: effectiveFacts.outputKind,
+    outputSchema: effectiveFacts.outputSchema,
+    finiteValues: effectiveFacts.finiteValues,
+    composite: effectiveFacts.composite,
+    nullOnly: effectiveFacts.nullOnly,
+    stringConstraints: { ...effectiveFacts.stringConstraints },
+    numberConstraints: { ...effectiveFacts.numberConstraints },
+    bigintConstraints: { ...effectiveFacts.bigintConstraints },
+    stringFormat: effectiveFacts.stringFormat,
+    stringFormats: [...effectiveFacts.stringFormats],
+    nullable: effectiveFacts.nullable,
+    allowsUndefined: effectiveFacts.allowsUndefined,
+    unresolvedTransformation: effectiveFacts.unresolvedTransformation,
   })
+
+  pruneFiniteCompositeBranches(result)
 }
 
 function applyTransformation(result: RecursiveAnalysis, action: PipeAction): void {
@@ -451,7 +550,55 @@ function applyValueAction(result: RecursiveAnalysis, action: PipeAction): void {
   }
 }
 
+function constrainCompositeBranches(result: RecursiveAnalysis): void {
+  if (!result.composite || result.outputKind !== 'number') return
+
+  const constraints = { ...result, composite: undefined, outputSchema: undefined }
+
+  const branches = result.composite.branches
+    .map((branch) => retainSameKindEvidence(branch, constraints))
+    .filter((branch): branch is RecursiveAnalysis => branch !== undefined)
+
+  result.composite = { ...result.composite, branches }
+}
+
+function pruneFiniteCompositeBranches(result: RecursiveAnalysis): void {
+  if (!result.composite || result.outputKind !== 'bigint') return
+
+  const prune = (branch: RecursiveAnalysis): RecursiveAnalysis | undefined => {
+    if (branch.nullOnly || branch.outputKind !== result.outputKind) return undefined
+
+    const finiteValues = narrowFiniteValues(branch.finiteValues, result)
+
+    if (branch.finiteValues && !finiteValues?.length) return undefined
+
+    if (!branch.composite) return { ...branch, finiteValues }
+
+    const branches = branch.composite.branches
+      .map(prune)
+      .filter((member): member is RecursiveAnalysis => member !== undefined)
+
+    if (!branches.length) return undefined
+
+    return {
+      ...branch,
+      finiteValues,
+      composite: { ...branch.composite, branches },
+    }
+  }
+
+  const branches = result.composite.branches
+    .map(prune)
+    .filter((branch): branch is RecursiveAnalysis => branch !== undefined)
+
+  result.composite = { ...result.composite, branches }
+}
+
 function applyValidationAction(result: RecursiveAnalysis, action: PipeAction): void {
+  const narrowOutputValues = () => {
+    result.finiteValues = narrowFiniteValues(result.finiteValues, result)
+  }
+
   const format = STRING_FORMATS.find((format) => format === action.type)
 
   if (action.kind === 'validation' && result.outputKind === 'string' && format) {
@@ -472,6 +619,9 @@ function applyValidationAction(result: RecursiveAnalysis, action: PipeAction): v
 
   if (action.type === 'min_value' || action.type === 'max_value') {
     applyValueAction(result, action)
+    narrowOutputValues()
+    constrainCompositeBranches(result)
+    pruneFiniteCompositeBranches(result)
     return
   }
 
@@ -482,6 +632,9 @@ function applyValidationAction(result: RecursiveAnalysis, action: PipeAction): v
     result.numberConstraints.isInteger = true
     result.numberConstraints.isSafeInteger = true
   }
+
+  narrowOutputValues()
+  constrainCompositeBranches(result)
 
   if (action.type === 'nullable' || action.type === 'nullish') result.nullable = true
 
@@ -527,6 +680,12 @@ function analyzeLeaf(schema: AnySchema): RecursiveAnalysis {
     schemaDefault: undefined,
     outputKind: outputKind(schema),
     outputSchema: schema,
+    finiteValues:
+      schema.type === 'literal'
+        ? [(schema as AnySchema & { literal?: unknown }).literal]
+        : schema.type === 'enum' || schema.type === 'picklist'
+          ? [...((schema as AnySchema & { options?: readonly unknown[] }).options ?? [])]
+          : undefined,
     nullOnly,
   }
 
@@ -534,6 +693,37 @@ function analyzeLeaf(schema: AnySchema): RecursiveAnalysis {
     applyCompositeFacts(schema, result)
 
   return result
+}
+
+function applyCommonNumberConstraints(
+  result: RecursiveAnalysis,
+  type: 'union' | 'variant' | 'intersect',
+  branches: readonly SchemaAnalysis[],
+): void {
+  const constraints = branches.map((branch) => branch.numberConstraints)
+  const allBounded = (key: 'minValue' | 'maxValue') =>
+    constraints.every((item) => item[key] !== undefined)
+
+  result.numberConstraints = {
+    ...(constraints.every((item) => item.isInteger) ? { isInteger: true } : {}),
+    ...(constraints.every((item) => item.isSafeInteger) ? { isSafeInteger: true } : {}),
+    ...(allBounded('minValue')
+      ? {
+          minValue:
+            type === 'intersect'
+              ? Math.max(...constraints.map((item) => item.minValue!))
+              : Math.min(...constraints.map((item) => item.minValue!)),
+        }
+      : {}),
+    ...(allBounded('maxValue')
+      ? {
+          maxValue:
+            type === 'intersect'
+              ? Math.min(...constraints.map((item) => item.maxValue!))
+              : Math.max(...constraints.map((item) => item.maxValue!)),
+        }
+      : {}),
+  }
 }
 
 function applyCompositeFacts(schema: AnySchema, result: RecursiveAnalysis): void {
@@ -559,6 +749,12 @@ function applyCompositeFacts(schema: AnySchema, result: RecursiveAnalysis): void
     commonKind && nonNull.every((branch) => branch.outputKind === commonKind)
       ? commonKind
       : undefined
+
+  if (result.outputKind === 'number' && nonNull.length)
+    applyCommonNumberConstraints(result, type, nonNull)
+
+  if (type !== 'intersect' && branches.every((branch) => branch.finiteValues))
+    result.finiteValues = branches.flatMap((branch) => branch.finiteValues ?? [])
 
   applyCommonStringFormats(result, nonNull)
 }
@@ -620,6 +816,7 @@ export function analyzeSchema(schema: AnySchema): SchemaAnalysis {
   const result = analyzeNode(schema)
   return Object.freeze({
     ...result,
+    finiteValues: result.finiteValues && Object.freeze(result.finiteValues),
     stringConstraints: Object.freeze(result.stringConstraints),
     stringFormats: Object.freeze(result.stringFormats),
     numberConstraints: Object.freeze(result.numberConstraints),

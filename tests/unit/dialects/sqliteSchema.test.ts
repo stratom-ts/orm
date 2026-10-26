@@ -111,6 +111,88 @@ describe('SQLite schema', () => {
   })
 })
 
+it('should preserve nested composite and enum proofs through later numeric schemas', () => {
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(
+        union([
+          union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+          union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+        ]),
+        number(),
+        integer(),
+      ),
+    ),
+  ).toBe('INTEGER')
+
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(
+        enumSchema({ large: 2147483648, small: 5 } as Record<string, number>),
+        number(),
+        integer(),
+        maxValue(10),
+      ),
+    ),
+  ).toBe('INTEGER')
+})
+
+it('should drop bigint composite choices excluded by a later bound', () => {
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(
+        union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
+        bigint(),
+        maxValue(10n),
+      ),
+    ),
+  ).toBe('BIGINT')
+
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(
+        union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
+        pipe(bigint(), maxValue(10n)),
+      ),
+    ),
+  ).toBe('BIGINT')
+})
+
+it('should retain finite numeric proofs and apply later choice narrowing', () => {
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(picklist([2147483648] as number[]), number(), integer()),
+    ),
+  ).toBe('INTEGER')
+
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(
+        picklist([Number.MAX_SAFE_INTEGER + 1, 5] as number[]),
+        number(),
+        safeInteger(),
+      ),
+    ),
+  ).toBe('INTEGER')
+
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(picklist([2147483648, 5] as number[]), number(), integer(), maxValue(10)),
+    ),
+  ).toBe('INTEGER')
+
+  expect(
+    sqliteSchema.inferColumnType(
+      pipe(
+        picklist([2147483648, 5] as number[]),
+        union([number(), number()]),
+        integer(),
+        maxValue(10),
+      ),
+    ),
+  ).toBe('INTEGER')
+})
+
 describe('SQLite bigint composite schema', () => {
   it('should retain BIGINT for bounded and unbounded bigint composites', () => {
     for (const schema of [
@@ -158,9 +240,14 @@ describe('SQLite schema', () => {
       union([date(), string()]),
       intersect([string(), number()]),
       union([literal(Number.MAX_SAFE_INTEGER + 1), number()]),
-      pipe(union([literal(Number.MAX_SAFE_INTEGER + 1), number()]), safeInteger()),
     ])
       expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
+
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(union([literal(Number.MAX_SAFE_INTEGER + 1), number()]), safeInteger()),
+      ),
+    ).toBe('INTEGER')
   })
 })
 

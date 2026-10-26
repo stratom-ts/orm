@@ -75,6 +75,74 @@ it('should infer number storage for a nullable transformed output', () => {
   ).toBe('double precision')
 })
 
+it('should retain bigint width from finite and composite proofs through later numeric schemas', () => {
+  const schemas = [
+    pipe(
+      union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+      number(),
+      integer(),
+    ),
+    pipe(literal<number>(2147483648), number(), integer()),
+    pipe(picklist([2147483648] as number[]), number(), integer()),
+    pipe(picklist([2147483648, 5] as number[]), number(), integer(), maxValue(10)),
+    pipe(
+      union([literal<number>(2147483648), literal<number>(5)]),
+      number(),
+      integer(),
+      maxValue(10),
+    ),
+    pipe(
+      picklist([2147483648, 5] as number[]),
+      union([number(), number()]),
+      integer(),
+      maxValue(10),
+    ),
+    pipe(
+      enumSchema({ large: 2147483648, small: 5 } as Record<string, number>),
+      number(),
+      integer(),
+      maxValue(10),
+    ),
+  ]
+
+  expect(schemas.slice(0, 3).map((schema) => inferColumnType(schema))).toEqual([
+    'bigint',
+    'bigint',
+    'bigint',
+  ])
+
+  expect(schemas.slice(3).map((schema) => inferColumnType(schema))).toEqual([
+    'smallint',
+    'integer',
+    'smallint',
+    'smallint',
+  ])
+})
+
+it('should narrow finite bigint branches with later numeric bounds', () => {
+  const branches = [literal<bigint>(2n ** 64n), literal<bigint>(5n)]
+  const bounded = pipe(union(branches), bigint(), maxValue(10n))
+  const nestedBounded = pipe(union(branches), pipe(bigint(), maxValue(10n)))
+
+  expect([bounded, nestedBounded].map((schema) => inferColumnType(schema))).toEqual([
+    'bigint',
+    'bigint',
+  ])
+})
+
+it('should retain nested safe-integer branch proofs through later numeric schemas', () => {
+  const schema = pipe(
+    union([
+      union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+      union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+    ]),
+    number(),
+    integer(),
+  )
+
+  expect(inferColumnType(schema)).toBe('bigint')
+})
+
 describe('PostgreSQL schema', () => {
   it('should widen compatible composite storage and retain nullability independently', () => {
     expect(
