@@ -233,6 +233,26 @@ const ContractCompositeNullableDefault = defineTable(
 const CONTRACT_COMPOSITE_TABLES = [ContractComposite, ContractCompositeRef] as const
 type CompositeDb = Db<typeof CONTRACT_COMPOSITE_TABLES>
 
+const ContractMappedJsonComposite = defineTable(
+  'contract_mapped_json_composite',
+  {
+    id: string(),
+    value: pipe(
+      union([object({ at: date() }), object({ at: date() })]),
+      column({
+        physicalType: { postgresql: 'jsonb', sqlite: 'JSON' },
+        mapParam: (value) =>
+          JSON.stringify({ at: (value as { at: Date }).at.toISOString() }),
+        mapResult: (value) => {
+          const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value
+          return { at: new Date((parsed as { at: string }).at) }
+        },
+      }),
+    ),
+  },
+  { primaryKey: 'id' },
+)
+
 const ContractTransformedNull = defineTable(
   'contract_transformed_null',
   {
@@ -302,13 +322,12 @@ export function registerDialectIntegrationScenario(
 export function registerDialectIntegrationScenarios(
   adapter: DialectIntegrationAdapter,
 ): void {
-  validateDialectIntegrationCapabilities(adapter.capabilities)
-
   describe(`${adapter.name} shared integration scenarios`, () => {
+    validateDialectIntegrationCapabilities(adapter.capabilities)
     registerLifecycleIntegration(adapter)
     registerCrudIntegration(adapter)
     registerTemporalIntegration(adapter)
-    registerCompositeIntegration(adapter)
+    registerCompositeIntegrations(adapter)
     registerWriteCountIntegration(adapter)
     registerUpsertIntegration(adapter)
     registerTransactionIntegration(adapter)
@@ -1113,6 +1132,11 @@ async function assertCompositeUpdate(db: CompositeDb): Promise<void> {
 }
 
 /** Exercises composite inference, validation, mapping, and native convergence. */
+function registerCompositeIntegrations(adapter: DialectIntegrationAdapter): void {
+  registerCompositeIntegration(adapter)
+  registerMappedJsonCompositeIntegration(adapter)
+}
+
 function registerCompositeIntegration(adapter: DialectIntegrationAdapter): void {
   registerDialectIntegrationScenario(
     adapter,
@@ -1363,6 +1387,34 @@ function registerNullableOutputIntegration(adapter: DialectIntegrationAdapter): 
         await assertNullableOutputInsert(db)
         await assertNullableOutputUpdate(db)
         await assertNullableOutputRejectedWrites(db)
+      })
+    },
+  )
+}
+
+/** Exercises paired JSON column mappings for output outside JSON's native values. */
+function registerMappedJsonCompositeIntegration(
+  adapter: DialectIntegrationAdapter,
+): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should round-trip nested Date output with paired JSON column mappings',
+    async () => {
+      await adapter.withDatabase([ContractMappedJsonComposite], async ({ db }) => {
+        await db.migrate().execute()
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+        const value = { at: new Date('2026-01-01T00:00:00.000Z') }
+        await expect(
+          db
+            .insert(ContractMappedJsonComposite)
+            .values({ id: 'one', value })
+            .executeTakeFirstOrThrow(),
+        ).resolves.toEqual({ id: 'one', value })
+
+        await expect(db.from(ContractMappedJsonComposite).execute()).resolves.toEqual([
+          { id: 'one', value },
+        ])
       })
     },
   )

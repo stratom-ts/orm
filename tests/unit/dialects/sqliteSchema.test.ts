@@ -1,4 +1,5 @@
 import {
+  array,
   bigint,
   boolean,
   date,
@@ -67,6 +68,35 @@ it('should infer number storage for a nullable transformed output', () => {
   ).toBe('REAL')
 })
 
+it('should reject JSON composites whose nested outputs lose identity', () => {
+  for (const schema of [
+    union([object({ at: date() }), object({ at: date() })]),
+    union([object({ id: bigint() }), object({ id: bigint() })]),
+  ]) {
+    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
+
+    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(
+      /JSON composite output is not preserved.*paired parameter and result mappings/,
+    )
+  }
+})
+
+it('should reject unsafe nested outputs in JSON variants and intersections', () => {
+  for (const schema of [
+    variant('kind', [
+      object({ kind: literal('a'), at: date() }),
+      object({ kind: literal('b'), at: date() }),
+    ]),
+    intersect([object({ at: date() }), object({ label: string() })]),
+  ]) {
+    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
+
+    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(
+      /JSON composite output is not preserved.*paired parameter and result mappings/,
+    )
+  }
+})
+
 describe('SQLite schema', () => {
   it('should infer compatible composite logical storage', () => {
     expect(
@@ -82,6 +112,15 @@ describe('SQLite schema', () => {
     expect(sqliteSchema.inferColumnType(union([string(), literal('a')]))).toBe('TEXT')
     expect(sqliteSchema.inferColumnType(union([bigint(), literal(42n)]))).toBe('BIGINT')
     expect(sqliteSchema.inferColumnType(union([date(), date()]))).toBe('DATETIME')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        union([
+          object({ values: array(undefinedable(string(), 'fallback')) }),
+          object({ values: array(undefinedable(string(), 'fallback')) }),
+        ]),
+      ),
+    ).toBe('JSON')
 
     expect(
       sqliteSchema.inferColumnType(
@@ -231,6 +270,17 @@ describe('SQLite schema', () => {
         intersect([object({ a: string() }), object({ b: number() })]),
       ),
     ).toBe('JSON')
+
+    const nullishSchema = object({ label: nullish(string()) })
+    expect(sqliteSchema.inferColumnType(union([nullishSchema, nullishSchema]))).toBe(
+      'JSON',
+    )
+
+    const defaulted = object({
+      label: optional(pipe(date(), toString()), new Date('2026-01-01T00:00:00Z')),
+    })
+
+    expect(sqliteSchema.inferColumnType(union([defaulted, defaulted]))).toBe('JSON')
   })
 
   it('should reject composite branches with incompatible JavaScript output', () => {

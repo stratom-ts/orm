@@ -428,6 +428,14 @@ PostgreSQL widens integer widths and `varchar` lengths across branches, and uses
 `text` when a string branch has no length bound. JSON-shaped branches use `jsonb`.
 SQLite uses `INTEGER` or `REAL` for compatible number branches, `TEXT` for strings,
 `BIGINT` for bigint, `DATETIME` for Date, and `JSON` for JSON-shaped branches.
+JSON-shaped composites must produce values that JSON serialization preserves, including
+all nested fields and array slots. Nested Date and bigint values, undefined array items,
+and untyped passthrough fields such as `looseObject()` cannot use the built-in JSON
+mapping because reads would lose their declared output identity. Supply a selected
+`physicalType` and both parameter and result mappings on the column, or both client
+mapping hooks, to own that conversion. A physical type or only one mapping direction
+does not establish the contract. This restriction applies to JSON composites; it does not
+change standalone JSON schema mapping.
 `union([string(), null()])` accepts SQL NULL but still requires a value on insert.
 Mixed JavaScript output identities, such as number with bigint or Date with string,
 need both parameter and result mappings in addition to a selected physical type.

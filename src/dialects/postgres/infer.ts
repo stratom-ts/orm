@@ -267,6 +267,12 @@ function inferPostgresCompositeType(analysis: SchemaAnalysis): SqlDataType {
   const branches = composite.branches.filter((branch) => !branch.nullOnly)
   const kind = analysis.outputKind
 
+  if (kind === 'json' && analysis.jsonOutputCompatible !== true)
+    throw new SchemaError({
+      message:
+        'PostgreSQL JSON composite output is not preserved by JSON serialization; provide column({ physicalType: { postgresql: ... } }) and paired parameter and result mappings',
+    })
+
   if (
     !branches.length ||
     !kind ||

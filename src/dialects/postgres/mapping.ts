@@ -396,7 +396,9 @@ export function mapPostgresParamValue(
   if (value === null || value === undefined) return value
 
   const base = extractPostgresBaseType(dataType)
-  const kind = context ? analyzeSchema(context.schema).outputKind : undefined
+  const analysis = context && analyzeSchema(context.schema)
+  const authored = context?.authoredSchema && analyzeSchema(context.authoredSchema)
+  const kind = analysis?.outputKind
 
   if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base))
     return mapBigintResult(value).toString()
@@ -410,6 +412,8 @@ export function mapPostgresParamValue(
   }
 
   if (base === 'json' || base === 'jsonb') {
+    assertPostgresJsonCompositeParam(value, analysis, authored)
+
     if (typeof value !== 'string') return JSON.stringify(value)
 
     return value
@@ -420,4 +424,26 @@ export function mapPostgresParamValue(
   }
 
   return value
+}
+
+function assertPostgresJsonCompositeParam(
+  value: unknown,
+  analysis: SchemaAnalysis | undefined,
+  authored: SchemaAnalysis | undefined,
+): void {
+  if (!(analysis?.composite || authored?.composite) || !containsNonFiniteNumber(value))
+    return
+
+  throw new QueryError({
+    message:
+      'PostgreSQL JSON composite cannot serialize a non-finite number without changing it to null',
+  })
+}
+
+function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): boolean {
+  if (typeof value === 'number') return !Number.isFinite(value)
+  if (typeof value !== 'object' || value === null || seen.has(value)) return false
+
+  seen.add(value)
+  return Object.values(value).some((item) => containsNonFiniteNumber(item, seen))
 }

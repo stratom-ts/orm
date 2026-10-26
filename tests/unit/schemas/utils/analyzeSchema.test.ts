@@ -51,6 +51,7 @@ import {
   transform,
   undefinedable,
   union,
+  unknown,
   uuid,
   variant,
 } from 'valibot'
@@ -75,6 +76,146 @@ it.each([
   expect(analyzeSchema(pipe(string(), format, string())).stringFormats).toEqual([
     format.type,
   ])
+})
+
+it('should reject JSON composites with nested identity-losing outputs', () => {
+  const jsonNative = union([
+    object({ id: string(), count: number(), active: boolean() }),
+    object({ id: string(), count: number(), active: boolean() }),
+  ])
+
+  const nestedDate = union([object({ at: date() }), object({ at: date() })])
+  const nestedBigint = union([object({ id: bigint() }), object({ id: bigint() })])
+  const nestedInfinity = union([
+    object({ value: literal(Number.POSITIVE_INFINITY) }),
+    object({ value: literal(Number.NEGATIVE_INFINITY) }),
+  ])
+
+  expect(analyzeSchema(jsonNative).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(nestedDate).jsonOutputCompatible).toBe(false)
+  expect(analyzeSchema(nestedBigint).jsonOutputCompatible).toBe(false)
+  expect(analyzeSchema(nestedInfinity).jsonOutputCompatible).toBe(false)
+})
+
+it('should preserve JSON-safe array, optional, and nested union outputs', () => {
+  const nestedArrayHole = union([
+    object({ values: array(optional(string())) }),
+    object({ values: array(optional(string())) }),
+  ])
+
+  const nestedCompositeArrayHole = union([
+    object({ values: array(union([optional(string()), string()])) }),
+    object({ values: array(union([optional(string()), string()])) }),
+  ])
+
+  const nonOptionalArrayValue = union([
+    object({ values: array(nonOptional(optional(string()))) }),
+    object({ values: array(nonOptional(optional(string()))) }),
+  ])
+
+  const defaultedArrayValue = union([
+    object({ values: array(optional(string(), 'fallback')) }),
+    object({ values: array(optional(string(), 'fallback')) }),
+  ])
+
+  const convertedOptionalArrayValue = union([
+    object({ values: array(pipe(optional(string()), toString())) }),
+    object({ values: array(pipe(optional(string()), toString())) }),
+  ])
+
+  const optionalProperty = union([
+    object({ label: optional(string()) }),
+    object({ label: optional(string()) }),
+  ])
+
+  const nestedNativeUnion = union([
+    object({ value: union([string(), number(), nullSchema()]) }),
+    object({ value: union([string(), number(), nullSchema()]) }),
+  ])
+
+  const nestedConversionUnion = union([
+    object({ value: union([pipe(string(), toNumber()), number()]) }),
+    object({ value: union([pipe(string(), toNumber()), number()]) }),
+  ])
+
+  expect(analyzeSchema(nestedArrayHole).jsonOutputCompatible).toBe(false)
+  expect(analyzeSchema(nestedCompositeArrayHole).jsonOutputCompatible).toBe(false)
+  expect(analyzeSchema(nonOptionalArrayValue).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(defaultedArrayValue).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(convertedOptionalArrayValue).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(nestedNativeUnion).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(nestedConversionUnion).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(optionalProperty).jsonOutputCompatible).toBe(true)
+  const nullishProperty = object({ label: nullish(string()) })
+  expect(
+    analyzeSchema(union([nullishProperty, nullishProperty])).jsonOutputCompatible,
+  ).toBe(true)
+
+  expect(
+    analyzeSchema(union([object({ label: string() }), nullSchema()]))
+      .jsonOutputCompatible,
+  ).toBe(true)
+})
+
+it('should treat undefinedable defaults as defined array outputs', () => {
+  const schema = union([
+    object({ values: array(undefinedable(string(), 'fallback')) }),
+    object({ values: array(undefinedable(string(), 'fallback')) }),
+  ])
+
+  expect(analyzeSchema(schema).jsonOutputCompatible).toBe(true)
+})
+
+it('should analyze optional defaults through their transformed output schema', () => {
+  let defaultCalls = 0
+  const defaultDate = new Date('2026-01-01T00:00:00.000Z')
+  const shape = object({
+    label: optional(pipe(date(), toString()), () => {
+      defaultCalls += 1
+      return defaultDate
+    }),
+  })
+
+  expect(analyzeSchema(union([shape, shape])).jsonOutputCompatible).toBe(true)
+  expect(defaultCalls).toBe(0)
+
+  const parsed = safeParse(shape, {})
+  expect(parsed).toMatchObject({
+    success: true,
+    output: { label: defaultDate.toString() },
+  })
+
+  expect(defaultCalls).toBe(1)
+})
+
+it('should retain JSON loss evidence until a transformation proves safe output', () => {
+  const unsafeThenValidated = pipe(
+    union([object({ at: date() }), object({ at: date() })]),
+    object({ at: date() }),
+  )
+
+  const recoveredAfterTransform = union([
+    pipe(
+      unknown(),
+      transform(() => ({ label: 'safe' })),
+      object({ label: string() }),
+    ),
+    object({ label: string() }),
+  ])
+
+  const variantDate = variant('kind', [
+    object({ kind: literal('date'), at: date() }),
+    object({ kind: literal('other'), at: date() }),
+  ])
+
+  const intersectDate = intersect([object({ at: date() }), object({ label: string() })])
+  const nullBranch = union([object({ label: string() }), nullSchema()])
+
+  expect(analyzeSchema(nullBranch).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(unsafeThenValidated).jsonOutputCompatible).toBe(false)
+  expect(analyzeSchema(recoveredAfterTransform).jsonOutputCompatible).toBe(true)
+  expect(analyzeSchema(variantDate).jsonOutputCompatible).toBe(false)
+  expect(analyzeSchema(intersectDate).jsonOutputCompatible).toBe(false)
 })
 
 it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(
