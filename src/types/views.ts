@@ -333,7 +333,7 @@ type SelectedColumnBaseValue<T, C> =
 /**
  * Value type for one selected column item.
  * Same-table refs/strings use {@link InferSelect}; cross-table `ColumnRef`s use
- * the ref's payload (minus `undefined` from optional wrappers). Outer-join
+ * the ref's effective read value. Outer-join
  * nullable tables widen the value with `| null`.
  */
 type SelectedColumnValue<T, C, TNullable = never> = C extends ColumnRef

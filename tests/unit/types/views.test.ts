@@ -45,7 +45,9 @@ import type {
   InferSelect,
   InferSelectedColumns,
   InferUpdate,
+  TableHandle,
   TableIdentityOf,
+  TableSchema,
 } from '@/index'
 import { column, defineTable, reference, table } from '@/index'
 
@@ -216,6 +218,21 @@ describe('InferSelect', () => {
     expectTypeOf<Row['nonOptionalNullableOptional']>().toEqualTypeOf<string | null>()
     expectTypeOf<Row['nonNullableOptionalNullable']>().toEqualTypeOf<string>()
     expectTypeOf<Row['nonNullishNullableOptional']>().toEqualTypeOf<string>()
+
+    expectTypeOf<
+      InferSelectedColumns<
+        typeof User,
+        readonly [
+          typeof NestedWrappers.optionalNullable,
+          typeof NestedWrappers.nonNullableOptionalNullable,
+          typeof NestedWrappers.nonNullishNullableOptional,
+        ]
+      >
+    >().toEqualTypeOf<{
+      optionalNullable: string | null
+      nonNullableOptionalNullable: string
+      nonNullishNullableOptional: string
+    }>()
   })
 })
 
@@ -397,34 +414,89 @@ describe('InferInsert', () => {
   })
 })
 
+const compositeNullableDefaultValue = pipe(
+  union([nullable(string(), 'fallback'), string()]),
+  column({ databaseDefault: { kind: 'literal', value: null } }),
+)
+
+const CompositeNullableDefaultRecords = defineTable(
+  'composite_nullable_default_views',
+  { id: string(), value: compositeNullableDefaultValue },
+  { primaryKey: 'id' },
+)
+
+const CompositeNullableDefaultReference = defineTable(
+  'composite_nullable_default_references',
+  { id: string(), value: reference(CompositeNullableDefaultRecords, 'value') },
+  { primaryKey: 'id' },
+)
+
+const CompositeNullableDefaultRoots = defineTable(
+  'composite_nullable_default_roots',
+  { id: string() },
+  { primaryKey: 'id' },
+)
+
 it('should infer defaulted nullable branches in composite read and write views', () => {
-  const value = pipe(
-    union([nullable(string(), 'fallback'), string()]),
-    column({ databaseDefault: { kind: 'literal', value: null } }),
-  )
+  expectTypeOf<
+    InferOutput<typeof compositeNullableDefaultValue>
+  >().toEqualTypeOf<string>()
 
-  const Records = defineTable(
-    'composite_nullable_default_views',
-    { id: string(), value },
-    { primaryKey: 'id' },
-  )
+  expectTypeOf<InferInput<typeof compositeNullableDefaultValue>>().toEqualTypeOf<
+    string | null
+  >()
 
-  const Reference = defineTable(
-    'composite_nullable_default_references',
-    { id: string(), value: reference(Records, 'value') },
-    { primaryKey: 'id' },
-  )
+  expectTypeOf<
+    InferSelect<typeof CompositeNullableDefaultRecords>['value']
+  >().toEqualTypeOf<string | null>()
 
-  expectTypeOf<InferOutput<typeof value>>().toEqualTypeOf<string>()
-  expectTypeOf<InferInput<typeof value>>().toEqualTypeOf<string | null>()
-  expectTypeOf<InferSelect<typeof Records>['value']>().toEqualTypeOf<string | null>()
-
-  expectTypeOf<InferInsert<typeof Records>>().toEqualTypeOf<{
+  expectTypeOf<InferInsert<typeof CompositeNullableDefaultRecords>>().toEqualTypeOf<{
     id: string
     value?: string | null
   }>()
 
-  expectTypeOf<InferSelect<typeof Reference>['value']>().toEqualTypeOf<string | null>()
+  expectTypeOf<
+    InferUpdate<typeof CompositeNullableDefaultRecords>['value']
+  >().toEqualTypeOf<string | null | undefined>()
+
+  expectTypeOf<
+    InferSelect<typeof CompositeNullableDefaultReference>['value']
+  >().toEqualTypeOf<string | null>()
+})
+
+it('should preserve composite SQL nullability through cross-table column refs', () => {
+  expectTypeOf<typeof CompositeNullableDefaultRecords>().toExtend<
+    TableHandle<TableSchema<'composite_nullable_default_views'>>
+  >()
+
+  expectTypeOf<
+    InferSelectedColumns<
+      typeof CompositeNullableDefaultRecords,
+      readonly [typeof CompositeNullableDefaultRecords.value]
+    >['value']
+  >().toEqualTypeOf<string | null>()
+
+  expectTypeOf<
+    InferSelectedColumns<
+      typeof CompositeNullableDefaultRoots,
+      readonly [typeof CompositeNullableDefaultRecords.value]
+    >['value']
+  >().toEqualTypeOf<string | null>()
+
+  expectTypeOf<
+    InferSelectedColumns<
+      typeof CompositeNullableDefaultRoots,
+      readonly [typeof CompositeNullableDefaultRecords.value],
+      TableIdentityOf<typeof CompositeNullableDefaultRecords>
+    >['value']
+  >().toEqualTypeOf<string | null>()
+
+  expectTypeOf<
+    InferSelectedColumns<
+      typeof CompositeNullableDefaultRoots,
+      readonly [typeof CompositeNullableDefaultReference.value]
+    >['value']
+  >().toEqualTypeOf<string | null>()
 })
 
 it('should preserve composite reversals, transformations, and intersection branch rules', () => {
@@ -463,6 +535,20 @@ it('should preserve composite reversals, transformations, and intersection branc
   expectTypeOf<InferOutput<typeof RequiredMerged>>().toEqualTypeOf<string>()
   expectTypeOf<InferSelect<typeof RequiredTable>['value']>().toEqualTypeOf<string>()
   expectTypeOf<InferSelect<typeof ConvertedTable>['value']>().toEqualTypeOf<string>()
+
+  expectTypeOf<
+    InferSelectedColumns<
+      typeof MergedTable,
+      readonly [typeof RequiredTable.value]
+    >['value']
+  >().toEqualTypeOf<string>()
+
+  expectTypeOf<
+    InferSelectedColumns<
+      typeof MergedTable,
+      readonly [typeof ConvertedTable.value]
+    >['value']
+  >().toEqualTypeOf<string>()
 })
 
 it('should infer SQL nullability from non-tuple composite options', () => {
