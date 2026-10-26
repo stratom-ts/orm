@@ -5,9 +5,11 @@ import {
   enum as enumSchema,
   exactOptional,
   integer,
+  intersect,
   ip,
   isoDate,
   isoTimestamp,
+  literal,
   mac48,
   mac64,
   maxLength,
@@ -32,6 +34,7 @@ import {
   transform,
   undefinedable,
   union,
+  variant,
 } from 'valibot'
 import type { InferInput, InferOutput } from 'valibot'
 import { describe, expectTypeOf, it } from 'vitest'
@@ -392,6 +395,103 @@ describe('InferInsert', () => {
 
     expectTypeOf<InferSelect<typeof Recovered>['value']>().toEqualTypeOf<string>()
   })
+})
+
+it('should infer defaulted nullable branches in composite read and write views', () => {
+  const value = pipe(
+    union([nullable(string(), 'fallback'), string()]),
+    column({ databaseDefault: { kind: 'literal', value: null } }),
+  )
+
+  const Records = defineTable(
+    'composite_nullable_default_views',
+    { id: string(), value },
+    { primaryKey: 'id' },
+  )
+
+  const Reference = defineTable(
+    'composite_nullable_default_references',
+    { id: string(), value: reference(Records, 'value') },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferOutput<typeof value>>().toEqualTypeOf<string>()
+  expectTypeOf<InferInput<typeof value>>().toEqualTypeOf<string | null>()
+  expectTypeOf<InferSelect<typeof Records>['value']>().toEqualTypeOf<string | null>()
+
+  expectTypeOf<InferInsert<typeof Records>>().toEqualTypeOf<{
+    id: string
+    value?: string | null
+  }>()
+
+  expectTypeOf<InferSelect<typeof Reference>['value']>().toEqualTypeOf<string | null>()
+})
+
+it('should preserve composite reversals, transformations, and intersection branch rules', () => {
+  const NullableMerged = intersect([
+    nullable(string(), 'first'),
+    nullable(string(), 'second'),
+  ])
+
+  const RequiredMerged = intersect([nullable(string()), string()])
+
+  const NonNullable = nonNullable(union([nullable(string(), 'fallback'), string()]))
+
+  const Converted = pipe(union([nullable(string(), 'fallback'), string()]), toString())
+
+  const MergedTable = defineTable(
+    'composite_intersection_views',
+    { id: string(), value: NullableMerged },
+    { primaryKey: 'id' },
+  )
+
+  const RequiredTable = defineTable(
+    'composite_reversal_views',
+    { id: string(), value: NonNullable },
+    { primaryKey: 'id' },
+  )
+
+  const ConvertedTable = defineTable(
+    'composite_transform_views',
+    { id: string(), value: Converted },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferOutput<typeof NullableMerged>>().toEqualTypeOf<string>()
+  expectTypeOf<InferSelect<typeof MergedTable>['value']>().toEqualTypeOf<string | null>()
+
+  expectTypeOf<InferOutput<typeof RequiredMerged>>().toEqualTypeOf<string>()
+  expectTypeOf<InferSelect<typeof RequiredTable>['value']>().toEqualTypeOf<string>()
+  expectTypeOf<InferSelect<typeof ConvertedTable>['value']>().toEqualTypeOf<string>()
+})
+
+it('should infer SQL nullability from non-tuple composite options', () => {
+  const branches = [nullable(string(), 'fallback'), string()]
+  const ArrayUnion = defineTable(
+    'composite_nullable_array_views',
+    { id: string(), value: union(branches) },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferSelect<typeof ArrayUnion>['value']>().toEqualTypeOf<string | null>()
+})
+
+it('should keep object variants non-nullable in read views', () => {
+  const Variant = defineTable(
+    'composite_nullable_variant_views',
+    {
+      id: string(),
+      value: variant('kind', [
+        object({ kind: literal('text'), value: string() }),
+        object({ kind: literal('count'), value: number() }),
+      ]),
+    },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferSelect<typeof Variant>['value']>().toEqualTypeOf<
+    { kind: 'text'; value: string } | { kind: 'count'; value: number }
+  >()
 })
 
 it('should keep string write inputs separate from nullable transformed outputs', () => {

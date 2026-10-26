@@ -218,6 +218,18 @@ const ContractCompositeRef = defineTable(
   { primaryKey: 'id' },
 )
 
+const ContractCompositeNullableDefault = defineTable(
+  'contract_composite_nullable_default',
+  {
+    id: string(),
+    value: pipe(
+      union([nullable(string(), 'fallback'), string()]),
+      column({ databaseDefault: { kind: 'literal', value: null } }),
+    ),
+  },
+  { primaryKey: 'id' },
+)
+
 const CONTRACT_COMPOSITE_TABLES = [ContractComposite, ContractCompositeRef] as const
 type CompositeDb = Db<typeof CONTRACT_COMPOSITE_TABLES>
 
@@ -1112,6 +1124,41 @@ function registerCompositeIntegration(adapter: DialectIntegrationAdapter): void 
         await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
         await assertCompositeInsert(db)
         await assertCompositeUpdate(db)
+      })
+    },
+  )
+
+  registerCompositeNullableDefaultIntegration(adapter)
+}
+
+/** Verifies nullable storage from a defaulted branch through native insert and selection. */
+function registerCompositeNullableDefaultIntegration(
+  adapter: DialectIntegrationAdapter,
+): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should retain SQL nullability for a defaulted composite branch',
+    async () => {
+      await adapter.withDatabase([ContractCompositeNullableDefault], async ({ db }) => {
+        await db.migrate().execute()
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+        const inserted = await db
+          .insert(ContractCompositeNullableDefault)
+          .values({ id: 'default-null' })
+          .executeTakeFirstOrThrow()
+
+        expect(inserted).toEqual({ id: 'default-null', value: null })
+
+        await expect(
+          db
+            .from(ContractCompositeNullableDefault)
+            .where({ id: 'default-null' })
+            .execute(),
+        ).resolves.toEqual([inserted])
+
+        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
       })
     },
   )

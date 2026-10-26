@@ -13,9 +13,17 @@ describe('PostgreSQL default-expression normalization', () => {
     expect(normalizePostgresDefaultExpression(expression)).toBe('current_timestamp')
   })
 
+  it.each(['NULL', '(NULL)', 'NULL::text', '((NULL::character varying))'])(
+    'should canonicalize the SQL NULL catalog form %j',
+    (expression) => {
+      expect(normalizePostgresDefaultExpression(expression)).toBe('null')
+    },
+  )
+
   it.each([
     ["'CURRENT_TIMESTAMP'", "'CURRENT_TIMESTAMP'"],
     ["'CURRENT_TIMESTAMP'::text", "'CURRENT_TIMESTAMP'"],
+    ["'NULL'", "'NULL'"],
     ['clock_timestamp()', 'clock_timestamp()'],
     [
       "CURRENT_TIMESTAMP + interval '1 second'",

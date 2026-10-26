@@ -370,6 +370,40 @@ describe('analyzeSchema bigint composites', () => {
 })
 
 describe('analyzeSchema composites', () => {
+  it('should combine SQL nullability from composite branches with defaults and null-only schemas', () => {
+    const defaultedUnion = union([nullable(string(), 'fallback'), string()])
+    const nullUnion = union([literal(null as never), string()])
+
+    expect(analyzeSchema(defaultedUnion).nullable).toBe(true)
+    expect(analyzeSchema(nullUnion).nullable).toBe(true)
+  })
+
+  it('should combine SQL nullability across every intersection branch', () => {
+    const nullableIntersection = intersect([
+      nullable(string(), 'first'),
+      nullable(string(), 'second'),
+    ])
+
+    expect(analyzeSchema(nullableIntersection).nullable).toBe(true)
+  })
+
+  it('should require every intersection branch to allow SQL NULL', () => {
+    const requiredIntersection = intersect([nullable(string()), string()])
+
+    expect(analyzeSchema(requiredIntersection).nullable).toBe(false)
+  })
+
+  it('should keep object variants non-nullable', () => {
+    const objectVariant = variant('kind', [
+      object({ kind: literal('text'), value: string() }),
+      object({ kind: literal('count'), value: number() }),
+    ])
+
+    expect(analyzeSchema(objectVariant).nullable).toBe(false)
+  })
+})
+
+describe('analyzeSchema composites', () => {
   it('should derive nullable storage branches without making null an insert omission', () => {
     const schema = union([
       union([nullSchema(), literal(null as never)]),
