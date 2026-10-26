@@ -116,6 +116,24 @@ type IsSqlNullablePipe<
     >
   : TNullable
 
+type HasSqlNullableBranch<TOptions extends readonly unknown[]> =
+  TOptions extends readonly [infer TOption, ...infer TRest]
+    ? IsSqlNullableSchema<TOption> extends true
+      ? true
+      : HasSqlNullableBranch<TRest>
+    : true extends IsSqlNullableSchema<TOptions[number]>
+      ? true
+      : false
+
+type EverySqlNullableBranch<TOptions extends readonly unknown[]> =
+  TOptions extends readonly [infer TOption, ...infer TRest]
+    ? IsSqlNullableSchema<TOption> extends true
+      ? EverySqlNullableBranch<TRest>
+      : false
+    : false extends IsSqlNullableSchema<TOptions[number]>
+      ? false
+      : true
+
 /** SQL NULL-capable after wrappers and pipeline actions in their runtime order. */
 type IsSqlNullableSchema<S> = S extends { pipe: readonly [infer TFirst, ...infer TRest] }
   ? IsSqlNullablePipe<TRest, IsSqlNullableSchema<TFirst>>
@@ -131,16 +149,19 @@ type IsSqlNullableSchema<S> = S extends { pipe: readonly [infer TFirst, ...infer
               wrapped: infer W
             }
           ? IsSqlNullableSchema<W>
-          : S extends {
-                kind: 'schema'
-                type: 'union' | 'variant' | 'intersect' | 'null' | 'literal'
-              }
-            ? S extends AnySchema
-              ? null extends InferOutput<S>
-                ? true
+          : S extends { kind: 'schema'; type: 'union' | 'variant' | 'intersect' }
+            ? S extends { options: infer TOptions extends readonly unknown[] }
+              ? S['type'] extends 'intersect'
+                ? EverySqlNullableBranch<TOptions>
+                : HasSqlNullableBranch<TOptions>
+              : false
+            : S extends { kind: 'schema'; type: 'null' | 'literal' }
+              ? S extends AnySchema
+                ? null extends InferOutput<S>
+                  ? true
+                  : false
                 : false
               : false
-            : false
 
 type IsInsertOptional<S> =
   IsGeneratedAlways<S> extends true

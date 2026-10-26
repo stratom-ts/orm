@@ -118,7 +118,8 @@ export function normalizePostgresDefaultExpression(expression: string): string {
 
   const currentTimestampCandidate = stripAllEnclosingParens(withoutCasts.trim())
 
-  return /^current_timestamp$/i.test(currentTimestampCandidate)
-    ? 'current_timestamp'
-    : withoutCasts
+  if (/^current_timestamp$/i.test(currentTimestampCandidate)) return 'current_timestamp'
+  if (/^null$/i.test(currentTimestampCandidate)) return 'null'
+
+  return withoutCasts
 }

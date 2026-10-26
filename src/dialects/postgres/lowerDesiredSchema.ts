@@ -215,6 +215,9 @@ function lowerColumn(
     : [table.metadata.primaryKey]
 
   const reference = column.reference
+
+  // PostgreSQL catalogs omit DEFAULT NULL because it is the implicit nullable-column default.
+  const databaseDefault = column.metadata?.databaseDefault
   return {
     identifier: column.identifier,
     dataType,
@@ -223,9 +226,10 @@ function lowerColumn(
       (column.metadata?.unique ?? false) &&
       !(primaryKey.length === 1 && primaryKey[0] === column.name),
     autoIncrement: false,
-    ...(column.metadata?.databaseDefault === undefined
+    ...(databaseDefault === undefined ||
+    (databaseDefault.kind === 'literal' && databaseDefault.value === null)
       ? {}
-      : { databaseDefault: lowerDefault(column.metadata.databaseDefault) }),
+      : { databaseDefault: lowerDefault(databaseDefault) }),
     ...(generated === undefined ? {} : { generated }),
     ...(reference === undefined
       ? {}
