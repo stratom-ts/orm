@@ -57,6 +57,7 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { analyzeSchema, defineTable, reference } from '@/index'
+import type { AnySchema } from '@/types/schema'
 
 it.each([
   isoDate(),
@@ -508,6 +509,104 @@ it('should combine constraints from repeated same-kind schemas', () => {
     stringFormats: ['uuid'],
     stringConstraints: { minLength: 30, maxLength: 36 },
   })
+})
+
+it('should retain and narrow finite and composite proofs across same-kind schemas', () => {
+  const safeUnion = pipe(
+    union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+    number(),
+    integer(),
+  )
+
+  const finiteChoice = pipe(
+    picklist([2147483648, 5] as number[]),
+    number(),
+    integer(),
+    maxValue(10),
+  )
+
+  const compositeChoice = pipe(
+    picklist([2147483648, 5] as number[]),
+    union([number(), number()]),
+    integer(),
+    maxValue(10),
+  )
+
+  const narrowedComposite = pipe(
+    union([literal<number>(2147483648), literal<number>(5)]),
+    number(),
+    integer(),
+    maxValue(10),
+  )
+
+  expect(analyzeSchema(safeUnion).numberConstraints).toEqual({
+    isInteger: true,
+    isSafeInteger: true,
+  })
+
+  expect(
+    analyzeSchema(safeUnion).composite?.branches.every(
+      (branch) => branch.numberConstraints.isSafeInteger,
+    ),
+  ).toBe(true)
+
+  expect(analyzeSchema(finiteChoice).outputSchema?.type).toBe('picklist')
+
+  expect(analyzeSchema(finiteChoice).numberConstraints).toMatchObject({
+    isInteger: true,
+    maxValue: 10,
+  })
+
+  expect(analyzeSchema(narrowedComposite).composite?.branches).toHaveLength(1)
+
+  expect(
+    analyzeSchema(narrowedComposite).composite?.branches[0]?.outputSchema,
+  ).toMatchObject({
+    type: 'literal',
+    literal: 5,
+  })
+
+  expect(analyzeSchema(compositeChoice).finiteValues).toEqual([5])
+})
+
+it('should retain narrowed enum values through later numeric schemas', () => {
+  const schema = pipe(
+    enumSchema({ large: 2147483648, small: 5 } as Record<string, number>),
+    number(),
+    integer(),
+    maxValue(10),
+  )
+
+  expect(analyzeSchema(schema).finiteValues).toEqual([5])
+})
+
+it('should remove bigint composite choices excluded by a later bound', () => {
+  const schemas = [
+    pipe(
+      union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
+      bigint(),
+      maxValue(10n),
+    ),
+    pipe(
+      union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
+      pipe(bigint(), maxValue(10n)),
+    ),
+  ]
+
+  for (const schema of schemas) {
+    const analysis = analyzeSchema(schema)
+    expect(analysis.finiteValues).toEqual([5n])
+    expect(analysis.composite?.branches).toHaveLength(1)
+  }
+})
+
+it('should leave authored choice options mutable after analysis', () => {
+  const schema = picklist([1, 2])
+  const options = (schema as AnySchema & { options: unknown[] }).options
+
+  analyzeSchema(schema)
+
+  expect(Object.isFrozen(options)).toBe(false)
 })
 
 it('should reset facts when a nested same-kind schema pipe transforms its input', () => {

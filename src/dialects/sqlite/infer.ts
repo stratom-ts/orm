@@ -31,9 +31,9 @@ export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
   if (kind === 'string') return 'TEXT'
 
   if (kind === 'number') {
-    const numbers = options as number[]
+    const numbers = (analysis.finiteValues ?? options) as number[]
 
-    if (numbers.some((value) => !isSqliteSupportedNumber(value))) {
+    if (!numbers.length || numbers.some((value) => !isSqliteSupportedNumber(value))) {
       return unsupportedChoiceType(schema.type)
     }
 
@@ -41,7 +41,9 @@ export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
   }
 
   if (kind === 'bigint') {
-    if ((options as bigint[]).some((value) => !isSqliteSupportedBigInt(value))) {
+    const values = (analysis.finiteValues ?? options) as bigint[]
+
+    if (!values.length || values.some((value) => !isSqliteSupportedBigInt(value))) {
       return unsupportedChoiceType(schema.type)
     }
 

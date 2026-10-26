@@ -142,7 +142,9 @@ function inferPostgresChoiceType(analysis: SchemaAnalysis): SqlDataType {
   if (kind === 'boolean') return 'boolean'
 
   if (kind === 'number') {
-    const numbers = options as number[]
+    const numbers = (analysis.finiteValues ?? options) as number[]
+
+    if (!numbers.length) return unsupportedChoiceType(schema.type)
 
     if (
       numbers.some(
@@ -171,9 +173,11 @@ function inferPostgresChoiceType(analysis: SchemaAnalysis): SqlDataType {
   }
 
   if (kind === 'bigint') {
-    return options.some(
-      (option) => (option as bigint) < INT64_MIN || (option as bigint) > INT64_MAX,
-    )
+    const values = (analysis.finiteValues ?? options) as bigint[]
+
+    if (!values.length) return unsupportedChoiceType(schema.type)
+
+    return values.some((option) => option < INT64_MIN || option > INT64_MAX)
       ? 'numeric'
       : 'bigint'
   }
