@@ -1,4 +1,5 @@
 import {
+  any,
   bigint,
   boolean,
   date,
@@ -14,6 +15,7 @@ import {
   number,
   object,
   parseJson,
+  picklist,
   pipe,
   safeInteger,
   string,
@@ -23,6 +25,7 @@ import {
   toString,
   transform,
   union,
+  unknown,
   uuid,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
@@ -443,6 +446,11 @@ describe('PostgreSQL scalar storage validation', () => {
     ],
     ['number', number(), 'numeric'],
     ['number', number(), 'decimal(10,2)'],
+    ['string', string(), 'serial'],
+    ['string', string(), 'interval'],
+    ['string', string(), 'text[]'],
+    ['string', string(), 'jsonb'],
+    ['unknown', picklist(['one', 1]), 'text'],
   ])('should reject %s output in %s storage', (kind, schema, dataType) => {
     expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(SchemaError)
 
@@ -450,7 +458,9 @@ describe('PostgreSQL scalar storage validation', () => {
       new RegExp(`PostgreSQL ${kind} schema .*mapParam/mapResult`),
     )
   })
+})
 
+describe('PostgreSQL compatible scalar storage', () => {
   it.each([
     ['string', string(), 'text'],
     ['string', string(), 'varchar(20)'],
@@ -464,6 +474,12 @@ describe('PostgreSQL scalar storage validation', () => {
     ['bigint', bigint(), 'numeric'],
     ['decimal string', pipe(string(), decimal()), 'numeric'],
     ['parsed JSON object', pipe(string(), parseJson(), object({ a: number() })), 'jsonb'],
+    ['JSON', object({ a: number() }), 'json'],
+    ['boolean', boolean(), 'boolean'],
+    ['number', number(), 'serial'],
+    ['bigint', bigint(), 'bigserial'],
+    ['unknown', unknown(), 'jsonb'],
+    ['any', any(), 'text'],
   ])('should accept %s output in %s storage', (_kind, schema, dataType) => {
     expect(() => validatePostgresValueMapping(dataType, { schema })).not.toThrow()
   })

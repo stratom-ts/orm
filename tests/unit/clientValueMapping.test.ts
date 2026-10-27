@@ -16,7 +16,6 @@ import {
   object,
   picklist,
   pipe,
-  record,
   safeInteger,
   safeParse,
   string,
@@ -364,10 +363,7 @@ const LedgerEntries = defineTable(
   {
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     recordedAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
-    payload: pipe(
-      record(string(), unknown()),
-      column({ physicalType: { postgresql: 'jsonb' } }),
-    ),
+    payload: pipe(unknown(), column({ physicalType: { postgresql: 'jsonb' } })),
     note: pipe(
       string(),
       column({

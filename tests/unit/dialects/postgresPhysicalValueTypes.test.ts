@@ -18,6 +18,13 @@ import { SchemaError } from '@/utils/error'
 
 import { createMockPostgresConnector } from '../helpers/nativePostgresClient'
 
+type ColumnHooks = Pick<
+  NonNullable<Parameters<typeof column>[0]>,
+  'mapParam' | 'mapResult'
+>
+
+type ClientHooks = NonNullable<Parameters<typeof createDatabase>[0]['map']>
+
 it.each<[string, AnySchema, string]>([
   ['date/text', date(), 'text'],
   ['number/varchar', number(), 'varchar(20)'],
@@ -52,35 +59,32 @@ it.each<[string, AnySchema, string]>([
   },
 )
 
-it.each(['column parameter', 'column result', 'client parameter', 'client result'])(
+it.each<[string, ColumnHooks, ClientHooks]>([
+  ['column parameter', { mapParam: () => 'now' }, {}],
+  ['column result', { mapResult: () => new Date(0) }, {}],
+  ['client parameter', {}, { mapParamValue: () => 'now' }],
+  ['client result', {}, { mapResultValue: () => new Date(0) }],
+])(
   'should reject an incompatible override with only a %s override',
-  (direction) => {
+  (_direction, hooks, map) => {
     const Records = defineTable(
       'records',
       {
         id: string(),
-        value: pipe(
-          date(),
-          column({
-            physicalType: { postgresql: 'text' },
-            ...(direction === 'column parameter' ? { mapParam: () => 'now' } : {}),
-            ...(direction === 'column result' ? { mapResult: () => new Date(0) } : {}),
-          }),
-        ),
+        value: pipe(date(), column({ physicalType: { postgresql: 'text' }, ...hooks })),
       },
       { primaryKey: 'id' },
     )
 
-    expect(() =>
+    const create = () =>
       createDatabase({
         connector: createMockPostgresConnector(),
         schemas: [Records],
-        map: {
-          ...(direction === 'client parameter' ? { mapParamValue: () => 'now' } : {}),
-          ...(direction === 'client result' ? { mapResultValue: () => new Date(0) } : {}),
-        },
-      }),
-    ).toThrow(SchemaError)
+        map,
+      })
+
+    expect(create).toThrow(SchemaError)
+    expect(create).toThrow(/requires explicit parameter and result mappings/)
   },
 )
 

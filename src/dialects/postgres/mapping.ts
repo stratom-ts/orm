@@ -26,18 +26,6 @@ const TEMPORAL_FORMAT_STORAGE: Partial<
   iso_timestamp: 'timestamptz',
 }
 
-const NON_STRING_STORAGE = new Set([
-  'boolean',
-  'smallint',
-  'integer',
-  'bigint',
-  'real',
-  'double precision',
-  'json',
-  'jsonb',
-  'bytea',
-])
-
 const NUMBER_OUTPUT_STORAGE = new Set([
   'smallint',
   'integer',
@@ -49,6 +37,28 @@ const NUMBER_OUTPUT_STORAGE = new Set([
 const DATE_OUTPUT_STORAGE = new Set(['date', 'timestamp', 'timestamptz'])
 
 const JSON_OUTPUT_STORAGE = new Set(['json', 'jsonb'])
+
+/** Storage that the pg driver's default text parsers return as non-strings. */
+const NON_STRING_STORAGE = new Set([
+  ...NUMBER_OUTPUT_STORAGE,
+  ...JSON_OUTPUT_STORAGE,
+  'oid',
+  'boolean',
+  'bytea',
+  'interval',
+  'point',
+  'circle',
+])
+
+/** Serial pseudo-types store their underlying integer type. */
+const SERIAL_STORAGE: Readonly<Record<string, string>> = {
+  smallserial: 'smallint',
+  serial: 'integer',
+  bigserial: 'bigint',
+}
+
+/** Unknown and any outputs accept every runtime value, so no storage contradicts them. */
+const UNTYPED_OUTPUT_SCHEMAS = new Set(['unknown', 'any'])
 
 /** Checks whether PostgreSQL storage returns values of one analyzed scalar output kind. */
 function canStoreOutputKind(base: string, kind: SchemaAnalysis['outputKind']): boolean {
@@ -73,7 +83,8 @@ function canStoreOutputKind(base: string, kind: SchemaAnalysis['outputKind']): b
 /**
  * Rejects scalar storage whose driver values cannot carry the analyzed output kind.
  *
- * Composite outputs are checked separately by their branch-aware validation.
+ * Composite outputs are checked separately by their branch-aware validation. `unknown()`
+ * and `any()` outputs are accepted because their inferred type admits any driver value.
  *
  * @param dataType - Selected PostgreSQL column type.
  * @param analysis - Analysis of the column's logical schema.
@@ -88,7 +99,16 @@ export function assertPostgresScalarStorage(
 
   const kind = analysis.outputKind
 
-  if (canStoreOutputKind(extractPostgresBaseType(dataType), kind)) return
+  if (
+    kind === undefined &&
+    !analysis.unresolvedTransformation &&
+    UNTYPED_OUTPUT_SCHEMAS.has((analysis.outputSchema ?? analysis.baseSchema).type)
+  )
+    return
+
+  const base = extractPostgresBaseType(dataType)
+
+  if (canStoreOutputKind(SERIAL_STORAGE[base] ?? base, kind)) return
 
   throw new SchemaError({
     message: `PostgreSQL ${kind ?? 'unknown'} schema with ${JSON.stringify(dataType)} requires explicit parameter and result mappings. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
