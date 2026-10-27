@@ -143,6 +143,17 @@ it('should retain nested safe-integer branch proofs through later numeric schema
   expect(inferColumnType(schema)).toBe('bigint')
 })
 
+it('should infer jsonb for recovered structured outputs', () => {
+  const converted = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
+  const projected = pipe(
+    object({ at: date(), label: string() }),
+    object({ label: string() }) as never,
+  )
+
+  expect(inferColumnType(union([converted, converted]))).toBe('jsonb')
+  expect(inferColumnType(union([projected, projected]))).toBe('jsonb')
+})
+
 describe('PostgreSQL schema', () => {
   it('should widen compatible composite storage and retain nullability independently', () => {
     expect(

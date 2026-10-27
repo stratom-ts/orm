@@ -81,6 +81,17 @@ it('should reject JSON composites whose nested outputs lose identity', () => {
   }
 })
 
+it('should infer JSON for recovered structured outputs', () => {
+  const converted = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
+  const projected = pipe(
+    object({ at: date(), label: string() }),
+    object({ label: string() }) as never,
+  )
+
+  expect(sqliteSchema.inferColumnType(union([converted, converted]))).toBe('JSON')
+  expect(sqliteSchema.inferColumnType(union([projected, projected]))).toBe('JSON')
+})
+
 it('should reject unsafe nested outputs in JSON variants and intersections', () => {
   for (const schema of [
     variant('kind', [

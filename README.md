@@ -429,9 +429,11 @@ PostgreSQL widens integer widths and `varchar` lengths across branches, and uses
 SQLite uses `INTEGER` or `REAL` for compatible number branches, `TEXT` for strings,
 `BIGINT` for bigint, `DATETIME` for Date, and `JSON` for JSON-shaped branches.
 JSON-shaped composites must produce values that JSON serialization preserves, including
-all nested fields and array slots. Nested Date and bigint values, undefined array items,
-and untyped passthrough fields such as `looseObject()` cannot use the built-in JSON
-mapping because reads would lose their declared output identity. Supply a selected
+all nested fields and array slots. Inference uses the final output after later structured
+stages convert nested values, apply defaults, or project fields away. Nested Date and
+bigint values, undefined array items, symbol or unknown record keys, and untyped
+passthrough fields such as `looseObject()` cannot use the built-in JSON mapping because
+reads would lose their declared output identity. Supply a selected
 `physicalType` and both parameter and result mappings on the column, or both client
 mapping hooks, to own that conversion. A physical type or only one mapping direction
 does not establish the contract. This restriction applies to JSON composites; it does not

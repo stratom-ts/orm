@@ -36,19 +36,25 @@ import {
   nullish,
   number,
   object,
+  objectWithRest,
   optional,
   parseBoolean,
   parseJson,
   picklist,
   pipe,
+  record,
   safeInteger,
   safeParse,
+  strictObject,
+  strictTuple,
   string,
   toBoolean,
   toDate,
   toNumber,
   toString,
   transform,
+  tuple,
+  tupleWithRest,
   undefinedable,
   union,
   unknown,
@@ -216,6 +222,153 @@ it('should retain JSON loss evidence until a transformation proves safe output',
   expect(analyzeSchema(recoveredAfterTransform).jsonOutputCompatible).toBe(true)
   expect(analyzeSchema(variantDate).jsonOutputCompatible).toBe(false)
   expect(analyzeSchema(intersectDate).jsonOutputCompatible).toBe(false)
+})
+
+it.each([
+  {
+    name: 'object member conversion',
+    branch: pipe(object({ at: date() }), object({ at: pipe(date(), toString()) })),
+  },
+  {
+    name: 'bigint member conversion',
+    branch: pipe(object({ id: bigint() }), object({ id: pipe(bigint(), toString()) })),
+  },
+  // Valibot parses these projections, but its pipe type requires an unchanged shape.
+  {
+    name: 'object projection',
+    branch: pipe(
+      object({ at: date(), label: string() }),
+      object({ label: string() }) as never,
+    ),
+  },
+  {
+    name: 'tuple conversion and projection',
+    branch: pipe(tuple([date(), string()]), tuple([pipe(date(), toString())]) as never),
+  },
+  {
+    name: 'tuple tail projection',
+    branch: pipe(tuple([string(), date()]), tuple([string()]) as never),
+  },
+  {
+    name: 'strict object member conversion',
+    branch: pipe(object({ at: date() }), strictObject({ at: pipe(date(), toString()) })),
+  },
+  {
+    name: 'object rest member conversion',
+    branch: pipe(
+      object({ at: date() }),
+      objectWithRest({ at: pipe(date(), toString()) }, string()),
+    ),
+  },
+  {
+    name: 'strict tuple slot conversion',
+    branch: pipe(tuple([date()]), strictTuple([pipe(date(), toString())])),
+  },
+  {
+    name: 'tuple rest slot conversion',
+    branch: pipe(
+      tupleWithRest([date()], string()),
+      tupleWithRest([pipe(date(), toString())], string()),
+    ),
+  },
+  {
+    name: 'array item conversion',
+    branch: pipe(array(date()), array(pipe(date(), toString()))),
+  },
+  {
+    name: 'record value conversion',
+    branch: pipe(record(string(), date()), record(string(), pipe(date(), toString()))),
+  },
+  {
+    name: 'defaulted member conversion',
+    branch: pipe(
+      object({ at: optional(date()) }),
+      object({ at: optional(pipe(date(), toString()), new Date('2026-01-01')) }),
+    ),
+  },
+  {
+    name: 'numeric record key conversion',
+    branch: pipe(
+      record(string(), date()),
+      record(pipe(string(), toNumber()), pipe(date(), toString())),
+    ),
+  },
+])('should prove later structured output is JSON-safe: $name', ({ branch }) => {
+  expect(analyzeSchema(union([branch, branch])).jsonOutputCompatible).toBe(true)
+})
+
+it('should parse projected object fields and tuple tail away', () => {
+  const at = new Date('2026-01-01T00:00:00.000Z')
+  const projectedObject = pipe(
+    object({ at: date(), label: string() }),
+    object({ label: string() }) as never,
+  )
+
+  const projectedTuple = pipe(tuple([string(), date()]), tuple([string()]) as never)
+
+  const parsedObject = safeParse(projectedObject, { at, label: 'kept' })
+  const parsedTuple = safeParse(projectedTuple, ['kept', at])
+
+  expect(parsedObject.success).toBe(true)
+  expect(parsedTuple.success).toBe(true)
+  expect(parsedObject).toHaveProperty('output', { label: 'kept' })
+  expect(parsedTuple).toHaveProperty('output', ['kept'])
+})
+
+it.each([
+  {
+    name: 'unconverted bigint member',
+    branch: pipe(
+      object({ at: date(), id: bigint() }),
+      object({ at: pipe(date(), toString()), id: bigint() }),
+    ),
+  },
+  {
+    name: 'undefined tuple slot',
+    branch: pipe(
+      tuple([date(), optional(string())]),
+      tuple([pipe(date(), toString()), optional(string())]),
+    ),
+  },
+  {
+    name: 'strict object validation',
+    branch: pipe(object({ at: date() }), strictObject({ at: date() })),
+  },
+  {
+    name: 'strict tuple validation',
+    branch: pipe(tuple([date()]), strictTuple([date()])),
+  },
+  {
+    name: 'object validation',
+    branch: pipe(object({ at: date() }), object({ at: date() })),
+  },
+  {
+    name: 'unknown nested transformation',
+    branch: pipe(
+      object({ at: date() }),
+      object({
+        at: pipe(
+          date(),
+          transform((at) => at),
+        ),
+      }),
+    ),
+  },
+  {
+    name: 'symbol record key',
+    branch: pipe(
+      record(string(), date()),
+      record(
+        pipe(
+          string(),
+          transform(() => Symbol('key')),
+        ),
+        pipe(date(), toString()),
+      ),
+    ),
+  },
+])('should retain genuinely unsafe structured output: $name', ({ branch }) => {
+  expect(analyzeSchema(union([branch, branch])).jsonOutputCompatible).toBe(false)
 })
 
 it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(

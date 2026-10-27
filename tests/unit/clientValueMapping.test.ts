@@ -20,6 +20,7 @@ import {
   safeParse,
   string,
   toDate,
+  toString,
   transform,
   union,
   unknown,
@@ -187,6 +188,29 @@ it('should allow paired client hooks to preserve nested Date output', async () =
   ])
 
   await expect(db.from(Mapped).execute()).resolves.toEqual([{ id: 'one', value }])
+  await db.close()
+})
+
+it('should use inferred jsonb and built-in mappings after nested conversion', async () => {
+  const branch = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
+  const Recovered = defineTable(
+    'recovered_json_composite',
+    { id: string(), value: union([branch, branch]) },
+    { primaryKey: 'id' },
+  )
+
+  const at = new Date('2026-01-01T00:00:00.000Z')
+  const output = { id: 'one', value: { at: at.toString() } }
+  const db = createDatabase({
+    connector: createMockPostgresConnector({ rowsBySql: () => [output] }),
+    schemas: [Recovered],
+  })
+
+  expect(
+    db.insert(Recovered).values({ id: 'one', value: { at } }).compile().params,
+  ).toEqual(['one', JSON.stringify(output.value)])
+
+  await expect(db.from(Recovered).execute()).resolves.toEqual([output])
   await db.close()
 })
 
