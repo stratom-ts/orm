@@ -277,6 +277,13 @@ fractional digits, JavaScript `Date` keeps milliseconds, and minute/second mappe
 reject finer nonzero precision. `timestamptz` instant spelling may change with the
 session time zone.
 
+An explicit PostgreSQL temporal override must match a proven ISO string format:
+`isoDate()` uses `date`, `isoTime()` and `isoTimeSecond()` use `time`,
+`isoDateTime()` and `isoDateTimeSecond()` use `timestamp`, and `isoTimestamp()` uses
+`timestamptz`. Native types may include precision, such as `time(0)`. Use `text` or
+`varchar` to preserve the authored string, or provide both parameter and result mapping
+hooks for another storage type. Plain strings remain valid in any temporal type.
+
 | Valibot schema                     | Insert omission                                                       | SQL NULL allowed              |
 | ---------------------------------- | --------------------------------------------------------------------- | ----------------------------- |
 | `optional(x)` / `exactOptional(x)` | yes                                                                   | follows `x`                   |

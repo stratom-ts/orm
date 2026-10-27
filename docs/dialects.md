@@ -339,6 +339,14 @@ accepts this storage for each kind:
 - Date: `date`, `timestamp`, or `timestamptz`.
 - JSON-shaped output: `json` or `jsonb`.
 
+For a proven ISO string format, temporal storage must also match the format's native
+base type. `isoDate` uses `date`. `isoTime` and `isoTimeSecond` use `time`.
+`isoDateTime` and `isoDateTimeSecond` use `timestamp`. `isoTimestamp` uses
+`timestamptz`. Native types may include precision, such as `time(0)`. Explicit `text`
+and `varchar` preserve the string. Other temporal overrides require both parameter and
+result mapping hooks. A plain string with no proven ISO format remains valid in any
+temporal type.
+
 The serial types count as their integer type: `smallserial` as `smallint`, `serial`
 as `integer`, and `bigserial` as `bigint`. An unknown transformation output, such as
 a custom `transform()` or `parseJson()` without a following structured schema, has no

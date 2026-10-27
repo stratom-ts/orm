@@ -1,6 +1,9 @@
 import {
   boolean,
   date,
+  isoDate,
+  isoDateTime,
+  isoTimestamp,
   number,
   object,
   parseJson,
@@ -58,6 +61,107 @@ it.each<[string, AnySchema, string]>([
     expect(getInstance).not.toHaveBeenCalled()
   },
 )
+
+it.each<[string, AnySchema, string]>([
+  ['isoDate/timestamptz', pipe(string(), isoDate()), 'timestamptz'],
+  ['isoDate/timestamp', pipe(string(), isoDate()), 'timestamp'],
+  ['isoDateTime/timestamptz', pipe(string(), isoDateTime()), 'timestamptz'],
+  ['isoDateTime/date', pipe(string(), isoDateTime()), 'date'],
+  ['isoTimestamp/timestamp', pipe(string(), isoTimestamp()), 'timestamp'],
+])('should reject %s at client construction', (_name, schema, type) => {
+  const Records = defineTable(
+    'records',
+    {
+      id: string(),
+      value: pipe(schema, column({ physicalType: { postgresql: type } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const connector = createMockPostgresConnector()
+  const getInstance = vi.spyOn(connector, 'getInstance')
+
+  expect(() => createDatabase({ connector, schemas: [Records] })).toThrow(SchemaError)
+  expect(getInstance).not.toHaveBeenCalled()
+})
+
+it('should require paired column hooks for an incompatible ISO temporal override', () => {
+  const schema = pipe(string(), isoDate())
+  const table = (hooks: ColumnHooks) =>
+    defineTable(
+      'records',
+      {
+        id: string(),
+        value: pipe(
+          schema,
+          column({ physicalType: { postgresql: 'timestamp(0)' }, ...hooks }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+  expect(() =>
+    createDatabase({
+      connector: createMockPostgresConnector(),
+      schemas: [table({ mapParam: String })],
+    }),
+  ).toThrow(SchemaError)
+
+  expect(() =>
+    createDatabase({
+      connector: createMockPostgresConnector(),
+      schemas: [table({ mapResult: String })],
+    }),
+  ).toThrow(SchemaError)
+
+  expect(() =>
+    createDatabase({
+      connector: createMockPostgresConnector(),
+      schemas: [
+        table({
+          mapParam: (value) => `${String(value)} 00:00:00`,
+          mapResult: (value) => String(value).slice(0, 10),
+        }),
+      ],
+    }),
+  ).not.toThrow()
+})
+
+it('should require paired client hooks for an incompatible ISO temporal override', () => {
+  const schema = pipe(string(), isoDate())
+  const Records = defineTable(
+    'records',
+    {
+      id: string(),
+      value: pipe(schema, column({ physicalType: { postgresql: 'timestamp(0)' } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  for (const map of [
+    { mapParamValue: () => '2026-01-02 00:00:00' },
+    { mapResultValue: () => '2026-01-02' },
+  ]) {
+    expect(() =>
+      createDatabase({
+        connector: createMockPostgresConnector(),
+        schemas: [Records],
+        map,
+      }),
+    ).toThrow(SchemaError)
+  }
+
+  expect(() =>
+    createDatabase({
+      connector: createMockPostgresConnector(),
+      schemas: [Records],
+      map: {
+        mapParamValue: (_type, value) => `${String(value)} 00:00:00`,
+        mapResultValue: (_type, value) => String(value).slice(0, 10),
+      },
+    }),
+  ).not.toThrow()
+})
 
 it.each<[string, ColumnHooks, ClientHooks]>([
   ['column parameter', { mapParam: () => 'now' }, {}],

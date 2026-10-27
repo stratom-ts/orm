@@ -35,6 +35,7 @@ import {
   mapPostgresResultValue,
   validatePostgresValueMapping,
 } from '@/dialects/postgres/mapping'
+import type { AnySchema } from '@/types/schema'
 import { QueryError, SchemaError } from '@/utils/error'
 
 it('should reject unsafe JSON outputs even when JSON storage is selected', () => {
@@ -48,6 +49,34 @@ it('should reject unsafe JSON outputs even when JSON storage is selected', () =>
       /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
     )
   }
+})
+
+it.each<[string, AnySchema, string]>([
+  ['isoDate/timestamptz', pipe(string(), isoDate()), 'timestamptz'],
+  ['isoDate/timestamp', pipe(string(), isoDate()), 'timestamp'],
+  ['isoDateTime/timestamptz', pipe(string(), isoDateTime()), 'timestamptz'],
+  ['isoDateTime/date', pipe(string(), isoDateTime()), 'date'],
+  ['isoTimestamp/timestamp', pipe(string(), isoTimestamp()), 'timestamp'],
+])('should reject ISO temporal format storage that changes %s', (_name, schema, type) => {
+  expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
+
+  expect(() =>
+    validatePostgresValueMapping(type, { schema: string(), authoredSchema: schema }),
+  ).toThrow(/reference output formats.*paired column mapParam\/mapResult/)
+})
+
+it('should accept native precision, text, varchar, and plain strings for temporal storage', () => {
+  const cases = [
+    [pipe(string(), isoTimeSecond()), 'time(0)'],
+    [pipe(string(), isoDateTime()), 'timestamp(0)'],
+    [pipe(string(), isoTimestamp()), 'timestamptz(6)'],
+    [pipe(string(), isoDate()), 'text'],
+    [pipe(string(), isoDate()), 'varchar(40)'],
+    [string(), 'timestamp'],
+  ] as const
+
+  for (const [schema, type] of cases)
+    expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
 })
 
 it('should use built-in JSON mapping for a recovered structured output', () => {
