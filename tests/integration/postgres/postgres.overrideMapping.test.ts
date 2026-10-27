@@ -6,8 +6,10 @@ import {
   parseJson,
   pipe,
   string,
+  toBoolean,
   toDate,
   toNumber,
+  toString,
   transform,
   uuid,
 } from 'valibot'
@@ -30,6 +32,8 @@ it.each<[string, AnySchema, string]>([
   ['boolean', boolean(), 'text'],
   ['toNumber', pipe(string(), toNumber()), 'text'],
   ['toDate', pipe(string(), toDate()), 'text'],
+  ['toBoolean', pipe(string(), toBoolean()), 'text'],
+  ['toString', pipe(number(), toString()), 'integer'],
   ['object', object({ a: number() }), 'text'],
   ['parseJson', pipe(string(), parseJson()), 'text'],
   [
@@ -106,6 +110,24 @@ const Mapped = defineTable(
         mapResult: (value) => new Date(String(value)),
       }),
     ),
+    tb: pipe(
+      string(),
+      toBoolean(),
+      column({
+        physicalType: { postgresql: 'text' },
+        mapParam: String,
+        mapResult: (value) => value === 'true',
+      }),
+    ),
+    ts: pipe(
+      number(),
+      toString(),
+      column({
+        physicalType: { postgresql: 'integer' },
+        mapParam: Number,
+        mapResult: String,
+      }),
+    ),
     j: pipe(
       object({ a: number() }),
       column({
@@ -144,48 +166,68 @@ const Mapped = defineTable(
   { primaryKey: 'id' },
 )
 
+const mappedAt = new Date('2026-01-02T03:04:05.000Z')
+const mappedOutput = {
+  id: 'one',
+  d: mappedAt,
+  n: 1.5,
+  b: true,
+  tn: 42,
+  td: mappedAt,
+  tb: true,
+  ts: '7',
+  j: { a: 1 },
+  pj: { nested: [1, 'two'] },
+  len: 5,
+  num: 42.25,
+}
+
+const mappedInput = {
+  id: 'one',
+  d: mappedAt,
+  n: 1.5,
+  b: true,
+  tn: '42',
+  td: mappedAt.toISOString(),
+  tb: 'true',
+  ts: 7,
+  j: { a: 1 },
+  pj: '{"nested":[1,"two"]}',
+  len: 'hello',
+  num: 42.25,
+}
+
+const MAPPED_OUTPUTS = [
+  Mapped.d,
+  Mapped.n,
+  Mapped.b,
+  Mapped.tn,
+  Mapped.td,
+  Mapped.tb,
+  Mapped.ts,
+  Mapped.j,
+  Mapped.pj,
+  Mapped.len,
+  Mapped.num,
+]
+
 it('should round-trip incompatible overrides through paired hooks', async () => {
   await withPostgresDatabase([Mapped] as const, async ({ db }) => {
     await db.migrate().execute()
     await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
 
-    const at = new Date('2026-01-02T03:04:05.000Z')
-    const expected = {
-      id: 'one',
-      d: at,
-      n: 1.5,
-      b: true,
-      tn: 42,
-      td: at,
-      j: { a: 1 },
-      pj: { nested: [1, 'two'] },
-      len: 5,
-      num: 42.25,
-    }
+    expect(await db.insert(Mapped).values(mappedInput).execute()).toEqual([mappedOutput])
+    expect(await db.from(Mapped).execute()).toEqual([mappedOutput])
 
-    const input = {
-      id: 'one',
-      d: at,
-      n: 1.5,
-      b: true,
-      tn: '42',
-      td: at.toISOString(),
-      j: { a: 1 },
-      pj: '{"nested":[1,"two"]}',
-      len: 'hello',
-      num: 42.25,
-    }
-
-    expect(await db.insert(Mapped).values(input).execute()).toEqual([expected])
-    expect(await db.from(Mapped).execute()).toEqual([expected])
+    const { id: _id, ...returned } = mappedOutput
 
     expect(
       await db
         .insert(Mapped)
-        .values({ ...input, id: 'two' })
-        .returning([Mapped.d, Mapped.b, Mapped.j, Mapped.num])
+        .values({ ...mappedInput, id: 'two' })
+        .returning(MAPPED_OUTPUTS)
         .execute(),
-    ).toEqual([{ d: at, b: true, j: { a: 1 }, num: 42.25 }])
+    ).toEqual([returned])
   })
 })
 
