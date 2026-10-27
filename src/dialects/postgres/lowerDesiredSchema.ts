@@ -136,12 +136,14 @@ function physicalType(
   const hasResultMapping =
     hasGlobalResultMapping || typeof metadata?.mapResult === 'function'
 
+  const selected = assertSafePostgresDataType(
+    String(explicit ?? inferPostgresColumnType(column.schema, analysis)),
+  )
+
   if (explicit !== undefined && (!hasParameterMapping || !hasResultMapping))
-    assertPostgresScalarStorage(String(explicit), analysis)
+    assertPostgresScalarStorage(selected, analysis)
 
-  const selected = explicit ?? inferPostgresColumnType(column.schema, analysis)
-
-  return assertSafePostgresDataType(String(selected))
+  return selected
 }
 
 /**
