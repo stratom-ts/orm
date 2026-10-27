@@ -102,6 +102,125 @@ it('should keep unsafe JSON composite inference as the MigrationError cause', ()
   )
 })
 
+/** Builds a date column stored in PostgreSQL text with optional column metadata. */
+const overriddenDate = (metadata: Parameters<typeof column>[0] = {}) =>
+  defineTable(
+    'override_storage',
+    {
+      id: string(),
+      value: pipe(
+        date(),
+        column({ physicalType: { postgresql: 'text', sqlite: 'TEXT' }, ...metadata }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+it('should reject an override that cannot carry the output with a SchemaError cause', () => {
+  const result = attemptSync(() =>
+    lowerDesiredSchema([overriddenDate()], postgresIdentities(), postgresDialect.schema),
+  )
+
+  if (result.ok) throw new Error('Expected incompatible override lowering to fail')
+
+  if (!(result.error instanceof MigrationError))
+    throw new Error('Expected MigrationError')
+
+  expect(result.error.cause).toBeInstanceOf(SchemaError)
+
+  expect((result.error.cause as SchemaError).message).toMatch(
+    /PostgreSQL date schema with "text" requires explicit parameter and result mappings/,
+  )
+})
+
+it('should lower the same override with paired column hooks', () => {
+  const Mapped = overriddenDate({
+    mapParam: (value) => (value as Date).toISOString(),
+    mapResult: (value) => new Date(String(value)),
+  })
+
+  const tables = lowerDesiredSchema(
+    [Mapped],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'override_storage', 'value')?.dataType).toBe('text')
+})
+
+it('should reject the override with only one column hook direction', () => {
+  const ParamOnly = overriddenDate({ mapParam: (value) => String(value) })
+
+  expect(() =>
+    lowerDesiredSchema([ParamOnly], postgresIdentities(), postgresDialect.schema),
+  ).toThrow(MigrationError)
+})
+
+it('should lower the same override with paired client hooks', () => {
+  const graph = registerDesiredSchema([overriddenDate()], postgresIdentities())
+
+  expect(
+    loweredColumn(
+      postgresDialect.schema.lowerDesiredSchema(graph, {
+        hasGlobalParameterMapping: true,
+        hasGlobalResultMapping: true,
+      }).tables,
+      'override_storage',
+      'value',
+    )?.dataType,
+  ).toBe('text')
+
+  expect(() =>
+    postgresDialect.schema.lowerDesiredSchema(graph, { hasGlobalResultMapping: true }),
+  ).toThrow(MigrationError)
+})
+
+it('should ignore an override selected only for SQLite', () => {
+  const SqliteOnly = defineTable(
+    'sqlite_only_override',
+    { id: string(), value: pipe(date(), column({ physicalType: { sqlite: 'TEXT' } })) },
+    { primaryKey: 'id' },
+  )
+
+  const tables = lowerDesiredSchema(
+    [SqliteOnly],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'sqlite_only_override', 'value')?.dataType).toBe(
+    'timestamptz',
+  )
+})
+
+it('should keep inheriting a text override on a UUID reference target', () => {
+  const Parent = defineTable(
+    'text_uuid_parent',
+    { id: pipe(string(), uuid(), column({ physicalType: { postgresql: 'text' } })) },
+    { primaryKey: 'id' },
+  )
+
+  const Child = defineTable(
+    'text_uuid_child',
+    {
+      id: string(),
+      parentId: pipe(
+        reference(Parent, 'id'),
+        column({ physicalType: { postgresql: 'text' } }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const tables = lowerDesiredSchema(
+    [Parent, Child],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'text_uuid_child', 'parentId')?.dataType).toBe('text')
+})
+
 describe('PostgreSQL desired schema', () => {
   it('should lower composite nullability, selected override, and inherited reference storage', () => {
     const Parent = defineTable(

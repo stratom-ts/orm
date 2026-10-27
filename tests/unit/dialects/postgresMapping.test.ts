@@ -1,6 +1,8 @@
 import {
   bigint,
+  boolean,
   date,
+  decimal,
   ip,
   isoDate,
   isoDateTime,
@@ -11,10 +13,15 @@ import {
   literal,
   number,
   object,
+  parseJson,
   pipe,
   safeInteger,
   string,
+  toBoolean,
+  toDate,
+  toNumber,
   toString,
+  transform,
   union,
   uuid,
 } from 'valibot'
@@ -308,8 +315,6 @@ describe('PostgreSQL numeric safety and representations', () => {
       '9007199254740993.25',
     )
 
-    expect(mapPostgresResultValue('numeric', '42.25', numberContext)).toBe('42.25')
-
     expect(
       mapPostgresResultValue('timestamptz', new Date(timestamp), stringContext),
     ).toBe(timestamp)
@@ -411,4 +416,55 @@ it('should retain target formatting when no authored temporal facts remain', () 
       authoredSchema: string(),
     }),
   ).toBe('03:04')
+})
+
+describe('PostgreSQL scalar storage validation', () => {
+  it.each([
+    ['date', date(), 'text'],
+    ['date', date(), 'varchar(20)'],
+    ['number', number(), 'text'],
+    ['number', number(), 'varchar(20)'],
+    ['boolean', boolean(), 'text'],
+    ['boolean', boolean(), 'varchar(20)'],
+    ['json', object({ a: number() }), 'text'],
+    ['json', object({ a: number() }), 'varchar(20)'],
+    ['number', pipe(string(), toNumber()), 'text'],
+    ['date', pipe(string(), toDate()), 'text'],
+    ['boolean', pipe(string(), toBoolean()), 'text'],
+    ['string', pipe(number(), toString()), 'integer'],
+    ['unknown', pipe(string(), parseJson()), 'text'],
+    [
+      'unknown',
+      pipe(
+        string(),
+        transform((value) => value),
+      ),
+      'text',
+    ],
+    ['number', number(), 'numeric'],
+    ['number', number(), 'decimal(10,2)'],
+  ])('should reject %s output in %s storage', (kind, schema, dataType) => {
+    expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(SchemaError)
+
+    expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(
+      new RegExp(`PostgreSQL ${kind} schema .*mapParam/mapResult`),
+    )
+  })
+
+  it.each([
+    ['string', string(), 'text'],
+    ['string', string(), 'varchar(20)'],
+    ['number', number(), 'double precision'],
+    ['number', number(), 'integer'],
+    ['number', number(), 'real'],
+    ['date', date(), 'timestamp'],
+    ['date', date(), 'timestamptz'],
+    ['date', date(), 'date'],
+    ['uuid string', pipe(string(), uuid()), 'text'],
+    ['bigint', bigint(), 'numeric'],
+    ['decimal string', pipe(string(), decimal()), 'numeric'],
+    ['parsed JSON object', pipe(string(), parseJson(), object({ a: number() })), 'jsonb'],
+  ])('should accept %s output in %s storage', (_kind, schema, dataType) => {
+    expect(() => validatePostgresValueMapping(dataType, { schema })).not.toThrow()
+  })
 })
