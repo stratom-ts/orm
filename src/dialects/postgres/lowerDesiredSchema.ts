@@ -6,6 +6,7 @@ import type {
   AuthoredDesiredColumn,
   AuthoredDesiredSchema,
   AuthoredDesiredTable,
+  DialectSchema,
   LoweredDatabaseDefault,
   LoweredDesiredColumn,
   LoweredDesiredSchema,
@@ -15,6 +16,7 @@ import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import { MigrationError, SchemaError } from '@/utils/error'
 
 import { inferPostgresColumnType } from './infer'
+import { assertPostgresScalarStorage } from './mapping'
 import {
   normalizePostgresDataType,
   normalizePostgresDefaultExpression,
@@ -116,13 +118,32 @@ function lowerGeneration(
  * Selects and validates a column's PostgreSQL physical type.
  *
  * @param column - Authored desired column.
+ * @param analysis - Analysis of the column schema.
+ * @param hasGlobalParameterMapping - Whether the client maps every parameter.
+ * @param hasGlobalResultMapping - Whether the client maps every result.
  */
-function physicalType(column: AuthoredDesiredColumn, analysis: SchemaAnalysis): string {
+function physicalType(
+  column: AuthoredDesiredColumn,
+  analysis: SchemaAnalysis,
+  hasGlobalParameterMapping: boolean,
+  hasGlobalResultMapping: boolean,
+): string {
   const metadata = column.metadata
-  const selected =
-    metadata?.physicalType?.postgresql ?? inferPostgresColumnType(column.schema, analysis)
+  const explicit = metadata?.physicalType?.postgresql
+  const hasParameterMapping =
+    hasGlobalParameterMapping || typeof metadata?.mapParam === 'function'
 
-  return assertSafePostgresDataType(String(selected))
+  const hasResultMapping =
+    hasGlobalResultMapping || typeof metadata?.mapResult === 'function'
+
+  const selected = assertSafePostgresDataType(
+    String(explicit ?? inferPostgresColumnType(column.schema, analysis)),
+  )
+
+  if (explicit !== undefined && (!hasParameterMapping || !hasResultMapping))
+    assertPostgresScalarStorage(selected, analysis)
+
+  return selected
 }
 
 /**
@@ -255,13 +276,21 @@ function lowerColumn(
  *   const lowered = lowerPostgresDesiredSchema(graph)
  *
  * @param graph - Authored desired schema graph.
+ * @param context - Client-wide mapping hooks that bypass built-in storage checks.
  */
 export function lowerPostgresDesiredSchema(
   graph: AuthoredDesiredSchema,
+  context?: Parameters<DialectSchema['lowerDesiredSchema']>[1],
 ): LoweredDesiredSchema {
   try {
-    return lowerDesiredSchemaGraph(graph, undefined, {
-      lowerPhysicalType: (column, analysis) => physicalType(column, analysis),
+    return lowerDesiredSchemaGraph(graph, context, {
+      lowerPhysicalType: (column, analysis, options) =>
+        physicalType(
+          column,
+          analysis,
+          options?.hasGlobalParameterMapping ?? false,
+          options?.hasGlobalResultMapping ?? false,
+        ),
       lowerReferenceType: (table, column, inheritedType) =>
         validateReferencePhysicalType(table, column, inheritedType),
       lowerColumn: (table, column, dataType, analysis) =>

@@ -1,4 +1,4 @@
-import { pipe, string } from 'valibot'
+import { number, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
@@ -84,7 +84,7 @@ const Users = defineTable(
 const Settings = defineTable(
   'settings',
   {
-    id: pipe(string(), column({ physicalType: { postgresql: 'integer' } })),
+    id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
     label: string(),
     status: pipe(
       string(),
@@ -98,7 +98,7 @@ const ManagedUsers = defineTable(
   'managed_users',
   {
     id: pipe(
-      string(),
+      number(),
       column({
         physicalType: { postgresql: 'integer' },
         generation: { kind: 'identity', mode: 'byDefault' },
@@ -272,7 +272,7 @@ describe('Migration reconciliation: matches a tagged literal that looks like a P
     const LiteralDefault = defineTable(
       'literal_defaults',
       {
-        id: pipe(string(), column({ physicalType: { postgresql: 'integer' } })),
+        id: pipe(number(), column({ physicalType: { postgresql: 'integer' } })),
         value: pipe(
           string(),
           column({ databaseDefault: { kind: 'literal', value: 'now()' } }),

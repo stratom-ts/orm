@@ -84,7 +84,11 @@ describe('PostgreSQL unresolved reference output mapping', () => {
         id: pipe(
           string(),
           transform((value) => value),
-          column({ physicalType: { postgresql: 'text' } }),
+          column({
+            physicalType: { postgresql: 'text' },
+            mapParam: (value) => value,
+            mapResult: (value) => String(value),
+          }),
         ),
       },
       { primaryKey: 'id' },

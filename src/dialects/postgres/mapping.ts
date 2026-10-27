@@ -26,6 +26,95 @@ const TEMPORAL_FORMAT_STORAGE: Partial<
   iso_timestamp: 'timestamptz',
 }
 
+const NUMBER_OUTPUT_STORAGE = new Set([
+  'smallint',
+  'integer',
+  'bigint',
+  'real',
+  'double precision',
+])
+
+const DATE_OUTPUT_STORAGE = new Set(['date', 'timestamp', 'timestamptz'])
+
+const JSON_OUTPUT_STORAGE = new Set(['json', 'jsonb'])
+
+/** Storage that the pg driver's default text parsers return as non-strings. */
+const NON_STRING_STORAGE = new Set([
+  ...NUMBER_OUTPUT_STORAGE,
+  ...JSON_OUTPUT_STORAGE,
+  'oid',
+  'boolean',
+  'bytea',
+  'interval',
+  'point',
+  'circle',
+])
+
+/** Serial pseudo-types store their underlying integer type. */
+const SERIAL_STORAGE: Readonly<Record<string, string>> = {
+  smallserial: 'smallint',
+  serial: 'integer',
+  bigserial: 'bigint',
+}
+
+/** Unknown and any outputs accept every runtime value, so no storage contradicts them. */
+const UNTYPED_OUTPUT_SCHEMAS = new Set(['unknown', 'any'])
+
+/** Checks whether PostgreSQL storage returns values of one analyzed scalar output kind. */
+function canStoreOutputKind(base: string, kind: SchemaAnalysis['outputKind']): boolean {
+  switch (kind) {
+    case 'string':
+      return !NON_STRING_STORAGE.has(base) && !base.endsWith('[]')
+    case 'number':
+      return NUMBER_OUTPUT_STORAGE.has(base)
+    case 'bigint':
+      return BIGINT_OUTPUT_STORAGE.has(base)
+    case 'boolean':
+      return base === 'boolean'
+    case 'date':
+      return DATE_OUTPUT_STORAGE.has(base)
+    case 'json':
+      return JSON_OUTPUT_STORAGE.has(base)
+    case undefined:
+      return false
+  }
+}
+
+/**
+ * Rejects scalar storage whose driver values cannot carry the analyzed output kind.
+ *
+ * Composite outputs are checked separately by their branch-aware validation. `unknown()`
+ * and `any()` outputs are accepted because their inferred type admits any driver value.
+ *
+ * @param dataType - Selected PostgreSQL column type.
+ * @param analysis - Analysis of the column's logical schema.
+ *
+ * @throws SchemaError when built-in mapping cannot return the output kind
+ */
+export function assertPostgresScalarStorage(
+  dataType: string,
+  analysis: SchemaAnalysis,
+): void {
+  if (analysis.composite) return
+
+  const kind = analysis.outputKind
+
+  if (
+    kind === undefined &&
+    !analysis.unresolvedTransformation &&
+    UNTYPED_OUTPUT_SCHEMAS.has((analysis.outputSchema ?? analysis.baseSchema).type)
+  )
+    return
+
+  const base = extractPostgresBaseType(dataType)
+
+  if (canStoreOutputKind(SERIAL_STORAGE[base] ?? base, kind)) return
+
+  throw new SchemaError({
+    message: `PostgreSQL ${kind ?? 'unknown'} schema with ${JSON.stringify(dataType)} requires explicit parameter and result mappings. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
+  })
+}
+
 /** Selects authored reference formats only when native storage can preserve them. */
 function referenceTemporalAnalysis(
   base: string,
@@ -174,7 +263,7 @@ function mapTemporalResult(
   return kind === 'string' ? date.toISOString() : date
 }
 
-/** Rejects reference outputs that built-in target mapping cannot preserve. */
+/** Rejects storage and reference outputs that built-in mapping cannot preserve. */
 export function validatePostgresValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
@@ -183,20 +272,22 @@ export function validatePostgresValueMapping(
 
   validatePostgresCompositeMapping(dataType, context.schema, target)
 
-  if (!context.authoredSchema) return
+  if (context.authoredSchema) {
+    const authored = analyzeSchema(context.authoredSchema)
 
-  const authored = analyzeSchema(context.authoredSchema)
+    validatePostgresCompositeMapping(dataType, context.authoredSchema, authored)
 
-  validatePostgresCompositeMapping(dataType, context.authoredSchema, authored)
+    if (authored.outputKind !== target.outputKind) {
+      throw new SchemaError({
+        message:
+          'PostgreSQL reference transformations must preserve the resolved target output kind. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.',
+      })
+    }
 
-  if (authored.outputKind !== target.outputKind) {
-    throw new SchemaError({
-      message:
-        'PostgreSQL reference transformations must preserve the resolved target output kind. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.',
-    })
+    referenceTemporalAnalysis(extractPostgresBaseType(dataType), context.authoredSchema)
   }
 
-  referenceTemporalAnalysis(extractPostgresBaseType(dataType), context.authoredSchema)
+  assertPostgresScalarStorage(dataType, target)
 }
 
 function validatePostgresCompositeMapping(
