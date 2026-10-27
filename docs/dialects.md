@@ -331,15 +331,19 @@ A PostgreSQL physical override must return the analyzed output kind. Built-in ma
 accepts this storage for each kind:
 
 - string: any type except `boolean`, `smallint`, `integer`, `bigint`, `real`,
-  `double precision`, `json`, `jsonb`, `bytea`, and array types.
+  `double precision`, `oid`, `json`, `jsonb`, `bytea`, `interval`, `point`,
+  `circle`, and array types. The pg driver returns these types as non-string values.
 - number: `smallint`, `integer`, `bigint`, `real`, or `double precision`.
 - bigint: `numeric`, `decimal`, `bigint`, `integer`, or `smallint`.
 - boolean: `boolean`.
 - Date: `date`, `timestamp`, or `timestamptz`.
 - JSON-shaped output: `json` or `jsonb`.
 
-An unknown output, such as an unknown transformation or `parseJson()` without a
-following structured schema, has no compatible storage. Any other override raises
+The serial types count as their integer type: `smallserial` as `smallint`, `serial`
+as `integer`, and `bigserial` as `bigint`. An unknown transformation output, such as
+a custom `transform()` or `parseJson()` without a following structured schema, has no
+compatible storage. A mixed choice output, such as `picklist(['one', 1])`, also has
+none. `unknown()` and `any()` outputs accept any storage. Any other override raises
 `SchemaError` at client creation, and `MigrationError` with that `SchemaError` as
 `cause` during desired-schema lowering. Paired column `mapParam`/`mapResult` hooks or
 client `mapParamValue`/`mapResultValue` hooks remove the check. SQLite applies the

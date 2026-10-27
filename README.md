@@ -408,9 +408,9 @@ await db.close()
 `parseJson()` needs a following supported structured schema, such as
 `pipe(string(), parseJson(), object({ enabled: boolean() }))`, to establish its
 output type. A later supported schema can also recover output inference after an
-unknown transformation. Unknown output without that recovery requires an explicit
-selected `physicalType` and both parameter and result mapping hooks on either
-dialect. Known conversions clear facts from the input type, so old string lengths,
+unknown transformation. Unknown transformation output without that recovery
+requires an explicit selected `physicalType` and both parameter and result mapping
+hooks on either dialect. Known conversions clear facts from the input type, so old string lengths,
 string formats, or numeric bounds do not narrow the converted output. Later constraints
 apply to that output. Repeated same-kind validation schemas retain and combine applicable
 facts, including nested pipes that do not transform the value.
