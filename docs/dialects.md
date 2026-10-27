@@ -323,8 +323,27 @@ the safe integer range. Bigint output maps integer-valued `bigint`, `numeric`, a
 `decimal` values exactly; a numeric value such as `42.000` becomes `42n`.
 Unsafe JavaScript numbers and fractional values fail with `QueryError` before a
 lossy numeric conversion. PostgreSQL numeric result strings remain strings unless
-the schema output is bigint, including a number schema with an explicit numeric
-physical type. Context-free mapping retains the driver's numeric representation.
+the schema output is bigint. A number schema with an explicit `numeric` or `decimal`
+physical type is rejected without paired hooks, because the driver returns a decimal
+string. Context-free mapping retains the driver's numeric representation.
+
+A PostgreSQL physical override must return the analyzed output kind. Built-in mapping
+accepts this storage for each kind:
+
+- string: any type except `boolean`, `smallint`, `integer`, `bigint`, `real`,
+  `double precision`, `json`, `jsonb`, `bytea`, and array types.
+- number: `smallint`, `integer`, `bigint`, `real`, or `double precision`.
+- bigint: `numeric`, `decimal`, `bigint`, `integer`, or `smallint`.
+- boolean: `boolean`.
+- Date: `date`, `timestamp`, or `timestamptz`.
+- JSON-shaped output: `json` or `jsonb`.
+
+An unknown output, such as an unknown transformation or `parseJson()` without a
+following structured schema, has no compatible storage. Any other override raises
+`SchemaError` at client creation, and `MigrationError` with that `SchemaError` as
+`cause` during desired-schema lowering. Paired column `mapParam`/`mapResult` hooks or
+client `mapParamValue`/`mapResultValue` hooks remove the check. SQLite applies the
+same rule to its declared-type affinities.
 
 PostgreSQL selects `date` for `isoDate`, `time` for `isoTime` and
 `isoTimeSecond`, `timestamp` for `isoDateTime` and `isoDateTimeSecond`, and

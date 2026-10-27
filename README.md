@@ -220,8 +220,10 @@ Inference rules depend on the selected dialect. The table shows both the physica
 storage selected by `postgresDialect.schema.inferColumnType` and
 `sqliteDialect.schema.inferColumnType`, and the JavaScript value returned by the
 built-in query mapper. Physical overrides can change storage; they do not change a
-column's inferred JavaScript output. The direct facet methods are available through
-the exported `postgresDialect` and `sqliteDialect` constants.
+column's inferred JavaScript output. Both dialects reject an override that cannot
+return that output, such as `date()` in PostgreSQL `text`, unless the column or client
+supplies both parameter and result mapping hooks. The direct facet methods are
+available through the exported `postgresDialect` and `sqliteDialect` constants.
 
 | Schema or output                                                     | PostgreSQL storage                          | SQLite declared type                        | JavaScript output  |
 | -------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------- | ------------------ |
@@ -258,8 +260,9 @@ Pipeline actions such as `maxLength`, `integer`, the six ISO format validators, 
 known conversions refine an input schema or its output. Enum and picklist constructors
 are schemas; their actual options determine storage and output.
 
-PostgreSQL `numeric` does not convert a number schema's values automatically.
-Numeric strings remain strings by default. A bigint output stored as PostgreSQL
+PostgreSQL `numeric` does not convert a number schema's values automatically. The
+driver returns decimal strings, so a number schema with a `numeric` or `decimal`
+override is rejected unless paired mapping hooks convert its values. A bigint output stored as PostgreSQL
 `numeric` is returned as an integer-valued `bigint` exactly; a number output stored
 as PostgreSQL `bigint` converts only within JavaScript's safe integer range and
 otherwise raises `QueryError`. SQLite requires finite numbers and safe integral
@@ -406,8 +409,8 @@ await db.close()
 `pipe(string(), parseJson(), object({ enabled: boolean() }))`, to establish its
 output type. A later supported schema can also recover output inference after an
 unknown transformation. Unknown output without that recovery requires an explicit
-selected `physicalType`; SQLite additionally needs both parameter and result mapping
-hooks. Known conversions clear facts from the input type, so old string lengths,
+selected `physicalType` and both parameter and result mapping hooks on either
+dialect. Known conversions clear facts from the input type, so old string lengths,
 string formats, or numeric bounds do not narrow the converted output. Later constraints
 apply to that output. Repeated same-kind validation schemas retain and combine applicable
 facts, including nested pipes that do not transform the value.
