@@ -1,6 +1,6 @@
-import type { InferOutput } from 'valibot'
-
 import type { RelationIdentityInput, TableMetadata, TableSchema } from '@/schemas'
+
+import type { InferSelectFromSchema } from './views'
 
 /** Runtime brand for table handles returned by `defineTable`. */
 export const TABLE_HANDLE = Symbol.for('stratom.TableHandle')
@@ -31,7 +31,7 @@ export type ColumnRefsOf<
   readonly [K in keyof ColumnEntries<S> & string]: ColumnRef<
     SchemaNameOf<S>,
     K,
-    InferOutput<ColumnEntries<S>[K]>,
+    InferSelectFromSchema<S>[K],
     TRelation
   >
 }
@@ -43,7 +43,8 @@ type HandleTableMetadata<
 
 /**
  * Table handle produced by `defineTable` — the unit accepted by `createDatabase` /
- * `db.from`.
+ * `db.from`. A schema with arbitrary column names omits the column map, which
+ * would otherwise treat handle methods as columns.
  */
 export type TableHandle<
   S extends TableSchema = TableSchema,
@@ -54,4 +55,4 @@ export type TableHandle<
   getSchema(): S
   /** Table metadata from `table()` / `getTableMetadata()`. */
   getTableMetadata(): HandleTableMetadata<SchemaNameOf<S>, TRelation>
-} & ColumnRefsOf<S, TRelation>
+} & (string extends keyof ColumnEntries<S> ? unknown : ColumnRefsOf<S, TRelation>)

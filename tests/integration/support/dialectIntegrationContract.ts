@@ -27,7 +27,7 @@ import {
   union,
   variant,
 } from 'valibot'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, expectTypeOf, it } from 'vitest'
 
 import type { Db, InferSelect, TableHandle } from '@/index'
 import {
@@ -35,6 +35,7 @@ import {
   ValidationError,
   column,
   defineTable,
+  eq,
   excluded,
   reference,
 } from '@/index'
@@ -227,6 +228,12 @@ const ContractCompositeNullableDefault = defineTable(
       column({ databaseDefault: { kind: 'literal', value: null } }),
     ),
   },
+  { primaryKey: 'id' },
+)
+
+const ContractCompositeNullableDefaultRoot = defineTable(
+  'contract_composite_nullable_default_root',
+  { id: string() },
   { primaryKey: 'id' },
 )
 
@@ -1164,26 +1171,49 @@ function registerCompositeNullableDefaultIntegration(
     ['query', 'migration', 'convergence'],
     'should retain SQL nullability for a defaulted composite branch',
     async () => {
-      await adapter.withDatabase([ContractCompositeNullableDefault], async ({ db }) => {
-        await db.migrate().execute()
-        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+      await adapter.withDatabase(
+        [ContractCompositeNullableDefaultRoot, ContractCompositeNullableDefault],
+        async ({ db }) => {
+          await db.migrate().execute()
+          await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
 
-        const inserted = await db
-          .insert(ContractCompositeNullableDefault)
-          .values({ id: 'default-null' })
-          .executeTakeFirstOrThrow()
+          await db
+            .insert(ContractCompositeNullableDefaultRoot)
+            .values({ id: 'default-null' })
+            .execute()
 
-        expect(inserted).toEqual({ id: 'default-null', value: null })
+          const inserted = await db
+            .insert(ContractCompositeNullableDefault)
+            .values({ id: 'default-null' })
+            .executeTakeFirstOrThrow()
 
-        await expect(
-          db
-            .from(ContractCompositeNullableDefault)
-            .where({ id: 'default-null' })
-            .execute(),
-        ).resolves.toEqual([inserted])
+          expect(inserted).toEqual({ id: 'default-null', value: null })
 
-        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
-      })
+          await expect(
+            db
+              .from(ContractCompositeNullableDefault)
+              .where({ id: 'default-null' })
+              .execute(),
+          ).resolves.toEqual([inserted])
+
+          const joined = await db
+            .from(ContractCompositeNullableDefaultRoot)
+            .innerJoin(
+              ContractCompositeNullableDefault,
+              eq(
+                ContractCompositeNullableDefaultRoot.id,
+                ContractCompositeNullableDefault.id,
+              ),
+            )
+            .select([ContractCompositeNullableDefault.value])
+            .executeTakeFirstOrThrow()
+
+          expectTypeOf(joined.value).toEqualTypeOf<string | null>()
+          expect(joined).toEqual({ value: null })
+
+          await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+        },
+      )
     },
   )
 }
