@@ -262,8 +262,8 @@ are schemas; their actual options determine storage and output.
 
 PostgreSQL `numeric` does not convert a number schema's values automatically. The
 driver returns decimal strings, so a number schema with a `numeric` or `decimal`
-override is rejected unless paired mapping hooks convert its values. A bigint output stored as PostgreSQL
-`numeric` is returned as an integer-valued `bigint` exactly; a number output stored
+override is rejected unless paired mapping hooks convert its values. A bigint output
+stored as PostgreSQL `numeric` is returned as an integer-valued `bigint` exactly; a number output stored
 as PostgreSQL `bigint` converts only within JavaScript's safe integer range and
 otherwise raises `QueryError`. SQLite requires finite numbers and safe integral
 JavaScript numbers, and limits bigint values to signed 64-bit range. SQLite `NUMERIC`
@@ -410,8 +410,8 @@ await db.close()
 output type. A later supported schema can also recover output inference after an
 unknown transformation. Unknown transformation output without that recovery
 requires an explicit selected `physicalType` and both parameter and result mapping
-hooks on either dialect. Known conversions clear facts from the input type, so old string lengths,
-string formats, or numeric bounds do not narrow the converted output. Later constraints
+hooks on either dialect. Known conversions clear facts from the input type, so old
+string lengths, string formats, or numeric bounds do not narrow the converted output. Later constraints
 apply to that output. Repeated same-kind validation schemas retain and combine applicable
 facts, including nested pipes that do not transform the value.
 

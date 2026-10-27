@@ -346,8 +346,9 @@ compatible storage. A mixed choice output, such as `picklist(['one', 1])`, also 
 none. `unknown()` and `any()` outputs accept any storage. Any other override raises
 `SchemaError` at client creation, and `MigrationError` with that `SchemaError` as
 `cause` during desired-schema lowering. Paired column `mapParam`/`mapResult` hooks or
-client `mapParamValue`/`mapResultValue` hooks remove the check. SQLite applies the
-same rule to its declared-type affinities.
+client `mapParamValue`/`mapResultValue` hooks remove the check. SQLite checks overrides
+against its declared-type affinities instead, and also rejects `unknown()` and `any()`
+outputs without paired hooks.
 
 PostgreSQL selects `date` for `isoDate`, `time` for `isoTime` and
 `isoTimeSecond`, `timestamp` for `isoDateTime` and `isoDateTimeSecond`, and
