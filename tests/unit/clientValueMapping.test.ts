@@ -16,6 +16,7 @@ import {
   object,
   picklist,
   pipe,
+  record,
   safeInteger,
   safeParse,
   string,
@@ -248,9 +249,36 @@ it('should require a selected PostgreSQL override for mixed choices at client cr
 
   const Selected = defineTable(
     'selected_choice',
-    { id: pipe(picklist(['one', 1]), column({ physicalType: { postgresql: 'text' } })) },
+    {
+      id: pipe(
+        picklist(['one', 1]),
+        column({
+          physicalType: { postgresql: 'text' },
+          mapParam: (value) => String(value),
+          mapResult: (value) => (value === '1' ? 1 : 'one'),
+        }),
+      ),
+    },
     { primaryKey: 'id' },
   )
+
+  expect(() =>
+    createDatabase({
+      connector,
+      schemas: [
+        defineTable(
+          'unmapped_choice',
+          {
+            id: pipe(
+              picklist(['one', 1]),
+              column({ physicalType: { postgresql: 'text' } }),
+            ),
+          },
+          { primaryKey: 'id' },
+        ),
+      ],
+    }),
+  ).toThrow(SchemaError)
 
   const db = createDatabase({ connector, schemas: [Selected] })
   expect(db.insert(Selected).values({ id: 'one' }).compile().params).toEqual(['one'])
@@ -336,7 +364,10 @@ const LedgerEntries = defineTable(
   {
     id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
     recordedAt: pipe(date(), column({ physicalType: { postgresql: 'timestamptz' } })),
-    payload: pipe(unknown(), column({ physicalType: { postgresql: 'jsonb' } })),
+    payload: pipe(
+      record(string(), unknown()),
+      column({ physicalType: { postgresql: 'jsonb' } }),
+    ),
     note: pipe(
       string(),
       column({

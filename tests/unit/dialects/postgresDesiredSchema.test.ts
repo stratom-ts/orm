@@ -398,7 +398,14 @@ it('should apply a selected PostgreSQL type before inferring a mixed choice', ()
   const Mixed = defineTable(
     'mixed_choice_override',
     {
-      id: pipe(picklist(['one', 1]), column({ physicalType: { postgresql: 'text' } })),
+      id: pipe(
+        picklist(['one', 1]),
+        column({
+          physicalType: { postgresql: 'text' },
+          mapParam: (value) => String(value),
+          mapResult: (value) => (value === '1' ? 1 : 'one'),
+        }),
+      ),
     },
     { primaryKey: 'id' },
   )
