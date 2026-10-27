@@ -13,8 +13,11 @@ import {
   enum as enumSchema,
   integer,
   ip,
+  isoDate,
+  isoDateTime,
   isoTime,
   isoTimeSecond,
+  isoTimestamp,
   mac48,
   mac64,
   maxLength,
@@ -133,6 +136,38 @@ it('should reject an override that cannot carry the output with a SchemaError ca
   )
 })
 
+it.each<[AnySchema, string]>([
+  [pipe(string(), isoDate()), 'timestamptz'],
+  [pipe(string(), isoDate()), 'timestamp'],
+  [pipe(string(), isoDateTime()), 'timestamptz'],
+  [pipe(string(), isoDateTime()), 'date'],
+  [pipe(string(), isoTimestamp()), 'timestamp'],
+])(
+  'should lower incompatible ISO temporal storage as MigrationError with SchemaError cause',
+  (schema, type) => {
+    const Table = defineTable(
+      'iso_temporal_override',
+      {
+        id: string(),
+        value: pipe(schema, column({ physicalType: { postgresql: type } })),
+      },
+      { primaryKey: 'id' },
+    )
+
+    const result = attemptSync(() =>
+      lowerDesiredSchema([Table], postgresIdentities(), postgresDialect.schema),
+    )
+
+    if (result.ok) throw new Error('Expected incompatible ISO temporal lowering to fail')
+
+    if (!(result.error instanceof MigrationError))
+      throw new Error('Expected MigrationError')
+
+    expect(result.error.cause).toBeInstanceOf(SchemaError)
+    expect((result.error.cause as SchemaError).message).toMatch(/ISO output formats/)
+  },
+)
+
 it('should lower the same override with paired column hooks', () => {
   const Mapped = overriddenDate({
     mapParam: (value) => (value as Date).toISOString(),
@@ -146,6 +181,48 @@ it('should lower the same override with paired column hooks', () => {
   ).tables
 
   expect(loweredColumn(tables, 'override_storage', 'value')?.dataType).toBe('text')
+})
+
+it('should lower an incompatible ISO override only with paired column hooks', () => {
+  const schema = pipe(string(), isoDate())
+  const Table = (hooks: {
+    mapParam?: (value: unknown) => unknown
+    mapResult?: (value: unknown) => unknown
+  }) =>
+    defineTable(
+      'iso_temporal_hooks',
+      {
+        id: string(),
+        value: pipe(
+          schema,
+          column({ physicalType: { postgresql: 'timestamp(0)' }, ...hooks }),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+  expect(() =>
+    lowerDesiredSchema(
+      [Table({ mapParam: String })],
+      postgresIdentities(),
+      postgresDialect.schema,
+    ),
+  ).toThrow(MigrationError)
+
+  const tables = lowerDesiredSchema(
+    [
+      Table({
+        mapParam: (value) => `${String(value)} 00:00:00`,
+        mapResult: (value) => String(value).slice(0, 10),
+      }),
+    ],
+    postgresIdentities(),
+    postgresDialect.schema,
+  ).tables
+
+  expect(loweredColumn(tables, 'iso_temporal_hooks', 'value')?.dataType).toBe(
+    'timestamp(0)',
+  )
 })
 
 it('should reject the override with only one column hook direction', () => {

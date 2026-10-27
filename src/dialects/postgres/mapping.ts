@@ -35,6 +35,7 @@ const NUMBER_OUTPUT_STORAGE = new Set([
 ])
 
 const DATE_OUTPUT_STORAGE = new Set(['date', 'timestamp', 'timestamptz'])
+const TEMPORAL_STORAGE = new Set(['date', 'time', 'timestamp', 'timestamptz'])
 
 const JSON_OUTPUT_STORAGE = new Set(['json', 'jsonb'])
 
@@ -108,11 +109,37 @@ export function assertPostgresScalarStorage(
 
   const base = extractPostgresBaseType(dataType)
 
+  assertTemporalFormatStorage(base, analysis)
+
   if (canStoreOutputKind(SERIAL_STORAGE[base] ?? base, kind)) return
 
   throw new SchemaError({
     message: `PostgreSQL ${kind ?? 'unknown'} schema with ${JSON.stringify(dataType)} requires explicit parameter and result mappings. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
   })
+}
+
+/** Rejects proven ISO formats stored in a different native temporal type. */
+function assertTemporalFormatStorage(base: string, analysis: SchemaAnalysis): void {
+  if (analysis.outputKind !== 'string') return
+  if (!TEMPORAL_STORAGE.has(base)) return
+
+  const formats = analysis.stringFormats.filter(
+    (format) => TEMPORAL_FORMAT_STORAGE[format],
+  )
+
+  if (formats.length && !matchesTemporalFormatStorage(base, formats)) {
+    throw new SchemaError({
+      message: `PostgreSQL ISO output formats ${formats.join(', ')} cannot use ${JSON.stringify(base)} storage without changing their value shape or offset. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
+    })
+  }
+}
+
+/** Checks whether one proven ISO format matches its native PostgreSQL storage. */
+function matchesTemporalFormatStorage(
+  base: string,
+  formats: SchemaAnalysis['stringFormats'],
+): boolean {
+  return formats.length === 1 && TEMPORAL_FORMAT_STORAGE[formats[0]!] === base
 }
 
 /** Selects authored reference formats only when native storage can preserve them. */
@@ -130,7 +157,7 @@ function referenceTemporalAnalysis(
   if (!formats.length) return undefined
   if (base === 'text' || base === 'varchar') return authored
 
-  if (formats.length !== 1 || TEMPORAL_FORMAT_STORAGE[formats[0]!] !== base) {
+  if (!matchesTemporalFormatStorage(base, formats)) {
     throw new SchemaError({
       message: `PostgreSQL reference output formats ${formats.join(', ')} cannot use ${JSON.stringify(base)} storage unambiguously. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
     })

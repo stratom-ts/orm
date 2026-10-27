@@ -1,9 +1,14 @@
 import {
   boolean,
   date,
+  isoDate,
+  isoDateTime,
+  isoTimeSecond,
+  isoTimestamp,
   number,
   object,
   parseJson,
+  parse as parseSchema,
   pipe,
   string,
   toBoolean,
@@ -45,6 +50,11 @@ it.each<[string, AnySchema, string]>([
     'text',
   ],
   ['numeric number', number(), 'numeric'],
+  ['isoDate/timestamptz', pipe(string(), isoDate()), 'timestamptz'],
+  ['isoDate/timestamp', pipe(string(), isoDate()), 'timestamp'],
+  ['isoDateTime/timestamptz', pipe(string(), isoDateTime()), 'timestamptz'],
+  ['isoDateTime/date', pipe(string(), isoDateTime()), 'date'],
+  ['isoTimestamp/timestamp', pipe(string(), isoTimestamp()), 'timestamp'],
 ])(
   'should reject a %s output in %s storage at client creation',
   async (_name, schema, type) => {
@@ -265,5 +275,76 @@ it('should round-trip compatible overrides without hooks', async () => {
         .returning([Compatible.n, Compatible.d])
         .execute(),
     ).toEqual([{ n: row.n, d: row.d }])
+  })
+})
+
+const safeTimeSchema = pipe(string(), isoTimeSecond())
+const SafeTemporal = defineTable(
+  'override_safe_temporal',
+  {
+    id: string(),
+    at: pipe(safeTimeSchema, column({ physicalType: { postgresql: 'time(0)' } })),
+  },
+  { primaryKey: 'id' },
+)
+
+it('should round-trip safe ISO temporal precision and converge migrations', async () => {
+  await withPostgresDatabase([SafeTemporal] as const, async ({ db }) => {
+    await db.migrate().execute()
+    await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+    const row = { id: 'one', at: '03:04:05' }
+    const inserted = await db.insert(SafeTemporal).values(row).execute()
+    const selected = await db.from(SafeTemporal).execute()
+    const returned = await db
+      .insert(SafeTemporal)
+      .values({ ...row, id: 'two' })
+      .returning([SafeTemporal.at])
+      .execute()
+
+    expect(inserted).toEqual([row])
+    expect(selected).toEqual([row])
+    expect(returned).toEqual([{ at: row.at }])
+    for (const result of [inserted[0]?.at, selected[0]?.at, returned[0]?.at])
+      expect(parseSchema(safeTimeSchema, result)).toBe(row.at)
+  })
+})
+
+const pairedDaySchema = pipe(string(), isoDate())
+const PairedTemporal = defineTable(
+  'override_paired_temporal',
+  {
+    id: string(),
+    day: pipe(
+      pairedDaySchema,
+      column({
+        physicalType: { postgresql: 'timestamp(0)' },
+        mapParam: (value) => `${String(value)} 00:00:00`,
+        mapResult: (value) => String(value).slice(0, 10),
+      }),
+    ),
+  },
+  { primaryKey: 'id' },
+)
+
+it('should round-trip an incompatible ISO override through paired hooks', async () => {
+  await withPostgresDatabase([PairedTemporal] as const, async ({ db }) => {
+    await db.migrate().execute()
+    await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+    const row = { id: 'one', day: '2026-01-02' }
+    const inserted = await db.insert(PairedTemporal).values(row).execute()
+    const selected = await db.from(PairedTemporal).execute()
+    const returned = await db
+      .insert(PairedTemporal)
+      .values({ ...row, id: 'two' })
+      .returning([PairedTemporal.day])
+      .execute()
+
+    expect(inserted).toEqual([row])
+    expect(selected).toEqual([row])
+    expect(returned).toEqual([{ day: row.day }])
+    for (const result of [inserted[0]?.day, selected[0]?.day, returned[0]?.day])
+      expect(parseSchema(pairedDaySchema, result)).toBe(row.day)
   })
 })
