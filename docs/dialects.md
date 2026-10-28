@@ -348,7 +348,11 @@ result mapping hooks. A plain string with no proven ISO format remains valid in 
 temporal type.
 
 The serial types count as their integer type: `smallserial` as `smallint`, `serial`
-as `integer`, and `bigserial` as `bigint`. An unknown transformation output, such as
+as `integer`, and `bigserial` as `bigint`. This applies to built-in validation,
+parameter mapping, and result mapping. Bigint outputs return JavaScript bigint for
+each serial type. Number outputs in `bigserial` use the safe-integer checks in both
+mapping directions. Context-free mapping retains the driver's numeric representation.
+An unknown transformation output, such as
 a custom `transform()` or `parseJson()` without a following structured schema, has no
 compatible storage. A mixed choice output, such as `picklist(['one', 1])`, also has
 none. `unknown()` and `any()` outputs accept any storage. Any other override raises

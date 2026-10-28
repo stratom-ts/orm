@@ -268,6 +268,95 @@ describe('PostgreSQL context-free value mapping', () => {
   })
 })
 
+it('should apply underlying integer width rules to serial composite storage', () => {
+  const schema = union([pipe(number(), safeInteger()), literal(42)])
+  for (const type of ['bigserial', 'bigint']) {
+    expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
+    expect(mapPostgresResultValue(type, '42', { schema })).toBe(42)
+  }
+
+  for (const type of ['smallserial', 'smallint', 'serial', 'integer'])
+    expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
+})
+
+it.each([
+  ['smallserial', 42],
+  ['serial', 42],
+  ['bigserial', '42'],
+  [' SMALLSERIAL ', 42],
+  [' SERIAL ', 42],
+  [' BIGSERIAL ', '42'],
+  ['smallint', 42],
+  ['integer', 42],
+  ['bigint', '42'],
+])('should preserve number and bigint outputs through %s storage', (type, raw) => {
+  expect(() => validatePostgresValueMapping(type, bigintContext)).not.toThrow()
+  expect(() => validatePostgresValueMapping(type, numberContext)).not.toThrow()
+  expect(mapPostgresParamValue(type, 42n, bigintContext)).toBe('42')
+  expect(mapPostgresResultValue(type, raw, bigintContext)).toBe(42n)
+  expect(mapPostgresParamValue(type, 42, numberContext)).toBe(42)
+  expect(mapPostgresResultValue(type, raw, numberContext)).toBe(42)
+})
+
+it.each(['smallserial', 'serial', 'bigserial', 'smallint', 'integer', 'bigint'])(
+  'should reject inexact bigint conversions through %s storage',
+  (type) => {
+    for (const value of [9007199254740992, -9007199254740992, 42.5, '42.5']) {
+      expect(() => mapPostgresParamValue(type, value, bigintContext)).toThrow(QueryError)
+
+      expect(() => mapPostgresResultValue(type, value, bigintContext)).toThrow(QueryError)
+    }
+  },
+)
+
+it.each(['bigserial', 'bigint'])(
+  'should guard number conversions through %s storage in both directions',
+  (type) => {
+    for (const value of [-9007199254740991, 9007199254740991]) {
+      expect(mapPostgresParamValue(type, value, numberContext)).toBe(value)
+      expect(mapPostgresResultValue(type, String(value), numberContext)).toBe(value)
+    }
+
+    for (const value of [
+      9007199254740992,
+      -9007199254740992,
+      '9007199254740993',
+      '-9007199254740993',
+      9007199254740993n,
+      42.5,
+      '42.5',
+    ]) {
+      expect(() => mapPostgresParamValue(type, value, numberContext)).toThrow(QueryError)
+
+      expect(() => mapPostgresResultValue(type, value, numberContext)).toThrow(QueryError)
+    }
+
+    expect(mapPostgresParamValue(type, 9007199254740993n, bigintContext)).toBe(
+      '9007199254740993',
+    )
+
+    expect(mapPostgresResultValue(type, '9007199254740993', bigintContext)).toBe(
+      9007199254740993n,
+    )
+  },
+)
+
+it.each(['smallserial', 'serial', 'bigserial', 'smallint', 'integer', 'bigint'])(
+  'should preserve absent values and context-free representations through %s',
+  (type) => {
+    for (const context of [numberContext, bigintContext]) {
+      expect(mapPostgresParamValue(type, null, context)).toBeNull()
+      expect(mapPostgresResultValue(type, null, context)).toBeNull()
+      expect(mapPostgresParamValue(type, undefined, context)).toBeUndefined()
+      expect(mapPostgresResultValue(type, undefined, context)).toBeUndefined()
+    }
+
+    expect(mapPostgresParamValue(type, 42n)).toBe(42n)
+    expect(mapPostgresResultValue(type, '9007199254740993')).toBe('9007199254740993')
+    expect(mapPostgresResultValue(type, 42)).toBe(42)
+  },
+)
+
 describe('PostgreSQL integral value mapping', () => {
   it.each(['numeric', 'numeric(30,3)', 'decimal(30,3)'])(
     'should map arbitrary-precision bigint values through %s storage',

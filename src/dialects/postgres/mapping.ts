@@ -58,6 +58,12 @@ const SERIAL_STORAGE: Readonly<Record<string, string>> = {
   bigserial: 'bigint',
 }
 
+/** Resolves serial storage for value mapping without changing authored SQL types. */
+function mappingStorage(dataType: string): string {
+  const base = extractPostgresBaseType(dataType)
+  return SERIAL_STORAGE[base] ?? base
+}
+
 /** Unknown and any outputs accept every runtime value, so no storage contradicts them. */
 const UNTYPED_OUTPUT_SCHEMAS = new Set(['unknown', 'any'])
 
@@ -107,11 +113,11 @@ export function assertPostgresScalarStorage(
   )
     return
 
-  const base = extractPostgresBaseType(dataType)
+  const base = mappingStorage(dataType)
 
   assertTemporalFormatStorage(base, analysis)
 
-  if (canStoreOutputKind(SERIAL_STORAGE[base] ?? base, kind)) return
+  if (canStoreOutputKind(base, kind)) return
 
   throw new SchemaError({
     message: `PostgreSQL ${kind ?? 'unknown'} schema with ${JSON.stringify(dataType)} requires explicit parameter and result mappings. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
@@ -324,7 +330,7 @@ function validatePostgresCompositeMapping(
 ): void {
   if (!analysis.composite) return
 
-  const base = extractPostgresBaseType(dataType)
+  const base = mappingStorage(dataType)
 
   if (analysis.outputKind === 'string' && (base === 'text' || base === 'varchar')) return
 
@@ -444,7 +450,7 @@ export function mapPostgresResultValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  const base = extractPostgresBaseType(dataType)
+  const base = mappingStorage(dataType)
 
   const analysis =
     referenceTemporalAnalysis(base, context?.authoredSchema) ??
@@ -513,7 +519,7 @@ export function mapPostgresParamValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  const base = extractPostgresBaseType(dataType)
+  const base = mappingStorage(dataType)
   const analysis = context && analyzeSchema(context.schema)
   const authored = context?.authoredSchema && analyzeSchema(context.authoredSchema)
   const kind = analysis?.outputKind
