@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { MigrationError, column, createDatabase, defineTable } from '@/index'
 
-import { createMockPostgresConnector as createMockConnector } from './helpers/nativePostgresClient'
+import { createMockPostgresConnector as createMockConnector } from './dialects/postgresNativeClientFixtures'
 
 const Users = defineTable(
   'users',

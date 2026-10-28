@@ -587,7 +587,8 @@ const request: CatalogRequest = {
 /**
  * Builds native column observations with the selected schema variations.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native column observations with the selected schema variations.
  */
@@ -666,8 +667,8 @@ function fixtureIndexRows(malformedIndex: boolean | undefined) {
 }
 
 /**
- * Builds native PostgreSQL key and opaque constraint observations for the selected server
- * version.
+ * Builds native PostgreSQL key and opaque constraint observations for the selected
+ * server version.
  *
  * @param version - Native server-version spelling used to choose catalog capabilities.
  *
@@ -720,7 +721,8 @@ function fixtureConstraintRows(version: string | undefined): unknown[] {
  * Creates a catalog executor with configurable native observations and query-order
  * tracking.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns A catalog executor with configurable native observations and query-order
  *   tracking.
@@ -735,222 +737,6 @@ function executor(options: PostgresFixtureOptions = {}): CatalogExecutor {
     execute: ({ sql }) => executePostgresFixture({ sql }, options, queryState, order),
   }
 }
-
-describe('PostgreSQL catalog', () => {
-  it('should keep PostgreSQL 18 NOT NULL constraints as nullable column evidence', async () => {
-    const catalog = await postgresDialect.catalog.introspectCatalog(
-      executor({ version: '180001' }),
-      request,
-    )
-
-    const relation = catalog.namespaces.items[0]!.relations.items[0]!
-
-    if (relation.table.state !== 'present') throw new Error('Expected table evidence')
-
-    expect(
-      relation.table.value.columns.items.find(({ name }) => name === 'payload')?.nullable,
-    ).toEqual({ state: 'present', value: false })
-
-    expect(
-      relation.table.value.columns.items.find(({ name }) => name === 'status')?.nullable,
-    ).toEqual({ state: 'present', value: false })
-
-    expect(
-      relation.table.value.opaqueObjects.items.map(({ name }) =>
-        name.state === 'present' ? name.value : undefined,
-      ),
-    ).toEqual(['events_audit', 'events_payload_check', 'events_status_not_null'])
-
-    expect(catalog.constraintNameReservations.items).toContainEqual(
-      expect.objectContaining({
-        relation: expect.objectContaining({
-          relation: expect.objectContaining({ spelling: 'events' }) as unknown,
-        }) as unknown,
-        name: 'events_payload_not_null',
-      }),
-    )
-  })
-})
-
-describe('PostgreSQL catalog', () => {
-  it('should normalize row-order permutations and preserve native objects', async () => {
-    const queries: Parameters<CatalogExecutor['execute']>[0][] = []
-    const delegate = executor()
-    const first = await postgresDialect.catalog.introspectCatalog(
-      {
-        /** Executes fixture SQL with the configured native observations. */
-        execute(query) {
-          queries.push(query)
-          return delegate.execute(query)
-        },
-      },
-      request,
-    )
-
-    const second = await postgresDialect.catalog.introspectCatalog(
-      executor({ reverse: true }),
-      request,
-    )
-
-    expect(second).toEqual(first)
-    const relation = first.namespaces.items[0]!.relations.items[0]!
-    expect(relation.identity.relation.spelling).toBe('events')
-    expect(relation.table.state).toBe('present')
-
-    if (relation.table.state !== 'present') return
-
-    const richIndex = relation.table.value.indexes.items.find(
-      (index) => index.name.state === 'present' && index.name.value.includes('lower'),
-    )!
-
-    assertPostgresNativeEvidence(richIndex, relation.table.value)
-
-    expect(relation.table.value.opaqueObjects.items[0]).toMatchObject({
-      kind: 'trigger',
-      reason: expect.stringMatching(/not managed/i) as unknown,
-    })
-
-    expect(first.namespaces.items[0]!.relations.coverage).toMatchObject({
-      state: 'partial',
-      remainder: { state: 'unmanaged' },
-    })
-
-    assertScopedCatalogQueries(queries)
-
-    await assertCompleteNamespaceCoverage()
-  })
-})
-
-describe('PostgreSQL catalog', () => {
-  it('should ignore unrelated races and skip table-shaped rows for views', async () => {
-    const raced = await postgresDialect.catalog.introspectCatalog(
-      executor({ unrelatedRace: true }),
-      request,
-    )
-
-    const identities = raced.namespaces.items.flatMap((namespace) =>
-      namespace.relations.items.map((relation) => relation.identity),
-    )
-
-    expect(identities).toEqual([
-      {
-        namespace: [
-          {
-            role: 'database',
-            identifier: { spelling: 'test', comparisonKey: 'test' },
-          },
-          {
-            role: 'schema',
-            identifier: { spelling: 'public', comparisonKey: 'public' },
-          },
-        ],
-        relation: { spelling: 'events', comparisonKey: 'events' },
-      },
-    ])
-
-    const view = await postgresDialect.catalog.introspectCatalog(
-      executor({ relationKind: 'v' }),
-      request,
-    )
-
-    expect(view.namespaces.items[0]!.relations.items[0]!.table).toEqual({
-      state: 'absent',
-    })
-  })
-})
-
-describe('PostgreSQL catalog', () => {
-  it('should report unsupported server versions', async () => {
-    const versionLimited = await postgresDialect.catalog.introspectCatalog(
-      executor({ version: '90600' }),
-      request,
-    )
-
-    expect(versionLimited.capabilities.identity).toEqual({
-      state: 'unavailable',
-      cause: 'version',
-      actual: '90600',
-      requires: '120000',
-    })
-
-    expect(versionLimited.namespaces.coverage).toMatchObject({
-      state: 'unavailable',
-      cause: 'version',
-    })
-
-    expect(versionLimited.diagnostics.map(({ code }) => code)).toEqual([
-      'catalog.capability.version',
-    ])
-  })
-})
-
-describe('PostgreSQL catalog', () => {
-  it('should reject malformed and cross-query raced rows instead of fabricating facts', async () => {
-    await expect(
-      postgresDialect.catalog.introspectCatalog(
-        executor({ malformedIndex: true }),
-        request,
-      ),
-    ).rejects.toBeInstanceOf(InvariantError)
-
-    await expect(
-      postgresDialect.catalog.introspectCatalog(executor({ raced: true }), request),
-    ).rejects.toMatchObject({
-      _tag: 'MigrationError',
-      stage: 'introspection',
-      outcome: 'unchanged',
-      retryable: true,
-    })
-
-    await expect(
-      postgresDialect.catalog.introspectCatalog(executor({ deleted: true }), request),
-    ).rejects.toMatchObject({
-      _tag: 'MigrationError',
-      stage: 'introspection',
-      outcome: 'unchanged',
-      retryable: true,
-    })
-
-    await expect(
-      postgresDialect.catalog.introspectCatalog(
-        executor({ changedMembers: true }),
-        request,
-      ),
-    ).rejects.toMatchObject({
-      _tag: 'MigrationError',
-      stage: 'introspection',
-      outcome: 'unchanged',
-      retryable: true,
-    })
-
-    await expect(
-      postgresDialect.catalog.introspectCatalog(
-        executor({ missingNamespace: true }),
-        request,
-      ),
-    ).rejects.toMatchObject({
-      _tag: 'MigrationError',
-      stage: 'introspection',
-      outcome: 'unchanged',
-      retryable: true,
-    })
-  })
-})
-
-it.each([
-  ['NUL', 'events\0bad'],
-  ['unpaired surrogate', 'events\ud800bad'],
-])(
-  'should keep PostgreSQL returned relation names containing %s as defects',
-  async (_, name) => {
-    await expect(
-      postgresDialect.catalog.introspectCatalog(
-        executor({ returnedRelationName: name }),
-        request,
-      ),
-    ).rejects.toBeInstanceOf(InvariantError)
-  },
-)
 
 /** Runs the public migration builder against the controlled PostgreSQL catalog rows. */
 function migrationWithCatalogFixture(options: PostgresFixtureOptions) {
@@ -985,42 +771,6 @@ function migrationWithCatalogFixture(options: PostgresFixtureOptions) {
       ),
   })
 }
-
-it.each(['plan', 'dryRun', 'execute'] as const)(
-  'should report a raced PostgreSQL catalog through public migrate().%s()',
-  async (method) => {
-    const migration = migrationWithCatalogFixture({ changedMembers: true })
-    const error = await migration[method]().catch((cause: unknown) => cause)
-
-    expect(error).toBeInstanceOf(MigrationError)
-
-    expect(error).toMatchObject({
-      _tag: 'MigrationError',
-      stage: 'introspection',
-      outcome: 'unchanged',
-      retryable: true,
-    })
-
-    expect((error as MigrationError).defect).toBeUndefined()
-  },
-)
-
-it('should preserve malformed PostgreSQL rows as defects through public migration', async () => {
-  const preview = migrationWithCatalogFixture({ malformedIndex: true })
-  await expect(preview.plan()).rejects.toBeInstanceOf(InvariantError)
-
-  const execution = migrationWithCatalogFixture({ malformedIndex: true })
-  const error = await execution.execute().catch((cause: unknown) => cause)
-
-  expect(error).toMatchObject({
-    _tag: 'MigrationError',
-    stage: 'introspection',
-    outcome: 'unchanged',
-    defect: true,
-  })
-
-  expect((error as MigrationError).cause).toBeInstanceOf(InvariantError)
-})
 
 /**
  * Builds catalog request evidence for schema reconciliation checks.
@@ -1220,111 +970,6 @@ function normalizationFixtureExecutor(executedSql: string[]): Executor {
   }
 }
 
-describe('PostgreSQL catalog', () => {
-  it('should reject an unresolved writable namespace instead of defaulting to public', async () => {
-    const executor: Executor = {
-      /** Executes fixture SQL with the configured native observations. */
-      async execute() {
-        return []
-      },
-      /** Runs a fixture statement with configured outcomes. */
-      async run() {},
-    }
-
-    await expect(
-      postgresDialect.catalog.introspectCatalog(executor, catalogRequest()),
-    ).rejects.toThrow(/could not resolve a writable namespace/i)
-  })
-})
-
-describe('PostgreSQL catalog', () => {
-  it('should normalize catalog rows into a public snapshot', async () => {
-    const executedSql: string[] = []
-    const executor = normalizationFixtureExecutor(executedSql)
-
-    const observed = await postgresDialect.catalog.introspectCatalog(
-      executor,
-      catalogRequest(
-        { schema: 'public', table: 'accounts' },
-        { schema: 'app', table: 'events' },
-      ),
-    )
-
-    const snapshot = catalogFixtureView(observed)
-
-    assertNormalizedCatalogTables(snapshot)
-
-    assertNormalizedCatalogReservations(snapshot)
-    assertPostgresCatalogQueries(executedSql)
-  })
-})
-
-describe('PostgreSQL catalog', () => {
-  it('should keep dotted schema and relation tuples distinct during introspection', async () => {
-    const executor: Executor = createDottedCatalogExecutor()
-
-    const snapshot = catalogFixtureView(
-      await postgresDialect.catalog.introspectCatalog(
-        executor,
-        catalogRequest({ schema: 'a.b', table: 'c' }, { schema: 'a', table: 'b.c' }),
-      ),
-    )
-
-    expect(
-      snapshot.tables.map((table) => ({
-        schema: table.schema,
-        name: table.name,
-        columns: table.columns.map((column) => column.name),
-      })),
-    ).toEqual([
-      { schema: 'a.b', name: 'c', columns: ['schema_marker'] },
-      { schema: 'a', name: 'b.c', columns: ['relation_marker'] },
-    ])
-  })
-})
-
-describe('PostgreSQL catalog', () => {
-  it('should reject foreign keys with unresolved referenced relation metadata', async () => {
-    const executor: Executor = {
-      /** Executes fixture SQL with the configured native observations. */
-      async execute({ sql }) {
-        if (sql.includes('current_database()')) {
-          return [{ database: 'test', schema: 'public', version: '160000' }]
-        }
-
-        if (sql.includes('-- catalog:namespace')) {
-          return [{ schema: 'public', owner: 'app' }]
-        }
-
-        if (sql.includes('as relation_kind')) {
-          return structuredClone(
-            rejectsForeignKeysWithUnresolvedReferencedRelationMetadataData,
-          )
-        }
-
-        if (sql.includes('pg_constraint')) {
-          return structuredClone(
-            rejectsForeignKeysWithUnresolvedReferencedRelationMetadataData2,
-          )
-        }
-
-        return []
-      },
-      /** Runs a fixture statement with configured outcomes. */
-      async run() {},
-    }
-
-    await expect(
-      postgresDialect.catalog.introspectCatalog(
-        executor,
-        catalogRequest({ schema: 'public', table: 'events' }),
-      ),
-    ).rejects.toThrow(
-      /foreign key "events_owner_fkey".*missing referenced relation metadata/i,
-    )
-  })
-})
-
 /**
  * Supplies distinct native identities whose schema or relation spellings contain dots.
  *
@@ -1473,6 +1118,7 @@ function assertPostgresCatalogQueries(executedSql: string[]) {
   expect(indexSql).toContain("to_jsonb(i) ->> 'indnullsnotdistinct'")
   expect(indexSql).not.toContain('i.indnullsnotdistinct')
   const constraintSql = executedSql.find((sql) => sql.includes('from pg_constraint con'))
+
   expect(constraintSql).toContain('con.conindid')
   expect(constraintSql).toContain("to_jsonb(backing_index) ->> 'indnullsnotdistinct'")
 
@@ -1494,7 +1140,8 @@ function assertPostgresCatalogQueries(executedSql: string[]) {
  * Builds native relation rows with configured kind, deletion, and catalog-race
  * variations.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param relationQueries - Number of native relation reads observed by the fixture.
  *
  * @returns Native relation rows with configured kind, deletion, and catalog-race
@@ -1595,7 +1242,10 @@ function catalogRelationView(relation: CatalogRelation) {
   ]
 }
 
-/** Projects native type, nullability, default, and generation facts into the fixture view. */
+/**
+ * Projects native type, nullability, default, and generation facts into the fixture
+ * view.
+ */
 function catalogColumnView(column: CatalogColumn) {
   return {
     name: column.name,
@@ -1622,12 +1272,14 @@ type PostgresFixtureQueryState = { relationQueries: number; columnQueries: numbe
  * configured races.
  *
  * @param options - Resolved operation inputs, including sql.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param queryState - Mutable query counters used to inject catalog races on repeat
  *   reads.
  * @param order - Callback applying the configured native row order.
  *
- * @returns Native catalog rows with configured races, ordering, and malformed variations.
+ * @returns Native catalog rows with configured races, ordering, and malformed
+ * variations.
  */
 async function executePostgresFixture(
   { sql }: Pick<Parameters<CatalogExecutor['execute']>[0], 'sql'>,
@@ -1717,7 +1369,8 @@ function fixtureOpaqueRows(sql: string) {
  * Supplies native connection identity and server-version observations.
  *
  * @param sql - Native SQL text being scanned, compiled, or observed.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native connection identity and server-version observations.
  */
@@ -1734,3 +1387,435 @@ function fixtureConnectionRows(sql: string, options: PostgresFixtureOptions) {
 
   return undefined
 }
+
+const registerCatalogCases1 = () => {
+  it('should keep PostgreSQL 18 NOT NULL constraints as nullable column evidence', async () => {
+    const catalog = await postgresDialect.catalog.introspectCatalog(
+      executor({ version: '180001' }),
+      request,
+    )
+
+    const relation = catalog.namespaces.items[0]!.relations.items[0]!
+
+    if (relation.table.state !== 'present') throw new Error('Expected table evidence')
+
+    expect(
+      relation.table.value.columns.items.find(({ name }) => name === 'payload')?.nullable,
+    ).toEqual({ state: 'present', value: false })
+
+    expect(
+      relation.table.value.columns.items.find(({ name }) => name === 'status')?.nullable,
+    ).toEqual({ state: 'present', value: false })
+
+    expect(
+      relation.table.value.opaqueObjects.items.map(({ name }) =>
+        name.state === 'present' ? name.value : undefined,
+      ),
+    ).toEqual(['events_audit', 'events_payload_check', 'events_status_not_null'])
+
+    expect(catalog.constraintNameReservations.items).toContainEqual(
+      expect.objectContaining({
+        relation: expect.objectContaining({
+          relation: expect.objectContaining({ spelling: 'events' }) as unknown,
+        }) as unknown,
+        name: 'events_payload_not_null',
+      }),
+    )
+  })
+}
+
+const registerCatalogCases2 = () => {
+  it('should normalize row-order permutations and preserve native objects', async () => {
+    const queries: Parameters<CatalogExecutor['execute']>[0][] = []
+    const delegate = executor()
+    const first = await postgresDialect.catalog.introspectCatalog(
+      {
+        /** Executes fixture SQL with the configured native observations. */
+        execute(query) {
+          queries.push(query)
+          return delegate.execute(query)
+        },
+      },
+      request,
+    )
+
+    const second = await postgresDialect.catalog.introspectCatalog(
+      executor({ reverse: true }),
+      request,
+    )
+
+    expect(second).toEqual(first)
+    const relation = first.namespaces.items[0]!.relations.items[0]!
+    expect(relation.identity.relation.spelling).toBe('events')
+    expect(relation.table.state).toBe('present')
+
+    if (relation.table.state !== 'present') return
+
+    const richIndex = relation.table.value.indexes.items.find(
+      (index) => index.name.state === 'present' && index.name.value.includes('lower'),
+    )!
+
+    assertPostgresNativeEvidence(richIndex, relation.table.value)
+
+    expect(relation.table.value.opaqueObjects.items[0]).toMatchObject({
+      kind: 'trigger',
+      reason: expect.stringMatching(/not managed/i) as unknown,
+    })
+
+    expect(first.namespaces.items[0]!.relations.coverage).toMatchObject({
+      state: 'partial',
+      remainder: { state: 'unmanaged' },
+    })
+
+    assertScopedCatalogQueries(queries)
+
+    await assertCompleteNamespaceCoverage()
+  })
+}
+
+const registerCatalogCases3 = () => {
+  it('should ignore unrelated races and skip table-shaped rows for views', async () => {
+    const raced = await postgresDialect.catalog.introspectCatalog(
+      executor({ unrelatedRace: true }),
+      request,
+    )
+
+    const identities = raced.namespaces.items.flatMap((namespace) =>
+      namespace.relations.items.map((relation) => relation.identity),
+    )
+
+    expect(identities).toEqual([
+      {
+        namespace: [
+          {
+            role: 'database',
+            identifier: { spelling: 'test', comparisonKey: 'test' },
+          },
+          {
+            role: 'schema',
+            identifier: { spelling: 'public', comparisonKey: 'public' },
+          },
+        ],
+        relation: { spelling: 'events', comparisonKey: 'events' },
+      },
+    ])
+
+    const view = await postgresDialect.catalog.introspectCatalog(
+      executor({ relationKind: 'v' }),
+      request,
+    )
+
+    expect(view.namespaces.items[0]!.relations.items[0]!.table).toEqual({
+      state: 'absent',
+    })
+  })
+}
+
+const registerCatalogCases4 = () => {
+  it('should report unsupported server versions', async () => {
+    const versionLimited = await postgresDialect.catalog.introspectCatalog(
+      executor({ version: '90600' }),
+      request,
+    )
+
+    expect(versionLimited.capabilities.identity).toEqual({
+      state: 'unavailable',
+      cause: 'version',
+      actual: '90600',
+      requires: '120000',
+    })
+
+    expect(versionLimited.namespaces.coverage).toMatchObject({
+      state: 'unavailable',
+      cause: 'version',
+    })
+
+    expect(versionLimited.diagnostics.map(({ code }) => code)).toEqual([
+      'catalog.capability.version',
+    ])
+  })
+}
+
+const registerCatalogCases5 = () => {
+  it('should reject malformed and cross-query raced rows instead of fabricating facts', async () => {
+    await expect(
+      postgresDialect.catalog.introspectCatalog(
+        executor({ malformedIndex: true }),
+        request,
+      ),
+    ).rejects.toBeInstanceOf(InvariantError)
+
+    await expect(
+      postgresDialect.catalog.introspectCatalog(executor({ raced: true }), request),
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
+
+    await expect(
+      postgresDialect.catalog.introspectCatalog(executor({ deleted: true }), request),
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
+
+    await expect(
+      postgresDialect.catalog.introspectCatalog(
+        executor({ changedMembers: true }),
+        request,
+      ),
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
+
+    await expect(
+      postgresDialect.catalog.introspectCatalog(
+        executor({ missingNamespace: true }),
+        request,
+      ),
+    ).rejects.toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      retryable: true,
+    })
+  })
+}
+
+const registerCatalogCases9 = () => {
+  it('should reject an unresolved writable namespace instead of defaulting to public', async () => {
+    const executor: Executor = {
+      /** Executes fixture SQL with the configured native observations. */
+      async execute() {
+        return []
+      },
+      /** Runs a fixture statement with configured outcomes. */
+      async run() {},
+    }
+
+    await expect(
+      postgresDialect.catalog.introspectCatalog(executor, catalogRequest()),
+    ).rejects.toThrow(/could not resolve a writable namespace/i)
+  })
+}
+
+const registerCatalogCases10 = () => {
+  it('should normalize catalog rows into a public snapshot', async () => {
+    const executedSql: string[] = []
+    const executor = normalizationFixtureExecutor(executedSql)
+
+    const observed = await postgresDialect.catalog.introspectCatalog(
+      executor,
+      catalogRequest(
+        { schema: 'public', table: 'accounts' },
+        { schema: 'app', table: 'events' },
+      ),
+    )
+
+    const snapshot = catalogFixtureView(observed)
+
+    assertNormalizedCatalogTables(snapshot)
+
+    assertNormalizedCatalogReservations(snapshot)
+    assertPostgresCatalogQueries(executedSql)
+  })
+}
+
+const registerCatalogCases11 = () => {
+  it('should keep dotted schema and relation tuples distinct during introspection', async () => {
+    const executor: Executor = createDottedCatalogExecutor()
+
+    const snapshot = catalogFixtureView(
+      await postgresDialect.catalog.introspectCatalog(
+        executor,
+        catalogRequest({ schema: 'a.b', table: 'c' }, { schema: 'a', table: 'b.c' }),
+      ),
+    )
+
+    expect(
+      snapshot.tables.map((table) => ({
+        schema: table.schema,
+        name: table.name,
+        columns: table.columns.map((column) => column.name),
+      })),
+    ).toEqual([
+      { schema: 'a.b', name: 'c', columns: ['schema_marker'] },
+      { schema: 'a', name: 'b.c', columns: ['relation_marker'] },
+    ])
+  })
+}
+
+const registerCatalogCases12 = () => {
+  it('should reject foreign keys with unresolved referenced relation metadata', async () => {
+    const executor: Executor = {
+      /** Executes fixture SQL with the configured native observations. */
+      async execute({ sql }) {
+        if (sql.includes('current_database()')) {
+          return [{ database: 'test', schema: 'public', version: '160000' }]
+        }
+
+        if (sql.includes('-- catalog:namespace')) {
+          return [{ schema: 'public', owner: 'app' }]
+        }
+
+        if (sql.includes('as relation_kind')) {
+          return structuredClone(
+            rejectsForeignKeysWithUnresolvedReferencedRelationMetadataData,
+          )
+        }
+
+        if (sql.includes('pg_constraint')) {
+          return structuredClone(
+            rejectsForeignKeysWithUnresolvedReferencedRelationMetadataData2,
+          )
+        }
+
+        return []
+      },
+      /** Runs a fixture statement with configured outcomes. */
+      async run() {},
+    }
+
+    await expect(
+      postgresDialect.catalog.introspectCatalog(
+        executor,
+        catalogRequest({ schema: 'public', table: 'events' }),
+      ),
+    ).rejects.toThrow(
+      /foreign key "events_owner_fkey".*missing referenced relation metadata/i,
+    )
+  })
+}
+
+function registerCatalogGroup1() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases1()
+  })
+}
+
+function registerCatalogGroup2() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases2()
+  })
+}
+
+function registerCatalogGroup3() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases3()
+  })
+}
+
+function registerCatalogGroup4() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases4()
+  })
+}
+
+function registerCatalogGroup5() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases5()
+  })
+}
+
+function registerCatalogGroup6() {
+  it.each([
+    ['NUL', 'events\0bad'],
+    ['unpaired surrogate', 'events\ud800bad'],
+  ])(
+    'should keep PostgreSQL returned relation names containing %s as defects',
+    async (_, name) => {
+      await expect(
+        postgresDialect.catalog.introspectCatalog(
+          executor({ returnedRelationName: name }),
+          request,
+        ),
+      ).rejects.toBeInstanceOf(InvariantError)
+    },
+  )
+}
+
+function registerCatalogGroup7() {
+  it.each(['plan', 'dryRun', 'execute'] as const)(
+    'should report a raced PostgreSQL catalog through public migrate().%s()',
+    async (method) => {
+      const migration = migrationWithCatalogFixture({ changedMembers: true })
+      const error = await migration[method]().catch((cause: unknown) => cause)
+
+      expect(error).toBeInstanceOf(MigrationError)
+
+      expect(error).toMatchObject({
+        _tag: 'MigrationError',
+        stage: 'introspection',
+        outcome: 'unchanged',
+        retryable: true,
+      })
+
+      expect((error as MigrationError).defect).toBeUndefined()
+    },
+  )
+}
+
+function registerCatalogGroup8() {
+  it('should preserve malformed PostgreSQL rows as defects through public migration', async () => {
+    const preview = migrationWithCatalogFixture({ malformedIndex: true })
+    await expect(preview.plan()).rejects.toBeInstanceOf(InvariantError)
+
+    const execution = migrationWithCatalogFixture({ malformedIndex: true })
+    const error = await execution.execute().catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      stage: 'introspection',
+      outcome: 'unchanged',
+      defect: true,
+    })
+
+    expect((error as MigrationError).cause).toBeInstanceOf(InvariantError)
+  })
+}
+
+function registerCatalogGroup9() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases9()
+  })
+}
+
+function registerCatalogGroup10() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases10()
+  })
+}
+
+function registerCatalogGroup11() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases11()
+  })
+}
+
+function registerCatalogGroup12() {
+  describe('PostgreSQL catalog', () => {
+    registerCatalogCases12()
+  })
+}
+
+describe('PostgreSQL catalog', () => {
+  registerCatalogGroup1()
+  registerCatalogGroup2()
+  registerCatalogGroup3()
+  registerCatalogGroup4()
+  registerCatalogGroup5()
+  registerCatalogGroup6()
+  registerCatalogGroup7()
+  registerCatalogGroup8()
+  registerCatalogGroup9()
+  registerCatalogGroup10()
+  registerCatalogGroup11()
+  registerCatalogGroup12()
+})

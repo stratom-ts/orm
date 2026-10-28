@@ -6,7 +6,40 @@ import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationId
 import type { PhysicalNameRegistry } from '@/migrations/physicalNaming'
 import { SchemaError } from '@/utils/error'
 
-describe('SQLite naming', () => {
+/**
+ * Checks long valid names and rejection of unsafe or malformed identifier spellings.
+ *
+ * @param registry - Identity registry used to resolve registered table handles.
+ * @param events - Recorded session or migration events in their observed order.
+ * @param archive - Attached or alternate namespace used to check relation resolution.
+ */
+function assertSqliteIdentifierSafety(
+  registry: PhysicalNameRegistry,
+  events: CanonicalRelationIdentity,
+  archive: CanonicalRelationIdentity,
+) {
+  expect(() =>
+    registry.reserve({
+      kind: 'index',
+      owner: events,
+      name: 'casesensitiveindex',
+      token: 'events-index',
+      description: 'events index',
+    }),
+  ).toThrow(/collision/i)
+
+  expect(() =>
+    registry.reserve({
+      kind: 'index',
+      owner: archive,
+      name: 'casesensitiveindex',
+      token: 'archive-index',
+      description: 'archive index',
+    }),
+  ).not.toThrow()
+}
+
+const registerNamingCases1 = () => {
   it('should allow long SQLite names and validate identifier safety and collisions', () => {
     const identity = sqliteIdentity.create({
       context: {
@@ -49,37 +82,14 @@ describe('SQLite naming', () => {
 
     assertSqliteIdentifierSafety(registry, events, archive)
   })
-})
-
-/**
- * Checks long valid names and rejection of unsafe or malformed identifier spellings.
- *
- * @param registry - Identity registry used to resolve registered table handles.
- * @param events - Recorded session or migration events in their observed order.
- * @param archive - Attached or alternate namespace used to check relation resolution.
- */
-function assertSqliteIdentifierSafety(
-  registry: PhysicalNameRegistry,
-  events: CanonicalRelationIdentity,
-  archive: CanonicalRelationIdentity,
-) {
-  expect(() =>
-    registry.reserve({
-      kind: 'index',
-      owner: events,
-      name: 'casesensitiveindex',
-      token: 'events-index',
-      description: 'events index',
-    }),
-  ).toThrow(/collision/i)
-
-  expect(() =>
-    registry.reserve({
-      kind: 'index',
-      owner: archive,
-      name: 'casesensitiveindex',
-      token: 'archive-index',
-      description: 'archive index',
-    }),
-  ).not.toThrow()
 }
+
+function registerNamingGroup1() {
+  describe('SQLite naming', () => {
+    registerNamingCases1()
+  })
+}
+
+describe('SQLite naming', () => {
+  registerNamingGroup1()
+})

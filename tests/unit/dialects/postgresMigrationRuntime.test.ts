@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { mapPostgresAdvisoryLockIdentity } from '@/dialects/postgres/migration'
+import { mapPostgresAdvisoryLockIdentity } from '@/dialects/postgres/migration/coordination'
 import {
   createMigrationCoordinationScope,
   migrationLockAcquisitionOrder,
@@ -11,7 +11,7 @@ import { MigrationError } from '@/utils/error'
 import {
   createPostgresMigrationRuntime as harness,
   postgresMigrationProgram as program,
-} from '../helpers/postgresMigrationRuntimeFixtures'
+} from './postgresMigrationRuntimeFixtures'
 
 const relation = {
   namespace: [
@@ -27,35 +27,7 @@ const relation = {
   relation: { spelling: 'events', comparisonKey: 'events' },
 }
 
-it('should retain PostgreSQL ownership error origin and rollback/unlock cleanup evidence', async () => {
-  const invalidOwnership = new MigrationOwnershipSchemaError({
-    message: 'missing registered handle',
-  })
-
-  const runtime = harness({
-    prepareFailure: invalidOwnership,
-    failRun: /^rollback$/i,
-    failUnlock: true,
-  })
-
-  const error = await runtime.execute().catch((cause: unknown) => cause)
-
-  expect(error).toMatchObject({
-    _tag: 'MigrationError',
-    cause: invalidOwnership,
-    stage: 'planning',
-    outcome: 'unchanged',
-  })
-
-  expect((error as MigrationError).defect).toBeUndefined()
-
-  expect((error as MigrationError).cleanupFailures?.map(({ stage }) => stage)).toEqual([
-    'rollback',
-    'unlock',
-  ])
-})
-
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases2 = () => {
   it('should preserve an explicitly present null defect cause', async () => {
     const originalCause = null
     const structured = new MigrationError({
@@ -104,9 +76,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(statementIndex).toBeGreaterThan(-1)
     expect(runtime.events()[statementIndex]).toBe('unclassified')
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases3 = () => {
   it.each(['statement-atomic', 'non-atomic'] as const)(
     'should reject %s programs before preconditions or DDL',
     async (atomicity) => {
@@ -140,9 +112,9 @@ describe('PostgreSQL migration runtime', () => {
       expect(runtime.calls).toContain('rollback')
     },
   )
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases4 = () => {
   it('should classify an acknowledged DDL rollback with action provenance', async () => {
     const runtime = harness({ failRun: /^create table/i })
     const error = await runtime.execute().catch((cause: unknown) => cause)
@@ -181,29 +153,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.calls.at(-1)).toMatch(/pg_advisory_unlock/i)
     expect(runtime.discard).toHaveBeenCalled()
   })
-})
+}
 
-it('should retain a reported validation stage and its exact execution message', async () => {
-  const primary = new MigrationError({
-    message: 'validation rejected',
-    stage: 'validation',
-  })
-
-  const runtime = harness({ prepareFailure: primary })
-  const rejection = await runtime.execute().catch((cause: unknown) => cause)
-
-  expect(rejection).toMatchObject({
-    stage: 'validation',
-    outcome: 'unchanged',
-    cause: primary,
-  })
-
-  expect((rejection as MigrationError).message).toBe(
-    'PostgreSQL migration validation failed: validation rejected',
-  )
-})
-
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases6 = () => {
   it('should classify rollback failure as unknown and discard the session', async () => {
     const runtime = harness({ failRun: /^create table|^rollback$/i })
     const error = await runtime.execute().catch((cause: unknown) => cause)
@@ -231,9 +183,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.calls).not.toContain('rollback')
     expect(runtime.discard).toHaveBeenCalled()
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases7 = () => {
   it('should classify a failed semantic precondition as unchanged', async () => {
     const runtime = harness({ nullCount: 1 })
     const error = await runtime
@@ -261,9 +213,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.calls).toContain('rollback')
     expect(runtime.calls.some((sql) => /^create table/i.test(sql))).toBe(false)
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases8 = () => {
   it('should keep a pre-DDL precondition failure unchanged when rollback also fails', async () => {
     const runtime = harness({ nullCount: 1, failRun: /^rollback$/i })
     const error = await runtime
@@ -305,9 +257,9 @@ describe('PostgreSQL migration runtime', () => {
 
     expect(runtime.discard).toHaveBeenCalled()
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases9 = () => {
   it('should acquire coordination immediately before transaction work', async () => {
     const runtime = harness({ lockResults: [true] })
     await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
@@ -344,9 +296,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.prepare).not.toHaveBeenCalled()
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases10 = () => {
   it('should allow an asynchronous successful first try when lockTimeoutMs is zero', async () => {
     let release!: () => void
     const lockGate = new Promise<void>((resolve) => {
@@ -367,9 +319,9 @@ describe('PostgreSQL migration runtime', () => {
 
     expect(runtime.cancel).not.toHaveBeenCalled()
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases11 = () => {
   it('should cancel and drain a never-settling physical lock query at its deadline', async () => {
     vi.useFakeTimers()
 
@@ -398,9 +350,9 @@ describe('PostgreSQL migration runtime', () => {
       vi.useRealTimers()
     }
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases12 = () => {
   it('should cancel a hung post-commit unlock while retaining applied outcome', async () => {
     const runtime = harness({ hangQuery: /pg_advisory_unlock/i })
     const controller = new AbortController()
@@ -423,9 +375,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.discard).toHaveBeenCalled()
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases13 = () => {
   it('should bound a hung post-commit unlock without an external signal', async () => {
     vi.useFakeTimers()
 
@@ -449,9 +401,9 @@ describe('PostgreSQL migration runtime', () => {
       vi.useRealTimers()
     }
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases14 = () => {
   it('should cancel in-flight DDL and report unknown without further SQL', async () => {
     const runtime = harness({ hangRun: /^create table/i })
     const controller = new AbortController()
@@ -473,11 +425,12 @@ describe('PostgreSQL migration runtime', () => {
 
     expect(runtime.cancel).toHaveBeenCalledOnce()
     expect(runtime.discard).toHaveBeenCalled()
+
     expect(runtime.calls.some((sql) => /rollback|advisory_unlock/i.test(sql))).toBe(false)
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases15 = () => {
   it('should stop polling when lock acquisition is aborted', async () => {
     const runtime = harness({ lockResults: [false] })
     const controller = new AbortController()
@@ -518,9 +471,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(runtime.discard).toHaveBeenCalled()
     expect(runtime.prepare).not.toHaveBeenCalled()
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases16 = () => {
   it('should acquire and release only the scoped key for an application', async () => {
     const runtime = harness({ applicationId: 'billing', lockResults: [true] })
     await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
@@ -540,7 +493,10 @@ describe('PostgreSQL migration runtime', () => {
   })
 
   it('should derive stable scoped keys and separate database/application identities', () => {
-    /** Computes the advisory-lock identity for the fixture database and application scope. */
+    /**
+     * Computes the advisory-lock identity for the fixture database and application
+     * scope.
+     */
     const scoped = (database: string, applicationId: string) =>
       mapPostgresAdvisoryLockIdentity(
         migrationLockAcquisitionOrder(
@@ -556,9 +512,9 @@ describe('PostgreSQL migration runtime', () => {
     expect(scoped('test', 'billing')).not.toEqual(scoped('other', 'billing'))
     expect(scoped('test', 'billing')).not.toEqual(scoped('test', 'orders'))
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases17 = () => {
   it('should perform one nonblocking attempt for the scoped lock', async () => {
     const runtime = harness({
       applicationId: 'billing',
@@ -569,7 +525,11 @@ describe('PostgreSQL migration runtime', () => {
       .execute(program(), { lockTimeoutMs: 0 })
       .catch((cause: unknown) => cause)
 
-    expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
+    expect(error).toMatchObject({
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: true,
+    })
 
     expect(
       runtime.queries.filter((query) => /pg_try_advisory_lock/i.test(query.sql)),
@@ -585,9 +545,9 @@ describe('PostgreSQL migration runtime', () => {
       ),
     ).toBe(false)
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases18 = () => {
   it('should enforce the deadline while the scoped lock is unavailable', async () => {
     vi.useFakeTimers()
 
@@ -622,9 +582,9 @@ describe('PostgreSQL migration runtime', () => {
       vi.useRealTimers()
     }
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases19 = () => {
   it('should report the configured lock deadline when an in-flight attempt reaches it', async () => {
     vi.useFakeTimers()
 
@@ -661,9 +621,9 @@ describe('PostgreSQL migration runtime', () => {
       vi.useRealTimers()
     }
   })
-})
+}
 
-describe('PostgreSQL migration runtime', () => {
+const registerMigrationRuntimeCases20 = () => {
   it('should preserve the applied outcome when scoped release verification fails', async () => {
     const runtime = harness({
       applicationId: 'billing',
@@ -694,7 +654,11 @@ describe('PostgreSQL migration runtime', () => {
     controller.abort()
     const error = await pending.catch((cause: unknown) => cause)
 
-    expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged', retryable: true })
+    expect(error).toMatchObject({
+      stage: 'lock',
+      outcome: 'unchanged',
+      retryable: true,
+    })
 
     expect(
       runtime.queries.some((query) =>
@@ -704,4 +668,187 @@ describe('PostgreSQL migration runtime', () => {
 
     expect(runtime.prepare).not.toHaveBeenCalled()
   })
+}
+
+function registerMigrationRuntimeGroup1() {
+  it('should retain PostgreSQL ownership error origin and rollback/unlock cleanup evidence', async () => {
+    const invalidOwnership = new MigrationOwnershipSchemaError({
+      message: 'missing registered handle',
+    })
+
+    const runtime = harness({
+      prepareFailure: invalidOwnership,
+      failRun: /^rollback$/i,
+      failUnlock: true,
+    })
+
+    const error = await runtime.execute().catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      _tag: 'MigrationError',
+      cause: invalidOwnership,
+      stage: 'planning',
+      outcome: 'unchanged',
+    })
+
+    expect((error as MigrationError).defect).toBeUndefined()
+
+    expect((error as MigrationError).cleanupFailures?.map(({ stage }) => stage)).toEqual([
+      'rollback',
+      'unlock',
+    ])
+  })
+}
+
+function registerMigrationRuntimeGroup2() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases2()
+  })
+}
+
+function registerMigrationRuntimeGroup3() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases3()
+  })
+}
+
+function registerMigrationRuntimeGroup4() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases4()
+  })
+}
+
+function registerMigrationRuntimeGroup5() {
+  it('should retain a reported validation stage and its exact execution message', async () => {
+    const primary = new MigrationError({
+      message: 'validation rejected',
+      stage: 'validation',
+    })
+
+    const runtime = harness({ prepareFailure: primary })
+    const rejection = await runtime.execute().catch((cause: unknown) => cause)
+
+    expect(rejection).toMatchObject({
+      stage: 'validation',
+      outcome: 'unchanged',
+      cause: primary,
+    })
+
+    expect((rejection as MigrationError).message).toBe(
+      'PostgreSQL migration validation failed: validation rejected',
+    )
+  })
+}
+
+function registerMigrationRuntimeGroup6() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases6()
+  })
+}
+
+function registerMigrationRuntimeGroup7() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases7()
+  })
+}
+
+function registerMigrationRuntimeGroup8() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases8()
+  })
+}
+
+function registerMigrationRuntimeGroup9() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases9()
+  })
+}
+
+function registerMigrationRuntimeGroup10() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases10()
+  })
+}
+
+function registerMigrationRuntimeGroup11() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases11()
+  })
+}
+
+function registerMigrationRuntimeGroup12() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases12()
+  })
+}
+
+function registerMigrationRuntimeGroup13() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases13()
+  })
+}
+
+function registerMigrationRuntimeGroup14() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases14()
+  })
+}
+
+function registerMigrationRuntimeGroup15() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases15()
+  })
+}
+
+function registerMigrationRuntimeGroup16() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases16()
+  })
+}
+
+function registerMigrationRuntimeGroup17() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases17()
+  })
+}
+
+function registerMigrationRuntimeGroup18() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases18()
+  })
+}
+
+function registerMigrationRuntimeGroup19() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases19()
+  })
+}
+
+function registerMigrationRuntimeGroup20() {
+  describe('PostgreSQL migration runtime', () => {
+    registerMigrationRuntimeCases20()
+  })
+}
+
+describe('PostgreSQL migration runtime', () => {
+  registerMigrationRuntimeGroup1()
+  registerMigrationRuntimeGroup2()
+  registerMigrationRuntimeGroup3()
+  registerMigrationRuntimeGroup4()
+  registerMigrationRuntimeGroup5()
+  registerMigrationRuntimeGroup6()
+  registerMigrationRuntimeGroup7()
+  registerMigrationRuntimeGroup8()
+  registerMigrationRuntimeGroup9()
+  registerMigrationRuntimeGroup10()
+  registerMigrationRuntimeGroup11()
+  registerMigrationRuntimeGroup12()
+  registerMigrationRuntimeGroup13()
+  registerMigrationRuntimeGroup14()
+  registerMigrationRuntimeGroup15()
+  registerMigrationRuntimeGroup16()
+  registerMigrationRuntimeGroup17()
+  registerMigrationRuntimeGroup18()
+  registerMigrationRuntimeGroup19()
+  registerMigrationRuntimeGroup20()
 })

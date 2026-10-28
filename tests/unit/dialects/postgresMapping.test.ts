@@ -38,98 +38,62 @@ import {
 import type { AnySchema } from '@/types/schema'
 import { QueryError, SchemaError } from '@/utils/error'
 
-it('should reject unsafe JSON outputs even when JSON storage is selected', () => {
-  for (const schema of [
-    union([object({ at: date() }), object({ at: date() })]),
-    union([object({ id: bigint() }), object({ id: bigint() })]),
-  ]) {
-    expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(SchemaError)
+const bigintContext = { schema: bigint() }
 
-    expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(
-      /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
-    )
-  }
-})
+const numberContext = { schema: pipe(number(), safeInteger()) }
 
-it.each<[string, AnySchema, string]>([
-  ['isoDate/timestamptz', pipe(string(), isoDate()), 'timestamptz'],
-  ['isoDate/timestamp', pipe(string(), isoDate()), 'timestamp'],
-  ['isoDateTime/timestamptz', pipe(string(), isoDateTime()), 'timestamptz'],
-  ['isoDateTime/date', pipe(string(), isoDateTime()), 'date'],
-  ['isoTimestamp/timestamp', pipe(string(), isoTimestamp()), 'timestamp'],
-])('should reject ISO temporal format storage that changes %s', (_name, schema, type) => {
-  expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
+const stringContext = { schema: string() }
 
-  expect(() =>
-    validatePostgresValueMapping(type, { schema: string(), authoredSchema: schema }),
-  ).toThrow(/reference output formats.*paired column mapParam\/mapResult/)
-})
-
-it('should accept native precision, text, varchar, and plain strings for temporal storage', () => {
-  const cases = [
-    [pipe(string(), isoTimeSecond()), 'time(0)', '03:04:05', '03:04:05', '03:04:05'],
-    [
-      pipe(string(), isoDateTime()),
-      'timestamp(0)',
-      '2026-01-02T03:04',
-      '2026-01-02 03:04:00',
-      '2026-01-02T03:04',
-    ],
-    [
-      pipe(string(), isoTimestamp()),
-      'timestamptz(6)',
-      '2026-01-02T03:04:05.123456Z',
-      '2026-01-02 03:04:05.123456+00',
-      '2026-01-02T03:04:05.123456Z',
-    ],
-    [pipe(string(), isoDate()), 'text', '2026-01-02', '2026-01-02', '2026-01-02'],
-    [pipe(string(), isoDate()), 'varchar(40)', '2026-01-02', '2026-01-02', '2026-01-02'],
-    [
+const rejectedScalarStorageCases: [string, AnySchema, string][] = [
+  ['date', date(), 'text'],
+  ['date', date(), 'varchar(20)'],
+  ['number', number(), 'text'],
+  ['number', number(), 'varchar(20)'],
+  ['boolean', boolean(), 'text'],
+  ['boolean', boolean(), 'varchar(20)'],
+  ['json', object({ a: number() }), 'text'],
+  ['json', object({ a: number() }), 'varchar(20)'],
+  ['number', pipe(string(), toNumber()), 'text'],
+  ['date', pipe(string(), toDate()), 'text'],
+  ['boolean', pipe(string(), toBoolean()), 'text'],
+  ['string', pipe(number(), toString()), 'integer'],
+  ['unknown', pipe(string(), parseJson()), 'text'],
+  [
+    'unknown',
+    pipe(
       string(),
-      'timestamp',
-      '2026-01-02T03:04:05',
-      '2026-01-02 03:04:05',
-      '2026-01-02T03:04:05.000Z',
-    ],
-  ] as const
-
-  for (const [schema, type, input, driver, output] of cases) {
-    expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
-    expect(mapPostgresParamValue(type, input, { schema })).toBe(input)
-    expect(mapPostgresResultValue(type, driver, { schema })).toBe(output)
-  }
-})
-
-it('should use built-in JSON mapping for a recovered structured output', () => {
-  const branch = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
-  const schema = union([branch, branch])
-  const output = { at: new Date('2026-01-01T00:00:00.000Z').toString() }
-
-  expect(() => validatePostgresValueMapping('jsonb', { schema })).not.toThrow()
-  expect(mapPostgresParamValue('jsonb', output, { schema })).toBe(JSON.stringify(output))
-  expect(mapPostgresResultValue('jsonb', JSON.stringify(output))).toEqual(output)
-})
-
-it('should reject non-finite nested numbers before JSON serialization', () => {
-  const schema = union([object({ value: number() }), object({ value: number() })])
-  expect(() =>
-    mapPostgresParamValue('jsonb', { value: Number.POSITIVE_INFINITY }, { schema }),
-  ).toThrow(QueryError)
-})
-
-it('should check authored JSON composites for non-finite parameters', () => {
-  const target = object({ value: number() })
-  const authoredSchema = union([object({ value: number() }), object({ value: number() })])
-  expect(() =>
-    mapPostgresParamValue(
-      'jsonb',
-      { value: Number.POSITIVE_INFINITY },
-      { schema: target, authoredSchema },
+      transform((value) => value),
     ),
-  ).toThrow(QueryError)
-})
+    'text',
+  ],
+  ['number', number(), 'numeric'],
+  ['number', number(), 'decimal(10,2)'],
+  ['string', string(), 'serial'],
+  ['string', string(), 'interval'],
+  ['string', string(), 'text[]'],
+  ['string', string(), 'jsonb'],
+  ['string', string(), 'boolean'],
+  ['string', string(), 'smallint'],
+  ['string', string(), 'integer'],
+  ['string', string(), 'bigint'],
+  ['string', string(), 'real'],
+  ['string', string(), 'double precision'],
+  ['string', string(), 'oid'],
+  ['string', string(), 'json'],
+  ['string', string(), 'bytea'],
+  ['string', string(), 'point'],
+  ['string', string(), 'circle'],
+  ['boolean', boolean(), 'integer'],
+  ['date', date(), 'time'],
+  ['date', date(), 'numeric'],
+  ['bigint', bigint(), 'real'],
+  ['bigint', bigint(), 'double precision'],
+  ['bigint', bigint(), 'text'],
+  ['json', object({ a: number() }), 'integer'],
+  ['unknown', picklist(['one', 1]), 'text'],
+]
 
-describe('PostgreSQL composite value mapping', () => {
+const registerMappingCases7 = () => {
   it('should retain second-precision ISO output for homogeneous branches', () => {
     const schema = union([
       pipe(string(), isoTimeSecond()),
@@ -161,9 +125,9 @@ describe('PostgreSQL composite value mapping', () => {
     expect(() => validatePostgresValueMapping('text', { schema })).not.toThrow()
     expect(mapPostgresResultValue('text', '192.0.2.1', { schema })).toBe('192.0.2.1')
   })
-})
+}
 
-describe('PostgreSQL composite value mapping', () => {
+const registerMappingCases8 = () => {
   it('should reject selected storage that changes composite output identity', () => {
     expect(() =>
       validatePostgresValueMapping('double precision', {
@@ -198,13 +162,9 @@ describe('PostgreSQL composite value mapping', () => {
 
     expect(mapPostgresResultValue('double precision', 1.25, { schema })).toBe(1.25)
   })
-})
+}
 
-const bigintContext = { schema: bigint() }
-const numberContext = { schema: pipe(number(), safeInteger()) }
-const stringContext = { schema: string() }
-
-describe('PostgreSQL temporal value mapping', () => {
+const registerMappingCases9 = () => {
   it.each([
     ['date', '0042-01-02', pipe(string(), isoDate()), '0042-01-02'],
     ['time', '03:04:00', pipe(string(), isoTime()), '03:04'],
@@ -241,9 +201,9 @@ describe('PostgreSQL temporal value mapping', () => {
       expect(mapPostgresResultValue(type, raw, { schema })).toBe(expected)
     },
   )
-})
+}
 
-describe('PostgreSQL temporal value mapping', () => {
+const registerMappingCases10 = () => {
   it('should map raw local timestamps to Date without host-timezone conversion', () => {
     expect(
       mapPostgresResultValue('timestamp', '2026-01-02 03:04:05', { schema: date() }),
@@ -271,9 +231,9 @@ describe('PostgreSQL temporal value mapping', () => {
       }),
     ).toThrow(QueryError)
   })
-})
+}
 
-describe('PostgreSQL context-free value mapping', () => {
+const registerMappingCases11 = () => {
   it('should preserve context-free values and nullable values', () => {
     const dateValue = new Date('2026-01-02T03:04:05.000Z')
     expect(mapPostgresResultValue('int8', '42')).toBe('42')
@@ -284,103 +244,15 @@ describe('PostgreSQL context-free value mapping', () => {
     )
 
     expect(mapPostgresParamValue('timestamptz', dateValue)).toBe(dateValue.toISOString())
+
     expect(mapPostgresResultValue('jsonb', '{"value":42}')).toEqual({ value: 42 })
     expect(mapPostgresResultValue('uuid', 42)).toBe('42')
     expect(mapPostgresParamValue('numeric', null, bigintContext)).toBeNull()
     expect(mapPostgresResultValue('bigint', undefined, bigintContext)).toBeUndefined()
   })
-})
+}
 
-it('should apply underlying integer width rules to serial composite storage', () => {
-  const schema = union([pipe(number(), safeInteger()), literal(42)])
-  for (const type of ['bigserial', 'bigint']) {
-    expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
-    expect(mapPostgresResultValue(type, '42', { schema })).toBe(42)
-  }
-
-  for (const type of ['smallserial', 'smallint', 'serial', 'integer'])
-    expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
-})
-
-it.each([
-  ['smallserial', 42],
-  ['serial', 42],
-  ['bigserial', '42'],
-  [' SMALLSERIAL ', 42],
-  [' SERIAL ', 42],
-  [' BIGSERIAL ', '42'],
-  ['smallint', 42],
-  ['integer', 42],
-  ['bigint', '42'],
-])('should preserve number and bigint outputs through %s storage', (type, raw) => {
-  expect(() => validatePostgresValueMapping(type, bigintContext)).not.toThrow()
-  expect(() => validatePostgresValueMapping(type, numberContext)).not.toThrow()
-  expect(mapPostgresParamValue(type, 42n, bigintContext)).toBe('42')
-  expect(mapPostgresResultValue(type, raw, bigintContext)).toBe(42n)
-  expect(mapPostgresParamValue(type, 42, numberContext)).toBe(42)
-  expect(mapPostgresResultValue(type, raw, numberContext)).toBe(42)
-})
-
-it.each(['smallserial', 'serial', 'bigserial', 'smallint', 'integer', 'bigint'])(
-  'should reject inexact bigint conversions through %s storage',
-  (type) => {
-    for (const value of [9007199254740992, -9007199254740992, 42.5, '42.5']) {
-      expect(() => mapPostgresParamValue(type, value, bigintContext)).toThrow(QueryError)
-
-      expect(() => mapPostgresResultValue(type, value, bigintContext)).toThrow(QueryError)
-    }
-  },
-)
-
-it.each(['bigserial', 'bigint'])(
-  'should guard number conversions through %s storage in both directions',
-  (type) => {
-    for (const value of [-9007199254740991, 9007199254740991]) {
-      expect(mapPostgresParamValue(type, value, numberContext)).toBe(value)
-      expect(mapPostgresResultValue(type, String(value), numberContext)).toBe(value)
-    }
-
-    for (const value of [
-      9007199254740992,
-      -9007199254740992,
-      '9007199254740993',
-      '-9007199254740993',
-      9007199254740993n,
-      42.5,
-      '42.5',
-    ]) {
-      expect(() => mapPostgresParamValue(type, value, numberContext)).toThrow(QueryError)
-
-      expect(() => mapPostgresResultValue(type, value, numberContext)).toThrow(QueryError)
-    }
-
-    expect(mapPostgresParamValue(type, 9007199254740993n, bigintContext)).toBe(
-      '9007199254740993',
-    )
-
-    expect(mapPostgresResultValue(type, '9007199254740993', bigintContext)).toBe(
-      9007199254740993n,
-    )
-  },
-)
-
-it.each(['smallserial', 'serial', 'bigserial', 'smallint', 'integer', 'bigint'])(
-  'should preserve absent values and context-free representations through %s',
-  (type) => {
-    for (const context of [numberContext, bigintContext]) {
-      expect(mapPostgresParamValue(type, null, context)).toBeNull()
-      expect(mapPostgresResultValue(type, null, context)).toBeNull()
-      expect(mapPostgresParamValue(type, undefined, context)).toBeUndefined()
-      expect(mapPostgresResultValue(type, undefined, context)).toBeUndefined()
-    }
-
-    expect(mapPostgresParamValue(type, 42n)).toBe(42n)
-    expect(mapPostgresResultValue(type, '9007199254740993')).toBe('9007199254740993')
-    expect(mapPostgresResultValue(type, 42)).toBe(42)
-  },
-)
-
-describe('PostgreSQL integral value mapping', () => {
+const registerMappingCases17 = () => {
   it.each(['numeric', 'numeric(30,3)', 'decimal(30,3)'])(
     'should map arbitrary-precision bigint values through %s storage',
     (type) => {
@@ -412,9 +284,9 @@ describe('PostgreSQL integral value mapping', () => {
       expect(mapPostgresResultValue('bigint', String(value), numberContext)).toBe(value)
     },
   )
-})
+}
 
-describe('PostgreSQL numeric safety and representations', () => {
+const registerMappingCases18 = () => {
   it.each([
     [
       'bigint parameter',
@@ -467,151 +339,9 @@ describe('PostgreSQL numeric safety and representations', () => {
       new Date(timestamp),
     )
   })
-})
+}
 
-it.each([
-  ['time', isoTime(), isoTimeSecond(), '03:04:00', '03:04:00'],
-  ['time', isoTimeSecond(), isoTime(), '03:04:00', '03:04'],
-  ['time without time zone', isoTimeSecond(), isoTimeSecond(), '03:04:05', '03:04:05'],
-  [
-    'timestamp',
-    isoDateTime(),
-    isoDateTimeSecond(),
-    '2026-01-02 03:04:00',
-    '2026-01-02T03:04:00',
-  ],
-  [
-    'timestamp',
-    isoDateTimeSecond(),
-    isoDateTime(),
-    '2026-01-02 03:04:00',
-    '2026-01-02T03:04',
-  ],
-  ['date', isoDate(), isoDate(), '2026-01-02', '2026-01-02'],
-  [
-    'timestamptz',
-    isoTimestamp(),
-    isoTimestamp(),
-    '2026-01-02 03:04:05+11',
-    '2026-01-02T03:04:05+11:00',
-  ],
-])(
-  'should use the authored format with %s storage',
-  (type, target, local, raw, expected) => {
-    const context = {
-      schema: pipe(string(), target),
-      authoredSchema: pipe(string(), local),
-    }
-
-    expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
-    expect(mapPostgresResultValue(type, raw, context)).toBe(expected)
-  },
-)
-
-it.each([
-  ['time', isoDateTimeSecond()],
-  ['timestamp', isoTimeSecond()],
-  ['timestamptz', isoDateTimeSecond()],
-  ['date', isoTimestamp()],
-  ['time', isoDate()],
-])('should reject incompatible authored formats with %s storage', (type, format) => {
-  const context = { schema: string(), authoredSchema: pipe(string(), format) }
-  expect(() => validatePostgresValueMapping(type, context)).toThrow(SchemaError)
-  expect(() => validatePostgresValueMapping(type, context)).toThrow(format.type)
-  expect(() => validatePostgresValueMapping(type, context)).toThrow(type)
-
-  expect(() => validatePostgresValueMapping(type, context)).toThrow(
-    /paired column mapParam\/mapResult or client mapParamValue\/mapResultValue/,
-  )
-})
-
-it('should reject ambiguous native formats and preserve explicit text spelling', () => {
-  const context = {
-    schema: pipe(string(), isoTime()),
-    authoredSchema: pipe(string(), isoTime(), isoTimeSecond()),
-  }
-
-  expect(() => validatePostgresValueMapping('time', context)).toThrow(SchemaError)
-
-  for (const type of ['text', 'varchar(40)']) {
-    expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
-    expect(mapPostgresResultValue(type, '03:04:00', context)).toBe('03:04:00')
-  }
-})
-
-it.each([
-  ['time', isoTime(), '03:04:05'],
-  ['time', isoTimeSecond(), '03:04:05.001'],
-  ['timestamp', isoDateTime(), '2026-01-02 03:04:05'],
-  ['timestamp', isoDateTimeSecond(), '2026-01-02 03:04:05.001'],
-])('should reject finer stored precision for authored %s output', (type, format, raw) => {
-  expect(() =>
-    mapPostgresResultValue(type, raw, {
-      schema: string(),
-      authoredSchema: pipe(string(), format),
-    }),
-  ).toThrow(QueryError)
-})
-
-it('should retain target formatting when no authored temporal facts remain', () => {
-  expect(
-    mapPostgresResultValue('time', '03:04:00', {
-      schema: pipe(string(), isoTime()),
-      authoredSchema: string(),
-    }),
-  ).toBe('03:04')
-})
-
-const rejectedScalarStorageCases: [string, AnySchema, string][] = [
-  ['date', date(), 'text'],
-  ['date', date(), 'varchar(20)'],
-  ['number', number(), 'text'],
-  ['number', number(), 'varchar(20)'],
-  ['boolean', boolean(), 'text'],
-  ['boolean', boolean(), 'varchar(20)'],
-  ['json', object({ a: number() }), 'text'],
-  ['json', object({ a: number() }), 'varchar(20)'],
-  ['number', pipe(string(), toNumber()), 'text'],
-  ['date', pipe(string(), toDate()), 'text'],
-  ['boolean', pipe(string(), toBoolean()), 'text'],
-  ['string', pipe(number(), toString()), 'integer'],
-  ['unknown', pipe(string(), parseJson()), 'text'],
-  [
-    'unknown',
-    pipe(
-      string(),
-      transform((value) => value),
-    ),
-    'text',
-  ],
-  ['number', number(), 'numeric'],
-  ['number', number(), 'decimal(10,2)'],
-  ['string', string(), 'serial'],
-  ['string', string(), 'interval'],
-  ['string', string(), 'text[]'],
-  ['string', string(), 'jsonb'],
-  ['string', string(), 'boolean'],
-  ['string', string(), 'smallint'],
-  ['string', string(), 'integer'],
-  ['string', string(), 'bigint'],
-  ['string', string(), 'real'],
-  ['string', string(), 'double precision'],
-  ['string', string(), 'oid'],
-  ['string', string(), 'json'],
-  ['string', string(), 'bytea'],
-  ['string', string(), 'point'],
-  ['string', string(), 'circle'],
-  ['boolean', boolean(), 'integer'],
-  ['date', date(), 'time'],
-  ['date', date(), 'numeric'],
-  ['bigint', bigint(), 'real'],
-  ['bigint', bigint(), 'double precision'],
-  ['bigint', bigint(), 'text'],
-  ['json', object({ a: number() }), 'integer'],
-  ['unknown', picklist(['one', 1]), 'text'],
-]
-
-describe('PostgreSQL scalar storage validation', () => {
+const registerMappingCases24 = () => {
   it.each(rejectedScalarStorageCases)(
     'should reject %s output in %s storage',
     (kind, schema, dataType) => {
@@ -624,9 +354,398 @@ describe('PostgreSQL scalar storage validation', () => {
       )
     },
   )
-})
+}
 
-it.each<[string, AnySchema, string[], unknown, unknown, unknown, unknown]>([
+function registerMappingGroup1() {
+  it('should reject unsafe JSON outputs even when JSON storage is selected', () => {
+    for (const schema of [
+      union([object({ at: date() }), object({ at: date() })]),
+      union([object({ id: bigint() }), object({ id: bigint() })]),
+    ]) {
+      expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(SchemaError)
+
+      expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(
+        /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
+      )
+    }
+  })
+}
+
+function registerMappingGroup2() {
+  it.each<[string, AnySchema, string]>([
+    ['isoDate/timestamptz', pipe(string(), isoDate()), 'timestamptz'],
+    ['isoDate/timestamp', pipe(string(), isoDate()), 'timestamp'],
+    ['isoDateTime/timestamptz', pipe(string(), isoDateTime()), 'timestamptz'],
+    ['isoDateTime/date', pipe(string(), isoDateTime()), 'date'],
+    ['isoTimestamp/timestamp', pipe(string(), isoTimestamp()), 'timestamp'],
+  ])(
+    'should reject ISO temporal format storage that changes %s',
+    (_name, schema, type) => {
+      expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
+
+      expect(() =>
+        validatePostgresValueMapping(type, { schema: string(), authoredSchema: schema }),
+      ).toThrow(/reference output formats.*paired column mapParam\/mapResult/)
+    },
+  )
+}
+
+function registerMappingGroup3() {
+  it('should accept native precision, text, varchar, and plain strings for temporal storage', () => {
+    const cases = [
+      [pipe(string(), isoTimeSecond()), 'time(0)', '03:04:05', '03:04:05', '03:04:05'],
+      [
+        pipe(string(), isoDateTime()),
+        'timestamp(0)',
+        '2026-01-02T03:04',
+        '2026-01-02 03:04:00',
+        '2026-01-02T03:04',
+      ],
+      [
+        pipe(string(), isoTimestamp()),
+        'timestamptz(6)',
+        '2026-01-02T03:04:05.123456Z',
+        '2026-01-02 03:04:05.123456+00',
+        '2026-01-02T03:04:05.123456Z',
+      ],
+      [pipe(string(), isoDate()), 'text', '2026-01-02', '2026-01-02', '2026-01-02'],
+      [
+        pipe(string(), isoDate()),
+        'varchar(40)',
+        '2026-01-02',
+        '2026-01-02',
+        '2026-01-02',
+      ],
+      [
+        string(),
+        'timestamp',
+        '2026-01-02T03:04:05',
+        '2026-01-02 03:04:05',
+        '2026-01-02T03:04:05.000Z',
+      ],
+    ] as const
+
+    for (const [schema, type, input, driver, output] of cases) {
+      expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
+      expect(mapPostgresParamValue(type, input, { schema })).toBe(input)
+      expect(mapPostgresResultValue(type, driver, { schema })).toBe(output)
+    }
+  })
+}
+
+function registerMappingGroup4() {
+  it('should use built-in JSON mapping for a recovered structured output', () => {
+    const branch = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
+    const schema = union([branch, branch])
+    const output = { at: new Date('2026-01-01T00:00:00.000Z').toString() }
+
+    expect(() => validatePostgresValueMapping('jsonb', { schema })).not.toThrow()
+
+    expect(mapPostgresParamValue('jsonb', output, { schema })).toBe(
+      JSON.stringify(output),
+    )
+
+    expect(mapPostgresResultValue('jsonb', JSON.stringify(output))).toEqual(output)
+  })
+}
+
+function registerMappingGroup5() {
+  it('should reject non-finite nested numbers before JSON serialization', () => {
+    const schema = union([object({ value: number() }), object({ value: number() })])
+    expect(() =>
+      mapPostgresParamValue('jsonb', { value: Number.POSITIVE_INFINITY }, { schema }),
+    ).toThrow(QueryError)
+  })
+}
+
+function registerMappingGroup6() {
+  it('should check authored JSON composites for non-finite parameters', () => {
+    const target = object({ value: number() })
+    const authoredSchema = union([
+      object({ value: number() }),
+      object({ value: number() }),
+    ])
+
+    expect(() =>
+      mapPostgresParamValue(
+        'jsonb',
+        { value: Number.POSITIVE_INFINITY },
+        { schema: target, authoredSchema },
+      ),
+    ).toThrow(QueryError)
+  })
+}
+
+function registerMappingGroup7() {
+  describe('PostgreSQL composite value mapping', () => {
+    registerMappingCases7()
+  })
+}
+
+function registerMappingGroup8() {
+  describe('PostgreSQL composite value mapping', () => {
+    registerMappingCases8()
+  })
+}
+
+function registerMappingGroup9() {
+  describe('PostgreSQL temporal value mapping', () => {
+    registerMappingCases9()
+  })
+}
+
+function registerMappingGroup10() {
+  describe('PostgreSQL temporal value mapping', () => {
+    registerMappingCases10()
+  })
+}
+
+function registerMappingGroup11() {
+  describe('PostgreSQL context-free value mapping', () => {
+    registerMappingCases11()
+  })
+}
+
+function registerMappingGroup12() {
+  it('should apply underlying integer width rules to serial composite storage', () => {
+    const schema = union([pipe(number(), safeInteger()), literal(42)])
+    for (const type of ['bigserial', 'bigint']) {
+      expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
+      expect(mapPostgresResultValue(type, '42', { schema })).toBe(42)
+    }
+
+    for (const type of ['smallserial', 'smallint', 'serial', 'integer'])
+      expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
+  })
+}
+
+function registerMappingGroup13() {
+  it.each([
+    ['smallserial', 42],
+    ['serial', 42],
+    ['bigserial', '42'],
+    [' SMALLSERIAL ', 42],
+    [' SERIAL ', 42],
+    [' BIGSERIAL ', '42'],
+    ['smallint', 42],
+    ['integer', 42],
+    ['bigint', '42'],
+  ])('should preserve number and bigint outputs through %s storage', (type, raw) => {
+    expect(() => validatePostgresValueMapping(type, bigintContext)).not.toThrow()
+    expect(() => validatePostgresValueMapping(type, numberContext)).not.toThrow()
+    expect(mapPostgresParamValue(type, 42n, bigintContext)).toBe('42')
+    expect(mapPostgresResultValue(type, raw, bigintContext)).toBe(42n)
+    expect(mapPostgresParamValue(type, 42, numberContext)).toBe(42)
+    expect(mapPostgresResultValue(type, raw, numberContext)).toBe(42)
+  })
+}
+
+function registerMappingGroup14() {
+  it.each(['smallserial', 'serial', 'bigserial', 'smallint', 'integer', 'bigint'])(
+    'should reject inexact bigint conversions through %s storage',
+    (type) => {
+      for (const value of [9007199254740992, -9007199254740992, 42.5, '42.5']) {
+        expect(() => mapPostgresParamValue(type, value, bigintContext)).toThrow(
+          QueryError,
+        )
+
+        expect(() => mapPostgresResultValue(type, value, bigintContext)).toThrow(
+          QueryError,
+        )
+      }
+    },
+  )
+}
+
+function registerMappingGroup15() {
+  it.each(['bigserial', 'bigint'])(
+    'should guard number conversions through %s storage in both directions',
+    (type) => {
+      for (const value of [-9007199254740991, 9007199254740991]) {
+        expect(mapPostgresParamValue(type, value, numberContext)).toBe(value)
+        expect(mapPostgresResultValue(type, String(value), numberContext)).toBe(value)
+      }
+
+      for (const value of [
+        9007199254740992,
+        -9007199254740992,
+        '9007199254740993',
+        '-9007199254740993',
+        9007199254740993n,
+        42.5,
+        '42.5',
+      ]) {
+        expect(() => mapPostgresParamValue(type, value, numberContext)).toThrow(
+          QueryError,
+        )
+
+        expect(() => mapPostgresResultValue(type, value, numberContext)).toThrow(
+          QueryError,
+        )
+      }
+
+      expect(mapPostgresParamValue(type, 9007199254740993n, bigintContext)).toBe(
+        '9007199254740993',
+      )
+
+      expect(mapPostgresResultValue(type, '9007199254740993', bigintContext)).toBe(
+        9007199254740993n,
+      )
+    },
+  )
+}
+
+function registerMappingGroup16() {
+  it.each(['smallserial', 'serial', 'bigserial', 'smallint', 'integer', 'bigint'])(
+    'should preserve absent values and context-free representations through %s',
+    (type) => {
+      for (const context of [numberContext, bigintContext]) {
+        expect(mapPostgresParamValue(type, null, context)).toBeNull()
+        expect(mapPostgresResultValue(type, null, context)).toBeNull()
+        expect(mapPostgresParamValue(type, undefined, context)).toBeUndefined()
+        expect(mapPostgresResultValue(type, undefined, context)).toBeUndefined()
+      }
+
+      expect(mapPostgresParamValue(type, 42n)).toBe(42n)
+      expect(mapPostgresResultValue(type, '9007199254740993')).toBe('9007199254740993')
+      expect(mapPostgresResultValue(type, 42)).toBe(42)
+    },
+  )
+}
+
+function registerMappingGroup17() {
+  describe('PostgreSQL integral value mapping', () => {
+    registerMappingCases17()
+  })
+}
+
+function registerMappingGroup18() {
+  describe('PostgreSQL numeric safety and representations', () => {
+    registerMappingCases18()
+  })
+}
+
+function registerMappingGroup19() {
+  it.each([
+    ['time', isoTime(), isoTimeSecond(), '03:04:00', '03:04:00'],
+    ['time', isoTimeSecond(), isoTime(), '03:04:00', '03:04'],
+    ['time without time zone', isoTimeSecond(), isoTimeSecond(), '03:04:05', '03:04:05'],
+    [
+      'timestamp',
+      isoDateTime(),
+      isoDateTimeSecond(),
+      '2026-01-02 03:04:00',
+      '2026-01-02T03:04:00',
+    ],
+    [
+      'timestamp',
+      isoDateTimeSecond(),
+      isoDateTime(),
+      '2026-01-02 03:04:00',
+      '2026-01-02T03:04',
+    ],
+    ['date', isoDate(), isoDate(), '2026-01-02', '2026-01-02'],
+    [
+      'timestamptz',
+      isoTimestamp(),
+      isoTimestamp(),
+      '2026-01-02 03:04:05+11',
+      '2026-01-02T03:04:05+11:00',
+    ],
+  ])(
+    'should use the authored format with %s storage',
+    (type, target, local, raw, expected) => {
+      const context = {
+        schema: pipe(string(), target),
+        authoredSchema: pipe(string(), local),
+      }
+
+      expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
+      expect(mapPostgresResultValue(type, raw, context)).toBe(expected)
+    },
+  )
+}
+
+function registerMappingGroup20() {
+  it.each([
+    ['time', isoDateTimeSecond()],
+    ['timestamp', isoTimeSecond()],
+    ['timestamptz', isoDateTimeSecond()],
+    ['date', isoTimestamp()],
+    ['time', isoDate()],
+  ])('should reject incompatible authored formats with %s storage', (type, format) => {
+    const context = { schema: string(), authoredSchema: pipe(string(), format) }
+    expect(() => validatePostgresValueMapping(type, context)).toThrow(SchemaError)
+    expect(() => validatePostgresValueMapping(type, context)).toThrow(format.type)
+    expect(() => validatePostgresValueMapping(type, context)).toThrow(type)
+
+    expect(() => validatePostgresValueMapping(type, context)).toThrow(
+      /paired column mapParam\/mapResult or client mapParamValue\/mapResultValue/,
+    )
+  })
+}
+
+function registerMappingGroup21() {
+  it('should reject ambiguous native formats and preserve explicit text spelling', () => {
+    const context = {
+      schema: pipe(string(), isoTime()),
+      authoredSchema: pipe(string(), isoTime(), isoTimeSecond()),
+    }
+
+    expect(() => validatePostgresValueMapping('time', context)).toThrow(SchemaError)
+
+    for (const type of ['text', 'varchar(40)']) {
+      expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
+      expect(mapPostgresResultValue(type, '03:04:00', context)).toBe('03:04:00')
+    }
+  })
+}
+
+function registerMappingGroup22() {
+  it.each([
+    ['time', isoTime(), '03:04:05'],
+    ['time', isoTimeSecond(), '03:04:05.001'],
+    ['timestamp', isoDateTime(), '2026-01-02 03:04:05'],
+    ['timestamp', isoDateTimeSecond(), '2026-01-02 03:04:05.001'],
+  ])(
+    'should reject finer stored precision for authored %s output',
+    (type, format, raw) => {
+      expect(() =>
+        mapPostgresResultValue(type, raw, {
+          schema: string(),
+          authoredSchema: pipe(string(), format),
+        }),
+      ).toThrow(QueryError)
+    },
+  )
+}
+
+function registerMappingGroup23() {
+  it('should retain target formatting when no authored temporal facts remain', () => {
+    expect(
+      mapPostgresResultValue('time', '03:04:00', {
+        schema: pipe(string(), isoTime()),
+        authoredSchema: string(),
+      }),
+    ).toBe('03:04')
+  })
+}
+
+function registerMappingGroup24() {
+  describe('PostgreSQL scalar storage validation', () => {
+    registerMappingCases24()
+  })
+}
+
+const registerMappingGroup25Data: [
+  string,
+  AnySchema,
+  string[],
+  unknown,
+  unknown,
+  unknown,
+  unknown,
+][] = [
   [
     'PM1 plain date string',
     string(),
@@ -813,16 +932,50 @@ it.each<[string, AnySchema, string[], unknown, unknown, unknown, unknown]>([
   ],
   ['PM7 unknown', unknown(), ['text'], '00123', '00123', '00123', '00123'],
   ['PM7 any', any(), ['jsonb'], { a: 42 }, '{"a":42}', '{"a":42}', { a: 42 }],
-])(
-  'PostgreSQL should validate and map %s independently for every storage alias',
-  (_id, schema, types, input, parameter, driver, output) => {
-    for (const type of types) {
-      const context = { schema }
-      expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
-      expect(mapPostgresParamValue(type, input, context)).toEqual(parameter)
-      expect(mapPostgresResultValue(type, driver, context)).toEqual(output)
-      expect(mapPostgresParamValue(type, null, context)).toBeNull()
-      expect(mapPostgresResultValue(type, null, context)).toBeNull()
-    }
-  },
-)
+]
+
+function registerMappingGroup25() {
+  it.each<[string, AnySchema, string[], unknown, unknown, unknown, unknown]>(
+    registerMappingGroup25Data,
+  )(
+    'PostgreSQL should validate and map %s independently for every storage alias',
+    (_id, schema, types, input, parameter, driver, output) => {
+      for (const type of types) {
+        const context = { schema }
+        expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
+        expect(mapPostgresParamValue(type, input, context)).toEqual(parameter)
+        expect(mapPostgresResultValue(type, driver, context)).toEqual(output)
+        expect(mapPostgresParamValue(type, null, context)).toBeNull()
+        expect(mapPostgresResultValue(type, null, context)).toBeNull()
+      }
+    },
+  )
+}
+
+describe('PostgreSQL mapping', () => {
+  registerMappingGroup1()
+  registerMappingGroup2()
+  registerMappingGroup3()
+  registerMappingGroup4()
+  registerMappingGroup5()
+  registerMappingGroup6()
+  registerMappingGroup7()
+  registerMappingGroup8()
+  registerMappingGroup9()
+  registerMappingGroup10()
+  registerMappingGroup11()
+  registerMappingGroup12()
+  registerMappingGroup13()
+  registerMappingGroup14()
+  registerMappingGroup15()
+  registerMappingGroup16()
+  registerMappingGroup17()
+  registerMappingGroup18()
+  registerMappingGroup19()
+  registerMappingGroup20()
+  registerMappingGroup21()
+  registerMappingGroup22()
+  registerMappingGroup23()
+  registerMappingGroup24()
+  registerMappingGroup25()
+})

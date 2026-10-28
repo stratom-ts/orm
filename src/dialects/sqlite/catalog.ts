@@ -3,7 +3,6 @@ import type {
   CatalogDiagnostic,
   CatalogExecutor,
   CatalogFact,
-  CatalogIntrospector,
   CatalogNameReservation,
   CatalogNamespace,
   CatalogNoEvidence,
@@ -1457,7 +1456,8 @@ async function collectConsistentNameReservations(
   )
 }
 
-export const sqliteCatalog: CatalogIntrospector = {
+/** SQLite catalog observation. */
+export const sqliteCatalog = {
   introspectCatalog: introspectSqliteCatalog,
 }
 

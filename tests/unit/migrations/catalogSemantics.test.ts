@@ -7,15 +7,15 @@ import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { generatedUniqueName } from '@/migrations/physicalNaming'
 
-import { columnReference, columnTarget } from '../helpers/planTargets'
 import type {
   PostgresCatalogForeignKeyFixture as CatalogForeignKey,
   PostgresCatalogSnapshotFixture as CatalogSnapshot,
-} from '../helpers/postgresCatalogFixtures'
+} from '../dialects/postgresCatalogFixtures'
 import {
   postgresCatalogPrimaryKey as createCatalogPrimaryKey,
   planPostgresMigration as planMigration,
-} from '../helpers/postgresCatalogFixtures'
+} from '../dialects/postgresCatalogFixtures'
+import { columnReference, columnTarget } from '../helpers/planTargets'
 
 const namespaceContext = {
   writableDefault: [

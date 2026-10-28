@@ -10,13 +10,12 @@ import type {
 } from '@/dialects'
 import { column, defineTable, postgresDialect } from '@/index'
 
+import type { MigrationContractCase, QueryCompilerScenarios } from './dialectContractKit'
+import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
 import {
   createMockPostgresConnector,
   createMockStatement,
-} from '../helpers/nativePostgresClient'
-
-import type { MigrationContractCase, QueryCompilerScenarios } from './dialectContractKit'
-import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
+} from './postgresNativeClientFixtures'
 
 const createPostgresLifecycleRuntimeData: MigrationPlan = {
   steps: [

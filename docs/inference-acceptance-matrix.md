@@ -12,6 +12,12 @@ catalog/convergence, and inferred read/write types. A native CRUD check includes
 insert returning, a value predicate, select, and update returning. Where several
 schemas use one mapping behavior, the equivalence rule below bounds native checks.
 
+Current-path mapping after the dialect naming cleanup: the baseline evidence name
+`sqlitePhysicalValueTypes` now resolves to
+`tests/integration/sqlite/sqlite.valueMapping.test.ts`. PostgreSQL override cases from
+`postgres.overrideMapping.test.ts` now live in `postgres.valueMapping.test.ts`.
+The baseline and historical evidence names below remain unchanged.
+
 ## Inferred output families
 
 | ID  | Authored schema or constraint                          | Result                 | PostgreSQL storage                  | SQLite storage                      | JavaScript output                                  | Boundaries |

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { QueryError, column, createDatabase, defineTable, postgresDialect } from '@/index'
 
-import { createNativePostgresClient } from './helpers/nativePostgresClient'
+import { createNativePostgresClient } from './dialects/postgresNativeClientFixtures'
 
 /**
  * Creates a reusable db0 statement fixture with deterministic rows and optional execution

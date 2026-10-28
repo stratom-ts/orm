@@ -15,7 +15,7 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 import type { ReferentialAction } from '@/schemas/actions/types'
 
-import { isSqliteDefaultLiteral, trimSqliteWhitespace } from './defaults'
+import { isSqliteDefaultLiteral, trimSqliteWhitespace } from './defaultExpression'
 import type { sqliteIdentity } from './identity'
 import { asciiFoldSqliteIdentifier } from './identity'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'

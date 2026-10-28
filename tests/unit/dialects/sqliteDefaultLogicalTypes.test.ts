@@ -1,5 +1,5 @@
 import { array, bigint, boolean, date, number, object, pipe, string } from 'valibot'
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { column, createDatabase, defineTable } from '@/index'
 import type { AnySchema } from '@/types/schema'
@@ -8,7 +8,12 @@ import { customConnector } from '../helpers/operationSessionFixtures'
 
 import { createSqliteControllableProvider } from './sqliteSharedFixtures'
 
-it.each<[string, AnySchema, string | number | boolean | null, string]>([
+const registerDefaultLogicalTypesGroup1Data: [
+  string,
+  AnySchema,
+  string | number | boolean | null,
+  string,
+][] = [
   ['Boolean numeric value outside 0/1', boolean(), 2, 'INTEGER'],
   ['number with unconverted numeric text', number(), '12', 'BLOB'],
   ['number with non-ASCII numeric whitespace', number(), '0\u00a0', 'INTEGER'],
@@ -25,18 +30,58 @@ it.each<[string, AnySchema, string | number | boolean | null, string]>([
   ['object with array JSON', object({}), '[]', 'JSON'],
   ['array with object JSON', array(string()), '{}', 'TEXT'],
   ['Date with time-only text', date(), '12:34:56', 'TEXT'],
-])(
-  'should reject %s during desired-schema validation',
-  async (_name, schema, value, type) => {
+]
+
+function registerDefaultLogicalTypesGroup1() {
+  it.each<[string, AnySchema, string | number | boolean | null, string]>(
+    registerDefaultLogicalTypesGroup1Data,
+  )(
+    'should reject %s during desired-schema validation',
+    async (_name, schema, value, type) => {
+      const Records = defineTable(
+        'records',
+        {
+          id: number(),
+          value: pipe(
+            schema,
+            column({
+              physicalType: { sqlite: type },
+              databaseDefault: { kind: 'literal', value },
+            }),
+          ),
+        },
+        { primaryKey: 'id' },
+      )
+
+      const db = createDatabase({
+        connector: customConnector('sqlite'),
+        schemas: [Records],
+        operationSessionProvider: createSqliteControllableProvider().provider,
+      })
+
+      try {
+        await expect(db.migrate().dryRun()).rejects.toMatchObject({
+          stage: 'planning',
+          outcome: 'unchanged',
+        })
+      } finally {
+        await db.close()
+      }
+    },
+  )
+}
+
+function registerDefaultLogicalTypesGroup2() {
+  it('should not let a parameter-only mapping approve incompatible omitted defaults', async () => {
     const Records = defineTable(
       'records',
       {
         id: number(),
         value: pipe(
-          schema,
+          boolean(),
           column({
-            physicalType: { sqlite: type },
-            databaseDefault: { kind: 'literal', value },
+            databaseDefault: { kind: 'literal', value: 'false' },
+            mapParam: (value) => (value ? 1 : 0),
           }),
         ),
       },
@@ -47,6 +92,7 @@ it.each<[string, AnySchema, string | number | boolean | null, string]>([
       connector: customConnector('sqlite'),
       schemas: [Records],
       operationSessionProvider: createSqliteControllableProvider().provider,
+      map: { mapParamValue: (_type, value) => value },
     })
 
     try {
@@ -57,38 +103,10 @@ it.each<[string, AnySchema, string | number | boolean | null, string]>([
     } finally {
       await db.close()
     }
-  },
-)
-
-it('should not let a parameter-only mapping approve incompatible omitted defaults', async () => {
-  const Records = defineTable(
-    'records',
-    {
-      id: number(),
-      value: pipe(
-        boolean(),
-        column({
-          databaseDefault: { kind: 'literal', value: 'false' },
-          mapParam: (value) => (value ? 1 : 0),
-        }),
-      ),
-    },
-    { primaryKey: 'id' },
-  )
-
-  const db = createDatabase({
-    connector: customConnector('sqlite'),
-    schemas: [Records],
-    operationSessionProvider: createSqliteControllableProvider().provider,
-    map: { mapParamValue: (_type, value) => value },
   })
+}
 
-  try {
-    await expect(db.migrate().dryRun()).rejects.toMatchObject({
-      stage: 'planning',
-      outcome: 'unchanged',
-    })
-  } finally {
-    await db.close()
-  }
+describe('SQLite default logical types', () => {
+  registerDefaultLogicalTypesGroup1()
+  registerDefaultLogicalTypesGroup2()
 })

@@ -15,7 +15,7 @@ import {
 } from '@/index'
 import { createInsertBuilder } from '@/query'
 
-import { createMockPostgresConnector } from '../helpers/nativePostgresClient'
+import { createMockPostgresConnector } from '../dialects/postgresNativeClientFixtures'
 
 const Records = defineTable(
   'upsert_records',

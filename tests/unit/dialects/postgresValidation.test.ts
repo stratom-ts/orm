@@ -39,7 +39,7 @@ function col(
 
 const compile = compilePostgresDdl
 
-describe('PostgreSQL SQL safety', () => {
+const registerValidationCases1 = () => {
   it('should tag unsafe types, unsupported types, and non-finite defaults as schema errors', () => {
     expect(() => assertSafePostgresDataType('text; drop table users')).toThrow(
       SchemaError,
@@ -49,9 +49,9 @@ describe('PostgreSQL SQL safety', () => {
 
     expect(() => formatPostgresDefault(Number.POSITIVE_INFINITY)).toThrow(SchemaError)
   })
-})
+}
 
-describe('PostgreSQL SQL safety', () => {
+const registerValidationCases2 = () => {
   it('should accept common types and normalize casing', () => {
     const sql = compile(
       createTable(
@@ -93,9 +93,9 @@ describe('PostgreSQL SQL safety', () => {
       /unsupported/,
     )
   })
-})
+}
 
-describe('PostgreSQL SQL safety', () => {
+const registerValidationCases3 = () => {
   it('should reject via alter_column_type path', () => {
     expect(() =>
       compile({
@@ -130,9 +130,9 @@ describe('PostgreSQL SQL safety', () => {
       }),
     ).toThrow(/unsafe/)
   })
-})
+}
 
-describe('PostgreSQL SQL safety', () => {
+const registerValidationCases4 = () => {
   it('should emit now() unquoted in default', () => {
     const sql = compile(
       createTable(
@@ -170,9 +170,9 @@ describe('PostgreSQL SQL safety', () => {
 
     expect(sql).toContain('default now()')
   })
-})
+}
 
-describe('PostgreSQL SQL safety', () => {
+const registerValidationCases5 = () => {
   it('should emit null, true, false as SQL literals', () => {
     const sql = compile(
       createTable(
@@ -202,9 +202,9 @@ describe('PostgreSQL SQL safety', () => {
 
     expect(sql).toContain("default 'O''Brien'")
   })
-})
+}
 
-describe('PostgreSQL SQL safety', () => {
+const registerValidationCases6 = () => {
   it('should prefer pre-normalized database defaults during compilation', () => {
     const sql = compile(
       createTable(
@@ -230,9 +230,9 @@ describe('PostgreSQL SQL safety', () => {
 
     expect(sql).toContain("default 'drop table users'")
   })
-})
+}
 
-describe('PostgreSQL SQL safety', () => {
+const registerValidationCases7 = () => {
   it('should quote strings that look like injection attempts', () => {
     const sql = compile(
       createTable(col('n', { dataType: 'text', defaultValue: 'now(); select 1' })),
@@ -240,4 +240,56 @@ describe('PostgreSQL SQL safety', () => {
 
     expect(sql).toContain("default 'now(); select 1'")
   })
+}
+
+function registerValidationGroup1() {
+  describe('PostgreSQL SQL safety', () => {
+    registerValidationCases1()
+  })
+}
+
+function registerValidationGroup2() {
+  describe('PostgreSQL SQL safety', () => {
+    registerValidationCases2()
+  })
+}
+
+function registerValidationGroup3() {
+  describe('PostgreSQL SQL safety', () => {
+    registerValidationCases3()
+  })
+}
+
+function registerValidationGroup4() {
+  describe('PostgreSQL SQL safety', () => {
+    registerValidationCases4()
+  })
+}
+
+function registerValidationGroup5() {
+  describe('PostgreSQL SQL safety', () => {
+    registerValidationCases5()
+  })
+}
+
+function registerValidationGroup6() {
+  describe('PostgreSQL SQL safety', () => {
+    registerValidationCases6()
+  })
+}
+
+function registerValidationGroup7() {
+  describe('PostgreSQL SQL safety', () => {
+    registerValidationCases7()
+  })
+}
+
+describe('PostgreSQL validation', () => {
+  registerValidationGroup1()
+  registerValidationGroup2()
+  registerValidationGroup3()
+  registerValidationGroup4()
+  registerValidationGroup5()
+  registerValidationGroup6()
+  registerValidationGroup7()
 })

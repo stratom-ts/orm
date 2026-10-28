@@ -4,7 +4,7 @@ import {
   isSqliteDefaultExpression,
   isSqliteDefaultLiteral,
   trimSqliteWhitespace,
-} from './defaults'
+} from './defaultExpression'
 
 /** Known SQLite validation rejection consumed by migration lowering. */
 export class SqliteValidationError extends MigrationError {}

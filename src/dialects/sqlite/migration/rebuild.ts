@@ -11,11 +11,17 @@ import {
   literalDefault,
   observedDefinition,
   observedTable,
-  quoteSqliteIdentifier,
   sameName,
 } from './definition'
 import { capabilityError } from './error'
-import { address, columnsSql, createSql, indexSql, statement } from './sql'
+import {
+  address,
+  columnsSql,
+  createSql,
+  indexSql,
+  quoteSqliteIdentifier,
+  statement,
+} from './sql'
 
 export type TableGroup = {
   identity: CanonicalRelationIdentity

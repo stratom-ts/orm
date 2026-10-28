@@ -63,98 +63,7 @@ import { attemptSync } from '@/utils/error'
 
 const { inferColumnType } = postgresDialect.schema
 
-it('should infer number storage for a nullable transformed output', () => {
-  expect(
-    inferColumnType(
-      pipe(
-        string(),
-        transform((value): number | null => (value === 'null' ? null : Number(value))),
-        nullable(number()),
-      ),
-    ),
-  ).toBe('double precision')
-})
-
-it('should retain bigint width from finite and composite proofs through later numeric schemas', () => {
-  const schemas = [
-    pipe(
-      union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
-      number(),
-      integer(),
-    ),
-    pipe(literal<number>(2147483648), number(), integer()),
-    pipe(picklist([2147483648] as number[]), number(), integer()),
-    pipe(picklist([2147483648, 5] as number[]), number(), integer(), maxValue(10)),
-    pipe(
-      union([literal<number>(2147483648), literal<number>(5)]),
-      number(),
-      integer(),
-      maxValue(10),
-    ),
-    pipe(
-      picklist([2147483648, 5] as number[]),
-      union([number(), number()]),
-      integer(),
-      maxValue(10),
-    ),
-    pipe(
-      enumSchema({ large: 2147483648, small: 5 } as Record<string, number>),
-      number(),
-      integer(),
-      maxValue(10),
-    ),
-  ]
-
-  expect(schemas.slice(0, 3).map((schema) => inferColumnType(schema))).toEqual([
-    'bigint',
-    'bigint',
-    'bigint',
-  ])
-
-  expect(schemas.slice(3).map((schema) => inferColumnType(schema))).toEqual([
-    'smallint',
-    'integer',
-    'smallint',
-    'smallint',
-  ])
-})
-
-it('should narrow finite bigint branches with later numeric bounds', () => {
-  const branches = [literal<bigint>(2n ** 64n), literal<bigint>(5n)]
-  const bounded = pipe(union(branches), bigint(), maxValue(10n))
-  const nestedBounded = pipe(union(branches), pipe(bigint(), maxValue(10n)))
-
-  expect([bounded, nestedBounded].map((schema) => inferColumnType(schema))).toEqual([
-    'bigint',
-    'bigint',
-  ])
-})
-
-it('should retain nested safe-integer branch proofs through later numeric schemas', () => {
-  const schema = pipe(
-    union([
-      union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
-      union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
-    ]),
-    number(),
-    integer(),
-  )
-
-  expect(inferColumnType(schema)).toBe('bigint')
-})
-
-it('should infer jsonb for recovered structured outputs', () => {
-  const converted = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
-  const projected = pipe(
-    object({ at: date(), label: string() }),
-    object({ label: string() }) as never,
-  )
-
-  expect(inferColumnType(union([converted, converted]))).toBe('jsonb')
-  expect(inferColumnType(union([projected, projected]))).toBe('jsonb')
-})
-
-describe('PostgreSQL schema', () => {
+const registerSchemaCases6 = () => {
   it('should widen compatible composite storage and retain nullability independently', () => {
     expect(
       inferColumnType(
@@ -181,9 +90,9 @@ describe('PostgreSQL schema', () => {
       inferColumnType(union([union([nullSchema(), literal(null as never)]), string()])),
     ).toBe('text')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases7 = () => {
   it('should widen safe numeric branches without losing precision', () => {
     expect(inferColumnType(union([pipe(number(), safeInteger()), number()]))).toBe(
       'double precision',
@@ -225,9 +134,9 @@ describe('PostgreSQL schema', () => {
       ),
     ).toBe('double precision')
   })
-})
+}
 
-describe('PostgreSQL bigint composite schema', () => {
+const registerSchemaCases8 = () => {
   it('should apply outer bigint bounds through compatible nested branches', () => {
     const min = -(2n ** 63n)
     const max = 2n ** 63n - 1n
@@ -261,9 +170,9 @@ describe('PostgreSQL bigint composite schema', () => {
       expect(safeParse(schema, max)).toMatchObject({ success: true, output: max })
     }
   })
-})
+}
 
-describe('PostgreSQL bigint composite schema', () => {
+const registerSchemaCases9 = () => {
   it('should retain numeric when effective bigint branch bounds do not prove int64 storage', () => {
     const min = -(2n ** 63n)
     const max = 2n ** 63n - 1n
@@ -278,9 +187,9 @@ describe('PostgreSQL bigint composite schema', () => {
 
     for (const schema of schemas) expect(inferColumnType(schema)).toBe('numeric')
   })
-})
+}
 
-describe('PostgreSQL bigint composite schema', () => {
+const registerSchemaCases10 = () => {
   it('should reject incompatible or unresolved composite output despite outer bigint bounds', () => {
     const schemas = [
       pipe(union([bigint(), number()]), minValue(0n), maxValue(100n)),
@@ -294,9 +203,9 @@ describe('PostgreSQL bigint composite schema', () => {
     for (const schema of schemas)
       expect(() => inferColumnType(schema)).toThrow(SchemaError)
   })
-})
+}
 
-describe('PostgreSQL numeric composite schema', () => {
+const registerSchemaCases11 = () => {
   it('should apply outer numeric constraints to compatible branches', () => {
     expect(
       inferColumnType(
@@ -338,9 +247,9 @@ describe('PostgreSQL numeric composite schema', () => {
       ),
     ).toBe('smallint')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases12 = () => {
   it('should infer JSON variants and object intersections', () => {
     const schema = variant('kind', [
       object({ kind: literal('a'), value: string() }),
@@ -399,9 +308,9 @@ describe('PostgreSQL schema', () => {
     ])
       expect(() => inferColumnType(schema)).toThrow(SchemaError)
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases13 = () => {
   it.each([
     [isoDate(), 'date'],
     [isoTime(), 'time'],
@@ -450,9 +359,9 @@ describe('PostgreSQL schema', () => {
   it('should normalize a default value to the catalog comparison key', () => {
     expect(postgresDialect.schema.normalizeDefaultValue?.('pending')).toBe("'pending'")
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases14 = () => {
   it('should infer UUID through wrappers and nested pipes before length storage', () => {
     const schemas = [
       pipe(string(), uuid()),
@@ -488,9 +397,9 @@ describe('PostgreSQL schema', () => {
     expect(inferColumnType(pipe(string(), regex(/^[a-z]+$/)))).toBe('text')
     expect(inferColumnType(pipe(string(), email(), maxLength(60)))).toBe('varchar(60)')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases15 = () => {
   it('should return text for string schema without constraints', () => {
     expect(inferColumnType(string())).toBe('text')
   })
@@ -524,9 +433,9 @@ describe('PostgreSQL schema', () => {
 
     for (const schema of schemas) expect(inferColumnType(schema)).toBe('varchar(40)')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases16 = () => {
   it('should return double precision for a plain number (JS numbers are doubles)', () => {
     expect(inferColumnType(number())).toBe('double precision')
   })
@@ -567,9 +476,9 @@ describe('PostgreSQL schema', () => {
 
     expect(inferColumnType(pipe(string(), toNumber(), safeInteger()))).toBe('bigint')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases17 = () => {
   it('should return text for string literal', () => {
     expect(inferColumnType(literal('active'))).toBe('text')
   })
@@ -585,11 +494,12 @@ describe('PostgreSQL schema', () => {
   it('should return boolean for boolean literal', () => {
     expect(inferColumnType(literal(true))).toBe('boolean')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases18 = () => {
   it('should infer homogeneous choice families from their output values', () => {
     expect(inferColumnType(enumSchema({ first: 'first', second: 'second' }))).toBe('text')
+
     expect(inferColumnType(picklist(['first', 'second']))).toBe('text')
     expect(inferColumnType(picklist([1, 2]))).toBe('smallint')
     expect(inferColumnType(enumSchema({ first: 1, second: 2 }))).toBe('smallint')
@@ -629,9 +539,9 @@ describe('PostgreSQL schema', () => {
     expect(inferColumnType(picklist([0n, min - 1n]))).toBe('numeric')
     expect(inferColumnType(picklist([0n, max + 1n]))).toBe('numeric')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases19 = () => {
   it.each([
     ['NaN', picklist([0, Number.NaN])],
     ['positive infinity', picklist([0, Number.POSITIVE_INFINITY])],
@@ -687,9 +597,9 @@ describe('PostgreSQL schema', () => {
 
     expect(inferColumnType(pipe(picklist([1, 2]), toString()))).toBe('text')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases20 = () => {
   it('should return timestamptz for date schema', () => {
     expect(inferColumnType(date())).toBe('timestamptz')
   })
@@ -733,9 +643,9 @@ describe('PostgreSQL schema', () => {
     expect(() => inferColumnType(schema)).toThrow(SchemaError)
     expect(() => inferColumnType(schema)).toThrow(/cannot infer a SQL column type/)
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases21 = () => {
   const formats = [
     [uuid(), 'uuid'],
     [ip(), 'inet'],
@@ -790,9 +700,9 @@ describe('PostgreSQL schema', () => {
       ),
     ).toBe('double precision')
   })
-})
+}
 
-describe('PostgreSQL schema', () => {
+const registerSchemaCases22 = () => {
   const nativeTargets = [uuid(), ip(), mac48(), mac64(), decimal()] as const
   const conflicts = nativeTargets.flatMap((first, index) =>
     nativeTargets.slice(index + 1).map((second) => ({ first, second })),
@@ -848,4 +758,236 @@ describe('PostgreSQL schema', () => {
 
     expect(reverse.ok ? undefined : reverse.error).toBeInstanceOf(SchemaError)
   })
+}
+
+function registerSchemaGroup1() {
+  it('should infer number storage for a nullable transformed output', () => {
+    expect(
+      inferColumnType(
+        pipe(
+          string(),
+          transform((value): number | null => (value === 'null' ? null : Number(value))),
+          nullable(number()),
+        ),
+      ),
+    ).toBe('double precision')
+  })
+}
+
+function registerSchemaGroup2() {
+  it('should retain bigint width from finite and composite proofs through later numeric schemas', () => {
+    const schemas = [
+      pipe(
+        union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+        number(),
+        integer(),
+      ),
+      pipe(literal<number>(2147483648), number(), integer()),
+      pipe(picklist([2147483648] as number[]), number(), integer()),
+      pipe(picklist([2147483648, 5] as number[]), number(), integer(), maxValue(10)),
+      pipe(
+        union([literal<number>(2147483648), literal<number>(5)]),
+        number(),
+        integer(),
+        maxValue(10),
+      ),
+      pipe(
+        picklist([2147483648, 5] as number[]),
+        union([number(), number()]),
+        integer(),
+        maxValue(10),
+      ),
+      pipe(
+        enumSchema({ large: 2147483648, small: 5 } as Record<string, number>),
+        number(),
+        integer(),
+        maxValue(10),
+      ),
+    ]
+
+    expect(schemas.slice(0, 3).map((schema) => inferColumnType(schema))).toEqual([
+      'bigint',
+      'bigint',
+      'bigint',
+    ])
+
+    expect(schemas.slice(3).map((schema) => inferColumnType(schema))).toEqual([
+      'smallint',
+      'integer',
+      'smallint',
+      'smallint',
+    ])
+  })
+}
+
+function registerSchemaGroup3() {
+  it('should narrow finite bigint branches with later numeric bounds', () => {
+    const branches = [literal<bigint>(2n ** 64n), literal<bigint>(5n)]
+    const bounded = pipe(union(branches), bigint(), maxValue(10n))
+    const nestedBounded = pipe(union(branches), pipe(bigint(), maxValue(10n)))
+
+    expect([bounded, nestedBounded].map((schema) => inferColumnType(schema))).toEqual([
+      'bigint',
+      'bigint',
+    ])
+  })
+}
+
+function registerSchemaGroup4() {
+  it('should retain nested safe-integer branch proofs through later numeric schemas', () => {
+    const schema = pipe(
+      union([
+        union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+        union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+      ]),
+      number(),
+      integer(),
+    )
+
+    expect(inferColumnType(schema)).toBe('bigint')
+  })
+}
+
+function registerSchemaGroup5() {
+  it('should infer jsonb for recovered structured outputs', () => {
+    const converted = pipe(
+      object({ at: date() }),
+      object({ at: pipe(date(), toString()) }),
+    )
+
+    const projected = pipe(
+      object({ at: date(), label: string() }),
+      object({ label: string() }) as never,
+    )
+
+    expect(inferColumnType(union([converted, converted]))).toBe('jsonb')
+    expect(inferColumnType(union([projected, projected]))).toBe('jsonb')
+  })
+}
+
+function registerSchemaGroup6() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases6()
+  })
+}
+
+function registerSchemaGroup7() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases7()
+  })
+}
+
+function registerSchemaGroup8() {
+  describe('PostgreSQL bigint composite schema', () => {
+    registerSchemaCases8()
+  })
+}
+
+function registerSchemaGroup9() {
+  describe('PostgreSQL bigint composite schema', () => {
+    registerSchemaCases9()
+  })
+}
+
+function registerSchemaGroup10() {
+  describe('PostgreSQL bigint composite schema', () => {
+    registerSchemaCases10()
+  })
+}
+
+function registerSchemaGroup11() {
+  describe('PostgreSQL numeric composite schema', () => {
+    registerSchemaCases11()
+  })
+}
+
+function registerSchemaGroup12() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases12()
+  })
+}
+
+function registerSchemaGroup13() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases13()
+  })
+}
+
+function registerSchemaGroup14() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases14()
+  })
+}
+
+function registerSchemaGroup15() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases15()
+  })
+}
+
+function registerSchemaGroup16() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases16()
+  })
+}
+
+function registerSchemaGroup17() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases17()
+  })
+}
+
+function registerSchemaGroup18() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases18()
+  })
+}
+
+function registerSchemaGroup19() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases19()
+  })
+}
+
+function registerSchemaGroup20() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases20()
+  })
+}
+
+function registerSchemaGroup21() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases21()
+  })
+}
+
+function registerSchemaGroup22() {
+  describe('PostgreSQL schema', () => {
+    registerSchemaCases22()
+  })
+}
+
+describe('PostgreSQL schema', () => {
+  registerSchemaGroup1()
+  registerSchemaGroup2()
+  registerSchemaGroup3()
+  registerSchemaGroup4()
+  registerSchemaGroup5()
+  registerSchemaGroup6()
+  registerSchemaGroup7()
+  registerSchemaGroup8()
+  registerSchemaGroup9()
+  registerSchemaGroup10()
+  registerSchemaGroup11()
+  registerSchemaGroup12()
+  registerSchemaGroup13()
+  registerSchemaGroup14()
+  registerSchemaGroup15()
+  registerSchemaGroup16()
+  registerSchemaGroup17()
+  registerSchemaGroup18()
+  registerSchemaGroup19()
+  registerSchemaGroup20()
+  registerSchemaGroup21()
+  registerSchemaGroup22()
 })

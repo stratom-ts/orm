@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { normalizePostgresDefaultExpression } from '@/dialects/postgres/normalize'
 
-describe('PostgreSQL default-expression normalization', () => {
+const registerDefaultNormalizationCases1 = () => {
   it.each([
     'current_timestamp',
     'CURRENT_TIMESTAMP',
@@ -35,4 +35,14 @@ describe('PostgreSQL default-expression normalization', () => {
       expect(normalizePostgresDefaultExpression(expression)).toBe(expected)
     },
   )
+}
+
+function registerDefaultNormalizationGroup1() {
+  describe('PostgreSQL default-expression normalization', () => {
+    registerDefaultNormalizationCases1()
+  })
+}
+
+describe('PostgreSQL default normalization', () => {
+  registerDefaultNormalizationGroup1()
 })

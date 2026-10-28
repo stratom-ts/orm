@@ -36,7 +36,7 @@ import type { CompiledQuery } from '@/query/builder'
 import { createValueMapper } from '@/query/mapping'
 import { QueryError } from '@/utils/error'
 
-import { createMockPostgresConnector } from './helpers/nativePostgresClient'
+import { createMockPostgresConnector } from './dialects/postgresNativeClientFixtures'
 
 /** Defines the independent hook-direction fixtures shared by accepted/rejected cases. */
 function hookFixture(

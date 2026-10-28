@@ -56,59 +56,7 @@ import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
-it('should infer number storage for a nullable transformed output', () => {
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(
-        string(),
-        transform((value): number | null => (value === 'null' ? null : Number(value))),
-        nullable(number()),
-      ),
-    ),
-  ).toBe('REAL')
-})
-
-it('should reject JSON composites whose nested outputs lose identity', () => {
-  for (const schema of [
-    union([object({ at: date() }), object({ at: date() })]),
-    union([object({ id: bigint() }), object({ id: bigint() })]),
-  ]) {
-    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
-
-    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(
-      /JSON composite output is not preserved.*paired parameter and result mappings/,
-    )
-  }
-})
-
-it('should infer JSON for recovered structured outputs', () => {
-  const converted = pipe(object({ at: date() }), object({ at: pipe(date(), toString()) }))
-  const projected = pipe(
-    object({ at: date(), label: string() }),
-    object({ label: string() }) as never,
-  )
-
-  expect(sqliteSchema.inferColumnType(union([converted, converted]))).toBe('JSON')
-  expect(sqliteSchema.inferColumnType(union([projected, projected]))).toBe('JSON')
-})
-
-it('should reject unsafe nested outputs in JSON variants and intersections', () => {
-  for (const schema of [
-    variant('kind', [
-      object({ kind: literal('a'), at: date() }),
-      object({ kind: literal('b'), at: date() }),
-    ]),
-    intersect([object({ at: date() }), object({ label: string() })]),
-  ]) {
-    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
-
-    expect(() => sqliteSchema.inferColumnType(schema)).toThrow(
-      /JSON composite output is not preserved.*paired parameter and result mappings/,
-    )
-  }
-})
-
-describe('SQLite schema', () => {
+const registerSchemaCases5 = () => {
   it('should infer compatible composite logical storage', () => {
     expect(
       sqliteSchema.inferColumnType(union([pipe(number(), integer()), number()])),
@@ -159,91 +107,9 @@ describe('SQLite schema', () => {
       'INTEGER',
     )
   })
-})
+}
 
-it('should preserve nested composite and enum proofs through later numeric schemas', () => {
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(
-        union([
-          union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
-          union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
-        ]),
-        number(),
-        integer(),
-      ),
-    ),
-  ).toBe('INTEGER')
-
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(
-        enumSchema({ large: 2147483648, small: 5 } as Record<string, number>),
-        number(),
-        integer(),
-        maxValue(10),
-      ),
-    ),
-  ).toBe('INTEGER')
-})
-
-it('should drop bigint composite choices excluded by a later bound', () => {
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(
-        union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
-        bigint(),
-        maxValue(10n),
-      ),
-    ),
-  ).toBe('BIGINT')
-
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(
-        union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
-        pipe(bigint(), maxValue(10n)),
-      ),
-    ),
-  ).toBe('BIGINT')
-})
-
-it('should retain finite numeric proofs and apply later choice narrowing', () => {
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(picklist([2147483648] as number[]), number(), integer()),
-    ),
-  ).toBe('INTEGER')
-
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(
-        picklist([Number.MAX_SAFE_INTEGER + 1, 5] as number[]),
-        number(),
-        safeInteger(),
-      ),
-    ),
-  ).toBe('INTEGER')
-
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(picklist([2147483648, 5] as number[]), number(), integer(), maxValue(10)),
-    ),
-  ).toBe('INTEGER')
-
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(
-        picklist([2147483648, 5] as number[]),
-        union([number(), number()]),
-        integer(),
-        maxValue(10),
-      ),
-    ),
-  ).toBe('INTEGER')
-})
-
-describe('SQLite bigint composite schema', () => {
+const registerSchemaCases9 = () => {
   it('should retain BIGINT for bounded and unbounded bigint composites', () => {
     for (const schema of [
       union([bigint(), bigint()]),
@@ -255,9 +121,9 @@ describe('SQLite bigint composite schema', () => {
     ])
       expect(sqliteSchema.inferColumnType(schema)).toBe('BIGINT')
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases10 = () => {
   it('should use outer integer bounds for numeric composite storage', () => {
     expect(
       sqliteSchema.inferColumnType(
@@ -265,9 +131,9 @@ describe('SQLite schema', () => {
       ),
     ).toBe('INTEGER')
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases11 = () => {
   it('should infer JSON variants and object intersections', () => {
     const schema = variant('kind', [
       object({ kind: literal('a'), value: string() }),
@@ -310,9 +176,9 @@ describe('SQLite schema', () => {
       ),
     ).toBe('INTEGER')
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases12 = () => {
   it.each([
     isoDate(),
     isoTime(),
@@ -327,9 +193,9 @@ describe('SQLite schema', () => {
       'DATETIME',
     )
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases13 = () => {
   it('should infer distinct logical declared types while comparing their affinities stably', () => {
     expect(sqliteSchema.inferColumnType(string())).toBe('TEXT')
     expect(sqliteSchema.inferColumnType(pipe(number(), integer()))).toBe('INTEGER')
@@ -384,32 +250,9 @@ describe('SQLite schema', () => {
       )
     }
   })
-})
+}
 
-it('should recover choice inference from a later supported schema', () => {
-  expect(
-    sqliteSchema.inferColumnType(pipe(string(), transform(Number), picklist([1, 2]))),
-  ).toBe('INTEGER')
-})
-
-it('should infer physical types from supported transformed outputs', () => {
-  expect(sqliteSchema.inferColumnType(pipe(string(), toBoolean()))).toBe('BOOLEAN')
-  expect(sqliteSchema.inferColumnType(pipe(string(), parseBoolean()))).toBe('BOOLEAN')
-  expect(sqliteSchema.inferColumnType(pipe(string(), toDate()))).toBe('DATETIME')
-  expect(sqliteSchema.inferColumnType(pipe(number(), toString()))).toBe('TEXT')
-
-  expect(
-    sqliteSchema.inferColumnType(
-      pipe(string(), parseJson(), object({ value: number() })),
-    ),
-  ).toBe('JSON')
-
-  expect(() => sqliteSchema.inferColumnType(pipe(string(), parseJson()))).toThrow(
-    /physicalType/,
-  )
-})
-
-describe('SQLite schema', () => {
+const registerSchemaCases16 = () => {
   it.each([
     ['optional', optional(picklist([1, 2]))],
     ['exactOptional', exactOptional(picklist([1, 2]))],
@@ -423,9 +266,9 @@ describe('SQLite schema', () => {
   ])('should infer numeric choice storage through %s wrappers', (_name, schema) => {
     expect(sqliteSchema.inferColumnType(schema)).toBe('INTEGER')
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases17 = () => {
   it.each([
     ['NaN', picklist([0, Number.NaN])],
     ['positive infinity', picklist([0, Number.POSITIVE_INFINITY])],
@@ -451,9 +294,9 @@ describe('SQLite schema', () => {
       sqliteSchema.inferColumnType(picklist([0, Number.MIN_SAFE_INTEGER - 1])),
     ).toThrow(SchemaError)
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases18 = () => {
   it('should accept signed 64-bit bigint boundaries and reject their invalid neighbors', () => {
     const min = -9223372036854775808n
     const max = 9223372036854775807n
@@ -468,17 +311,19 @@ describe('SQLite schema', () => {
       SchemaError,
     )
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases19 = () => {
   it('should accept finite safe number literals and reject non-finite values consistently', () => {
     expect(sqliteSchema.inferColumnType(literal(Number.MIN_SAFE_INTEGER))).toBe('INTEGER')
+
     expect(sqliteSchema.inferColumnType(literal(Number.MAX_SAFE_INTEGER))).toBe('INTEGER')
+
     expect(sqliteSchema.inferColumnType(literal(1.25))).toBe('REAL')
   })
-})
+}
 
-describe('SQLite schema', () => {
+const registerSchemaCases20 = () => {
   it.each([uuid(), ip(), ipv4(), ipv6(), mac48(), mac(), mac64(), decimal()])(
     'should keep $type format validation on TEXT storage',
     (format) => {
@@ -512,4 +357,272 @@ describe('SQLite schema', () => {
       expect(sqliteSchema.inferColumnType(reverse)).toBe('TEXT')
     },
   )
+}
+
+function registerSchemaGroup1() {
+  it('should infer number storage for a nullable transformed output', () => {
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          string(),
+          transform((value): number | null => (value === 'null' ? null : Number(value))),
+          nullable(number()),
+        ),
+      ),
+    ).toBe('REAL')
+  })
+}
+
+function registerSchemaGroup2() {
+  it('should reject JSON composites whose nested outputs lose identity', () => {
+    for (const schema of [
+      union([object({ at: date() }), object({ at: date() })]),
+      union([object({ id: bigint() }), object({ id: bigint() })]),
+    ]) {
+      expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
+
+      expect(() => sqliteSchema.inferColumnType(schema)).toThrow(
+        /JSON composite output is not preserved.*paired parameter and result mappings/,
+      )
+    }
+  })
+}
+
+function registerSchemaGroup3() {
+  it('should infer JSON for recovered structured outputs', () => {
+    const converted = pipe(
+      object({ at: date() }),
+      object({ at: pipe(date(), toString()) }),
+    )
+
+    const projected = pipe(
+      object({ at: date(), label: string() }),
+      object({ label: string() }) as never,
+    )
+
+    expect(sqliteSchema.inferColumnType(union([converted, converted]))).toBe('JSON')
+    expect(sqliteSchema.inferColumnType(union([projected, projected]))).toBe('JSON')
+  })
+}
+
+function registerSchemaGroup4() {
+  it('should reject unsafe nested outputs in JSON variants and intersections', () => {
+    for (const schema of [
+      variant('kind', [
+        object({ kind: literal('a'), at: date() }),
+        object({ kind: literal('b'), at: date() }),
+      ]),
+      intersect([object({ at: date() }), object({ label: string() })]),
+    ]) {
+      expect(() => sqliteSchema.inferColumnType(schema)).toThrow(SchemaError)
+
+      expect(() => sqliteSchema.inferColumnType(schema)).toThrow(
+        /JSON composite output is not preserved.*paired parameter and result mappings/,
+      )
+    }
+  })
+}
+
+function registerSchemaGroup5() {
+  describe('SQLite schema', () => {
+    registerSchemaCases5()
+  })
+}
+
+function registerSchemaGroup6() {
+  it('should preserve nested composite and enum proofs through later numeric schemas', () => {
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          union([
+            union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+            union([pipe(number(), safeInteger()), pipe(number(), safeInteger())]),
+          ]),
+          number(),
+          integer(),
+        ),
+      ),
+    ).toBe('INTEGER')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          enumSchema({ large: 2147483648, small: 5 } as Record<string, number>),
+          number(),
+          integer(),
+          maxValue(10),
+        ),
+      ),
+    ).toBe('INTEGER')
+  })
+}
+
+function registerSchemaGroup7() {
+  it('should drop bigint composite choices excluded by a later bound', () => {
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
+          bigint(),
+          maxValue(10n),
+        ),
+      ),
+    ).toBe('BIGINT')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          union([literal<bigint>(2n ** 64n), literal<bigint>(5n)]),
+          pipe(bigint(), maxValue(10n)),
+        ),
+      ),
+    ).toBe('BIGINT')
+  })
+}
+
+function registerSchemaGroup8() {
+  it('should retain finite numeric proofs and apply later choice narrowing', () => {
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(picklist([2147483648] as number[]), number(), integer()),
+      ),
+    ).toBe('INTEGER')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          picklist([Number.MAX_SAFE_INTEGER + 1, 5] as number[]),
+          number(),
+          safeInteger(),
+        ),
+      ),
+    ).toBe('INTEGER')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(picklist([2147483648, 5] as number[]), number(), integer(), maxValue(10)),
+      ),
+    ).toBe('INTEGER')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(
+          picklist([2147483648, 5] as number[]),
+          union([number(), number()]),
+          integer(),
+          maxValue(10),
+        ),
+      ),
+    ).toBe('INTEGER')
+  })
+}
+
+function registerSchemaGroup9() {
+  describe('SQLite bigint composite schema', () => {
+    registerSchemaCases9()
+  })
+}
+
+function registerSchemaGroup10() {
+  describe('SQLite schema', () => {
+    registerSchemaCases10()
+  })
+}
+
+function registerSchemaGroup11() {
+  describe('SQLite schema', () => {
+    registerSchemaCases11()
+  })
+}
+
+function registerSchemaGroup12() {
+  describe('SQLite schema', () => {
+    registerSchemaCases12()
+  })
+}
+
+function registerSchemaGroup13() {
+  describe('SQLite schema', () => {
+    registerSchemaCases13()
+  })
+}
+
+function registerSchemaGroup14() {
+  it('should recover choice inference from a later supported schema', () => {
+    expect(
+      sqliteSchema.inferColumnType(pipe(string(), transform(Number), picklist([1, 2]))),
+    ).toBe('INTEGER')
+  })
+}
+
+function registerSchemaGroup15() {
+  it('should infer physical types from supported transformed outputs', () => {
+    expect(sqliteSchema.inferColumnType(pipe(string(), toBoolean()))).toBe('BOOLEAN')
+    expect(sqliteSchema.inferColumnType(pipe(string(), parseBoolean()))).toBe('BOOLEAN')
+    expect(sqliteSchema.inferColumnType(pipe(string(), toDate()))).toBe('DATETIME')
+    expect(sqliteSchema.inferColumnType(pipe(number(), toString()))).toBe('TEXT')
+
+    expect(
+      sqliteSchema.inferColumnType(
+        pipe(string(), parseJson(), object({ value: number() })),
+      ),
+    ).toBe('JSON')
+
+    expect(() => sqliteSchema.inferColumnType(pipe(string(), parseJson()))).toThrow(
+      /physicalType/,
+    )
+  })
+}
+
+function registerSchemaGroup16() {
+  describe('SQLite schema', () => {
+    registerSchemaCases16()
+  })
+}
+
+function registerSchemaGroup17() {
+  describe('SQLite schema', () => {
+    registerSchemaCases17()
+  })
+}
+
+function registerSchemaGroup18() {
+  describe('SQLite schema', () => {
+    registerSchemaCases18()
+  })
+}
+
+function registerSchemaGroup19() {
+  describe('SQLite schema', () => {
+    registerSchemaCases19()
+  })
+}
+
+function registerSchemaGroup20() {
+  describe('SQLite schema', () => {
+    registerSchemaCases20()
+  })
+}
+
+describe('SQLite schema', () => {
+  registerSchemaGroup1()
+  registerSchemaGroup2()
+  registerSchemaGroup3()
+  registerSchemaGroup4()
+  registerSchemaGroup5()
+  registerSchemaGroup6()
+  registerSchemaGroup7()
+  registerSchemaGroup8()
+  registerSchemaGroup9()
+  registerSchemaGroup10()
+  registerSchemaGroup11()
+  registerSchemaGroup12()
+  registerSchemaGroup13()
+  registerSchemaGroup14()
+  registerSchemaGroup15()
+  registerSchemaGroup16()
+  registerSchemaGroup17()
+  registerSchemaGroup18()
+  registerSchemaGroup19()
+  registerSchemaGroup20()
 })

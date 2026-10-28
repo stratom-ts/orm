@@ -1,33 +1,39 @@
 import { string } from 'valibot'
-import { expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { assertSqliteDefaultCompatibility } from '@/dialects/sqlite/defaultCompatibility'
 
-it('should preserve defects from SQLite result mapping during default validation', async () => {
-  const defect = new TypeError('mapping failed')
-  const mapping = await import('@/dialects/sqlite/mapping')
+function registerDefaultCompatibilityGroup1() {
+  it('should preserve defects from SQLite result mapping during default validation', async () => {
+    const defect = new TypeError('mapping failed')
+    const mapping = await import('@/dialects/sqlite/mapping')
 
-  const spy = vi.spyOn(mapping, 'mapSqliteResultValue').mockImplementation(() => {
-    throw defect
-  })
+    const spy = vi.spyOn(mapping, 'mapSqliteResultValue').mockImplementation(() => {
+      throw defect
+    })
 
-  try {
-    let failure: unknown
     try {
-      assertSqliteDefaultCompatibility(
-        { kind: 'literal', value: 'ok' },
-        'TEXT',
-        string(),
-        false,
-        'records.value',
-      )
-    } catch (cause) {
-      failure = cause
-    }
+      let failure: unknown
+      try {
+        assertSqliteDefaultCompatibility(
+          { kind: 'literal', value: 'ok' },
+          'TEXT',
+          string(),
+          false,
+          'records.value',
+        )
+      } catch (cause) {
+        failure = cause
+      }
 
-    expect(failure).toBe(defect)
-    expect((failure as Error).stack).toBe(defect.stack)
-  } finally {
-    spy.mockRestore()
-  }
+      expect(failure).toBe(defect)
+      expect((failure as Error).stack).toBe(defect.stack)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+}
+
+describe('SQLite default compatibility', () => {
+  registerDefaultCompatibilityGroup1()
 })
