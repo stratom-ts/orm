@@ -1,7 +1,16 @@
-import { enum as enumSchema, nullable, picklist, pipe, string } from 'valibot'
-import { beforeAll, expect, it } from 'vitest'
+import {
+  enum as enumSchema,
+  literal,
+  nullable,
+  picklist,
+  pipe,
+  string,
+  union,
+} from 'valibot'
+import { beforeAll, expect, expectTypeOf, it } from 'vitest'
 
 import { column, defineTable, reference } from '@/index'
+import type { InferInsert, InferSelect, InferUpdate } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import { withPostgresDatabase } from './postgresIntegration'
@@ -19,6 +28,7 @@ const ChoiceParent = defineTable(
     numericChoice: picklist([0n, 2n ** 63n]),
     selected: pipe(picklist([1, 2]), column({ physicalType: { postgresql: 'integer' } })),
     nullableChoice: nullable(picklist([1n, 2n])),
+    booleanChoice: union([literal(true), literal(false)]),
   },
   { primaryKey: 'id' },
 )
@@ -38,7 +48,24 @@ const first = {
   numericChoice: 2n ** 63n,
   selected: 2,
   nullableChoice: null,
+  booleanChoice: false,
 } as const
+
+type ChoiceRow = {
+  id: 1 | 2
+  textChoice: 'first' | 'second'
+  wideNumber: number
+  fractional: 1 | 1.5
+  int64Choice: bigint
+  numericChoice: bigint
+  selected: 1 | 2
+  nullableChoice: 1n | 2n | null
+  booleanChoice: boolean
+}
+
+expectTypeOf<InferInsert<typeof ChoiceParent>>().toEqualTypeOf<ChoiceRow>()
+expectTypeOf<InferSelect<typeof ChoiceParent>>().toEqualTypeOf<ChoiceRow>()
+expectTypeOf<InferUpdate<typeof ChoiceParent>>().toEqualTypeOf<Partial<ChoiceRow>>()
 
 it('should migrate inferred PostgreSQL choices and converge on the selected types', async () => {
   await withPostgresDatabase(
@@ -65,6 +92,7 @@ it('should migrate inferred PostgreSQL choices and converge on the selected type
         numericChoice: 'numeric',
         selected: 'integer',
         nullableChoice: 'bigint',
+        booleanChoice: 'boolean',
       })
     },
   )
@@ -75,6 +103,13 @@ it('should round-trip inferred number and bigint choices through writes and refe
     await db.migrate().execute()
 
     expect(await db.insert(ChoiceParent).values(first).execute()).toEqual([first])
+    for (const predicate of [
+      { fractional: 1.5 as const },
+      { textChoice: 'first' as const },
+      { int64Choice: first.int64Choice },
+      { booleanChoice: false },
+    ])
+      expect(await db.from(ChoiceParent).where(predicate).execute()).toEqual([first])
 
     expect(
       await db.from(ChoiceParent).where({ wideNumber: first.wideNumber }).execute(),
@@ -91,23 +126,20 @@ it('should round-trip inferred number and bigint choices through writes and refe
       child,
     ])
 
-    const changed = {
+    const changed: ChoiceRow = {
       ...first,
       wideNumber: 0,
       numericChoice: 0n,
       nullableChoice: 2n as const,
+      textChoice: 'second',
+      fractional: 1,
+      int64Choice: 0n,
+      selected: 1,
+      booleanChoice: true,
     }
 
     expect(
-      await db
-        .update(ChoiceParent)
-        .set({
-          wideNumber: changed.wideNumber,
-          numericChoice: changed.numericChoice,
-          nullableChoice: changed.nullableChoice,
-        })
-        .where({ id: first.id })
-        .execute(),
+      await db.update(ChoiceParent).set(changed).where({ id: first.id }).execute(),
     ).toEqual([changed])
 
     expect(await db.from(ChoiceParent).where({ id: first.id }).execute()).toEqual([

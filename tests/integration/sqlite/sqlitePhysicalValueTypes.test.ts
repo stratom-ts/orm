@@ -98,6 +98,18 @@ it.each(['TEXT', 'CHARACTER VARYING(32)', 'BLOB'])(
       expect(await db.from(Records).where({ value: '00123' }).execute()).toEqual([
         { value: '00123' },
       ])
+
+      expect(
+        await db
+          .update(Records)
+          .set({ value: '00456' })
+          .where({ value: '00123' })
+          .execute(),
+      ).toEqual([{ value: '00456' }])
+
+      expect(await db.from(Records).where({ value: '00456' }).execute()).toEqual([
+        { value: '00456' },
+      ])
     })
   },
 )
@@ -137,6 +149,18 @@ it.each(['INTEGER', 'NUMERIC', 'BLOB'])(
       expect(prepare).not.toHaveBeenCalled()
       prepare.mockRestore()
       expect(await db.from(Records).orderBy(Records.value, 'asc').execute()).toEqual(rows)
+
+      expect(
+        await db
+          .update(Records)
+          .set({ value: 42n })
+          .where({ value: 9007199254740993n })
+          .execute(),
+      ).toEqual([{ value: 42n }])
+
+      expect(await db.from(Records).where({ value: 42n }).execute()).toEqual([
+        { value: 42n },
+      ])
     })
   },
 )
@@ -339,5 +363,26 @@ it('should retain Date and bracketed JSON values with numeric affinity', async (
 
     expect(await db.insert(Records).values(row).execute()).toEqual([row])
     expect(await db.from(Records).execute()).toEqual([row])
+
+    expect(
+      await db.from(Records).where({ stamp: row.stamp, data: row.data }).execute(),
+    ).toEqual([row])
+
+    const changed = {
+      ...row,
+      stamp: new Date('2026-01-03T03:04:05.000Z'),
+      data: { label: 'next' },
+    }
+
+    expect(await db.update(Records).set(changed).where({ choice: 1 }).execute()).toEqual([
+      changed,
+    ])
+
+    expect(
+      await db
+        .from(Records)
+        .where({ stamp: changed.stamp, data: changed.data })
+        .execute(),
+    ).toEqual([changed])
   })
 })

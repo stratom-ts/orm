@@ -121,6 +121,12 @@ it('should preserve exact SQLite strings through CRUD, wrappers, references, and
     await migrateFormatStrings(db)
     assertFormatCatalog(native)
     expect(await db.insert(Parent).values(row).execute()).toEqual([row])
+    for (const predicate of [
+      { address: row.address },
+      { shortMac: row.shortMac },
+      { amount: row.amount },
+    ])
+      expect(await db.from(Parent).where(predicate).execute()).toEqual([row])
     const child = {
       id: 'child',
       parentId: row.id,
@@ -135,11 +141,13 @@ it('should preserve exact SQLite strings through CRUD, wrappers, references, and
     expect(await db.from(Child).execute()).toEqual([child])
     expect(await db.from(Grandchild).execute()).toEqual([grandchild])
     const amount = '00000000000000000001.230000'
-    await db
-      .update(Parent)
-      .set({ amount, ipv6Only: null })
-      .where({ id: row.id })
-      .execute()
+    expect(
+      await db
+        .update(Parent)
+        .set({ amount, ipv6Only: null })
+        .where({ id: row.id })
+        .execute(),
+    ).toEqual([{ ...row, amount, ipv6Only: null }])
 
     expect(await db.from(Parent).execute()).toEqual([{ ...row, amount, ipv6Only: null }])
 

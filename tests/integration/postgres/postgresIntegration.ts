@@ -266,6 +266,17 @@ export const postgresIntegrationAdapter: DialectIntegrationAdapter = {
           await admin.query(`set search_path to ${quoteIdentifier(schema)}`)
           await admin.query(sql)
         },
+        /** Reads observed native storage independently of desired-schema inference. */
+        async readColumnTypes(table) {
+          const result = await admin.query<{ column_name: string; data_type: string }>(
+            'select column_name, data_type from information_schema.columns where table_schema = $1 and table_name = $2',
+            [schema, table],
+          )
+
+          return Object.fromEntries(
+            result.rows.map((row) => [row.column_name, row.data_type]),
+          )
+        },
       }),
     )
   },
