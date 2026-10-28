@@ -1,7 +1,7 @@
 # Inference completion report for #375
 
 Verified executable commit:
-[`0d7baf03f21f19a92c17434cf5a1f00edd243b17`](https://github.com/javangriff/stratom/commit/0d7baf03f21f19a92c17434cf5a1f00edd243b17).
+[`aed96997cead1c64652e6db6ec51ba9a506efb21`](https://github.com/javangriff/stratom/commit/aed96997cead1c64652e6db6ec51ba9a506efb21).
 It includes merged #373 through baseline `9942754`. The later commit containing
 this report changes documentation only. The pin covers all production files,
 tests, test adapters, configuration, dependencies, and the acceptance matrix.
@@ -20,16 +20,22 @@ tests use isolated namespaces and SQLite tests use owned isolated connections.
 
 | Command            | Observed result at the executable commit                                                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm test`        | PASS. 90 unit files, 1,925 tests. 34 integration files, 328 tests. No skipped tests. Both native directories ran, with 17 files each. The integration profile built the package once. |
+| `pnpm test`        | PASS. 90 unit files, 1,938 tests. 34 integration files, 328 tests. No skipped tests. Both native directories ran, with 17 files each. The integration profile built the package once. |
 | `pnpm typecheck`   | PASS. Includes exact `expectTypeOf` read/write assertions in unit and native suites.                                                                                                  |
 | `pnpm lint`        | PASS. Type-aware lint, without suppressions.                                                                                                                                          |
 | `pnpm fmt:check`   | PASS.                                                                                                                                                                                 |
 | `git diff --check` | PASS.                                                                                                                                                                                 |
 
-The implementer ran all commands above after the final executable edits. The lead
-independently repeated `pnpm test`, `pnpm typecheck`, and `pnpm lint` on the pinned
-commit, with the same results. Formatting must also pass on the documentation-only
-report commit before the PR opens.
+The lead ran all commands above after the final executable edits. Formatting also
+passed on the documentation-only report update before the PR opened.
+
+Review added the remaining finite PM1 string-storage rejection controls, plus
+Date/numeric and bigint/double-precision rejection controls. Each row asserts
+`SchemaError` in the existing scalar storage validation table. Review also found
+a host-timezone assumption in the new SQL `date` fixture. Its write inputs now use
+local calendar dates, with independently specified UTC-midnight read results.
+The focused native storage test failed before this correction and passed afterward
+with `TZ=America/Los_Angeles`. The final full run used the normal host environment.
 
 Earlier authoring checks exposed incorrect test assumptions about catalog row
 order and temporal spelling. Those checks were corrected to use an explicit
