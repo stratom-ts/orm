@@ -1,4 +1,5 @@
-import type { Connector } from 'db0'
+import type { Connector, DatabaseCapabilities } from 'db0'
+import { getCapabilities } from 'db0'
 import { realpathSync } from 'node:fs'
 
 import { nativeField } from '@/dialects/nativeError'
@@ -669,6 +670,18 @@ export function createDb0NodeSqliteOperationSessionProvider(
   connector: Connector,
   dialectId = 'sqlite',
 ): OperationSessionProvider {
+  // db0 returns undefined for unknown dialects despite its declared return type.
+  const capabilities = getCapabilities(
+    connector.dialect,
+    connector.capabilityOverrides,
+  ) as DatabaseCapabilities | undefined
+
+  if (capabilities?.transactions === false) {
+    throw new QueryError({
+      message: `Connector "${connector.name}" cannot keep a transaction across statements. Stratom requires pinned sessions with native transactions. Provide an explicit operationSessionProvider backed by the underlying client's native transaction API (for example Client.transaction()), not db0.`,
+    })
+  }
+
   if (
     connector.name !== 'node-sqlite' ||
     connector.dialect !== 'sqlite' ||
