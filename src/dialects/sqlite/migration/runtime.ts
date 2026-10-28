@@ -12,8 +12,9 @@ import { sqliteClassifyDriverError } from '../classifyDriverError'
 import { asciiFoldSqliteIdentifier } from '../identity'
 
 import { SqliteMigrationCapabilityError } from './error'
+import { quoteSqliteIdentifier } from './sql'
 
-const DEFAULT_LOCK_TIMEOUT_MS = 30_000
+const DEFAULT_SQLITE_MIGRATION_LOCK_TIMEOUT_MS = 30_000
 const RETRY_WAIT_MS = 10
 
 type Failure = {
@@ -181,7 +182,7 @@ async function attemptBegin(
 
 /** Takes the plan-atomic writer transaction before any preparation or DDL. */
 async function acquire(options: MigrationRuntimeOptions, state: State): Promise<void> {
-  const timeout = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS
+  const timeout = options.lockTimeoutMs ?? DEFAULT_SQLITE_MIGRATION_LOCK_TIMEOUT_MS
 
   if (!Number.isFinite(timeout) || timeout < 0) {
     state.primary = {
@@ -237,11 +238,6 @@ function validateProgram(program: MigrationProgram): void {
   }
 }
 
-/** Quotes one identifier without treating dots or quotes as separators. */
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replaceAll('"', '""')}"`
-}
-
 /** Checks the structured main relation target and its authoritative NULL count. */
 async function assertPrecondition(
   options: MigrationRuntimeOptions,
@@ -269,7 +265,7 @@ async function assertPrecondition(
   }
 
   const rows = await options.executor.execute({
-    sql: `select count(*) as count from "main".${quoteIdentifier(table)} where ${quoteIdentifier(precondition.column)} is null`,
+    sql: `select count(*) as count from "main".${quoteSqliteIdentifier(table)} where ${quoteSqliteIdentifier(precondition.column)} is null`,
     params: [],
   })
 
@@ -283,7 +279,7 @@ async function assertPrecondition(
 
   if (count > 0)
     throw new MigrationError({
-      message: `Column ${quoteIdentifier(precondition.column)} contains NULL values`,
+      message: `Column ${quoteSqliteIdentifier(precondition.column)} contains NULL values`,
       stage: 'precondition',
       outcome: 'unchanged',
       retryable: false,

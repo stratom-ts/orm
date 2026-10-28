@@ -11,7 +11,7 @@ import {
   postgresDialect,
 } from '@/index'
 
-import { createMockPostgresConnector as createMockConnector } from '../helpers/nativePostgresClient'
+import { createMockPostgresConnector as createMockConnector } from '../dialects/postgresNativeClientFixtures'
 
 const Users = defineTable(
   'users',

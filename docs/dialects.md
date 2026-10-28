@@ -166,8 +166,8 @@ type DialectQuery = {
     findRelationMatches(relation, availableHandles?): readonly TableHandle[]
     findColumnMatches(handle, column): readonly string[]
   }
-  mapParamValue?(dataType: string, value: unknown): unknown
   mapResultValue?(dataType: string, value: unknown): unknown
+  mapParamValue?(dataType: string, value: unknown): unknown
 }
 ```
 
@@ -537,6 +537,14 @@ src/dialects/<member>/
 ├── index.ts            # intentional package exports only
 ├── identity.ts         # <member>Identity
 ├── naming.ts           # <member>Naming
+├── classifyDriverError.ts # <member>ClassifyDriverError
+├── infer.ts            # logical intent to physical storage
+├── mapping.ts          # parameter/result validation and conversion
+├── lowerDesiredSchema.ts # whole desired-graph lowering
+├── normalize.ts        # type/default comparison forms
+├── validate.ts         # safe validation and SQL formatting
+├── compile.ts          # query SQL compilation
+├── queryAddressing.ts  # registry-scoped relation/column resolution
 ├── schema.ts           # <member>Schema
 ├── query.ts            # <member>Query
 ├── catalog.ts          # <member>Catalog
@@ -576,6 +584,62 @@ Each member `index.ts` exports its complete Dialect and advanced operation-sessi
 factory. The package root exposes those exports symmetrically. Do not expose dialect
 implementation helpers; use the complete Dialect facets or the public database interface.
 
+### Member authoring decisions
+
+Member directories already identify the engine. Source file basenames must not start
+with the member code. Use descriptive names such as PostgreSQL `sqlScan.ts` and SQLite
+`defaultExpression.ts`. Do not use `pg`, `PG`, or `Pg` as an identifier prefix.
+SQL names such as `pg_catalog` and the external `pg` driver module retain upstream spelling.
+Exported classes start with `Postgres` or `Sqlite`. Exported upper-snake-case constants
+start with `POSTGRES_` or `SQLITE_`. Private constants can use concise names.
+Query facet keys follow `DialectQuery` order: `validateValueMapping`, `resolve`,
+`mapResultValue`, `mapParamValue`. Both catalog facets use an inferred object type and
+short JSDoc. Each `migration/index.ts` exports only `lower<Member>MigrationPlan`,
+followed by `execute<Member>Migration`.
+
+These decisions preserve existing contracts while resolving authoring differences:
+
+1. **Public provider factories use connector names.** Keep
+   `createDb0PostgresOperationSessionProvider` and
+   `createDb0NodeSqliteOperationSessionProvider`. They identify their db0 adapters.
+   Public factory names do not need to match private member prefixes.
+2. **Query addressing uses named helpers.** Each member defines named relation and
+   column matching helpers. Registry-scoped resolution retains cached registrations
+   and passes current candidates to those helpers.
+3. **Migration emitter names stay local.** The concise migration-module exception takes
+   precedence over the general verb/member/subject rule. PostgreSQL `compileCreateTable`
+   and SQLite `createSql`, `statement`, and `address` retain local names.
+   Shared SQLite migration quoting lives in `migration/sql.ts` as
+   `quoteSqliteIdentifier`, including empty/NUL rejection.
+4. **SQLite's parser is `defaultExpression.ts`.** Its name distinguishes expression
+   parsing from storage compatibility in `defaultCompatibility.ts`. Accepted expressions
+   stay unchanged.
+5. **Error bases follow error kinds.** Per ADR 0003, expected private control-flow errors
+   have a member-prefixed tag. PostgreSQL cancellation uses `TaggedError`; timeout
+   and signal subclasses retain the cancellation tag and their distinct class identity.
+   SQLite migration capability control flow uses a private `Error` subclass with
+   `_tag` and capability `code`. SQLite validation uses a `MigrationError` subclass.
+   Reserved-name failures use `TaggedError`. Known malformed catalog metadata uses
+   plain `SqliteTableMetadataError`, recognized only by its owned catalog boundary as
+   observation evidence. Unrecognized failures remain defects. Do not broaden catches
+   or change public tags to align private mechanisms.
+6. **Member unit fixtures live beside member specs.** Put member `*Fixtures.ts` and
+   `*Shards.ts` in `tests/unit/dialects/` with their member prefix. This includes the
+   deterministic `postgresNativeClientFixtures.ts` mock. Shared helpers stay in
+   `tests/unit/helpers/`. Native integration fixtures stay in their integration directory.
+7. **Equivalent private session helpers share verbs.** Use
+   `sameOperationSessionIdentity`, `openNativeLease`, and `closeNativeProvider` in both
+   operation-session implementations. Desired-schema lowering keeps matching
+   `physicalType` helpers. Do not add a shared abstraction for engine-specific work.
+8. **Direct lowering keeps engine-owned storage validation.** PostgreSQL desired-schema
+   lowering validates scalar override storage, including proven ISO format/storage
+   compatibility and serial normalization. SQLite direct lowering selects physical
+   storage without its query mapping validator. Client construction validates SQLite
+   mappings before `db.migrate()` can run, so direct lowering has no additional
+   query-output proof contract. This preserves direct-lowering behavior instead of
+   imposing PostgreSQL temporal rules on SQLite. Both members retain existing
+   paired parameter/result hook bypasses and safe-integer mapping checks.
+
 Package-supported members are statically imported and listed in `productionDialects` in
 `src/dialects/resolve.ts` by their exact db0 `SQLDialect` id. `createDialectRegistry()`
 validates the complete list. The architecture suite derives member directories from that
@@ -605,14 +669,50 @@ observations where required, and independent semantic expected results. They can
 replace a shared scenario with an adapter-authored test.
 
 Keep member-specific unit specs flat in `tests/unit/dialects/`, named
-`<member><Concern>.test.ts` (for example, `postgresSchema.test.ts` and
-`sqliteDesiredSchema.test.ts`). `Schema` covers direct type inference and normalization;
-`DesiredSchema` covers lowering a registered table graph. Keep shared core behavior in its
-shared test file, and name engine-specific fixtures with their member prefix. Use short
-database and facet suite titles, leaving the behavior description in each test title; for
-example, `describe('PostgreSQL schema')` and `describe('SQLite query')`. Name member
-fixtures with the same prefix, such as `postgresSharedFixtures.ts` and
-`sqliteContractFixtures.ts`.
+`<member><Concern>.test.ts`, such as `postgresSchema.test.ts` and
+`sqliteDesiredSchema.test.ts`. `Schema` covers direct type inference and normalization;
+`DesiredSchema` covers lowering a registered table graph. Shared core behavior stays in
+shared test files. Each member unit spec has exactly one top-level
+`describe('<Database> <concern>')`, where the database is `PostgreSQL` or `SQLite`.
+Behavior-specific suites can nest within it and retain their setup/cleanup scope.
+Parameterized suites count as one suite, regardless of row count.
+
+The allowed concern-to-title mapping is:
+
+| File concern         | Suite concern         |
+| -------------------- | --------------------- |
+| Catalog              | catalog               |
+| DefaultCompatibility | default compatibility |
+| DefaultLogicalTypes  | default logical types |
+| DefaultNormalization | default normalization |
+| DesiredSchema        | desired schema        |
+| LiteralInference     | literal inference     |
+| Mapping              | mapping               |
+| Migration            | migration             |
+| MigrationCompilation | migration compilation |
+| MigrationRuntime     | migration runtime     |
+| Naming               | naming                |
+| OperationSession     | operation session     |
+| PhysicalValueTypes   | physical value types  |
+| Query                | query                 |
+| Schema               | schema                |
+| SqlClassification    | sql classification    |
+| TableProof           | table proof           |
+| Validation           | validation            |
+
+Only `postgresContractKit.test.ts` and `sqliteContractKit.test.ts` are exempt. These
+aggregates register capabilities instead of declaring member concern suites. Shared
+contract runners and fixtures are outside the member-spec rule. New helper concerns
+need an explicit mapping here and in `dialectLocality.test.ts`.
+
+Native integration specs live in `tests/integration/<member>/` and use
+`<member>.<concern>.test.ts`, with `<member>.test.ts` reserved for the registration entry.
+The concern starts with a lowercase letter and uses letters thereafter. Unit and native
+specs of one member must not share a basename. Counterpart behaviors use the same concern
+name. Both native `valueMapping` suites cover overrides and effective mapping hooks.
+PostgreSQL `serialMapping`, temporal storage, driver representations, and SQLite
+affinity/int64 limits remain engine-owned contracts.
+
 To run one concern, pass its file to Vitest, for example:
 `pnpm exec vitest run --config vitest.unit.config.ts tests/unit/dialects/postgresDesiredSchema.test.ts`.
 

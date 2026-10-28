@@ -1,4 +1,4 @@
-import { trimSqliteWhitespace } from './defaults'
+import { trimSqliteWhitespace } from './defaultExpression'
 import { formatSqliteLiteral } from './validate'
 
 /** Returns SQLite's stable affinity key for a declared type spelling. */

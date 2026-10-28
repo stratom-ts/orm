@@ -5,7 +5,7 @@ import {
   POSTGRES_OPERATION_ROLLBACK_SQL,
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
-import { scanPostgresSql } from '@/dialects/postgres/postgresSql'
+import { scanPostgresSql } from '@/dialects/postgres/sqlScan'
 
 type NativeQuery =
   | string

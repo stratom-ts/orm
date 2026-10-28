@@ -9,6 +9,6 @@ import { resolveSqliteQuery } from './queryAddressing'
 export const sqliteQuery = {
   validateValueMapping: validateSqliteValueMapping,
   resolve: resolveSqliteQuery,
-  mapParamValue: mapSqliteParamValue,
   mapResultValue: mapSqliteResultValue,
+  mapParamValue: mapSqliteParamValue,
 }

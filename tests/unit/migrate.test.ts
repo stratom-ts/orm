@@ -32,7 +32,7 @@ import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRel
 import { generatedIndexName } from '@/migrations/physicalNaming'
 import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
 
-import { createNativePostgresClient } from './helpers/nativePostgresClient'
+import { createNativePostgresClient } from './dialects/postgresNativeClientFixtures'
 import { columnTarget, namespaceTarget, relationTarget } from './helpers/planTargets'
 
 afterEach(() => {

@@ -12,9 +12,9 @@ import type {
 import { column, defineTable, postgresDialect } from '@/index'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
+import type { CompletePostgresCatalogFixture } from '../dialects/postgresCatalogFixtures'
+import { completePostgresCatalog } from '../dialects/postgresCatalogFixtures'
 import { relationTarget } from '../helpers/planTargets'
-import type { CompletePostgresCatalogFixture } from '../helpers/postgresCatalogFixtures'
-import { completePostgresCatalog } from '../helpers/postgresCatalogFixtures'
 
 const context = {
   writableDefault: [

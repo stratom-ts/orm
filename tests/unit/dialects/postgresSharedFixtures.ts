@@ -6,9 +6,9 @@ import {
   createOperationSessionCommonRuntime,
   customConnector,
 } from '../helpers/operationSessionFixtures'
-import { createPostgresMigrationRuntime } from '../helpers/postgresMigrationRuntimeFixtures'
 
 import type { CoordinationContractFactory } from './migrationCoordinationContract'
+import { createPostgresMigrationRuntime } from './postgresMigrationRuntimeFixtures'
 
 /**
  * Creates the postgres coordination runtime fixture used by the contract scenario.

@@ -7,7 +7,7 @@ import type { Executor } from '@/query'
 import type {
   CoordinationContractEvent,
   CoordinationContractLockManager,
-} from '../dialects/migrationCoordinationContract'
+} from './migrationCoordinationContract'
 
 /** Builds a plan-atomic PostgreSQL migration program with optional scenario overrides. */
 export function postgresMigrationProgram(

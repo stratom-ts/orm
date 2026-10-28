@@ -12,15 +12,18 @@ import type { MigrationCoordinationLockIdentity } from '@/migrations/coordinatio
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { InvariantError, TaggedError, attempt } from '@/utils/error'
 
-import { MIGRATE_ADVISORY_LOCK_CLASS, MIGRATE_ADVISORY_LOCK_ID } from './constants'
 import { schemaFromNamespace } from './targets'
+
+/** Database-wide PostgreSQL migration advisory-lock identity. */
+const POSTGRES_MIGRATION_ADVISORY_LOCK_CLASS = 0x7363_686d // 'schm'
+const POSTGRES_MIGRATION_ADVISORY_LOCK_ID = 0x6f72_6d00 // 'orm\0'
 
 /** PostgreSQL runtime input after the member has resolved coordination defaults. */
 export type PostgresMigrationRuntimeOptions = MigrationRuntimeOptions &
   Readonly<{ lockTimeoutMs: number }>
 
-export class MigrationCancellationError extends TaggedError(
-  'MigrationCancellationError',
+export class PostgresMigrationCancellationError extends TaggedError(
+  'PostgresMigrationCancellationError',
 )<{
   message: string
   stage: MigrationExecutionStage
@@ -42,8 +45,8 @@ export class MigrationCancellationError extends TaggedError(
   }
 }
 
-export class MigrationLockTimeoutError extends MigrationCancellationError {}
-export class MigrationSignalAbortedError extends MigrationCancellationError {}
+export class PostgresMigrationLockTimeoutError extends PostgresMigrationCancellationError {}
+export class PostgresMigrationSignalAbortedError extends PostgresMigrationCancellationError {}
 
 export type CancellationState = {
   cancelled: boolean
@@ -72,8 +75,8 @@ export function mapPostgresAdvisoryLockIdentity(
   if (identity.kind === 'database') {
     return {
       kind: 'database',
-      classId: MIGRATE_ADVISORY_LOCK_CLASS,
-      lockId: MIGRATE_ADVISORY_LOCK_ID,
+      classId: POSTGRES_MIGRATION_ADVISORY_LOCK_CLASS,
+      lockId: POSTGRES_MIGRATION_ADVISORY_LOCK_ID,
       canonicalIdentity: identity.canonicalIdentity,
     }
   }
@@ -88,18 +91,21 @@ export function mapPostgresAdvisoryLockIdentity(
 }
 
 const MIGRATION_LOCK_POLL_INTERVAL_MS = 100
-export const MIGRATION_SESSION_CALL_TIMEOUT_MS = 5_000
+export const POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS = 5_000
 
 /** Describes whether a lock attempt reached its configured deadline or watchdog. */
 function lockAttemptTimeoutMessage(
   lockTimeoutMs: number,
   deadlineRemaining: number,
 ): string {
-  if (lockTimeoutMs !== 0 && deadlineRemaining <= MIGRATION_SESSION_CALL_TIMEOUT_MS) {
+  if (
+    lockTimeoutMs !== 0 &&
+    deadlineRemaining <= POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS
+  ) {
     return `Timed out acquiring the migration advisory lock after ${lockTimeoutMs}ms`
   }
 
-  return `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for a migration lock attempt response`
+  return `Timed out waiting ${POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for a migration lock attempt response`
 }
 
 /**
@@ -177,7 +183,7 @@ export async function runCancellable<T>(options: {
 
   if (runtime.signal?.aborted) {
     const cleanupFailures = await cancelSession(runtime, state)
-    throw new MigrationSignalAbortedError(
+    throw new PostgresMigrationSignalAbortedError(
       'Migration execution was aborted',
       stage,
       cleanupFailures,
@@ -236,7 +242,7 @@ async function rejectInterruptedOperation<T>(
   const cleanupFailures = await cancelSession(runtime, state, operation)
 
   if (result === 'timeout') {
-    throw new MigrationLockTimeoutError(
+    throw new PostgresMigrationLockTimeoutError(
       options.timeoutMessage ??
         `Timed out acquiring the migration advisory lock after ${runtime.lockTimeoutMs}ms`,
       stage,
@@ -244,7 +250,7 @@ async function rejectInterruptedOperation<T>(
     )
   }
 
-  throw new MigrationSignalAbortedError(
+  throw new PostgresMigrationSignalAbortedError(
     'Migration execution was aborted',
     stage,
     cleanupFailures,
@@ -308,7 +314,7 @@ async function stopCancelled(
   if (!sessionCancelled) cleanupFailures.push(...(await cancelSession(options, state)))
 
   if (timeout) {
-    throw new MigrationLockTimeoutError(
+    throw new PostgresMigrationLockTimeoutError(
       options.lockTimeoutMs === 0
         ? 'Migration advisory lock was not available after one no-wait try'
         : `Timed out acquiring the migration advisory lock after ${options.lockTimeoutMs}ms`,
@@ -317,7 +323,7 @@ async function stopCancelled(
     )
   }
 
-  throw new MigrationSignalAbortedError(
+  throw new PostgresMigrationSignalAbortedError(
     'Migration execution was aborted',
     stage,
     cleanupFailures,
@@ -361,8 +367,8 @@ async function releaseCancelledLocks(
         runtime: options,
         state,
         stage: 'unlock',
-        timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
-        timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for partial migration lock release`,
+        timeoutMs: POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS,
+        timeoutMessage: `Timed out waiting ${POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for partial migration lock release`,
         /** Releases confirmed advisory locks with cancellation controls. */
         operation: () => releaseCoordinationFailures(options, [identity]),
       })
@@ -372,10 +378,12 @@ async function releaseCancelledLocks(
       cleanupFailures.push({ stage: 'unlock', cause })
 
       cleanupFailures.push(
-        ...(cause instanceof MigrationCancellationError ? cause.cleanupFailures : []),
+        ...(cause instanceof PostgresMigrationCancellationError
+          ? cause.cleanupFailures
+          : []),
       )
 
-      sessionCancelled = cause instanceof MigrationCancellationError
+      sessionCancelled = cause instanceof PostgresMigrationCancellationError
     }
 
     if (sessionCancelled) break
@@ -474,8 +482,8 @@ async function coordinationAttemptTimeout(
   const deadlineRemaining = Math.max(0, deadline - performance.now())
   const timeout =
     options.lockTimeoutMs === 0
-      ? MIGRATION_SESSION_CALL_TIMEOUT_MS
-      : Math.min(MIGRATION_SESSION_CALL_TIMEOUT_MS, deadlineRemaining)
+      ? POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS
+      : Math.min(POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS, deadlineRemaining)
 
   if (!firstAttempt && performance.now() >= deadline) {
     await stopCancelled(options, state, 'lock', true, acquired)
@@ -628,8 +636,8 @@ export async function releaseCoordination(
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
       kind: 'database',
-      classId: MIGRATE_ADVISORY_LOCK_CLASS,
-      lockId: MIGRATE_ADVISORY_LOCK_ID,
+      classId: POSTGRES_MIGRATION_ADVISORY_LOCK_CLASS,
+      lockId: POSTGRES_MIGRATION_ADVISORY_LOCK_ID,
       canonicalIdentity: 'stratom/migration/database/postgresql',
     },
   ],
@@ -653,8 +661,8 @@ export async function releaseCoordinationFailures(
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
       kind: 'database',
-      classId: MIGRATE_ADVISORY_LOCK_CLASS,
-      lockId: MIGRATE_ADVISORY_LOCK_ID,
+      classId: POSTGRES_MIGRATION_ADVISORY_LOCK_CLASS,
+      lockId: POSTGRES_MIGRATION_ADVISORY_LOCK_ID,
       canonicalIdentity: 'stratom/migration/database/postgresql',
     },
   ],

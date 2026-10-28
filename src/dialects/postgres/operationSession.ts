@@ -10,7 +10,7 @@ import type {
 import { QueryError, driverError } from '@/utils/error'
 
 import { postgresClassifyDriverError } from './classifyDriverError'
-import { scanPostgresSql } from './postgresSql'
+import { scanPostgresSql } from './sqlScan'
 
 type NativePostgresResult = {
   rows?: unknown[]

@@ -8,8 +8,8 @@ import { InvariantError, column, defineTable, postgresDialect, reference } from 
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
-import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../helpers/postgresCatalogFixtures'
-import { completePostgresCatalog } from '../helpers/postgresCatalogFixtures'
+import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../dialects/postgresCatalogFixtures'
+import { completePostgresCatalog } from '../dialects/postgresCatalogFixtures'
 
 const returnsProfileCapabilityIssuesWithoutAPartialProgramData = {
   issues: [

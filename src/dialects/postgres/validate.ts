@@ -1,7 +1,7 @@
 import { MigrationError, SchemaError } from '@/utils/error'
 
 /** Base types allowed in DDL (with optional precision/length suffixes). */
-const ALLOWED_PG_BASE_TYPES = new Set([
+const POSTGRES_ALLOWED_BASE_TYPES = new Set([
   'smallint',
   'integer',
   'bigint',
@@ -111,7 +111,7 @@ export function assertSafePostgresDataType(dataType: string): string {
 
   const base = match[1]!.replace(/\s+/g, ' ').trim()
 
-  if (!ALLOWED_PG_BASE_TYPES.has(base)) {
+  if (!POSTGRES_ALLOWED_BASE_TYPES.has(base)) {
     throw new SchemaError({
       message: `unsupported column data type: ${JSON.stringify(dataType)}`,
     })

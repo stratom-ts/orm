@@ -24,7 +24,7 @@ import {
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createValueMapper } from '@/query/mapping'
 
-describe('PostgreSQL reference output mapping', () => {
+const registerQueryCases1 = () => {
   it('should reject reference transformations that change the resolved output kind', () => {
     const Parents = defineTable('parents', { id: string() }, { primaryKey: 'id' })
     const Children = defineTable(
@@ -74,9 +74,9 @@ describe('PostgreSQL reference output mapping', () => {
       ),
     ).not.toThrow()
   })
-})
+}
 
-describe('PostgreSQL unresolved reference output mapping', () => {
+const registerQueryCases2 = () => {
   it('should reject a local conversion of an explicitly stored unresolved target', () => {
     const Parents = defineTable(
       'unresolved_parents',
@@ -104,9 +104,9 @@ describe('PostgreSQL unresolved reference output mapping', () => {
       createValueMapper(postgresDialect, undefined, [Parents, Children]),
     ).toThrow(/reference transformations/)
   })
-})
+}
 
-describe('PostgreSQL numeric value mapping', () => {
+const registerQueryCases3 = () => {
   it('should map bigint numeric values from the effective schema without losing precision', () => {
     const schema = pipe(bigint(), minValue(-(2n ** 63n)), maxValue(2n ** 63n - 1n))
     const context = { schema }
@@ -145,9 +145,9 @@ describe('PostgreSQL numeric value mapping', () => {
     expect(mapPostgresResultValue('numeric', '1.5', { schema: number() })).toBe('1.5')
     expect(mapPostgresResultValue('numeric', '1.000', { schema: bigint() })).toBe(1n)
   })
-})
+}
 
-describe('PostgreSQL query compilation', () => {
+const registerQueryCases4 = () => {
   it('should reject empty select and returning AST projections', () => {
     expect(() =>
       compilePostgresQuery({
@@ -167,9 +167,33 @@ describe('PostgreSQL query compilation', () => {
       }),
     ).toThrow(/returning columns must not be empty/)
   })
-})
+}
 
-it.each([
+function registerQueryGroup1() {
+  describe('PostgreSQL reference output mapping', () => {
+    registerQueryCases1()
+  })
+}
+
+function registerQueryGroup2() {
+  describe('PostgreSQL unresolved reference output mapping', () => {
+    registerQueryCases2()
+  })
+}
+
+function registerQueryGroup3() {
+  describe('PostgreSQL numeric value mapping', () => {
+    registerQueryCases3()
+  })
+}
+
+function registerQueryGroup4() {
+  describe('PostgreSQL query compilation', () => {
+    registerQueryCases4()
+  })
+}
+
+const registerQueryGroup5Data = [
   [isoTime(), isoTimeSecond(), 'time', '03:04:00', '03:04'],
   [
     isoDateTime(),
@@ -178,149 +202,197 @@ it.each([
     '2026-01-02 03:04:00',
     '2026-01-02T03:04',
   ],
-])(
-  'should preserve authored formats through nullable and chained references',
-  (minute, second, type, raw, parentValue) => {
-    const Parent = defineTable(
-      'temporal_parent',
-      { value: pipe(string(), minute) },
-      { primaryKey: 'value' },
-    )
+] as const
 
-    const secondReference = pipe(
-      reference(Parent, 'value'),
-      transform((value) => `${value}:00`),
-      string(),
-      second,
-    )
+function registerQueryGroup5() {
+  it.each(registerQueryGroup5Data)(
+    'should preserve authored formats through nullable and chained references',
+    (minute, second, type, raw, parentValue) => {
+      const Parent = defineTable(
+        'temporal_parent',
+        { value: pipe(string(), minute) },
+        { primaryKey: 'value' },
+      )
 
-    const Child = defineTable(
-      'temporal_child',
-      {
-        value: secondReference,
-        nullableValue: nullable(secondReference),
-        matching: reference(Parent, 'value'),
-      },
-      { primaryKey: 'value' },
-    )
+      const secondReference = pipe(
+        reference(Parent, 'value'),
+        transform((value) => `${value}:00`),
+        string(),
+        second,
+      )
 
-    const Grandchild = defineTable(
-      'temporal_chain',
-      { value: reference(Child, 'value') },
-      { primaryKey: 'value' },
-    )
+      const Child = defineTable(
+        'temporal_child',
+        {
+          value: secondReference,
+          nullableValue: nullable(secondReference),
+          matching: reference(Parent, 'value'),
+        },
+        { primaryKey: 'value' },
+      )
 
-    const mapper = createValueMapper(postgresDialect, undefined, [
-      Grandchild,
-      Child,
-      Parent,
-    ])
+      const Grandchild = defineTable(
+        'temporal_chain',
+        { value: reference(Child, 'value') },
+        { primaryKey: 'value' },
+      )
 
-    expect(mapper.columnTypes(Child)).toEqual({
-      value: type,
-      nullableValue: type,
-      matching: type,
-    })
+      const mapper = createValueMapper(postgresDialect, undefined, [
+        Grandchild,
+        Child,
+        Parent,
+      ])
 
-    expect(mapper.columnTypes(Grandchild).value).toBe(type)
-    expect(mapper.mapResultValue(Parent, 'value', raw)).toBe(parentValue)
-    expect(mapper.mapResultValue(Child, 'matching', raw)).toBe(parentValue)
-    expect(mapper.mapResultValue(Child, 'value', raw)).toBe(`${parentValue}:00`)
-    expect(mapper.mapResultValue(Child, 'nullableValue', raw)).toBe(`${parentValue}:00`)
-    expect(mapper.mapResultValue(Child, 'nullableValue', null)).toBeNull()
-    expect(mapper.mapResultValue(Grandchild, 'value', raw)).toBe(`${parentValue}:00`)
-  },
-)
+      expect(mapper.columnTypes(Child)).toEqual({
+        value: type,
+        nullableValue: type,
+        matching: type,
+      })
 
-it.each(['time(0)', 'text', 'varchar(40)'])(
-  'should respect selected %s storage and ignore SQLite overrides',
-  (type) => {
-    const Parent = defineTable(
-      'temporal_parent',
-      {
-        value: pipe(
-          string(),
-          isoTime(),
-          column({ physicalType: { postgresql: type, sqlite: 'BLOB' } }),
+      expect(mapper.columnTypes(Grandchild).value).toBe(type)
+      expect(mapper.mapResultValue(Parent, 'value', raw)).toBe(parentValue)
+      expect(mapper.mapResultValue(Child, 'matching', raw)).toBe(parentValue)
+      expect(mapper.mapResultValue(Child, 'value', raw)).toBe(`${parentValue}:00`)
+      expect(mapper.mapResultValue(Child, 'nullableValue', raw)).toBe(`${parentValue}:00`)
+      expect(mapper.mapResultValue(Child, 'nullableValue', null)).toBeNull()
+      expect(mapper.mapResultValue(Grandchild, 'value', raw)).toBe(`${parentValue}:00`)
+    },
+  )
+}
+
+function registerQueryGroup6() {
+  it.each(['time(0)', 'text', 'varchar(40)'])(
+    'should respect selected %s storage and ignore SQLite overrides',
+    (type) => {
+      const Parent = defineTable(
+        'temporal_parent',
+        {
+          value: pipe(
+            string(),
+            isoTime(),
+            column({ physicalType: { postgresql: type, sqlite: 'BLOB' } }),
+          ),
+        },
+        { primaryKey: 'value' },
+      )
+
+      const Child = defineTable(
+        'temporal_child',
+        {
+          value: pipe(
+            reference(Parent, 'value'),
+            transform((value) => `${value}:00`),
+            string(),
+            isoTimeSecond(),
+            column({ physicalType: { sqlite: 'INTEGER' } }),
+          ),
+          selected: pipe(
+            reference(Parent, 'value'),
+            column({ physicalType: { postgresql: 'text' } }),
+          ),
+        },
+        { primaryKey: 'value' },
+      )
+
+      const mapper = createValueMapper(postgresDialect, undefined, [Parent, Child])
+      expect(mapper.columnTypes(Child)).toEqual({ value: type, selected: 'text' })
+      expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('03:04:00')
+      expect(mapper.mapResultValue(Child, 'selected', '03:04:00')).toBe('03:04:00')
+    },
+  )
+}
+
+function registerQueryGroup7() {
+  it.each([
+    ['column', 'column'],
+    ['client', 'client'],
+    ['column', 'client'],
+    ['client', 'column'],
+  ])(
+    'should allow incompatible temporal output with paired %s parameter and %s result hooks',
+    (param, result) => {
+      const Parent = defineTable(
+        'hook_parent',
+        { value: pipe(string(), isoTime()) },
+        { primaryKey: 'value' },
+      )
+
+      const Child = defineTable(
+        'hook_child',
+        {
+          value: pipe(
+            reference(Parent, 'value'),
+            transform((value) => `2026-01-02T${value}:00`),
+            string(),
+            isoDateTimeSecond(),
+            column({
+              ...(param === 'column' ? { mapParam: () => '03:04' } : {}),
+              ...(result === 'column' ? { mapResult: () => '2026-01-02T03:04:00' } : {}),
+            }),
+          ),
+        },
+        { primaryKey: 'value' },
+      )
+
+      const mapper = createValueMapper(
+        postgresDialect,
+        {
+          ...(param === 'client' ? { mapParamValue: () => '03:04' } : {}),
+          ...(result === 'client' ? { mapResultValue: () => '2026-01-02T03:04:00' } : {}),
+        },
+        [Parent, Child],
+      )
+
+      expect(mapper.mapParam(Child, 'value', '2026-01-02T03:04:00')).toBe('03:04')
+
+      expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe(
+        '2026-01-02T03:04:00',
+      )
+    },
+  )
+}
+
+function registerQueryGroup8() {
+  it.each(['column parameter', 'column result', 'client parameter', 'client result'])(
+    'should reject an incompatible temporal reference with only a %s hook',
+    (direction) => {
+      const Parent = defineTable(
+        'hook_parent',
+        { value: pipe(string(), isoTime()) },
+        { primaryKey: 'value' },
+      )
+
+      const Child = defineTable(
+        'hook_child',
+        {
+          value: pipe(
+            reference(Parent, 'value'),
+            column({
+              physicalType: { postgresql: 'timestamp' },
+              ...(direction === 'column parameter' ? { mapParam: () => '03:04' } : {}),
+              ...(direction === 'column result' ? { mapResult: () => '03:04' } : {}),
+            }),
+          ),
+        },
+        { primaryKey: 'value' },
+      )
+
+      expect(() =>
+        createValueMapper(
+          postgresDialect,
+          {
+            ...(direction === 'client parameter' ? { mapParamValue: () => '03:04' } : {}),
+            ...(direction === 'client result' ? { mapResultValue: () => '03:04' } : {}),
+          },
+          [Parent, Child],
         ),
-      },
-      { primaryKey: 'value' },
-    )
+      ).toThrow(/paired column mapParam/)
+    },
+  )
+}
 
-    const Child = defineTable(
-      'temporal_child',
-      {
-        value: pipe(
-          reference(Parent, 'value'),
-          transform((value) => `${value}:00`),
-          string(),
-          isoTimeSecond(),
-          column({ physicalType: { sqlite: 'INTEGER' } }),
-        ),
-        selected: pipe(
-          reference(Parent, 'value'),
-          column({ physicalType: { postgresql: 'text' } }),
-        ),
-      },
-      { primaryKey: 'value' },
-    )
-
-    const mapper = createValueMapper(postgresDialect, undefined, [Parent, Child])
-    expect(mapper.columnTypes(Child)).toEqual({ value: type, selected: 'text' })
-    expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('03:04:00')
-    expect(mapper.mapResultValue(Child, 'selected', '03:04:00')).toBe('03:04:00')
-  },
-)
-
-it.each([
-  ['column', 'column'],
-  ['client', 'client'],
-  ['column', 'client'],
-  ['client', 'column'],
-])(
-  'should allow incompatible temporal output with paired %s parameter and %s result hooks',
-  (param, result) => {
-    const Parent = defineTable(
-      'hook_parent',
-      { value: pipe(string(), isoTime()) },
-      { primaryKey: 'value' },
-    )
-
-    const Child = defineTable(
-      'hook_child',
-      {
-        value: pipe(
-          reference(Parent, 'value'),
-          transform((value) => `2026-01-02T${value}:00`),
-          string(),
-          isoDateTimeSecond(),
-          column({
-            ...(param === 'column' ? { mapParam: () => '03:04' } : {}),
-            ...(result === 'column' ? { mapResult: () => '2026-01-02T03:04:00' } : {}),
-          }),
-        ),
-      },
-      { primaryKey: 'value' },
-    )
-
-    const mapper = createValueMapper(
-      postgresDialect,
-      {
-        ...(param === 'client' ? { mapParamValue: () => '03:04' } : {}),
-        ...(result === 'client' ? { mapResultValue: () => '2026-01-02T03:04:00' } : {}),
-      },
-      [Parent, Child],
-    )
-
-    expect(mapper.mapParam(Child, 'value', '2026-01-02T03:04:00')).toBe('03:04')
-
-    expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('2026-01-02T03:04:00')
-  },
-)
-
-it.each(['column parameter', 'column result', 'client parameter', 'client result'])(
-  'should reject an incompatible temporal reference with only a %s hook',
-  (direction) => {
+function registerQueryGroup9() {
+  it('should retain column hook precedence independently in each direction', () => {
     const Parent = defineTable(
       'hook_parent',
       { value: pipe(string(), isoTime()) },
@@ -334,58 +406,36 @@ it.each(['column parameter', 'column result', 'client parameter', 'client result
           reference(Parent, 'value'),
           column({
             physicalType: { postgresql: 'timestamp' },
-            ...(direction === 'column parameter' ? { mapParam: () => '03:04' } : {}),
-            ...(direction === 'column result' ? { mapResult: () => '03:04' } : {}),
+            mapParam: () => 'column parameter',
+            mapResult: () => 'column result',
           }),
         ),
       },
       { primaryKey: 'value' },
     )
 
-    expect(() =>
-      createValueMapper(
-        postgresDialect,
-        {
-          ...(direction === 'client parameter' ? { mapParamValue: () => '03:04' } : {}),
-          ...(direction === 'client result' ? { mapResultValue: () => '03:04' } : {}),
-        },
-        [Parent, Child],
-      ),
-    ).toThrow(/paired column mapParam/)
-  },
-)
+    const mapParamValue = vi.fn<() => string>(() => 'client parameter')
+    const mapResultValue = vi.fn<() => string>(() => 'client result')
+    const mapper = createValueMapper(postgresDialect, { mapParamValue, mapResultValue }, [
+      Parent,
+      Child,
+    ])
 
-it('should retain column hook precedence independently in each direction', () => {
-  const Parent = defineTable(
-    'hook_parent',
-    { value: pipe(string(), isoTime()) },
-    { primaryKey: 'value' },
-  )
+    expect(mapper.mapParam(Child, 'value', '03:04')).toBe('column parameter')
+    expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('column result')
+    expect(mapParamValue).not.toHaveBeenCalled()
+    expect(mapResultValue).not.toHaveBeenCalled()
+  })
+}
 
-  const Child = defineTable(
-    'hook_child',
-    {
-      value: pipe(
-        reference(Parent, 'value'),
-        column({
-          physicalType: { postgresql: 'timestamp' },
-          mapParam: () => 'column parameter',
-          mapResult: () => 'column result',
-        }),
-      ),
-    },
-    { primaryKey: 'value' },
-  )
-
-  const mapParamValue = vi.fn<() => string>(() => 'client parameter')
-  const mapResultValue = vi.fn<() => string>(() => 'client result')
-  const mapper = createValueMapper(postgresDialect, { mapParamValue, mapResultValue }, [
-    Parent,
-    Child,
-  ])
-
-  expect(mapper.mapParam(Child, 'value', '03:04')).toBe('column parameter')
-  expect(mapper.mapResultValue(Child, 'value', '03:04:00')).toBe('column result')
-  expect(mapParamValue).not.toHaveBeenCalled()
-  expect(mapResultValue).not.toHaveBeenCalled()
+describe('PostgreSQL query', () => {
+  registerQueryGroup1()
+  registerQueryGroup2()
+  registerQueryGroup3()
+  registerQueryGroup4()
+  registerQueryGroup5()
+  registerQueryGroup6()
+  registerQueryGroup7()
+  registerQueryGroup8()
+  registerQueryGroup9()
 })

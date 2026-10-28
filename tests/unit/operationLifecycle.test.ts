@@ -5,11 +5,11 @@ import { createDatabase } from '@/index'
 
 import { deferred } from '../helpers/deferredPromise'
 
+import { createPostgresControllableProvider } from './dialects/postgresOperationSessionFixtures'
 import {
   createControllableProvider,
   customConnector,
 } from './helpers/operationSessionFixtures'
-import { createPostgresControllableProvider } from './helpers/postgresOperationSessionFixtures'
 
 describe('operation coordinator lifecycle', () => {
   it('should give query, transaction, planning, and migration distinct FIFO root slots', async () => {

@@ -10,10 +10,10 @@ import type {
   PostgresMigrationRuntimeOptions,
 } from './coordination'
 import {
-  MIGRATION_SESSION_CALL_TIMEOUT_MS,
-  MigrationCancellationError,
-  MigrationLockTimeoutError,
-  MigrationSignalAbortedError,
+  POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS,
+  PostgresMigrationCancellationError,
+  PostgresMigrationLockTimeoutError,
+  PostgresMigrationSignalAbortedError,
   acquireCoordination,
   assertPrecondition,
   releaseCoordinationFailures,
@@ -31,7 +31,8 @@ function executionMessage(
 ): string {
   const detail =
     structured?.message ??
-    (cause instanceof MigrationCancellationError || isErrorTag(cause, 'InvariantError')
+    (cause instanceof PostgresMigrationCancellationError ||
+    isErrorTag(cause, 'InvariantError')
       ? cause.message
       : undefined)
 
@@ -64,7 +65,7 @@ function executionError(options: {
   return migrationExecutionError(cause, {
     message: (actionIndex) => executionMessage(cause, stage, actionIndex, structured),
     defect:
-      !(cause instanceof MigrationCancellationError) &&
+      !(cause instanceof PostgresMigrationCancellationError) &&
       !isErrorTag(cause, 'QueryError') &&
       !isErrorTag(cause, 'DriverError') &&
       !isErrorTag(cause, 'SchemaError'),
@@ -94,7 +95,7 @@ function cancellationStage(
   cause: unknown,
   fallback: MigrationExecutionStage,
 ): MigrationExecutionStage {
-  if (cause instanceof MigrationCancellationError) return cause.stage
+  if (cause instanceof PostgresMigrationCancellationError) return cause.stage
 
   return fallback
 }
@@ -109,7 +110,7 @@ function reportedStage(
   cause: unknown,
   fallback: MigrationExecutionStage,
 ): MigrationExecutionStage {
-  if (cause instanceof MigrationCancellationError) return cause.stage
+  if (cause instanceof PostgresMigrationCancellationError) return cause.stage
   if (isErrorTag(cause, 'MigrationError') && cause.stage !== undefined) return cause.stage
   if (cause instanceof MigrationOwnershipSchemaError) return 'planning'
 
@@ -121,7 +122,7 @@ function retainCancellationFailures(
   failures: MigrationCleanupFailure[],
   cause: unknown,
 ): void {
-  if (cause instanceof MigrationCancellationError) {
+  if (cause instanceof PostgresMigrationCancellationError) {
     failures.push(...cause.cleanupFailures)
   }
 }
@@ -200,8 +201,8 @@ async function releaseConfirmedLocks(
       runtime: options,
       state: cancellation,
       stage: 'unlock',
-      timeoutMs: MIGRATION_SESSION_CALL_TIMEOUT_MS,
-      timeoutMessage: `Timed out waiting ${MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
+      timeoutMs: POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS,
+      timeoutMessage: `Timed out waiting ${POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for migration advisory lock release verification`,
       /** Releases confirmed advisory locks with cancellation controls. */
       operation: () => releaseCoordinationFailures(options, acquiredLocks),
     })
@@ -265,8 +266,8 @@ async function acquireMigrationCoordination(
     return await acquireCoordination(options, cancellation)
   } catch (cause) {
     const knownSafeFailure =
-      cause instanceof MigrationLockTimeoutError ||
-      cause instanceof MigrationSignalAbortedError
+      cause instanceof PostgresMigrationLockTimeoutError ||
+      cause instanceof PostgresMigrationSignalAbortedError
 
     if (!knownSafeFailure) options.discard()
 
@@ -276,7 +277,7 @@ async function acquireMigrationCoordination(
       outcome: 'unchanged',
       retryable: knownSafeFailure,
       cleanupFailures:
-        cause instanceof MigrationCancellationError ? cause.cleanupFailures : [],
+        cause instanceof PostgresMigrationCancellationError ? cause.cleanupFailures : [],
     })
   }
 }
@@ -412,7 +413,8 @@ function migrationExecutionOutcome(
       ...primary,
       outcome,
       retryable:
-        outcome !== 'unknown' && primary.cause instanceof MigrationCancellationError,
+        outcome !== 'unknown' &&
+        primary.cause instanceof PostgresMigrationCancellationError,
       cleanupFailures,
     })
   }

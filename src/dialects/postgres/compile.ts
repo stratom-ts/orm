@@ -454,7 +454,7 @@ function compileWhereClause(
  *
  * @returns SQL expression string
  */
-function compileExpr(
+function compileExpression(
   expr: SqlExprAst,
   params: unknown[],
   relations: readonly PostgresRelation[],
@@ -466,25 +466,25 @@ function compileExpr(
     case 'count_all':
       return 'count(*)'
     case 'count':
-      return `count(${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `count(${compileExpression(expr.arg, params, relations, resolveRelation)})`
     case 'min':
-      return `min(${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `min(${compileExpression(expr.arg, params, relations, resolveRelation)})`
     case 'max':
-      return `max(${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `max(${compileExpression(expr.arg, params, relations, resolveRelation)})`
     case 'sum':
-      return `sum(${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `sum(${compileExpression(expr.arg, params, relations, resolveRelation)})`
     case 'lower':
-      return `lower(${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `lower(${compileExpression(expr.arg, params, relations, resolveRelation)})`
     case 'upper':
-      return `upper(${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `upper(${compileExpression(expr.arg, params, relations, resolveRelation)})`
     case 'length':
-      return `length(${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `length(${compileExpression(expr.arg, params, relations, resolveRelation)})`
     case 'now':
       return 'now()'
     case 'date_trunc': {
       params.push(expr.unit)
       const unitParam = `$${params.length}`
-      return `date_trunc(${unitParam}, ${compileExpr(expr.arg, params, relations, resolveRelation)})`
+      return `date_trunc(${unitParam}, ${compileExpression(expr.arg, params, relations, resolveRelation)})`
     }
     default: {
       const _exhaustive: never = expr
@@ -518,7 +518,7 @@ function compileSelectItem(
       return item.alias ? `${col} as ${quoteIdentifier(item.alias)}` : col
     }
     case 'expr':
-      return `${compileExpr(item.expr, params, relations, resolveRelation)} as ${quoteIdentifier(item.alias)}`
+      return `${compileExpression(item.expr, params, relations, resolveRelation)} as ${quoteIdentifier(item.alias)}`
     default: {
       const _exhaustive: never = item
       return _exhaustive

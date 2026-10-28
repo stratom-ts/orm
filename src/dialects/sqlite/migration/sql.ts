@@ -12,8 +12,14 @@ import {
 } from '../naming'
 
 import type { Column, Definition, ForeignKey, Index } from './definition'
-import { quoteSqliteIdentifier } from './definition'
 import { SqliteMigrationCapabilityError, capabilityError } from './error'
+
+/** Quotes a single SQLite identifier, including literal dots and quotes. */
+export function quoteSqliteIdentifier(value: string): string {
+  if (!value || value.includes('\0')) throw capabilityError('Invalid SQLite identifier')
+
+  return `"${value.replaceAll('"', '""')}"`
+}
 
 /** Verifies a structured identifier rather than accepting a forged comparison key. */
 export function assertIdentifier(identifier: CanonicalIdentifier): void {

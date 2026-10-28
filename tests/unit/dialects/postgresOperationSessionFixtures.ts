@@ -6,7 +6,7 @@ import {
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
 
-import { createControllableProvider } from './operationSessionFixtures'
+import { createControllableProvider } from '../helpers/operationSessionFixtures'
 
 /**
  * Creates a PostgreSQL connector fixture with observable leases, calls, cancellation, and

@@ -1165,6 +1165,367 @@ function rawMemberComparisonLeaks(source: ts.SourceFile): string[] {
   })
 }
 
+const MEMBER_UNIT_CONCERNS: Readonly<Record<string, string>> = {
+  Catalog: 'catalog',
+  DefaultCompatibility: 'default compatibility',
+  DefaultLogicalTypes: 'default logical types',
+  DefaultNormalization: 'default normalization',
+  DesiredSchema: 'desired schema',
+  LiteralInference: 'literal inference',
+  Mapping: 'mapping',
+  Migration: 'migration',
+  MigrationCompilation: 'migration compilation',
+  MigrationRuntime: 'migration runtime',
+  Naming: 'naming',
+  OperationSession: 'operation session',
+  PhysicalValueTypes: 'physical value types',
+  Query: 'query',
+  Schema: 'schema',
+  SqlClassification: 'sql classification',
+  TableProof: 'table proof',
+  Validation: 'validation',
+}
+
+/** Resolves the root name through call, modifier, and parameterized-suite syntax. */
+function callRoot(expression: ts.Expression): string | undefined {
+  if (ts.isIdentifier(expression)) return expression.text
+
+  if (
+    ts.isCallExpression(expression) ||
+    ts.isPropertyAccessExpression(expression) ||
+    ts.isTaggedTemplateExpression(expression)
+  )
+    return callRoot(
+      ts.isTaggedTemplateExpression(expression) ? expression.tag : expression.expression,
+    )
+
+  return undefined
+}
+
+/** Inspects direct suite statements only, excluding nested and parameter-row calls. */
+function memberSuiteViolations(
+  source: ts.SourceFile,
+  code: string,
+  filename: string,
+): string[] {
+  if (['postgresContractKit.test.ts', 'sqliteContractKit.test.ts'].includes(filename))
+    return []
+
+  const concern = filename.slice(code.length, -'.test.ts'.length)
+  const title = MEMBER_UNIT_CONCERNS[concern]
+  const expected = `${code === 'postgres' ? 'PostgreSQL' : 'SQLite'} ${title}`
+  const suites = source.statements.flatMap((statement) => {
+    if (
+      !ts.isExpressionStatement(statement) ||
+      !ts.isCallExpression(statement.expression)
+    )
+      return []
+
+    const call = statement.expression
+    return callRoot(call.expression) === 'describe' ? [call] : []
+  })
+
+  if (suites.length !== 1) return [`${filename} must have exactly one top-level suite`]
+
+  const label = suites[0].arguments[0]
+  return title && ts.isStringLiteralLike(label) && label.text === expected
+    ? []
+    : [`${filename} must use the documented title ${expected}`]
+}
+
+/**
+ * Collects declared binding names without mistaking destructuring property keys for
+ * bindings.
+ */
+function bindingNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text]
+
+  return name.elements.flatMap((element) =>
+    ts.isBindingElement(element) ? bindingNames(element.name) : [],
+  )
+}
+
+/** Lists local/public binding pairs declared by one member export statement. */
+function memberExportBindings(statement: ts.Statement): [string, string][] {
+  if (
+    ts.isExportDeclaration(statement) &&
+    statement.exportClause &&
+    ts.isNamedExports(statement.exportClause)
+  ) {
+    return statement.exportClause.elements.map((element) => [
+      (element.propertyName ?? element.name).text,
+      element.name.text,
+    ])
+  }
+
+  if (
+    !ts.canHaveModifiers(statement) ||
+    !ts
+      .getModifiers(statement)
+      ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+  )
+    return []
+
+  const names =
+    ts.isClassDeclaration(statement) && statement.name
+      ? [statement.name.text]
+      : ts.isVariableStatement(statement)
+        ? statement.declarationList.declarations.flatMap(({ name }) => bindingNames(name))
+        : []
+
+  return names.map((name) => [name, name])
+}
+
+/** Maps local declarations to every name exposed by a direct export or export alias. */
+function memberExportNames(source: ts.SourceFile): Map<string, string[]> {
+  const exported = new Map<string, string[]>()
+  for (const [local, name] of source.statements.flatMap(memberExportBindings))
+    exported.set(local, [...(exported.get(local) ?? []), name])
+
+  return exported
+}
+
+/** Checks authored identifiers and exported class/constant names, excluding SQL text. */
+function memberSymbolViolations(source: ts.SourceFile, code: string): string[] {
+  const prefix = code[0].toUpperCase() + code.slice(1)
+  const exported = memberExportNames(source)
+  return descendants(source).flatMap((node) => {
+    if (ts.isIdentifier(node) && /^(?:pg|PG|Pg)/.test(node.text))
+      return [`${location(source, node)} uses an abbreviated member prefix`]
+
+    if (ts.isClassDeclaration(node) && node.name) {
+      return (exported.get(node.name.text) ?? []).flatMap((name) =>
+        name.startsWith(prefix)
+          ? []
+          : [`${location(source, node)} exports class ${name} without ${prefix}`],
+      )
+    }
+
+    if (!ts.isVariableDeclaration(node)) return []
+
+    return bindingNames(node.name).flatMap((local) =>
+      (exported.get(local) ?? []).flatMap((name) =>
+        /^[A-Z][A-Z0-9_]*$/.test(name) && !name.startsWith(`${code.toUpperCase()}_`)
+          ? [
+              `${location(source, node)} exports policy ${name} without ${code.toUpperCase()}_`,
+            ]
+          : [],
+      ),
+    )
+  })
+}
+
+/** The migration barrel exposes exactly the two member execution/lowering functions. */
+function migrationIndexSurface(code: string): IndexSurface {
+  const prefix = code[0].toUpperCase() + code.slice(1)
+  return new Map([
+    ['./lower', new Set([`lower${prefix}MigrationPlan`])],
+    ['./runtime', new Set([`execute${prefix}Migration`])],
+  ])
+}
+
+/** Native specs use dotted concerns so unit/native basenames cannot collide. */
+function integrationSpecName(code: string, filename: string): boolean {
+  return new RegExp(`^${code}(\\.[a-z][A-Za-z]*)?\\.test\\.ts$`).test(filename)
+}
+
+describe('dialect member naming: rule 1', () => {
+  it('should keep source names, exported symbols, and migration barrels consistent', () => {
+    const violations = productionDialectSources().flatMap((member) => {
+      const files = sourceFiles(relative(ROOT, member.directory))
+      return [
+        ...files.flatMap((file) => {
+          const filename = relative(member.directory, file).split(/[\\/]/).at(-1)!
+          return [
+            ...(filename.startsWith(member.code)
+              ? [`${file} repeats its member directory`]
+              : []),
+            ...memberSymbolViolations(parse(file), member.code),
+          ]
+        }),
+        ...dialectIndexViolations(
+          parse(join(member.directory, 'migration/index.ts')),
+          migrationIndexSurface(member.code),
+        ),
+      ]
+    })
+
+    const sharedViolations = sourceFiles('src/dialects').flatMap((file) =>
+      descendants(parse(file)).flatMap((node) =>
+        ts.isIdentifier(node) && /^(?:pg|PG|Pg)/.test(node.text)
+          ? [`${file}: ${node.text}`]
+          : [],
+      ),
+    )
+
+    expect([...violations, ...sharedViolations]).toEqual([])
+  })
+})
+
+describe('dialect member naming: rule 2', () => {
+  it('should give every member unit spec one documented suite and native specs dotted names', () => {
+    for (const { code } of productionDialectSources()) {
+      const unitFiles = sourceFiles('tests/unit/dialects').filter(
+        (file) =>
+          file.endsWith('.test.ts') && file.split(/[\\/]/).at(-1)!.startsWith(code),
+      )
+
+      const nativeFiles = sourceFiles(join('tests/integration', code)).filter((file) =>
+        file.endsWith('.test.ts'),
+      )
+
+      const unitNames = new Set(unitFiles.map((file) => file.split(/[\\/]/).at(-1)!))
+      for (const file of unitFiles)
+        expect(
+          memberSuiteViolations(parse(file), code, file.split(/[\\/]/).at(-1)!),
+          relative(ROOT, file),
+        ).toEqual([])
+
+      for (const file of nativeFiles) {
+        const filename = file.split(/[\\/]/).at(-1)!
+        expect(integrationSpecName(code, filename), filename).toBe(true)
+        expect(unitNames.has(filename), `${filename} unit/native collision`).toBe(false)
+      }
+    }
+  })
+})
+
+describe('dialect member naming: rule 3', () => {
+  it.each([
+    [
+      'plain suite',
+      "describe('SQLite schema', () => { describe('nested', () => {}) })",
+      false,
+    ],
+    [
+      'parameterized suite',
+      "describe.each([['a'], ['b']])('SQLite schema', () => {})",
+      false,
+    ],
+    [
+      'tagged parameterized suite',
+      "describe.each`value\n${1}`('SQLite schema', () => {})",
+      false,
+    ],
+    [
+      'parameterized tests',
+      "describe('SQLite schema', () => { it.each([1, 2])('case', () => {}) })",
+      false,
+    ],
+    ['missing suite', "it('case', () => {})", true],
+    [
+      'multiple suites',
+      "describe('SQLite schema', () => {}); describe('SQLite schema', () => {})",
+      true,
+    ],
+    ['wrong concern', "describe('SQLite mapping', () => {})", true],
+  ])('should classify %s', (_label, code, rejected) => {
+    expect(
+      memberSuiteViolations(parseSource(code), 'sqlite', 'sqliteSchema.test.ts').length >
+        0,
+    ).toBe(rejected)
+  })
+})
+
+describe('dialect member naming: rule 4', () => {
+  it('should exempt only the named contract-registration aggregates', () => {
+    expect(
+      memberSuiteViolations(parseSource(''), 'sqlite', 'sqliteContractKit.test.ts'),
+    ).toEqual([])
+
+    expect(
+      memberSuiteViolations(parseSource(''), 'postgres', 'postgresContractKit.test.ts'),
+    ).toEqual([])
+
+    expect(
+      memberSuiteViolations(parseSource(''), 'sqlite', 'sqliteNewContractKit.test.ts'),
+    ).not.toEqual([])
+  })
+})
+
+const MEMBER_SYMBOL_CASES = [
+  [
+    'SQL text and driver module',
+    "import driver from 'pg'; const sql = 'select pg_backend_pid()'",
+    false,
+  ],
+  [
+    'member names',
+    'export class PostgresFailure {}; export const POSTGRES_TIMEOUT = 1',
+    false,
+  ],
+  ['abbreviated identifier', 'const pgClient = {}', true],
+  ['abbreviated type', 'type PgRow = unknown', true],
+  ['abbreviated constant', 'const PG_TIMEOUT = 1', true],
+  ['exported class', 'export class Failure {}', true],
+  [
+    'invalid class alias',
+    'class PostgresFailure {}; export { PostgresFailure as Failure }',
+    true,
+  ],
+  ['valid class alias', 'class Failure {}; export { Failure as PostgresFailure }', false],
+  [
+    'invalid constant alias',
+    'const POSTGRES_TIMEOUT = 1; export { POSTGRES_TIMEOUT as TIMEOUT }',
+    true,
+  ],
+  [
+    'valid constant alias',
+    'const TIMEOUT = 1; export { TIMEOUT as POSTGRES_TIMEOUT }',
+    false,
+  ],
+  ['exported object binding', 'export const { TIMEOUT } = { TIMEOUT: 1 }', true],
+  ['exported alias binding', 'export const { timeout: TIMEOUT } = { timeout: 1 }', true],
+  ['exported array binding', 'export const [TIMEOUT] = [1]', true],
+  ['private object binding', 'const { TIMEOUT } = { TIMEOUT: 1 }', false],
+  [
+    'valid object binding',
+    'export const { timeout: POSTGRES_TIMEOUT } = { timeout: 1 }',
+    false,
+  ],
+  ['separately exported class', 'class Failure {}; export { Failure }', true],
+  ['exported policy', 'export const TIMEOUT = 1', true],
+  ['separately exported policy', 'const TIMEOUT = 1; export { TIMEOUT }', true],
+] as const
+
+describe('dialect member naming: rule 5', () => {
+  it.each(MEMBER_SYMBOL_CASES)('should classify %s symbols', (_label, code, rejected) => {
+    expect(memberSymbolViolations(parseSource(code), 'postgres').length > 0).toBe(
+      rejected,
+    )
+  })
+})
+
+describe('dialect member naming: rule 6', () => {
+  it.each([
+    ['sqlite.test.ts', true],
+    ['sqlite.migrationRuntime.test.ts', true],
+    ['sqliteMigrationRuntime.test.ts', false],
+    ['sqlite.Migration.test.ts', false],
+  ])('should classify native spec %s', (filename, valid) => {
+    expect(integrationSpecName('sqlite', filename)).toBe(valid)
+  })
+})
+
+describe('dialect member naming: rule 7', () => {
+  it.each([
+    [
+      "export { lowerPostgresMigrationPlan } from './lower'; export { executePostgresMigration } from './runtime'",
+      false,
+    ],
+    ["export * from './runtime'", true],
+    [
+      "export { lowerPostgresMigrationPlan } from './lower'; export { executePostgresMigration } from './runtime'; export { mapPostgresAdvisoryLockIdentity } from './coordination'",
+      true,
+    ],
+  ])('should classify migration export surface %#', (code, rejected) => {
+    expect(
+      dialectIndexViolations(parseSource(code), migrationIndexSurface('postgres'))
+        .length > 0,
+    ).toBe(rejected)
+  })
+})
+
 describe('production dialect source organization', () => {
   it('should require every registered member to provide the shared source shape and facets', () => {
     const violations = productionDialectSources().flatMap(({ code, directory }) => {
@@ -1621,7 +1982,7 @@ describe('dialect test organization: broad entry points', () => {
           ROOT,
           'tests/integration',
           member.code,
-          `${member.code}MigrationRuntime.test.ts`,
+          `${member.code}.migrationRuntime.test.ts`,
         ),
       )
 

@@ -6,8 +6,8 @@ import { DriverError, column, createDatabase, defineTable } from '@/index'
 
 import { deferred } from '../helpers/deferredPromise'
 
+import { createPostgresControllableProvider } from './dialects/postgresOperationSessionFixtures'
 import { customConnector } from './helpers/operationSessionFixtures'
-import { createPostgresControllableProvider } from './helpers/postgresOperationSessionFixtures'
 
 /** Checks that migration context hides driver text while retaining native diagnostics. */
 function expectSafeDriverDiagnostics(

@@ -36,6 +36,7 @@ const rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData = [
 /** Checks that invalid successful metadata has a diagnostic and cannot prove names. */
 function expectUnknownMetadata(snapshot: CatalogSnapshot, message: string): void {
   expect(snapshot.diagnostics.some((entry) => entry.message.includes(message))).toBe(true)
+
   expect(snapshot.nameReservations.coverage.state).toBe('unknown')
 }
 
@@ -511,7 +512,8 @@ type FixtureOptions = {
  * Builds native sqlite_schema rows with the requested table, index, and dependency
  * variations.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native sqlite_schema rows with the requested table, index, and dependency
  *   variations.
@@ -555,7 +557,8 @@ function fixtureSchemaRows(options: FixtureOptions) {
  * Builds SQLite constraint definitions and applies requested reference and default
  * variations.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns SQLite constraint definitions and applies requested reference and default
  *   variations.
@@ -595,7 +598,8 @@ function createSqliteConstraintRows(options: FixtureOptions) {
  * Applies quoted names and richer native clauses used to check unsupported catalog
  * semantics.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param schema - Valibot schema used to read validation, storage, and metadata facts.
  */
 function applySqliteSchemaClauses(
@@ -644,7 +648,8 @@ function applySqliteSchemaClauses(
 /**
  * Builds native column observations with the selected schema variations.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native column observations with the selected schema variations.
  */
@@ -686,7 +691,8 @@ function fixtureColumnRows(options: FixtureOptions): Record<string, unknown[]> {
 /**
  * Builds SQLite table-list observations with the requested native options.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns SQLite table-list observations with the requested native options.
  */
@@ -732,7 +738,8 @@ function fixtureTableRows(options: FixtureOptions) {
  * Builds native index-list rows for the requested table and test variation.
  *
  * @param p - Parameters supplied to the native fixture SQL call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native index-list rows for the requested table and test variation.
  */
@@ -776,7 +783,8 @@ function fixtureIndexList(p: readonly unknown[], options: FixtureOptions): unkno
  * Builds native index-member rows for the requested index and test variation.
  *
  * @param p - Parameters supplied to the native fixture SQL call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native index-member rows for the requested index and test variation.
  */
@@ -800,7 +808,8 @@ function fixtureIndexInfo(p: readonly unknown[], options: FixtureOptions): unkno
  * @param rows - Ordered native observations or result rows to process.
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native rows after injecting the requested malformed member fields.
  */
@@ -869,12 +878,14 @@ function malformedMemberRows(
 }
 
 /**
- * Injects malformed database, relation, or member evidence for fail-closed catalog tests.
+ * Injects malformed database, relation, or member evidence for fail-closed catalog
+ * tests.
  *
  * @param rows - Ordered native observations or result rows to process.
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native rows after injecting the requested invalid catalog evidence.
  */
@@ -928,24 +939,12 @@ function malformedFixtureRows(
   return malformedMemberRows(rows, query, options)
 }
 
-it.each(['table-name-nul', 'table-name-surrogate'])(
-  'should keep malformed SQLite returned identifiers as unknown evidence: %s',
-  async (malformed) => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ malformed }),
-      request,
-    )
-
-    expectUnknownMetadata(snapshot, 'Malformed SQLite table_list row')
-    expect(snapshot.namespaces.coverage.state).toBe('unknown')
-  },
-)
-
 /**
  * Injects conflicting relation names, kinds, and definitions into native schema
  * observations.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
  * @param rows - Ordered native observations or result rows to process.
@@ -1005,7 +1004,8 @@ function malformedSchemaRows(
  * @param rows - Ordered native observations or result rows to process.
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native rows after injecting invalid index-member evidence.
  */
@@ -1056,7 +1056,8 @@ function malformedIndexDetails(
 /**
  * Injects schema and index-list disagreements into native index inventory.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
  * @param p - Parameters supplied to the native fixture SQL call.
@@ -1103,7 +1104,8 @@ function malformedIndexInventory(
  * @param rows - Ordered native observations or result rows to process.
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns Native rows after injecting invalid index metadata.
  */
@@ -1147,7 +1149,8 @@ function malformedIndexRows(
  * Creates a catalog executor with controlled native rows, ordering, malformed evidence,
  * and race behavior.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  *
  * @returns A catalog executor with controlled native rows, ordering, malformed evidence,
  *   and race behavior.
@@ -1174,7 +1177,8 @@ function fixtureExecutor(options: FixtureOptions = {}): CatalogExecutor {
  * @param snapshot - Observed catalog snapshot whose evidence is checked or projected.
  * @param name - Physical identifier or dialect label used by this operation.
  *
- * @returns The named relation in the observed SQLite catalog or fails the fixture check.
+ * @returns The named relation in the observed SQLite catalog or fails the fixture
+ * check.
  */
 function relationNamed(snapshot: CatalogSnapshot, name: string): CatalogRelation {
   const relation = snapshot.namespaces.items[0]?.relations.items.find(
@@ -1226,1375 +1230,6 @@ const emptyFixture = (version = '3.37.0'): CatalogExecutor => ({
           : query.sql.includes('sqlite_schema')
             ? []
             : [],
-})
-
-describe('SQLite catalog', () => {
-  it('should decode all affinity families and native spelling in the fixture', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const parent = relationNamed(s, 'parent')
-    expect(parent.nativeDefinition.state).toBe('present')
-
-    expect(
-      tableOf(parent).columns.items.map((column) =>
-        column.dataType.state === 'present' ? column.dataType.value.family : '',
-      ),
-    ).toEqual(['integer', 'text', 'blob', 'real', 'numeric'])
-
-    expect(tableOf(parent).columns.items[1]!.dataType).toMatchObject({
-      state: 'present',
-      value: { native: 'VARCHAR(12)', comparisonKey: 'text' },
-    })
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should preserve defaults and rowid generation in the fixture', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const columns = tableOf(relationNamed(s, 'parent')).columns.items
-    assertSqliteColumnEvidence(columns)
-
-    assertParentKeysAndIndexes(s)
-
-    expect(relationNamed(s, 'parent').management).toBe('unmanaged')
-
-    expect(tableOf(relationNamed(s, 'wr_auto')).primaryKey).toMatchObject({
-      state: 'present',
-      value: { columns: ['a', 'b'], semantics: { state: 'present' } },
-    })
-
-    expect(tableOf(relationNamed(s, 'wr_auto')).options.items).toEqual([
-      { name: 'strict', value: 'false' },
-      { name: 'withoutRowid', value: 'true' },
-    ])
-
-    expect(tableOf(relationNamed(s, 'strict_t')).options.items).toEqual([
-      { name: 'strict', value: 'true' },
-      { name: 'withoutRowid', value: 'false' },
-    ])
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should retain composite FK ordering and actions in the fixture', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const child = relationNamed(s, 'child')
-    expect(tableOf(child).foreignKeys.items[0]).toMatchObject({
-      columns: ['pa', 'pb'],
-      referencedColumns: ['id', 'v'],
-      onDelete: 'set null',
-      onUpdate: 'cascade',
-      validity: { state: 'present', value: 'invalid' },
-    })
-  })
-
-  it('should produce deeply equal fixture reversals', async () => {
-    expect(
-      await sqliteCatalog.introspectCatalog(fixtureExecutor({ reverse: true }), request),
-    ).toEqual(await sqliteCatalog.introspectCatalog(fixtureExecutor(), request))
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should block main management when attached or temporary objects are present', async () => {
-    const executeExternal = createExternalSqliteExecutor
-
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      executeExternal(false),
-      request,
-    )
-
-    const reversed = await sqliteCatalog.introspectCatalog(executeExternal(true), request)
-    const parent = relationNamed(snapshot, 'parent')
-
-    assertExternalNamespaceDiagnostics(reversed, snapshot, parent)
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should preserve CHECK, generated-column, and rich-index evidence', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const generated = relationNamed(snapshot, 'generated_t')
-    const generatedTable = tableOf(generated)
-
-    expect(generated.management).toBe('unmanaged')
-    expect(generatedTable.columns.items[1]!.generation.state).toBe('unsupported')
-
-    expect(generatedTable.columns.items[1]!.nativeDefinition).toMatchObject({
-      state: 'present',
-      value: expect.stringContaining('GENERATED ALWAYS') as unknown,
-    })
-
-    const parent = relationNamed(snapshot, 'parent')
-    const indexes = new Map(
-      tableOf(parent).indexes.items.map((index) => [
-        index.name.state === 'present' ? index.name.value : '',
-        index,
-      ]),
-    )
-
-    for (const name of ['rich_desc', 'rich_partial', 'rich_expr', 'rich_coll']) {
-      expect(indexes.get(name)?.semantics.state).toBe('unsupported')
-      expect(indexes.get(name)?.nativeDefinition.state).toBe('present')
-    }
-
-    const checked = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ checkConstraint: true }),
-      request,
-    )
-
-    const checkedParent = relationNamed(checked, 'parent')
-
-    expect(checkedParent.management).toBe('unmanaged')
-
-    expect(
-      tableOf(checkedParent).opaqueObjects.items.some((object) =>
-        object.reason.includes('CHECK constraint'),
-      ),
-    ).toBe(true)
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should not claim unknown constraint names or rowid planning support', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ namedConstraint: true, withoutOpaqueDependencies: true }),
-      request,
-    )
-
-    const parent = relationNamed(snapshot, 'parent')
-    const parentTable = tableOf(parent)
-
-    expect(parent.management).toBe('unmanaged')
-
-    expect(parentTable.primaryKey).toMatchObject({
-      state: 'present',
-      value: { name: { state: 'unknown' } },
-    })
-
-    expect(parentTable.uniqueConstraints.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: expect.objectContaining({ state: 'unknown' }) as unknown,
-        }),
-      ]),
-    )
-
-    expect(
-      tableOf(relationNamed(snapshot, 'child')).foreignKeys.items[0]!.name,
-    ).toMatchObject({
-      state: 'unknown',
-    })
-
-    expect(snapshot.constraintNameReservations).toMatchObject({
-      items: [],
-      coverage: { state: 'unknown' },
-    })
-
-    expect(parentTable.columns.items[0]!.generation).toMatchObject({
-      state: 'present',
-      value: { kind: 'rowidAlias', autoIncrement: false },
-    })
-
-    expect(relationNamed(snapshot, 'simple').management).toBe('managed')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should preserve trigger opaque evidence in the fixture', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const parent = relationNamed(s, 'parent')
-    expect(
-      tableOf(parent).opaqueObjects.items.some((object) => object.kind === 'trigger'),
-    ).toBe(true)
-  })
-
-  it('should allow trigger names to share relation names without reserving trigger-only names', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ triggerNameCollision: true }),
-      request,
-    )
-
-    expect(relationNamed(snapshot, 'parent')).toBeDefined()
-
-    expect(
-      snapshot.nameReservations.items.filter(({ name }) => name === 'parent'),
-    ).toHaveLength(1)
-
-    expect(snapshot.nameReservations.items).not.toContainEqual(
-      expect.objectContaining({ name: 'parent_trg' }),
-    )
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should keep rowid aliases and unnamed simple constraints in the managed profile', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ withoutOpaqueDependencies: true, simpleForeignKey: true }),
-      request,
-    )
-
-    const simple = relationNamed(snapshot, 'simple')
-    expect(simple.management).toBe('managed')
-
-    expect(tableOf(simple).primaryKey).toMatchObject({
-      state: 'present',
-      value: { name: { state: 'absent' }, columns: ['id'] },
-    })
-
-    expect(tableOf(simple).columns.items[0]!.generation).toMatchObject({
-      state: 'present',
-      value: { kind: 'rowidAlias', autoIncrement: false },
-    })
-
-    expect(relationNamed(snapshot, 'child').management).toBe('managed')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should keep uncomparable native defaults opaque and unmanaged', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ withoutOpaqueDependencies: true, opaqueDefault: true }),
-      request,
-    )
-
-    const relation = relationNamed(snapshot, 'simple')
-    const table = tableOf(relation)
-
-    expect(relation.management).toBe('unmanaged')
-
-    expect(table.columns.items[1]!.default).toMatchObject({
-      state: 'present',
-      value: {
-        kind: 'nativeExpression',
-        native: '(random())',
-        comparisonKey: { state: 'unsupported' },
-      },
-    })
-
-    expect(table.opaqueObjects.items).toContainEqual(
-      expect.objectContaining({
-        kind: 'other',
-        name: { state: 'present', value: 'value' },
-        nativeDefinition: { state: 'present', value: '(random())' },
-      }),
-    )
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should keep rich auto-index UNIQUE constraints unmanaged', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ withoutOpaqueDependencies: true, richUniqueIndex: true }),
-      request,
-    )
-
-    const relation = relationNamed(snapshot, 'simple')
-    const table = tableOf(relation)
-
-    expect(relation.management).toBe('unmanaged')
-
-    expect(table.uniqueConstraints.items).toMatchObject([
-      {
-        columns: ['value'],
-        semantics: { state: 'unsupported' },
-      },
-    ])
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should treat authored MATCH clauses as opaque despite PRAGMA match NONE', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({
-        withoutOpaqueDependencies: true,
-        simpleForeignKey: true,
-        matchClause: true,
-      }),
-      request,
-    )
-
-    const child = relationNamed(snapshot, 'child')
-
-    expect(child.management).toBe('unmanaged')
-
-    expect(tableOf(child).opaqueObjects.items).toContainEqual(
-      expect.objectContaining({
-        kind: 'other',
-        nativeDefinition: {
-          state: 'present',
-          value: expect.stringContaining('MATCH FULL') as unknown,
-        },
-        reason: expect.stringContaining('MATCH') as unknown,
-      }),
-    )
-
-    expect(tableOf(child).foreignKeys.items[0]!.semantics).toMatchObject({
-      state: 'present',
-    })
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should report SQLite owner facts as unsupported by the engine', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-
-    expect(snapshot.namespaces.items[0]!.owner).toEqual({
-      state: 'unsupported',
-      by: 'engine',
-      reason: 'SQLite has no namespace owner',
-    })
-
-    expect(relationNamed(snapshot, 'parent').owner).toEqual({
-      state: 'unsupported',
-      by: 'engine',
-      reason: 'SQLite has no relation owner',
-    })
-  })
-
-  it('should keep trigger dependencies opaque across candidate tables', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ withoutOpaqueDependencies: true, crossTableTrigger: true }),
-      request,
-    )
-
-    const child = relationNamed(snapshot, 'child')
-
-    expect(child.management).toBe('unmanaged')
-
-    expect(tableOf(child).opaqueObjects.items).toContainEqual(
-      expect.objectContaining({
-        kind: 'trigger',
-        name: { state: 'present', value: 'cross_table_trigger' },
-        nativeDefinition: {
-          state: 'present',
-          value:
-            'CREATE TRIGGER cross_table_trigger AFTER UPDATE ON parent BEGIN UPDATE child SET pa = new.id; END',
-        },
-      }),
-    )
-
-    expect(snapshot.diagnostics.map(({ code }) => code)).toContain(
-      'catalog.sqlite.trigger-dependency',
-    )
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should mark unrepresented table clauses opaque without false positives in literals or comments', async () => {
-    for (const richerClause of [
-      'collate',
-      'conflict',
-      'deferrable',
-      'initially',
-    ] as const) {
-      const snapshot = await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ withoutOpaqueDependencies: true, richerClause }),
-        request,
-      )
-
-      const relation = relationNamed(
-        snapshot,
-        richerClause === 'deferrable' || richerClause === 'initially'
-          ? 'child'
-          : 'simple',
-      )
-
-      const table = tableOf(relation)
-
-      expect(relation.management).toBe('unmanaged')
-
-      expect(table.opaqueObjects.items).toContainEqual(
-        expect.objectContaining({
-          kind: 'other',
-          nativeDefinition: {
-            state: 'present',
-            value: expect.stringContaining('CREATE TABLE') as unknown,
-          },
-          reason: expect.stringContaining(
-            'SQLite table clauses are not fully represented',
-          ) as unknown,
-        }),
-      )
-    }
-
-    const decoy = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ withoutOpaqueDependencies: true, scannerDecoys: true }),
-      request,
-    )
-
-    expect(relationNamed(decoy, 'simple').management).toBe('managed')
-
-    expect(
-      tableOf(relationNamed(decoy, 'simple')).opaqueObjects.items.some((object) =>
-        object.reason.includes('table clauses are not fully represented'),
-      ),
-    ).toBe(false)
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should preserve the INTEGER PRIMARY KEY DESC exception', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ withoutOpaqueDependencies: true }),
-      request,
-    )
-
-    const relation = relationNamed(snapshot, 'pk_desc')
-    const table = tableOf(relation)
-
-    expect(table.columns.items[0]!.generation).toEqual({ state: 'absent' })
-
-    expect(table.primaryKey).toMatchObject({
-      state: 'present',
-      value: {
-        columns: ['id'],
-        semantics: { state: 'unsupported' },
-      },
-    })
-
-    expect(relation.management).toBe('unmanaged')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should block tables when view dependencies are unknown and preserve view triggers', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ viewTrigger: true }),
-      request,
-    )
-
-    const parent = relationNamed(snapshot, 'parent')
-    expect(parent.management).toBe('unmanaged')
-
-    expect(tableOf(parent).opaqueObjects.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'other',
-          name: { state: 'present', value: 'v' },
-        }),
-        expect.objectContaining({
-          kind: 'trigger',
-          name: { state: 'present', value: 'view_trigger' },
-        }),
-      ]),
-    )
-
-    expect(snapshot.diagnostics.map(({ code }) => code)).toContain(
-      'catalog.sqlite.view-dependency',
-    )
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should reserve unrelated indexes and auto-indexes outside relation scope', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
-      ...request,
-      completeNamespaces: [],
-      relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
-    })
-
-    expect(s.nameReservations.coverage.state).toBe('complete')
-    expect(s.nameReservations.items.map((n) => n.name)).toContain('parent_n')
-    expect(s.nameReservations.items.map((n) => n.name)).toContain('u_auto')
-  })
-
-  it('should mark duplicate database rows as unknown inventory', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ malformed: 'duplicate' }),
-      request,
-    )
-
-    expectUnknownMetadata(snapshot, 'database_list sequence values must be unique')
-    expect(snapshot.namespaces.coverage.state).toBe('unknown')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should observe requested absence without claiming complete namespace coverage', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
-      relations: [],
-      absentRelations: [{ relation: 'missing' }],
-      completeNamespaces: [],
-    })
-
-    expect(s.request.absentRelations).toHaveLength(1)
-
-    expect(
-      s.namespaces.items[0]!.relations.items.some(
-        (relation) => relation.identity.relation.comparisonKey === 'missing',
-      ),
-    ).toBe(false)
-
-    expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
-  })
-
-  it('should not fabricate absence when the requested identity is present', async () => {
-    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
-      relations: [],
-      absentRelations: [{ relation: 'child' }],
-      completeNamespaces: [],
-    })
-
-    expect(s.request.absentRelations[0]!.relation.spelling).toBe('child')
-    expect(relationNamed(s, 'child').table.state).toBe('present')
-    expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should reject attached relation scopes in the fixture', async () => {
-    await expect(
-      sqliteCatalog.introspectCatalog(fixtureExecutor(), {
-        ...request,
-        relations: [
-          {
-            relation: {
-              namespace: [{ role: 'database', spelling: 'aux' }],
-              relation: 'x',
-            },
-            shape: 'complete',
-          },
-        ],
-      }),
-    ).rejects.toMatchObject({ _tag: 'InvariantError' })
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should gate exact minimum version in the fixture', async () => {
-    const executed: string[] = []
-    const fixture = fixtureExecutor({ version: '3.37.0' })
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      {
-        /** Executes fixture SQL with the configured native observations. */
-        execute: async (query) => {
-          executed.push(query.sql)
-          return fixture.execute(query)
-        },
-      },
-      request,
-    )
-
-    expect(snapshot.source.version).toBe('3.37.0')
-
-    expect(snapshot.capabilities.identity).toEqual({
-      state: 'supported',
-      fidelity: 'native',
-    })
-
-    expect(snapshot.capabilities.namespaces).toEqual({
-      state: 'supported',
-      fidelity: 'native',
-    })
-
-    expect(executed.some((sql) => sql.includes('pragma_table_list'))).toBe(true)
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should gate versions before querying any PRAGMA', async () => {
-    const calls: string[] = []
-    const old = await sqliteCatalog.introspectCatalog(
-      {
-        /** Executes fixture SQL with the configured native observations. */
-        execute: async (query) => {
-          calls.push(query.sql)
-          return [{ version: '3.36.0' }]
-        },
-      },
-      request,
-    )
-
-    expect(calls).toHaveLength(1)
-
-    expect(old.capabilities.identity).toEqual({
-      state: 'unavailable',
-      cause: 'version',
-      actual: '3.36.0',
-      requires: '3.37.0',
-    })
-
-    expect(old.namespaces.coverage).toMatchObject({
-      state: 'unavailable',
-      cause: 'version',
-    })
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should resolve omitted namespace to main', async () => {
-    expect(
-      (
-        await sqliteCatalog.introspectCatalog(emptyFixture(), {
-          relations: [],
-          absentRelations: [],
-          completeNamespaces: [],
-        })
-      ).namespaceContext.writableDefault[0]!.spelling,
-    ).toBe('main')
-  })
-
-  it('should emit complete empty main', async () => {
-    expect(
-      (await sqliteCatalog.introspectCatalog(emptyFixture(), request)).namespaces
-        .items[0]!.relations.items,
-    ).toEqual([])
-  })
-
-  it('should emit partial empty main', async () => {
-    expect(
-      (
-        await sqliteCatalog.introspectCatalog(emptyFixture(), {
-          relations: [],
-          absentRelations: [],
-          completeNamespaces: [],
-        })
-      ).namespaces.items[0]!.relations.coverage.state,
-    ).toBe('partial')
-  })
-
-  it('should deduplicate request identities', async () => {
-    const result = await sqliteCatalog.introspectCatalog(emptyFixture(), {
-      relations: [
-        { relation: { relation: 'x' }, shape: 'complete' },
-        { relation: { relation: 'X' }, shape: 'complete' },
-      ],
-      absentRelations: [],
-      completeNamespaces: [],
-    })
-
-    expect(result.request.relations).toHaveLength(1)
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should reject attached registration defaults', async () => {
-    await expect(
-      sqliteCatalog.introspectCatalog(emptyFixture(), {
-        ...request,
-        registrationDefault: [{ role: 'database', spelling: 'aux' }],
-      }),
-    ).rejects.toMatchObject({ _tag: 'InvariantError' })
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should parameterize and observe quoted table and index names', async () => {
-    const calls: { sql: string; params: unknown[] }[] = []
-    const tableName = 'odd"table'
-    const indexName = 'odd"index'
-    const fixture = fixtureExecutor({ quotedName: tableName, quotedIndexName: indexName })
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      {
-        /** Executes fixture SQL with the configured native observations. */
-        execute: async (query) => {
-          calls.push(query)
-          return fixture.execute(query)
-        },
-      },
-      {
-        relations: [{ relation: { relation: tableName }, shape: 'complete' }],
-        absentRelations: [],
-        completeNamespaces: [],
-      },
-    )
-
-    const table = tableOf(relationNamed(snapshot, tableName))
-    expect(table.indexes.items.map((index) => index.name)).toContainEqual({
-      state: 'present',
-      value: indexName,
-    })
-
-    expect(
-      calls.some(
-        (call) => call.params.includes(tableName) && call.sql.includes('pragma_'),
-      ),
-    ).toBe(true)
-
-    expect(
-      calls.some(
-        (call) => call.params.includes(indexName) && call.sql.includes('pragma_'),
-      ),
-    ).toBe(true)
-
-    expect(
-      calls.every(
-        (call) => !call.sql.includes(tableName) && !call.sql.includes(indexName),
-      ),
-    ).toBe(true)
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should report unsupported old versions deterministically', async () => {
-    expect(
-      (await sqliteCatalog.introspectCatalog(emptyFixture('3.36.9'), request))
-        .diagnostics[0]!.code,
-    ).toBe('catalog.capability.version')
-  })
-
-  it('should preserve resolved request shape', async () => {
-    const result = await sqliteCatalog.introspectCatalog(emptyFixture(), {
-      ...request,
-      relations: [{ relation: { relation: 'x' }, shape: 'additive' }],
-    })
-
-    expect(result.request.relations[0]!.shape).toBe('additive')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should return unknown evidence for malformed cross-PRAGMA observations', async () => {
-    for (const [malformed, message] of [
-      ['xinfo-gap', 'SQLite table "parent" table_xinfo cids must be contiguous'],
-      ['ncol', 'SQLite table "parent" table_list ncol does not match table_xinfo'],
-      ['fk-duplicate', 'SQLite foreign-key group on "child" has non-contiguous sequence'],
-      ['fk-source', 'SQLite foreign key on "child" references a missing source column'],
-    ]) {
-      const snapshot = await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed }),
-        request,
-      )
-
-      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
-      expectUnknownMetadata(snapshot, message)
-    }
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should return unknown evidence and stable diagnostics', async () => {
-    const cases = structuredClone(
-      rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData,
-    )
-
-    for (const [malformed, message] of cases) {
-      const snapshot = await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed }),
-        request,
-      )
-
-      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
-      expectUnknownMetadata(snapshot, message)
-    }
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should return unknown evidence for malformed schema rows', async () => {
-    await assertMalformedSqliteIdentityRows()
-
-    expectUnknownMetadata(
-      await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'table-unlisted-database' }),
-        request,
-      ),
-      'references an unlisted database alias "ghost"',
-    )
-
-    expectUnknownMetadata(
-      await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'schema-unknown-type' }),
-        request,
-      ),
-      'invalid type "mystery"',
-    )
-
-    expectUnknownMetadata(
-      await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'schema-relation-name-mismatch' }),
-        request,
-      ),
-      'has mismatched tbl_name "other"',
-    )
-
-    expectUnknownMetadata(
-      await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed: 'schema-view-type-mismatch' }),
-        request,
-      ),
-      'disagrees with sqlite_schema type "table"',
-    )
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should return unknown evidence for catalog races including reservation-only indexes', async () => {
-    for (const race of ['table_list', 'table_xinfo', 'sqlite_schema', 'index_list']) {
-      const snapshot = await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ race }),
-        request,
-      )
-
-      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
-      expectUnknownMetadata(snapshot, 'catalog changed during introspection')
-    }
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should keep a sound relation and column facts alongside a damaged index', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({
-        malformed: 'index-xinfo-wrong-flag',
-        withoutOpaqueDependencies: true,
-      }),
-      request,
-    )
-
-    const parent = relationNamed(snapshot, 'parent')
-    const child = relationNamed(snapshot, 'child')
-    const simple = relationNamed(snapshot, 'simple')
-    expect(parent.management).toBe('unmanaged')
-    expect(parent.nativeDefinition.state).toBe('present')
-    expect(tableOf(parent).columns.coverage.state).toBe('complete')
-    expect(tableOf(parent).primaryKey.state).toBe('unknown')
-    expect(tableOf(parent).indexes.coverage.state).toBe('unknown')
-    const id = tableOf(parent).columns.items.find((column) => column.name === 'id')!
-    expect(id.nullable).toEqual({ state: 'present', value: false })
-
-    expect(id.generation).toEqual({
-      state: 'present',
-      value: { kind: 'rowidAlias', autoIncrement: true },
-    })
-
-    expect(child.management).toBe('unmanaged')
-    expect(tableOf(child).columns.coverage.state).toBe('complete')
-    expect(tableOf(child).foreignKeys.coverage.state).toBe('unknown')
-    const childDiagnostic = snapshot.diagnostics.find(
-      (entry) =>
-        entry.target?.relation.comparisonKey === child.identity.relation.comparisonKey,
-    )
-
-    expect(childDiagnostic?.message).toContain('references invalid parent metadata')
-    expect(simple.management).toBe('managed')
-    expect(tableOf(simple).columns.coverage.state).toBe('complete')
-    expect(snapshot.namespaces.items[0]!.relations.coverage.state).toBe('partial')
-    expect(snapshot.nameReservations.coverage.state).toBe('unknown')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should keep unrelated relations when one schema definition disagrees', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({
-        malformed: 'schema-relation-name-mismatch',
-        withoutOpaqueDependencies: true,
-      }),
-      request,
-    )
-
-    expect(relationNamed(snapshot, 'parent').nativeDefinition.state).toBe('unknown')
-
-    expect(tableOf(relationNamed(snapshot, 'parent')).columns.coverage.state).toBe(
-      'unknown',
-    )
-
-    expect(relationNamed(snapshot, 'simple').management).toBe('managed')
-    expect(snapshot.nameReservations.coverage.state).toBe('unknown')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should return the same invalid evidence when native rows are reversed', async () => {
-    for (const malformed of [
-      'schema-case-duplicate',
-      'index-xinfo-wrong-flag',
-      'fk-duplicate',
-    ]) {
-      const forward = await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed }),
-        request,
-      )
-
-      const reversed = await sqliteCatalog.introspectCatalog(
-        fixtureExecutor({ malformed, reverse: true }),
-        request,
-      )
-
-      expect(reversed).toEqual(forward)
-    }
-  })
-})
-
-describe('SQLite catalog', () => {
-  it.each(nativeDefinitionCrossCheckCases)(
-    'should reject stable %s observations before planning',
-    async (malformed, relationName, affected, message) => {
-      const observe = (reverse: boolean) =>
-        sqliteCatalog.introspectCatalog(
-          fixtureExecutor({ malformed, reverse, withoutOpaqueDependencies: true }),
-          request,
-        )
-
-      const snapshot = await observe(false)
-      expect(await observe(true)).toEqual(snapshot)
-
-      const relation = relationNamed(snapshot, relationName)
-      const table = tableOf(relation)
-
-      expect(relation.management).toBe('unmanaged')
-      expect(table[affected].coverage.state).toBe('unknown')
-
-      const preservedCoverage =
-        affected === 'columns'
-          ? table.options.coverage.state
-          : affected === 'options' && malformed !== 'native-table-virtual'
-            ? table.columns.coverage.state
-            : 'complete'
-
-      expect(preservedCoverage).toBe('complete')
-
-      const unrelated = relationNamed(snapshot, 'simple')
-      expect(unrelated.management).toBe('managed')
-      expect(tableOf(unrelated).columns.coverage.state).toBe('complete')
-      expect(tableOf(unrelated).options.coverage.state).toBe('complete')
-
-      expect(snapshot.diagnostics).toContainEqual(
-        expect.objectContaining({
-          code: 'catalog.sqlite.metadata',
-          message: expect.stringContaining(message) as unknown,
-          target: relation.identity,
-        }),
-      )
-
-      expect(() =>
-        planMigration([], snapshot, sqliteDialect.migration.planning, {
-          migrationOwnership: [
-            { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
-          ],
-        }),
-      ).toThrow(/catalog|unknown|incomplete/i)
-    },
-  )
-})
-
-describe('SQLite catalog', () => {
-  it('should treat successful malformed version rows as unknown catalog evidence', async () => {
-    for (const rows of [[], [{ version: 42 }], [{ version: '3.bad.0' }]]) {
-      const executor = emptyFixture()
-      const snapshot = await sqliteCatalog.introspectCatalog(
-        {
-          execute: (query) =>
-            query.sql.includes('sqlite_version')
-              ? Promise.resolve(rows)
-              : executor.execute(query),
-        },
-        request,
-      )
-
-      expect(snapshot.source.version).toBe('unknown')
-      expect(snapshot.namespaces.coverage.state).toBe('unknown')
-
-      expect(snapshot.diagnostics).toEqual([
-        expect.objectContaining({ code: 'catalog.sqlite.metadata' }),
-      ])
-    }
-  })
-
-  it('should not infer a main namespace when database_list omits it', async () => {
-    const executor = fixtureExecutor()
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      {
-        async execute(query) {
-          const rows = await executor.execute(query)
-          return query.sql.includes('database_list')
-            ? rows.filter((row) => (row as { name: string }).name !== 'main')
-            : rows
-        },
-      },
-      request,
-    )
-
-    expect(snapshot.namespaces.items).toEqual([])
-    expect(snapshot.namespaces.coverage.state).toBe('unknown')
-    expectUnknownMetadata(snapshot, 'must contain exactly one main database')
-  })
-})
-
-it('should report malformed reservation-only metadata for a narrow relation request', async () => {
-  const snapshot = await sqliteCatalog.introspectCatalog(
-    fixtureExecutor({ malformed: 'index-wrong-shape', withoutOpaqueDependencies: true }),
-    {
-      ...request,
-      completeNamespaces: [],
-      relations: [{ relation: { relation: 'simple' }, shape: 'complete' }],
-    },
-  )
-
-  expect(relationNamed(snapshot, 'simple').management).toBe('managed')
-  expect(snapshot.nameReservations.coverage.state).toBe('unknown')
-  const diagnostic = snapshot.diagnostics.find(
-    (entry) => entry.target?.relation.spelling === 'parent',
-  )
-
-  expect(diagnostic?.code).toBe('catalog.sqlite.metadata')
-  expect(diagnostic?.message).toContain('index_list')
-
-  expect(
-    snapshot.diagnostics.filter((entry) => entry.target?.relation.spelling === 'parent'),
-  ).toHaveLength(1)
-})
-
-it('should give final database-list decoding the same diagnostic in either row order', async () => {
-  const observe = (reverse: boolean) => {
-    const executor = fixtureExecutor()
-    let reads = 0
-    return sqliteCatalog.introspectCatalog(
-      {
-        async execute(query) {
-          if (!query.sql.includes('database_list')) return executor.execute(query)
-
-          const rows = await executor.execute(query)
-          reads++
-
-          if (reads === 1) return rows
-
-          const malformed = [...rows, { seq: 1, name: 42, file: '' }]
-          return reverse ? malformed.reverse() : malformed
-        },
-      },
-      request,
-    )
-  }
-
-  const forward = await observe(false)
-  const reversed = await observe(true)
-  expect(reversed).toEqual(forward)
-  expectUnknownMetadata(forward, '"name" must be a non-empty string')
-  expect(forward.namespaces.coverage.state).toBe('unknown')
-})
-
-it('should keep shared SQL parser failures at their reservation or relation scope', async () => {
-  for (const [sql, message, global] of [
-    [
-      'CREATE TABLE parent /*',
-      'Malformed SQLite schema SQL: unterminated block comment',
-      true,
-    ],
-    ['CREATE TABLE parent', 'SQLite table definition has no column list', false],
-  ] as const) {
-    const fixture = fixtureExecutor({ withoutOpaqueDependencies: true })
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      {
-        execute: async (query) => {
-          const rows = await fixture.execute(query)
-          return query.sql.includes('sqlite_schema')
-            ? rows.map((row) =>
-                (row as { name?: string }).name === 'parent'
-                  ? { ...(row as Record<string, unknown>), sql }
-                  : row,
-              )
-            : rows
-        },
-      },
-      global
-        ? {
-            ...request,
-            completeNamespaces: [],
-            relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
-          }
-        : request,
-    )
-
-    const diagnostic = snapshot.diagnostics.find((entry) => entry.message === message)
-    expect(diagnostic?.code).toBe('catalog.sqlite.metadata')
-    expect(diagnostic?.target?.relation.spelling).toBe(global ? undefined : 'parent')
-    expect(snapshot.namespaces.coverage.state).toBe(global ? 'unknown' : 'complete')
-  }
-})
-
-it('should keep invalid foreign-key actions as relation-local metadata failures', async () => {
-  const fixture = fixtureExecutor({ withoutOpaqueDependencies: true })
-  const snapshot = await sqliteCatalog.introspectCatalog(
-    {
-      execute: async (query) => {
-        const rows = await fixture.execute(query)
-        return query.sql.includes('foreign_key_list') && query.params[0] === 'child'
-          ? rows.map((row) => ({
-              ...(row as Record<string, unknown>),
-              on_delete: 'UNSUPPORTED',
-            }))
-          : rows
-      },
-    },
-    request,
-  )
-
-  const child = relationNamed(snapshot, 'child')
-
-  expect(child.management).toBe('unmanaged')
-
-  expect(snapshot.diagnostics).toContainEqual(
-    expect.objectContaining({
-      code: 'catalog.sqlite.metadata',
-      message: 'Malformed SQLite foreign_key_list row 0: invalid referential action',
-      target: child.identity,
-    }),
-  )
-})
-
-it.each([
-  ['normal assembly', undefined],
-  ['recovery', 'index-wrong-shape'],
-] as const)(
-  'should let unrelated proof failures escape %s unchanged',
-  async (_, malformed) => {
-    const sqliteNormalize = await import('@/dialects/sqlite/normalize')
-
-    for (const failure of [
-      new InvariantError('proof defect'),
-      new Error('proof defect'),
-      'proof defect',
-    ]) {
-      const stack = failure instanceof Error ? failure.stack : undefined
-
-      const spy = vi
-        .spyOn(sqliteNormalize, 'normalizeSqliteDataType')
-        .mockImplementation(() => {
-          throw failure
-        })
-
-      try {
-        await expect(
-          sqliteCatalog.introspectCatalog(
-            fixtureExecutor({ malformed, withoutOpaqueDependencies: true }),
-            request,
-          ),
-        ).rejects.toBe(failure)
-
-        expect(failure instanceof Error ? failure.stack : undefined).toBe(stack)
-      } finally {
-        spy.mockRestore()
-      }
-    }
-  },
-)
-
-describe('SQLite catalog', () => {
-  it('should preserve the exact executor failure, including an invariant error', async () => {
-    for (const queryPart of ['sqlite_version', 'table_xinfo']) {
-      const failure = new InvariantError(`query failed: ${queryPart}`)
-      const executor = fixtureExecutor()
-      await expect(
-        sqliteCatalog.introspectCatalog(
-          {
-            execute: (query) =>
-              query.sql.includes(queryPart)
-                ? Promise.reject(failure)
-                : executor.execute(query),
-          },
-          request,
-        ),
-      ).rejects.toBe(failure)
-    }
-  })
-
-  it('should reject planning with damaged relation evidence before a plan exists', async () => {
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      fixtureExecutor({ malformed: 'index-xinfo-wrong-flag' }),
-      request,
-    )
-
-    expect(() =>
-      planMigration([], snapshot, sqliteDialect.migration.planning, {
-        migrationOwnership: [
-          { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
-        ],
-      }),
-    ).toThrow(/catalog|unknown|incomplete/i)
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should keep unresolved foreign keys fail-closed', async () => {
-    const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
-      ...request,
-      completeNamespaces: [],
-      relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
-    })
-
-    const child = result.namespaces.items[0]!.relations.items.find(
-      (entry) => entry.identity.relation.spelling === 'child',
-    )!
-
-    expect(tableOf(child).foreignKeys.items[0]!.validity.state).toBe('unknown')
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should match explicit foreign-key targets by canonical column identity', async () => {
-    const fixture = fixtureExecutor()
-    const snapshot = await sqliteCatalog.introspectCatalog(
-      {
-        /** Executes fixture SQL with the configured native observations. */
-        execute: async (query) => {
-          const rows = await fixture.execute(query)
-
-          if (query.sql.includes('sqlite_schema'))
-            return rows.map((row) =>
-              (row as { name?: string }).name === 'child'
-                ? {
-                    ...(row as Record<string, unknown>),
-                    sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(v) ON DELETE CASCADE)',
-                  }
-                : row,
-            )
-
-          if (query.sql.includes('foreign_key_list') && query.params[0] === 'child')
-            return [
-              {
-                id: 0,
-                seq: 0,
-                table: 'PARENT',
-                from: 'PA',
-                to: 'V',
-                on_update: 'NO ACTION',
-                on_delete: 'CASCADE',
-                match: 'NONE',
-              },
-            ]
-
-          return rows
-        },
-      },
-      request,
-    )
-
-    const child = relationNamed(snapshot, 'child')
-    expect(tableOf(child).foreignKeys.items[0]).toMatchObject({
-      columns: ['pa'],
-      referencedColumns: ['v'],
-      validity: { state: 'present', value: 'valid' },
-    })
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should totally order tied foreign keys regardless of native row order', async () => {
-    const execute = executeSqliteCatalogFixture
-
-    const snapshot = await sqliteCatalog.introspectCatalog(execute(false), request)
-    const reversed = await sqliteCatalog.introspectCatalog(execute(true), request)
-    const foreignKeys = tableOf(relationNamed(snapshot, 'child')).foreignKeys.items
-
-    expect(reversed).toEqual(snapshot)
-
-    expect(foreignKeys).toMatchObject([
-      {
-        columns: ['pa'],
-        referencedColumns: ['id'],
-        onDelete: 'cascade',
-        onUpdate: 'no action',
-        validity: { state: 'present', value: 'valid' },
-      },
-      {
-        columns: ['pa'],
-        referencedColumns: ['v'],
-        onDelete: 'set null',
-        onUpdate: 'restrict',
-        validity: { state: 'present', value: 'valid' },
-      },
-    ])
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should order unresolved FK targets with ASCII-case-equivalent identities deterministically', async () => {
-    /**
-     * Creates a catalog executor with configurable native observations and query-order
-     * tracking.
-     *
-     * @param reverse - Whether fixture rows should reverse their order to test canonical
-     *   normalization.
-     *
-     * @returns A catalog executor with configurable native observations and query-order
-     *   tracking.
-     */
-    const executor = (reverse: boolean): CatalogExecutor => {
-      const fixture = fixtureExecutor({ reverse })
-      const rows = [
-        ...structuredClone(
-          ordersUnresolvedFKTargetsWithASCIICaseEquivalentIdentitiesDeterministicallyRows,
-        ),
-      ]
-
-      return {
-        /** Executes fixture SQL with the configured native observations. */
-        execute: async (query) => {
-          if (
-            query.sql.includes('pragma_foreign_key_list') &&
-            query.params[0] === 'child'
-          )
-            return reverse ? [...rows].reverse() : rows
-
-          const observed = await fixture.execute(query)
-          return query.sql.includes('sqlite_schema')
-            ? observed.map((row) =>
-                (row as { name?: string }).name === 'child'
-                  ? {
-                      ...(row as Record<string, unknown>),
-                      sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES Missing(id) ON DELETE CASCADE, FOREIGN KEY(pa) REFERENCES missing(id) ON DELETE CASCADE)',
-                    }
-                  : row,
-              )
-            : observed
-        },
-      }
-    }
-
-    const forward = await sqliteCatalog.introspectCatalog(executor(false), request)
-    const reverse = await sqliteCatalog.introspectCatalog(executor(true), request)
-    const foreignKeys = tableOf(relationNamed(forward, 'child')).foreignKeys.items
-
-    expect(reverse).toEqual(forward)
-
-    expect(
-      foreignKeys.map(({ referencedRelation }) => referencedRelation.relation.spelling),
-    ).toEqual(['Missing', 'missing'])
-  })
-})
-
-describe('SQLite catalog', () => {
-  it('should preserve unsupported native evidence for rich objects', async () => {
-    const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const virtual = result.namespaces.items[0]!.relations.items.find(
-      (entry) => entry.identity.relation.spelling === 'virt',
-    )!
-
-    expect(virtual.kind).toBe('virtualTable')
-    expect(virtual.management).toBe('unmanaged')
-    expect(virtual.nativeDefinition.state).toBe('present')
-  })
-
-  it('should reject attached scopes before version gating', async () => {
-    for (const variant of [
-      {
-        relations: [
-          {
-            relation: {
-              namespace: [{ role: 'database' as const, spelling: 'aux' }],
-              relation: 'x',
-            },
-            shape: 'complete' as const,
-          },
-        ],
-      },
-      {
-        absentRelations: [
-          { namespace: [{ role: 'database' as const, spelling: 'aux' }], relation: 'x' },
-        ],
-      },
-      { completeNamespaces: [[{ role: 'database' as const, spelling: 'aux' }]] },
-      { registrationDefault: [{ role: 'database' as const, spelling: 'aux' }] },
-    ])
-      await expect(
-        sqliteCatalog.introspectCatalog(fixtureExecutor({ version: '3.36.0' }), {
-          ...request,
-          ...variant,
-        }),
-      ).rejects.toMatchObject({ _tag: 'InvariantError' })
-  })
 })
 
 const quotedIndexInfoRows = [
@@ -2767,7 +1402,8 @@ async function assertMalformedSqliteIdentityRows() {
 /**
  * Checks that attached and temporary objects prevent complete main-database management.
  *
- * @param reversed - Whether native observation order is reversed for determinism checks.
+ * @param reversed - Whether native observation order is reversed for determinism
+ *   checks.
  * @param snapshot - Observed catalog snapshot whose evidence is checked or projected.
  * @param parent - Parent relation or syntax node used by the fixture scenario.
  */
@@ -2929,12 +1565,13 @@ function executeSqliteCatalogFixture(reverse: boolean): CatalogExecutor {
 
 // oxlint-disable-next-line complexity
 /**
- * Dispatches native SQLite catalog queries and applies configured races or malformed-row
- * variations.
+ * Dispatches native SQLite catalog queries and applies configured races or
+ * malformed-row variations.
  *
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param tables - Observed table definitions used to build fixture catalog evidence.
  * @param schema - Valibot schema used to read validation, storage, and metadata facts.
  * @param xinfo - Native table-column observations indexed by table name.
@@ -2996,7 +1633,8 @@ async function executeSqliteFixture(
 /**
  * Injects richer native unique-index semantics into the selected fixture query result.
  *
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
  * @param p - Parameters supplied to the native fixture SQL call.
@@ -3029,7 +1667,8 @@ function applyRichUniqueIndexRows(
  *
  * @param query - Compiled SQL and ordered parameter bindings for the current physical
  *   call.
- * @param options - Fixture controls for outcomes, observed calls, and failure scenarios.
+ * @param options - Fixture controls for outcomes, observed calls, and failure
+ *   scenarios.
  * @param tables - Observed table definitions used to build fixture catalog evidence.
  * @param schema - Valibot schema used to read validation, storage, and metadata facts.
  * @param xinfo - Native table-column observations indexed by table name.
@@ -3124,3 +1763,1692 @@ function createExternalSqliteExecutor(reverse: boolean): CatalogExecutor {
     },
   }
 }
+
+const registerCatalogCases2 = () => {
+  it('should decode all affinity families and native spelling in the fixture', async () => {
+    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
+    const parent = relationNamed(s, 'parent')
+    expect(parent.nativeDefinition.state).toBe('present')
+
+    expect(
+      tableOf(parent).columns.items.map((column) =>
+        column.dataType.state === 'present' ? column.dataType.value.family : '',
+      ),
+    ).toEqual(['integer', 'text', 'blob', 'real', 'numeric'])
+
+    expect(tableOf(parent).columns.items[1]!.dataType).toMatchObject({
+      state: 'present',
+      value: { native: 'VARCHAR(12)', comparisonKey: 'text' },
+    })
+  })
+}
+
+const registerCatalogCases3 = () => {
+  it('should preserve defaults and rowid generation in the fixture', async () => {
+    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
+    const columns = tableOf(relationNamed(s, 'parent')).columns.items
+    assertSqliteColumnEvidence(columns)
+
+    assertParentKeysAndIndexes(s)
+
+    expect(relationNamed(s, 'parent').management).toBe('unmanaged')
+
+    expect(tableOf(relationNamed(s, 'wr_auto')).primaryKey).toMatchObject({
+      state: 'present',
+      value: { columns: ['a', 'b'], semantics: { state: 'present' } },
+    })
+
+    expect(tableOf(relationNamed(s, 'wr_auto')).options.items).toEqual([
+      { name: 'strict', value: 'false' },
+      { name: 'withoutRowid', value: 'true' },
+    ])
+
+    expect(tableOf(relationNamed(s, 'strict_t')).options.items).toEqual([
+      { name: 'strict', value: 'true' },
+      { name: 'withoutRowid', value: 'false' },
+    ])
+  })
+}
+
+const registerCatalogCases4 = () => {
+  it('should retain composite FK ordering and actions in the fixture', async () => {
+    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
+    const child = relationNamed(s, 'child')
+    expect(tableOf(child).foreignKeys.items[0]).toMatchObject({
+      columns: ['pa', 'pb'],
+      referencedColumns: ['id', 'v'],
+      onDelete: 'set null',
+      onUpdate: 'cascade',
+      validity: { state: 'present', value: 'invalid' },
+    })
+  })
+
+  it('should produce deeply equal fixture reversals', async () => {
+    expect(
+      await sqliteCatalog.introspectCatalog(fixtureExecutor({ reverse: true }), request),
+    ).toEqual(await sqliteCatalog.introspectCatalog(fixtureExecutor(), request))
+  })
+}
+
+const registerCatalogCases5 = () => {
+  it('should block main management when attached or temporary objects are present', async () => {
+    const executeExternal = createExternalSqliteExecutor
+
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      executeExternal(false),
+      request,
+    )
+
+    const reversed = await sqliteCatalog.introspectCatalog(executeExternal(true), request)
+
+    const parent = relationNamed(snapshot, 'parent')
+
+    assertExternalNamespaceDiagnostics(reversed, snapshot, parent)
+  })
+}
+
+const registerCatalogCases6 = () => {
+  it('should preserve CHECK, generated-column, and rich-index evidence', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
+    const generated = relationNamed(snapshot, 'generated_t')
+    const generatedTable = tableOf(generated)
+
+    expect(generated.management).toBe('unmanaged')
+    expect(generatedTable.columns.items[1]!.generation.state).toBe('unsupported')
+
+    expect(generatedTable.columns.items[1]!.nativeDefinition).toMatchObject({
+      state: 'present',
+      value: expect.stringContaining('GENERATED ALWAYS') as unknown,
+    })
+
+    const parent = relationNamed(snapshot, 'parent')
+    const indexes = new Map(
+      tableOf(parent).indexes.items.map((index) => [
+        index.name.state === 'present' ? index.name.value : '',
+        index,
+      ]),
+    )
+
+    for (const name of ['rich_desc', 'rich_partial', 'rich_expr', 'rich_coll']) {
+      expect(indexes.get(name)?.semantics.state).toBe('unsupported')
+      expect(indexes.get(name)?.nativeDefinition.state).toBe('present')
+    }
+
+    const checked = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ checkConstraint: true }),
+      request,
+    )
+
+    const checkedParent = relationNamed(checked, 'parent')
+
+    expect(checkedParent.management).toBe('unmanaged')
+
+    expect(
+      tableOf(checkedParent).opaqueObjects.items.some((object) =>
+        object.reason.includes('CHECK constraint'),
+      ),
+    ).toBe(true)
+  })
+}
+
+const registerCatalogCases7 = () => {
+  it('should not claim unknown constraint names or rowid planning support', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ namedConstraint: true, withoutOpaqueDependencies: true }),
+      request,
+    )
+
+    const parent = relationNamed(snapshot, 'parent')
+    const parentTable = tableOf(parent)
+
+    expect(parent.management).toBe('unmanaged')
+
+    expect(parentTable.primaryKey).toMatchObject({
+      state: 'present',
+      value: { name: { state: 'unknown' } },
+    })
+
+    expect(parentTable.uniqueConstraints.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: expect.objectContaining({ state: 'unknown' }) as unknown,
+        }),
+      ]),
+    )
+
+    expect(
+      tableOf(relationNamed(snapshot, 'child')).foreignKeys.items[0]!.name,
+    ).toMatchObject({
+      state: 'unknown',
+    })
+
+    expect(snapshot.constraintNameReservations).toMatchObject({
+      items: [],
+      coverage: { state: 'unknown' },
+    })
+
+    expect(parentTable.columns.items[0]!.generation).toMatchObject({
+      state: 'present',
+      value: { kind: 'rowidAlias', autoIncrement: false },
+    })
+
+    expect(relationNamed(snapshot, 'simple').management).toBe('managed')
+  })
+}
+
+const registerCatalogCases8 = () => {
+  it('should preserve trigger opaque evidence in the fixture', async () => {
+    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
+    const parent = relationNamed(s, 'parent')
+    expect(
+      tableOf(parent).opaqueObjects.items.some((object) => object.kind === 'trigger'),
+    ).toBe(true)
+  })
+
+  it('should allow trigger names to share relation names without reserving trigger-only names', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ triggerNameCollision: true }),
+      request,
+    )
+
+    expect(relationNamed(snapshot, 'parent')).toBeDefined()
+
+    expect(
+      snapshot.nameReservations.items.filter(({ name }) => name === 'parent'),
+    ).toHaveLength(1)
+
+    expect(snapshot.nameReservations.items).not.toContainEqual(
+      expect.objectContaining({ name: 'parent_trg' }),
+    )
+  })
+}
+
+const registerCatalogCases9 = () => {
+  it('should keep rowid aliases and unnamed simple constraints in the managed profile', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ withoutOpaqueDependencies: true, simpleForeignKey: true }),
+      request,
+    )
+
+    const simple = relationNamed(snapshot, 'simple')
+    expect(simple.management).toBe('managed')
+
+    expect(tableOf(simple).primaryKey).toMatchObject({
+      state: 'present',
+      value: { name: { state: 'absent' }, columns: ['id'] },
+    })
+
+    expect(tableOf(simple).columns.items[0]!.generation).toMatchObject({
+      state: 'present',
+      value: { kind: 'rowidAlias', autoIncrement: false },
+    })
+
+    expect(relationNamed(snapshot, 'child').management).toBe('managed')
+  })
+}
+
+const registerCatalogCases10 = () => {
+  it('should keep uncomparable native defaults opaque and unmanaged', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ withoutOpaqueDependencies: true, opaqueDefault: true }),
+      request,
+    )
+
+    const relation = relationNamed(snapshot, 'simple')
+    const table = tableOf(relation)
+
+    expect(relation.management).toBe('unmanaged')
+
+    expect(table.columns.items[1]!.default).toMatchObject({
+      state: 'present',
+      value: {
+        kind: 'nativeExpression',
+        native: '(random())',
+        comparisonKey: { state: 'unsupported' },
+      },
+    })
+
+    expect(table.opaqueObjects.items).toContainEqual(
+      expect.objectContaining({
+        kind: 'other',
+        name: { state: 'present', value: 'value' },
+        nativeDefinition: { state: 'present', value: '(random())' },
+      }),
+    )
+  })
+}
+
+const registerCatalogCases11 = () => {
+  it('should keep rich auto-index UNIQUE constraints unmanaged', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ withoutOpaqueDependencies: true, richUniqueIndex: true }),
+      request,
+    )
+
+    const relation = relationNamed(snapshot, 'simple')
+    const table = tableOf(relation)
+
+    expect(relation.management).toBe('unmanaged')
+
+    expect(table.uniqueConstraints.items).toMatchObject([
+      {
+        columns: ['value'],
+        semantics: { state: 'unsupported' },
+      },
+    ])
+  })
+}
+
+const registerCatalogCases12 = () => {
+  it('should treat authored MATCH clauses as opaque despite PRAGMA match NONE', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({
+        withoutOpaqueDependencies: true,
+        simpleForeignKey: true,
+        matchClause: true,
+      }),
+      request,
+    )
+
+    const child = relationNamed(snapshot, 'child')
+
+    expect(child.management).toBe('unmanaged')
+
+    expect(tableOf(child).opaqueObjects.items).toContainEqual(
+      expect.objectContaining({
+        kind: 'other',
+        nativeDefinition: {
+          state: 'present',
+          value: expect.stringContaining('MATCH FULL') as unknown,
+        },
+        reason: expect.stringContaining('MATCH') as unknown,
+      }),
+    )
+
+    expect(tableOf(child).foreignKeys.items[0]!.semantics).toMatchObject({
+      state: 'present',
+    })
+  })
+}
+
+const registerCatalogCases13 = () => {
+  it('should report SQLite owner facts as unsupported by the engine', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
+
+    expect(snapshot.namespaces.items[0]!.owner).toEqual({
+      state: 'unsupported',
+      by: 'engine',
+      reason: 'SQLite has no namespace owner',
+    })
+
+    expect(relationNamed(snapshot, 'parent').owner).toEqual({
+      state: 'unsupported',
+      by: 'engine',
+      reason: 'SQLite has no relation owner',
+    })
+  })
+
+  it('should keep trigger dependencies opaque across candidate tables', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ withoutOpaqueDependencies: true, crossTableTrigger: true }),
+      request,
+    )
+
+    const child = relationNamed(snapshot, 'child')
+
+    expect(child.management).toBe('unmanaged')
+
+    expect(tableOf(child).opaqueObjects.items).toContainEqual(
+      expect.objectContaining({
+        kind: 'trigger',
+        name: { state: 'present', value: 'cross_table_trigger' },
+        nativeDefinition: {
+          state: 'present',
+          value:
+            'CREATE TRIGGER cross_table_trigger AFTER UPDATE ON parent BEGIN UPDATE child SET pa = new.id; END',
+        },
+      }),
+    )
+
+    expect(snapshot.diagnostics.map(({ code }) => code)).toContain(
+      'catalog.sqlite.trigger-dependency',
+    )
+  })
+}
+
+const registerCatalogCases14 = () => {
+  it('should mark unrepresented table clauses opaque without false positives in literals or comments', async () => {
+    for (const richerClause of [
+      'collate',
+      'conflict',
+      'deferrable',
+      'initially',
+    ] as const) {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ withoutOpaqueDependencies: true, richerClause }),
+        request,
+      )
+
+      const relation = relationNamed(
+        snapshot,
+        richerClause === 'deferrable' || richerClause === 'initially'
+          ? 'child'
+          : 'simple',
+      )
+
+      const table = tableOf(relation)
+
+      expect(relation.management).toBe('unmanaged')
+
+      expect(table.opaqueObjects.items).toContainEqual(
+        expect.objectContaining({
+          kind: 'other',
+          nativeDefinition: {
+            state: 'present',
+            value: expect.stringContaining('CREATE TABLE') as unknown,
+          },
+          reason: expect.stringContaining(
+            'SQLite table clauses are not fully represented',
+          ) as unknown,
+        }),
+      )
+    }
+
+    const decoy = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ withoutOpaqueDependencies: true, scannerDecoys: true }),
+      request,
+    )
+
+    expect(relationNamed(decoy, 'simple').management).toBe('managed')
+
+    expect(
+      tableOf(relationNamed(decoy, 'simple')).opaqueObjects.items.some((object) =>
+        object.reason.includes('table clauses are not fully represented'),
+      ),
+    ).toBe(false)
+  })
+}
+
+const registerCatalogCases15 = () => {
+  it('should preserve the INTEGER PRIMARY KEY DESC exception', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ withoutOpaqueDependencies: true }),
+      request,
+    )
+
+    const relation = relationNamed(snapshot, 'pk_desc')
+    const table = tableOf(relation)
+
+    expect(table.columns.items[0]!.generation).toEqual({ state: 'absent' })
+
+    expect(table.primaryKey).toMatchObject({
+      state: 'present',
+      value: {
+        columns: ['id'],
+        semantics: { state: 'unsupported' },
+      },
+    })
+
+    expect(relation.management).toBe('unmanaged')
+  })
+}
+
+const registerCatalogCases16 = () => {
+  it('should block tables when view dependencies are unknown and preserve view triggers', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ viewTrigger: true }),
+      request,
+    )
+
+    const parent = relationNamed(snapshot, 'parent')
+    expect(parent.management).toBe('unmanaged')
+
+    expect(tableOf(parent).opaqueObjects.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'other',
+          name: { state: 'present', value: 'v' },
+        }),
+        expect.objectContaining({
+          kind: 'trigger',
+          name: { state: 'present', value: 'view_trigger' },
+        }),
+      ]),
+    )
+
+    expect(snapshot.diagnostics.map(({ code }) => code)).toContain(
+      'catalog.sqlite.view-dependency',
+    )
+  })
+}
+
+const registerCatalogCases17 = () => {
+  it('should reserve unrelated indexes and auto-indexes outside relation scope', async () => {
+    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
+      ...request,
+      completeNamespaces: [],
+      relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
+    })
+
+    expect(s.nameReservations.coverage.state).toBe('complete')
+    expect(s.nameReservations.items.map((n) => n.name)).toContain('parent_n')
+    expect(s.nameReservations.items.map((n) => n.name)).toContain('u_auto')
+  })
+
+  it('should mark duplicate database rows as unknown inventory', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'duplicate' }),
+      request,
+    )
+
+    expectUnknownMetadata(snapshot, 'database_list sequence values must be unique')
+    expect(snapshot.namespaces.coverage.state).toBe('unknown')
+  })
+}
+
+const registerCatalogCases18 = () => {
+  it('should observe requested absence without claiming complete namespace coverage', async () => {
+    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
+      relations: [],
+      absentRelations: [{ relation: 'missing' }],
+      completeNamespaces: [],
+    })
+
+    expect(s.request.absentRelations).toHaveLength(1)
+
+    expect(
+      s.namespaces.items[0]!.relations.items.some(
+        (relation) => relation.identity.relation.comparisonKey === 'missing',
+      ),
+    ).toBe(false)
+
+    expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
+  })
+
+  it('should not fabricate absence when the requested identity is present', async () => {
+    const s = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
+      relations: [],
+      absentRelations: [{ relation: 'child' }],
+      completeNamespaces: [],
+    })
+
+    expect(s.request.absentRelations[0]!.relation.spelling).toBe('child')
+    expect(relationNamed(s, 'child').table.state).toBe('present')
+    expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
+  })
+}
+
+const registerCatalogCases19 = () => {
+  it('should reject attached relation scopes in the fixture', async () => {
+    await expect(
+      sqliteCatalog.introspectCatalog(fixtureExecutor(), {
+        ...request,
+        relations: [
+          {
+            relation: {
+              namespace: [{ role: 'database', spelling: 'aux' }],
+              relation: 'x',
+            },
+            shape: 'complete',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ _tag: 'InvariantError' })
+  })
+}
+
+const registerCatalogCases20 = () => {
+  it('should gate exact minimum version in the fixture', async () => {
+    const executed: string[] = []
+    const fixture = fixtureExecutor({ version: '3.37.0' })
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      {
+        /** Executes fixture SQL with the configured native observations. */
+        execute: async (query) => {
+          executed.push(query.sql)
+          return fixture.execute(query)
+        },
+      },
+      request,
+    )
+
+    expect(snapshot.source.version).toBe('3.37.0')
+
+    expect(snapshot.capabilities.identity).toEqual({
+      state: 'supported',
+      fidelity: 'native',
+    })
+
+    expect(snapshot.capabilities.namespaces).toEqual({
+      state: 'supported',
+      fidelity: 'native',
+    })
+
+    expect(executed.some((sql) => sql.includes('pragma_table_list'))).toBe(true)
+  })
+}
+
+const registerCatalogCases21 = () => {
+  it('should gate versions before querying any PRAGMA', async () => {
+    const calls: string[] = []
+    const old = await sqliteCatalog.introspectCatalog(
+      {
+        /** Executes fixture SQL with the configured native observations. */
+        execute: async (query) => {
+          calls.push(query.sql)
+          return [{ version: '3.36.0' }]
+        },
+      },
+      request,
+    )
+
+    expect(calls).toHaveLength(1)
+
+    expect(old.capabilities.identity).toEqual({
+      state: 'unavailable',
+      cause: 'version',
+      actual: '3.36.0',
+      requires: '3.37.0',
+    })
+
+    expect(old.namespaces.coverage).toMatchObject({
+      state: 'unavailable',
+      cause: 'version',
+    })
+  })
+}
+
+const registerCatalogCases22 = () => {
+  it('should resolve omitted namespace to main', async () => {
+    expect(
+      (
+        await sqliteCatalog.introspectCatalog(emptyFixture(), {
+          relations: [],
+          absentRelations: [],
+          completeNamespaces: [],
+        })
+      ).namespaceContext.writableDefault[0]!.spelling,
+    ).toBe('main')
+  })
+
+  it('should emit complete empty main', async () => {
+    expect(
+      (await sqliteCatalog.introspectCatalog(emptyFixture(), request)).namespaces
+        .items[0]!.relations.items,
+    ).toEqual([])
+  })
+
+  it('should emit partial empty main', async () => {
+    expect(
+      (
+        await sqliteCatalog.introspectCatalog(emptyFixture(), {
+          relations: [],
+          absentRelations: [],
+          completeNamespaces: [],
+        })
+      ).namespaces.items[0]!.relations.coverage.state,
+    ).toBe('partial')
+  })
+
+  it('should deduplicate request identities', async () => {
+    const result = await sqliteCatalog.introspectCatalog(emptyFixture(), {
+      relations: [
+        { relation: { relation: 'x' }, shape: 'complete' },
+        { relation: { relation: 'X' }, shape: 'complete' },
+      ],
+      absentRelations: [],
+      completeNamespaces: [],
+    })
+
+    expect(result.request.relations).toHaveLength(1)
+  })
+}
+
+const registerCatalogCases23 = () => {
+  it('should reject attached registration defaults', async () => {
+    await expect(
+      sqliteCatalog.introspectCatalog(emptyFixture(), {
+        ...request,
+        registrationDefault: [{ role: 'database', spelling: 'aux' }],
+      }),
+    ).rejects.toMatchObject({ _tag: 'InvariantError' })
+  })
+}
+
+const registerCatalogCases24 = () => {
+  it('should parameterize and observe quoted table and index names', async () => {
+    const calls: { sql: string; params: unknown[] }[] = []
+    const tableName = 'odd"table'
+    const indexName = 'odd"index'
+    const fixture = fixtureExecutor({
+      quotedName: tableName,
+      quotedIndexName: indexName,
+    })
+
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      {
+        /** Executes fixture SQL with the configured native observations. */
+        execute: async (query) => {
+          calls.push(query)
+          return fixture.execute(query)
+        },
+      },
+      {
+        relations: [{ relation: { relation: tableName }, shape: 'complete' }],
+        absentRelations: [],
+        completeNamespaces: [],
+      },
+    )
+
+    const table = tableOf(relationNamed(snapshot, tableName))
+    expect(table.indexes.items.map((index) => index.name)).toContainEqual({
+      state: 'present',
+      value: indexName,
+    })
+
+    expect(
+      calls.some(
+        (call) => call.params.includes(tableName) && call.sql.includes('pragma_'),
+      ),
+    ).toBe(true)
+
+    expect(
+      calls.some(
+        (call) => call.params.includes(indexName) && call.sql.includes('pragma_'),
+      ),
+    ).toBe(true)
+
+    expect(
+      calls.every(
+        (call) => !call.sql.includes(tableName) && !call.sql.includes(indexName),
+      ),
+    ).toBe(true)
+  })
+}
+
+const registerCatalogCases25 = () => {
+  it('should report unsupported old versions deterministically', async () => {
+    expect(
+      (await sqliteCatalog.introspectCatalog(emptyFixture('3.36.9'), request))
+        .diagnostics[0]!.code,
+    ).toBe('catalog.capability.version')
+  })
+
+  it('should preserve resolved request shape', async () => {
+    const result = await sqliteCatalog.introspectCatalog(emptyFixture(), {
+      ...request,
+      relations: [{ relation: { relation: 'x' }, shape: 'additive' }],
+    })
+
+    expect(result.request.relations[0]!.shape).toBe('additive')
+  })
+}
+
+const registerCatalogCases26 = () => {
+  it('should return unknown evidence for malformed cross-PRAGMA observations', async () => {
+    for (const [malformed, message] of [
+      ['xinfo-gap', 'SQLite table "parent" table_xinfo cids must be contiguous'],
+      ['ncol', 'SQLite table "parent" table_list ncol does not match table_xinfo'],
+      ['fk-duplicate', 'SQLite foreign-key group on "child" has non-contiguous sequence'],
+      ['fk-source', 'SQLite foreign key on "child" references a missing source column'],
+    ]) {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed }),
+        request,
+      )
+
+      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
+      expectUnknownMetadata(snapshot, message)
+    }
+  })
+}
+
+const registerCatalogCases27 = () => {
+  it('should return unknown evidence and stable diagnostics', async () => {
+    const cases = structuredClone(
+      rejectsMalformedAndInconsistentIndexObservationsWithStableMessagesData,
+    )
+
+    for (const [malformed, message] of cases) {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed }),
+        request,
+      )
+
+      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
+      expectUnknownMetadata(snapshot, message)
+    }
+  })
+}
+
+const registerCatalogCases28 = () => {
+  it('should return unknown evidence for malformed schema rows', async () => {
+    await assertMalformedSqliteIdentityRows()
+
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed: 'table-unlisted-database' }),
+        request,
+      ),
+      'references an unlisted database alias "ghost"',
+    )
+
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed: 'schema-unknown-type' }),
+        request,
+      ),
+      'invalid type "mystery"',
+    )
+
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed: 'schema-relation-name-mismatch' }),
+        request,
+      ),
+      'has mismatched tbl_name "other"',
+    )
+
+    expectUnknownMetadata(
+      await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed: 'schema-view-type-mismatch' }),
+        request,
+      ),
+      'disagrees with sqlite_schema type "table"',
+    )
+  })
+}
+
+const registerCatalogCases29 = () => {
+  it('should return unknown evidence for catalog races including reservation-only indexes', async () => {
+    for (const race of ['table_list', 'table_xinfo', 'sqlite_schema', 'index_list']) {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ race }),
+        request,
+      )
+
+      expect(snapshot.diagnostics.length).toBeGreaterThan(0)
+      expectUnknownMetadata(snapshot, 'catalog changed during introspection')
+    }
+  })
+}
+
+const registerCatalogCases30 = () => {
+  it('should keep a sound relation and column facts alongside a damaged index', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({
+        malformed: 'index-xinfo-wrong-flag',
+        withoutOpaqueDependencies: true,
+      }),
+      request,
+    )
+
+    const parent = relationNamed(snapshot, 'parent')
+    const child = relationNamed(snapshot, 'child')
+    const simple = relationNamed(snapshot, 'simple')
+    expect(parent.management).toBe('unmanaged')
+    expect(parent.nativeDefinition.state).toBe('present')
+    expect(tableOf(parent).columns.coverage.state).toBe('complete')
+    expect(tableOf(parent).primaryKey.state).toBe('unknown')
+    expect(tableOf(parent).indexes.coverage.state).toBe('unknown')
+    const id = tableOf(parent).columns.items.find((column) => column.name === 'id')!
+    expect(id.nullable).toEqual({ state: 'present', value: false })
+
+    expect(id.generation).toEqual({
+      state: 'present',
+      value: { kind: 'rowidAlias', autoIncrement: true },
+    })
+
+    expect(child.management).toBe('unmanaged')
+    expect(tableOf(child).columns.coverage.state).toBe('complete')
+    expect(tableOf(child).foreignKeys.coverage.state).toBe('unknown')
+    const childDiagnostic = snapshot.diagnostics.find(
+      (entry) =>
+        entry.target?.relation.comparisonKey === child.identity.relation.comparisonKey,
+    )
+
+    expect(childDiagnostic?.message).toContain('references invalid parent metadata')
+    expect(simple.management).toBe('managed')
+    expect(tableOf(simple).columns.coverage.state).toBe('complete')
+    expect(snapshot.namespaces.items[0]!.relations.coverage.state).toBe('partial')
+    expect(snapshot.nameReservations.coverage.state).toBe('unknown')
+  })
+}
+
+const registerCatalogCases31 = () => {
+  it('should keep unrelated relations when one schema definition disagrees', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({
+        malformed: 'schema-relation-name-mismatch',
+        withoutOpaqueDependencies: true,
+      }),
+      request,
+    )
+
+    expect(relationNamed(snapshot, 'parent').nativeDefinition.state).toBe('unknown')
+
+    expect(tableOf(relationNamed(snapshot, 'parent')).columns.coverage.state).toBe(
+      'unknown',
+    )
+
+    expect(relationNamed(snapshot, 'simple').management).toBe('managed')
+    expect(snapshot.nameReservations.coverage.state).toBe('unknown')
+  })
+}
+
+const registerCatalogCases32 = () => {
+  it('should return the same invalid evidence when native rows are reversed', async () => {
+    for (const malformed of [
+      'schema-case-duplicate',
+      'index-xinfo-wrong-flag',
+      'fk-duplicate',
+    ]) {
+      const forward = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed }),
+        request,
+      )
+
+      const reversed = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed, reverse: true }),
+        request,
+      )
+
+      expect(reversed).toEqual(forward)
+    }
+  })
+}
+
+const registerCatalogCases33 = () => {
+  it.each(nativeDefinitionCrossCheckCases)(
+    'should reject stable %s observations before planning',
+    async (malformed, relationName, affected, message) => {
+      const observe = (reverse: boolean) =>
+        sqliteCatalog.introspectCatalog(
+          fixtureExecutor({ malformed, reverse, withoutOpaqueDependencies: true }),
+          request,
+        )
+
+      const snapshot = await observe(false)
+      expect(await observe(true)).toEqual(snapshot)
+
+      const relation = relationNamed(snapshot, relationName)
+      const table = tableOf(relation)
+
+      expect(relation.management).toBe('unmanaged')
+      expect(table[affected].coverage.state).toBe('unknown')
+
+      const preservedCoverage =
+        affected === 'columns'
+          ? table.options.coverage.state
+          : affected === 'options' && malformed !== 'native-table-virtual'
+            ? table.columns.coverage.state
+            : 'complete'
+
+      expect(preservedCoverage).toBe('complete')
+
+      const unrelated = relationNamed(snapshot, 'simple')
+      expect(unrelated.management).toBe('managed')
+      expect(tableOf(unrelated).columns.coverage.state).toBe('complete')
+      expect(tableOf(unrelated).options.coverage.state).toBe('complete')
+
+      expect(snapshot.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: 'catalog.sqlite.metadata',
+          message: expect.stringContaining(message) as unknown,
+          target: relation.identity,
+        }),
+      )
+
+      expect(() =>
+        planMigration([], snapshot, sqliteDialect.migration.planning, {
+          migrationOwnership: [
+            { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
+          ],
+        }),
+      ).toThrow(/catalog|unknown|incomplete/i)
+    },
+  )
+}
+
+const registerCatalogCases34 = () => {
+  it('should treat successful malformed version rows as unknown catalog evidence', async () => {
+    for (const rows of [[], [{ version: 42 }], [{ version: '3.bad.0' }]]) {
+      const executor = emptyFixture()
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        {
+          execute: (query) =>
+            query.sql.includes('sqlite_version')
+              ? Promise.resolve(rows)
+              : executor.execute(query),
+        },
+        request,
+      )
+
+      expect(snapshot.source.version).toBe('unknown')
+      expect(snapshot.namespaces.coverage.state).toBe('unknown')
+
+      expect(snapshot.diagnostics).toEqual([
+        expect.objectContaining({ code: 'catalog.sqlite.metadata' }),
+      ])
+    }
+  })
+
+  it('should not infer a main namespace when database_list omits it', async () => {
+    const executor = fixtureExecutor()
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      {
+        async execute(query) {
+          const rows = await executor.execute(query)
+          return query.sql.includes('database_list')
+            ? rows.filter((row) => (row as { name: string }).name !== 'main')
+            : rows
+        },
+      },
+      request,
+    )
+
+    expect(snapshot.namespaces.items).toEqual([])
+    expect(snapshot.namespaces.coverage.state).toBe('unknown')
+    expectUnknownMetadata(snapshot, 'must contain exactly one main database')
+  })
+}
+
+const registerCatalogCases40 = () => {
+  it('should preserve the exact executor failure, including an invariant error', async () => {
+    for (const queryPart of ['sqlite_version', 'table_xinfo']) {
+      const failure = new InvariantError(`query failed: ${queryPart}`)
+      const executor = fixtureExecutor()
+      await expect(
+        sqliteCatalog.introspectCatalog(
+          {
+            execute: (query) =>
+              query.sql.includes(queryPart)
+                ? Promise.reject(failure)
+                : executor.execute(query),
+          },
+          request,
+        ),
+      ).rejects.toBe(failure)
+    }
+  })
+
+  it('should reject planning with damaged relation evidence before a plan exists', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({ malformed: 'index-xinfo-wrong-flag' }),
+      request,
+    )
+
+    expect(() =>
+      planMigration([], snapshot, sqliteDialect.migration.planning, {
+        migrationOwnership: [
+          { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
+        ],
+      }),
+    ).toThrow(/catalog|unknown|incomplete/i)
+  })
+}
+
+const registerCatalogCases41 = () => {
+  it('should keep unresolved foreign keys fail-closed', async () => {
+    const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), {
+      ...request,
+      completeNamespaces: [],
+      relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
+    })
+
+    const child = result.namespaces.items[0]!.relations.items.find(
+      (entry) => entry.identity.relation.spelling === 'child',
+    )!
+
+    expect(tableOf(child).foreignKeys.items[0]!.validity.state).toBe('unknown')
+  })
+}
+
+const registerCatalogCases42 = () => {
+  it('should match explicit foreign-key targets by canonical column identity', async () => {
+    const fixture = fixtureExecutor()
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      {
+        /** Executes fixture SQL with the configured native observations. */
+        execute: async (query) => {
+          const rows = await fixture.execute(query)
+
+          if (query.sql.includes('sqlite_schema'))
+            return rows.map((row) =>
+              (row as { name?: string }).name === 'child'
+                ? {
+                    ...(row as Record<string, unknown>),
+                    sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(v) ON DELETE CASCADE)',
+                  }
+                : row,
+            )
+
+          if (query.sql.includes('foreign_key_list') && query.params[0] === 'child')
+            return [
+              {
+                id: 0,
+                seq: 0,
+                table: 'PARENT',
+                from: 'PA',
+                to: 'V',
+                on_update: 'NO ACTION',
+                on_delete: 'CASCADE',
+                match: 'NONE',
+              },
+            ]
+
+          return rows
+        },
+      },
+      request,
+    )
+
+    const child = relationNamed(snapshot, 'child')
+    expect(tableOf(child).foreignKeys.items[0]).toMatchObject({
+      columns: ['pa'],
+      referencedColumns: ['v'],
+      validity: { state: 'present', value: 'valid' },
+    })
+  })
+}
+
+const registerCatalogCases43 = () => {
+  it('should totally order tied foreign keys regardless of native row order', async () => {
+    const execute = executeSqliteCatalogFixture
+
+    const snapshot = await sqliteCatalog.introspectCatalog(execute(false), request)
+    const reversed = await sqliteCatalog.introspectCatalog(execute(true), request)
+    const foreignKeys = tableOf(relationNamed(snapshot, 'child')).foreignKeys.items
+
+    expect(reversed).toEqual(snapshot)
+
+    expect(foreignKeys).toMatchObject([
+      {
+        columns: ['pa'],
+        referencedColumns: ['id'],
+        onDelete: 'cascade',
+        onUpdate: 'no action',
+        validity: { state: 'present', value: 'valid' },
+      },
+      {
+        columns: ['pa'],
+        referencedColumns: ['v'],
+        onDelete: 'set null',
+        onUpdate: 'restrict',
+        validity: { state: 'present', value: 'valid' },
+      },
+    ])
+  })
+}
+
+const registerCatalogCases44 = () => {
+  it('should order unresolved FK targets with ASCII-case-equivalent identities deterministically', async () => {
+    /**
+     * Creates a catalog executor with configurable native observations and query-order
+     * tracking.
+     *
+     * @param reverse - Whether fixture rows should reverse their order to test canonical
+     *   normalization.
+     *
+     * @returns A catalog executor with configurable native observations and query-order
+     *   tracking.
+     */
+    const executor = (reverse: boolean): CatalogExecutor => {
+      const fixture = fixtureExecutor({ reverse })
+      const rows = [
+        ...structuredClone(
+          ordersUnresolvedFKTargetsWithASCIICaseEquivalentIdentitiesDeterministicallyRows,
+        ),
+      ]
+
+      return {
+        /** Executes fixture SQL with the configured native observations. */
+        execute: async (query) => {
+          if (
+            query.sql.includes('pragma_foreign_key_list') &&
+            query.params[0] === 'child'
+          )
+            return reverse ? [...rows].reverse() : rows
+
+          const observed = await fixture.execute(query)
+          return query.sql.includes('sqlite_schema')
+            ? observed.map((row) =>
+                (row as { name?: string }).name === 'child'
+                  ? {
+                      ...(row as Record<string, unknown>),
+                      sql: 'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES Missing(id) ON DELETE CASCADE, FOREIGN KEY(pa) REFERENCES missing(id) ON DELETE CASCADE)',
+                    }
+                  : row,
+              )
+            : observed
+        },
+      }
+    }
+
+    const forward = await sqliteCatalog.introspectCatalog(executor(false), request)
+    const reverse = await sqliteCatalog.introspectCatalog(executor(true), request)
+    const foreignKeys = tableOf(relationNamed(forward, 'child')).foreignKeys.items
+
+    expect(reverse).toEqual(forward)
+
+    expect(
+      foreignKeys.map(({ referencedRelation }) => referencedRelation.relation.spelling),
+    ).toEqual(['Missing', 'missing'])
+  })
+}
+
+const registerCatalogCases45 = () => {
+  it('should preserve unsupported native evidence for rich objects', async () => {
+    const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
+    const virtual = result.namespaces.items[0]!.relations.items.find(
+      (entry) => entry.identity.relation.spelling === 'virt',
+    )!
+
+    expect(virtual.kind).toBe('virtualTable')
+    expect(virtual.management).toBe('unmanaged')
+    expect(virtual.nativeDefinition.state).toBe('present')
+  })
+
+  it('should reject attached scopes before version gating', async () => {
+    for (const variant of [
+      {
+        relations: [
+          {
+            relation: {
+              namespace: [{ role: 'database' as const, spelling: 'aux' }],
+              relation: 'x',
+            },
+            shape: 'complete' as const,
+          },
+        ],
+      },
+      {
+        absentRelations: [
+          {
+            namespace: [{ role: 'database' as const, spelling: 'aux' }],
+            relation: 'x',
+          },
+        ],
+      },
+      { completeNamespaces: [[{ role: 'database' as const, spelling: 'aux' }]] },
+      { registrationDefault: [{ role: 'database' as const, spelling: 'aux' }] },
+    ])
+      await expect(
+        sqliteCatalog.introspectCatalog(fixtureExecutor({ version: '3.36.0' }), {
+          ...request,
+          ...variant,
+        }),
+      ).rejects.toMatchObject({ _tag: 'InvariantError' })
+  })
+}
+
+function registerCatalogGroup1() {
+  it.each(['table-name-nul', 'table-name-surrogate'])(
+    'should keep malformed SQLite returned identifiers as unknown evidence: %s',
+    async (malformed) => {
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        fixtureExecutor({ malformed }),
+        request,
+      )
+
+      expectUnknownMetadata(snapshot, 'Malformed SQLite table_list row')
+      expect(snapshot.namespaces.coverage.state).toBe('unknown')
+    },
+  )
+}
+
+function registerCatalogGroup2() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases2()
+  })
+}
+
+function registerCatalogGroup3() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases3()
+  })
+}
+
+function registerCatalogGroup4() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases4()
+  })
+}
+
+function registerCatalogGroup5() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases5()
+  })
+}
+
+function registerCatalogGroup6() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases6()
+  })
+}
+
+function registerCatalogGroup7() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases7()
+  })
+}
+
+function registerCatalogGroup8() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases8()
+  })
+}
+
+function registerCatalogGroup9() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases9()
+  })
+}
+
+function registerCatalogGroup10() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases10()
+  })
+}
+
+function registerCatalogGroup11() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases11()
+  })
+}
+
+function registerCatalogGroup12() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases12()
+  })
+}
+
+function registerCatalogGroup13() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases13()
+  })
+}
+
+function registerCatalogGroup14() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases14()
+  })
+}
+
+function registerCatalogGroup15() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases15()
+  })
+}
+
+function registerCatalogGroup16() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases16()
+  })
+}
+
+function registerCatalogGroup17() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases17()
+  })
+}
+
+function registerCatalogGroup18() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases18()
+  })
+}
+
+function registerCatalogGroup19() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases19()
+  })
+}
+
+function registerCatalogGroup20() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases20()
+  })
+}
+
+function registerCatalogGroup21() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases21()
+  })
+}
+
+function registerCatalogGroup22() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases22()
+  })
+}
+
+function registerCatalogGroup23() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases23()
+  })
+}
+
+function registerCatalogGroup24() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases24()
+  })
+}
+
+function registerCatalogGroup25() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases25()
+  })
+}
+
+function registerCatalogGroup26() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases26()
+  })
+}
+
+function registerCatalogGroup27() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases27()
+  })
+}
+
+function registerCatalogGroup28() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases28()
+  })
+}
+
+function registerCatalogGroup29() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases29()
+  })
+}
+
+function registerCatalogGroup30() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases30()
+  })
+}
+
+function registerCatalogGroup31() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases31()
+  })
+}
+
+function registerCatalogGroup32() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases32()
+  })
+}
+
+function registerCatalogGroup33() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases33()
+  })
+}
+
+function registerCatalogGroup34() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases34()
+  })
+}
+
+function registerCatalogGroup35() {
+  it('should report malformed reservation-only metadata for a narrow relation request', async () => {
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      fixtureExecutor({
+        malformed: 'index-wrong-shape',
+        withoutOpaqueDependencies: true,
+      }),
+      {
+        ...request,
+        completeNamespaces: [],
+        relations: [{ relation: { relation: 'simple' }, shape: 'complete' }],
+      },
+    )
+
+    expect(relationNamed(snapshot, 'simple').management).toBe('managed')
+    expect(snapshot.nameReservations.coverage.state).toBe('unknown')
+    const diagnostic = snapshot.diagnostics.find(
+      (entry) => entry.target?.relation.spelling === 'parent',
+    )
+
+    expect(diagnostic?.code).toBe('catalog.sqlite.metadata')
+    expect(diagnostic?.message).toContain('index_list')
+
+    expect(
+      snapshot.diagnostics.filter(
+        (entry) => entry.target?.relation.spelling === 'parent',
+      ),
+    ).toHaveLength(1)
+  })
+}
+
+function registerCatalogGroup36() {
+  it('should give final database-list decoding the same diagnostic in either row order', async () => {
+    const observe = (reverse: boolean) => {
+      const executor = fixtureExecutor()
+      let reads = 0
+      return sqliteCatalog.introspectCatalog(
+        {
+          async execute(query) {
+            if (!query.sql.includes('database_list')) return executor.execute(query)
+
+            const rows = await executor.execute(query)
+            reads++
+
+            if (reads === 1) return rows
+
+            const malformed = [...rows, { seq: 1, name: 42, file: '' }]
+            return reverse ? malformed.reverse() : malformed
+          },
+        },
+        request,
+      )
+    }
+
+    const forward = await observe(false)
+    const reversed = await observe(true)
+    expect(reversed).toEqual(forward)
+    expectUnknownMetadata(forward, '"name" must be a non-empty string')
+    expect(forward.namespaces.coverage.state).toBe('unknown')
+  })
+}
+
+function registerCatalogGroup37() {
+  it('should keep shared SQL parser failures at their reservation or relation scope', async () => {
+    for (const [sql, message, global] of [
+      [
+        'CREATE TABLE parent /*',
+        'Malformed SQLite schema SQL: unterminated block comment',
+        true,
+      ],
+      ['CREATE TABLE parent', 'SQLite table definition has no column list', false],
+    ] as const) {
+      const fixture = fixtureExecutor({ withoutOpaqueDependencies: true })
+      const snapshot = await sqliteCatalog.introspectCatalog(
+        {
+          execute: async (query) => {
+            const rows = await fixture.execute(query)
+            return query.sql.includes('sqlite_schema')
+              ? rows.map((row) =>
+                  (row as { name?: string }).name === 'parent'
+                    ? { ...(row as Record<string, unknown>), sql }
+                    : row,
+                )
+              : rows
+          },
+        },
+        global
+          ? {
+              ...request,
+              completeNamespaces: [],
+              relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
+            }
+          : request,
+      )
+
+      const diagnostic = snapshot.diagnostics.find((entry) => entry.message === message)
+      expect(diagnostic?.code).toBe('catalog.sqlite.metadata')
+      expect(diagnostic?.target?.relation.spelling).toBe(global ? undefined : 'parent')
+      expect(snapshot.namespaces.coverage.state).toBe(global ? 'unknown' : 'complete')
+    }
+  })
+}
+
+function registerCatalogGroup38() {
+  it('should keep invalid foreign-key actions as relation-local metadata failures', async () => {
+    const fixture = fixtureExecutor({ withoutOpaqueDependencies: true })
+    const snapshot = await sqliteCatalog.introspectCatalog(
+      {
+        execute: async (query) => {
+          const rows = await fixture.execute(query)
+          return query.sql.includes('foreign_key_list') && query.params[0] === 'child'
+            ? rows.map((row) => ({
+                ...(row as Record<string, unknown>),
+                on_delete: 'UNSUPPORTED',
+              }))
+            : rows
+        },
+      },
+      request,
+    )
+
+    const child = relationNamed(snapshot, 'child')
+
+    expect(child.management).toBe('unmanaged')
+
+    expect(snapshot.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'catalog.sqlite.metadata',
+        message: 'Malformed SQLite foreign_key_list row 0: invalid referential action',
+        target: child.identity,
+      }),
+    )
+  })
+}
+
+function registerCatalogGroup39() {
+  it.each([
+    ['normal assembly', undefined],
+    ['recovery', 'index-wrong-shape'],
+  ] as const)(
+    'should let unrelated proof failures escape %s unchanged',
+    async (_, malformed) => {
+      const sqliteNormalize = await import('@/dialects/sqlite/normalize')
+
+      for (const failure of [
+        new InvariantError('proof defect'),
+        new Error('proof defect'),
+        'proof defect',
+      ]) {
+        const stack = failure instanceof Error ? failure.stack : undefined
+
+        const spy = vi
+          .spyOn(sqliteNormalize, 'normalizeSqliteDataType')
+          .mockImplementation(() => {
+            throw failure
+          })
+
+        try {
+          await expect(
+            sqliteCatalog.introspectCatalog(
+              fixtureExecutor({ malformed, withoutOpaqueDependencies: true }),
+              request,
+            ),
+          ).rejects.toBe(failure)
+
+          expect(failure instanceof Error ? failure.stack : undefined).toBe(stack)
+        } finally {
+          spy.mockRestore()
+        }
+      }
+    },
+  )
+}
+
+function registerCatalogGroup40() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases40()
+  })
+}
+
+function registerCatalogGroup41() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases41()
+  })
+}
+
+function registerCatalogGroup42() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases42()
+  })
+}
+
+function registerCatalogGroup43() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases43()
+  })
+}
+
+function registerCatalogGroup44() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases44()
+  })
+}
+
+function registerCatalogGroup45() {
+  describe('SQLite catalog', () => {
+    registerCatalogCases45()
+  })
+}
+
+describe('SQLite catalog', () => {
+  registerCatalogGroup1()
+  registerCatalogGroup2()
+  registerCatalogGroup3()
+  registerCatalogGroup4()
+  registerCatalogGroup5()
+  registerCatalogGroup6()
+  registerCatalogGroup7()
+  registerCatalogGroup8()
+  registerCatalogGroup9()
+  registerCatalogGroup10()
+  registerCatalogGroup11()
+  registerCatalogGroup12()
+  registerCatalogGroup13()
+  registerCatalogGroup14()
+  registerCatalogGroup15()
+  registerCatalogGroup16()
+  registerCatalogGroup17()
+  registerCatalogGroup18()
+  registerCatalogGroup19()
+  registerCatalogGroup20()
+  registerCatalogGroup21()
+  registerCatalogGroup22()
+  registerCatalogGroup23()
+  registerCatalogGroup24()
+  registerCatalogGroup25()
+  registerCatalogGroup26()
+  registerCatalogGroup27()
+  registerCatalogGroup28()
+  registerCatalogGroup29()
+  registerCatalogGroup30()
+  registerCatalogGroup31()
+  registerCatalogGroup32()
+  registerCatalogGroup33()
+  registerCatalogGroup34()
+  registerCatalogGroup35()
+  registerCatalogGroup36()
+  registerCatalogGroup37()
+  registerCatalogGroup38()
+  registerCatalogGroup39()
+  registerCatalogGroup40()
+  registerCatalogGroup41()
+  registerCatalogGroup42()
+  registerCatalogGroup43()
+  registerCatalogGroup44()
+  registerCatalogGroup45()
+})

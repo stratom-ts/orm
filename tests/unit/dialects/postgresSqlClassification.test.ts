@@ -6,13 +6,42 @@ import {
   POSTGRES_OPERATION_ROLLBACK_SQL,
   POSTGRES_OPERATION_UNLOCK_SQL,
 } from '@/dialects/postgres/operationSession'
-import { scanPostgresSql } from '@/dialects/postgres/postgresSql'
+import { scanPostgresSql } from '@/dialects/postgres/sqlScan'
 import { createDb0PostgresOperationSessionProvider } from '@/index'
 
-import { createNativePostgresClient } from '../helpers/nativePostgresClient'
-import { createPostgresNativeConnector } from '../helpers/postgresOperationSessionFixtures'
+import { createNativePostgresClient } from './postgresNativeClientFixtures'
+import { createPostgresNativeConnector } from './postgresOperationSessionFixtures'
 
-describe('PostgreSQL SQL classification', () => {
+/**
+ * Checks stateless sql avoids cleanup in the current test scenario.
+ *
+ * @param run - Scenario callback executed with the fixture's isolated client.
+ */
+async function assertStatelessSqlAvoidsCleanup(
+  run: (sql: string) => Promise<{ text: string; values: unknown[] }[]>,
+) {
+  for (const sql of [
+    `select 'begin; pg_advisory_lock(1)' as value`,
+    `select 1 as "abort", '?' as "begin"`,
+    `select $body$ begin; pg_advisory_lock(1) $body$ as body`,
+    `select 1 /* begin /* rollback */ end */`,
+    `select 1 -- begin\n`,
+    `select 1 as pg_advisory_lock`,
+    `select "PG_ADVISORY_LOCK"(1)`,
+    `select "pg_advisory_""lock"(1)`,
+    `select "pg_catalog"."not_advisory"(1)`,
+    'merge into target using source on false when not matched then insert default values',
+    'table users',
+  ]) {
+    expect(await run(sql)).toEqual([
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+      { text: sql, values: [] },
+      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
+    ])
+  }
+}
+
+const registerSqlClassificationCases1 = () => {
   it('should lexically classify stateful SQL without matching inert quoted text', async () => {
     const connector = createPostgresNativeConnector()
     const provider = createDb0PostgresOperationSessionProvider(connector)
@@ -61,9 +90,9 @@ describe('PostgreSQL SQL classification', () => {
 
     await provider.close()
   })
-})
+}
 
-describe('PostgreSQL SQL classification', () => {
+const registerSqlClassificationCases2 = () => {
   it('should rewrite only executable PostgreSQL parameters in the test adapter', async () => {
     const prepared: string[] = []
     const binds: unknown[][] = []
@@ -108,9 +137,9 @@ describe('PostgreSQL SQL classification', () => {
 
     expect(binds).toEqual([['second', 'first', 'second']])
   })
-})
+}
 
-describe('PostgreSQL SQL classification', () => {
+const registerSqlClassificationCases3 = () => {
   it('should distinguish standard strings from PostgreSQL escape strings', () => {
     const standard = scanPostgresSql(String.raw`select 'a\' || $1`)
     const escaped = scanPostgresSql(String.raw`select E'a\'' || $1`)
@@ -120,9 +149,9 @@ describe('PostgreSQL SQL classification', () => {
     expect(escaped.malformed).toBe(false)
     expect(escaped.parameters.map((parameter) => parameter.index)).toEqual([0])
   })
-})
+}
 
-describe('PostgreSQL SQL classification', () => {
+const registerSqlClassificationCases4 = () => {
   it('should use row execution for commented and parenthesized result queries', async () => {
     let allCalls = 0
     let runCalls = 0
@@ -164,33 +193,35 @@ describe('PostgreSQL SQL classification', () => {
     expect(allCalls).toBe(5)
     expect(runCalls).toBe(1)
   })
-})
-
-/**
- * Checks stateless sql avoids cleanup in the current test scenario.
- *
- * @param run - Scenario callback executed with the fixture's isolated client.
- */
-async function assertStatelessSqlAvoidsCleanup(
-  run: (sql: string) => Promise<{ text: string; values: unknown[] }[]>,
-) {
-  for (const sql of [
-    `select 'begin; pg_advisory_lock(1)' as value`,
-    `select 1 as "abort", '?' as "begin"`,
-    `select $body$ begin; pg_advisory_lock(1) $body$ as body`,
-    `select 1 /* begin /* rollback */ end */`,
-    `select 1 -- begin\n`,
-    `select 1 as pg_advisory_lock`,
-    `select "PG_ADVISORY_LOCK"(1)`,
-    `select "pg_advisory_""lock"(1)`,
-    `select "pg_catalog"."not_advisory"(1)`,
-    'merge into target using source on false when not matched then insert default values',
-    'table users',
-  ]) {
-    expect(await run(sql)).toEqual([
-      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
-      { text: sql, values: [] },
-      { text: POSTGRES_OPERATION_IDENTITY_SQL, values: [] },
-    ])
-  }
 }
+
+function registerSqlClassificationGroup1() {
+  describe('PostgreSQL SQL classification', () => {
+    registerSqlClassificationCases1()
+  })
+}
+
+function registerSqlClassificationGroup2() {
+  describe('PostgreSQL SQL classification', () => {
+    registerSqlClassificationCases2()
+  })
+}
+
+function registerSqlClassificationGroup3() {
+  describe('PostgreSQL SQL classification', () => {
+    registerSqlClassificationCases3()
+  })
+}
+
+function registerSqlClassificationGroup4() {
+  describe('PostgreSQL SQL classification', () => {
+    registerSqlClassificationCases4()
+  })
+}
+
+describe('PostgreSQL sql classification', () => {
+  registerSqlClassificationGroup1()
+  registerSqlClassificationGroup2()
+  registerSqlClassificationGroup3()
+  registerSqlClassificationGroup4()
+})

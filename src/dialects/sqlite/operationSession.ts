@@ -202,7 +202,7 @@ function readIdentity(
 }
 
 /** Compares all database, native-session, and writable-namespace evidence. */
-function sameIdentity(
+function sameOperationSessionIdentity(
   left: OperationSessionIdentity,
   right: OperationSessionIdentity,
 ): boolean {
@@ -288,7 +288,7 @@ async function verifyNative(
 
   nativeDatabase(database, dialectId, probeOperation)
 
-  if (!sameIdentity(readIdentity(database, dialectId), identity)) {
+  if (!sameOperationSessionIdentity(readIdentity(database, dialectId), identity)) {
     throw new QueryError({ message: 'SQLite session identity changed during operation' })
   }
 }
@@ -581,7 +581,7 @@ async function claimNativeDatabase(
 }
 
 /** Opens one native lease and clears its provider slot on failure. */
-async function openLease(
+async function openNativeLease(
   connector: Connector,
   provider: ProviderState,
   owner: ConnectorState,
@@ -639,7 +639,7 @@ async function openLease(
 }
 
 /** Closes once after the active lease and permits a failed disposal retry. */
-function closeProvider(
+function closeNativeProvider(
   connector: Connector,
   provider: ProviderState,
   owner: ConnectorState,
@@ -692,8 +692,8 @@ export function createDb0NodeSqliteOperationSessionProvider(
   return {
     nativeTransactions: true,
     /** Opens one exclusive native session. */
-    open: () => openLease(connector, state, owner, dialectId),
+    open: () => openNativeLease(connector, state, owner, dialectId),
     /** Closes after the active lease and supports retry after disposal failure. */
-    close: () => closeProvider(connector, state, owner),
+    close: () => closeNativeProvider(connector, state, owner),
   }
 }

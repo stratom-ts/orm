@@ -19,7 +19,6 @@ import {
   literalDefault,
   observedDefinition,
   observedTable,
-  quoteSqliteIdentifier,
   sameName,
 } from './definition'
 import { SqliteMigrationCapabilityError, capabilityCheck } from './error'
@@ -32,6 +31,7 @@ import {
   columnSql,
   createSql,
   indexSql,
+  quoteSqliteIdentifier,
   statement,
 } from './sql'
 

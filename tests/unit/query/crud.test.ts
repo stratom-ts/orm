@@ -27,7 +27,7 @@ import {
 import {
   createMockPostgresConnector as createMockConnector,
   createMockStatement,
-} from '../helpers/nativePostgresClient'
+} from '../dialects/postgresNativeClientFixtures'
 
 /** Checks public query context while retaining the unchanged native diagnostic. */
 function expectWriteFailure(

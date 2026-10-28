@@ -3,7 +3,7 @@ import type { CatalogFact, CatalogSet, CatalogTable } from '@/dialects/catalog'
 import type { LoweredDesiredColumn, LoweredDesiredTable } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 
-import { isSqliteDefaultLiteral } from '../defaults'
+import { isSqliteDefaultLiteral } from '../defaultExpression'
 import { asciiFoldSqliteIdentifier } from '../identity'
 import {
   assertSafeSqliteDataType,
@@ -54,13 +54,6 @@ export function complete<T>(value: CatalogSet<T>, label: string): readonly T[] {
     throw capabilityError(`Incomplete SQLite evidence: ${label}`)
 
   return value.items
-}
-
-/** Quotes a single SQLite identifier, including literal dots and quotes. */
-export function quoteSqliteIdentifier(value: string): string {
-  if (!value || value.includes('\0')) throw capabilityError('Invalid SQLite identifier')
-
-  return `"${value.replaceAll('"', '""')}"`
 }
 
 /** Resolves an authoritative ordinary permanent main table definition. */
