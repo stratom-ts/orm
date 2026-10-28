@@ -300,9 +300,12 @@ describe('public migration coordination failures', () => {
       stage: 'sessionCleanup',
       outcome: 'unchanged',
       retryable: false,
-      cleanupFailures: [{ stage: 'sessionCleanup', cause: openCause }],
+      cause: openCause,
     })
 
+    expect((error as Error).cause).toBe(openCause)
+    expect((error as MigrationError).cleanupFailures).toBeUndefined()
+    expect(controls.events).toEqual(['lease-opened:1'])
     expect((error as Error).message).toBe('Migration operation session failed')
 
     await db.close()
