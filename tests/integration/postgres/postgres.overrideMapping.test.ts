@@ -297,6 +297,7 @@ const StorageOutputs = defineTable(
   { primaryKey: 'id' },
 )
 
+// PostgreSQL json has no equality operator. JSONB predicates run in the shared scenario.
 it('should preserve each accepted PostgreSQL storage representation through native results', async () => {
   await withPostgresDatabase([StorageOutputs], async ({ db, connector }) => {
     await (await connector.getInstance!()).query("set lc_monetary to 'C'")
@@ -306,7 +307,7 @@ it('should preserve each accepted PostgreSQL storage representation through nati
       id: 'one',
       fixed: 'ABCD',
       money: '42.25',
-      day: new Date('2026-01-02T00:00:00.000Z'),
+      day: new Date(2026, 0, 2),
       float: 1.5,
       document: { value: 7 },
       plainTime: '03:04:05',
@@ -316,6 +317,7 @@ it('should preserve each accepted PostgreSQL storage representation through nati
 
     const output = {
       ...input,
+      day: new Date('2026-01-02T00:00:00.000Z'),
       money: '$42.25',
       plainLocal: '2026-01-02T03:04:05.000Z',
       plainZone: '2026-01-02T03:04:05.000Z',
@@ -323,7 +325,6 @@ it('should preserve each accepted PostgreSQL storage representation through nati
 
     expect(await db.insert(StorageOutputs).values(input).execute()).toEqual([output])
 
-    // PostgreSQL json has no equality operator. JSONB predicates run in the shared scenario.
     const { document: _document, ...predicate } = input
     expect(await db.from(StorageOutputs).where(predicate).execute()).toEqual([output])
 
@@ -331,7 +332,7 @@ it('should preserve each accepted PostgreSQL storage representation through nati
       ...input,
       fixed: 'EFGH',
       money: '43.50',
-      day: new Date('2026-01-03T00:00:00.000Z'),
+      day: new Date(2026, 0, 3),
       float: 2.5,
       document: { value: 8 },
       plainTime: '04:05:06',
@@ -341,6 +342,7 @@ it('should preserve each accepted PostgreSQL storage representation through nati
 
     const next = {
       ...changed,
+      day: new Date('2026-01-03T00:00:00.000Z'),
       money: '$43.50',
       plainLocal: '2026-01-03T04:05:06.000Z',
       plainZone: '2026-01-03T04:05:06.000Z',

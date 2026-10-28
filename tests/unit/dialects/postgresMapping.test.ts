@@ -562,48 +562,68 @@ it('should retain target formatting when no authored temporal facts remain', () 
   ).toBe('03:04')
 })
 
-describe('PostgreSQL scalar storage validation', () => {
-  it.each([
-    ['date', date(), 'text'],
-    ['date', date(), 'varchar(20)'],
-    ['number', number(), 'text'],
-    ['number', number(), 'varchar(20)'],
-    ['boolean', boolean(), 'text'],
-    ['boolean', boolean(), 'varchar(20)'],
-    ['json', object({ a: number() }), 'text'],
-    ['json', object({ a: number() }), 'varchar(20)'],
-    ['number', pipe(string(), toNumber()), 'text'],
-    ['date', pipe(string(), toDate()), 'text'],
-    ['boolean', pipe(string(), toBoolean()), 'text'],
-    ['string', pipe(number(), toString()), 'integer'],
-    ['unknown', pipe(string(), parseJson()), 'text'],
-    [
-      'unknown',
-      pipe(
-        string(),
-        transform((value) => value),
-      ),
-      'text',
-    ],
-    ['number', number(), 'numeric'],
-    ['number', number(), 'decimal(10,2)'],
-    ['string', string(), 'serial'],
-    ['string', string(), 'interval'],
-    ['string', string(), 'text[]'],
-    ['string', string(), 'jsonb'],
-    ['boolean', boolean(), 'integer'],
-    ['date', date(), 'time'],
-    ['bigint', bigint(), 'real'],
-    ['bigint', bigint(), 'text'],
-    ['json', object({ a: number() }), 'integer'],
-    ['unknown', picklist(['one', 1]), 'text'],
-  ])('should reject %s output in %s storage', (kind, schema, dataType) => {
-    expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(SchemaError)
+const rejectedScalarStorageCases: [string, AnySchema, string][] = [
+  ['date', date(), 'text'],
+  ['date', date(), 'varchar(20)'],
+  ['number', number(), 'text'],
+  ['number', number(), 'varchar(20)'],
+  ['boolean', boolean(), 'text'],
+  ['boolean', boolean(), 'varchar(20)'],
+  ['json', object({ a: number() }), 'text'],
+  ['json', object({ a: number() }), 'varchar(20)'],
+  ['number', pipe(string(), toNumber()), 'text'],
+  ['date', pipe(string(), toDate()), 'text'],
+  ['boolean', pipe(string(), toBoolean()), 'text'],
+  ['string', pipe(number(), toString()), 'integer'],
+  ['unknown', pipe(string(), parseJson()), 'text'],
+  [
+    'unknown',
+    pipe(
+      string(),
+      transform((value) => value),
+    ),
+    'text',
+  ],
+  ['number', number(), 'numeric'],
+  ['number', number(), 'decimal(10,2)'],
+  ['string', string(), 'serial'],
+  ['string', string(), 'interval'],
+  ['string', string(), 'text[]'],
+  ['string', string(), 'jsonb'],
+  ['string', string(), 'boolean'],
+  ['string', string(), 'smallint'],
+  ['string', string(), 'integer'],
+  ['string', string(), 'bigint'],
+  ['string', string(), 'real'],
+  ['string', string(), 'double precision'],
+  ['string', string(), 'oid'],
+  ['string', string(), 'json'],
+  ['string', string(), 'bytea'],
+  ['string', string(), 'point'],
+  ['string', string(), 'circle'],
+  ['boolean', boolean(), 'integer'],
+  ['date', date(), 'time'],
+  ['date', date(), 'numeric'],
+  ['bigint', bigint(), 'real'],
+  ['bigint', bigint(), 'double precision'],
+  ['bigint', bigint(), 'text'],
+  ['json', object({ a: number() }), 'integer'],
+  ['unknown', picklist(['one', 1]), 'text'],
+]
 
-    expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(
-      new RegExp(`PostgreSQL ${kind} schema .*mapParam/mapResult`),
-    )
-  })
+describe('PostgreSQL scalar storage validation', () => {
+  it.each(rejectedScalarStorageCases)(
+    'should reject %s output in %s storage',
+    (kind, schema, dataType) => {
+      expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(
+        SchemaError,
+      )
+
+      expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(
+        new RegExp(`PostgreSQL ${kind} schema .*mapParam/mapResult`),
+      )
+    },
+  )
 })
 
 it.each<[string, AnySchema, string[], unknown, unknown, unknown, unknown]>([
