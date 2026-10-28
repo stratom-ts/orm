@@ -7,7 +7,7 @@ import type {
   CanonicalIdentifier,
   CanonicalRelationIdentity,
 } from '@/migrations/canonicalRelationIdentity'
-import { MigrationError, SchemaError } from '@/utils/error'
+import { MigrationError, isErrorTag } from '@/utils/error'
 
 import { postgresNaming } from '../naming'
 
@@ -221,7 +221,7 @@ function identifierIssues(identifier: CanonicalIdentifier, label: string): strin
   try {
     postgresNaming.validate(identifier.spelling, label)
   } catch (cause) {
-    if (!(cause instanceof SchemaError)) throw cause
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
 
     issues.push(cause.message)
   }

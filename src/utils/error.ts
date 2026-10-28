@@ -197,6 +197,7 @@ function serializeNativeError(
   }
 
   serializeField(value, 'message', output, seen)
+  serializeField(value, 'stack', output, seen)
 
   if ('cause' in value) serializeField(value, 'cause', output, seen)
 }
@@ -269,6 +270,7 @@ export class SchemaError extends TaggedError('SchemaError')<{
 export class QueryError extends TaggedError('QueryError')<{
   message: string
   cause?: unknown
+  cleanupFailures?: readonly MigrationCleanupFailure[]
 }> {}
 
 /** Portable meaning of a native database failure. */
@@ -283,6 +285,7 @@ export type DriverErrorKind =
 /** Fields a selected dialect can establish from native diagnostics. */
 export type DriverErrorClassification = Readonly<{
   kind: DriverErrorKind
+  /** Potentially transient. Replay still requires caller-owned idempotency or recovery. */
   retryable: boolean
   constraint?: string
   table?: string
@@ -299,6 +302,7 @@ export class DriverError extends TaggedError('DriverError')<
     code?: string
     sql: string
     cause: unknown
+    cleanupFailures?: readonly MigrationCleanupFailure[]
   } & DriverErrorClassification
 > {}
 
@@ -340,7 +344,7 @@ export function classifyDriverError(
   failure: unknown,
   classify: DriverErrorClassifier,
 ): unknown {
-  if (!(failure instanceof DriverError)) return failure
+  if (!isErrorTag(failure, 'DriverError')) return failure
 
   const classification = classify(failure.cause)
 
@@ -363,6 +367,7 @@ export function classifyDriverError(
     ...(failure.code === undefined ? {} : { code: failure.code }),
     sql: failure.sql,
     cause: failure.cause,
+    ...(failure.cleanupFailures ? { cleanupFailures: failure.cleanupFailures } : {}),
     ...classification,
   })
 }

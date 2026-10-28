@@ -2,13 +2,7 @@ import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationP
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import {
-  DriverError,
-  InvariantError,
-  MigrationError,
-  QueryError,
-  SchemaError,
-} from '@/utils/error'
+import { MigrationError, isErrorTag } from '@/utils/error'
 
 import type {
   CancellationState,
@@ -37,7 +31,7 @@ function executionMessage(
 ): string {
   const detail =
     structured?.message ??
-    (cause instanceof MigrationCancellationError || cause instanceof InvariantError
+    (cause instanceof MigrationCancellationError || isErrorTag(cause, 'InvariantError')
       ? cause.message
       : undefined)
 
@@ -64,16 +58,16 @@ function executionError(options: {
   cleanupFailures?: readonly MigrationCleanupFailure[]
 }): MigrationError {
   const { cause } = options
-  const structured = cause instanceof MigrationError ? cause : undefined
+  const structured = isErrorTag(cause, 'MigrationError') ? cause : undefined
   const stage = structured?.stage ?? options.stage
 
   return migrationExecutionError(cause, {
     message: (actionIndex) => executionMessage(cause, stage, actionIndex, structured),
     defect:
       !(cause instanceof MigrationCancellationError) &&
-      !(cause instanceof QueryError) &&
-      !(cause instanceof DriverError) &&
-      !(cause instanceof SchemaError),
+      !isErrorTag(cause, 'QueryError') &&
+      !isErrorTag(cause, 'DriverError') &&
+      !isErrorTag(cause, 'SchemaError'),
     stage,
     outcome: options.outcome,
     retryable: options.retryable,
@@ -116,7 +110,7 @@ function reportedStage(
   fallback: MigrationExecutionStage,
 ): MigrationExecutionStage {
   if (cause instanceof MigrationCancellationError) return cause.stage
-  if (cause instanceof MigrationError && cause.stage !== undefined) return cause.stage
+  if (isErrorTag(cause, 'MigrationError') && cause.stage !== undefined) return cause.stage
   if (cause instanceof MigrationOwnershipSchemaError) return 'planning'
 
   return fallback
@@ -408,7 +402,7 @@ function migrationExecutionOutcome(
     const outcome = failureOutcome(primary.stage, ddlStarted, rollbackAcknowledged)
 
     if (
-      primary.cause instanceof SchemaError &&
+      isErrorTag(primary.cause, 'SchemaError') &&
       outcome === 'unchanged' &&
       cleanupFailures.length === 0
     )

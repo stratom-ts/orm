@@ -16,7 +16,7 @@ import type {
   CanonicalRelationRegistry,
 } from '@/migrations/canonicalRelationIdentity'
 import type { ResolvedMigrationOwnership } from '@/migrations/migrationOwnership'
-import { MigrationError, SchemaError } from '@/utils/error'
+import { MigrationError, isErrorTag } from '@/utils/error'
 
 export type PlanningCatalogColumn = {
   name: string
@@ -197,7 +197,7 @@ function desiredColumn(
   try {
     key = identities.member('column', name).comparisonKey
   } catch (cause) {
-    if (!(cause instanceof SchemaError)) throw cause
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
 
     throw new MigrationError({
       message: `Cannot address column ${JSON.stringify(name)} of ${identities.format(relation)}: ${cause.message}`,

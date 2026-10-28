@@ -78,8 +78,8 @@ it('should retain disposal failure beside a frozen connector defect during open'
 
   const failure = await provider.open().catch((cause: unknown) => cause)
 
-  expect(failure).toBe(defect)
-  expect((failure as Error).stack).toBe(defect.stack)
+  expect((failure as Error).cause).toBe(defect)
+  expect(((failure as Error).cause as Error).stack).toBe(defect.stack)
   expect(getOperationReleaseCleanupFailures(failure)).toEqual([cleanup])
 })
 
@@ -105,8 +105,6 @@ it('should retain disposal failure after release verification rejects a primitiv
   const failure = await session.release('reuse').catch((cause: unknown) => cause)
 
   expect(failure).toMatchObject({
-    _tag: 'MigrationError',
-    defect: true,
     cause: 'identity unavailable',
     cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
   })

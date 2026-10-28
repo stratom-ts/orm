@@ -6,6 +6,7 @@ import type { NamespaceRole } from '@/schemas'
 import type { DriverErrorClassifier } from '@/utils/error'
 import { QueryError, attempt, classifyDriverError } from '@/utils/error'
 
+import { operationCleanupFailures, withOperationCleanupFailure } from './cleanup'
 import type {
   OperationSession,
   OperationSessionDisposition,
@@ -28,64 +29,22 @@ type OperationFrame = {
 }
 
 const activeOperation = new AsyncLocalStorage<OperationFrame>()
-const operationReleaseCleanupFailures = new WeakMap<object, unknown[]>()
 
-/**
- * Keeps secondary cleanup failures beside an object-valued primary rejection.
- *
- * @param cause - Original rejection whose identity and failure details must be preserved.
- * @param failure - Secondary verification or cleanup rejection to retain.
- */
-export function retainOperationReleaseCleanupFailure(
-  cause: unknown,
-  failure: unknown,
-): void {
-  if (!((typeof cause === 'object' && cause !== null) || typeof cause === 'function')) {
-    return
-  }
-
-  const failures = operationReleaseCleanupFailures.get(cause) ?? []
-  failures.push(failure)
-  operationReleaseCleanupFailures.set(cause, failures)
+/** Reads session cleanup causes from the failure itself. */
+export function getOperationReleaseCleanupFailures(cause: unknown): readonly unknown[] {
+  return operationCleanupFailures(cause).map((failure) => failure.cause)
 }
 
-/** Keeps the first rejection and retains later cleanup failures when possible. */
+/** Keeps the first rejection and adds later cleanup failures as explicit diagnostics. */
 function mergeOperationFailure(
   failed: boolean,
   error: unknown,
   failure: unknown,
 ): Readonly<{ failed: true; error: unknown }> {
-  if (failed) retainOperationReleaseCleanupFailure(error, failure)
-
-  return { failed: true, error: failed ? error : failure }
-}
-
-/**
- * Reads provider-release cleanup failures retained beside an object primary rejection.
- *
- * @example
- *   const cleanupFailures = getOperationReleaseCleanupFailures(error)
- *
- * @param cause - Primary rejection that may have retained cleanup failures.
- */
-export function getOperationReleaseCleanupFailures(cause: unknown): readonly unknown[] {
-  return (typeof cause === 'object' && cause !== null) || typeof cause === 'function'
-    ? (operationReleaseCleanupFailures.get(cause) ?? [])
-    : []
-}
-
-/** Transfers retained cleanup evidence when a boundary unwraps an object defect. */
-export function transferOperationReleaseCleanupFailures(
-  source: unknown,
-  target: unknown,
-): boolean {
-  if (!((typeof target === 'object' && target !== null) || typeof target === 'function'))
-    return false
-
-  for (const failure of getOperationReleaseCleanupFailures(source))
-    retainOperationReleaseCleanupFailure(target, failure)
-
-  return true
+  return {
+    failed: true,
+    error: failed ? withOperationCleanupFailure(error, failure) : failure,
+  }
 }
 
 /**
@@ -407,9 +366,6 @@ export class OperationCoordinator {
       const classified = this.classify
         ? classifyDriverError(state.operationError, this.classify)
         : state.operationError
-
-      if (classified !== state.operationError)
-        transferOperationReleaseCleanupFailures(state.operationError, classified)
 
       throw classified
     }

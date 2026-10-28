@@ -31,7 +31,7 @@ import type {
   RightJoinStarResult,
   TableIdentityOf,
 } from '@/types/views'
-import { DriverError, InvariantError, QueryError } from '@/utils/error'
+import { InvariantError, QueryError } from '@/utils/error'
 
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
@@ -630,10 +630,7 @@ async function executeQueryOperation<T>(
 
     const message = `Failed to ${action} ${formatRelationInput(ast.relation)}`
 
-    if (cause instanceof DriverError || cause instanceof QueryError)
-      throw contextualOperationError(cause, message)
-
-    throw cause
+    throw contextualOperationError(cause, message)
   }
 }
 

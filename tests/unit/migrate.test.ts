@@ -1011,7 +1011,7 @@ function releaseFailingProvider(
   }
 }
 
-it('should preserve preview defect identity and transfer provider release cleanup evidence', async () => {
+it('should expose the original preview defect and provider cleanup in one failure', async () => {
   const migrationPlanning = await import('@/ddl/migrationPlan')
   const connector = createMockConnector()
   const releaseFailure = new Error('provider release failed')
@@ -1034,9 +1034,23 @@ it('should preserve preview defect identity and transfer provider release cleanu
     .plan()
     .catch((cause: unknown) => cause)
 
-  expect(rejection).toBe(defect)
-  expect((rejection as Error).stack).toBe(originalStack)
+  expect(rejection).toBeInstanceOf(MigrationError)
+  expect((rejection as MigrationError).cause).toBe(defect)
+  expect(((rejection as MigrationError).cause as Error).stack).toBe(originalStack)
   expect(getOperationReleaseCleanupFailures(rejection)).toContain(releaseFailure)
+
+  expect(JSON.parse(JSON.stringify(rejection))).toMatchObject({
+    stage: 'sessionCleanup',
+    defect: true,
+    cause: { message: defect.message, stack: originalStack },
+    cleanupFailures: [
+      {
+        stage: 'sessionCleanup',
+        cause: { message: releaseFailure.message, stack: releaseFailure.stack },
+      },
+    ],
+  })
+
   await db.close()
 })
 
@@ -1061,14 +1075,14 @@ it('should keep a primitive preview defect structured when provider release also
 
   expect(rejection).toMatchObject({
     defect: true,
-    stage: 'planning',
+    stage: 'sessionCleanup',
     outcome: 'unchanged',
     retryable: false,
     cause: 'primitive planning defect',
     cleanupFailures: [{ stage: 'sessionCleanup', cause: releaseFailure }],
   })
 
-  expect((rejection as MigrationError).message).toBe('Migration planning failed')
+  expect((rejection as MigrationError).message).toBe('Migration session cleanup failed')
   await db.close()
 })
 
@@ -1672,3 +1686,40 @@ function catalogReservationRows(
     })),
   ]
 }
+
+it('should retain a raw schema failure as primary when execution session cleanup also fails', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const primary = new SchemaError({ message: 'invalid authored schema' })
+  const releaseFailure = new Error('provider release failed')
+  const db = createDatabase({
+    connector,
+    schemas: [],
+    operationSessionProvider: releaseFailingProvider(connector, releaseFailure),
+  })
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw primary
+  })
+
+  try {
+    const rejection = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+
+    expect(rejection).toBeInstanceOf(MigrationError)
+    const failure = rejection as MigrationError
+    expect(failure.cause).toBe(primary)
+    expect(failure.defect).toBeUndefined()
+    expect(failure.outcome).toBe('unchanged')
+
+    expect(failure.cleanupFailures).toEqual([
+      { stage: 'sessionCleanup', cause: releaseFailure },
+    ])
+
+    expect(connector.runSql).toContain('rollback')
+  } finally {
+    await db.close()
+  }
+})

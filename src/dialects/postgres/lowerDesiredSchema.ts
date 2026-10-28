@@ -13,7 +13,7 @@ import type {
 } from '@/dialects/types'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
 import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
-import { MigrationError, SchemaError } from '@/utils/error'
+import { MigrationError, isErrorTag } from '@/utils/error'
 
 import { inferPostgresColumnType } from './infer'
 import { assertPostgresScalarStorage } from './mapping'
@@ -297,7 +297,7 @@ export function lowerPostgresDesiredSchema(
         lowerColumn(table, column, dataType, analysis),
     })
   } catch (cause) {
-    if (!(cause instanceof SchemaError)) throw cause
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
 
     throw new MigrationError({
       message: `PostgreSQL desired schema lowering failed: ${cause.message}`,

@@ -6,13 +6,7 @@ import type {
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import {
-  DriverError,
-  InvariantError,
-  MigrationError,
-  QueryError,
-  SchemaError,
-} from '@/utils/error'
+import { InvariantError, MigrationError, isErrorTag } from '@/utils/error'
 
 import { sqliteClassifyDriverError } from '../classifyDriverError'
 import { asciiFoldSqliteIdentifier } from '../identity'
@@ -60,7 +54,8 @@ function failureMessage(
   const cause = error.cause
   const detail =
     structured?.message ??
-    (cause instanceof InvariantError || cause instanceof SqliteMigrationCapabilityError
+    (isErrorTag(cause, 'InvariantError') ||
+    cause instanceof SqliteMigrationCapabilityError
       ? cause.message
       : undefined)
 
@@ -75,15 +70,15 @@ function failure(
   cleanupFailures: readonly MigrationCleanupFailure[],
   retryable = false,
 ): MigrationError {
-  const structured = error.cause instanceof MigrationError ? error.cause : undefined
+  const structured = isErrorTag(error.cause, 'MigrationError') ? error.cause : undefined
   const stage = failureStage(error, structured)
 
   return migrationExecutionError(error.cause, {
     message: (actionIndex) => failureMessage(error, stage, actionIndex, structured),
     defect:
-      !(error.cause instanceof QueryError) &&
-      !(error.cause instanceof DriverError) &&
-      !(error.cause instanceof SchemaError),
+      !isErrorTag(error.cause, 'QueryError') &&
+      !isErrorTag(error.cause, 'DriverError') &&
+      !isErrorTag(error.cause, 'SchemaError'),
     stage,
     outcome,
     retryable,
@@ -212,7 +207,7 @@ async function acquire(options: MigrationRuntimeOptions, state: State): Promise<
   } catch (cause) {
     state.primary = { cause, stage: 'lock' }
 
-    if (!(cause instanceof MigrationError && cause.retryable)) {
+    if (!(isErrorTag(cause, 'MigrationError') && cause.retryable)) {
       state.uncertain = true
       options.discard()
     }
@@ -362,7 +357,7 @@ async function prepareAndExecute(
     state.primary = {
       cause,
       stage:
-        cause instanceof MigrationError && cause.stage
+        isErrorTag(cause, 'MigrationError') && cause.stage
           ? cause.stage
           : cause instanceof MigrationOwnershipSchemaError
             ? 'planning'
@@ -526,7 +521,7 @@ function outcome(state: State): { outcome: 'applied' | 'unchanged' } {
           : 'unchanged'
 
     if (
-      state.primary.cause instanceof SchemaError &&
+      isErrorTag(state.primary.cause, 'SchemaError') &&
       effect === 'unchanged' &&
       state.cleanupFailures.length === 0
     )

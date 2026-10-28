@@ -1,7 +1,7 @@
 import type { DatabaseDefault } from '@/schemas'
 import { analyzeSchema } from '@/schemas'
 import type { AnySchema } from '@/types/schema'
-import { MigrationError, QueryError, SchemaError } from '@/utils/error'
+import { MigrationError, isErrorTag } from '@/utils/error'
 
 import { mapSqliteResultValue } from './mapping'
 import { normalizeSqliteDataType } from './normalize'
@@ -112,7 +112,8 @@ export function assertSqliteDefaultCompatibility(
     const mapped = mapSqliteResultValue(dataType, stored, { schema })
     compatible = compatibleResult(mapped, schema)
   } catch (cause) {
-    if (!(cause instanceof QueryError || cause instanceof SchemaError)) throw cause
+    if (!(isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'SchemaError')))
+      throw cause
 
     // Built-in mapping also rejects unsafe numeric values and unsupported types.
   }
