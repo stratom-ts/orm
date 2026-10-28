@@ -1686,3 +1686,40 @@ function catalogReservationRows(
     })),
   ]
 }
+
+it('should retain a raw schema failure as primary when execution session cleanup also fails', async () => {
+  const migrationPlanning = await import('@/ddl/migrationPlan')
+  const connector = createMockConnector()
+  const primary = new SchemaError({ message: 'invalid authored schema' })
+  const releaseFailure = new Error('provider release failed')
+  const db = createDatabase({
+    connector,
+    schemas: [],
+    operationSessionProvider: releaseFailingProvider(connector, releaseFailure),
+  })
+
+  vi.spyOn(migrationPlanning, 'planMigration').mockImplementationOnce(() => {
+    throw primary
+  })
+
+  try {
+    const rejection = await db
+      .migrate()
+      .execute()
+      .catch((cause: unknown) => cause)
+
+    expect(rejection).toBeInstanceOf(MigrationError)
+    const failure = rejection as MigrationError
+    expect(failure.cause).toBe(primary)
+    expect(failure.defect).toBeUndefined()
+    expect(failure.outcome).toBe('unchanged')
+
+    expect(failure.cleanupFailures).toEqual([
+      { stage: 'sessionCleanup', cause: releaseFailure },
+    ])
+
+    expect(connector.runSql).toContain('rollback')
+  } finally {
+    await db.close()
+  }
+})

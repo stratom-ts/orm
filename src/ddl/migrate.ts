@@ -510,7 +510,7 @@ function throwExecutionCleanup(
     stage: 'sessionCleanup',
     outcome: 'unchanged',
     retryable: false,
-    cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
+    ...(cleanupFailures.length ? { cleanupFailures } : {}),
   })
 }
 
