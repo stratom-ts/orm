@@ -28,12 +28,93 @@ import {
 } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
+import { postgresDialect } from '@/dialects/postgres/dialect'
+import { sqliteDialect } from '@/dialects/sqlite/dialect'
 import { SchemaError, column, createDatabase, defineTable, reference } from '@/index'
 import type { OperationSessionProvider } from '@/operations/operationSession'
 import type { CompiledQuery } from '@/query/builder'
+import { createValueMapper } from '@/query/mapping'
 import { QueryError } from '@/utils/error'
 
 import { createMockPostgresConnector } from './helpers/nativePostgresClient'
+
+/** Defines the independent hook-direction fixtures shared by accepted/rejected cases. */
+function hookFixture(
+  columnParam: boolean,
+  columnResult: boolean,
+  clientParam: boolean,
+  clientResult: boolean,
+) {
+  const Hooked = defineTable(
+    'hook_matrix',
+    {
+      value: pipe(
+        number(),
+        column({
+          physicalType: { postgresql: 'text', sqlite: 'TEXT' },
+          ...(columnParam ? { mapParam: () => 'column-write' } : {}),
+          ...(columnResult ? { mapResult: () => 11 } : {}),
+        }),
+      ),
+    },
+    { primaryKey: 'value' },
+  )
+
+  const map = {
+    ...(clientParam ? { mapParamValue: () => 'client-write' } : {}),
+    ...(clientResult ? { mapResultValue: () => 22 } : {}),
+  }
+
+  return { Hooked, map }
+}
+
+it.each([
+  ['none', false, false, false, false],
+  ['column parameter only', true, false, false, false],
+  ['column result only', false, true, false, false],
+  ['client parameter only', false, false, true, false],
+  ['client result only', false, false, false, true],
+] as const)(
+  'should reject O02 %s hooks in both dialects',
+  (_name, columnParam, columnResult, clientParam, clientResult) => {
+    const { Hooked, map } = hookFixture(
+      columnParam,
+      columnResult,
+      clientParam,
+      clientResult,
+    )
+
+    for (const dialect of [postgresDialect, sqliteDialect])
+      expect(() => createValueMapper(dialect, map, [Hooked])).toThrow(SchemaError)
+  },
+)
+
+it.each([
+  ['paired column', true, true, false, false],
+  ['paired client', false, false, true, true],
+  ['column parameter and client result', true, false, false, true],
+  ['client parameter and column result', false, true, true, false],
+  ['column precedence both directions', true, true, true, true],
+] as const)(
+  'should apply O02 %s hooks in both dialects',
+  (_name, columnParam, columnResult, clientParam, clientResult) => {
+    const { Hooked, map } = hookFixture(
+      columnParam,
+      columnResult,
+      clientParam,
+      clientResult,
+    )
+
+    for (const dialect of [postgresDialect, sqliteDialect]) {
+      const mapper = createValueMapper(dialect, map, [Hooked])
+      expect(mapper.mapParam(Hooked, 'value', 42)).toBe(
+        columnParam ? 'column-write' : 'client-write',
+      )
+
+      expect(mapper.mapResultValue(Hooked, 'value', '42')).toBe(columnResult ? 11 : 22)
+    }
+  },
+)
 
 const Native = defineTable(
   'native_values',

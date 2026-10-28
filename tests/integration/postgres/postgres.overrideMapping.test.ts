@@ -278,6 +278,82 @@ it('should round-trip compatible overrides without hooks', async () => {
   })
 })
 
+const StorageOutputs = defineTable(
+  'override_storage_outputs',
+  {
+    id: string(),
+    fixed: pipe(string(), column({ physicalType: { postgresql: 'char(4)' } })),
+    money: pipe(string(), column({ physicalType: { postgresql: 'money' } })),
+    day: pipe(date(), column({ physicalType: { postgresql: 'date' } })),
+    float: pipe(number(), column({ physicalType: { postgresql: 'real' } })),
+    document: pipe(
+      object({ value: number() }),
+      column({ physicalType: { postgresql: 'json' } }),
+    ),
+    plainTime: pipe(string(), column({ physicalType: { postgresql: 'time' } })),
+    plainLocal: pipe(string(), column({ physicalType: { postgresql: 'timestamp' } })),
+    plainZone: pipe(string(), column({ physicalType: { postgresql: 'timestamptz' } })),
+  },
+  { primaryKey: 'id' },
+)
+
+it('should preserve each accepted PostgreSQL storage representation through native results', async () => {
+  await withPostgresDatabase([StorageOutputs], async ({ db, connector }) => {
+    await (await connector.getInstance!()).query("set lc_monetary to 'C'")
+    await db.migrate().execute()
+    await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+    const input = {
+      id: 'one',
+      fixed: 'ABCD',
+      money: '42.25',
+      day: new Date('2026-01-02T00:00:00.000Z'),
+      float: 1.5,
+      document: { value: 7 },
+      plainTime: '03:04:05',
+      plainLocal: '2026-01-02T03:04:05',
+      plainZone: '2026-01-02T03:04:05Z',
+    }
+
+    const output = {
+      ...input,
+      money: '$42.25',
+      plainLocal: '2026-01-02T03:04:05.000Z',
+      plainZone: '2026-01-02T03:04:05.000Z',
+    }
+
+    expect(await db.insert(StorageOutputs).values(input).execute()).toEqual([output])
+
+    // PostgreSQL json has no equality operator. JSONB predicates run in the shared scenario.
+    const { document: _document, ...predicate } = input
+    expect(await db.from(StorageOutputs).where(predicate).execute()).toEqual([output])
+
+    const changed = {
+      ...input,
+      fixed: 'EFGH',
+      money: '43.50',
+      day: new Date('2026-01-03T00:00:00.000Z'),
+      float: 2.5,
+      document: { value: 8 },
+      plainTime: '04:05:06',
+      plainLocal: '2026-01-03T04:05:06',
+      plainZone: '2026-01-03T04:05:06Z',
+    }
+
+    const next = {
+      ...changed,
+      money: '$43.50',
+      plainLocal: '2026-01-03T04:05:06.000Z',
+      plainZone: '2026-01-03T04:05:06.000Z',
+    }
+
+    expect(
+      await db.update(StorageOutputs).set(changed).where({ id: 'one' }).execute(),
+    ).toEqual([next])
+
+    expect(await db.from(StorageOutputs).where({ id: 'one' }).execute()).toEqual([next])
+  })
+})
+
 const safeTimeSchema = pipe(string(), isoTimeSecond())
 const SafeTemporal = defineTable(
   'override_safe_temporal',

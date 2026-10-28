@@ -1,4 +1,5 @@
 import {
+  array,
   bigint,
   boolean,
   date,
@@ -17,19 +18,24 @@ import {
   number,
   object,
   optional,
+  parseBoolean,
+  parseJson,
   pipe,
+  record,
   safeParse,
   string,
+  toBoolean,
   toDate,
   toNumber,
   toString,
   transform,
+  tuple,
   union,
   variant,
 } from 'valibot'
 import { beforeAll, describe, expect, expectTypeOf, it } from 'vitest'
 
-import type { Db, InferInsert, InferSelect, TableHandle } from '@/index'
+import type { Db, InferInsert, InferSelect, InferUpdate, TableHandle } from '@/index'
 import {
   DriverError,
   ValidationError,
@@ -78,7 +84,11 @@ export interface DialectIntegrationAdapter {
   withDatabase<const TSchemas extends readonly TableHandle[], TResult>(
     schemas: TSchemas,
     callback: (
-      context: Readonly<{ db: Db<TSchemas>; nativeSql(sql: string): Promise<void> }>,
+      context: Readonly<{
+        db: Db<TSchemas>
+        nativeSql(sql: string): Promise<void>
+        readColumnTypes(table: string): Promise<Record<string, string>>
+      }>,
     ) => Promise<TResult>,
   ): Promise<TResult>
 }
@@ -187,6 +197,87 @@ const ContractTemporalReference = defineTable(
 
 const CONTRACT_TEMPORAL_TABLES = [ContractTemporal, ContractTemporalReference] as const
 type TemporalDb = Db<typeof CONTRACT_TEMPORAL_TABLES>
+
+const ContractKnownOutputs = defineTable(
+  'contract_known_outputs',
+  {
+    id: string(),
+    numeric: pipe(string(), toNumber()),
+    truthy: pipe(string(), toBoolean()),
+    parsed: pipe(string(), parseBoolean()),
+    rendered: pipe(number(), toString()),
+    recovered: pipe(
+      string(),
+      transform((value) => value.length),
+      number(),
+    ),
+    payload: pipe(string(), parseJson(), object({ count: number() })),
+    list: array(number()),
+    pair: tuple([string(), number()]),
+    dictionary: record(string(), boolean()),
+  },
+  { primaryKey: 'id' },
+)
+
+type KnownOutputInput = {
+  id: string
+  numeric: string
+  truthy: string
+  parsed: string
+  rendered: number
+  recovered: string
+  payload: string
+  list: number[]
+  pair: [string, number]
+  dictionary: Record<string, boolean>
+}
+
+type KnownOutputRow = {
+  id: string
+  numeric: number
+  truthy: boolean
+  parsed: boolean
+  rendered: string
+  recovered: number
+  payload: { count: number }
+  list: number[]
+  pair: [string, number]
+  dictionary: Record<string, boolean>
+}
+
+expectTypeOf<InferInsert<typeof ContractKnownOutputs>>().toEqualTypeOf<KnownOutputInput>()
+
+expectTypeOf<InferUpdate<typeof ContractKnownOutputs>>().toEqualTypeOf<
+  Partial<KnownOutputInput>
+>()
+
+expectTypeOf<InferSelect<typeof ContractKnownOutputs>>().toEqualTypeOf<KnownOutputRow>()
+
+const knownOutputInput: KnownOutputInput = {
+  id: 'one',
+  numeric: '1.5',
+  truthy: 'yes',
+  parsed: 'false',
+  rendered: 42,
+  recovered: 'four',
+  payload: '{"count":7}',
+  list: [1, 2],
+  pair: ['first', 3],
+  dictionary: { enabled: true },
+}
+
+const knownOutputRow: KnownOutputRow = {
+  id: 'one',
+  numeric: 1.5,
+  truthy: true,
+  parsed: false,
+  rendered: '42',
+  recovered: 4,
+  payload: { count: 7 },
+  list: [1, 2],
+  pair: ['first', 3],
+  dictionary: { enabled: true },
+}
 
 const ContractComposite = defineTable(
   'contract_composite',
@@ -994,6 +1085,24 @@ async function assertTemporalInsert(db: TemporalDb): Promise<void> {
     .executeTakeFirstOrThrow()
 
   expect(selected).toEqual(inserted)
+  await assertTemporalPredicates(db)
+}
+
+/** Checks native predicate encoding for all temporal representations. */
+async function assertTemporalPredicates(db: TemporalDb): Promise<void> {
+  for (const predicate of [
+    { minuteTime: '03:04' },
+    { secondTime: '03:04:05' },
+    { minuteLocal: '2026-01-02T03:04' },
+    { secondLocal: '2026-01-02T03:04:05' },
+    { instant: '2026-01-02T03:04:05.123456Z' },
+    { asDate: new Date('2026-01-02T03:04:05.123Z') },
+    { convertedDate: new Date('2026-01-02T03:04:05.123Z') },
+  ]) {
+    const selected = await db.from(ContractTemporal).where(predicate).execute()
+    expect(selected).toHaveLength(1)
+    expect(selected[0]?.id).toBe('0042-01-02')
+  }
 }
 
 /** Checks the updated logical values without requiring a particular session offset. */
@@ -1077,16 +1186,158 @@ function registerTemporalIntegration(adapter: DialectIntegrationAdapter): void {
     ['query', 'migration', 'convergence'],
     'should round-trip ISO strings and Dates through temporal storage',
     async () => {
-      await adapter.withDatabase(CONTRACT_TEMPORAL_TABLES, async ({ db }) => {
-        await db.migrate().execute()
-        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+      await adapter.withDatabase(
+        CONTRACT_TEMPORAL_TABLES,
+        async ({ db, readColumnTypes }) => {
+          await db.migrate().execute()
+          await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
 
-        await assertTemporalInsert(db)
-        const updatedId = await assertTemporalUpdate(db)
-        await assertTemporalReference(db, updatedId)
-      })
+          expect(await readColumnTypes('contract_temporal')).toEqual(
+            adapter.dialectId === 'postgresql'
+              ? {
+                  id: 'date',
+                  minuteTime: 'time without time zone',
+                  secondTime: 'time without time zone',
+                  minuteLocal: 'timestamp without time zone',
+                  secondLocal: 'timestamp without time zone',
+                  instant: 'timestamp with time zone',
+                  nullableInstant: 'timestamp with time zone',
+                  asDate: 'timestamp with time zone',
+                  convertedDate: 'timestamp with time zone',
+                }
+              : {
+                  id: 'TEXT',
+                  minuteTime: 'TEXT',
+                  secondTime: 'TEXT',
+                  minuteLocal: 'TEXT',
+                  secondLocal: 'TEXT',
+                  instant: 'TEXT',
+                  nullableInstant: 'VARCHAR(40)',
+                  asDate: 'DATETIME',
+                  convertedDate: 'DATETIME',
+                },
+          )
+
+          await assertTemporalInsert(db)
+          const updatedId = await assertTemporalUpdate(db)
+          await assertTemporalReference(db, updatedId)
+        },
+      )
     },
   )
+}
+
+/** Proves known output mappings without repeating their input transformations on reads. */
+function registerKnownOutputIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'convergence'],
+    'should preserve known transforms and JSON collections through CRUD and catalog storage',
+    async () => {
+      await adapter.withDatabase(
+        [ContractKnownOutputs],
+        async ({ db, readColumnTypes }) => {
+          await db.migrate().execute()
+          await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+          expect(await readColumnTypes('contract_known_outputs')).toEqual(
+            adapter.dialectId === 'postgresql'
+              ? {
+                  id: 'text',
+                  numeric: 'double precision',
+                  truthy: 'boolean',
+                  parsed: 'boolean',
+                  rendered: 'text',
+                  recovered: 'double precision',
+                  payload: 'jsonb',
+                  list: 'jsonb',
+                  pair: 'jsonb',
+                  dictionary: 'jsonb',
+                }
+              : {
+                  id: 'TEXT',
+                  numeric: 'REAL',
+                  truthy: 'BOOLEAN',
+                  parsed: 'BOOLEAN',
+                  rendered: 'TEXT',
+                  recovered: 'REAL',
+                  payload: 'JSON',
+                  list: 'JSON',
+                  pair: 'JSON',
+                  dictionary: 'JSON',
+                },
+          )
+
+          expect(
+            await db.insert(ContractKnownOutputs).values(knownOutputInput).execute(),
+          ).toEqual([knownOutputRow])
+
+          await assertKnownOutputPredicates(db)
+          await assertKnownOutputUpdate(db)
+        },
+      )
+    },
+  )
+}
+
+/** Checks each distinct scalar/structured mapping in native predicate parameters. */
+async function assertKnownOutputPredicates(
+  db: Db<readonly [typeof ContractKnownOutputs]>,
+): Promise<void> {
+  for (const predicate of [
+    { numeric: 1.5 },
+    { truthy: true },
+    { parsed: false },
+    { rendered: '42' },
+    { recovered: 4 },
+    { payload: { count: 7 } },
+    { list: [1, 2] },
+    { pair: ['first', 3] as [string, number] },
+    { dictionary: { enabled: true } },
+  ]) {
+    expect(await db.from(ContractKnownOutputs).where(predicate).execute()).toEqual([
+      knownOutputRow,
+    ])
+  }
+}
+
+/** Checks update returning and independently expected selected output. */
+async function assertKnownOutputUpdate(
+  db: Db<readonly [typeof ContractKnownOutputs]>,
+): Promise<void> {
+  const input: KnownOutputInput = {
+    id: 'one',
+    numeric: '2.5',
+    truthy: '',
+    parsed: 'true',
+    rendered: 43,
+    recovered: 'three',
+    payload: '{"count":8}',
+    list: [3],
+    pair: ['next', 4],
+    dictionary: { enabled: false },
+  }
+
+  const output: KnownOutputRow = {
+    id: 'one',
+    numeric: 2.5,
+    truthy: false,
+    parsed: true,
+    rendered: '43',
+    recovered: 5,
+    payload: { count: 8 },
+    list: [3],
+    pair: ['next', 4],
+    dictionary: { enabled: false },
+  }
+
+  expect(
+    await db.update(ContractKnownOutputs).set(input).where({ id: 'one' }).execute(),
+  ).toEqual([output])
+
+  expect(await db.from(ContractKnownOutputs).where({ numeric: 2.5 }).execute()).toEqual([
+    output,
+  ])
 }
 
 /** Checks insert, returning, selection, default, and inherited reference mapping. */
@@ -1161,10 +1412,21 @@ async function assertCompositeUpdate(db: CompositeDb): Promise<void> {
   await expect(
     db.from(ContractCompositeRef).where({ id: 'child' }).execute(),
   ).resolves.toEqual([{ id: 'child', compositeId: 'one' }])
+
+  for (const predicate of [
+    { integerValue: 3 },
+    { realValue: 2.5 },
+    { bigValue: 43n },
+    { when: new Date('2026-01-03T04:05:06.000Z') },
+    { merged: { name: 'second', age: 2 } },
+    { payload: { kind: 'count' as const, count: 2 } },
+  ])
+    expect(await db.from(ContractComposite).where(predicate).execute()).toEqual([updated])
 }
 
 /** Exercises composite inference, validation, mapping, and native convergence. */
 function registerCompositeIntegrations(adapter: DialectIntegrationAdapter): void {
+  registerKnownOutputIntegration(adapter)
   registerCompositeIntegration(adapter)
   registerRecoveredJsonCompositeIntegration(adapter)
   registerMappedJsonCompositeIntegration(adapter)
@@ -1179,51 +1441,52 @@ function registerRecoveredJsonCompositeIntegration(
     ['query', 'migration', 'convergence'],
     'should round-trip a recovered JSON composite through CRUD',
     async () => {
-      await adapter.withDatabase([ContractRecoveredJsonComposite], async ({ db }) => {
-        const preview = await db.migrate().dryRun()
+      await adapter.withDatabase(
+        [ContractRecoveredJsonComposite],
+        async ({ db, readColumnTypes }) => {
+          await db.migrate().execute()
+          await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
 
-        const createTable = preview.actions
-          .flatMap((action) => action.statements)
-          .find((statement) => /create table/i.test(statement.sql))?.sql
+          expect(await readColumnTypes('contract_recovered_json_composite')).toEqual(
+            adapter.dialectId === 'postgresql'
+              ? { id: 'text', value: 'jsonb' }
+              : { id: 'TEXT', value: 'JSON' },
+          )
 
-        expect(createTable).toMatch(/\bvalue\b["`]?\s+(?:jsonb|JSON)\b/i)
+          const first = {
+            id: 'one',
+            value: { at: new Date('2026-01-01T00:00:00.000Z'), label: 'first' },
+          }
 
-        await db.migrate().execute()
-        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+          const inserted = await db
+            .insert(ContractRecoveredJsonComposite)
+            .values(first)
+            .executeTakeFirstOrThrow()
 
-        const first = {
-          id: 'one',
-          value: { at: new Date('2026-01-01T00:00:00.000Z'), label: 'first' },
-        }
+          expect(inserted).toEqual({
+            id: 'one',
+            value: { at: first.value.at.toString(), label: 'first' },
+          })
 
-        const inserted = await db
-          .insert(ContractRecoveredJsonComposite)
-          .values(first)
-          .executeTakeFirstOrThrow()
+          await expect(
+            db.from(ContractRecoveredJsonComposite).execute(),
+          ).resolves.toEqual([inserted])
 
-        expect(inserted).toEqual({
-          id: 'one',
-          value: { at: first.value.at.toString(), label: 'first' },
-        })
+          const next = { at: new Date('2026-01-02T00:00:00.000Z'), label: 'second' }
+          const returned = await db
+            .update(ContractRecoveredJsonComposite)
+            .set({ value: next })
+            .where({ id: 'one' })
+            .returning([ContractRecoveredJsonComposite.value])
+            .executeTakeFirstOrThrow()
 
-        await expect(db.from(ContractRecoveredJsonComposite).execute()).resolves.toEqual([
-          inserted,
-        ])
+          expect(returned).toEqual({ value: { at: next.at.toString(), label: 'second' } })
 
-        const next = { at: new Date('2026-01-02T00:00:00.000Z'), label: 'second' }
-        const returned = await db
-          .update(ContractRecoveredJsonComposite)
-          .set({ value: next })
-          .where({ id: 'one' })
-          .returning([ContractRecoveredJsonComposite.value])
-          .executeTakeFirstOrThrow()
-
-        expect(returned).toEqual({ value: { at: next.at.toString(), label: 'second' } })
-
-        await expect(db.from(ContractRecoveredJsonComposite).execute()).resolves.toEqual([
-          { id: 'one', value: returned.value },
-        ])
-      })
+          await expect(
+            db.from(ContractRecoveredJsonComposite).execute(),
+          ).resolves.toEqual([{ id: 'one', value: returned.value }])
+        },
+      )
     },
   )
 }
@@ -1234,12 +1497,42 @@ function registerCompositeIntegration(adapter: DialectIntegrationAdapter): void 
     ['query', 'migration', 'convergence'],
     'should round-trip nullable unions and JSON variants through CRUD',
     async () => {
-      await adapter.withDatabase(CONTRACT_COMPOSITE_TABLES, async ({ db }) => {
-        await db.migrate().execute()
-        await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
-        await assertCompositeInsert(db)
-        await assertCompositeUpdate(db)
-      })
+      await adapter.withDatabase(
+        CONTRACT_COMPOSITE_TABLES,
+        async ({ db, readColumnTypes }) => {
+          await db.migrate().execute()
+          await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
+
+          expect(await readColumnTypes('contract_composite')).toEqual(
+            adapter.dialectId === 'postgresql'
+              ? {
+                  id: 'text',
+                  value: 'character varying',
+                  integerValue: 'integer',
+                  realValue: 'double precision',
+                  bigValue: 'numeric',
+                  when: 'timestamp with time zone',
+                  merged: 'jsonb',
+                  defaulted: 'text',
+                  payload: 'jsonb',
+                }
+              : {
+                  id: 'TEXT',
+                  value: 'TEXT',
+                  integerValue: 'INTEGER',
+                  realValue: 'REAL',
+                  bigValue: 'BIGINT',
+                  when: 'DATETIME',
+                  merged: 'JSON',
+                  defaulted: 'TEXT',
+                  payload: 'JSON',
+                },
+          )
+
+          await assertCompositeInsert(db)
+          await assertCompositeUpdate(db)
+        },
+      )
     },
   )
 

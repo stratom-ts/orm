@@ -9,10 +9,11 @@ import {
   nullable,
   pipe,
   string,
+  uuid,
 } from 'valibot'
-import { beforeAll, expect, it } from 'vitest'
+import { beforeAll, expect, expectTypeOf, it } from 'vitest'
 
-import type { Db } from '@/index'
+import type { Db, InferInsert, InferSelect, InferUpdate } from '@/index'
 import { column, defineTable, reference } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
@@ -25,6 +26,7 @@ const Parent = defineTable(
   'native_formats',
   {
     id: pipe(string(), ip()),
+    uuidValue: pipe(string(), uuid()),
     ipv4Only: pipe(string(), ipv4()),
     ipv6Only: pipe(string(), ipv6()),
     shortMac: pipe(string(), mac48()),
@@ -55,8 +57,22 @@ const Child = defineTable(
 const schemas = [Child, Parent] as const
 type NativeDatabase = Db<typeof schemas>
 
+type NativeRow = {
+  id: string
+  uuidValue: string
+  ipv4Only: string
+  ipv6Only: string
+  shortMac: string
+  anyMac: string
+  longMac: string
+  amount: string
+  nullableAmount: string | null
+  pinned: string
+}
+
 const row = {
   id: '2001:0DB8:0000:0000:0000:0000:0000:0001',
+  uuidValue: '550E8400-E29B-41D4-A716-446655440000',
   ipv4Only: '192.0.2.1',
   ipv6Only: '2001:0DB8:0000:0000:0000:0000:0000:0002',
   shortMac: 'AB:CD:EF:12:34:56',
@@ -70,6 +86,7 @@ const row = {
 const canonical = {
   ...row,
   id: '2001:db8::1',
+  uuidValue: '550e8400-e29b-41d4-a716-446655440000',
   ipv6Only: '2001:db8::2',
   shortMac: 'ab:cd:ef:12:34:56',
   anyMac: 'ab:cd:ef:ff:fe:12:34:56',
@@ -119,6 +136,7 @@ async function assertFormatCatalog({
 
   expect(types).toMatchObject({
     'native_formats.id': 'inet',
+    'native_formats.uuidValue': 'uuid',
     'native_formats.ipv4Only': 'inet',
     'native_formats.ipv6Only': 'inet',
     'native_formats.shortMac': 'macaddr',
@@ -134,11 +152,19 @@ async function assertFormatCatalog({
 }
 
 it('should round-trip PostgreSQL native strings and references, introspect types, and converge', async () => {
+  expectTypeOf<InferInsert<typeof Parent>>().toEqualTypeOf<NativeRow>()
+  expectTypeOf<InferSelect<typeof Parent>>().toEqualTypeOf<NativeRow>()
+
+  expectTypeOf<InferUpdate<typeof Parent>>().toEqualTypeOf<
+    Partial<InferInsert<typeof Parent>>
+  >()
+
   await withPostgresDatabase(schemas, async (context) => {
     const { db } = context
     await migrateFormatStrings(db)
     await assertFormatCatalog(context)
     expect(await db.insert(Parent).values(row).execute()).toEqual([canonical])
+    await assertFormatPredicates(db)
     const child = {
       id: 'child',
       parentId: row.id,
@@ -151,15 +177,7 @@ it('should round-trip PostgreSQL native strings and references, introspect types
 
     expect(await db.from(Child).execute()).toEqual([{ ...child, parentId: canonical.id }])
 
-    await db
-      .update(Parent)
-      .set({ amount: '00000.000100', nullableAmount: '00000.1200' })
-      .where({ id: row.id })
-      .execute()
-
-    expect(await db.from(Parent).execute()).toEqual([
-      { ...canonical, amount: '0.000100', nullableAmount: '0.1200' },
-    ])
+    await assertFormatUpdate(db)
 
     await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
     await db.delete(Child).where({ id: child.id }).execute()
@@ -167,3 +185,51 @@ it('should round-trip PostgreSQL native strings and references, introspect types
     expect(await db.from(Parent).execute()).toEqual([])
   })
 })
+
+/** Checks predicates through every distinct native string storage representation. */
+async function assertFormatPredicates(db: NativeDatabase): Promise<void> {
+  for (const predicate of [
+    { id: row.id },
+    { uuidValue: row.uuidValue },
+    { ipv4Only: row.ipv4Only },
+    { ipv6Only: row.ipv6Only },
+    { shortMac: row.shortMac },
+    { anyMac: row.anyMac },
+    { longMac: row.longMac },
+    { amount: row.amount },
+    { pinned: row.pinned },
+  ])
+    expect(await db.from(Parent).where(predicate).execute()).toEqual([canonical])
+}
+
+/** Checks native canonicalization in update returning independently of the mapper. */
+async function assertFormatUpdate(db: NativeDatabase): Promise<void> {
+  const patch = {
+    uuidValue: '550E8400-E29B-41D4-A716-446655440001',
+    ipv4Only: '192.0.2.2',
+    ipv6Only: '2001:0DB8:0000:0000:0000:0000:0000:0003',
+    shortMac: 'AB:CD:EF:12:34:57',
+    anyMac: 'AB:CD:EF:12:34:57',
+    longMac: 'AB:CD:EF:12:34:56:78:91',
+    amount: '00000.000100',
+    nullableAmount: '00000.1200',
+  }
+
+  const output = {
+    ...canonical,
+    uuidValue: '550e8400-e29b-41d4-a716-446655440001',
+    ipv4Only: '192.0.2.2',
+    ipv6Only: '2001:db8::3',
+    shortMac: 'ab:cd:ef:12:34:57',
+    anyMac: 'ab:cd:ef:ff:fe:12:34:57',
+    longMac: 'ab:cd:ef:12:34:56:78:91',
+    amount: '0.000100',
+    nullableAmount: '0.1200',
+  }
+
+  expect(await db.update(Parent).set(patch).where({ id: row.id }).execute()).toEqual([
+    output,
+  ])
+
+  expect(await db.from(Parent).execute()).toEqual([output])
+}

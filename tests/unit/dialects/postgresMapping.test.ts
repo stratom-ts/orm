@@ -67,16 +67,37 @@ it.each<[string, AnySchema, string]>([
 
 it('should accept native precision, text, varchar, and plain strings for temporal storage', () => {
   const cases = [
-    [pipe(string(), isoTimeSecond()), 'time(0)'],
-    [pipe(string(), isoDateTime()), 'timestamp(0)'],
-    [pipe(string(), isoTimestamp()), 'timestamptz(6)'],
-    [pipe(string(), isoDate()), 'text'],
-    [pipe(string(), isoDate()), 'varchar(40)'],
-    [string(), 'timestamp'],
+    [pipe(string(), isoTimeSecond()), 'time(0)', '03:04:05', '03:04:05', '03:04:05'],
+    [
+      pipe(string(), isoDateTime()),
+      'timestamp(0)',
+      '2026-01-02T03:04',
+      '2026-01-02 03:04:00',
+      '2026-01-02T03:04',
+    ],
+    [
+      pipe(string(), isoTimestamp()),
+      'timestamptz(6)',
+      '2026-01-02T03:04:05.123456Z',
+      '2026-01-02 03:04:05.123456+00',
+      '2026-01-02T03:04:05.123456Z',
+    ],
+    [pipe(string(), isoDate()), 'text', '2026-01-02', '2026-01-02', '2026-01-02'],
+    [pipe(string(), isoDate()), 'varchar(40)', '2026-01-02', '2026-01-02', '2026-01-02'],
+    [
+      string(),
+      'timestamp',
+      '2026-01-02T03:04:05',
+      '2026-01-02 03:04:05',
+      '2026-01-02T03:04:05.000Z',
+    ],
   ] as const
 
-  for (const [schema, type] of cases)
+  for (const [schema, type, input, driver, output] of cases) {
     expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
+    expect(mapPostgresParamValue(type, input, { schema })).toBe(input)
+    expect(mapPostgresResultValue(type, driver, { schema })).toBe(output)
+  }
 })
 
 it('should use built-in JSON mapping for a recovered structured output', () => {
@@ -215,6 +236,8 @@ describe('PostgreSQL temporal value mapping', () => {
   ] as const)(
     'should map %s native text to the schema output',
     (type, raw, schema, expected) => {
+      expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
+      expect(mapPostgresParamValue(type, expected, { schema })).toBe(expected)
       expect(mapPostgresResultValue(type, raw, { schema })).toBe(expected)
     },
   )
@@ -568,6 +591,11 @@ describe('PostgreSQL scalar storage validation', () => {
     ['string', string(), 'interval'],
     ['string', string(), 'text[]'],
     ['string', string(), 'jsonb'],
+    ['boolean', boolean(), 'integer'],
+    ['date', date(), 'time'],
+    ['bigint', bigint(), 'real'],
+    ['bigint', bigint(), 'text'],
+    ['json', object({ a: number() }), 'integer'],
     ['unknown', picklist(['one', 1]), 'text'],
   ])('should reject %s output in %s storage', (kind, schema, dataType) => {
     expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(SchemaError)
@@ -578,27 +606,203 @@ describe('PostgreSQL scalar storage validation', () => {
   })
 })
 
-describe('PostgreSQL compatible scalar storage', () => {
-  it.each([
-    ['string', string(), 'text'],
-    ['string', string(), 'varchar(20)'],
-    ['number', number(), 'double precision'],
-    ['number', number(), 'integer'],
-    ['number', number(), 'real'],
-    ['date', date(), 'timestamp'],
-    ['date', date(), 'timestamptz'],
-    ['date', date(), 'date'],
-    ['uuid string', pipe(string(), uuid()), 'text'],
-    ['bigint', bigint(), 'numeric'],
-    ['decimal string', pipe(string(), decimal()), 'numeric'],
-    ['parsed JSON object', pipe(string(), parseJson(), object({ a: number() })), 'jsonb'],
-    ['JSON', object({ a: number() }), 'json'],
-    ['boolean', boolean(), 'boolean'],
-    ['number', number(), 'serial'],
-    ['bigint', bigint(), 'bigserial'],
-    ['unknown', unknown(), 'jsonb'],
-    ['any', any(), 'text'],
-  ])('should accept %s output in %s storage', (_kind, schema, dataType) => {
-    expect(() => validatePostgresValueMapping(dataType, { schema })).not.toThrow()
-  })
-})
+it.each<[string, AnySchema, string[], unknown, unknown, unknown, unknown]>([
+  [
+    'PM1 plain date string',
+    string(),
+    ['date'],
+    '2026-01-02',
+    '2026-01-02',
+    '2026-01-02',
+    '2026-01-02',
+  ],
+  [
+    'PM1 plain time string',
+    string(),
+    ['time', 'time(0)', 'time without time zone'],
+    '03:04:05',
+    '03:04:05',
+    '03:04:05',
+    '03:04:05',
+  ],
+  [
+    'PM1 plain local string',
+    string(),
+    ['timestamp', 'timestamp without time zone'],
+    '2026-01-02T03:04:05',
+    '2026-01-02T03:04:05',
+    '2026-01-02 03:04:05',
+    '2026-01-02T03:04:05.000Z',
+  ],
+  [
+    'PM1 plain zoned string',
+    string(),
+    ['timestamptz', 'timestamp with time zone'],
+    '2026-01-02T03:04:05Z',
+    '2026-01-02T03:04:05Z',
+    '2026-01-02 03:04:05+00',
+    '2026-01-02T03:04:05.000Z',
+  ],
+  [
+    'PM1 text',
+    string(),
+    ['text', 'varchar(20)', 'character varying(20)', 'char(5)', 'character(5)'],
+    '00123',
+    '00123',
+    '00123',
+    '00123',
+  ],
+  [
+    'PM1 network string',
+    string(),
+    ['inet'],
+    '192.0.2.1',
+    '192.0.2.1',
+    '192.0.2.1',
+    '192.0.2.1',
+  ],
+  [
+    'PM1 MAC string',
+    string(),
+    ['macaddr'],
+    'ab:cd:ef:12:34:56',
+    'ab:cd:ef:12:34:56',
+    'ab:cd:ef:12:34:56',
+    'ab:cd:ef:12:34:56',
+  ],
+  [
+    'PM1 MAC8 string',
+    string(),
+    ['macaddr8'],
+    'ab:cd:ef:12:34:56:78:90',
+    'ab:cd:ef:12:34:56:78:90',
+    'ab:cd:ef:12:34:56:78:90',
+    'ab:cd:ef:12:34:56:78:90',
+  ],
+  ['PM1 money string', string(), ['money'], '42.00', '42.00', '$42.00', '$42.00'],
+  [
+    'PM1 numeric string',
+    pipe(string(), decimal()),
+    ['numeric', 'decimal', 'numeric(30,3)', 'decimal(30,3)'],
+    '9007199254740993.125',
+    '9007199254740993.125',
+    '9007199254740993.125',
+    '9007199254740993.125',
+  ],
+  [
+    'PM1 uuid string',
+    pipe(string(), uuid()),
+    ['uuid'],
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440000',
+  ],
+  [
+    'PM2 narrow number',
+    number(),
+    [
+      'smallint',
+      'int2',
+      'integer',
+      'int4',
+      'smallserial',
+      'serial',
+      'real',
+      'float4',
+      'double precision',
+      'float8',
+    ],
+    42,
+    42,
+    42,
+    42,
+  ],
+  ['PM2 wide number', number(), ['bigint', 'int8', 'bigserial'], 42, 42, '42', 42],
+  [
+    'PM3 narrow bigint',
+    bigint(),
+    ['smallint', 'int2', 'integer', 'int4', 'smallserial', 'serial'],
+    42n,
+    '42',
+    42,
+    42n,
+  ],
+  [
+    'PM3 wide bigint',
+    bigint(),
+    [
+      'bigint',
+      'int8',
+      'bigserial',
+      'numeric',
+      'decimal',
+      'numeric(30,3)',
+      'decimal(30,3)',
+    ],
+    9007199254740993n,
+    '9007199254740993',
+    '9007199254740993.000',
+    9007199254740993n,
+  ],
+  ['PM4 boolean', boolean(), ['boolean', 'bool'], false, false, false, false],
+  [
+    'PM5 local Date',
+    date(),
+    ['timestamp', 'timestamp(3)', 'timestamp without time zone'],
+    new Date('2026-01-02T03:04:05.000Z'),
+    '2026-01-02T03:04:05.000Z',
+    '2026-01-02 03:04:05',
+    new Date('2026-01-02T03:04:05.000Z'),
+  ],
+  [
+    'PM5 zoned Date',
+    date(),
+    ['timestamptz', 'timestamp(3) with time zone'],
+    new Date('2026-01-02T03:04:05.000Z'),
+    '2026-01-02T03:04:05.000Z',
+    '2026-01-02 03:04:05+00',
+    new Date('2026-01-02T03:04:05.000Z'),
+  ],
+  [
+    'PM5 date-only Date',
+    date(),
+    ['date'],
+    new Date('2026-01-02T00:00:00.000Z'),
+    new Date('2026-01-02T00:00:00.000Z'),
+    '2026-01-02',
+    new Date('2026-01-02T00:00:00.000Z'),
+  ],
+  [
+    'PM6 JSON',
+    object({ a: number() }),
+    ['json', 'jsonb'],
+    { a: 42 },
+    '{"a":42}',
+    '{"a":42}',
+    { a: 42 },
+  ],
+  [
+    'PM6 parsed JSON',
+    pipe(string(), parseJson(), object({ a: number() })),
+    ['json', 'jsonb'],
+    { a: 42 },
+    '{"a":42}',
+    { a: 42 },
+    { a: 42 },
+  ],
+  ['PM7 unknown', unknown(), ['text'], '00123', '00123', '00123', '00123'],
+  ['PM7 any', any(), ['jsonb'], { a: 42 }, '{"a":42}', '{"a":42}', { a: 42 }],
+])(
+  'PostgreSQL should validate and map %s independently for every storage alias',
+  (_id, schema, types, input, parameter, driver, output) => {
+    for (const type of types) {
+      const context = { schema }
+      expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
+      expect(mapPostgresParamValue(type, input, context)).toEqual(parameter)
+      expect(mapPostgresResultValue(type, driver, context)).toEqual(output)
+      expect(mapPostgresParamValue(type, null, context)).toBeNull()
+      expect(mapPostgresResultValue(type, null, context)).toBeNull()
+    }
+  },
+)

@@ -183,6 +183,20 @@ export const sqliteIntegrationAdapter: DialectIntegrationAdapter = {
   },
   /** Runs a shared scenario on one isolated native SQLite connection. */
   withDatabase(schemas, callback) {
-    return withSqliteDatabase(schemas, callback)
+    return withSqliteDatabase(schemas, (context) =>
+      callback({
+        ...context,
+        /** Reads native declared types without the production normalization helper. */
+        async readColumnTypes(table) {
+          const rows = context.native
+            .prepare('select name, type from pragma_table_info(?)')
+            .all(table)
+
+          return Object.fromEntries(
+            rows.map((row) => [String(row.name), String(row.type)]),
+          )
+        },
+      }),
+    )
   },
 }

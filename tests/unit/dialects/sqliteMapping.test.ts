@@ -1,6 +1,8 @@
 import { runInNewContext } from 'node:vm'
 import {
+  any,
   bigint,
+  boolean,
   date,
   integer,
   isoDate,
@@ -18,6 +20,7 @@ import {
   toDate,
   toString,
   union,
+  unknown,
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
@@ -29,11 +32,114 @@ import {
 } from '@/dialects/sqlite/mapping'
 import { column, createDatabase, defineTable } from '@/index'
 import { createValueMapper } from '@/query/mapping'
+import type { AnySchema } from '@/types/schema'
 import { QueryError, SchemaError } from '@/utils/error'
 
 import { customConnector } from '../helpers/operationSessionFixtures'
 
 import { createSqliteControllableProvider } from './sqliteSharedFixtures'
+
+it.each<[string, AnySchema, string[], string[], unknown, unknown, unknown, unknown]>([
+  [
+    'SM1 string',
+    string(),
+    ['TEXT', 'VARCHAR(40)', 'BLOB'],
+    ['INTEGER', 'REAL', 'NUMERIC'],
+    '00123',
+    '00123',
+    '00123',
+    '00123',
+  ],
+  [
+    'SM2 number',
+    number(),
+    ['INTEGER', 'REAL', 'NUMERIC', 'BLOB', 'FLOATING POINT', 'DOUBLE', 'DECIMAL(10,2)'],
+    ['TEXT'],
+    1.5,
+    1.5,
+    1.5,
+    1.5,
+  ],
+  [
+    'SM3 boolean',
+    boolean(),
+    ['INTEGER', 'REAL', 'NUMERIC', 'BLOB', 'BOOLEAN'],
+    ['TEXT'],
+    false,
+    0,
+    0n,
+    false,
+  ],
+  [
+    'SM4 bigint',
+    bigint(),
+    ['INTEGER', 'NUMERIC', 'BLOB', 'BIGINT', 'DECIMAL(20,0)'],
+    ['TEXT', 'REAL'],
+    9007199254740993n,
+    9007199254740993n,
+    9007199254740993n,
+    9007199254740993n,
+  ],
+  [
+    'SM5 Date',
+    date(),
+    ['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB', 'DATETIME'],
+    [],
+    new Date('2026-01-02T03:04:05.000Z'),
+    '2026-01-02T03:04:05.000Z',
+    '2026-01-02T03:04:05.000Z',
+    new Date('2026-01-02T03:04:05.000Z'),
+  ],
+  [
+    'SM6 structured',
+    object({ value: string() }),
+    ['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB', 'JSON'],
+    [],
+    { value: '00123' },
+    '{"value":"00123"}',
+    '{"value":"00123"}',
+    { value: '00123' },
+  ],
+])(
+  'SQLite should validate parameters and results for %s',
+  (_id, schema, accepted, rejected, input, parameter, driver, output) => {
+    for (const type of accepted) {
+      const context = { schema }
+      expect(() => validateSqliteValueMapping(type, context)).not.toThrow()
+      expect(mapSqliteParamValue(type, input, context)).toEqual(parameter)
+      expect(mapSqliteResultValue(type, driver, context)).toEqual(output)
+      expect(mapSqliteParamValue(type, null, context)).toBeNull()
+      expect(mapSqliteResultValue(type, null, context)).toBeNull()
+    }
+
+    for (const type of rejected)
+      expect(() => validateSqliteValueMapping(type, { schema })).toThrow(SchemaError)
+  },
+)
+
+it.each([unknown(), any()])(
+  'should reject SM7 unclassified output for every affinity',
+  (schema) => {
+    for (const type of ['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB'])
+      expect(() => validateSqliteValueMapping(type, { schema })).toThrow(SchemaError)
+  },
+)
+
+it.each(['INTEGER', 'REAL', 'NUMERIC', 'BLOB'])(
+  'should enforce E01-E03 and E08 ranges with %s storage',
+  (type) => {
+    const context = { schema: number() }
+    for (const value of [-9007199254740991, 9007199254740991]) {
+      expect(mapSqliteParamValue(type, value, context)).toBe(value)
+      expect(mapSqliteResultValue(type, value, context)).toBe(value)
+    }
+
+    for (const value of [-9007199254740992, 9007199254740992, Infinity, NaN]) {
+      expect(() => mapSqliteParamValue(type, value, context)).toThrow(QueryError)
+      expect(() => mapSqliteResultValue(type, value, context)).toThrow(QueryError)
+    }
+  },
+)
 
 it('should reject unsafe JSON outputs even when JSON storage is selected', () => {
   for (const schema of [
