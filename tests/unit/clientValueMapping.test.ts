@@ -53,6 +53,85 @@ const row = {
   amount: '12345678901234567890.1200',
 }
 
+/** Defines serial overrides with one paired column mapping for precedence checks. */
+function serialPrecedenceTable(type: string) {
+  return defineTable(
+    'serial_precedence',
+    {
+      id: string(),
+      builtin: pipe(
+        bigint(),
+        column({ physicalType: { postgresql: type, sqlite: 'TEXT' } }),
+      ),
+      hooked: pipe(
+        bigint(),
+        column({
+          physicalType: { postgresql: type, sqlite: 'TEXT' },
+          mapParam: (value) => String(BigInt(String(value)) + 1n),
+          mapResult: (value) => BigInt(String(value)) + 1n,
+        }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+}
+
+it.each(['smallserial', 'serial', 'bigserial'])(
+  'should use selected %s storage and column hooks before built-in mapping',
+  async (type) => {
+    const Serial = serialPrecedenceTable(type)
+    const raw = { id: 'one', builtin: type === 'bigserial' ? '42' : 42, hooked: '42' }
+    const input = { id: 'one', builtin: 42n, hooked: 42n }
+    const db = createDatabase({
+      connector: createMockPostgresConnector({ rowsBySql: () => [raw] }),
+      schemas: [Serial],
+    })
+
+    expect(db.insert(Serial).values(input).compile().params).toEqual(['one', '42', '43'])
+    expect(await db.from(Serial).execute()).toEqual([{ ...input, hooked: 43n }])
+    await db.close()
+  },
+)
+
+it.each(['smallserial', 'serial', 'bigserial'])(
+  'should pass authored %s storage to client hooks after column hooks',
+  async (type) => {
+    const Serial = serialPrecedenceTable(type)
+    const raw = { id: 'one', builtin: type === 'bigserial' ? '42' : 42, hooked: '42' }
+    const input = { id: 'one', builtin: 42n, hooked: 42n }
+    const paramTypes: string[] = []
+    const resultTypes: string[] = []
+    const mapped = createDatabase({
+      connector: createMockPostgresConnector({ rowsBySql: () => [raw] }),
+      schemas: [Serial],
+      map: {
+        mapParamValue(dataType, value) {
+          paramTypes.push(dataType)
+          return dataType === type ? String(BigInt(String(value)) + 2n) : value
+        },
+        mapResultValue(dataType, value) {
+          resultTypes.push(dataType)
+          return dataType === type ? BigInt(String(value)) + 2n : value
+        },
+      },
+    })
+
+    expect(mapped.insert(Serial).values(input).compile().params).toEqual([
+      'one',
+      '44',
+      '43',
+    ])
+
+    expect(await mapped.from(Serial).execute()).toEqual([
+      { ...input, builtin: 44n, hooked: 43n },
+    ])
+
+    expect(paramTypes).toEqual(['text', type])
+    expect(resultTypes).toEqual(['text', type])
+    await mapped.close()
+  },
+)
+
 it('should reject conflicting inference at client creation before connector access', () => {
   const Conflict = defineTable(
     'native_conflict',
