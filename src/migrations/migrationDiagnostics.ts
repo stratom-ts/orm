@@ -3,7 +3,7 @@ import type {
   MigrationExecutionOutcome,
   MigrationExecutionStage,
 } from '@/utils/error'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, isErrorTag } from '@/utils/error'
 
 type Enrichment = Readonly<{
   message?: string
@@ -80,15 +80,6 @@ type ExecutionFacts = Readonly<{
   cleanupFailures?: readonly MigrationCleanupFailure[]
 }>
 
-/** Retains explicitly supplied undefined optional diagnostics. */
-function includeOptionalDiagnostic(
-  value: unknown,
-  facts: ExecutionFacts,
-  key: 'actionIndex' | 'sourceStepIndexes' | 'capabilityIssues' | 'cleanupFailures',
-): boolean {
-  return value !== undefined || Object.hasOwn(facts, key)
-}
-
 /** Resolves provenance and ordered cleanup from a structured failure. */
 function retainedExecutionDiagnostics(
   structured: MigrationError | undefined,
@@ -107,16 +98,10 @@ function retainedExecutionDiagnostics(
   return {
     actionIndex,
     fields: {
-      ...(includeOptionalDiagnostic(actionIndex, facts, 'actionIndex')
-        ? { actionIndex }
-        : {}),
-      ...(includeOptionalDiagnostic(sourceStepIndexes, facts, 'sourceStepIndexes')
-        ? { sourceStepIndexes }
-        : {}),
-      ...(includeOptionalDiagnostic(capabilityIssues, facts, 'capabilityIssues')
-        ? { capabilityIssues }
-        : {}),
-      ...(includeOptionalDiagnostic(optionalCleanupFailures, facts, 'cleanupFailures')
+      ...(actionIndex !== undefined ? { actionIndex } : {}),
+      ...(sourceStepIndexes !== undefined ? { sourceStepIndexes } : {}),
+      ...(capabilityIssues !== undefined ? { capabilityIssues } : {}),
+      ...(optionalCleanupFailures !== undefined
         ? { cleanupFailures: optionalCleanupFailures }
         : {}),
     },
@@ -128,7 +113,7 @@ export function migrationExecutionError(
   cause: unknown,
   facts: ExecutionFacts,
 ): MigrationError {
-  const structured = cause instanceof MigrationError ? cause : undefined
+  const structured = isErrorTag(cause, 'MigrationError') ? cause : undefined
   const defect = structured ? structured.defect === true : facts.defect
   const diagnostics = retainedExecutionDiagnostics(structured, facts)
 

@@ -285,24 +285,13 @@ it.each([
 
   try {
     const failure = await provider.open().catch((cause: unknown) => cause)
-    const objectDefect = defect instanceof Error
-    expect(failure === defect).toBe(objectDefect)
+    expect((failure as Error).cause).toBe(defect)
+    expect(getOperationReleaseCleanupFailures(failure)).toEqual([cleanup])
 
-    expect(getOperationReleaseCleanupFailures(failure)).toEqual(
-      objectDefect ? [cleanup] : [],
-    )
-
-    expect(failure).toMatchObject(
-      objectDefect
-        ? { message: 'identity getter failed' }
-        : {
-            _tag: 'MigrationError',
-            defect: true,
-            cause: defect,
-            stage: 'sessionCleanup',
-            cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
-          },
-    )
+    expect(failure).toMatchObject({
+      cause: defect,
+      cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
+    })
   } finally {
     prepare.mockRestore()
     await provider.close()
@@ -1071,7 +1060,7 @@ it('should block new leases after repeated discard failure until close disposes 
     .release('discard')
     .catch((cause: unknown) => cause)
 
-  expect(rejection).toBe(primary)
+  expect((rejection as Error).cause).toBe(primary)
   expect(getOperationReleaseCleanupFailures(rejection)).toEqual([cleanup])
 
   const readsBeforeReopen = instanceReads

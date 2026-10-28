@@ -226,7 +226,7 @@ function registerIdentityScenarios(createProvider: ProviderContractFactory): voi
         .run(({ executor }) => executor.run({ sql: 'mutate then fail', params: [] }))
         .catch((cause: unknown) => cause)
 
-      expect(error).toBe(primary)
+      expect((error as Error).cause).toBe(primary)
 
       const cleanupFailures = getOperationReleaseCleanupFailures(error)
       expect(cleanupFailures).toHaveLength(1)
@@ -447,7 +447,10 @@ function registerPrimitiveFailureScenario(createProvider: ProviderContractFactor
           await executor.run({ sql: 'mutate identity', params: [] })
           throw undefined
         }),
-      ).rejects.toBeUndefined()
+      ).rejects.toMatchObject({
+        cause: undefined,
+        cleanupFailures: [{ stage: 'sessionCleanup' }],
+      })
 
       expect(getOperationReleaseCleanupFailures(undefined)).toEqual([])
       expect(controls.events).toContain('release-finished:1:discard')
@@ -483,7 +486,7 @@ function registerCombinedIdentityCleanupScenario(
         .run(({ executor }) => executor.run({ sql: 'mutate then fail', params: [] }))
         .catch((cause: unknown) => cause)
 
-      expect(error).toBe(primary)
+      expect((error as Error).cause).toBe(primary)
 
       const cleanupFailures = getOperationReleaseCleanupFailures(error)
       expect(cleanupFailures).toHaveLength(2)
@@ -509,7 +512,7 @@ function registerCombinedIdentityCleanupScenario(
  * @param createProvider - Factory for a provider with the requested test controls.
  */
 function registerReleaseScenarios(createProvider: ProviderContractFactory): void {
-  it('should retain release cleanup without replacing the primary failure', async () => {
+  it('should retain release cleanup with the original primary cause', async () => {
     const primary = new Error('primary operation failure')
     const release = new Error('release cleanup failure')
     const controls = createProvider({
@@ -525,7 +528,7 @@ function registerReleaseScenarios(createProvider: ProviderContractFactory): void
         })
         .catch((cause: unknown) => cause)
 
-      expect(error).toBe(primary)
+      expect((error as Error).cause).toBe(primary)
       expect(getOperationReleaseCleanupFailures(error)).toEqual([release])
     } finally {
       await coordinator.close()
@@ -551,7 +554,7 @@ function registerReleaseScenarios(createProvider: ProviderContractFactory): void
         .run(async () => undefined)
         .catch((cause: unknown) => cause)
 
-      expect(error).toBe(defect)
+      expect((error as Error).cause).toBe(defect)
       expect(getOperationReleaseCleanupFailures(error)).toEqual([release])
     } finally {
       await coordinator.close()
@@ -673,7 +676,7 @@ async function assertPlanningIdentityCleanup(
       .plan()
       .catch((cause: unknown) => cause)
 
-    expect(failure).toBe(verificationFailure)
+    expect((failure as Error).cause).toBe(verificationFailure)
     expect(getOperationReleaseCleanupFailures(failure)).toEqual([release])
   } finally {
     await planningDb.close()

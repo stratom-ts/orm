@@ -420,9 +420,9 @@ it('should report attempted DDL as rolled back or unknown according to rollback 
     'SQLite migration ddl failed during action 1',
   )
 
-  expect(Object.hasOwn(rolledBackError as object, 'capabilityIssues')).toBe(true)
+  expect(Object.hasOwn(rolledBackError as object, 'capabilityIssues')).toBe(false)
   expect((rolledBackError as MigrationError).capabilityIssues).toBeUndefined()
-  expect(Object.hasOwn(rolledBackError as object, 'cleanupFailures')).toBe(true)
+  expect(Object.hasOwn(rolledBackError as object, 'cleanupFailures')).toBe(false)
   expect((rolledBackError as MigrationError).cleanupFailures).toBeUndefined()
 
   expect(rolledBack.calls).toContain('rollback')
@@ -451,9 +451,9 @@ it('should retain an acknowledged applied outcome when post-commit busy-policy c
     'SQLite migration sessionCleanup failed',
   )
 
-  expect(Object.hasOwn(rejection as object, 'actionIndex')).toBe(true)
+  expect(Object.hasOwn(rejection as object, 'actionIndex')).toBe(false)
   expect((rejection as MigrationError).actionIndex).toBeUndefined()
-  expect(Object.hasOwn(rejection as object, 'sourceStepIndexes')).toBe(true)
+  expect(Object.hasOwn(rejection as object, 'sourceStepIndexes')).toBe(false)
   expect((rejection as MigrationError).sourceStepIndexes).toBeUndefined()
 
   expect(test.discard).toHaveBeenCalled()

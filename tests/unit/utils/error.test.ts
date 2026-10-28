@@ -449,3 +449,34 @@ it('should recognize an error constructed before a second module copy is loaded'
   expect(secondCopy.isStratomError(error)).toBe(true)
   expect(secondCopy.isErrorTag(error, 'DriverError')).toBe(true)
 })
+
+it('should serialize wrapper, primary, and cleanup stacks without trusting stack getters', () => {
+  const primary = new Error('primary')
+  primary.stack = 'primary at query.ts:12'
+  const cleanup = new Error('cleanup')
+  cleanup.stack = 'cleanup at session.ts:34'
+  const failure = new MigrationError({
+    message: 'migration failed',
+    cause: primary,
+    cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
+  })
+
+  failure.stack = 'wrapper at migrate.ts:56'
+
+  expect(JSON.parse(JSON.stringify(failure))).toMatchObject({
+    stack: failure.stack,
+    cause: { stack: primary.stack },
+    cleanupFailures: [{ cause: { stack: cleanup.stack } }],
+  })
+
+  Object.defineProperty(cleanup, 'stack', {
+    get() {
+      throw new Error('stack unavailable')
+    },
+  })
+
+  expect(JSON.parse(JSON.stringify(failure))).toMatchObject({
+    cause: { stack: primary.stack },
+    cleanupFailures: [{ cause: { message: 'cleanup' } }],
+  })
+})

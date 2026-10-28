@@ -11,7 +11,7 @@ import type {
   CanonicalRelationIdentityModule,
   NamespaceIdentifierInput,
 } from '@/migrations/canonicalRelationIdentity'
-import { SchemaError, attemptSync } from '@/utils/error'
+import { attemptSync, isErrorTag } from '@/utils/error'
 
 import { postgresIdentity } from '../identity'
 
@@ -45,7 +45,7 @@ function sameNamespaceInput(
     try {
       return identities.resolveNamespace(input)
     } catch (cause) {
-      if (!(cause instanceof SchemaError)) throw cause
+      if (!isErrorTag(cause, 'SchemaError')) throw cause
 
       return null
     }
@@ -153,7 +153,7 @@ function expectedDatabaseIdentifier(
       return database.identifier
     }
   } catch (cause) {
-    if (!(cause instanceof SchemaError)) throw cause
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
     // Profile and target validation report malformed context.
   }
 
@@ -350,7 +350,7 @@ function appendMigrationCompilationIssue(
 ) {
   const cause = compiled.error
 
-  if (!(cause instanceof SchemaError)) throw cause
+  if (!isErrorTag(cause, 'SchemaError')) throw cause
 
   issues.push({
     code: 'compile_failure',

@@ -788,13 +788,9 @@ These examples use the live `db` and `User` from the quick start:
 import { isErrorTag } from 'stratom'
 import { flatten, getDotPath } from 'valibot'
 
-// A required row is missing: change the lookup or respond with 404.
-try {
-  await db.from(User).where(User.id, 'eq', -1).executeTakeFirstOrThrow()
-} catch (error: unknown) {
-  if (isErrorTag(error, 'QueryError')) console.log(error.message)
-  else throw error
-}
+// A missing row can become a 404 without confusing it with another query failure.
+const user = await db.from(User).where(User.id, 'eq', -1).executeTakeFirst()
+if (user === undefined) console.log('User not found')
 
 // A unique constraint rejected an insert: handle the conflict by kind.
 try {
@@ -805,12 +801,12 @@ try {
   } else throw error
 }
 
-// A transient database failure may be retried by the caller's retry policy.
+// Transience is a recovery hint. Decide whether replay is safe before retrying.
 try {
   await db.from(User).execute()
 } catch (error: unknown) {
   if (isErrorTag(error, 'DriverError') && error.retryable) {
-    console.log('Retry the operation', error.code)
+    console.log('Potentially transient failure; check replay safety', error.code)
   } else throw error
 }
 
@@ -845,7 +841,15 @@ for SQL rejected below Stratom. Migration planning and execution use `MigrationE
 for expected failures. During migration execution, a defect that needs stage and
 database outcome context is a `MigrationError` with `defect: true`; its `cause`
 retains the original thrown value and stack. Planning and previews preserve defects
-unchanged.
+unchanged when cleanup succeeds. If cleanup also fails, previews report the original
+cause and ordered cleanup failures in a structured migration error. Recognized query and
+driver failures retain their tags and expose cleanup evidence directly.
+
+`DriverError.retryable` describes a potentially transient failure, not permission to replay
+a write. An INSERT or COMMIT can succeed before its response is lost. Callers must use
+idempotency or transaction recovery to decide whether retry is safe. Retry a transaction
+as a whole when its failure requires that recovery. Migration outcomes of `unknown` remain
+non-retryable. Error JSON retains native fields, cause chains, cleanup evidence, and stacks.
 
 For a caller error report, include the tag, operation, relevant inputs, and the
 structured fields such as `ValidationError.issues` or `MigrationError.stage`,

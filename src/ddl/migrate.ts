@@ -3,21 +3,11 @@ import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIde
 import { enrichMigrationError } from '@/migrations/migrationDiagnostics'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
-import {
-  getOperationReleaseCleanupFailures,
-  transferOperationReleaseCleanupFailures,
-} from '@/operations/coordinator'
+import { operationCleanupFailures, operationPrimaryFailure } from '@/operations/cleanup'
 import type { Executor } from '@/query'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
-import {
-  DriverError,
-  MigrationError,
-  QueryError,
-  SchemaError,
-  attempt,
-  attemptSync,
-} from '@/utils/error'
+import { MigrationError, attempt, attemptSync, isErrorTag } from '@/utils/error'
 
 import type {
   MigrationPlan,
@@ -25,8 +15,6 @@ import type {
   MigrationStep,
 } from './migrationPlan'
 import { planMigration } from './migrationPlan'
-
-const phaseDefectWrappers = new WeakSet<MigrationError>()
 
 /** Destructive migrate operations that require explicit execution permission. */
 export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
@@ -104,15 +92,21 @@ export type MigrateBuilder = {
  * @param cause - Failure to structure.
  * @param stage - Migration stage that observed the failure.
  */
-function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
-  if (cause instanceof SchemaError) return cause
+function phaseError(
+  cause: unknown,
+  stage: MigrationExecutionStage,
+  mode: 'preview' | 'execution' = 'execution',
+): unknown {
+  if (isErrorTag(cause, 'SchemaError')) return cause
 
   if (
-    !(cause instanceof MigrationError) &&
-    !(cause instanceof QueryError) &&
-    !(cause instanceof DriverError)
+    !isErrorTag(cause, 'MigrationError') &&
+    !isErrorTag(cause, 'QueryError') &&
+    !isErrorTag(cause, 'DriverError')
   ) {
-    const wrapped = new MigrationError({
+    if (mode === 'preview') return cause
+
+    return new MigrationError({
       message: `Migration ${stage} failed`,
       cause,
       defect: true,
@@ -120,14 +114,11 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
       outcome: 'unchanged',
       retryable: false,
     })
-
-    phaseDefectWrappers.add(wrapped)
-    return wrapped
   }
 
-  if (cause instanceof QueryError || cause instanceof DriverError)
+  if (isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'DriverError'))
     return new MigrationError({
-      message: `Migration ${stage} failed${cause instanceof QueryError ? `: ${cause.message}` : ''}`,
+      message: `Migration ${stage} failed${isErrorTag(cause, 'QueryError') ? `: ${cause.message}` : ''}`,
       cause,
       stage,
       outcome: 'unchanged',
@@ -142,40 +133,6 @@ function phaseError(cause: unknown, stage: MigrationExecutionStage): unknown {
     outcome: cause.outcome ?? 'unchanged',
     retryable: cause.retryable ?? false,
   })
-}
-
-/**
- * Appends provider-release cleanup without replacing a structured primary failure.
- *
- * @param error - Structured primary migration failure.
- */
-function withReleaseCleanup(error: MigrationError): MigrationError {
-  const failures = getOperationReleaseCleanupFailures(error)
-
-  if (failures.length === 0) return error
-
-  return enrichMigrationError(error, {
-    cleanupFailures: failures.map((cause) => ({ stage: 'sessionCleanup', cause })),
-  })
-}
-
-/**
- * Maps retained coordinator release failures into observable migration cleanup evidence.
- *
- * @param cause - Primary rejection that may retain secondary release failures.
- */
-function sessionCleanupFailures(
-  cause: unknown,
-): readonly Readonly<{ stage: 'sessionCleanup'; cause: unknown }>[] {
-  return getOperationReleaseCleanupFailures(cause).map((failure) => ({
-    stage: 'sessionCleanup' as const,
-    cause: failure,
-  }))
-}
-
-/** Identifies phase wrappers safe to unwrap without losing provider cleanup evidence. */
-function shouldUnwrapPreviewDefect(error: MigrationError): boolean {
-  return phaseDefectWrappers.has(error)
 }
 
 /**
@@ -231,10 +188,11 @@ function lowerPlan(
   migration: DialectMigrationAdapter,
   planned: Parameters<DialectMigrationAdapter['lower']>[0],
   expected: Parameters<DialectMigrationAdapter['lower']>[1],
+  mode: 'preview' | 'execution' = 'execution',
 ): MigrationProgram {
   const lowering = attemptSync(() => migration.lower(planned, expected))
 
-  if (!lowering.ok) throw phaseError(lowering.error, 'lowering')
+  if (!lowering.ok) throw phaseError(lowering.error, 'lowering', mode)
 
   const lowered = lowering.value
 
@@ -293,6 +251,7 @@ async function observeMigrationPlan(
     Parameters<typeof createMigrateBuilder>[0],
     'schemas' | 'migration' | 'migrationOwnership' | 'defaultNamespace'
   >,
+  mode: 'preview' | 'execution' = 'execution',
 ) {
   const { schemas, migration, migrationOwnership, defaultNamespace } = options
   let request
@@ -300,7 +259,7 @@ async function observeMigrationPlan(
   try {
     request = createCatalogRequest(schemas, migrationOwnership ?? [], defaultNamespace)
   } catch (cause) {
-    throw phaseError(cause, 'planning')
+    throw phaseError(cause, 'planning', mode)
   }
 
   let catalog
@@ -308,7 +267,7 @@ async function observeMigrationPlan(
   try {
     catalog = await migration.catalog.introspectCatalog(executor, request)
   } catch (cause) {
-    throw phaseError(cause, 'introspection')
+    throw phaseError(cause, 'introspection', mode)
   }
 
   let planned
@@ -321,7 +280,7 @@ async function observeMigrationPlan(
       ...(migrationOwnership === undefined ? {} : { migrationOwnership }),
     })
   } catch (cause) {
-    throw phaseError(cause, 'planning')
+    throw phaseError(cause, 'planning', mode)
   }
 
   const expected: MigrationSemanticProfile = {
@@ -520,20 +479,21 @@ function throwExecutionCleanup(
   cause: unknown,
   success: { outcome: 'applied' | 'unchanged' } | undefined,
 ): never {
-  if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
+  if (isErrorTag(cause, 'MigrationError')) throw cause
+
+  const cleanupFailures = operationCleanupFailures(cause)
+  cause = operationPrimaryFailure(cause)
 
   if (
-    cause instanceof SchemaError &&
+    isErrorTag(cause, 'SchemaError') &&
     success === undefined &&
-    sessionCleanupFailures(cause).length === 0
+    cleanupFailures.length === 0
   )
     throw cause
 
-  const cleanupFailures = sessionCleanupFailures(cause)
-
   if (success) {
     throw new MigrationError({
-      message: `Migration session cleanup failed${cause instanceof SchemaError ? `: ${cause.message}` : ''}`,
+      message: `Migration session cleanup failed${isErrorTag(cause, 'SchemaError') ? `: ${cause.message}` : ''}`,
       cause,
       ...(isDefect(cause) ? { defect: true as const } : {}),
       stage: 'sessionCleanup',
@@ -544,7 +504,7 @@ function throwExecutionCleanup(
   }
 
   throw new MigrationError({
-    message: `Migration operation session failed${cause instanceof SchemaError ? `: ${cause.message}` : ''}`,
+    message: `Migration operation session failed${isErrorTag(cause, 'SchemaError') ? `: ${cause.message}` : ''}`,
     cause,
     ...(isDefect(cause) ? { defect: true as const } : {}),
     stage: 'sessionCleanup',
@@ -581,7 +541,8 @@ function createMigrationPreview(
       return runMigrationPreview(() =>
         runOperation(
           async (executor) =>
-            (await observeMigrationPlan(executor, planningOptions)).planned.plan,
+            (await observeMigrationPlan(executor, planningOptions, 'preview')).planned
+              .plan,
         ),
       )
     },
@@ -593,9 +554,10 @@ function createMigrationPreview(
           const { planned, expected } = await observeMigrationPlan(
             executor,
             planningOptions,
+            'preview',
           )
 
-          return dryRunProgram(lowerPlan(migration, planned, expected))
+          return dryRunProgram(lowerPlan(migration, planned, expected, 'preview'))
         }),
       )
     },
@@ -612,23 +574,22 @@ function createMigrationPreview(
 async function runMigrationPreview<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation()
-  } catch (cause) {
+  } catch (error) {
+    const cleanupFailures = operationCleanupFailures(error)
+    const cause = operationPrimaryFailure(error)
+
+    if (isErrorTag(cause, 'MigrationError')) throw cause
+
     if (
-      cause instanceof MigrationError &&
-      shouldUnwrapPreviewDefect(cause) &&
-      (sessionCleanupFailures(cause).length === 0 ||
-        transferOperationReleaseCleanupFailures(cause, cause.cause))
-    )
-      throw cause.cause
-
-    if (cause instanceof MigrationError) throw withReleaseCleanup(cause)
-
-    if (cause instanceof QueryError || cause instanceof DriverError) {
-      const cleanupFailures = sessionCleanupFailures(cause)
+      isErrorTag(cause, 'QueryError') ||
+      isErrorTag(cause, 'DriverError') ||
+      cleanupFailures.length
+    ) {
       throw new MigrationError({
-        message: `Migration introspection failed${cause instanceof QueryError ? `: ${cause.message}` : ''}`,
+        message: `Migration ${cleanupFailures.length ? 'session cleanup' : 'introspection'} failed${isErrorTag(cause, 'QueryError') ? `: ${cause.message}` : ''}`,
         cause,
-        stage: 'introspection',
+        ...(isDefect(cause) ? { defect: true as const } : {}),
+        stage: cleanupFailures.length ? 'sessionCleanup' : 'introspection',
         outcome: 'unchanged',
         retryable: false,
         ...(cleanupFailures.length ? { cleanupFailures } : {}),
@@ -646,8 +607,8 @@ async function runMigrationPreview<T>(operation: () => Promise<T>): Promise<T> {
  * @param discard - Callback that prevents reuse of the current physical session.
  */
 function throwAdapterExecutionError(cause: unknown, discard: () => void): never {
-  if (cause instanceof MigrationError) throw cause
-  if (cause instanceof SchemaError) throw cause
+  if (isErrorTag(cause, 'MigrationError')) throw cause
+  if (isErrorTag(cause, 'SchemaError')) throw cause
 
   discard()
   throw new MigrationError({
@@ -663,9 +624,9 @@ function throwAdapterExecutionError(cause: unknown, discard: () => void): never 
 /** Marks only invariant or unrecognized failures as defects. */
 function isDefect(cause: unknown): boolean {
   return (
-    !(cause instanceof MigrationError) &&
-    !(cause instanceof QueryError) &&
-    !(cause instanceof DriverError) &&
-    !(cause instanceof SchemaError)
+    !isErrorTag(cause, 'MigrationError') &&
+    !isErrorTag(cause, 'QueryError') &&
+    !isErrorTag(cause, 'DriverError') &&
+    !isErrorTag(cause, 'SchemaError')
   )
 }

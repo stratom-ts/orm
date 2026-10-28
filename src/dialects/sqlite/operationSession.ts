@@ -3,13 +3,13 @@ import { realpathSync } from 'node:fs'
 
 import { nativeField } from '@/dialects/nativeError'
 import type { CompiledQuery } from '@/dialects/types'
-import { retainOperationReleaseCleanupFailure } from '@/operations/coordinator'
+import { withOperationCleanupFailure } from '@/operations/cleanup'
 import type {
   OperationSession,
   OperationSessionIdentity,
   OperationSessionProvider,
 } from '@/operations/operationSession'
-import { DriverError, MigrationError, QueryError, driverError } from '@/utils/error'
+import { QueryError, driverError, isErrorTag } from '@/utils/error'
 
 import { sqliteClassifyDriverError } from './classifyDriverError'
 
@@ -242,7 +242,7 @@ function bindings(params: readonly unknown[]): SqliteBinding[] {
 /** Preserves failures except for the known nested-transaction mismatch. */
 function queryFailure(cause: unknown, message: string): unknown {
   if (
-    cause instanceof DriverError &&
+    isErrorTag(cause, 'DriverError') &&
     cause.sql === 'begin' &&
     cause.cause instanceof Error &&
     cause.cause.message === 'cannot start a transaction within a transaction'
@@ -332,37 +332,6 @@ function closeOwnedConnector(connector: Connector, owner: ConnectorState): Promi
   return owner.closing
 }
 
-/** Retains cleanup beside a defect, including frozen objects and primitive causes. */
-function withProviderCleanup(
-  primary: unknown,
-  cleanup: unknown,
-  message: string,
-): unknown {
-  const cleanupFailures = [{ stage: 'sessionCleanup' as const, cause: cleanup }]
-
-  if ((typeof primary !== 'object' || primary === null) && typeof primary !== 'function')
-    return new MigrationError({
-      message,
-      cause: primary,
-      defect: true,
-      stage: 'sessionCleanup',
-      outcome: 'unknown',
-      cleanupFailures,
-    })
-
-  retainOperationReleaseCleanupFailure(primary, cleanup)
-
-  if (primary instanceof QueryError || primary instanceof DriverError) {
-    try {
-      Object.assign(primary, { cleanupFailures })
-    } catch {
-      // Frozen tagged errors still retain cleanup evidence in the side channel.
-    }
-  }
-
-  return primary
-}
-
 /** Retains cleanup evidence and blocks new leases when disposal remains incomplete. */
 async function disposeAfterFailure(
   connector: Connector,
@@ -375,7 +344,7 @@ async function disposeAfterFailure(
     await dispose(connector, owner)
   } catch (cleanup) {
     owner.poisoned = true
-    return withProviderCleanup(primary, cleanup, message)
+    return withOperationCleanupFailure(primary, cleanup)
   }
 
   return primary

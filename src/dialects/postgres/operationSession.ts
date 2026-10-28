@@ -1,13 +1,13 @@
 import type { Connector } from 'db0'
 
 import type { CompiledQuery } from '@/dialects'
-import { retainOperationReleaseCleanupFailure } from '@/operations/coordinator'
+import { withOperationCleanupFailure } from '@/operations/cleanup'
 import type {
   OperationSession,
   OperationSessionIdentity,
   OperationSessionProvider,
 } from '@/operations/operationSession'
-import { MigrationError, QueryError, driverError } from '@/utils/error'
+import { QueryError, driverError } from '@/utils/error'
 
 import { postgresClassifyDriverError } from './classifyDriverError'
 import { scanPostgresSql } from './postgresSql'
@@ -448,33 +448,13 @@ async function releaseNativeSession(
     try {
       await disposeConnector()
     } catch (cleanup) {
-      releaseError = withNativeCleanupFailure(cause, cleanup)
+      releaseError = withOperationCleanupFailure(cause, cleanup)
     }
   } finally {
     finishLease()
   }
 
   if (releaseFailed) throw releaseError
-}
-
-/** Keeps disposal failure evidence without replacing an object-valued provider defect. */
-function withNativeCleanupFailure(primary: unknown, cleanup: unknown): unknown {
-  if (
-    (typeof primary === 'object' && primary !== null) ||
-    typeof primary === 'function'
-  ) {
-    retainOperationReleaseCleanupFailure(primary, cleanup)
-    return primary
-  }
-
-  return new MigrationError({
-    message: 'PostgreSQL session cleanup failed after an unknown rejection',
-    cause: primary,
-    defect: true,
-    stage: 'sessionCleanup',
-    outcome: 'unknown',
-    cleanupFailures: [{ stage: 'sessionCleanup', cause: cleanup }],
-  })
 }
 
 /**
@@ -697,7 +677,7 @@ async function readNativeLeaseIdentity(
     try {
       await dispose()
     } catch (cleanup) {
-      failure = withNativeCleanupFailure(cause, cleanup)
+      failure = withOperationCleanupFailure(cause, cleanup)
     } finally {
       state.leased = false
       state.activeLease = undefined

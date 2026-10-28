@@ -29,7 +29,7 @@ import type { PhysicalNameRegistry, PhysicalNameSeed } from '@/migrations/physic
 import { getReferenceMetadata } from '@/schemas/actions/reference'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
-import { MigrationError, SchemaError } from '@/utils/error'
+import { MigrationError, isErrorTag } from '@/utils/error'
 
 import { lowerDesiredSchema } from './desiredSchema'
 import type {
@@ -1197,7 +1197,7 @@ function memberIdentifier(
   try {
     return identities.member(role, spelling)
   } catch (cause) {
-    if (!(cause instanceof SchemaError)) throw cause
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
 
     throw new MigrationError({
       message: `Cannot address ${role} ${JSON.stringify(spelling)} of ${identities.format(
@@ -2719,10 +2719,13 @@ export function planMigration(
       options.migrationOwnership ?? [],
     )
   } catch (cause) {
-    if (cause instanceof MigrationError || cause instanceof MigrationOwnershipSchemaError)
+    if (
+      isErrorTag(cause, 'MigrationError') ||
+      cause instanceof MigrationOwnershipSchemaError
+    )
       throw cause
 
-    if (!(cause instanceof SchemaError)) throw cause
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
 
     throw new MigrationError({
       message: `Migration planning failed: ${cause.message}`,

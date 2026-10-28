@@ -1,6 +1,6 @@
 import type { SQLDialect } from 'db0'
 import { integer, number, pipe } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { postgresDialect } from '@/dialects/postgres/dialect'
 import { registerDialectForTest } from '@/dialects/resolve'
@@ -533,3 +533,42 @@ function createMutableNamespaceProvider(
     async close() {},
   }
 }
+
+it('should classify a foreign-copy driver failure and expose its cleanup diagnostics', async () => {
+  vi.resetModules()
+  const { DriverError: ForeignDriverError } = await import('@/utils/error')
+  const native = new Error('native failure')
+  const cleanup = new Error('cleanup failure')
+  const foreign = new ForeignDriverError({
+    message: 'native failure',
+    dialect: 'classification-member',
+    sql: 'select 1',
+    cause: native,
+    kind: 'unknown',
+    retryable: false,
+  })
+
+  expect(foreign).not.toBeInstanceOf(DriverError)
+  const { db, unregister } = classifiedDatabase('query', foreign, cleanup)
+  try {
+    const failure = await db.ping().catch((cause: unknown) => cause)
+    expect(failure).toMatchObject({
+      _tag: 'DriverError',
+      kind: 'checkViolation',
+      cause: native,
+    })
+
+    expect(JSON.parse(JSON.stringify(failure))).toMatchObject({
+      cause: { message: native.message, stack: native.stack },
+      cleanupFailures: [
+        {
+          stage: 'sessionCleanup',
+          cause: { message: cleanup.message, stack: cleanup.stack },
+        },
+      ],
+    })
+  } finally {
+    await db.close()
+    unregister()
+  }
+})

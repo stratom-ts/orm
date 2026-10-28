@@ -19,13 +19,14 @@ types. A SQLite migration capability issue is emitted only from the private tagg
 `SqliteMigrationCapabilityError`; its code is one of the public capability issue codes.
 Boundary code recognizes only the error types it owns. It must rethrow every other thrown
 value unchanged unless an execution boundary must report the migration stage and database
-outcome.
+outcome, or secondary cleanup failures require a diagnostic envelope.
 
 A defect is an `InvariantError` or any thrown value not recognized as an expected error at
 that boundary. Defects are never converted into capability issues. Query result mapping is
 outside executor error handling, so mapping defects reach the caller unchanged.
 
-Migration preview and planning preserve unrecognized defects by identity and stack. A
+Migration preview and planning preserve unrecognized defects by identity and stack when
+cleanup succeeds. A
 migration execution boundary may need to report its stage, outcome, action, and cleanup
 evidence. In that case it throws `MigrationError` with `defect: true` and the original
 thrown value as `cause`; the cause object and its stack are retained. Existing
@@ -33,10 +34,18 @@ thrown value as `cause`; the cause object and its stack are retained. Existing
 because a boundary adds stage or outcome information. Reconstructing a `MigrationError`
 must preserve its defect marker and all existing diagnostic fields.
 
-If preview session release fails after an object-valued defect, the coordinator retains
-that cleanup evidence beside the original defect without changing its identity. A
-primitive defect cannot carry that side-channel evidence, so preview retains a structured
-defect wrapper with the original primitive cause and cleanup details.
+If preview session release also fails, the boundary reports a `MigrationError` with
+`stage: 'sessionCleanup'`, the original primary cause, and ordered `cleanupFailures`.
+Objects, frozen errors, and primitive causes follow the same rule. Cleanup evidence is
+stored directly on the failure and appears in JSON, including native cause stacks.
+There is no hidden error-identity side channel. Execution retains its primary migration
+stage and database outcome when secondary cleanup fails.
+
+Query and driver failures retain their public tags and actionable fields when cleanup
+adds diagnostics. Public errors arriving from extension boundaries use branded guards
+so multiple package copies retain the same meaning. Private errors use their own classes.
+Unavailable optional migration diagnostics are omitted consistently across dialects.
+Own `cause` presence remains meaningful, including explicit `null` or `undefined`.
 
 ## Consequences
 

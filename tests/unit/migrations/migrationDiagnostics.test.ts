@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
 import {
   enrichMigrationError,
@@ -241,7 +241,7 @@ it('should use structured retryability except when the database outcome is unkno
   ).toBe(false)
 })
 
-it('should merge cleanup in order and preserve explicitly supplied undefined optionals', () => {
+it('should merge cleanup in order and omit unavailable optional diagnostics', () => {
   const failure = { stage: 'unlock' as const, cause: new Error('unlock') }
   const existing = new MigrationError({
     message: 'expected',
@@ -257,16 +257,16 @@ it('should merge cleanup in order and preserve explicitly supplied undefined opt
   })
 
   expect(result.cleanupFailures).toEqual([failure, failure])
-  expect(Object.hasOwn(result, 'actionIndex')).toBe(true)
-  expect(Object.hasOwn(result, 'sourceStepIndexes')).toBe(true)
-  expect(Object.hasOwn(result, 'capabilityIssues')).toBe(true)
+  expect(Object.hasOwn(result, 'actionIndex')).toBe(false)
+  expect(Object.hasOwn(result, 'sourceStepIndexes')).toBe(false)
+  expect(Object.hasOwn(result, 'capabilityIssues')).toBe(false)
 
   const empty = migrationExecutionError(new Error('failure'), {
     ...executionFacts,
     cleanupFailures: undefined,
   })
 
-  expect(Object.hasOwn(empty, 'cleanupFailures')).toBe(true)
+  expect(Object.hasOwn(empty, 'cleanupFailures')).toBe(false)
   expect(empty.cleanupFailures).toBeUndefined()
 
   const absent = migrationExecutionError(new Error('failure'), executionFacts)
@@ -282,6 +282,31 @@ it('should merge cleanup in order and preserve explicitly supplied undefined opt
     cleanupFailures: undefined,
   })
 
-  expect(Object.hasOwn(suppliedEmpty, 'cleanupFailures')).toBe(true)
+  expect(Object.hasOwn(suppliedEmpty, 'cleanupFailures')).toBe(false)
   expect(suppliedEmpty.cleanupFailures).toBeUndefined()
+})
+
+it('should retain expected migration diagnostics from another package copy', async () => {
+  vi.resetModules()
+  const { MigrationError: ForeignMigrationError } = await import('@/utils/error')
+  const native = new Error('native failure')
+  const foreign = new ForeignMigrationError({
+    message: 'expected failure',
+    cause: native,
+    actionIndex: 0,
+    sourceStepIndexes: [3],
+    capabilityIssues: [
+      { code: 'invalid_target', message: 'invalid', sourceStepIndexes: [3] },
+    ],
+    retryable: true,
+  })
+
+  expect(foreign).not.toBeInstanceOf(MigrationError)
+  const result = migrationExecutionError(foreign, { ...executionFacts, defect: true })
+  expect(result.defect).toBeUndefined()
+  expect(result.cause).toBe(native)
+  expect(result.actionIndex).toBe(0)
+  expect(result.sourceStepIndexes).toEqual([3])
+  expect(result.capabilityIssues).toBe(foreign.capabilityIssues)
+  expect(result.retryable).toBe(true)
 })
