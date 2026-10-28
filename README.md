@@ -707,6 +707,60 @@ Initial upsert support does not accept constraint or index names, partial predic
 expression indexes, an update `WHERE` clause, arbitrary SQL expressions, MySQL replace,
 or SQL `MERGE`.
 
+### Raw SQL execution
+
+Use `db.execute(compiled)` for one statement in the selected dialect, including with
+`schemas: []`. Results are `unknown[]` in the provider's representation, without
+table-specific decoding. Builder parameters already have their value mappings.
+
+```typescript
+import { array, number, object, parse } from 'valibot'
+
+const rows = await db.execute({ sql: 'select 1 as value', params: [] })
+const validated = parse(array(object({ value: number() })), rows)
+
+// PostgreSQL placeholders bind values separately from the fixed SQL text.
+const users = await db.execute({
+  sql: 'select "id" from "users" where "email" = $1',
+  params: ['ada@example.com'],
+})
+
+const nativeRows = await db.execute(db.from(User).compile())
+
+await db.transaction(async (trx) => {
+  await trx.execute({
+    sql: 'update "users" set "email" = $1 where "id" = $2',
+    params: ['ada@example.com', user.id],
+  })
+})
+```
+
+Valibot validation is optional and runs in caller code. Its failures occur outside
+Stratom's execution boundary. Use `trx.execute(...)` inside managed transactions.
+Use the managed transaction API for transaction and savepoint control.
+
+Authored SQL needs driver-ready parameters. PostgreSQL uses `$1`, `$2`, and so on.
+SQLite uses `?`; encode booleans, dates, and JSON explicitly when needed:
+
+```typescript
+await sqliteDb.execute({
+  sql: 'insert into "events" ("active", "stamp", "payload") values (?, ?, ?)',
+  params: [active ? 1 : 0, stamp.toISOString(), JSON.stringify(payload)],
+})
+```
+
+Parameters represent values, not identifiers, keywords, or SQL fragments. Keep
+identifiers static and properly quoted. Use registered query builders for structured
+dynamic addressing. Never insert untrusted values into SQL text.
+
+db0's ordinary template interpolation binds values; its brace-wrapped static
+interpolation inserts text directly. Compiled execution does not invoke that template
+processor or translate placeholders.
+
+Writes without returned rows produce `[]` with the built-in providers. Use existing
+write builders for affected-row counts. Raw SQL does not receive schema validation,
+write-builder full-table checks, or Migration Plan destructive-change policy.
+
 ### Transactions
 
 The callback commits on success and rolls back on throw; nested calls use
