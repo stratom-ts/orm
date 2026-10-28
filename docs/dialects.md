@@ -616,9 +616,6 @@ fixtures with the same prefix, such as `postgresSharedFixtures.ts` and
 To run one concern, pass its file to Vitest, for example:
 `pnpm exec vitest run --config vitest.unit.config.ts tests/unit/dialects/postgresDesiredSchema.test.ts`.
 
-See [Dialect consistency status](dialect-consistency-status.md) for the current audit
-reassessment, intentional engine differences, and test-profile exceptions.
-
 Create one exhaustive capability declaration for the complete member. It assigns each
 facet to one named isolated shard. Register the complete member once; the aggregate
 accepts one descriptor for every declared shard, and each descriptor accepts all and only
