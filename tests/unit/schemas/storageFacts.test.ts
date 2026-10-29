@@ -94,6 +94,32 @@ it('retains singleton versus choice evidence after later validation', () => {
     finiteEvidence: 'choice',
     finiteValues: ['one', 2],
   })
+
+  // @ts-expect-error Deliberately contradictory literal constraint tests preserved evidence.
+  expect(extractStorageFacts(pipe(literal(1), minValue(2)))).toMatchObject({
+    finiteEvidence: 'singleton',
+    inputSingleton: true,
+    singletonValue: 1,
+    finiteValues: [],
+  })
+
+  expect(extractStorageFacts(pipe(literal('1'), toNumber()))).toMatchObject({
+    inputSingleton: true,
+    finiteEvidence: undefined,
+    outputKind: 'number',
+  })
+})
+
+it('retains base JSON shape for default compatibility independently of output shape', () => {
+  expect(extractStorageFacts(array(string()))).toMatchObject({
+    jsonShape: 'array',
+    defaultJsonShape: 'array',
+  })
+
+  expect(extractStorageFacts(object({ name: string() }))).toMatchObject({
+    jsonShape: 'object',
+    defaultJsonShape: 'object',
+  })
 })
 
 it('projects alternatives recursively without losing branch-specific bounds', () => {

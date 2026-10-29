@@ -1,9 +1,10 @@
 import type { DatabaseDefault } from '@/schemas'
-import { analyzeSchema } from '@/schemas'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts } from '@/storage/facts'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
-import { mapSqliteResultValue } from './mapping'
+import { mapSqliteResultValueFacts } from './mapping'
 import { normalizeSqliteDataType } from './normalize'
 
 /** Applies ordinary-table affinity to a supported literal's storage value. */
@@ -54,40 +55,56 @@ function storedLiteral(
 }
 
 /** Checks only the registered value family, without imposing schema constraints. */
-function compatibleResult(value: unknown, schema: AnySchema): boolean {
-  const analysis = analyzeSchema(schema)
+function compatibleResult(value: unknown, facts: StorageFacts): boolean {
+  if (value === null) return facts.nullable
 
-  if (value === null) return analysis.nullable
-
-  switch (analysis.outputKind) {
+  switch (facts.outputKind) {
     case 'date':
       return value instanceof Date && !Number.isNaN(value.getTime())
     case 'json': {
-      const arraySchema = [
-        'array',
-        'tuple',
-        'loose_tuple',
-        'strict_tuple',
-        'tuple_with_rest',
-      ].includes(analysis.baseSchema.type)
-
-      return typeof value === 'object' && Array.isArray(value) === arraySchema
+      return (
+        typeof value === 'object' &&
+        Array.isArray(value) === (facts.defaultJsonShape === 'array')
+      )
     }
     case 'string':
     case 'number':
     case 'bigint':
     case 'boolean':
-      return typeof value === analysis.outputKind
+      return typeof value === facts.outputKind
     case undefined:
       return false
   }
 }
 
-/** Rejects literal and portable defaults that built-in result mapping cannot preserve. */
+/** Temporary native-schema entry point; #388 supplies facts from shared lowering. */
 export function assertSqliteDefaultCompatibility(
   value: DatabaseDefault,
   dataType: string,
   schema: AnySchema,
+  hasCustomResultMapping: boolean,
+  identity: string,
+): void {
+  if (value.kind === 'dialectExpression' || hasCustomResultMapping) return
+
+  const facts = extractStorageFacts(schema)
+  assertSqliteDefaultCompatibilityFacts(
+    value,
+    dataType,
+    facts,
+    hasCustomResultMapping,
+    identity,
+  )
+}
+
+/**
+ * Checks only logical family and JSON shape, without validating a read against the
+ * schema.
+ */
+export function assertSqliteDefaultCompatibilityFacts(
+  value: DatabaseDefault,
+  dataType: string,
+  facts: StorageFacts,
   hasCustomResultMapping: boolean,
   identity: string,
 ): void {
@@ -109,8 +126,8 @@ export function assertSqliteDefaultCompatibility(
   let compatible = false
   try {
     const stored = storedLiteral(literal, dataType)
-    const mapped = mapSqliteResultValue(dataType, stored, { schema })
-    compatible = compatibleResult(mapped, schema)
+    const mapped = mapSqliteResultValueFacts(dataType, stored, facts)
+    compatible = compatibleResult(mapped, facts)
   } catch (cause) {
     if (!(isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'SchemaError')))
       throw cause
@@ -120,7 +137,7 @@ export function assertSqliteDefaultCompatibility(
 
   if (!compatible) {
     throw new MigrationError({
-      message: `SQLite database default on ${identity} is incompatible with the registered ${analyzeSchema(schema).outputKind ?? schema.type} logical type and ${JSON.stringify(dataType)} storage; requires an explicit result mapping`,
+      message: `SQLite database default on ${identity} is incompatible with the registered ${facts.outputKind ?? facts.outputState} logical type and ${JSON.stringify(dataType)} storage; requires an explicit result mapping`,
     })
   }
 }

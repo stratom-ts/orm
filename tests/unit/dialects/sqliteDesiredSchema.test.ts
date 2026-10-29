@@ -3,6 +3,7 @@ import {
   boolean,
   date,
   literal,
+  minValue,
   nonNullable,
   null as nullSchema,
   nullable,
@@ -11,6 +12,7 @@ import {
   optional,
   pipe,
   string,
+  toNumber,
   transform,
   union,
   uuid,
@@ -213,6 +215,25 @@ const registerDesiredSchemaCases4 = () => {
     )
   })
 }
+
+it('checks transformed literal numeric output with an explicit physical type', () => {
+  const Records = defineTable(
+    'literal_records',
+    {
+      value: pipe(
+        literal('1'),
+        toNumber(),
+        minValue(Infinity),
+        column({ physicalType: { sqlite: 'INTEGER' } }),
+      ),
+    },
+    { primaryKey: 'value' },
+  )
+
+  expect(() => lowerDesiredSchema([Records], identities(), sqliteSchema)).toThrow(
+    'non-finite number bounds',
+  )
+})
 
 const registerDesiredSchemaCases5 = () => {
   it.each([

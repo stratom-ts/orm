@@ -52,9 +52,17 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { assertSqliteDefaultCompatibilityFacts } from '@/dialects/sqlite/defaultCompatibility'
+import { inferSqliteColumnFacts } from '@/dialects/sqlite/infer'
+import {
+  mapSqliteParamValueFacts,
+  mapSqliteResultValueFacts,
+  validateSqliteValueMappingFacts,
+} from '@/dialects/sqlite/mapping'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
+import type { StorageFacts } from '@/storage/facts'
 import type { AnySchema } from '@/types/schema'
-import { SchemaError } from '@/utils/error'
+import { MigrationError, QueryError, SchemaError } from '@/utils/error'
 
 const registerSchemaCases5 = () => {
   it('should infer compatible composite logical storage', () => {
@@ -625,4 +633,130 @@ describe('SQLite schema', () => {
   registerSchemaGroup18()
   registerSchemaGroup19()
   registerSchemaGroup20()
+})
+
+function facts(overrides: Partial<StorageFacts>): StorageFacts {
+  return {
+    outputKind: 'number',
+    outputState: 'known',
+    nullable: false,
+    allowsUndefined: false,
+    outputMayBeUndefined: false,
+    omitOnInsert: false,
+    schemaDefault: { kind: 'absent' },
+    stringConstraints: {},
+    stringFormats: [],
+    numberConstraints: {},
+    bigintConstraints: {},
+    nullOnly: false,
+    ...overrides,
+  }
+}
+
+it('distinguishes singleton safety from finite-choice safety', () => {
+  expect(
+    inferSqliteColumnFacts(
+      facts({ finiteEvidence: 'singleton', singletonValue: 1.5, finiteValues: [1.5] }),
+    ),
+  ).toBe('REAL')
+
+  expect(
+    inferSqliteColumnFacts(facts({ finiteEvidence: 'choice', finiteValues: [1, 2] })),
+  ).toBe('INTEGER')
+
+  expect(() =>
+    inferSqliteColumnFacts(
+      facts({
+        finiteEvidence: 'singleton',
+        singletonValue: Number.MAX_SAFE_INTEGER + 1,
+        finiteValues: [],
+      }),
+    ),
+  ).toThrow('unsafe integer literal')
+
+  expect(() =>
+    inferSqliteColumnFacts(
+      facts({
+        finiteEvidence: 'choice',
+        finiteValues: [1, Number.MAX_SAFE_INTEGER + 1],
+      }),
+    ),
+  ).toThrow('choice output')
+})
+
+it('keeps bigint limits and composite numeric selection', () => {
+  expect(() =>
+    inferSqliteColumnFacts(
+      facts({
+        outputKind: 'bigint',
+        finiteEvidence: 'singleton',
+        singletonValue: 2n ** 63n,
+        finiteValues: [],
+      }),
+    ),
+  ).toThrow('signed 64-bit')
+
+  const integer = facts({ numberConstraints: { isInteger: true } })
+  const real = facts({})
+  expect(
+    inferSqliteColumnFacts(
+      facts({ composite: { kind: 'alternatives', branches: [integer, real] } }),
+    ),
+  ).toBe('REAL')
+
+  expect(() =>
+    inferSqliteColumnFacts(
+      facts({
+        outputKind: 'json',
+        composite: { kind: 'intersection', branches: [facts({ outputKind: 'json' })] },
+        jsonOutputCompatible: false,
+      }),
+    ),
+  ).toThrow(SchemaError)
+})
+
+it('maps logical values while keeping resolved and authored facts separate', () => {
+  const resolved = facts({ outputKind: 'boolean' })
+  expect(mapSqliteParamValueFacts('INTEGER', true, resolved)).toBe(1)
+  expect(mapSqliteResultValueFacts('INTEGER', 0, resolved)).toBe(false)
+
+  expect(() =>
+    validateSqliteValueMappingFacts('INTEGER', resolved, facts({ outputKind: 'string' })),
+  ).toThrow(SchemaError)
+
+  expect(() =>
+    mapSqliteParamValueFacts(
+      'INTEGER',
+      Number.MAX_SAFE_INTEGER + 1,
+      facts({ numberConstraints: { isInteger: true } }),
+    ),
+  ).toThrow(QueryError)
+})
+
+it('uses default JSON shape evidence without read validation', () => {
+  const array = facts({
+    outputKind: 'json',
+    jsonShape: 'object',
+    defaultJsonShape: 'array',
+  })
+
+  expect(() =>
+    assertSqliteDefaultCompatibilityFacts(
+      { kind: 'literal', value: '[]' },
+      'TEXT',
+      array,
+      false,
+      'items.value',
+    ),
+  ).not.toThrow()
+
+  expect(() =>
+    assertSqliteDefaultCompatibilityFacts(
+      { kind: 'literal', value: '{}' },
+      'TEXT',
+      array,
+      false,
+      'items.value',
+    ),
+  ).toThrow(MigrationError)
 })

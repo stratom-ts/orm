@@ -14,3 +14,12 @@ The new facts are private and are not exported from the package entry point.
 Valibot still supplies runtime validation, metadata authoring and access, native public schema access, and type-level inference.
 Operation-aware validation and metadata access are the next extraction, outside this change.
 This boundary does not establish a public provider contract or complete provider independence.
+
+SQLite inference, desired-schema lowering, value mapping, and default compatibility now
+make storage decisions from these facts. `singletonValue` retains the original literal
+when later constraints narrow its finite set, and `inputSingleton` preserves the
+explicit-type safety check for authored literals. `jsonShape` describes effective JSON
+output; `defaultJsonShape` retains the existing database-default compatibility rule
+based on the base schema's array or tuple shape. Temporary native-schema entry points
+extract facts for existing callers; #388 replaces them when shared interfaces carry
+facts directly.
