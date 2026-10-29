@@ -10,6 +10,8 @@ import type { ValueMapConfig } from '@/query'
 
 import type { DialectIntegrationAdapter } from '../support/dialectIntegrationContract'
 
+import { collectClosedSqliteStatements } from './sqliteNativeLifetime'
+
 type SqliteDatabaseOptions = Readonly<{
   library?: Pick<typeof import('@/index'), 'createDatabase'>
   map?: ValueMapConfig
@@ -156,6 +158,7 @@ async function cleanupSqliteDatabase(
 
   if (directory) {
     try {
+      collectClosedSqliteStatements()
       await rm(directory, { recursive: true, force: true })
     } catch (cause) {
       cleanupErrors.push(cause)

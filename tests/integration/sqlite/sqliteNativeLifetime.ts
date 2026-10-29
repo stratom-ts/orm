@@ -7,6 +7,16 @@ import type {
   OperationSessionProvider,
 } from '@/operations/operationSession'
 
+/** Releases unreachable Node 22 statements after their databases close on Windows. */
+export function collectClosedSqliteStatements(): void {
+  if (process.platform !== 'win32' || !process.versions.node.startsWith('22.')) return
+
+  if (!globalThis.gc)
+    throw new Error('Windows Node 22 SQLite cleanup requires --expose-gc in test workers')
+
+  globalThis.gc()
+}
+
 /** Owns temporary database directories until the suite's cleanup hook runs. */
 export function createSqliteFileScope() {
   const directories: string[] = []
@@ -17,6 +27,7 @@ export function createSqliteFileScope() {
       return join(directory, 'database.sqlite')
     },
     cleanup: () => {
+      collectClosedSqliteStatements()
       for (const directory of directories.splice(0))
         rmSync(directory, { recursive: true, force: true })
     },
