@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 
-import type { Db, MigrationOwnershipDeclaration, TableHandle } from '@/index'
+import type {
+  Db,
+  MigrationOwnershipDeclaration,
+  QueryObserver,
+  TableHandle,
+} from '@/index'
 import { createDatabase } from '@/index'
 import type { ValueMapConfig } from '@/query'
 
@@ -14,6 +19,7 @@ type SqliteDatabaseOptions = Readonly<{
   library?: Pick<typeof import('@/index'), 'createDatabase'>
   map?: ValueMapConfig
   file?: boolean
+  onQuery?: QueryObserver
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   additionalCleanup?(): Promise<void>
 }>
@@ -55,6 +61,7 @@ export async function withSqliteDatabase<
       connector,
       schemas,
       map: options.map,
+      onQuery: options.onQuery,
       ...(options.migrationOwnership === undefined
         ? {}
         : { migrationOwnership: options.migrationOwnership }),

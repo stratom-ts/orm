@@ -1,5 +1,7 @@
 import type { CompiledQuery } from '@/dialects'
 
+import type { ExecutionOptions, QuerySource } from './observation'
+
 export type Executor = {
   /**
    * Run a query and return result rows (SELECT).
@@ -8,12 +10,20 @@ export type Executor = {
    * @throws {DriverError} For a native dependency failure.
    * @throws {Error} Unrecognized adapter defects propagate unchanged.
    */
-  execute(query: CompiledQuery): Promise<unknown[]>
+  execute(query: CompiledQuery, options?: ExecutionOptions): Promise<unknown[]>
   /**
    * Run a statement without requiring row results (DDL / DML).
    *
    * @returns The driver's nonnegative safe integer affected-row count for DML, or
    *   undefined for statements without a meaningful count.
    */
-  run(query: CompiledQuery): Promise<number | undefined>
+  run(query: CompiledQuery, options?: ExecutionOptions): Promise<number | undefined>
+}
+
+/** Supplies a source while preserving explicit metadata from composed executors. */
+export function withQuerySource(executor: Executor, source: QuerySource): Executor {
+  return {
+    execute: (query, options) => executor.execute(query, options ?? { source }),
+    run: (query, options) => executor.run(query, options ?? { source }),
+  }
 }

@@ -40,6 +40,7 @@ import {
 } from '@/query'
 import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 import { assertCompiledQuery } from '@/query/compiled'
+import type { QueryObserver } from '@/query/observation'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
@@ -69,6 +70,8 @@ type TransactionScopeFrame = {
 }
 
 const activeTransactionScope = new AsyncLocalStorage<TransactionScopeFrame>()
+
+export type { QueryEvent, QueryObserver, QuerySource } from '@/query/observation'
 
 /**
  * Checks whether one transaction scope is nested beneath another.
@@ -159,6 +162,10 @@ async function drainTransactionScope(scope: TransactionScope): Promise<void> {
 export type CreateDatabaseConfig<
   TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 > = {
+  /** Receives SQL completion events without affecting execution results. */
+  onQuery?: QueryObserver
+  /** Bound parameter visibility in events; defaults to redact. */
+  queryParameters?: 'include' | 'redact'
   /** Db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
   connector: Connector
   /** Registered table handles; may be empty. */
@@ -327,7 +334,7 @@ async function runOperationCommand(
   const compiled = operations.compile(command)
 
   try {
-    await executor.run(compiled)
+    await executor.run(compiled, { source: 'lifecycle' })
   } catch (cause) {
     throw contextualOperationError(
       cause,
@@ -543,11 +550,11 @@ function createClientExecutor(
          * @param compiled - Compiled SQL, bound parameters, and optional session
          *   preconditions.
          */
-        execute(compiled) {
+        execute(compiled, options) {
           ensureClientOpen()
           return scheduleTransactionScope(transactionScope, () => {
             compiled.assertSession?.(transactionScope.operation.identity)
-            return executor.execute(compiled)
+            return executor.execute(compiled, options)
           })
         },
         /**
@@ -556,11 +563,11 @@ function createClientExecutor(
          * @param compiled - Compiled SQL, bound parameters, and optional session
          *   preconditions.
          */
-        run(compiled) {
+        run(compiled, options) {
           ensureClientOpen()
           return scheduleTransactionScope(transactionScope, () => {
             compiled.assertSession?.(transactionScope.operation.identity)
-            return executor.run(compiled)
+            return executor.run(compiled, options)
           })
         },
       }
@@ -583,7 +590,7 @@ async function pingClient(
 
   const compiled = operations.compile({ kind: 'ping' })
   try {
-    await clientExecutor.execute(compiled)
+    await clientExecutor.execute(compiled, { source: 'lifecycle' })
   } catch (cause) {
     throw contextualOperationError(
       cause,
@@ -904,6 +911,8 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
   const coordinator = new OperationCoordinator(
     operationSessionProvider,
     dialect.classifyDriverError,
+    config.onQuery,
+    config.queryParameters,
   )
 
   const { ensureOpen, rootExecutor, close } = createDatabaseLifecycle(coordinator)
@@ -1292,11 +1301,11 @@ function createRootExecutor(
      * @param compiled - Compiled SQL, bound parameters, and optional session
      *   preconditions.
      */
-    execute(compiled) {
+    execute(compiled, options) {
       ensureOpen()
       return coordinator.run(({ executor, identity }) => {
         compiled.assertSession?.(identity)
-        return executor.execute(compiled)
+        return executor.execute(compiled, options)
       })
     },
     /**
@@ -1305,11 +1314,11 @@ function createRootExecutor(
      * @param compiled - Compiled SQL, bound parameters, and optional session
      *   preconditions.
      */
-    run(compiled) {
+    run(compiled, options) {
       ensureOpen()
       return coordinator.run(({ executor, identity }) => {
         compiled.assertSession?.(identity)
-        return executor.run(compiled)
+        return executor.run(compiled, options)
       })
     },
   }

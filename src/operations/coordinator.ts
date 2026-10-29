@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
+import type { CompiledQuery } from '@/dialects'
 import type { NamespaceContext } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
+import type { ExecutionOptions, QueryEvent, QueryObserver } from '@/query/observation'
 import type { NamespaceRole } from '@/schemas'
 import type { DriverErrorClassifier } from '@/utils/error'
 import { QueryError, attempt, classifyDriverError } from '@/utils/error'
@@ -241,6 +243,8 @@ export class OperationCoordinator {
   constructor(
     private readonly provider: OperationSessionProvider,
     private readonly classify?: DriverErrorClassifier,
+    private readonly onQuery?: QueryObserver,
+    private readonly queryParameters: 'include' | 'redact' = 'redact',
   ) {
     assertProvider(provider)
   }
@@ -393,7 +397,13 @@ export class OperationCoordinator {
     assertSession(state.session)
     state.capturedIdentity = captureSessionIdentity(state.session)
     state.disposition = 'reuse'
-    const executor = createSessionExecutor(state.session, this.classify)
+    const executor = createSessionExecutor(
+      state.session,
+      this.classify,
+      this.onQuery,
+      this.queryParameters,
+    )
+
     const token: OperationToken = {
       coordinator: this,
       executor,
@@ -436,32 +446,81 @@ export class OperationCoordinator {
 function createSessionExecutor(
   session: OperationSession,
   classify?: DriverErrorClassifier,
+  onQuery?: QueryObserver,
+  queryParameters: 'include' | 'redact' = 'redact',
 ): Executor {
   return {
-    /**
-     * Executes a query through the pinned operation session.
-     *
-     * @param query - Compiled query to execute.
-     */
-    async execute(query) {
+    async execute(query, options) {
       try {
-        return await session.query(query)
+        return onQuery
+          ? await observeQuery(
+              query,
+              options,
+              'query',
+              () => session.query(query),
+              onQuery,
+              queryParameters,
+            )
+          : await session.query(query)
       } catch (failure) {
         throw classify ? classifyDriverError(failure, classify) : failure
       }
     },
-    /**
-     * Executes a statement through the pinned operation session.
-     *
-     * @param query - Compiled query to execute.
-     */
-    async run(query) {
+    async run(query, options) {
       try {
-        return await session.run(query)
+        return onQuery
+          ? await observeQuery(
+              query,
+              options,
+              'run',
+              () => session.run(query),
+              onQuery,
+              queryParameters,
+            )
+          : await session.run(query)
       } catch (failure) {
         throw classify ? classifyDriverError(failure, classify) : failure
       }
     },
+  }
+}
+
+/** Observes only the physical call, before error classification or session cleanup. */
+async function observeQuery<T>(
+  query: CompiledQuery,
+  options: ExecutionOptions | undefined,
+  method: QueryEvent['method'],
+  call: () => Promise<T>,
+  observer: QueryObserver,
+  parameters: 'include' | 'redact',
+): Promise<T> {
+  const params = Object.freeze(
+    query.params.map((value) => (parameters === 'include' ? value : '[REDACTED]')),
+  )
+
+  const start = performance.now()
+  let outcome: { outcome: 'success' } | { outcome: 'error'; error: unknown } = {
+    outcome: 'success',
+  }
+
+  try {
+    return await call()
+  } catch (error) {
+    outcome = { outcome: 'error', error }
+    throw error
+  } finally {
+    const durationMs = performance.now() - start
+    notifyQuery(
+      observer,
+      Object.freeze({
+        sql: query.sql,
+        params,
+        source: options?.source ?? 'query',
+        method,
+        durationMs,
+        ...outcome,
+      }),
+    )
   }
 }
 
@@ -523,5 +582,16 @@ async function releaseOperationSession<T>(state: OperationState<T>): Promise<voi
       state.operationFailed = failure.failed
       state.operationError = failure.error
     }
+  }
+}
+
+/** Contains observer failures without extending the session lease to await them. */
+function notifyQuery(observer: QueryObserver, event: QueryEvent): void {
+  try {
+    const result = observer(event)
+
+    if (result) void Promise.resolve(result).catch(() => {})
+  } catch {
+    // Observers must not replace database results or failures.
   }
 }

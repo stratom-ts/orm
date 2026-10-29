@@ -1,6 +1,7 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
+import { withQuerySource } from '@/query/executor'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
@@ -294,7 +295,7 @@ async function executeActionStatements(
       state: cancellation,
       stage: 'ddl',
       /** Executes the current physical migration statement with cancellation controls. */
-      operation: () => options.executor.run(statement),
+      operation: () => options.executor.run(statement, { source: 'ddl' }),
     })
   }
 }
@@ -544,7 +545,11 @@ async function completeMigrationTransaction(
         state: cancellation,
         stage: 'rollback',
         /** Rolls back within the migration cancellation boundary. */
-        operation: () => options.executor.run({ sql: 'rollback', params: [] }),
+        operation: () =>
+          withQuerySource(options.executor, 'lifecycle').run({
+            sql: 'rollback',
+            params: [],
+          }),
       })
 
       state.transactionOpen = false
@@ -582,7 +587,8 @@ async function commitMigrationTransaction(
       state: cancellation,
       stage: 'commit',
       /** Commits within the migration cancellation boundary. */
-      operation: () => options.executor.run({ sql: 'commit', params: [] }),
+      operation: () =>
+        withQuerySource(options.executor, 'lifecycle').run({ sql: 'commit', params: [] }),
     })
 
     state.transactionOpen = false
@@ -671,7 +677,7 @@ async function beginMigrationTransaction(
       stage: 'transaction',
       /** Starts repeatable-read transaction with cancellation controls. */
       operation: () =>
-        options.executor.run({
+        withQuerySource(options.executor, 'lifecycle').run({
           sql: 'begin isolation level repeatable read',
           params: [],
         }),

@@ -921,3 +921,56 @@ literals or sensitive identifiers.
 ## License
 
 MIT
+
+### Query observation
+
+Pass `onQuery` to `createDatabase` to receive one completion event for each attempted
+pinned-session `query` or `run` call:
+
+```ts
+const db = createDatabase({
+  connector,
+  schemas: [User],
+  onQuery(event) {
+    console.log(event.source, event.sql, event.params, event.durationMs, event.outcome)
+  },
+  // queryParameters: 'include', // Explicitly opt in to sensitive bound values.
+})
+await db.transaction(async (trx) => {
+  await trx.from(User).execute()
+})
+```
+
+Events contain `sql`, ordered `params`, `method` (`query` or `run`), `source`,
+`durationMs`, and `outcome` (`success` or `error`). Error events also contain `error`,
+the original thrown value at the session execution boundary, before driver classification
+or migration context is added. Types `QueryEvent`, `QuerySource`, and `QueryObserver`
+are exported from the package.
+
+Sources are selected by the caller's structured operation, without SQL parsing:
+
+- `query`: application SQL, including raw SQL and query builders.
+- `lifecycle`: ping, transaction/savepoint commands, and session settings.
+- `catalog`: migration catalog acquisition, preconditions, integrity and convergence checks.
+- `coordination`: PostgreSQL advisory locks/unlocks; SQLite busy-timeout policy and
+  migration `BEGIN IMMEDIATE`, which acquires migration ownership. SQLite migration
+  commit/rollback and foreign-key settings are `lifecycle`.
+- `ddl`: migration action statements, including SQLite rebuild data-copy statements.
+
+Bound parameters default to `'[REDACTED]'` per position, retaining order and count.
+Set `queryParameters: 'include'` to expose values. Event objects and copied parameter
+arrays are frozen; included objects retain their references and are not deep-copied.
+SQL literals and error objects can contain secrets and cannot be redacted automatically.
+
+Duration uses a monotonic clock around the session call, excluding coordinator queue
+wait and observer time. No hook means no event snapshots or timing work. Compilation,
+validation/session guards, provider open/release/close/cancel, and provider-private
+bootstrap/identity/cleanup SQL do not produce events. Aborting before SQL is sent
+produces no SQL event; cancellation that makes a provider reject produces an error
+event, never synthetic success. Observation reports the provider's settled SQL outcome,
+which may differ from the final migration outcome.
+
+Observer throws and returned promise rejections are contained and do not replace
+results or failures. Returned promises are never awaited and do not hold session leases
+or block close. Keep synchronous observer work short: it runs inline after execution.
+OpenTelemetry integration is not included.
