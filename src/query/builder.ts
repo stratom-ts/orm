@@ -33,6 +33,8 @@ import type {
 } from '@/types/views'
 import { InvariantError, QueryError } from '@/utils/error'
 
+import type { CompiledQuery } from './compiled'
+import { markCompiledQuery } from './compiled'
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
@@ -50,7 +52,7 @@ export type WriteResult = {
 declare const noReturning: unique symbol
 type NoReturning = typeof noReturning
 
-export type CompiledQuery = { sql: string; params: unknown[] }
+export type { CompiledQuery } from './compiled'
 
 type WhereInput =
   | PredicateAst
@@ -798,7 +800,7 @@ export function createInsertBuilder<THandle extends TableHandle>(
     buildInsertAst({ handle, dialect, executor, mapper, rows, returning, conflict })
 
   /** Compiles the current insert query. */
-  const compile = () => query.compile(buildAst())
+  const compile = () => markCompiledQuery(query.compile(buildAst()))
 
   /** Executes the current insert query. */
   const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
@@ -1152,7 +1154,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(
     )
 
   /** Compiles the current update query. */
-  const compile = () => query.compile(buildAst())
+  const compile = () => markCompiledQuery(query.compile(buildAst()))
 
   /** Executes the current update query. */
   const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
@@ -1315,7 +1317,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(
     )
 
   /** Compiles the current delete query. */
-  const compile = () => query.compile(buildAst())
+  const compile = () => markCompiledQuery(query.compile(buildAst()))
 
   /** Executes the current delete query. */
   const execute = async () => runWrite(query, executor, handle, mapper, buildAst())
@@ -1767,7 +1769,7 @@ function createSelectBuilder<THandle extends TableHandle>(
     })
 
   /** Compiles the current select query. */
-  const compile = () => query.compile(buildSelectQuery(options).ast)
+  const compile = () => markCompiledQuery(query.compile(buildSelectQuery(options).ast))
 
   /** Executes the current select query. */
   const execute = async () => {

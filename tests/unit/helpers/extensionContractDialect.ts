@@ -52,7 +52,7 @@ export type ExtensionContractCalls = {
   events: string[]
   operationCommands: OperationCommand[]
   compiledAst: SqlAst[]
-  statements: { sql: string; params: unknown[] }[]
+  statements: { sql: string; params: readonly unknown[] }[]
   migrationOutcomes: ('applied' | 'unchanged')[]
   connector?: Connector
   catalog?: CatalogSnapshot
@@ -228,7 +228,7 @@ function compileContractQuery(
   node: SqlAst,
   registered: readonly TableHandle[],
   registrationDefault?: readonly NamespaceIdentifierInput[],
-): { sql: string; params: unknown[] } {
+): { sql: string; params: readonly unknown[] } {
   if (node.kind !== 'select') {
     throw new InvariantError('Extension contract compiler only supports select queries')
   }
@@ -652,7 +652,7 @@ function createCatalog(
      */
     introspectCatalog: (
       executor: {
-        execute(query: { sql: string; params: unknown[] }): Promise<unknown[]>
+        execute(query: { sql: string; params: readonly unknown[] }): Promise<unknown[]>
       },
       request: CatalogRequest,
     ) => introspectExtensionCatalog(executor, request, calls, namespaceContext, identity),
@@ -956,7 +956,7 @@ function createContractQueryFacet(calls: ExtensionContractCalls) {
  */
 async function introspectExtensionCatalog(
   executor: {
-    execute(query: { sql: string; params: unknown[] }): Promise<unknown[]>
+    execute(query: { sql: string; params: readonly unknown[] }): Promise<unknown[]>
   },
   request: CatalogRequest,
   calls: ExtensionContractCalls,

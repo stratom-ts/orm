@@ -22,7 +22,7 @@ import type {
 import { asciiFoldSqliteIdentifier } from './identity'
 
 /** Quotes an SQL identifier and escapes embedded double quotes. */
-function quoteIdentifier(identifier: string): string {
+export function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
 }
 

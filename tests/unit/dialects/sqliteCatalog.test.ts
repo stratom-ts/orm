@@ -953,7 +953,7 @@ function malformedFixtureRows(
  */
 function malformedSchemaRows(
   options: FixtureOptions,
-  query: { sql: string; params: unknown[] },
+  query: { sql: string; params: readonly unknown[] },
   rows: unknown[],
 ) {
   if (
@@ -1067,8 +1067,8 @@ function malformedIndexDetails(
  */
 function malformedIndexInventory(
   options: FixtureOptions,
-  query: { sql: string; params: unknown[] },
-  p: unknown[],
+  query: { sql: string; params: readonly unknown[] },
+  p: readonly unknown[],
   rows: unknown[],
 ) {
   if (
@@ -1645,8 +1645,8 @@ async function executeSqliteFixture(
  */
 function applyRichUniqueIndexRows(
   options: FixtureOptions,
-  query: { sql: string; params: unknown[] },
-  p: unknown[],
+  query: { sql: string; params: readonly unknown[] },
+  p: readonly unknown[],
   rows: unknown[],
 ) {
   if (options.richUniqueIndex && query.sql.includes('index_list') && p[0] === 'simple')
@@ -1677,12 +1677,12 @@ function applyRichUniqueIndexRows(
  * @returns The configured native observations for the requested SQLite catalog query.
  */
 function readSqliteFixtureRows(
-  query: { sql: string; params: unknown[] },
+  query: { sql: string; params: readonly unknown[] },
   options: FixtureOptions,
   tables: unknown[],
   schema: unknown[],
   xinfo: Record<string, unknown[]>,
-  p: unknown[],
+  p: readonly unknown[],
 ): unknown[] {
   return query.sql.includes('sqlite_version')
     ? [{ version: options.version ?? '3.37.0' }]
@@ -2417,7 +2417,7 @@ const registerCatalogCases23 = () => {
 
 const registerCatalogCases24 = () => {
   it('should parameterize and observe quoted table and index names', async () => {
-    const calls: { sql: string; params: unknown[] }[] = []
+    const calls: { sql: string; params: readonly unknown[] }[] = []
     const tableName = 'odd"table'
     const indexName = 'odd"index'
     const fixture = fixtureExecutor({

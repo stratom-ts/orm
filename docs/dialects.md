@@ -230,6 +230,37 @@ objects are absent.
 The current acquisition, decoding, consistency, and assembly stages are documented in
 the [catalog observation guide](catalog-stages.md).
 
+### Public compiled execution
+
+`Db.execute(compiled: CompiledQuery): Promise<unknown[]>` passes SQL and parameters
+through the scoped executor. It supports authored SQL and query-builder `compile()`
+output, including the compiled query's session guard. Root calls retain FIFO scheduling
+and close draining. Transaction and nested transaction calls reuse their pinned session
+and enforce scope ownership.
+
+Authored SQL supplies one statement with the selected dialect's placeholders and
+driver-ready values. PostgreSQL uses `$1`; SQLite uses `?`. Execution does not remap
+builder parameters or perform table-specific result mapping. SQLite raw booleans need
+integer encoding, dates need the chosen string encoding, and JSON needs serialization
+when stored as text. Native provider normalization still applies.
+
+Bind values separately. Parameters cannot stand for identifiers, keywords, or SQL
+fragments. Keep identifiers static and quoted, or use registered builders for structured
+dynamic addressing. db0 ordinary interpolation binds values, while brace-wrapped static
+interpolation inserts text. This API does not invoke db0's template processor or
+translate placeholders. Never place untrusted values into SQL text.
+
+Results remain `unknown[]`, including for typed builder output. Callers can validate
+rows with Valibot after execution. Such validation failures occur outside Stratom's
+execution boundary. Writes without returned rows yield `[]` with the built-in
+providers; write builders supply affected-row counts.
+
+Use `trx.execute` inside `db.transaction`, and use managed transactions for
+transaction and savepoint control. Raw execution does not apply schema validation,
+write-builder full-table checks, or Migration Plan destructive-change policy.
+See [the raw SQL examples](../README.md#raw-sql-execution) for bound values, explicit
+SQLite encoding, compiled builder execution, transactions, and complete Valibot imports.
+
 ### Operations and connector adaptation
 
 Each member provides `classifyDriverError(cause)`. It walks native cause chains and

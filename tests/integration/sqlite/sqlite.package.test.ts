@@ -235,3 +235,19 @@ it('should map, migrate and converge through the built package on native SQLite'
   expect(() => state.native.prepare('select 1')).toThrow(/not open/)
   await expect(access(state.filePath)).rejects.toMatchObject({ code: 'ENOENT' })
 })
+
+it('executes raw bound SQL through the built package without registered tables', async () => {
+  await withSqliteDatabase(
+    [],
+    async ({ db }) => {
+      expect(await db.sql`select ${'package raw value'} as value`).toEqual([
+        { value: 'package raw value' },
+      ])
+
+      await db.transaction(async (trx) => {
+        expect(await trx.sql`select ${null} as value`).toEqual([{ value: null }])
+      })
+    },
+    { library },
+  )
+})

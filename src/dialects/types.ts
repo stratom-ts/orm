@@ -195,7 +195,7 @@ export type QuerySessionIdentity = Readonly<{
 /** Parameterized SQL produced by dialect compilation. */
 export type CompiledQuery = {
   sql: string
-  params: unknown[]
+  params: readonly unknown[]
   /** Optional member-owned execution guard evaluated on the pinned session. */
   assertSession?: (identity: QuerySessionIdentity) => void
 }
@@ -259,6 +259,12 @@ export type DialectValueMappingContext = Readonly<{
 
 /** SQL resolution, compilation, and optional dialect value conversion behavior. */
 export type DialectQuery = Readonly<{
+  /** SQL syntax used by the scoped template tag; omitted by members without raw SQL. */
+  rawSql?: Readonly<{
+    quoteIdentifier(identifier: string): string
+    placeholder(position: number): string
+  }>
+
   /** Rejects unproven built-in mappings during client construction, before SQL. */
   validateValueMapping?: (dataType: string, context: DialectValueMappingContext) => void
   /**

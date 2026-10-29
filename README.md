@@ -707,6 +707,64 @@ Initial upsert support does not accept constraint or index names, partial predic
 expression indexes, an update `WHERE` clause, arbitrary SQL expressions, MySQL replace,
 or SQL `MERGE`.
 
+### Raw SQL execution
+
+Use the scoped `db.sql` tag for SQL, including with `schemas: []`. It starts
+execution immediately and returns `Promise<unknown[]>`, with provider values and
+no table-specific decoding. Each ordinary interpolation binds a driver-ready
+value using the selected dialect's placeholders.
+
+```typescript
+import { array, number, object, parse } from 'valibot'
+
+const rows = await db.sql`select 1 as value`
+const validated = parse(array(object({ value: number() })), rows)
+
+const email = 'ada@example.com'
+const users = await db.sql`select "id" from "users" where "email" = ${email}`
+
+// Quote each identifier part, including embedded quotes and literal dots.
+const relation = db.sql.id('public', 'users')
+const filter = db.sql.fragment`"email" = ${email}`
+await db.sql`select * from ${relation} where ${filter}`
+const query = db.sql.fragment`select * from ${relation} where ${filter}`
+await db.execute(query)
+const nativeRows = await db.execute(db.from(User).compile())
+
+await db.transaction(async (trx) => {
+  await trx.sql`update "users" set "email" = ${email} where "id" = ${user.id}`
+})
+```
+
+Fragments compose without execution; their parameters are numbered in final SQL
+order. Use `db.sql.id(...parts)` for dynamic identifiers. Strings interpolated
+without this helper always bind as values. Braces are literal SQL; db0's raw brace
+interpolation is not supported. The tag uses Stratom's operation session rather
+than db0's SQL tag, preserving session guards, FIFO ordering, transaction ownership,
+and close draining. Use managed transactions for transaction and savepoint control.
+
+`execute()` rejects plain `{ sql, params }` objects at both the type and runtime
+boundaries. Builder `compile()` output retains its session guard and mapped
+parameters without mapping them again. The explicit `db.sql.unsafe(text)` escape
+hatch creates an executable fragment from trusted SQL text. It does not bind or
+escape that text; never concatenate untrusted input into it.
+
+SQL template values need driver-ready representations. For SQLite, encode booleans,
+dates, and JSON explicitly when needed:
+
+```typescript
+await sqliteDb.sql`insert into "events" ("active", "stamp", "payload")
+  values (${active ? 1 : 0}, ${stamp.toISOString()}, ${JSON.stringify(payload)})`
+```
+
+Validate `unknown[]` results in caller code when needed. Validation failures occur
+outside Stratom's execution boundary. Inside transactions, use `trx.sql` or
+`trx.execute` with the callback's scoped client.
+
+Writes without returned rows produce `[]` with the built-in providers. Use write
+builders for affected-row counts. SQL templates do not apply schema validation,
+write-builder full-table checks, or Migration Plan destructive-change policy.
+
 ### Transactions
 
 The callback commits on success and rolls back on throw; nested calls use

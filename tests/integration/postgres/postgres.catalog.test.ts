@@ -125,8 +125,9 @@ describe('PostgreSQL catalog integration', () => {
           {
             /** Executes fixture SQL with the configured native observations. */
             async execute(query) {
-              return (await admin.query<Record<string, unknown>>(query.sql, query.params))
-                .rows
+              return (
+                await admin.query<Record<string, unknown>>(query.sql, [...query.params])
+              ).rows
             },
           },
           request,

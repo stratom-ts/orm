@@ -794,7 +794,9 @@ const catalogRequest = (
 })
 
 /** Checks that member queries bind only the requested PostgreSQL schemas. */
-function assertScopedCatalogQueries(queries: { sql: string; params: unknown[] }[]) {
+function assertScopedCatalogQueries(
+  queries: { sql: string; params: readonly unknown[] }[],
+) {
   for (const query of queries.slice(1)) {
     expect(query.sql).toContain('n.nspname = any($1::text[])')
     expect(query.params).toEqual([['public']])
