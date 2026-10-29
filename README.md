@@ -709,56 +709,60 @@ or SQL `MERGE`.
 
 ### Raw SQL execution
 
-Use `db.execute(compiled)` for one statement in the selected dialect, including with
-`schemas: []`. Results are `unknown[]` in the provider's representation, without
-table-specific decoding. Builder parameters already have their value mappings.
+Use the scoped `db.sql` tag for SQL, including with `schemas: []`. It starts
+execution immediately and returns `Promise<unknown[]>`, with provider values and
+no table-specific decoding. Each ordinary interpolation binds a driver-ready
+value using the selected dialect's placeholders.
 
 ```typescript
 import { array, number, object, parse } from 'valibot'
 
-const rows = await db.execute({ sql: 'select 1 as value', params: [] })
+const rows = await db.sql`select 1 as value`
 const validated = parse(array(object({ value: number() })), rows)
 
-// PostgreSQL placeholders bind values separately from the fixed SQL text.
-const users = await db.execute({
-  sql: 'select "id" from "users" where "email" = $1',
-  params: ['ada@example.com'],
-})
+const email = 'ada@example.com'
+const users = await db.sql`select "id" from "users" where "email" = ${email}`
 
+// Quote each identifier part, including embedded quotes and literal dots.
+const relation = db.sql.id('public', 'users')
+const filter = db.sql.fragment`"email" = ${email}`
+await db.sql`select * from ${relation} where ${filter}`
+const query = db.sql.fragment`select * from ${relation} where ${filter}`
+await db.execute(query)
 const nativeRows = await db.execute(db.from(User).compile())
 
 await db.transaction(async (trx) => {
-  await trx.execute({
-    sql: 'update "users" set "email" = $1 where "id" = $2',
-    params: ['ada@example.com', user.id],
-  })
+  await trx.sql`update "users" set "email" = ${email} where "id" = ${user.id}`
 })
 ```
 
-Valibot validation is optional and runs in caller code. Its failures occur outside
-Stratom's execution boundary. Use `trx.execute(...)` inside managed transactions.
-Use the managed transaction API for transaction and savepoint control.
+Fragments compose without execution; their parameters are numbered in final SQL
+order. Use `db.sql.id(...parts)` for dynamic identifiers. Strings interpolated
+without this helper always bind as values. Braces are literal SQL; db0's raw brace
+interpolation is not supported. The tag uses Stratom's operation session rather
+than db0's SQL tag, preserving session guards, FIFO ordering, transaction ownership,
+and close draining. Use managed transactions for transaction and savepoint control.
 
-Authored SQL needs driver-ready parameters. PostgreSQL uses `$1`, `$2`, and so on.
-SQLite uses `?`; encode booleans, dates, and JSON explicitly when needed:
+`execute()` rejects plain `{ sql, params }` objects at both the type and runtime
+boundaries. Builder `compile()` output retains its session guard and mapped
+parameters without mapping them again. The explicit `db.sql.unsafe(text)` escape
+hatch creates an executable fragment from trusted SQL text. It does not bind or
+escape that text; never concatenate untrusted input into it.
+
+SQL template values need driver-ready representations. For SQLite, encode booleans,
+dates, and JSON explicitly when needed:
 
 ```typescript
-await sqliteDb.execute({
-  sql: 'insert into "events" ("active", "stamp", "payload") values (?, ?, ?)',
-  params: [active ? 1 : 0, stamp.toISOString(), JSON.stringify(payload)],
-})
+await sqliteDb.sql`insert into "events" ("active", "stamp", "payload")
+  values (${active ? 1 : 0}, ${stamp.toISOString()}, ${JSON.stringify(payload)})`
 ```
 
-Parameters represent values, not identifiers, keywords, or SQL fragments. Keep
-identifiers static and properly quoted. Use registered query builders for structured
-dynamic addressing. Never insert untrusted values into SQL text.
+Validate `unknown[]` results in caller code when needed. Validation failures occur
+outside Stratom's execution boundary. Inside transactions, use `trx.sql` or
+`trx.execute` with the callback's scoped client.
 
-db0's ordinary template interpolation binds values; its brace-wrapped static
-interpolation inserts text directly. Compiled execution does not invoke that template
-processor or translate placeholders.
-
-Writes without returned rows produce `[]` with the built-in providers. Use existing
-write builders for affected-row counts. Raw SQL does not receive schema validation,
+Writes without returned rows produce `[]` with the built-in providers. Use write
+builders for affected-row counts. SQL templates do not apply schema validation,
 write-builder full-table checks, or Migration Plan destructive-change policy.
 
 ### Transactions

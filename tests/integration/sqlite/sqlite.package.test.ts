@@ -240,14 +240,12 @@ it('executes raw bound SQL through the built package without registered tables',
   await withSqliteDatabase(
     [],
     async ({ db }) => {
-      expect(
-        await db.execute({ sql: 'select ? as value', params: ['package raw value'] }),
-      ).toEqual([{ value: 'package raw value' }])
+      expect(await db.sql`select ${'package raw value'} as value`).toEqual([
+        { value: 'package raw value' },
+      ])
 
       await db.transaction(async (trx) => {
-        expect(await trx.execute({ sql: 'select ? as value', params: [null] })).toEqual([
-          { value: null },
-        ])
+        expect(await trx.sql`select ${null} as value`).toEqual([{ value: null }])
       })
     },
     { library },

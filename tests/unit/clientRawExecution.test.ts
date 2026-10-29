@@ -3,6 +3,7 @@ import { expect, expectTypeOf, it, vi } from 'vitest'
 
 import type { CompiledQuery, Db } from '@/index'
 import { DriverError, QueryError, column, createDatabase, defineTable } from '@/index'
+import { markCompiledQuery } from '@/query/compiled'
 
 import { deferred } from '../helpers/deferredPromise'
 
@@ -52,13 +53,13 @@ it('preserves fixed SQL, ordered bound values, native row order, and empty rows 
   })
 
   try {
-    const compiled = { sql, params }
+    const compiled = db.sql.fragment`select ${params[0]} as value, ${params[1]} as other`
     const result = db.execute(compiled)
     expectTypeOf(result).toEqualTypeOf<Promise<unknown[]>>()
     expect(await result).toEqual(rows)
     expect(observed).toEqual([compiled])
     expect(observed[0]).toBe(compiled)
-    expect(await db.execute({ sql: 'select 1 where false', params: [] })).toEqual([])
+    expect(await db.sql`select 1 where false`).toEqual([])
   } finally {
     await db.close()
   }
@@ -128,10 +129,18 @@ it.each(['root', 'transaction'] as const)(
     })
 
     const execute = async (client: Db) => {
-      await client.execute({ sql: 'accepted', params: [], assertSession: guard })
+      await client.execute(
+        markCompiledQuery({ sql: 'accepted', params: [], assertSession: guard }),
+      )
 
       await expect(
-        client.execute({ sql: 'rejected', params: [], assertSession: rejectingGuard }),
+        client.execute(
+          markCompiledQuery({
+            sql: 'rejected',
+            params: [],
+            assertSession: rejectingGuard,
+          }),
+        ),
       ).rejects.toBe(failure)
     }
 
@@ -187,13 +196,11 @@ it('retains a real builder database guard on the compiled object', async () => {
 it('lets callers validate results and exposes validation failures outside execution', async () => {
   const { db } = controlled({ queryRows: () => [{ value: 1 }] })
   try {
-    const rows = await db.execute({ sql: 'select 1 as value', params: [] })
+    const rows = await db.sql`select 1 as value`
     expect(parse(array(object({ value: number() })), rows)).toEqual([{ value: 1 }])
     expect(() => parse(array(object({ value: string() })), rows)).toThrow(/Invalid type/)
 
-    await expect(db.execute({ sql: 'select 1 as value', params: [] })).resolves.toEqual(
-      rows,
-    )
+    await expect(db.sql`select 1 as value`).resolves.toEqual(rows)
   } finally {
     await db.close()
   }
@@ -211,15 +218,15 @@ it('executes root calls FIFO and drains accepted work before closing', async () 
     },
   })
 
-  const first = db.execute({ sql: 'first', params: [] })
+  const first = db.sql`first`
   await started.promise
-  const second = db.execute({ sql: 'second', params: [] })
+  const second = db.sql`second`
   const closing = db.close()
 
   try {
     expect(controls.calls.map(({ sql }) => sql)).toEqual(['first'])
     expect(controls.closeCount).toBe(0)
-    await expect(db.execute({ sql: 'late', params: [] })).rejects.toThrow(QueryError)
+    await expect(db.sql`late`).rejects.toThrow(QueryError)
   } finally {
     finish.resolve()
   }
@@ -227,7 +234,7 @@ it('executes root calls FIFO and drains accepted work before closing', async () 
   await Promise.all([first, second, closing])
   expect(controls.calls.map(({ sql }) => sql)).toEqual(['first', 'second'])
   expect(controls.closeCount).toBe(1)
-  await expect(db.execute({ sql: 'closed', params: [] })).rejects.toThrow(QueryError)
+  await expect(db.sql`closed`).rejects.toThrow(QueryError)
 })
 
 it('reuses one transaction session and enforces nested and expired scope ownership', async () => {
@@ -237,27 +244,18 @@ it('reuses one transaction session and enforces nested and expired scope ownersh
     await db.transaction(async (trx) => {
       expired = trx
 
-      await expect(db.execute({ sql: 'root misuse', params: [] })).rejects.toThrow(
-        /scoped client/i,
-      )
+      await expect(db.sql`root misuse`).rejects.toThrow(/scoped client/i)
 
-      await Promise.all([
-        trx.execute({ sql: 'one', params: [] }),
-        trx.execute({ sql: 'two', params: [] }),
-      ])
+      await Promise.all([trx.sql`one`, trx.sql`two`])
 
       await trx.transaction(async (nested) => {
-        await expect(trx.execute({ sql: 'ancestor misuse', params: [] })).rejects.toThrow(
-          /nested callback client/i,
-        )
+        await expect(trx.sql`ancestor misuse`).rejects.toThrow(/nested callback client/i)
 
-        await nested.execute({ sql: 'three', params: [] })
+        await nested.sql`three`
       })
     })
 
-    await expect(expired.execute({ sql: 'expired', params: [] })).rejects.toThrow(
-      /no longer active/i,
-    )
+    await expect(expired.sql`expired`).rejects.toThrow(/no longer active/i)
 
     expect(controls.openCount).toBe(1)
     expect(controls.maxActiveCalls).toBe(1)
@@ -292,7 +290,7 @@ it('preserves native driver error classification and cause', async () => {
 
   const db = createDatabase({ connector, schemas: [] })
   try {
-    const result = db.execute({ sql: 'insert into users values ($1)', params: [1] })
+    const result = db.sql`insert into users values (${1})`
     await expect(result).rejects.toBeInstanceOf(DriverError)
 
     await expect(result).rejects.toMatchObject({
@@ -316,7 +314,7 @@ it.each([new Error('provider defect'), { defect: 'unexpected object' }])(
     })
 
     try {
-      await expect(db.execute({ sql: 'select defect', params: [] })).rejects.toBe(failure)
+      await expect(db.sql`select defect`).rejects.toBe(failure)
 
       expect(Object.getOwnPropertyDescriptor(failure, 'stack')).toEqual(stack)
     } finally {
@@ -324,3 +322,96 @@ it.each([new Error('provider defect'), { defect: 'unexpected object' }])(
     }
   },
 )
+
+it('binds nested fragments in final order and quotes identifier parts independently', async () => {
+  const { db } = controlled()
+  try {
+    const injected = "'; drop table users; --"
+    const filter = db.sql.fragment`${db.sql.id('e"mail')} = ${injected}`
+    const query = db.sql
+      .fragment`select ${42} from ${db.sql.id('a.b', 'u"sers')} where ${filter} or ${filter} and x = ${null}`
+
+    expect(query.sql).toBe(
+      'select $1 from "a.b"."u""sers" where "e""mail" = $2 or "e""mail" = $3 and x = $4',
+    )
+
+    expect(query.params).toEqual([42, injected, injected, null])
+    await expect(db.execute(query)).resolves.toEqual([])
+    expect(db.sql.fragment`select {${injected}}`.sql).toBe('select {$1}')
+    expect(db.sql.fragment`select ${'users'}`.sql).toBe('select $1')
+  } finally {
+    await db.close()
+  }
+})
+
+it('rejects unmarked objects, copied queries, and mutation after compilation', async () => {
+  const { db, controls } = controlled()
+  try {
+    // @ts-expect-error Plain SQL objects are not executable queries.
+    await expect(db.execute({ sql: 'untrusted', params: [] })).rejects.toThrow(/compile/)
+    const query = db.sql.fragment`select ${1}`
+    await expect(db.execute({ ...query })).rejects.toThrow(/compile/)
+
+    expect(() => {
+      query.sql = 'untrusted'
+    }).toThrow(TypeError)
+
+    expect(() => {
+      query.params.push('untrusted')
+    }).toThrow(TypeError)
+
+    expect(controls.openCount).toBe(0)
+    const trusted = db.sql.unsafe('select 1')
+    expect(trusted.sql).toBe('select 1')
+    await db.execute(trusted)
+    expect(controls.calls.map(({ sql }) => sql)).toEqual(['select 1'])
+  } finally {
+    await db.close()
+  }
+})
+
+it('starts SQL immediately and leaves fragments inert', async () => {
+  const started = deferred()
+  const { db, controls } = controlled({
+    beforeCall: async () => {
+      started.resolve()
+    },
+  })
+
+  try {
+    const fragment = db.sql.fragment`select ${1}`
+    expect(fragment.params).toEqual([1])
+    expect(controls.openCount).toBe(0)
+    const pending = db.sql`select ${2}`
+    await started.promise
+    expect(controls.calls.map(({ sql }) => sql)).toEqual(['select $1'])
+    await pending
+
+    for (const parts of [[], [''], ['a\0b']]) {
+      expect(() => db.sql.id(...parts)).toThrow(QueryError)
+    }
+  } finally {
+    await db.close()
+  }
+})
+
+it('accepts compiled select, insert, update, and delete builders', async () => {
+  const Value = defineTable('raw_values', { id: string() }, { primaryKey: 'id' })
+  const db = createDatabase({
+    connector: createMockPostgresConnector(),
+    schemas: [Value],
+  })
+
+  try {
+    const queries = [
+      db.from(Value).compile(),
+      db.insert(Value).values({ id: 'one' }).compile(),
+      db.update(Value).set({ id: 'two' }).where(Value.id, 'eq', 'one').compile(),
+      db.delete(Value).where(Value.id, 'eq', 'two').compile(),
+    ]
+
+    for (const query of queries) await expect(db.execute(query)).resolves.toEqual([])
+  } finally {
+    await db.close()
+  }
+})

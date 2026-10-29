@@ -1,3 +1,4 @@
+import { quoteIdentifier } from './compile'
 import {
   mapPostgresParamValue,
   mapPostgresResultValue,
@@ -7,6 +8,10 @@ import { resolvePostgresQuery } from './queryAddressing'
 
 /** PostgreSQL query addressing and value mapping. */
 export const postgresQuery = {
+  rawSql: {
+    quoteIdentifier,
+    placeholder: (position: number): string => `$${position}`,
+  },
   validateValueMapping: validatePostgresValueMapping,
   resolve: resolvePostgresQuery,
   mapResultValue: mapPostgresResultValue,

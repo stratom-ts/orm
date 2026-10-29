@@ -27,7 +27,7 @@ import type {
  *
  * @returns Quoted identifier safe for SQL
  */
-function quoteIdentifier(ident: string): string {
+export function quoteIdentifier(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
 }
 

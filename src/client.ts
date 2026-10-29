@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MigrateBuilder } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
-import type { CompiledQuery, DialectOperations, OperationCommand } from '@/dialects'
+import type { DialectOperations, OperationCommand } from '@/dialects'
 import { resolveDialect } from '@/dialects'
 import type {
   NamespaceIdentifierInput,
@@ -38,9 +38,14 @@ import {
   validateInsertRow,
   validateUpdatePatch,
 } from '@/query'
+import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
+import { assertCompiledQuery } from '@/query/compiled'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
+
+import type { SqlTag } from './sql'
+import { createSqlTag } from './sql'
 
 export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'
@@ -194,7 +199,9 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * @throws {QueryError} The client, transaction scope, or session guard is invalid.
    * @throws {DriverError} The SQL fails below Stratom.
    */
-  execute(compiled: CompiledQuery): Promise<unknown[]>
+  execute(compiled: ExecutableQuery): Promise<unknown[]>
+  /** Executes a SQL template immediately, binding each interpolated value. */
+  readonly sql: SqlTag
   /** Start a query rooted on a registered table handle. */
   from<THandle extends TableHandle>(handle: THandle): QueryBuilder<THandle>
   /**
@@ -827,8 +834,9 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
     pingClient(clientExecutor, dialect.operations, dialect.id, ensureClientOpen)
 
   /** Executes SQL through the current scope without repeating value mapping. */
-  const execute = async (compiled: CompiledQuery): Promise<unknown[]> => {
+  const execute = async (compiled: ExecutableQuery): Promise<unknown[]> => {
     ensureClientOpen()
+    assertCompiledQuery(compiled)
     return clientExecutor.execute(compiled)
   }
 
@@ -851,6 +859,7 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
   return {
     schemas,
     ping,
+    sql: createSqlTag(dialect.query.rawSql, execute),
     execute,
     from,
     insert,
