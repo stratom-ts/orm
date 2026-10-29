@@ -9,7 +9,6 @@ import {
   migrationLockAcquisitionOrder,
 } from '@/migrations/coordinationScope'
 import type { MigrationCoordinationLockIdentity } from '@/migrations/coordinationScope'
-import { withQuerySource } from '@/query/executor'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { InvariantError, TaggedError, attempt } from '@/utils/error'
 
@@ -574,10 +573,13 @@ async function attemptCoordinationLock(
       timeoutMessage: lockAttemptTimeoutMessage(options.lockTimeoutMs, deadlineRemaining),
       /** Attempts nonblocking advisory-lock acquisition with cancellation controls. */
       operation: () =>
-        withQuerySource(options.executor, 'coordination').execute({
-          sql: 'select pg_try_advisory_lock($1, $2) as "locked"',
-          params: [identity.classId, identity.lockId],
-        }),
+        options.executor.execute(
+          {
+            sql: 'select pg_try_advisory_lock($1, $2) as "locked"',
+            params: [identity.classId, identity.lockId],
+          },
+          { source: 'coordination' },
+        ),
     })
   } catch (cause) {
     // A query can have reached PostgreSQL before its error was observed.
@@ -672,10 +674,13 @@ export async function releaseCoordinationFailures(
 
   for (const identity of [...identities].reverse()) {
     const release = await attempt(async () => {
-      const [row] = await withQuerySource(options.executor, 'coordination').execute({
-        sql: 'select pg_advisory_unlock($1, $2) as "unlocked"',
-        params: [identity.classId, identity.lockId],
-      })
+      const [row] = await options.executor.execute(
+        {
+          sql: 'select pg_advisory_unlock($1, $2) as "unlocked"',
+          params: [identity.classId, identity.lockId],
+        },
+        { source: 'coordination' },
+      )
 
       if (
         typeof row !== 'object' ||
@@ -710,10 +715,13 @@ export async function assertPrecondition(
 ): Promise<void> {
   const schema = schemaFromNamespace(precondition.relation.namespace)
   const relation = `${quoteIdentifier(schema)}.${quoteIdentifier(precondition.relation.relation.spelling)}`
-  const [row] = await withQuerySource(options.executor, 'catalog').execute({
-    sql: `select count(*)::int as count from ${relation} where ${quoteIdentifier(precondition.column)} is null`,
-    params: [],
-  })
+  const [row] = await options.executor.execute(
+    {
+      sql: `select count(*)::int as count from ${relation} where ${quoteIdentifier(precondition.column)} is null`,
+      params: [],
+    },
+    { source: 'catalog' },
+  )
 
   const count = Number((row as { count?: unknown } | undefined)?.count ?? 0)
 

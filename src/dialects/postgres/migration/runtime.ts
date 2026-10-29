@@ -1,7 +1,6 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
-import { withQuerySource } from '@/query/executor'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
@@ -546,10 +545,13 @@ async function completeMigrationTransaction(
         stage: 'rollback',
         /** Rolls back within the migration cancellation boundary. */
         operation: () =>
-          withQuerySource(options.executor, 'lifecycle').run({
-            sql: 'rollback',
-            params: [],
-          }),
+          options.executor.run(
+            {
+              sql: 'rollback',
+              params: [],
+            },
+            { source: 'lifecycle' },
+          ),
       })
 
       state.transactionOpen = false
@@ -588,7 +590,7 @@ async function commitMigrationTransaction(
       stage: 'commit',
       /** Commits within the migration cancellation boundary. */
       operation: () =>
-        withQuerySource(options.executor, 'lifecycle').run({ sql: 'commit', params: [] }),
+        options.executor.run({ sql: 'commit', params: [] }, { source: 'lifecycle' }),
     })
 
     state.transactionOpen = false
@@ -677,10 +679,13 @@ async function beginMigrationTransaction(
       stage: 'transaction',
       /** Starts repeatable-read transaction with cancellation controls. */
       operation: () =>
-        withQuerySource(options.executor, 'lifecycle').run({
-          sql: 'begin isolation level repeatable read',
-          params: [],
-        }),
+        options.executor.run(
+          {
+            sql: 'begin isolation level repeatable read',
+            params: [],
+          },
+          { source: 'lifecycle' },
+        ),
     })
 
     state.transactionOpen = true

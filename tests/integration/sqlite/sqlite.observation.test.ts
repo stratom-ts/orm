@@ -6,6 +6,32 @@ import { column, defineTable } from '@/index'
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
+/** Checks the source contract for each distinct native migration stage. */
+function expectMigrationSources(events: readonly QueryEvent[]): void {
+  expect(events.some((e) => e.source === 'catalog')).toBe(true)
+  expect(events.some((e) => e.source === 'coordination')).toBe(true)
+
+  expect(events.find((e) => e.sql.toLowerCase() === 'begin immediate')?.source).toBe(
+    'coordination',
+  )
+
+  expect(
+    events.find((e) => e.sql.toLowerCase() === 'pragma main.foreign_key_check')?.source,
+  ).toBe('catalog')
+
+  expect(
+    events.find((e) => e.sql.toLowerCase() === 'pragma main.integrity_check')?.source,
+  ).toBe('catalog')
+
+  expect(events.find((e) => e.sql.toLowerCase().startsWith('create table'))?.source).toBe(
+    'ddl',
+  )
+
+  expect(events.find((e) => e.sql.toLowerCase() === 'commit')?.source).toBe('lifecycle')
+
+  expect(events.every((e) => e.outcome === 'success')).toBe(true)
+}
+
 it('observes native migration stages and application execution without bootstrap SQL', async () => {
   const Item = defineTable(
     'observed_items',
@@ -18,18 +44,7 @@ it('observes native migration stages and application execution without bootstrap
     [Item],
     async ({ db }) => {
       await db.migrate().execute()
-      expect(events.some((e) => e.source === 'catalog')).toBe(true)
-      expect(events.some((e) => e.source === 'coordination')).toBe(true)
-
-      expect(
-        events.find((e) => e.sql.toLowerCase().startsWith('create table'))?.source,
-      ).toBe('ddl')
-
-      expect(events.find((e) => e.sql.toLowerCase() === 'commit')?.source).toBe(
-        'lifecycle',
-      )
-
-      expect(events.every((e) => e.outcome === 'success')).toBe(true)
+      expectMigrationSources(events)
       events.length = 0
 
       await db.transaction(async (trx) => {

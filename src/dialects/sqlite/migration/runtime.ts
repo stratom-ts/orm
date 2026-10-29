@@ -5,7 +5,6 @@ import type {
 } from '@/ddl/migrationProgram'
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
-import { withQuerySource } from '@/query/executor'
 import type { QuerySource } from '@/query/observation'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { InvariantError, MigrationError, isErrorTag } from '@/utils/error'
@@ -138,10 +137,13 @@ async function run(
 
 /** Reads the current native busy policy before temporarily using nonblocking attempts. */
 async function readBusyTimeout(options: MigrationRuntimeOptions): Promise<number> {
-  const rows = await withQuerySource(options.executor, 'coordination').execute({
-    sql: 'pragma busy_timeout',
-    params: [],
-  })
+  const rows = await options.executor.execute(
+    {
+      sql: 'pragma busy_timeout',
+      params: [],
+    },
+    { source: 'coordination' },
+  )
 
   const value = (rows[0] as { timeout?: unknown } | undefined)?.timeout
 
@@ -274,10 +276,13 @@ async function assertPrecondition(
     })
   }
 
-  const rows = await withQuerySource(options.executor, 'catalog').execute({
-    sql: `select count(*) as count from "main".${quoteSqliteIdentifier(table)} where ${quoteSqliteIdentifier(precondition.column)} is null`,
-    params: [],
-  })
+  const rows = await options.executor.execute(
+    {
+      sql: `select count(*) as count from "main".${quoteSqliteIdentifier(table)} where ${quoteSqliteIdentifier(precondition.column)} is null`,
+      params: [],
+    },
+    { source: 'catalog' },
+  )
 
   const count = (rows[0] as { count?: unknown } | undefined)?.count
 
@@ -374,10 +379,13 @@ async function prepareAndExecute(
 
 /** Reads the native FK policy before following SQLite's documented rebuild sequence. */
 async function readForeignKeys(options: MigrationRuntimeOptions): Promise<number> {
-  const rows = await withQuerySource(options.executor, 'lifecycle').execute({
-    sql: 'pragma foreign_keys',
-    params: [],
-  })
+  const rows = await options.executor.execute(
+    {
+      sql: 'pragma foreign_keys',
+      params: [],
+    },
+    { source: 'lifecycle' },
+  )
 
   const value = (rows[0] as { foreign_keys?: unknown } | undefined)?.foreign_keys
 
@@ -400,17 +408,23 @@ async function validateFinalState(
 
   try {
     assertNotAborted(options, 'validation')
-    const foreign = await withQuerySource(options.executor, 'catalog').execute({
-      sql: 'pragma main.foreign_key_check',
-      params: [],
-    })
+    const foreign = await options.executor.execute(
+      {
+        sql: 'pragma main.foreign_key_check',
+        params: [],
+      },
+      { source: 'catalog' },
+    )
 
     if (foreign.length) throw new InvariantError('SQLite foreign_key_check failed')
 
-    const integrity = await withQuerySource(options.executor, 'catalog').execute({
-      sql: 'pragma main.integrity_check',
-      params: [],
-    })
+    const integrity = await options.executor.execute(
+      {
+        sql: 'pragma main.integrity_check',
+        params: [],
+      },
+      { source: 'catalog' },
+    )
 
     if (
       integrity.length !== 1 ||

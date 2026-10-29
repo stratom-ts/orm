@@ -918,11 +918,7 @@ and any `InvariantError` message or `MigrationError` defect `cause`. Inspect SQL
 before sharing it: bound values are separate, but SQL text can contain authored
 literals or sensitive identifiers.
 
-## License
-
-MIT
-
-### Query observation
+## Query observation
 
 Pass `onQuery` to `createDatabase` to receive one completion event for each attempted
 pinned-session `query` or `run` call:
@@ -974,3 +970,7 @@ Observer throws and returned promise rejections are contained and do not replace
 results or failures. Returned promises are never awaited and do not hold session leases
 or block close. Keep synchronous observer work short: it runs inline after execution.
 OpenTelemetry integration is not included.
+
+## License
+
+MIT
