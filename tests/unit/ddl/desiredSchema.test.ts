@@ -27,6 +27,7 @@ import {
   validatePhysicalName,
 } from '@/migrations/physicalNaming'
 import { createValueMapper } from '@/query'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 
 import {
   SQLITE_IDENTITY_POLICY,
@@ -478,8 +479,8 @@ describe('desired-schema reference metadata and value mapping: validates referen
     expect(dialectMapper.mapParam(Source, 'targetId', 'abc')).toBe('dialect:abc')
 
     expect(dialectMap).toHaveBeenCalledWith('uuid', 'abc', {
-      schema: Target.getSchema().entries.id,
-      authoredSchema: Source.getSchema().entries.targetId,
+      facts: extractStorageFacts(Target.getSchema().entries.id),
+      authoredFacts: extractStorageFacts(Source.getSchema().entries.targetId),
     })
   })
 })
@@ -732,7 +733,6 @@ function lowerFakeSqliteDesiredSchema(graph: AuthoredDesiredSchema) {
 
   return {
     tables: graph.tables.map((table) => ({
-      handle: table.handle,
       identity: table.identity,
       columns: table.columns.map((authored) => {
         const dataType = authored.reference

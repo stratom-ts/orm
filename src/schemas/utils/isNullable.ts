@@ -1,6 +1,6 @@
 import type { AnySchema } from '@/types/schema'
 
-import { analyzeSchema } from './analyzeSchema'
+import { extractStorageFacts } from '../valibot/storageFacts'
 
 /**
  * Returns whether a schema allows null or undefined values.
@@ -14,6 +14,6 @@ import { analyzeSchema } from './analyzeSchema'
  * @returns `true` if optional, nullable, or nullish
  */
 export function isNullable(schema: AnySchema): boolean {
-  const analysis = analyzeSchema(schema)
+  const analysis = extractStorageFacts(schema)
   return analysis.nullable || analysis.allowsUndefined
 }

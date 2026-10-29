@@ -1,4 +1,3 @@
-import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts, StorageStringFormat } from '@/storage/facts'
 import { QueryError, SchemaError } from '@/utils/error'
 
@@ -6,8 +5,6 @@ import type { DialectValueMappingContext } from '../types'
 
 import { inferPostgresColumnTypeFromFacts } from './infer'
 import { extractPostgresBaseType } from './normalize'
-
-// Native-schema entry adapters in this module are temporary until shared contexts pass facts in #388.
 
 const BIGINT_OUTPUT_STORAGE = new Set([
   'numeric',
@@ -292,11 +289,7 @@ export function validatePostgresValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
 ): void {
-  validatePostgresValueMappingFromFacts(
-    dataType,
-    extractStorageFacts(context.schema),
-    context.authoredSchema && extractStorageFacts(context.authoredSchema),
-  )
+  validatePostgresValueMappingFromFacts(dataType, context.facts, context.authoredFacts)
 }
 
 /** Validates selected storage against resolved and locally authored logical output. */
@@ -452,8 +445,8 @@ export function mapPostgresResultValue(
   return mapPostgresResultValueFromFacts(
     dataType,
     value,
-    context && extractStorageFacts(context.schema),
-    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
+    context?.facts,
+    context?.authoredFacts,
   )
 }
 
@@ -536,8 +529,8 @@ export function mapPostgresParamValue(
   return mapPostgresParamValueFromFacts(
     dataType,
     value,
-    context && extractStorageFacts(context.schema),
-    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
+    context?.facts,
+    context?.authoredFacts,
   )
 }
 

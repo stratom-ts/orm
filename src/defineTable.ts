@@ -17,7 +17,6 @@ import type {
   TableSchema,
 } from '@/schemas'
 import {
-  analyzeSchema,
   getColumnMetadata,
   getReferenceMetadata,
   getTableMetadata,
@@ -25,6 +24,8 @@ import {
   table,
 } from '@/schemas'
 import { validateRelationInput } from '@/schemas/actions/relation'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageDefault } from '@/storage/facts'
 import type { ColumnRef, ColumnRefsOf, SchemaNameOf, TableHandle } from '@/types'
 import { TABLE_HANDLE } from '@/types'
 import type { AnySchema } from '@/types/schema'
@@ -280,9 +281,9 @@ function validateColumnReference(columnName: string, ref: ReferenceMetadata): vo
  * @example
  *   hasValueSource(
  *     { kind: 'column', databaseDefault: { kind: 'literal', value: 0 } },
- *     undefined,
+ *     { kind: 'absent' },
  *   ) // true
- *   hasValueSource(undefined, undefined) // false
+ *   hasValueSource(undefined, { kind: 'absent' }) // false
  *
  * @param metadata - Column metadata that may contain a database default or generation.
  * @param schemaDefault - Default value from the Valibot schema.
@@ -291,12 +292,12 @@ function validateColumnReference(columnName: string, ref: ReferenceMetadata): vo
  */
 function hasValueSource(
   metadata: ColumnMetadata | undefined,
-  schemaDefault: unknown,
+  schemaDefault: StorageDefault,
 ): boolean {
   return (
     metadata?.databaseDefault !== undefined ||
     metadata?.generation !== undefined ||
-    schemaDefault !== undefined
+    schemaDefault.kind !== 'absent'
   )
 }
 
@@ -317,7 +318,7 @@ function validateOptionalColumn(
   columnName: string,
   colSchema: AnySchema,
 ): void {
-  const analysis = analyzeSchema(colSchema)
+  const analysis = extractStorageFacts(colSchema)
 
   if (!analysis.omitOnInsert || analysis.nullable) return
 
@@ -327,7 +328,7 @@ function validateOptionalColumn(
   if (
     (metadata?.databaseDefault?.kind === 'literal' &&
       metadata.databaseDefault.value === null) ||
-    schemaDefault === null
+    (schemaDefault.kind === 'value' && schemaDefault.value === null)
   ) {
     throw new SchemaError({
       message: `optional NOT NULL column "${columnName}" on table "${tableName}" cannot default to null`,

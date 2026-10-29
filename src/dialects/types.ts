@@ -16,8 +16,8 @@ import type {
   RelationIdentityInput,
   TableMetadata,
 } from '@/schemas/actions/types'
+import type { StorageFacts } from '@/storage/facts'
 import type { TableHandle } from '@/types'
-import type { AnySchema } from '@/types/schema'
 import type { DriverErrorClassifier } from '@/utils/error'
 
 import type { CatalogIntrospector } from './catalog'
@@ -87,7 +87,7 @@ export type DialectNaming = Readonly<{
 export type AuthoredDesiredColumn = Readonly<{
   name: string
   identifier: CanonicalIdentifier
-  schema: AnySchema
+  facts: StorageFacts
   metadata?: ColumnMetadata
   reference?: Readonly<{
     metadata: ReferenceMetadata
@@ -98,7 +98,6 @@ export type AuthoredDesiredColumn = Readonly<{
 
 /** One canonically registered authored table before physical lowering. */
 export type AuthoredDesiredTable = Readonly<{
-  handle: TableHandle
   identity: CanonicalRelationIdentity
   metadata: TableMetadata
   columns: readonly AuthoredDesiredColumn[]
@@ -146,6 +145,11 @@ export type LoweredDesiredSchema = Readonly<{
   tables: readonly LoweredDesiredTable[]
 }>
 
+/** Physical lowering result before shared code restores the native table association. */
+export type StorageDesiredSchema = Readonly<{
+  tables: readonly Omit<LoweredDesiredTable, 'handle'>[]
+}>
+
 /** Whole-graph schema lowering and physical column type behavior. */
 export type DialectSchema = Readonly<{
   /**
@@ -165,15 +169,15 @@ export type DialectSchema = Readonly<{
       /** The client supplies an explicit parameter-mapping contract for every column. */
       hasGlobalParameterMapping?: boolean
     }>,
-  ): LoweredDesiredSchema
+  ): StorageDesiredSchema
   /**
-   * Infers a supported physical SQL type from Valibot schema facts.
+   * Infers a supported physical SQL type from logical storage facts.
    *
-   * @param schema - Valibot schema used to read validation, storage, and metadata facts.
+   * @param facts - Provider-neutral logical storage evidence.
    *
    * @returns The supported physical SQL type; unsupported schema facts throw.
    */
-  inferColumnType(schema: AnySchema): SqlDataType
+  inferColumnType(facts: StorageFacts): SqlDataType
   /**
    * Normalizes physical SQL type spelling for stable schema comparison.
    *
@@ -249,12 +253,12 @@ export type DialectQueryResolveOptions = Readonly<{
 /** Logical column semantics supplied independently of the selected physical SQL type. */
 export type DialectValueMappingContext = Readonly<{
   /**
-   * Logical schema, resolved through reference targets independently of physical
+   * Logical facts, resolved through reference targets independently of physical
    * overrides.
    */
-  schema: AnySchema
-  /** Local reference schema, including wrappers and actions applied at the source. */
-  authoredSchema?: AnySchema
+  facts: StorageFacts
+  /** Local reference facts, including wrappers and actions applied at the source. */
+  authoredFacts?: StorageFacts
 }>
 
 /** SQL resolution, compilation, and optional dialect value conversion behavior. */

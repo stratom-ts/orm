@@ -7,7 +7,7 @@ import type { AuthoredDesiredSchema, CompiledQuery, Dialect } from '@/dialects'
 import { POSTGRES_IDENTITY_POLICY } from '@/dialects/postgres/identity'
 import { POSTGRES_PHYSICAL_NAMING } from '@/dialects/postgres/naming'
 import type { TableHandle } from '@/index'
-import { column, defineTable, isSqlNullable, postgresDialect, reference } from '@/index'
+import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import type {
   CanonicalRelationIdentityModule,
@@ -348,12 +348,11 @@ describe('Migration Plan construction', () => {
  */
 const lowerCustomDesiredSchema = (graph: AuthoredDesiredSchema) => ({
   tables: graph.tables.map((table) => ({
-    handle: table.handle,
     identity: table.identity,
     columns: table.columns.map((column) => ({
       identifier: column.identifier,
       dataType: 'custom_string',
-      notNull: !isSqlNullable(column.schema),
+      notNull: !column.facts.nullable,
       unique: column.metadata?.unique ?? false,
       autoIncrement: false,
       ...(column.metadata?.databaseDefault === undefined

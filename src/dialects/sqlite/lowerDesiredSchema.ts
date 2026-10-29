@@ -9,11 +9,10 @@ import type {
   DialectSchema,
   LoweredDatabaseDefault,
   LoweredDesiredColumn,
-  LoweredDesiredSchema,
+  StorageDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
-import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
 import { MigrationError } from '@/utils/error'
 
@@ -288,7 +287,7 @@ function lowerColumnDefault(
   assertSqliteDefaultCompatibility(
     value,
     dataType,
-    column.schema,
+    column.facts,
     hasGlobalResultMapping || typeof column.metadata?.mapResult === 'function',
     formatDesiredSchemaIdentity(table.identity, column.name),
   )
@@ -300,24 +299,24 @@ function lowerColumnDefault(
 export function lowerSqliteDesiredSchema(
   graph: AuthoredDesiredSchema,
   context?: Parameters<DialectSchema['lowerDesiredSchema']>[1],
-): LoweredDesiredSchema {
+): StorageDesiredSchema {
   return lowerDesiredSchemaGraph(graph, context, {
     validateIdentity: assertMainIdentity,
-    lowerPhysicalType: (column, _analysis, options) =>
+    lowerPhysicalType: (column, options) =>
       physicalType(
         column,
-        extractStorageFacts(column.schema),
+        column.facts,
         options?.hasGlobalParameterMapping ?? false,
         options?.hasGlobalResultMapping ?? false,
       ),
     lowerReferenceType: (table, column, inheritedType) =>
       validateReferencePhysicalType(table, column, inheritedType),
-    lowerColumn: (table, column, dataType, _analysis, options) =>
+    lowerColumn: (table, column, dataType, options) =>
       lowerColumn(
         table,
         column,
         dataType,
-        extractStorageFacts(column.schema),
+        column.facts,
         options?.hasGlobalResultMapping ?? false,
       ),
   })

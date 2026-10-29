@@ -1,6 +1,5 @@
 import { types } from 'node:util'
 
-import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
 import { QueryError, SchemaError } from '@/utils/error'
 
@@ -14,16 +13,12 @@ import {
   isSqliteSupportedNumber,
 } from './numeric'
 
-/** Temporary native-schema entry point; #388 supplies facts from shared query mapping. */
+/** Maps or validates values using logical storage evidence. */
 export function validateSqliteValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
 ): void {
-  validateSqliteValueMappingFacts(
-    dataType,
-    extractStorageFacts(context.schema),
-    context.authoredSchema ? extractStorageFacts(context.authoredSchema) : undefined,
-  )
+  validateSqliteValueMappingFacts(dataType, context.facts, context.authoredFacts)
 }
 
 /** Validates built-in mapping from resolved and locally authored storage facts. */
@@ -280,7 +275,7 @@ function mapRealValue(dataType: string, value: unknown): unknown {
   return typeof value === 'number' ? finiteNumber(dataType, value) : value
 }
 
-/** Temporary native-schema entry point; #388 supplies facts from shared query mapping. */
+/** Maps or validates values using logical storage evidence. */
 export function mapSqliteParamValue(
   dataType: string,
   value: unknown,
@@ -288,12 +283,7 @@ export function mapSqliteParamValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  return mapSqliteParamValueFacts(
-    dataType,
-    value,
-    context && extractStorageFacts(context.schema),
-    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
-  )
+  return mapSqliteParamValueFacts(dataType, value, context?.facts, context?.authoredFacts)
 }
 
 /**
@@ -340,7 +330,7 @@ function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): bool
   return Object.values(value).some((item) => containsNonFiniteNumber(item, seen))
 }
 
-/** Temporary native-schema entry point; #388 supplies facts from shared query mapping. */
+/** Maps or validates values using logical storage evidence. */
 export function mapSqliteResultValue(
   dataType: string,
   value: unknown,
@@ -351,8 +341,8 @@ export function mapSqliteResultValue(
   return mapSqliteResultValueFacts(
     dataType,
     value,
-    context && extractStorageFacts(context.schema),
-    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
+    context?.facts,
+    context?.authoredFacts,
   )
 }
 

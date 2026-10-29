@@ -79,10 +79,12 @@ of silently truncating or borrowing another member's policy.
 ### Schema lowering
 
 `schema.lowerDesiredSchema()` receives the complete, canonically ordered and
-reference-validated authored schema graph. It lowers the whole graph so cross-table
-references and selected-member type overrides are resolved consistently. Each result
-preserves the table's handle and canonical identity, canonical column and primary-key
-members, physical column properties, and structured canonical foreign-key references.
+reference-validated authored schema graph. Columns carry provider-neutral storage facts,
+and the graph exposes no native schemas or table handles. It lowers the whole graph so
+cross-table references and selected-member type overrides are resolved consistently.
+The dialect returns `StorageDesiredSchema` with canonical identities, column and
+primary-key members, physical properties, and structured foreign-key references.
+Shared code restores table-handle associations after the dialect returns.
 Engine-specific create-table AST projection happens only inside the selected member's
 migration lowering.
 
@@ -94,14 +96,14 @@ A member supplies only narrow hooks for namespace validation, physical type sele
 reference-type compatibility, defaults, generation, and final physical column metadata.
 Do not copy the graph algorithm into a member or widen `DialectSchema` with these hooks.
 
-`inferColumnType()` maps logical Valibot intent to a physical type.
+`inferColumnType(facts)` maps logical storage facts to a physical type.
 `normalizeDataType()` supplies catalog-comparison form, and
 `normalizeDefaultValue()` may supply default-value comparison form. Unsupported type,
 default, generation, or reference forms fail with `MigrationError`; they never degrade
 to a convenient PostgreSQL or text default.
 
-Schema analysis in `src/schemas/utils/analyzeSchema.ts` is shared and reports logical
-facts such as effective output kind, constraints, formats, wrappers, transformations,
+The internal `src/schemas/valibot` module extracts logical storage facts such as effective
+output kind, constraints, formats, wrapper permissions, transformation uncertainty,
 and composite branches. It does not choose physical storage. The member-owned
 `src/dialects/postgres/infer.ts` and `src/dialects/sqlite/infer.ts` select that storage;
 the corresponding `mapping.ts` files map query parameters and results while preserving
@@ -112,6 +114,15 @@ export the implementation helpers. Keep `schema.ts` as the facet assembly point 
 `lowerDesiredSchema.ts` as each member's desired-graph lowering owner. The README
 inference reference and the PostgreSQL and SQLite production profiles below describe
 the shipped formats, transforms, composites, numeric limits, and output mappings.
+
+These pre-release extension signatures replace their native-schema inputs directly.
+`DialectValueMappingContext` carries resolved logical `facts` and optional local
+`authoredFacts` rather than `schema` and `authoredSchema`. The legacy `analyzeSchema`
+and `SchemaAnalysis` exports are removed. There are no compatibility wrappers.
+See [Internal storage facts](storage-facts.md) for the boundary and remaining Valibot
+coupling. Runtime validation, metadata access, public schema access, and static type
+inference remain Valibot-backed. Operation-aware validation and metadata access are
+the next extraction; no public schema-provider interface is introduced here.
 
 Column wrappers track three separate permissions: omission on insert, JavaScript
 `undefined`, and SQL `NULL`. Analysis reduces nested wrappers from the inside out:
@@ -348,7 +359,7 @@ SQL literals embedded by an adapter are verbatim and are outside parameter redac
 `dryRun()` resolves and validates the same Semantic Profile as execution and performs no
 DDL.
 
-PostgreSQL value mapping uses the analyzed schema output when one is available.
+PostgreSQL value mapping uses logical storage facts when they are available.
 `bigint` and `int8` results become JavaScript numbers only for number output within
 the safe integer range. Bigint output maps integer-valued `bigint`, `numeric`, and
 `decimal` values exactly; a numeric value such as `42.000` becomes `42n`.
@@ -476,7 +487,7 @@ input string length, UUID format, and numeric bounds do not carry across it.
 
 Built-in mapping rejects numeric or boolean schemas with TEXT affinity, strings with
 numeric affinity, bigint with REAL or TEXT affinity, and unknown or mixed output kinds.
-Composite branch output facts come from shared schema analysis; each member's `infer.ts`
+Composite branch output facts come from internal Valibot extraction; each member's `infer.ts`
 selects compatible storage and its `mapping.ts` preserves the result identity. SQLite
 maps compatible number unions through the inferred `INTEGER` or `REAL` logical type
 even when the selected declared type differs. PostgreSQL keeps native temporal
@@ -495,9 +506,9 @@ existing column hooks (`mapParam`, `mapResult`) or client hooks (`mapParamValue`
 `mapResultValue`). Column hooks take precedence independently in each direction.
 The application owns the type and value preservation contract for these overrides.
 One custom direction still requires a compatible built-in mapping in the other.
-Reference columns retain their target's logical schema and validate their selected
+Reference columns retain their target's logical facts and validate their selected
 physical storage under the same policy.
-Validation also checks wrappers and pipeline actions on the authored reference schema.
+Mapping validation also checks facts derived from wrappers and pipeline actions on the local reference schema.
 
 SQLite's value limits remain in force after conversions: numbers must be finite,
 integral numbers must be safe JavaScript integers, and bigints must fit signed

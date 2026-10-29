@@ -1,6 +1,6 @@
 import type { AnySchema } from '@/types/schema'
 
-import { analyzeSchema } from './analyzeSchema'
+import { extractStorageFacts } from '../valibot/storageFacts'
 
 /**
  * Returns whether a column schema should map to SQL NULL-capable storage.
@@ -19,5 +19,5 @@ import { analyzeSchema } from './analyzeSchema'
  * @returns `true` when the schema maps to a SQL-nullable column
  */
 export function isSqlNullable(schema: AnySchema): boolean {
-  return analyzeSchema(schema).nullable
+  return extractStorageFacts(schema).nullable
 }

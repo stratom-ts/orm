@@ -1,7 +1,8 @@
 import type { BaseIssue, ObjectEntries, ObjectSchema } from 'valibot'
 import { object, optional, safeParse } from 'valibot'
 
-import { analyzeSchema, getColumnMetadata } from '@/schemas'
+import { getColumnMetadata } from '@/schemas'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { ValidationError } from '@/utils/error'
@@ -25,7 +26,7 @@ function isDirectlyOmitOptionalSchema(schema: AnySchema): boolean {
  * @param schema - Column schema to inspect.
  */
 function isInsertOptional(schema: AnySchema): boolean {
-  if (analyzeSchema(schema).omitOnInsert) return true
+  if (extractStorageFacts(schema).omitOnInsert) return true
 
   const meta = getColumnMetadata(schema)
 

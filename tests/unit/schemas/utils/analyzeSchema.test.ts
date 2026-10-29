@@ -63,7 +63,8 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { analyzeSchema, defineTable, reference } from '@/index'
+import { defineTable, reference, unwrapDeep } from '@/index'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { AnySchema } from '@/types/schema'
 
 it.each([
@@ -75,11 +76,11 @@ it.each([
   isoTimestamp(),
 ])('should retain %s only while string output remains', (format) => {
   const schema = nullable(pipe(string(), format))
-  expect(analyzeSchema(schema).stringFormats).toEqual([format.type])
+  expect(extractStorageFacts(schema).stringFormats).toEqual([format.type])
 
-  expect(analyzeSchema(pipe(string(), format, toDate())).stringFormats).toEqual([])
+  expect(extractStorageFacts(pipe(string(), format, toDate())).stringFormats).toEqual([])
 
-  expect(analyzeSchema(pipe(string(), format, string())).stringFormats).toEqual([
+  expect(extractStorageFacts(pipe(string(), format, string())).stringFormats).toEqual([
     format.type,
   ])
 })
@@ -97,10 +98,10 @@ it('should reject JSON composites with nested identity-losing outputs', () => {
     object({ value: literal(Number.NEGATIVE_INFINITY) }),
   ])
 
-  expect(analyzeSchema(jsonNative).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(nestedDate).jsonOutputCompatible).toBe(false)
-  expect(analyzeSchema(nestedBigint).jsonOutputCompatible).toBe(false)
-  expect(analyzeSchema(nestedInfinity).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(jsonNative).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(nestedDate).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(nestedBigint).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(nestedInfinity).jsonOutputCompatible).toBe(false)
 })
 
 it('should preserve JSON-safe array, optional, and nested union outputs', () => {
@@ -144,21 +145,21 @@ it('should preserve JSON-safe array, optional, and nested union outputs', () => 
     object({ value: union([pipe(string(), toNumber()), number()]) }),
   ])
 
-  expect(analyzeSchema(nestedArrayHole).jsonOutputCompatible).toBe(false)
-  expect(analyzeSchema(nestedCompositeArrayHole).jsonOutputCompatible).toBe(false)
-  expect(analyzeSchema(nonOptionalArrayValue).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(defaultedArrayValue).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(convertedOptionalArrayValue).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(nestedNativeUnion).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(nestedConversionUnion).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(optionalProperty).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(nestedArrayHole).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(nestedCompositeArrayHole).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(nonOptionalArrayValue).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(defaultedArrayValue).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(convertedOptionalArrayValue).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(nestedNativeUnion).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(nestedConversionUnion).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(optionalProperty).jsonOutputCompatible).toBe(true)
   const nullishProperty = object({ label: nullish(string()) })
   expect(
-    analyzeSchema(union([nullishProperty, nullishProperty])).jsonOutputCompatible,
+    extractStorageFacts(union([nullishProperty, nullishProperty])).jsonOutputCompatible,
   ).toBe(true)
 
   expect(
-    analyzeSchema(union([object({ label: string() }), nullSchema()]))
+    extractStorageFacts(union([object({ label: string() }), nullSchema()]))
       .jsonOutputCompatible,
   ).toBe(true)
 })
@@ -169,7 +170,7 @@ it('should treat undefinedable defaults as defined array outputs', () => {
     object({ values: array(undefinedable(string(), 'fallback')) }),
   ])
 
-  expect(analyzeSchema(schema).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(schema).jsonOutputCompatible).toBe(true)
 })
 
 it('should analyze optional defaults through their transformed output schema', () => {
@@ -182,7 +183,7 @@ it('should analyze optional defaults through their transformed output schema', (
     }),
   })
 
-  expect(analyzeSchema(union([shape, shape])).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(union([shape, shape])).jsonOutputCompatible).toBe(true)
   expect(defaultCalls).toBe(0)
 
   const parsed = safeParse(shape, {})
@@ -217,11 +218,11 @@ it('should retain JSON loss evidence until a transformation proves safe output',
   const intersectDate = intersect([object({ at: date() }), object({ label: string() })])
   const nullBranch = union([object({ label: string() }), nullSchema()])
 
-  expect(analyzeSchema(nullBranch).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(unsafeThenValidated).jsonOutputCompatible).toBe(false)
-  expect(analyzeSchema(recoveredAfterTransform).jsonOutputCompatible).toBe(true)
-  expect(analyzeSchema(variantDate).jsonOutputCompatible).toBe(false)
-  expect(analyzeSchema(intersectDate).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(nullBranch).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(unsafeThenValidated).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(recoveredAfterTransform).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(variantDate).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(intersectDate).jsonOutputCompatible).toBe(false)
 })
 
 it.each([
@@ -294,7 +295,7 @@ it.each([
     ),
   },
 ])('should prove later structured output is JSON-safe: $name', ({ branch }) => {
-  expect(analyzeSchema(union([branch, branch])).jsonOutputCompatible).toBe(true)
+  expect(extractStorageFacts(union([branch, branch])).jsonOutputCompatible).toBe(true)
 })
 
 it('should parse projected object fields and tuple tail away', () => {
@@ -368,7 +369,7 @@ it.each([
     ),
   },
 ])('should retain genuinely unsafe structured output: $name', ({ branch }) => {
-  expect(analyzeSchema(union([branch, branch])).jsonOutputCompatible).toBe(false)
+  expect(extractStorageFacts(union([branch, branch])).jsonOutputCompatible).toBe(false)
 })
 
 it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(
@@ -393,7 +394,7 @@ it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(
     ]
 
     for (const schema of schemas) {
-      const analysis = analyzeSchema(schema)
+      const analysis = extractStorageFacts(schema)
       expect(analysis.stringFormats).toEqual([format.type])
       expect(analysis.stringConstraints).toEqual({ maxLength: 80 })
       expect(Object.isFrozen(analysis.stringFormats)).toBe(true)
@@ -402,9 +403,9 @@ it.each([ip(), ipv4(), ipv6(), mac(), mac48(), mac64(), decimal()])(
 )
 
 it('should retain conflicting formats without selecting dialect storage', () => {
-  const analysis = analyzeSchema(pipe(string(), uuid(), ip(), uuid(), decimal()))
+  const analysis = extractStorageFacts(pipe(string(), uuid(), ip(), uuid(), decimal()))
   expect(analysis.stringFormats).toEqual(['uuid', 'ip', 'decimal'])
-  expect(analysis.stringFormat).toBe('uuid')
+  expect(analysis.stringFormats).toContain('uuid')
 })
 
 it('should clear format facts on conversions and retain them across validation schemas', () => {
@@ -422,59 +423,58 @@ it('should clear format facts on conversions and retain them across validation s
   ]
 
   for (const schema of schemas) {
-    expect(analyzeSchema(schema).stringFormats).toEqual([])
-    expect(analyzeSchema(schema).stringFormat).toBeUndefined()
+    expect(extractStorageFacts(schema).stringFormats).toEqual([])
+    expect(extractStorageFacts(schema).stringFormats).toEqual([])
   }
 
-  expect(analyzeSchema(pipe(original, string())).stringFormats).toEqual([
+  expect(extractStorageFacts(pipe(original, string())).stringFormats).toEqual([
     'uuid',
     'ip',
     'decimal',
   ])
 
-  expect(analyzeSchema(pipe(original, string(), mac48())).stringFormats).toEqual([
+  expect(extractStorageFacts(pipe(original, string(), mac48())).stringFormats).toEqual([
     'uuid',
     'ip',
     'decimal',
     'mac48',
   ])
 
-  expect(analyzeSchema(pipe(original, pipe(string(), ipv6()))).stringFormats).toEqual([
-    'uuid',
-    'ip',
-    'decimal',
-    'ipv6',
-  ])
+  expect(
+    extractStorageFacts(pipe(original, pipe(string(), ipv6()))).stringFormats,
+  ).toEqual(['uuid', 'ip', 'decimal', 'ipv6'])
 
-  expect(analyzeSchema(pipe(number(), toString(), decimal())).stringFormats).toEqual([
-    'decimal',
-  ])
+  expect(
+    extractStorageFacts(pipe(number(), toString(), decimal())).stringFormats,
+  ).toEqual(['decimal'])
 })
 
-describe('analyzeSchema UUID facts', () => {
+describe('extractStorageFacts UUID facts', () => {
   it('should record UUID validation without replacing string or length facts', () => {
     const schema = pipe(string(), minLength(30), uuid(), maxLength(36))
-    const analysis = analyzeSchema(schema)
+    const analysis = extractStorageFacts(schema)
 
     expect(analysis).toMatchObject({
-      stringFormat: 'uuid',
+      stringFormats: ['uuid'],
       outputKind: 'string',
       stringConstraints: { minLength: 30, maxLength: 36 },
     })
 
-    expect(analysis.baseSchema.type).toBe('string')
+    expect(analysis.outputKind).toBe('string')
 
-    expect(analyzeSchema(pipe(string(), length(36), uuid())).stringConstraints).toEqual({
+    expect(
+      extractStorageFacts(pipe(string(), length(36), uuid())).stringConstraints,
+    ).toEqual({
       minLength: 36,
       maxLength: 36,
     })
 
-    expect(analyzeSchema(string()).stringFormat).toBeUndefined()
-    expect(analyzeSchema(pipe(string(), email())).stringFormat).toBeUndefined()
+    expect(extractStorageFacts(string()).stringFormats).toEqual([])
+    expect(extractStorageFacts(pipe(string(), email())).stringFormats).toEqual([])
   })
 })
 
-describe('analyzeSchema UUID wrappers', () => {
+describe('extractStorageFacts UUID wrappers', () => {
   it('should retain UUID through every supported wrapper family', () => {
     const validated = pipe(string(), uuid(), maxLength(36))
     const cases = [
@@ -489,8 +489,8 @@ describe('analyzeSchema UUID wrappers', () => {
     ] as const
 
     for (const [schema, nullableValue, allowsUndefined, omitOnInsert] of cases) {
-      expect(analyzeSchema(schema)).toMatchObject({
-        stringFormat: 'uuid',
+      expect(extractStorageFacts(schema)).toMatchObject({
+        stringFormats: ['uuid'],
         stringConstraints: { maxLength: 36 },
         outputKind: 'string',
         nullable: nullableValue,
@@ -501,13 +501,13 @@ describe('analyzeSchema UUID wrappers', () => {
   })
 })
 
-describe('analyzeSchema UUID nested pipes', () => {
+describe('extractStorageFacts UUID nested pipes', () => {
   it('should handle inner and outer pipes on nested and piped wrappers', () => {
     const base = pipe(string(), uuid())
     const inner = nullable(base)
     const outer = pipe(nonNullable(inner), uuid(), maxLength(36))
-    expect(analyzeSchema(outer)).toMatchObject({
-      stringFormat: 'uuid',
+    expect(extractStorageFacts(outer)).toMatchObject({
+      stringFormats: ['uuid'],
       stringConstraints: { maxLength: 36 },
       nullable: false,
       allowsUndefined: false,
@@ -515,28 +515,28 @@ describe('analyzeSchema UUID nested pipes', () => {
       outputKind: 'string',
     })
 
-    expect(analyzeSchema(outer).unwrappedSchema).toBe(base)
+    expect(unwrapDeep(outer)).toBe(base)
 
     const outerOnlyBase = string()
     const outerOnly = pipe(nonNullable(nullable(outerOnlyBase)), uuid(), maxLength(36))
-    expect(analyzeSchema(outerOnly)).toMatchObject({
-      stringFormat: 'uuid',
+    expect(extractStorageFacts(outerOnly)).toMatchObject({
+      stringFormats: ['uuid'],
       stringConstraints: { maxLength: 36 },
       nullable: false,
     })
 
-    expect(analyzeSchema(outerOnly).unwrappedSchema).toBe(outerOnlyBase)
+    expect(unwrapDeep(outerOnly)).toBe(outerOnlyBase)
 
     const innerOnlyBase = pipe(string(), uuid(), maxLength(36))
-    expect(analyzeSchema(nonNullable(nullable(innerOnlyBase))).unwrappedSchema).toBe(
-      innerOnlyBase,
-    )
+    expect(unwrapDeep(nonNullable(nullable(innerOnlyBase)))).toBe(innerOnlyBase)
 
-    expect(analyzeSchema(nonNullable(nullable(innerOnlyBase))).stringFormat).toBe('uuid')
+    expect(
+      extractStorageFacts(nonNullable(nullable(innerOnlyBase))).stringFormats,
+    ).toContain('uuid')
 
     const reversed = optional(nonNullish(pipe(string(), maxLength(36), uuid())))
-    expect(analyzeSchema(reversed)).toMatchObject({
-      stringFormat: 'uuid',
+    expect(extractStorageFacts(reversed)).toMatchObject({
+      stringFormats: ['uuid'],
       nullable: false,
       allowsUndefined: true,
       omitOnInsert: true,
@@ -544,16 +544,16 @@ describe('analyzeSchema UUID nested pipes', () => {
   })
 })
 
-describe('analyzeSchema UUID defaults', () => {
+describe('extractStorageFacts UUID defaults', () => {
   it('should retain defaults around and inside piped wrappers', () => {
     const defaulted = optional(
       pipe(string(), uuid()),
       '550e8400-e29b-41d4-a716-446655440000',
     )
 
-    expect(analyzeSchema(defaulted)).toMatchObject({
-      stringFormat: 'uuid',
-      schemaDefault: '550e8400-e29b-41d4-a716-446655440000',
+    expect(extractStorageFacts(defaulted)).toMatchObject({
+      stringFormats: ['uuid'],
+      schemaDefault: { kind: 'value', value: '550e8400-e29b-41d4-a716-446655440000' },
       omitOnInsert: true,
     })
 
@@ -562,16 +562,16 @@ describe('analyzeSchema UUID defaults', () => {
       uuid(),
     )
 
-    expect(analyzeSchema(pipedDefault)).toMatchObject({
-      stringFormat: 'uuid',
-      schemaDefault: '550e8400-e29b-41d4-a716-446655440000',
+    expect(extractStorageFacts(pipedDefault)).toMatchObject({
+      stringFormats: ['uuid'],
+      schemaDefault: { kind: 'value', value: '550e8400-e29b-41d4-a716-446655440000' },
       allowsUndefined: true,
       omitOnInsert: true,
     })
   })
 })
 
-describe('analyzeSchema', () => {
+describe('extractStorageFacts', () => {
   it('should report direct wrapper semantics and dialect-neutral output facts', () => {
     const cases = [
       [optional(string()), false, true, 'string'],
@@ -585,51 +585,51 @@ describe('analyzeSchema', () => {
     ] as const
 
     for (const [schema, nullableValue, omitOnInsert, outputKind] of cases) {
-      expect(analyzeSchema(schema).nullable).toBe(nullableValue)
-      expect(analyzeSchema(schema).omitOnInsert).toBe(omitOnInsert)
-      expect(analyzeSchema(schema).outputKind).toBe(outputKind)
+      expect(extractStorageFacts(schema).nullable).toBe(nullableValue)
+      expect(extractStorageFacts(schema).omitOnInsert).toBe(omitOnInsert)
+      expect(extractStorageFacts(schema).outputKind).toBe(outputKind)
     }
   })
 
   it('should reduce nested wrappers inside-out and retain constraints below them', () => {
     const schema = nonNullable(nullable(optional(pipe(string(), maxLength(80)))))
-    const analysis = analyzeSchema(schema)
+    const analysis = extractStorageFacts(schema)
 
     expect(analysis.nullable).toBe(false)
     expect(analysis.omitOnInsert).toBe(false)
     expect(analysis.stringConstraints).toEqual({ maxLength: 80 })
-    expect(analysis.baseSchema.type).toBe('string')
+    expect(analysis.outputKind).toBe('string')
 
-    const numeric = analyzeSchema(exactOptional(pipe(number(), maxValue(100))))
+    const numeric = extractStorageFacts(exactOptional(pipe(number(), maxValue(100))))
     expect(numeric.numberConstraints).toEqual({ maxValue: 100 })
-    expect(numeric.baseSchema.type).toBe('number')
+    expect(numeric.outputKind).toBe('number')
   })
 
   it('should only report output kinds for homogeneous enum-like options', () => {
-    expect(analyzeSchema(picklist(['a', 'b'])).outputKind).toBe('string')
-    expect(analyzeSchema(enumSchema({ A: 'a', B: 'b' })).outputKind).toBe('string')
-    expect(analyzeSchema(picklist(['a', 1])).outputKind).toBeUndefined()
-    expect(analyzeSchema(enumSchema({ A: 'a', B: 1 })).outputKind).toBeUndefined()
+    expect(extractStorageFacts(picklist(['a', 'b'])).outputKind).toBe('string')
+    expect(extractStorageFacts(enumSchema({ A: 'a', B: 'b' })).outputKind).toBe('string')
+    expect(extractStorageFacts(picklist(['a', 1])).outputKind).toBeUndefined()
+    expect(extractStorageFacts(enumSchema({ A: 'a', B: 1 })).outputKind).toBeUndefined()
   })
 })
 
-describe('analyzeSchema: reports every supported scalar and JSON-shaped output family', () => {
+describe('extractStorageFacts: reports every supported scalar and JSON-shaped output family', () => {
   it('should report every supported scalar and JSON-shaped output family', () => {
-    expect(analyzeSchema(string()).outputKind).toBe('string')
-    expect(analyzeSchema(number()).outputKind).toBe('number')
-    expect(analyzeSchema(bigint()).outputKind).toBe('bigint')
-    expect(analyzeSchema(boolean()).outputKind).toBe('boolean')
-    expect(analyzeSchema(date()).outputKind).toBe('date')
-    expect(analyzeSchema(object({ id: string() })).outputKind).toBe('json')
-    expect(analyzeSchema(array(string())).outputKind).toBe('json')
+    expect(extractStorageFacts(string()).outputKind).toBe('string')
+    expect(extractStorageFacts(number()).outputKind).toBe('number')
+    expect(extractStorageFacts(bigint()).outputKind).toBe('bigint')
+    expect(extractStorageFacts(boolean()).outputKind).toBe('boolean')
+    expect(extractStorageFacts(date()).outputKind).toBe('date')
+    expect(extractStorageFacts(object({ id: string() })).outputKind).toBe('json')
+    expect(extractStorageFacts(array(string())).outputKind).toBe('json')
   })
 
   it('should leave unsupported mixed-output schemas unclassified', () => {
-    expect(analyzeSchema(union([string(), number()])).outputKind).toBeUndefined()
+    expect(extractStorageFacts(union([string(), number()])).outputKind).toBeUndefined()
   })
 })
 
-describe('analyzeSchema bigint composites', () => {
+describe('extractStorageFacts bigint composites', () => {
   it('should retain outer bigint bounds separately from nested branch bounds', () => {
     const min = -(2n ** 63n)
     const max = 2n ** 63n - 1n
@@ -644,7 +644,7 @@ describe('analyzeSchema bigint composites', () => {
       ),
     )
 
-    const analysis = analyzeSchema(schema)
+    const analysis = extractStorageFacts(schema)
     expect(analysis).toMatchObject({
       outputKind: 'bigint',
       nullable: true,
@@ -658,18 +658,18 @@ describe('analyzeSchema bigint composites', () => {
 
     expect(analysis.composite?.branches[1]).toMatchObject({
       bigintConstraints: { maxValue: max - 1n },
-      composite: { type: 'intersect' },
+      composite: { kind: 'intersection' },
     })
   })
 })
 
-describe('analyzeSchema composites', () => {
+describe('extractStorageFacts composites', () => {
   it('should combine SQL nullability from composite branches with defaults and null-only schemas', () => {
     const defaultedUnion = union([nullable(string(), 'fallback'), string()])
     const nullUnion = union([literal(null as never), string()])
 
-    expect(analyzeSchema(defaultedUnion).nullable).toBe(true)
-    expect(analyzeSchema(nullUnion).nullable).toBe(true)
+    expect(extractStorageFacts(defaultedUnion).nullable).toBe(true)
+    expect(extractStorageFacts(nullUnion).nullable).toBe(true)
   })
 
   it('should combine SQL nullability across every intersection branch', () => {
@@ -678,13 +678,13 @@ describe('analyzeSchema composites', () => {
       nullable(string(), 'second'),
     ])
 
-    expect(analyzeSchema(nullableIntersection).nullable).toBe(true)
+    expect(extractStorageFacts(nullableIntersection).nullable).toBe(true)
   })
 
   it('should require every intersection branch to allow SQL NULL', () => {
     const requiredIntersection = intersect([nullable(string()), string()])
 
-    expect(analyzeSchema(requiredIntersection).nullable).toBe(false)
+    expect(extractStorageFacts(requiredIntersection).nullable).toBe(false)
   })
 
   it('should keep object variants non-nullable', () => {
@@ -693,18 +693,18 @@ describe('analyzeSchema composites', () => {
       object({ kind: literal('count'), value: number() }),
     ])
 
-    expect(analyzeSchema(objectVariant).nullable).toBe(false)
+    expect(extractStorageFacts(objectVariant).nullable).toBe(false)
   })
 })
 
-describe('analyzeSchema composites', () => {
+describe('extractStorageFacts composites', () => {
   it('should derive nullable storage branches without making null an insert omission', () => {
     const schema = union([
       union([nullSchema(), literal(null as never)]),
       pipe(string(), maxLength(12)),
     ])
 
-    const analysis = analyzeSchema(schema)
+    const analysis = extractStorageFacts(schema)
 
     expect(analysis).toMatchObject({
       outputKind: 'string',
@@ -714,20 +714,20 @@ describe('analyzeSchema composites', () => {
 
     expect(analysis.composite?.branches[0]?.nullOnly).toBe(true)
     expect(analysis.composite?.branches[1]?.stringConstraints.maxLength).toBe(12)
-    expect(analyzeSchema(nonNullable(schema)).nullable).toBe(false)
+    expect(extractStorageFacts(nonNullable(schema)).nullable).toBe(false)
   })
 
   it('should require an outer wrapper for insert omission and retain its default', () => {
     const schema = union([optional(string(), 'fallback'), string()])
-    expect(analyzeSchema(schema)).toMatchObject({
+    expect(extractStorageFacts(schema)).toMatchObject({
       outputKind: 'string',
       allowsUndefined: true,
       omitOnInsert: false,
     })
 
-    expect(analyzeSchema(optional(schema, 'outer'))).toMatchObject({
+    expect(extractStorageFacts(optional(schema, 'outer'))).toMatchObject({
       omitOnInsert: true,
-      schemaDefault: 'outer',
+      schemaDefault: { kind: 'value', value: 'outer' },
     })
 
     expect(safeParse(schema, undefined).output).toBe('fallback')
@@ -735,12 +735,16 @@ describe('analyzeSchema composites', () => {
 
   it('should clear nullability when a known conversion produces a non-null output', () => {
     const schema = pipe(union([string(), nullSchema()]), toString())
-    expect(analyzeSchema(schema)).toMatchObject({ outputKind: 'string', nullable: false })
+    expect(extractStorageFacts(schema)).toMatchObject({
+      outputKind: 'string',
+      nullable: false,
+    })
+
     expect(safeParse(schema, null).output).toBe('null')
   })
 })
 
-describe('analyzeSchema composites', () => {
+describe('extractStorageFacts composites', () => {
   it('should retain nested variant and intersect output facts and clear them after conversion', () => {
     const choice = variant('kind', [
       object({ kind: literal('a'), value: string() }),
@@ -749,28 +753,30 @@ describe('analyzeSchema composites', () => {
 
     const merged = intersect([object({ name: string() }), object({ age: number() })])
 
-    expect(analyzeSchema(choice).outputKind).toBe('json')
-    expect(analyzeSchema(merged).composite?.type).toBe('intersect')
+    expect(extractStorageFacts(choice).outputKind).toBe('json')
+    expect(extractStorageFacts(merged).composite?.kind).toBe('intersection')
 
     expect(
-      analyzeSchema(pipe(union([string(), string()]), maxLength(20))).stringConstraints
-        .maxLength,
+      extractStorageFacts(pipe(union([string(), string()]), maxLength(20)))
+        .stringConstraints.maxLength,
     ).toBe(20)
 
     expect(
-      analyzeSchema(pipe(union([string(), string()]), toNumber())).composite,
+      extractStorageFacts(pipe(union([string(), string()]), toNumber())).composite,
     ).toBeUndefined()
 
     expect(
-      analyzeSchema(pipe(union([string(), string()]), toNumber(), number())).composite,
+      extractStorageFacts(pipe(union([string(), string()]), toNumber(), number()))
+        .composite,
     ).toBeUndefined()
   })
 
   it('should leave mixed or unknown branch outputs unclassified', () => {
-    expect(analyzeSchema(union([string(), number()])).outputKind).toBeUndefined()
+    expect(extractStorageFacts(union([string(), number()])).outputKind).toBeUndefined()
 
     expect(
-      analyzeSchema(union([string(), pipe(string(), transform(Number))])).outputKind,
+      extractStorageFacts(union([string(), pipe(string(), transform(Number))]))
+        .outputKind,
     ).toBeUndefined()
   })
 })
@@ -788,7 +794,7 @@ it('should distinguish consumed null inputs from stored null outputs', () => {
   ] as const
 
   for (const [schema, outputKind, nullableValue, omitOnInsert] of cases) {
-    expect(analyzeSchema(schema)).toMatchObject({
+    expect(extractStorageFacts(schema)).toMatchObject({
       outputKind,
       nullable: nullableValue,
       omitOnInsert,
@@ -798,11 +804,12 @@ it('should distinguish consumed null inputs from stored null outputs', () => {
 
 it('should combine constraints from repeated same-kind schemas', () => {
   expect(
-    analyzeSchema(pipe(number(), safeInteger(), number(), integer())).numberConstraints,
+    extractStorageFacts(pipe(number(), safeInteger(), number(), integer()))
+      .numberConstraints,
   ).toEqual({ isInteger: true, isSafeInteger: true })
 
   expect(
-    analyzeSchema(
+    extractStorageFacts(
       pipe(
         number(),
         minValue(5),
@@ -813,7 +820,7 @@ it('should combine constraints from repeated same-kind schemas', () => {
   ).toEqual({ minValue: 5, maxValue: 10 })
 
   expect(
-    analyzeSchema(
+    extractStorageFacts(
       pipe(
         bigint(),
         minValue(5n),
@@ -824,7 +831,7 @@ it('should combine constraints from repeated same-kind schemas', () => {
   ).toEqual({ minValue: 5n, maxValue: 10n })
 
   expect(
-    analyzeSchema(
+    extractStorageFacts(
       pipe(
         string(),
         uuid(),
@@ -867,34 +874,32 @@ it('should retain and narrow finite and composite proofs across same-kind schema
     maxValue(10),
   )
 
-  expect(analyzeSchema(safeUnion).numberConstraints).toEqual({
+  expect(extractStorageFacts(safeUnion).numberConstraints).toEqual({
     isInteger: true,
     isSafeInteger: true,
   })
 
   expect(
-    analyzeSchema(safeUnion).composite?.branches.every(
+    extractStorageFacts(safeUnion).composite?.branches.every(
       (branch) => branch.numberConstraints.isSafeInteger,
     ),
   ).toBe(true)
 
-  expect(analyzeSchema(finiteChoice).outputSchema?.type).toBe('picklist')
+  expect(extractStorageFacts(finiteChoice).finiteEvidence).toBe('choice')
 
-  expect(analyzeSchema(finiteChoice).numberConstraints).toMatchObject({
+  expect(extractStorageFacts(finiteChoice).numberConstraints).toMatchObject({
     isInteger: true,
     maxValue: 10,
   })
 
-  expect(analyzeSchema(narrowedComposite).composite?.branches).toHaveLength(1)
+  expect(extractStorageFacts(narrowedComposite).composite?.branches).toHaveLength(1)
 
-  expect(
-    analyzeSchema(narrowedComposite).composite?.branches[0]?.outputSchema,
-  ).toMatchObject({
-    type: 'literal',
-    literal: 5,
+  expect(extractStorageFacts(narrowedComposite).composite?.branches[0]).toMatchObject({
+    finiteEvidence: 'singleton',
+    singletonValue: 5,
   })
 
-  expect(analyzeSchema(compositeChoice).finiteValues).toEqual([5])
+  expect(extractStorageFacts(compositeChoice).finiteValues).toEqual([5])
 })
 
 it('should retain narrowed enum values through later numeric schemas', () => {
@@ -905,7 +910,7 @@ it('should retain narrowed enum values through later numeric schemas', () => {
     maxValue(10),
   )
 
-  expect(analyzeSchema(schema).finiteValues).toEqual([5])
+  expect(extractStorageFacts(schema).finiteValues).toEqual([5])
 })
 
 it('should remove bigint composite choices excluded by a later bound', () => {
@@ -922,7 +927,7 @@ it('should remove bigint composite choices excluded by a later bound', () => {
   ]
 
   for (const schema of schemas) {
-    const analysis = analyzeSchema(schema)
+    const analysis = extractStorageFacts(schema)
     expect(analysis.finiteValues).toEqual([5n])
     expect(analysis.composite?.branches).toHaveLength(1)
   }
@@ -932,14 +937,14 @@ it('should leave authored choice options mutable after analysis', () => {
   const schema = picklist([1, 2])
   const options = (schema as AnySchema & { options: unknown[] }).options
 
-  analyzeSchema(schema)
+  extractStorageFacts(schema)
 
   expect(Object.isFrozen(options)).toBe(false)
 })
 
 it('should reset facts when a nested same-kind schema pipe transforms its input', () => {
   const nested = pipe(pipe(number(), safeInteger(), toNumber()), number())
-  const analysis = analyzeSchema(
+  const analysis = extractStorageFacts(
     pipe(number(), integer(), safeInteger(), pipe(nested), integer()),
   )
 
@@ -959,7 +964,7 @@ it('should not carry numeric bounds across a later schema default', () => {
     output: Number.MAX_SAFE_INTEGER,
   })
 
-  expect(analyzeSchema(schema).numberConstraints).toEqual({})
+  expect(extractStorageFacts(schema).numberConstraints).toEqual({})
 })
 
 it('should not carry numeric bounds across a fallback schema', () => {
@@ -972,13 +977,13 @@ it('should not carry numeric bounds across a fallback schema', () => {
   )
 
   expect(safeParse(schema, 5)).toMatchObject({ success: true, output: 100_000 })
-  expect(analyzeSchema(schema).numberConstraints).toEqual({ minValue: 20 })
+  expect(extractStorageFacts(schema).numberConstraints).toEqual({ minValue: 20 })
 })
 
-describe('analyzeSchema ordered transformations', () => {
+describe('extractStorageFacts ordered transformations', () => {
   it('should derive output kinds and retain only constraints on the current output', () => {
     expect(
-      analyzeSchema(
+      extractStorageFacts(
         pipe(string(), maxLength(10), toNumber(), minValue(0), maxValue(100)),
       ),
     ).toMatchObject({
@@ -987,23 +992,27 @@ describe('analyzeSchema ordered transformations', () => {
       numberConstraints: { minValue: 0, maxValue: 100 },
     })
 
-    expect(analyzeSchema(pipe(string(), toBoolean())).outputKind).toBe('boolean')
-    expect(analyzeSchema(pipe(string(), parseBoolean())).outputKind).toBe('boolean')
-    expect(analyzeSchema(pipe(string(), toDate())).outputKind).toBe('date')
-    expect(analyzeSchema(pipe(number(), toString())).outputKind).toBe('string')
+    expect(extractStorageFacts(pipe(string(), toBoolean())).outputKind).toBe('boolean')
+    expect(extractStorageFacts(pipe(string(), parseBoolean())).outputKind).toBe('boolean')
+    expect(extractStorageFacts(pipe(string(), toDate())).outputKind).toBe('date')
+    expect(extractStorageFacts(pipe(number(), toString())).outputKind).toBe('string')
   })
 
   it('should leave unknown outputs unresolved until a supported schema restores them', () => {
-    expect(analyzeSchema(pipe(string(), parseJson())).outputKind).toBeUndefined()
-    expect(analyzeSchema(pipe(string(), transform(Number))).outputKind).toBeUndefined()
+    expect(extractStorageFacts(pipe(string(), parseJson())).outputKind).toBeUndefined()
 
     expect(
-      analyzeSchema(pipe(string(), parseJson(), object({ value: number() }))).outputKind,
+      extractStorageFacts(pipe(string(), transform(Number))).outputKind,
+    ).toBeUndefined()
+
+    expect(
+      extractStorageFacts(pipe(string(), parseJson(), object({ value: number() })))
+        .outputKind,
     ).toBe('json')
   })
 
   it('should retain output nullability restored by a later schema', () => {
-    const analysis = analyzeSchema(
+    const analysis = extractStorageFacts(
       pipe(
         string(),
         transform((value) => (value ? null : value)),
@@ -1020,7 +1029,7 @@ describe('analyzeSchema ordered transformations', () => {
 })
 
 it('should resolve nullable number output without allowing insert omission', () => {
-  const analysis = analyzeSchema(
+  const analysis = extractStorageFacts(
     pipe(
       string(),
       transform((value): number | null => (value === 'null' ? null : Number(value))),
@@ -1032,11 +1041,11 @@ it('should resolve nullable number output without allowing insert omission', () 
     outputKind: 'number',
     nullable: true,
     omitOnInsert: false,
-    unresolvedTransformation: false,
+    outputState: 'known',
   })
 })
 
-describe('analyzeSchema recovered wrapper semantics', () => {
+describe('extractStorageFacts recovered wrapper semantics', () => {
   it('should retain output undefined tolerance without making required input omittable', () => {
     const optionalSchema = pipe(
       pipe(
@@ -1046,7 +1055,7 @@ describe('analyzeSchema recovered wrapper semantics', () => {
       optional(number()),
     )
 
-    const analysis = analyzeSchema(optionalSchema)
+    const analysis = extractStorageFacts(optionalSchema)
 
     expect(analysis).toMatchObject({
       outputKind: 'number',
@@ -1067,7 +1076,7 @@ describe('analyzeSchema recovered wrapper semantics', () => {
       nonOptional(optional(number())),
     )
 
-    const nonOptionalAnalysis = analyzeSchema(nonOptionalSchema)
+    const nonOptionalAnalysis = extractStorageFacts(nonOptionalSchema)
 
     expect(nonOptionalAnalysis).toMatchObject({
       allowsUndefined: false,
@@ -1094,7 +1103,7 @@ it('should preserve wrapper semantics around nested transformed pipes', () => {
     nonNullish(nullish(transformed)),
   ]
 
-  expect(wrappers.map((schema) => analyzeSchema(schema).outputKind)).toEqual(
+  expect(wrappers.map((schema) => extractStorageFacts(schema).outputKind)).toEqual(
     Array(8).fill('number'),
   )
 })
@@ -1123,10 +1132,10 @@ it.each([
       nullable(child),
       pipe(nullable(child), nullable(string())),
     ]) {
-      expect(analyzeSchema(schema)).toMatchObject({
+      expect(extractStorageFacts(schema)).toMatchObject({
         outputKind: 'string',
         stringFormats: [second.type],
-        unresolvedTransformation: false,
+        outputState: 'known',
       })
     }
   },

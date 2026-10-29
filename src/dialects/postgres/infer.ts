@@ -1,7 +1,5 @@
-import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts, StorageStringFormat } from '@/storage/facts'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
-import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
 import { SchemaError } from '@/utils/error'
 
@@ -173,27 +171,6 @@ function inferPostgresChoiceType(analysis: StorageFacts): SqlDataType {
   }
 
   return unsupportedChoiceType('choice')
-}
-
-/**
- * Infers a PostgreSQL column type from a Valibot schema.
- *
- * @example
- *   inferPostgresColumnType(string()) // 'text'
- *   inferPostgresColumnType(pipe(string(), maxLength(50))) // 'varchar(50)'
- *   inferPostgresColumnType(optional(pipe(string(), maxLength(50)))) // 'varchar(50)'
- *   inferPostgresColumnType(number()) // 'double precision'
- *   inferPostgresColumnType(integer()) // 'integer'
- *
- * @param schema - Column schema (may be wrapped or piped)
- *
- * @returns PostgreSQL column data type
- *
- * @throws SchemaError when the schema type cannot be inferred
- */
-export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
-  // Remove this extraction adapter when shared callers pass facts in #388.
-  return inferPostgresColumnTypeFromFacts(extractStorageFacts(schema))
 }
 
 /** Selects PostgreSQL storage from provider-neutral evidence. */

@@ -8,7 +8,9 @@ import type {
 import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
 import type { RelationIdentityInput } from '@/schemas/actions/relation'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
+import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
 type ColumnValueMapping = { dataType: string; context: DialectValueMappingContext }
@@ -182,7 +184,7 @@ function resolveColumnDataType(
 
   if (columnSchema?.kind !== 'schema') return undefined
 
-  const schema = columnSchema as Parameters<Dialect['schema']['inferColumnType']>[0]
+  const schema = columnSchema as AnySchema
   const columnMetadata = getColumnMetadata(schema)
   const referenceMetadata = getReferenceMetadata(schema)
 
@@ -198,18 +200,19 @@ function resolveColumnDataType(
     const selected = columnMetadata?.physicalType?.[dialect.id]
     return {
       dataType: selected === undefined ? result.dataType : String(selected),
-      context: { ...result.context, authoredSchema: schema },
+      context: { ...result.context, authoredFacts: extractStorageFacts(schema) },
     }
   }
 
   const selected = columnMetadata?.physicalType?.[dialect.id]
+  const facts = extractStorageFacts(schema)
 
   return {
     dataType:
       selected === undefined
-        ? String(dialect.schema.inferColumnType(schema))
+        ? String(dialect.schema.inferColumnType(facts))
         : String(selected),
-    context: { schema },
+    context: { facts },
   }
 }
 

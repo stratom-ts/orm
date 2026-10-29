@@ -35,14 +35,15 @@ import {
   mapPostgresResultValue,
   validatePostgresValueMapping,
 } from '@/dialects/postgres/mapping'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { AnySchema } from '@/types/schema'
 import { QueryError, SchemaError } from '@/utils/error'
 
-const bigintContext = { schema: bigint() }
+const bigintContext = { facts: extractStorageFacts(bigint()) }
 
-const numberContext = { schema: pipe(number(), safeInteger()) }
+const numberContext = { facts: extractStorageFacts(pipe(number(), safeInteger())) }
 
-const stringContext = { schema: string() }
+const stringContext = { facts: extractStorageFacts(string()) }
 
 const rejectedScalarStorageCases: [string, AnySchema, string][] = [
   ['date', date(), 'text'],
@@ -100,30 +101,43 @@ const registerMappingCases7 = () => {
       pipe(string(), isoTimeSecond()),
     ])
 
-    expect(mapPostgresResultValue('time', '03:04:05', { schema })).toBe('03:04:05')
+    expect(
+      mapPostgresResultValue('time', '03:04:05', { facts: extractStorageFacts(schema) }),
+    ).toBe('03:04:05')
   })
 
   it('should reject mixed output identities and native temporal precision', () => {
     expect(() =>
-      validatePostgresValueMapping('text', { schema: union([number(), bigint()]) }),
+      validatePostgresValueMapping('text', {
+        facts: extractStorageFacts(union([number(), bigint()])),
+      }),
     ).toThrow(SchemaError)
 
     const temporal = union([pipe(string(), isoTime()), pipe(string(), isoTimeSecond())])
-    expect(() => validatePostgresValueMapping('time', { schema: temporal })).toThrow(
-      SchemaError,
-    )
+    expect(() =>
+      validatePostgresValueMapping('time', { facts: extractStorageFacts(temporal) }),
+    ).toThrow(SchemaError)
 
-    expect(() => validatePostgresValueMapping('text', { schema: temporal })).not.toThrow()
+    expect(() =>
+      validatePostgresValueMapping('text', { facts: extractStorageFacts(temporal) }),
+    ).not.toThrow()
 
-    expect(mapPostgresResultValue('text', '03:04:05', { schema: temporal })).toBe(
-      '03:04:05',
-    )
+    expect(
+      mapPostgresResultValue('text', '03:04:05', {
+        facts: extractStorageFacts(temporal),
+      }),
+    ).toBe('03:04:05')
   })
 
   it('should keep native-format strings exact under an explicit text type', () => {
     const schema = union([pipe(string(), uuid()), pipe(string(), ip())])
-    expect(() => validatePostgresValueMapping('text', { schema })).not.toThrow()
-    expect(mapPostgresResultValue('text', '192.0.2.1', { schema })).toBe('192.0.2.1')
+    expect(() =>
+      validatePostgresValueMapping('text', { facts: extractStorageFacts(schema) }),
+    ).not.toThrow()
+
+    expect(
+      mapPostgresResultValue('text', '192.0.2.1', { facts: extractStorageFacts(schema) }),
+    ).toBe('192.0.2.1')
   })
 }
 
@@ -131,25 +145,27 @@ const registerMappingCases8 = () => {
   it('should reject selected storage that changes composite output identity', () => {
     expect(() =>
       validatePostgresValueMapping('double precision', {
-        schema: union([bigint(), literal(1n)]),
+        facts: extractStorageFacts(union([bigint(), literal(1n)])),
       }),
     ).toThrow(SchemaError)
 
     expect(() =>
       validatePostgresValueMapping('text', {
-        schema: union([number(), literal(2)]),
+        facts: extractStorageFacts(union([number(), literal(2)])),
       }),
     ).toThrow(SchemaError)
 
     expect(() =>
       validatePostgresValueMapping('text', {
-        schema: union([object({ a: string() }), object({ b: number() })]),
+        facts: extractStorageFacts(
+          union([object({ a: string() }), object({ b: number() })]),
+        ),
       }),
     ).toThrow(SchemaError)
 
     expect(() =>
       validatePostgresValueMapping('text', {
-        schema: union([date(), date()]),
+        facts: extractStorageFacts(union([date(), date()])),
       }),
     ).toThrow(SchemaError)
   })
@@ -157,10 +173,16 @@ const registerMappingCases8 = () => {
   it('should map widened safe integer and fractional number branches as numbers', () => {
     const schema = union([pipe(number(), safeInteger()), number()])
     expect(
-      mapPostgresParamValue('double precision', Number.MAX_SAFE_INTEGER, { schema }),
+      mapPostgresParamValue('double precision', Number.MAX_SAFE_INTEGER, {
+        facts: extractStorageFacts(schema),
+      }),
     ).toBe(Number.MAX_SAFE_INTEGER)
 
-    expect(mapPostgresResultValue('double precision', 1.25, { schema })).toBe(1.25)
+    expect(
+      mapPostgresResultValue('double precision', 1.25, {
+        facts: extractStorageFacts(schema),
+      }),
+    ).toBe(1.25)
   })
 }
 
@@ -196,9 +218,17 @@ const registerMappingCases9 = () => {
   ] as const)(
     'should map %s native text to the schema output',
     (type, raw, schema, expected) => {
-      expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
-      expect(mapPostgresParamValue(type, expected, { schema })).toBe(expected)
-      expect(mapPostgresResultValue(type, raw, { schema })).toBe(expected)
+      expect(() =>
+        validatePostgresValueMapping(type, { facts: extractStorageFacts(schema) }),
+      ).not.toThrow()
+
+      expect(
+        mapPostgresParamValue(type, expected, { facts: extractStorageFacts(schema) }),
+      ).toBe(expected)
+
+      expect(
+        mapPostgresResultValue(type, raw, { facts: extractStorageFacts(schema) }),
+      ).toBe(expected)
     },
   )
 }
@@ -206,7 +236,9 @@ const registerMappingCases9 = () => {
 const registerMappingCases10 = () => {
   it('should map raw local timestamps to Date without host-timezone conversion', () => {
     expect(
-      mapPostgresResultValue('timestamp', '2026-01-02 03:04:05', { schema: date() }),
+      mapPostgresResultValue('timestamp', '2026-01-02 03:04:05', {
+        facts: extractStorageFacts(date()),
+      }),
     ).toEqual(new Date('2026-01-02T03:04:05Z'))
 
     expect(mapPostgresResultValue('timestamp', '2026-01-02T03:04:05Z')).toEqual(
@@ -215,19 +247,21 @@ const registerMappingCases10 = () => {
 
     expect(
       mapPostgresResultValue('timestamptz', '0042-01-02 12:53:21.123456+09:49:16', {
-        schema: date(),
+        facts: extractStorageFacts(date()),
       }),
     ).toEqual(new Date('0042-01-02T03:04:05.123Z'))
   })
 
   it('should reject native seconds or fractions finer than a strict ISO schema', () => {
     expect(() =>
-      mapPostgresResultValue('time', '03:04:05', { schema: pipe(string(), isoTime()) }),
+      mapPostgresResultValue('time', '03:04:05', {
+        facts: extractStorageFacts(pipe(string(), isoTime())),
+      }),
     ).toThrow(QueryError)
 
     expect(() =>
       mapPostgresResultValue('timestamp', '2026-01-02 03:04:05.123456', {
-        schema: pipe(string(), isoDateTimeSecond()),
+        facts: extractStorageFacts(pipe(string(), isoDateTimeSecond())),
       }),
     ).toThrow(QueryError)
   })
@@ -322,6 +356,7 @@ const registerMappingCases18 = () => {
 
   it('should preserve decimal strings and use temporal output representation', () => {
     const timestamp = '2026-01-02T03:04:05.000Z'
+    const dateContext = { facts: extractStorageFacts(date()) }
 
     expect(mapPostgresResultValue('numeric', '9007199254740993.25', stringContext)).toBe(
       '9007199254740993.25',
@@ -335,7 +370,7 @@ const registerMappingCases18 = () => {
       mapPostgresResultValue('timestamptz', new Date(timestamp), stringContext),
     ).toBe(timestamp)
 
-    expect(mapPostgresResultValue('timestamptz', timestamp, { schema: date() })).toEqual(
+    expect(mapPostgresResultValue('timestamptz', timestamp, dateContext)).toEqual(
       new Date(timestamp),
     )
   })
@@ -345,13 +380,13 @@ const registerMappingCases24 = () => {
   it.each(rejectedScalarStorageCases)(
     'should reject %s output in %s storage',
     (kind, schema, dataType) => {
-      expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(
-        SchemaError,
-      )
+      expect(() =>
+        validatePostgresValueMapping(dataType, { facts: extractStorageFacts(schema) }),
+      ).toThrow(SchemaError)
 
-      expect(() => validatePostgresValueMapping(dataType, { schema })).toThrow(
-        new RegExp(`PostgreSQL ${kind} schema .*mapParam/mapResult`),
-      )
+      expect(() =>
+        validatePostgresValueMapping(dataType, { facts: extractStorageFacts(schema) }),
+      ).toThrow(new RegExp(`PostgreSQL ${kind} schema .*mapParam/mapResult`))
     },
   )
 }
@@ -362,9 +397,13 @@ function registerMappingGroup1() {
       union([object({ at: date() }), object({ at: date() })]),
       union([object({ id: bigint() }), object({ id: bigint() })]),
     ]) {
-      expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(SchemaError)
+      expect(() =>
+        validatePostgresValueMapping('jsonb', { facts: extractStorageFacts(schema) }),
+      ).toThrow(SchemaError)
 
-      expect(() => validatePostgresValueMapping('jsonb', { schema })).toThrow(
+      expect(() =>
+        validatePostgresValueMapping('jsonb', { facts: extractStorageFacts(schema) }),
+      ).toThrow(
         /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
       )
     }
@@ -381,10 +420,15 @@ function registerMappingGroup2() {
   ])(
     'should reject ISO temporal format storage that changes %s',
     (_name, schema, type) => {
-      expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
+      expect(() =>
+        validatePostgresValueMapping(type, { facts: extractStorageFacts(schema) }),
+      ).toThrow(SchemaError)
 
       expect(() =>
-        validatePostgresValueMapping(type, { schema: string(), authoredSchema: schema }),
+        validatePostgresValueMapping(type, {
+          facts: extractStorageFacts(string()),
+          authoredFacts: extractStorageFacts(schema),
+        }),
       ).toThrow(/reference output formats.*paired column mapParam\/mapResult/)
     },
   )
@@ -426,9 +470,17 @@ function registerMappingGroup3() {
     ] as const
 
     for (const [schema, type, input, driver, output] of cases) {
-      expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
-      expect(mapPostgresParamValue(type, input, { schema })).toBe(input)
-      expect(mapPostgresResultValue(type, driver, { schema })).toBe(output)
+      expect(() =>
+        validatePostgresValueMapping(type, { facts: extractStorageFacts(schema) }),
+      ).not.toThrow()
+
+      expect(
+        mapPostgresParamValue(type, input, { facts: extractStorageFacts(schema) }),
+      ).toBe(input)
+
+      expect(
+        mapPostgresResultValue(type, driver, { facts: extractStorageFacts(schema) }),
+      ).toBe(output)
     }
   })
 }
@@ -439,11 +491,13 @@ function registerMappingGroup4() {
     const schema = union([branch, branch])
     const output = { at: new Date('2026-01-01T00:00:00.000Z').toString() }
 
-    expect(() => validatePostgresValueMapping('jsonb', { schema })).not.toThrow()
+    expect(() =>
+      validatePostgresValueMapping('jsonb', { facts: extractStorageFacts(schema) }),
+    ).not.toThrow()
 
-    expect(mapPostgresParamValue('jsonb', output, { schema })).toBe(
-      JSON.stringify(output),
-    )
+    expect(
+      mapPostgresParamValue('jsonb', output, { facts: extractStorageFacts(schema) }),
+    ).toBe(JSON.stringify(output))
 
     expect(mapPostgresResultValue('jsonb', JSON.stringify(output))).toEqual(output)
   })
@@ -453,7 +507,11 @@ function registerMappingGroup5() {
   it('should reject non-finite nested numbers before JSON serialization', () => {
     const schema = union([object({ value: number() }), object({ value: number() })])
     expect(() =>
-      mapPostgresParamValue('jsonb', { value: Number.POSITIVE_INFINITY }, { schema }),
+      mapPostgresParamValue(
+        'jsonb',
+        { value: Number.POSITIVE_INFINITY },
+        { facts: extractStorageFacts(schema) },
+      ),
     ).toThrow(QueryError)
   })
 }
@@ -470,7 +528,10 @@ function registerMappingGroup6() {
       mapPostgresParamValue(
         'jsonb',
         { value: Number.POSITIVE_INFINITY },
-        { schema: target, authoredSchema },
+        {
+          facts: extractStorageFacts(target),
+          authoredFacts: extractStorageFacts(authoredSchema),
+        },
       ),
     ).toThrow(QueryError)
   })
@@ -510,12 +571,19 @@ function registerMappingGroup12() {
   it('should apply underlying integer width rules to serial composite storage', () => {
     const schema = union([pipe(number(), safeInteger()), literal(42)])
     for (const type of ['bigserial', 'bigint']) {
-      expect(() => validatePostgresValueMapping(type, { schema })).not.toThrow()
-      expect(mapPostgresResultValue(type, '42', { schema })).toBe(42)
+      expect(() =>
+        validatePostgresValueMapping(type, { facts: extractStorageFacts(schema) }),
+      ).not.toThrow()
+
+      expect(
+        mapPostgresResultValue(type, '42', { facts: extractStorageFacts(schema) }),
+      ).toBe(42)
     }
 
     for (const type of ['smallserial', 'smallint', 'serial', 'integer'])
-      expect(() => validatePostgresValueMapping(type, { schema })).toThrow(SchemaError)
+      expect(() =>
+        validatePostgresValueMapping(type, { facts: extractStorageFacts(schema) }),
+      ).toThrow(SchemaError)
   })
 }
 
@@ -656,8 +724,8 @@ function registerMappingGroup19() {
     'should use the authored format with %s storage',
     (type, target, local, raw, expected) => {
       const context = {
-        schema: pipe(string(), target),
-        authoredSchema: pipe(string(), local),
+        facts: extractStorageFacts(pipe(string(), target)),
+        authoredFacts: extractStorageFacts(pipe(string(), local)),
       }
 
       expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
@@ -674,7 +742,11 @@ function registerMappingGroup20() {
     ['date', isoTimestamp()],
     ['time', isoDate()],
   ])('should reject incompatible authored formats with %s storage', (type, format) => {
-    const context = { schema: string(), authoredSchema: pipe(string(), format) }
+    const context = {
+      facts: extractStorageFacts(string()),
+      authoredFacts: extractStorageFacts(pipe(string(), format)),
+    }
+
     expect(() => validatePostgresValueMapping(type, context)).toThrow(SchemaError)
     expect(() => validatePostgresValueMapping(type, context)).toThrow(format.type)
     expect(() => validatePostgresValueMapping(type, context)).toThrow(type)
@@ -688,8 +760,8 @@ function registerMappingGroup20() {
 function registerMappingGroup21() {
   it('should reject ambiguous native formats and preserve explicit text spelling', () => {
     const context = {
-      schema: pipe(string(), isoTime()),
-      authoredSchema: pipe(string(), isoTime(), isoTimeSecond()),
+      facts: extractStorageFacts(pipe(string(), isoTime())),
+      authoredFacts: extractStorageFacts(pipe(string(), isoTime(), isoTimeSecond())),
     }
 
     expect(() => validatePostgresValueMapping('time', context)).toThrow(SchemaError)
@@ -712,8 +784,8 @@ function registerMappingGroup22() {
     (type, format, raw) => {
       expect(() =>
         mapPostgresResultValue(type, raw, {
-          schema: string(),
-          authoredSchema: pipe(string(), format),
+          facts: extractStorageFacts(string()),
+          authoredFacts: extractStorageFacts(pipe(string(), format)),
         }),
       ).toThrow(QueryError)
     },
@@ -724,8 +796,8 @@ function registerMappingGroup23() {
   it('should retain target formatting when no authored temporal facts remain', () => {
     expect(
       mapPostgresResultValue('time', '03:04:00', {
-        schema: pipe(string(), isoTime()),
-        authoredSchema: string(),
+        facts: extractStorageFacts(pipe(string(), isoTime())),
+        authoredFacts: extractStorageFacts(string()),
       }),
     ).toBe('03:04')
   })
@@ -941,7 +1013,7 @@ function registerMappingGroup25() {
     'PostgreSQL should validate and map %s independently for every storage alias',
     (_id, schema, types, input, parameter, driver, output) => {
       for (const type of types) {
-        const context = { schema }
+        const context = { facts: extractStorageFacts(schema) }
         expect(() => validatePostgresValueMapping(type, context)).not.toThrow()
         expect(mapPostgresParamValue(type, input, context)).toEqual(parameter)
         expect(mapPostgresResultValue(type, driver, context)).toEqual(output)

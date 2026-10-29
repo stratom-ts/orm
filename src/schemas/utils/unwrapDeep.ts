@@ -2,7 +2,7 @@ import type { unwrap } from 'valibot'
 
 import type { AnySchema } from '@/types/schema'
 
-import { analyzeSchema } from './analyzeSchema'
+import { unwrapSchema } from '../valibot/unwrapSchema'
 
 /** The innermost schema after supported presence and nullability wrappers are removed. */
 type UnwrapDeepSchema<TSchema extends AnySchema> = TSchema extends Parameters<
@@ -26,5 +26,5 @@ type UnwrapDeepSchema<TSchema extends AnySchema> = TSchema extends Parameters<
 export function unwrapDeep<TSchema extends AnySchema>(
   schema: TSchema,
 ): UnwrapDeepSchema<TSchema> {
-  return analyzeSchema(schema).unwrappedSchema as UnwrapDeepSchema<TSchema>
+  return unwrapSchema(schema, false) as UnwrapDeepSchema<TSchema>
 }

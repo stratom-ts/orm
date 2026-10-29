@@ -9,10 +9,9 @@ import type {
   DialectSchema,
   LoweredDatabaseDefault,
   LoweredDesiredColumn,
-  LoweredDesiredSchema,
+  StorageDesiredSchema,
 } from '@/dialects/types'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
-import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
@@ -282,21 +281,20 @@ function lowerColumn(
 export function lowerPostgresDesiredSchema(
   graph: AuthoredDesiredSchema,
   context?: Parameters<DialectSchema['lowerDesiredSchema']>[1],
-): LoweredDesiredSchema {
+): StorageDesiredSchema {
   try {
-    // Remove these extraction adapters when the shared graph supplies facts in #388.
     return lowerDesiredSchemaGraph(graph, context, {
-      lowerPhysicalType: (column, _analysis, options) =>
+      lowerPhysicalType: (column, options) =>
         physicalType(
           column,
-          extractStorageFacts(column.schema),
+          column.facts,
           options?.hasGlobalParameterMapping ?? false,
           options?.hasGlobalResultMapping ?? false,
         ),
       lowerReferenceType: (table, column, inheritedType) =>
         validateReferencePhysicalType(table, column, inheritedType),
       lowerColumn: (table, column, dataType) =>
-        lowerColumn(table, column, dataType, extractStorageFacts(column.schema)),
+        lowerColumn(table, column, dataType, column.facts),
     })
   } catch (cause) {
     if (!isErrorTag(cause, 'SchemaError')) throw cause

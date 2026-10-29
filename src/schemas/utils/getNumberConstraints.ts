@@ -1,7 +1,7 @@
 import type { NumberConstraints } from '@/types/constraints'
 import type { AnySchema, AnySchemaAsync } from '@/types/schema'
 
-import { analyzeSchema } from './analyzeSchema'
+import { extractStorageFacts } from '../valibot/storageFacts'
 
 /**
  * Reads min/max value and integer constraints from a number schema pipe.
@@ -17,5 +17,5 @@ import { analyzeSchema } from './analyzeSchema'
 export function getNumberConstraints(
   schema: AnySchema | AnySchemaAsync,
 ): NumberConstraints {
-  return analyzeSchema(schema as AnySchema).numberConstraints
+  return extractStorageFacts(schema as AnySchema).numberConstraints
 }

@@ -3,6 +3,7 @@ import type {
   AuthoredDesiredSchema,
   AuthoredDesiredTable,
   LoweredDesiredSchema,
+  StorageDesiredSchema,
 } from '@/dialects/types'
 import type {
   CanonicalIdentifier,
@@ -12,6 +13,7 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 import type { ReferenceMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError, isErrorTag } from '@/utils/error'
@@ -195,7 +197,17 @@ export function lowerDesiredSchema(
 ): LoweredDesiredSchema {
   try {
     const graph = registerDesiredSchema(handles, identities)
-    return lowerer.lowerDesiredSchema(graph)
+    const lowered = lowerer.lowerDesiredSchema(graph)
+    const registry = identities.createRegistry<TableHandle>()
+    for (const handle of handles)
+      registry.set(identities.resolve(handle.getTableMetadata().relation), handle)
+    return Object.freeze({
+      tables: Object.freeze(
+        lowered.tables.map((table) =>
+          Object.freeze({ ...table, handle: registry.get(table.identity)! }),
+        ),
+      ),
+    })
   } catch (cause) {
     if (isErrorTag(cause, 'MigrationError')) throw cause
     if (!isErrorTag(cause, 'SchemaError')) throw cause
@@ -218,7 +230,7 @@ type AuthoredDesiredSchemaLowerer = Readonly<{
    * @returns Desired tables with dialect-specific physical storage and resolved
    *   references.
    */
-  lowerDesiredSchema(graph: AuthoredDesiredSchema): LoweredDesiredSchema
+  lowerDesiredSchema(graph: AuthoredDesiredSchema): StorageDesiredSchema
 }>
 
 /**
@@ -227,7 +239,7 @@ type AuthoredDesiredSchemaLowerer = Readonly<{
  * @param handle - Table handle whose schema and relation metadata are required.
  * @param identities - Canonical identity operations for the resolved namespace context.
  *
- * @returns One canonical registration carrying the authored handle and lowered table.
+ * @returns One canonical registration containing metadata and logical storage facts.
  */
 function registerDesiredTable(
   handle: TableHandle,
@@ -246,7 +258,7 @@ function registerDesiredTable(
     columns.push({
       name,
       identifier,
-      schema,
+      facts: extractStorageFacts(schema),
       ...(columnMetadata === undefined ? {} : { metadata: columnMetadata }),
       ...(reference === undefined
         ? {}
@@ -260,7 +272,7 @@ function registerDesiredTable(
     })
   }
 
-  return { handle, identity, metadata, columns }
+  return { identity, metadata, columns }
 }
 
 /**
