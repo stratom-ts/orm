@@ -918,6 +918,96 @@ and any `InvariantError` message or `MigrationError` defect `cause`. Inspect SQL
 before sharing it: bound values are separate, but SQL text can contain authored
 literals or sensitive identifiers.
 
+## Query tracing
+
+Wrap a client to trace physical SQL attempts using Node diagnostics channels:
+
+```ts
+import { tracingChannel } from 'node:diagnostics_channel'
+import { createDatabase, withTracing, QUERY_CHANNEL } from 'stratom'
+import type { QueryEvent } from 'stratom'
+
+const original = createDatabase({ connector, schemas: [User] })
+const db = withTracing(original)
+const channel = tracingChannel(QUERY_CHANNEL) // stratom.query, distinct from db0.query
+const subscribers = {
+  start(data: unknown) {
+    const event = data as QueryEvent
+    console.log(event.source, event.query)
+  },
+  asyncEnd(data: unknown) {
+    const event = data as QueryEvent
+    console.log(event.durationMs, event.outcome, event.error)
+  },
+}
+channel.subscribe(subscribers)
+try {
+  await original.from(User).execute() // No events.
+  await db.transaction(async (trx) => {
+    await trx.from(User).execute() // Traced, including nested transaction savepoints.
+  })
+} finally {
+  channel.unsubscribe(subscribers)
+  await original.close() // Shares lifecycle with db.
+}
+```
+
+Only operations through the returned client emit events. Lazy builders retain the
+client that created them. Other wrappers and clients remain independent; wrapping
+an already traced client returns it unchanged (including its original options).
+Wrapping opens no provider or connection. Both views share FIFO coordination,
+transaction guards, close draining, and closed-client rejection.
+
+The lifecycle follows [db0's ordering](https://db0.unjs.io/guide/tracing): success
+emits `start` ? `end` ? `asyncStart` ? `asyncEnd`; failure emits `start` ? `end` ?
+`error` ? `asyncStart` ? `asyncEnd`. `end` marks promise creation, not SQL completion.
+Use `asyncEnd` for the one completion event per physical attempt. All phases share
+one `QueryEvent` context. `query` is SQL exactly as sent to the pinned session;
+`params` contains ordered bindings; `method` is `query` or `run`; `source` is listed
+below. Completion adds `durationMs` and `outcome` (`success` or `error`); failures
+also expose `error`, the original physical rejection before driver classification
+or migration context. `QueryEvent`, `QuerySource`, and `TracingOptions` are exported.
+Result rows and affected-row counts are never exposed (the Node trace context's
+`result` is undefined). The payload is distinct from db0's payload.
+
+Sources are selected by the caller's structured operation, without SQL parsing:
+
+- `query`: application SQL, including raw SQL and query builders.
+- `lifecycle`: ping, transaction/savepoint commands, and session settings.
+- `catalog`: migration catalog acquisition, preconditions, integrity and convergence checks.
+- `coordination`: PostgreSQL advisory locks/unlocks; SQLite busy-timeout policy and
+  migration `BEGIN IMMEDIATE`, which acquires migration ownership. SQLite migration
+  commit/rollback and foreign-key settings are `lifecycle`.
+- `ddl`: migration action statements, including SQLite rebuild data-copy statements.
+
+Bound parameters default to `'[REDACTED]'` per position, retaining order and count.
+Use `withTracing(original, { queryParameters: 'include' })` to expose values. The
+parameter array is copied and frozen; included objects retain their references.
+Never mutate the shared event context. SQL literals and error objects can contain
+secrets and cannot be redacted automatically. Values are never interpolated into
+traced SQL. Diagnostics channels are process-wide: any subscriber can read events.
+
+Duration uses a monotonic clock around the physical session call, excluding queue
+wait and synchronous subscriber execution. Untraced calls do no snapshot or timing
+work; traced calls without subscribers also skip payload and timing work.
+Compilation, validation/session guards, provider open/release/close/cancel, and
+provider-private bootstrap/identity/cleanup SQL produce no traces. Aborting before
+SQL execution produces no event; cancellation that makes a provider reject produces
+a failed attempt. A successful SQL call stays successful even if the migration later fails.
+
+Subscribers follow [Node diagnostics channel semantics](https://nodejs.org/api/diagnostics_channel.html#diagnostics_channelsubscribename-onmessage).
+They run synchronously; thrown exceptions trigger `uncaughtException` and may terminate
+the process. Async handlers are not awaited and their rejected promises are not
+contained by Stratom. Handle failures within subscribers and keep them short.
+Stratom installs no process error handlers and provides no observer-isolation guarantee.
+
+Tracing uses `process.getBuiltinModule('node:diagnostics_channel')`, available on
+supported Node versions (>=22.5). It checks individual lifecycle channels for
+subscribers, including on Node versions without `TracingChannel.hasSubscribers`.
+If runtime capability lookup or tracing channels are unavailable, `withTracing`
+returns the original client unchanged and emits no events. OpenTelemetry integration
+is not included.
+
 ## License
 
 MIT

@@ -294,7 +294,7 @@ async function executeActionStatements(
       state: cancellation,
       stage: 'ddl',
       /** Executes the current physical migration statement with cancellation controls. */
-      operation: () => options.executor.run(statement),
+      operation: () => options.executor.run(statement, { source: 'ddl' }),
     })
   }
 }
@@ -544,7 +544,14 @@ async function completeMigrationTransaction(
         state: cancellation,
         stage: 'rollback',
         /** Rolls back within the migration cancellation boundary. */
-        operation: () => options.executor.run({ sql: 'rollback', params: [] }),
+        operation: () =>
+          options.executor.run(
+            {
+              sql: 'rollback',
+              params: [],
+            },
+            { source: 'lifecycle' },
+          ),
       })
 
       state.transactionOpen = false
@@ -582,7 +589,8 @@ async function commitMigrationTransaction(
       state: cancellation,
       stage: 'commit',
       /** Commits within the migration cancellation boundary. */
-      operation: () => options.executor.run({ sql: 'commit', params: [] }),
+      operation: () =>
+        options.executor.run({ sql: 'commit', params: [] }, { source: 'lifecycle' }),
     })
 
     state.transactionOpen = false
@@ -671,10 +679,13 @@ async function beginMigrationTransaction(
       stage: 'transaction',
       /** Starts repeatable-read transaction with cancellation controls. */
       operation: () =>
-        options.executor.run({
-          sql: 'begin isolation level repeatable read',
-          params: [],
-        }),
+        options.executor.run(
+          {
+            sql: 'begin isolation level repeatable read',
+            params: [],
+          },
+          { source: 'lifecycle' },
+        ),
     })
 
     state.transactionOpen = true

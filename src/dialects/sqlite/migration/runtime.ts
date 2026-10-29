@@ -5,6 +5,7 @@ import type {
 } from '@/ddl/migrationProgram'
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
+import type { QuerySource } from '@/query/observation'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
 import { InvariantError, MigrationError, isErrorTag } from '@/utils/error'
 
@@ -126,13 +127,24 @@ async function retryWait(
 }
 
 /** Executes one SQL command on the pinned session. */
-async function run(options: MigrationRuntimeOptions, sql: string): Promise<void> {
-  await options.executor.run({ sql, params: [] })
+async function run(
+  options: MigrationRuntimeOptions,
+  sql: string,
+  source: QuerySource = 'lifecycle',
+): Promise<void> {
+  await options.executor.run({ sql, params: [] }, { source })
 }
 
 /** Reads the current native busy policy before temporarily using nonblocking attempts. */
 async function readBusyTimeout(options: MigrationRuntimeOptions): Promise<number> {
-  const rows = await options.executor.execute({ sql: 'pragma busy_timeout', params: [] })
+  const rows = await options.executor.execute(
+    {
+      sql: 'pragma busy_timeout',
+      params: [],
+    },
+    { source: 'coordination' },
+  )
+
   const value = (rows[0] as { timeout?: unknown } | undefined)?.timeout
 
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
@@ -147,7 +159,7 @@ async function tryBegin(
   options: MigrationRuntimeOptions,
 ): Promise<{ busy: false } | { busy: true; cause: unknown }> {
   try {
-    await run(options, 'begin immediate')
+    await run(options, 'begin immediate', 'coordination')
     return { busy: false }
   } catch (cause) {
     if (sqliteClassifyDriverError(cause).kind !== 'transient') throw cause
@@ -202,7 +214,7 @@ async function acquire(options: MigrationRuntimeOptions, state: State): Promise<
     if ((await readForeignKeys(options)) !== 0)
       throw new InvariantError('SQLite FK enforcement could not be disabled before BEGIN')
 
-    await run(options, 'pragma busy_timeout=0')
+    await run(options, 'pragma busy_timeout=0', 'coordination')
     await attemptBegin(options, deadline)
     state.transactionOpen = true
   } catch (cause) {
@@ -264,10 +276,13 @@ async function assertPrecondition(
     })
   }
 
-  const rows = await options.executor.execute({
-    sql: `select count(*) as count from "main".${quoteSqliteIdentifier(table)} where ${quoteSqliteIdentifier(precondition.column)} is null`,
-    params: [],
-  })
+  const rows = await options.executor.execute(
+    {
+      sql: `select count(*) as count from "main".${quoteSqliteIdentifier(table)} where ${quoteSqliteIdentifier(precondition.column)} is null`,
+      params: [],
+    },
+    { source: 'catalog' },
+  )
 
   const count = (rows[0] as { count?: unknown } | undefined)?.count
 
@@ -296,7 +311,7 @@ async function runAction(
   for (const statement of action.statements) {
     assertNotAborted(options, 'ddl')
     state.ddlStarted = true
-    await options.executor.run(statement)
+    await options.executor.run(statement, { source: 'ddl' })
   }
 }
 
@@ -364,7 +379,14 @@ async function prepareAndExecute(
 
 /** Reads the native FK policy before following SQLite's documented rebuild sequence. */
 async function readForeignKeys(options: MigrationRuntimeOptions): Promise<number> {
-  const rows = await options.executor.execute({ sql: 'pragma foreign_keys', params: [] })
+  const rows = await options.executor.execute(
+    {
+      sql: 'pragma foreign_keys',
+      params: [],
+    },
+    { source: 'lifecycle' },
+  )
+
   const value = (rows[0] as { foreign_keys?: unknown } | undefined)?.foreign_keys
 
   if (value !== 0 && value !== 1)
@@ -386,17 +408,23 @@ async function validateFinalState(
 
   try {
     assertNotAborted(options, 'validation')
-    const foreign = await options.executor.execute({
-      sql: 'pragma main.foreign_key_check',
-      params: [],
-    })
+    const foreign = await options.executor.execute(
+      {
+        sql: 'pragma main.foreign_key_check',
+        params: [],
+      },
+      { source: 'catalog' },
+    )
 
     if (foreign.length) throw new InvariantError('SQLite foreign_key_check failed')
 
-    const integrity = await options.executor.execute({
-      sql: 'pragma main.integrity_check',
-      params: [],
-    })
+    const integrity = await options.executor.execute(
+      {
+        sql: 'pragma main.integrity_check',
+        params: [],
+      },
+      { source: 'catalog' },
+    )
 
     if (
       integrity.length !== 1 ||
@@ -473,7 +501,7 @@ async function restoreBusyTimeout(
     return
 
   try {
-    await run(options, `pragma busy_timeout=${state.busyTimeout}`)
+    await run(options, `pragma busy_timeout=${state.busyTimeout}`, 'coordination')
   } catch (cause) {
     state.cleanupFailures.push({ stage: 'sessionCleanup', cause })
     options.discard()

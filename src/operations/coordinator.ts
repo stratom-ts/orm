@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 
 import type { NamespaceContext } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
+import type { QueryTracing } from '@/query/observation'
+import { traceQuery } from '@/query/observation'
 import type { NamespaceRole } from '@/schemas'
 import type { DriverErrorClassifier } from '@/utils/error'
 import { QueryError, attempt, classifyDriverError } from '@/utils/error'
@@ -283,7 +285,10 @@ export class OperationCoordinator {
    *
    * @param operation - Operation callback receiving scoped session capabilities.
    */
-  run<T>(operation: (context: OperationContext) => Promise<T>): Promise<T> {
+  run<T>(
+    operation: (context: OperationContext) => Promise<T>,
+    tracing?: QueryTracing,
+  ): Promise<T> {
     if (this.currentToken()) {
       return Promise.reject(
         new QueryError({
@@ -304,7 +309,7 @@ export class OperationCoordinator {
       finish = resolve
     })
 
-    return this.runSession(previous, parent, operation).finally(finish)
+    return this.runSession(previous, parent, operation, tracing).finally(finish)
   }
 
   /**
@@ -337,6 +342,7 @@ export class OperationCoordinator {
     previous: Promise<void>,
     parent: ReturnType<typeof activeOperation.getStore>,
     operation: (context: OperationContext) => Promise<T>,
+    tracing?: QueryTracing,
   ): Promise<T> {
     const state: OperationState<T> = {
       session: undefined,
@@ -350,7 +356,7 @@ export class OperationCoordinator {
     // Fresh sessions remain discard-only until their capabilities and identity pass.
 
     const operationAttempt = await attempt(() =>
-      this.performOperation(state, previous, parent, operation),
+      this.performOperation(state, previous, parent, operation, tracing),
     )
 
     if (!operationAttempt.ok) {
@@ -387,13 +393,15 @@ export class OperationCoordinator {
     previous: Promise<void>,
     parent: ReturnType<typeof activeOperation.getStore>,
     operation: (context: OperationContext) => Promise<T>,
+    tracing?: QueryTracing,
   ): Promise<void> {
     await previous
     state.session = await this.provider.open()
     assertSession(state.session)
     state.capturedIdentity = captureSessionIdentity(state.session)
     state.disposition = 'reuse'
-    const executor = createSessionExecutor(state.session, this.classify)
+    const executor = createSessionExecutor(state.session, this.classify, tracing)
+
     const token: OperationToken = {
       coordinator: this,
       executor,
@@ -436,28 +444,31 @@ export class OperationCoordinator {
 function createSessionExecutor(
   session: OperationSession,
   classify?: DriverErrorClassifier,
+  tracing?: QueryTracing,
 ): Executor {
   return {
-    /**
-     * Executes a query through the pinned operation session.
-     *
-     * @param query - Compiled query to execute.
-     */
-    async execute(query) {
+    async execute(query, options) {
       try {
-        return await session.query(query)
+        return await traceQuery(
+          query,
+          options,
+          'query',
+          () => session.query(query),
+          options?.tracing ?? tracing,
+        )
       } catch (failure) {
         throw classify ? classifyDriverError(failure, classify) : failure
       }
     },
-    /**
-     * Executes a statement through the pinned operation session.
-     *
-     * @param query - Compiled query to execute.
-     */
-    async run(query) {
+    async run(query, options) {
       try {
-        return await session.run(query)
+        return await traceQuery(
+          query,
+          options,
+          'run',
+          () => session.run(query),
+          options?.tracing ?? tracing,
+        )
       } catch (failure) {
         throw classify ? classifyDriverError(failure, classify) : failure
       }

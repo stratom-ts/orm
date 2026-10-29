@@ -5,6 +5,7 @@ import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwners
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import { operationCleanupFailures, operationPrimaryFailure } from '@/operations/cleanup'
 import type { Executor } from '@/query'
+import { withQuerySource } from '@/query/executor'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
 import { MigrationError, attempt, attemptSync, isErrorTag } from '@/utils/error'
@@ -265,7 +266,10 @@ async function observeMigrationPlan(
   let catalog
 
   try {
-    catalog = await migration.catalog.introspectCatalog(executor, request)
+    catalog = await migration.catalog.introspectCatalog(
+      withQuerySource(executor, 'catalog'),
+      request,
+    )
   } catch (cause) {
     throw phaseError(cause, 'introspection', mode)
   }
