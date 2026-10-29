@@ -35,8 +35,8 @@ import {
 } from 'valibot'
 import { expect, it, vi } from 'vitest'
 
-import { extractStorageFacts } from '@/providers/valibot/storageFacts'
 import { column } from '@/schemas'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { AnySchema } from '@/types/schema'
 
 it('describes primitive families and their independent storage constraints', () => {
