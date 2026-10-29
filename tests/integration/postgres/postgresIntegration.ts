@@ -7,7 +7,6 @@ import type {
   MigrationOwnershipDeclaration,
   OperationSession,
   OperationSessionProvider,
-  QueryObserver,
   TableHandle,
 } from '@/index'
 import { createDatabase, createDb0PostgresOperationSessionProvider } from '@/index'
@@ -46,7 +45,6 @@ type PostgresDatabaseOptions = Readonly<{
   >
   useRegistrationDefault?: boolean
   applicationId?: string
-  onQuery?: QueryObserver
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
   hooks?: SessionHooks
   sessionSchema?: 'isolated' | 'alternate'
@@ -194,7 +192,6 @@ function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
     ...(options.useRegistrationDefault === false
       ? {}
       : { defaultNamespace: [{ role: 'schema' as const, spelling: schema }] }),
-    onQuery: options.onQuery,
     ...(options.applicationId === undefined
       ? {}
       : { applicationId: options.applicationId }),

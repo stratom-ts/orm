@@ -40,7 +40,8 @@ import {
 } from '@/query'
 import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 import { assertCompiledQuery } from '@/query/compiled'
-import type { QueryObserver } from '@/query/observation'
+import type { QueryTracing, TracingOptions } from '@/query/observation'
+import { createQueryTracing } from '@/query/observation'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
@@ -71,7 +72,8 @@ type TransactionScopeFrame = {
 
 const activeTransactionScope = new AsyncLocalStorage<TransactionScopeFrame>()
 
-export type { QueryEvent, QueryObserver, QuerySource } from '@/query/observation'
+export { QUERY_CHANNEL } from '@/query/observation'
+export type { QueryEvent, TracingOptions, QuerySource } from '@/query/observation'
 
 /**
  * Checks whether one transaction scope is nested beneath another.
@@ -162,10 +164,6 @@ async function drainTransactionScope(scope: TransactionScope): Promise<void> {
 export type CreateDatabaseConfig<
   TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 > = {
-  /** Receives SQL completion events without affecting execution results. */
-  onQuery?: QueryObserver
-  /** Bound parameter visibility in events; defaults to redact. */
-  queryParameters?: 'include' | 'redact'
   /** Db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
   connector: Connector
   /** Registered table handles; may be empty. */
@@ -330,11 +328,12 @@ async function runOperationCommand(
   operations: DialectOperations,
   command: OperationCommand,
   dialectId: string,
+  tracing?: QueryTracing,
 ): Promise<void> {
   const compiled = operations.compile(command)
 
   try {
-    await executor.run(compiled, { source: 'lifecycle' })
+    await executor.run(compiled, { source: 'lifecycle', tracing })
   } catch (cause) {
     throw contextualOperationError(
       cause,
@@ -356,6 +355,7 @@ async function runRootTransactionCallback<T>(
   )
 
   await drainTransactionScope(scope)
+  scope.active = false
 
   if (!callback.ok) throw callback.error
   if (scope.context.poisoned) throw transactionPoisonedError()
@@ -370,6 +370,7 @@ async function runRootTransaction<T>(
   operations: DialectOperations,
   inheritedTransactionFrame: TransactionScopeFrame | undefined,
   fn: (scope: TransactionScope) => Promise<T>,
+  tracing?: QueryTracing,
 ): Promise<T> {
   return coordinator.run(async (operation) => {
     await runOperationCommand(
@@ -394,8 +395,6 @@ async function runRootTransaction<T>(
         fn,
       )
 
-      scope.active = false
-
       await runOperationCommand(
         operation.executor,
         operations,
@@ -405,7 +404,6 @@ async function runRootTransaction<T>(
 
       return result
     } catch (error) {
-      scope.active = false
       const rollback = await attempt(() =>
         runOperationCommand(
           operation.executor,
@@ -419,7 +417,7 @@ async function runRootTransaction<T>(
 
       throw error
     }
-  })
+  }, tracing)
 }
 
 /** Runs a nested transaction with savepoint cleanup and queue ownership. */
@@ -431,6 +429,7 @@ async function runNestedTransactionCallback<T>(
   savepointId: number,
   inheritedTransactionFrame: TransactionScopeFrame | undefined,
   fn: (scope: TransactionScope) => Promise<T>,
+  tracing?: QueryTracing,
 ): Promise<T> {
   let callbackFailed = false
   let callbackError: unknown
@@ -456,6 +455,7 @@ async function runNestedTransactionCallback<T>(
       operations,
       savepointId,
       callbackError,
+      tracing,
     )
 
   if (transactionScope.context.poisoned) throw transactionPoisonedError()
@@ -466,6 +466,7 @@ async function runNestedTransactionCallback<T>(
     operations,
     'releaseSavepoint',
     savepointId,
+    tracing,
   )
 
   return result as T
@@ -478,6 +479,7 @@ async function runNestedTransaction<T>(
   operations: DialectOperations,
   inheritedTransactionFrame: TransactionScopeFrame | undefined,
   fn: (scope: TransactionScope) => Promise<T>,
+  tracing?: QueryTracing,
 ): Promise<T> {
   return scheduleTransactionScope(transactionScope, async () => {
     const savepointId = transactionScope.context.nextSavepointId++
@@ -488,6 +490,7 @@ async function runNestedTransaction<T>(
       operations,
       'createSavepoint',
       savepointId,
+      tracing,
     )
 
     const nestedScope: TransactionScope = {
@@ -506,6 +509,7 @@ async function runNestedTransaction<T>(
       savepointId,
       inheritedTransactionFrame,
       fn,
+      tracing,
     )
   })
 }
@@ -636,6 +640,7 @@ function createClientMigration(
   ensureClientOpen: () => void,
   ensureOpen: () => void,
   transactionScope?: TransactionScope,
+  tracing?: QueryTracing,
 ): MigrateBuilder {
   ensureClientOpen()
   return createMigrateBuilder({
@@ -647,6 +652,7 @@ function createClientMigration(
       ensureClientOpen,
       ensureOpen,
       transactionScope,
+      tracing,
     ),
     ...(config.applicationId === undefined
       ? {}
@@ -762,9 +768,61 @@ export function createDatabase<
   const createClient = (
     executor: Executor,
     transactionScope?: TransactionScope,
-  ): Db<TSchemas> => createScopedClient(context, executor, transactionScope, createClient)
+  ): Db<TSchemas> => {
+    const client = createScopedClient(context, executor, transactionScope, createClient)
+    tracingFactories.set(client, (tracing) =>
+      createTracedClient(context, executor, transactionScope, tracing),
+    )
+
+    return client
+  }
 
   return createClient(context.rootExecutor)
+}
+
+const tracingFactories = new WeakMap<object, (tracing: QueryTracing) => object>()
+const tracedClients = new WeakSet()
+
+/** Returns an isolated tracing view sharing the client's sessions and close lifecycle. */
+export function withTracing<TSchemas extends readonly TableHandle[]>(
+  db: Db<TSchemas>,
+  options: TracingOptions = {},
+): Db<TSchemas> {
+  if (tracedClients.has(db)) return db
+
+  const tracing = createQueryTracing(options)
+
+  if (!tracing) return db
+
+  const factory = tracingFactories.get(db)
+
+  if (!factory)
+    throw new QueryError({ message: 'withTracing expects a Stratom database client' })
+
+  return factory(tracing) as Db<TSchemas>
+}
+
+function createTracedClient<TSchemas extends readonly TableHandle[]>(
+  context: DatabaseClientContext<TSchemas>,
+  executor: Executor,
+  transactionScope: TransactionScope | undefined,
+  tracing: QueryTracing,
+): Db<TSchemas> {
+  const tracedContext = { ...context, tracing }
+  const createClient = (executor: Executor, scope?: TransactionScope): Db<TSchemas> => {
+    const tracedExecutor: Executor = {
+      execute: (query, options) =>
+        executor.execute(query, { source: 'query', ...options, tracing }),
+      run: (query, options) =>
+        executor.run(query, { source: 'query', ...options, tracing }),
+    }
+
+    const client = createScopedClient(tracedContext, tracedExecutor, scope, createClient)
+    tracedClients.add(client)
+    return client
+  }
+
+  return createClient(executor, transactionScope)
 }
 
 /** Rejects work after client closure or transaction-scope expiration. */
@@ -911,12 +969,11 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
   const coordinator = new OperationCoordinator(
     operationSessionProvider,
     dialect.classifyDriverError,
-    config.onQuery,
-    config.queryParameters,
   )
 
   const { ensureOpen, rootExecutor, close } = createDatabaseLifecycle(coordinator)
   return {
+    tracing: undefined as QueryTracing | undefined,
     config,
     dialect,
     schemas,
@@ -964,6 +1021,7 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
       dialect.operations,
       inheritedTransactionFrame,
       (scope) => fn(createClient(scope.operation.executor, scope)),
+      context.tracing,
     )
   }
 
@@ -973,6 +1031,7 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
     dialect.operations,
     inheritedTransactionFrame,
     (scope) => fn(createClient(scope.operation.executor, scope)),
+    context.tracing,
   )
 }
 
@@ -1216,6 +1275,7 @@ async function rollbackNestedTransaction(
   operations: DialectOperations,
   savepointId: number,
   callbackError: unknown,
+  tracing?: QueryTracing,
 ): Promise<never> {
   const rawExecutor = transactionScope.operation.executor
 
@@ -1227,6 +1287,7 @@ async function rollbackNestedTransaction(
       operations,
       { kind: 'rollbackToSavepoint', id: savepointId },
       dialectId,
+      tracing,
     )
   } catch {
     transactionScope.context.poisoned = true
@@ -1240,6 +1301,7 @@ async function rollbackNestedTransaction(
       operations,
       { kind: 'releaseSavepoint', id: savepointId },
       dialectId,
+      tracing,
     )
   } catch {
     transactionScope.context.poisoned = true
@@ -1266,6 +1328,7 @@ async function executeSavepoint(
   operations: DialectOperations,
   kind: 'createSavepoint' | 'releaseSavepoint',
   savepointId: number,
+  tracing?: QueryTracing,
 ): Promise<void> {
   const rawExecutor = transactionScope.operation.executor
   try {
@@ -1274,6 +1337,7 @@ async function executeSavepoint(
       operations,
       { kind, id: savepointId },
       dialectId,
+      tracing,
     )
   } catch (error) {
     transactionScope.context.poisoned = true
@@ -1306,7 +1370,7 @@ function createRootExecutor(
       return coordinator.run(({ executor, identity }) => {
         compiled.assertSession?.(identity)
         return executor.execute(compiled, options)
-      })
+      }, options?.tracing)
     },
     /**
      * Runs a statement through the operation coordinator.
@@ -1319,7 +1383,7 @@ function createRootExecutor(
       return coordinator.run(({ executor, identity }) => {
         compiled.assertSession?.(identity)
         return executor.run(compiled, options)
-      })
+      }, options?.tracing)
     },
   }
 }
@@ -1342,6 +1406,7 @@ function createMigrationRunner(
   ensureClientOpen: () => void,
   ensureOpen: () => void,
   transactionScope: TransactionScope | undefined,
+  tracing?: QueryTracing,
 ): Parameters<typeof createMigrateBuilder>[0]['runOperation'] {
   return async (operation) => {
     if (transactionScope) {
@@ -1355,8 +1420,10 @@ function createMigrationRunner(
     }
 
     ensureOpen()
-    return coordinator.run(({ executor, identity, discard, cancel }) =>
-      operation(executor, identity.database, discard, cancel),
+    return coordinator.run(
+      ({ executor, identity, discard, cancel }) =>
+        operation(executor, identity.database, discard, cancel),
+      tracing,
     )
   }
 }
@@ -1412,5 +1479,6 @@ function createScopedMigration<TSchemas extends readonly TableHandle[]>(
     ensureClientOpen,
     context.ensureOpen,
     transactionScope,
+    context.tracing,
   )
 }

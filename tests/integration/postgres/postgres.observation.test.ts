@@ -1,8 +1,9 @@
+import { tracingChannel } from 'node:diagnostics_channel'
 import { pipe, string } from 'valibot'
-import { expect, it } from 'vitest'
+import { expect, it, onTestFinished } from 'vitest'
 
 import type { QueryEvent } from '@/index'
-import { column, defineTable } from '@/index'
+import { QUERY_CHANNEL, column, defineTable, withTracing } from '@/index'
 
 import { withPostgresDatabase } from './postgresIntegration'
 
@@ -14,50 +15,55 @@ it('observes native migration stages and application execution without bootstrap
   )
 
   const events: QueryEvent[] = []
-  await withPostgresDatabase(
-    [Item],
-    async ({ db }) => {
-      await db.migrate().execute()
-      expect(events.some((e) => e.source === 'catalog')).toBe(true)
-      expect(events.some((e) => e.source === 'coordination')).toBe(true)
-
-      expect(
-        events.find((e) => e.sql.toLowerCase().startsWith('create table'))?.source,
-      ).toBe('ddl')
-
-      expect(events.find((e) => e.sql.toLowerCase() === 'commit')?.source).toBe(
-        'lifecycle',
-      )
-
-      expect(events.every((e) => e.outcome === 'success')).toBe(true)
-      events.length = 0
-
-      await db.transaction(async (trx) => {
-        await trx.insert(Item).values({ id: 'secret' }).execute()
-        expect(await trx.from(Item).execute()).toEqual([{ id: 'secret' }])
-      })
-
-      expect(events.map((e) => e.source)).toEqual([
-        'lifecycle',
-        'query',
-        'query',
-        'lifecycle',
-      ])
-
-      expect(events[1]?.params).toEqual(['[REDACTED]'])
-      events.length = 0
-
-      await expect(db.sql`select * from missing_observation_table`).rejects.toThrow(
-        'postgresql database session SQL execution failed',
-      )
-
-      expect(events).toHaveLength(1)
-      expect(events[0]).toMatchObject({ source: 'query', outcome: 'error' })
+  const channel = tracingChannel(QUERY_CHANNEL)
+  const subscribers = {
+    asyncEnd: (event: unknown) => {
+      events.push(event as QueryEvent)
     },
-    {
-      onQuery: (event) => {
-        events.push(event)
-      },
-    },
-  )
+  }
+
+  channel.subscribe(subscribers)
+  onTestFinished(() => channel.unsubscribe(subscribers))
+
+  await withPostgresDatabase([Item], async ({ db: original }) => {
+    const db = withTracing(original)
+    await original.ping()
+    expect(events).toEqual([])
+    await db.migrate().execute()
+    expect(events.some((e) => e.source === 'catalog')).toBe(true)
+    expect(events.some((e) => e.source === 'coordination')).toBe(true)
+
+    expect(
+      events.find((e) => e.query.toLowerCase().startsWith('create table'))?.source,
+    ).toBe('ddl')
+
+    expect(events.find((e) => e.query.toLowerCase() === 'commit')?.source).toBe(
+      'lifecycle',
+    )
+
+    expect(events.every((e) => e.outcome === 'success')).toBe(true)
+    events.length = 0
+
+    await db.transaction(async (trx) => {
+      await trx.insert(Item).values({ id: 'secret' }).execute()
+      expect(await trx.from(Item).execute()).toEqual([{ id: 'secret' }])
+    })
+
+    expect(events.map((e) => e.source)).toEqual([
+      'lifecycle',
+      'query',
+      'query',
+      'lifecycle',
+    ])
+
+    expect(events[1]?.params).toEqual(['[REDACTED]'])
+    events.length = 0
+
+    await expect(db.sql`select * from missing_observation_table`).rejects.toThrow(
+      'postgresql database session SQL execution failed',
+    )
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ source: 'query', outcome: 'error' })
+  })
 })

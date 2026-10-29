@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
-import type { CompiledQuery } from '@/dialects'
 import type { NamespaceContext } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
-import type { ExecutionOptions, QueryEvent, QueryObserver } from '@/query/observation'
+import type { QueryTracing } from '@/query/observation'
+import { traceQuery } from '@/query/observation'
 import type { NamespaceRole } from '@/schemas'
 import type { DriverErrorClassifier } from '@/utils/error'
 import { QueryError, attempt, classifyDriverError } from '@/utils/error'
@@ -243,8 +243,6 @@ export class OperationCoordinator {
   constructor(
     private readonly provider: OperationSessionProvider,
     private readonly classify?: DriverErrorClassifier,
-    private readonly onQuery?: QueryObserver,
-    private readonly queryParameters: 'include' | 'redact' = 'redact',
   ) {
     assertProvider(provider)
   }
@@ -287,7 +285,10 @@ export class OperationCoordinator {
    *
    * @param operation - Operation callback receiving scoped session capabilities.
    */
-  run<T>(operation: (context: OperationContext) => Promise<T>): Promise<T> {
+  run<T>(
+    operation: (context: OperationContext) => Promise<T>,
+    tracing?: QueryTracing,
+  ): Promise<T> {
     if (this.currentToken()) {
       return Promise.reject(
         new QueryError({
@@ -308,7 +309,7 @@ export class OperationCoordinator {
       finish = resolve
     })
 
-    return this.runSession(previous, parent, operation).finally(finish)
+    return this.runSession(previous, parent, operation, tracing).finally(finish)
   }
 
   /**
@@ -341,6 +342,7 @@ export class OperationCoordinator {
     previous: Promise<void>,
     parent: ReturnType<typeof activeOperation.getStore>,
     operation: (context: OperationContext) => Promise<T>,
+    tracing?: QueryTracing,
   ): Promise<T> {
     const state: OperationState<T> = {
       session: undefined,
@@ -354,7 +356,7 @@ export class OperationCoordinator {
     // Fresh sessions remain discard-only until their capabilities and identity pass.
 
     const operationAttempt = await attempt(() =>
-      this.performOperation(state, previous, parent, operation),
+      this.performOperation(state, previous, parent, operation, tracing),
     )
 
     if (!operationAttempt.ok) {
@@ -391,18 +393,14 @@ export class OperationCoordinator {
     previous: Promise<void>,
     parent: ReturnType<typeof activeOperation.getStore>,
     operation: (context: OperationContext) => Promise<T>,
+    tracing?: QueryTracing,
   ): Promise<void> {
     await previous
     state.session = await this.provider.open()
     assertSession(state.session)
     state.capturedIdentity = captureSessionIdentity(state.session)
     state.disposition = 'reuse'
-    const executor = createSessionExecutor(
-      state.session,
-      this.classify,
-      this.onQuery,
-      this.queryParameters,
-    )
+    const executor = createSessionExecutor(state.session, this.classify, tracing)
 
     const token: OperationToken = {
       coordinator: this,
@@ -446,81 +444,35 @@ export class OperationCoordinator {
 function createSessionExecutor(
   session: OperationSession,
   classify?: DriverErrorClassifier,
-  onQuery?: QueryObserver,
-  queryParameters: 'include' | 'redact' = 'redact',
+  tracing?: QueryTracing,
 ): Executor {
   return {
     async execute(query, options) {
       try {
-        return onQuery
-          ? await observeQuery(
-              query,
-              options,
-              'query',
-              () => session.query(query),
-              onQuery,
-              queryParameters,
-            )
-          : await session.query(query)
+        return await traceQuery(
+          query,
+          options,
+          'query',
+          () => session.query(query),
+          options?.tracing ?? tracing,
+        )
       } catch (failure) {
         throw classify ? classifyDriverError(failure, classify) : failure
       }
     },
     async run(query, options) {
       try {
-        return onQuery
-          ? await observeQuery(
-              query,
-              options,
-              'run',
-              () => session.run(query),
-              onQuery,
-              queryParameters,
-            )
-          : await session.run(query)
+        return await traceQuery(
+          query,
+          options,
+          'run',
+          () => session.run(query),
+          options?.tracing ?? tracing,
+        )
       } catch (failure) {
         throw classify ? classifyDriverError(failure, classify) : failure
       }
     },
-  }
-}
-
-/** Observes only the physical call, before error classification or session cleanup. */
-async function observeQuery<T>(
-  query: CompiledQuery,
-  options: ExecutionOptions | undefined,
-  method: QueryEvent['method'],
-  call: () => Promise<T>,
-  observer: QueryObserver,
-  parameters: 'include' | 'redact',
-): Promise<T> {
-  const params = Object.freeze(
-    query.params.map((value) => (parameters === 'include' ? value : '[REDACTED]')),
-  )
-
-  const start = performance.now()
-  let outcome: { outcome: 'success' } | { outcome: 'error'; error: unknown } = {
-    outcome: 'success',
-  }
-
-  try {
-    return await call()
-  } catch (error) {
-    outcome = { outcome: 'error', error }
-    throw error
-  } finally {
-    const durationMs = performance.now() - start
-    notifyQuery(
-      observer,
-      Object.freeze({
-        sql: query.sql,
-        params,
-        source: options?.source ?? 'query',
-        method,
-        durationMs,
-        ...outcome,
-      }),
-    )
   }
 }
 
@@ -582,16 +534,5 @@ async function releaseOperationSession<T>(state: OperationState<T>): Promise<voi
       state.operationFailed = failure.failed
       state.operationError = failure.error
     }
-  }
-}
-
-/** Contains observer failures without extending the session lease to await them. */
-function notifyQuery(observer: QueryObserver, event: QueryEvent): void {
-  try {
-    const result = observer(event)
-
-    if (result) void Promise.resolve(result).catch(() => {})
-  } catch {
-    // Observers must not replace database results or failures.
   }
 }
