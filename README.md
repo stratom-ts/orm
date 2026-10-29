@@ -48,6 +48,11 @@ On PowerShell, set `$env:NODE_OPTIONS='--experimental-sqlite'` first, then run t
 `node` command without the `NODE_OPTIONS=...` prefix. This environment variable
 passes the flag to Vitest's worker processes.
 
+On Windows, the integration configuration exposes garbage collection in test workers.
+Node 22 SQLite statements can retain file handles after their database closes.
+File cleanup collects unreachable statements before deleting temporary databases.
+Connections still close explicitly, and cleanup errors still fail the tests.
+
 `pnpm test:integration:postgres` runs native PostgreSQL scenarios. It needs a running
 PostgreSQL service and `POSTGRESQL_URL`. The repeatable suite uses Docker Compose
 and an isolated schema per test. Docker Desktop provides Compose on Windows and
