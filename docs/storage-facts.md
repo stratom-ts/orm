@@ -1,7 +1,7 @@
 # Internal storage facts
 
 `src/storage/facts.ts` describes logical storage evidence without validation-library types or native schema references.
-`src/internal/valibot` owns the native analysis traversal and projects its result into these facts.
+`src/providers/valibot` owns the native analysis traversal and projects its result into these facts.
 Projection does not validate values or execute defaults, fallbacks, transformations, or mapping hooks.
 Singleton assertions and finite choices remain distinct even when they describe the same one value.
 Defaults distinguish absence, a known value (including null), and an unevaluated factory.

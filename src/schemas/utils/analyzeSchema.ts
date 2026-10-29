@@ -3,5 +3,5 @@ export {
   analyzeSchema,
   withBigintConstraints,
   withNumberConstraints,
-} from '@/internal/valibot/analyzeSchema'
-export type { SchemaAnalysis, SchemaOutputKind } from '@/internal/valibot/analyzeSchema'
+} from '@/providers/valibot/analyzeSchema'
+export type { SchemaAnalysis, SchemaOutputKind } from '@/providers/valibot/analyzeSchema'

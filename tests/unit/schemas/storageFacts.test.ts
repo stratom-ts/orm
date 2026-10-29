@@ -35,7 +35,7 @@ import {
 } from 'valibot'
 import { expect, it, vi } from 'vitest'
 
-import { extractStorageFacts } from '@/internal/valibot/storageFacts'
+import { extractStorageFacts } from '@/providers/valibot/storageFacts'
 import { column } from '@/schemas'
 import type { AnySchema } from '@/types/schema'
 
