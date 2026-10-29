@@ -12,10 +12,11 @@ import type {
   LoweredDesiredSchema,
 } from '@/dialects/types'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
-import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts } from '@/storage/facts'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
-import { inferPostgresColumnType } from './infer'
+import { inferPostgresColumnTypeFromFacts } from './infer'
 import { assertPostgresScalarStorage } from './mapping'
 import {
   normalizePostgresDataType,
@@ -124,7 +125,7 @@ function lowerGeneration(
  */
 function physicalType(
   column: AuthoredDesiredColumn,
-  analysis: SchemaAnalysis,
+  facts: StorageFacts,
   hasGlobalParameterMapping: boolean,
   hasGlobalResultMapping: boolean,
 ): string {
@@ -137,11 +138,11 @@ function physicalType(
     hasGlobalResultMapping || typeof metadata?.mapResult === 'function'
 
   const selected = assertSafePostgresDataType(
-    String(explicit ?? inferPostgresColumnType(column.schema, analysis)),
+    String(explicit ?? inferPostgresColumnTypeFromFacts(facts)),
   )
 
   if (explicit !== undefined && (!hasParameterMapping || !hasResultMapping))
-    assertPostgresScalarStorage(selected, analysis)
+    assertPostgresScalarStorage(selected, facts)
 
   return selected
 }
@@ -228,7 +229,7 @@ function lowerColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
   dataType: string,
-  analysis: SchemaAnalysis,
+  facts: StorageFacts,
 ): LoweredDesiredColumn {
   const generated = validatePostgresColumn(table, column, dataType)
   const primaryKey = Array.isArray(table.metadata.primaryKey)
@@ -242,7 +243,7 @@ function lowerColumn(
   return {
     identifier: column.identifier,
     dataType,
-    notNull: !analysis.nullable,
+    notNull: !facts.nullable,
     unique:
       (column.metadata?.unique ?? false) &&
       !(primaryKey.length === 1 && primaryKey[0] === column.name),
@@ -283,18 +284,19 @@ export function lowerPostgresDesiredSchema(
   context?: Parameters<DialectSchema['lowerDesiredSchema']>[1],
 ): LoweredDesiredSchema {
   try {
+    // Remove these extraction adapters when the shared graph supplies facts in #388.
     return lowerDesiredSchemaGraph(graph, context, {
-      lowerPhysicalType: (column, analysis, options) =>
+      lowerPhysicalType: (column, _analysis, options) =>
         physicalType(
           column,
-          analysis,
+          extractStorageFacts(column.schema),
           options?.hasGlobalParameterMapping ?? false,
           options?.hasGlobalResultMapping ?? false,
         ),
       lowerReferenceType: (table, column, inheritedType) =>
         validateReferencePhysicalType(table, column, inheritedType),
-      lowerColumn: (table, column, dataType, analysis) =>
-        lowerColumn(table, column, dataType, analysis),
+      lowerColumn: (table, column, dataType) =>
+        lowerColumn(table, column, dataType, extractStorageFacts(column.schema)),
     })
   } catch (cause) {
     if (!isErrorTag(cause, 'SchemaError')) throw cause

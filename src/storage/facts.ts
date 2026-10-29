@@ -56,6 +56,8 @@ export interface StorageFacts {
    */
   singletonValue?: unknown
   finiteValues?: readonly unknown[]
+  /** Original finite choices, before later validation narrows finiteValues. */
+  finiteSourceValues?: readonly unknown[]
   composite?: {
     kind: 'alternatives' | 'intersection'
     branches: readonly StorageFacts[]

@@ -1,11 +1,13 @@
-import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
-import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts, StorageStringFormat } from '@/storage/facts'
 import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
-import { inferPostgresColumnType } from './infer'
+import { inferPostgresColumnTypeFromFacts } from './infer'
 import { extractPostgresBaseType } from './normalize'
+
+// Native-schema entry adapters in this module are temporary until shared contexts pass facts in #388.
 
 const BIGINT_OUTPUT_STORAGE = new Set([
   'numeric',
@@ -15,9 +17,7 @@ const BIGINT_OUTPUT_STORAGE = new Set([
   'smallint',
 ])
 
-const TEMPORAL_FORMAT_STORAGE: Partial<
-  Record<SchemaAnalysis['stringFormats'][number], string>
-> = {
+const TEMPORAL_FORMAT_STORAGE: Partial<Record<StorageStringFormat, string>> = {
   iso_date: 'date',
   iso_time: 'time',
   iso_time_second: 'time',
@@ -64,11 +64,8 @@ function mappingStorage(dataType: string): string {
   return SERIAL_STORAGE[base] ?? base
 }
 
-/** Unknown and any outputs accept every runtime value, so no storage contradicts them. */
-const UNTYPED_OUTPUT_SCHEMAS = new Set(['unknown', 'any'])
-
 /** Checks whether PostgreSQL storage returns values of one analyzed scalar output kind. */
-function canStoreOutputKind(base: string, kind: SchemaAnalysis['outputKind']): boolean {
+function canStoreOutputKind(base: string, kind: StorageFacts['outputKind']): boolean {
   switch (kind) {
     case 'string':
       return !NON_STRING_STORAGE.has(base) && !base.endsWith('[]')
@@ -100,18 +97,13 @@ function canStoreOutputKind(base: string, kind: SchemaAnalysis['outputKind']): b
  */
 export function assertPostgresScalarStorage(
   dataType: string,
-  analysis: SchemaAnalysis,
+  analysis: StorageFacts,
 ): void {
   if (analysis.composite) return
 
   const kind = analysis.outputKind
 
-  if (
-    kind === undefined &&
-    !analysis.unresolvedTransformation &&
-    UNTYPED_OUTPUT_SCHEMAS.has((analysis.outputSchema ?? analysis.baseSchema).type)
-  )
-    return
+  if (analysis.outputState === 'unconstrained') return
 
   const base = mappingStorage(dataType)
 
@@ -125,7 +117,7 @@ export function assertPostgresScalarStorage(
 }
 
 /** Rejects proven ISO formats stored in a different native temporal type. */
-function assertTemporalFormatStorage(base: string, analysis: SchemaAnalysis): void {
+function assertTemporalFormatStorage(base: string, analysis: StorageFacts): void {
   if (analysis.outputKind !== 'string') return
   if (!TEMPORAL_STORAGE.has(base)) return
 
@@ -143,7 +135,7 @@ function assertTemporalFormatStorage(base: string, analysis: SchemaAnalysis): vo
 /** Checks whether one proven ISO format matches its native PostgreSQL storage. */
 function matchesTemporalFormatStorage(
   base: string,
-  formats: SchemaAnalysis['stringFormats'],
+  formats: StorageFacts['stringFormats'],
 ): boolean {
   return formats.length === 1 && TEMPORAL_FORMAT_STORAGE[formats[0]!] === base
 }
@@ -151,11 +143,10 @@ function matchesTemporalFormatStorage(
 /** Selects authored reference formats only when native storage can preserve them. */
 function referenceTemporalAnalysis(
   base: string,
-  schema: DialectValueMappingContext['authoredSchema'],
-): SchemaAnalysis | undefined {
-  if (!schema) return undefined
+  authored: StorageFacts | undefined,
+): StorageFacts | undefined {
+  if (!authored) return undefined
 
-  const authored = analyzeSchema(schema)
   const formats = authored.stringFormats.filter(
     (format) => TEMPORAL_FORMAT_STORAGE[format],
   )
@@ -234,7 +225,7 @@ function isoDateTimeResult(value: string, withSeconds: boolean): string {
 function mapIsoStringResult(
   base: string,
   value: string,
-  formats: SchemaAnalysis['stringFormats'],
+  formats: StorageFacts['stringFormats'],
 ): string | undefined {
   if (base === 'time' && formats.includes('iso_time')) return isoTimeResult(value, false)
 
@@ -270,7 +261,7 @@ function parseNativeTimestamp(base: string, value: string | number): Date | unde
 function mapTemporalResult(
   base: string,
   value: unknown,
-  analysis: SchemaAnalysis | undefined,
+  analysis: StorageFacts | undefined,
 ): unknown {
   const kind = analysis?.outputKind
 
@@ -301,14 +292,23 @@ export function validatePostgresValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
 ): void {
-  const target = analyzeSchema(context.schema)
+  validatePostgresValueMappingFromFacts(
+    dataType,
+    extractStorageFacts(context.schema),
+    context.authoredSchema && extractStorageFacts(context.authoredSchema),
+  )
+}
 
-  validatePostgresCompositeMapping(dataType, context.schema, target)
+/** Validates selected storage against resolved and locally authored logical output. */
+export function validatePostgresValueMappingFromFacts(
+  dataType: string,
+  target: StorageFacts,
+  authored?: StorageFacts,
+): void {
+  validatePostgresCompositeMapping(dataType, target)
 
-  if (context.authoredSchema) {
-    const authored = analyzeSchema(context.authoredSchema)
-
-    validatePostgresCompositeMapping(dataType, context.authoredSchema, authored)
+  if (authored) {
+    validatePostgresCompositeMapping(dataType, authored)
 
     if (authored.outputKind !== target.outputKind) {
       throw new SchemaError({
@@ -317,7 +317,7 @@ export function validatePostgresValueMapping(
       })
     }
 
-    referenceTemporalAnalysis(extractPostgresBaseType(dataType), context.authoredSchema)
+    referenceTemporalAnalysis(extractPostgresBaseType(dataType), authored)
   }
 
   assertPostgresScalarStorage(dataType, target)
@@ -325,8 +325,7 @@ export function validatePostgresValueMapping(
 
 function validatePostgresCompositeMapping(
   dataType: string,
-  schema: DialectValueMappingContext['schema'],
-  analysis: SchemaAnalysis,
+  analysis: StorageFacts,
 ): void {
   if (!analysis.composite) return
 
@@ -334,7 +333,7 @@ function validatePostgresCompositeMapping(
 
   if (analysis.outputKind === 'string' && (base === 'text' || base === 'varchar')) return
 
-  const inferred = extractPostgresBaseType(inferPostgresColumnType(schema, analysis))
+  const inferred = extractPostgresBaseType(inferPostgresColumnTypeFromFacts(analysis))
   const kind = analysis.outputKind
   const compatible =
     kind === 'number'
@@ -450,11 +449,26 @@ export function mapPostgresResultValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
+  return mapPostgresResultValueFromFacts(
+    dataType,
+    value,
+    context && extractStorageFacts(context.schema),
+    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
+  )
+}
+
+/** Maps a driver value using only logical storage facts. */
+export function mapPostgresResultValueFromFacts(
+  dataType: string,
+  value: unknown,
+  target?: StorageFacts,
+  authored?: StorageFacts,
+): unknown {
+  if (value === null || value === undefined) return value
+
   const base = mappingStorage(dataType)
 
-  const analysis =
-    referenceTemporalAnalysis(base, context?.authoredSchema) ??
-    (context ? analyzeSchema(context.schema) : undefined)
+  const analysis = referenceTemporalAnalysis(base, authored) ?? target
 
   const kind = analysis?.outputKind
 
@@ -519,9 +533,24 @@ export function mapPostgresParamValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
+  return mapPostgresParamValueFromFacts(
+    dataType,
+    value,
+    context && extractStorageFacts(context.schema),
+    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
+  )
+}
+
+/** Maps a parameter using only logical storage facts. */
+export function mapPostgresParamValueFromFacts(
+  dataType: string,
+  value: unknown,
+  analysis?: StorageFacts,
+  authored?: StorageFacts,
+): unknown {
+  if (value === null || value === undefined) return value
+
   const base = mappingStorage(dataType)
-  const analysis = context && analyzeSchema(context.schema)
-  const authored = context?.authoredSchema && analyzeSchema(context.authoredSchema)
   const kind = analysis?.outputKind
 
   if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base))
@@ -552,8 +581,8 @@ export function mapPostgresParamValue(
 
 function assertPostgresJsonCompositeParam(
   value: unknown,
-  analysis: SchemaAnalysis | undefined,
-  authored: SchemaAnalysis | undefined,
+  analysis: StorageFacts | undefined,
+  authored: StorageFacts | undefined,
 ): void {
   if (!(analysis?.composite || authored?.composite) || !containsNonFiniteNumber(value))
     return

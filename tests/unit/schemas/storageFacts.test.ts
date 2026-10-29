@@ -77,8 +77,15 @@ it('describes primitive families and their independent storage constraints', () 
 it('retains singleton versus choice evidence after later validation', () => {
   expect(extractStorageFacts(pipe(literal(2) as AnySchema, number()))).toMatchObject({
     finiteEvidence: 'singleton',
+    singletonValue: 2,
     finiteValues: [2],
     outputKind: 'number',
+  })
+
+  expect(extractStorageFacts(pipe(literal(1), minValue(2 as 1)))).toMatchObject({
+    finiteEvidence: 'singleton',
+    singletonValue: 1,
+    finiteValues: [],
   })
 
   expect(
@@ -86,7 +93,18 @@ it('retains singleton versus choice evidence after later validation', () => {
   ).toMatchObject({
     finiteEvidence: 'choice',
     finiteValues: [2],
+    finiteSourceValues: [1, 2],
     outputKind: 'number',
+  })
+
+  expect(
+    extractStorageFacts(
+      pipe(picklist([2147483648, Number.MAX_SAFE_INTEGER + 1]), maxValue(2147483648)),
+    ),
+  ).toMatchObject({
+    finiteEvidence: 'choice',
+    finiteValues: [2147483648],
+    finiteSourceValues: [2147483648, Number.MAX_SAFE_INTEGER + 1],
   })
 
   expect(extractStorageFacts(picklist(['one', 2]))).toMatchObject({
