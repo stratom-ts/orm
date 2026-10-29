@@ -58,10 +58,144 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { inferPostgresColumnTypeFromFacts } from '@/dialects/postgres/infer'
+import {
+  mapPostgresParamValueFromFacts,
+  mapPostgresResultValueFromFacts,
+  validatePostgresValueMappingFromFacts,
+} from '@/dialects/postgres/mapping'
 import { SchemaError, postgresDialect } from '@/index'
+import type { StorageFacts } from '@/storage/facts'
 import { attemptSync } from '@/utils/error'
 
 const { inferColumnType } = postgresDialect.schema
+
+function storageFacts(overrides: Partial<StorageFacts>): StorageFacts {
+  return {
+    outputKind: undefined,
+    outputState: 'unsupported',
+    nullable: false,
+    allowsUndefined: false,
+    outputMayBeUndefined: false,
+    omitOnInsert: false,
+    schemaDefault: { kind: 'absent' },
+    stringConstraints: {},
+    stringFormats: [],
+    numberConstraints: {},
+    bigintConstraints: {},
+    nullOnly: false,
+    ...overrides,
+  }
+}
+
+function registerFiniteFactInference() {
+  it('infers singleton and narrowed choice widths from facts alone', () => {
+    const singleton = storageFacts({
+      outputKind: 'number',
+      finiteEvidence: 'singleton',
+      singletonValue: 32767,
+      finiteValues: [],
+    })
+
+    const choice = storageFacts({
+      outputKind: 'number',
+      finiteEvidence: 'choice',
+      finiteValues: [32767],
+    })
+
+    expect(inferPostgresColumnTypeFromFacts(singleton)).toBe('integer')
+    expect(inferPostgresColumnTypeFromFacts(choice)).toBe('smallint')
+
+    expect(
+      inferPostgresColumnTypeFromFacts(
+        storageFacts({
+          outputKind: 'bigint',
+          finiteEvidence: 'choice',
+          finiteValues: [2n ** 63n],
+        }),
+      ),
+    ).toBe('numeric')
+  })
+}
+
+function registerCompositeFactInference() {
+  it('promotes proven safe integers and rejects unproven composite widths', () => {
+    const safe = storageFacts({
+      outputKind: 'number',
+      finiteEvidence: 'choice',
+      finiteValues: [2147483648],
+      finiteSourceValues: [2147483648],
+    })
+
+    const unsafe = storageFacts({
+      ...safe,
+      finiteSourceValues: [2147483648, Number.MAX_SAFE_INTEGER + 1],
+    })
+
+    const wide = storageFacts({
+      outputKind: 'number',
+      numberConstraints: {
+        isInteger: true,
+        maxValue: 2147483648,
+      },
+    })
+
+    const fractional = storageFacts({ outputKind: 'number' })
+    const composite = (branch: StorageFacts) =>
+      storageFacts({
+        outputKind: 'number',
+        composite: { kind: 'alternatives', branches: [branch, fractional] },
+      })
+
+    expect(inferPostgresColumnTypeFromFacts(composite(safe))).toBe('double precision')
+    expect(() => inferPostgresColumnTypeFromFacts(composite(unsafe))).toThrow(SchemaError)
+    expect(() => inferPostgresColumnTypeFromFacts(composite(wide))).toThrow(SchemaError)
+  })
+}
+
+function registerStorageFactMapping() {
+  it('distinguishes unconstrained output from unresolved transformations', () => {
+    expect(() =>
+      validatePostgresValueMappingFromFacts(
+        'jsonb',
+        storageFacts({
+          outputState: 'unconstrained',
+        }),
+      ),
+    ).not.toThrow()
+
+    expect(() =>
+      validatePostgresValueMappingFromFacts(
+        'jsonb',
+        storageFacts({
+          outputState: 'unresolved',
+        }),
+      ),
+    ).toThrow(SchemaError)
+  })
+
+  it('keeps resolved reference output and authored temporal constraints', () => {
+    const target = storageFacts({ outputKind: 'date', outputState: 'known' })
+    const authored = storageFacts({
+      outputKind: 'date',
+      outputState: 'known',
+      stringFormats: ['iso_timestamp'],
+    })
+
+    expect(
+      mapPostgresResultValueFromFacts('timestamptz', '2024-01-15 10:30:00+00', target),
+    ).toEqual(new Date('2024-01-15T10:30:00Z'))
+
+    expect(() =>
+      validatePostgresValueMappingFromFacts('timestamp', target, authored),
+    ).toThrow(SchemaError)
+
+    const logical = storageFacts({ outputKind: 'bigint', outputState: 'known' })
+
+    expect(mapPostgresParamValueFromFacts('numeric', 123n, logical)).toBe('123')
+    expect(mapPostgresResultValueFromFacts('numeric', '123', logical)).toBe(123n)
+  })
+}
 
 const registerSchemaCases6 = () => {
   it('should widen compatible composite storage and retain nullability independently', () => {
@@ -968,6 +1102,9 @@ function registerSchemaGroup22() {
 }
 
 describe('PostgreSQL schema', () => {
+  registerFiniteFactInference()
+  registerCompositeFactInference()
+  registerStorageFactMapping()
   registerSchemaGroup1()
   registerSchemaGroup2()
   registerSchemaGroup3()
