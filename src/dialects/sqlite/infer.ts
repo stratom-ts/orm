@@ -1,6 +1,4 @@
-import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
-import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
 import type { SqlDataType } from '../types'
@@ -75,9 +73,6 @@ function inferSqliteLiteralType(literal: unknown): SqlDataType {
 }
 
 /** Temporary Valibot entry point until the shared graph supplies facts. */
-export function inferSqliteColumnType(schema: AnySchema): SqlDataType {
-  return inferSqliteColumnFacts(extractStorageFacts(schema))
-}
 
 /** Infers a SQLite declared type from semantic storage evidence. */
 export function inferSqliteColumnFacts(facts: StorageFacts): SqlDataType {

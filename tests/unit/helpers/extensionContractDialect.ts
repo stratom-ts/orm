@@ -456,7 +456,6 @@ function findContractQueryColumnMatches(
 function lowerSchema(graph: AuthoredDesiredSchema) {
   return {
     tables: graph.tables.map((table) => ({
-      handle: table.handle,
       identity: table.identity,
       columns: table.columns.map((column) => ({
         identifier: column.identifier,

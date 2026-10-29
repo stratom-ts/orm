@@ -151,7 +151,7 @@ function uuidReferenceParent(targetType: string) {
 
 /** Finds a lowered column in the registered desired-schema graph. */
 function loweredColumn(
-  tables: readonly LoweredDesiredTable[],
+  tables: readonly Omit<LoweredDesiredTable, 'handle'>[],
   tableName: string,
   columnName: string,
 ) {
@@ -1145,14 +1145,16 @@ const registerDesiredSchemaCases29 = () => {
 
     expect(() =>
       postgresDialect.schema.lowerDesiredSchema({
-        tables: graph.tables.filter((table) => table.handle !== Target),
+        tables: graph.tables.filter(
+          (table) => table.identity.relation.spelling !== Target.getTableMetadata().name,
+        ),
       }),
     ).toThrow(/unregistered relation/i)
 
     expect(() =>
       postgresDialect.schema.lowerDesiredSchema({
         tables: graph.tables.map((table) =>
-          table.handle === Target
+          table.identity.relation.spelling === Target.getTableMetadata().name
             ? {
                 ...table,
                 columns: table.columns.filter((column) => column.name !== 'id'),

@@ -32,6 +32,7 @@ import {
 } from '@/dialects/sqlite/mapping'
 import { column, createDatabase, defineTable } from '@/index'
 import { createValueMapper } from '@/query/mapping'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { AnySchema } from '@/types/schema'
 import { QueryError, SchemaError } from '@/utils/error'
 
@@ -44,7 +45,9 @@ const registerMappingCases11 = () => {
     const min = -(2n ** 63n)
     const max = 2n ** 63n - 1n
     const context = {
-      schema: pipe(union([bigint(), bigint()]), minValue(min), maxValue(max)),
+      facts: extractStorageFacts(
+        pipe(union([bigint(), bigint()]), minValue(min), maxValue(max)),
+      ),
     }
 
     for (const value of [min, max]) {
@@ -62,7 +65,10 @@ const registerMappingCases11 = () => {
   })
 
   it('should use REAL when integer and fractional branches share number output', () => {
-    const context = { schema: union([pipe(number(), integer()), number()]) }
+    const context = {
+      facts: extractStorageFacts(union([pipe(number(), integer()), number()])),
+    }
+
     expect(mapSqliteParamValue('REAL', 1.25, context)).toBe(1.25)
     expect(mapSqliteResultValue('REAL', 1.25, context)).toBe(1.25)
 
@@ -73,15 +79,20 @@ const registerMappingCases11 = () => {
 
   it('should reject mixed output identities despite a physical override', () => {
     expect(() =>
-      validateSqliteValueMapping('TEXT', { schema: union([string(), number()]) }),
+      validateSqliteValueMapping('TEXT', {
+        facts: extractStorageFacts(union([string(), number()])),
+      }),
     ).toThrow(SchemaError)
   })
 }
 
 const registerMappingCases12 = () => {
   it('should preserve ISO string output and map proven transformed Date output', () => {
-    const isoSchema = { schema: pipe(string(), isoTimestamp()) }
-    const convertedSchema = { schema: pipe(string(), isoTimestamp(), toDate()) }
+    const isoSchema = { facts: extractStorageFacts(pipe(string(), isoTimestamp())) }
+    const convertedSchema = {
+      facts: extractStorageFacts(pipe(string(), isoTimestamp(), toDate())),
+    }
+
     const isoValue = '2026-01-02T03:04:05.123456Z'
     const dateValue = new Date('2026-01-02T03:04:05.123Z')
 
@@ -97,7 +108,9 @@ const registerMappingCases12 = () => {
     ).toEqual(dateValue)
 
     expect(
-      mapSqliteResultValue('DATETIME', dateValue.toISOString(), { schema: date() }),
+      mapSqliteResultValue('DATETIME', dateValue.toISOString(), {
+        facts: extractStorageFacts(date()),
+      }),
     ).toEqual(dateValue)
   })
 
@@ -278,7 +291,7 @@ function registerMappingGroup1() {
     'SQLite should validate parameters and results for %s',
     (_id, schema, accepted, rejected, input, parameter, driver, output) => {
       for (const type of accepted) {
-        const context = { schema }
+        const context = { facts: extractStorageFacts(schema) }
         expect(() => validateSqliteValueMapping(type, context)).not.toThrow()
         expect(mapSqliteParamValue(type, input, context)).toEqual(parameter)
         expect(mapSqliteResultValue(type, driver, context)).toEqual(output)
@@ -287,7 +300,9 @@ function registerMappingGroup1() {
       }
 
       for (const type of rejected)
-        expect(() => validateSqliteValueMapping(type, { schema })).toThrow(SchemaError)
+        expect(() =>
+          validateSqliteValueMapping(type, { facts: extractStorageFacts(schema) }),
+        ).toThrow(SchemaError)
     },
   )
 }
@@ -297,7 +312,9 @@ function registerMappingGroup2() {
     'should reject SM7 unclassified output for every affinity',
     (schema) => {
       for (const type of ['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB'])
-        expect(() => validateSqliteValueMapping(type, { schema })).toThrow(SchemaError)
+        expect(() =>
+          validateSqliteValueMapping(type, { facts: extractStorageFacts(schema) }),
+        ).toThrow(SchemaError)
     },
   )
 }
@@ -306,7 +323,7 @@ function registerMappingGroup3() {
   it.each(['INTEGER', 'REAL', 'NUMERIC', 'BLOB'])(
     'should enforce E01-E03 and E08 ranges with %s storage',
     (type) => {
-      const context = { schema: number() }
+      const context = { facts: extractStorageFacts(number()) }
       for (const value of [-9007199254740991, 9007199254740991]) {
         expect(mapSqliteParamValue(type, value, context)).toBe(value)
         expect(mapSqliteResultValue(type, value, context)).toBe(value)
@@ -326,9 +343,13 @@ function registerMappingGroup4() {
       union([object({ at: date() }), object({ at: date() })]),
       union([object({ id: bigint() }), object({ id: bigint() })]),
     ]) {
-      expect(() => validateSqliteValueMapping('JSON', { schema })).toThrow(SchemaError)
+      expect(() =>
+        validateSqliteValueMapping('JSON', { facts: extractStorageFacts(schema) }),
+      ).toThrow(SchemaError)
 
-      expect(() => validateSqliteValueMapping('JSON', { schema })).toThrow(
+      expect(() =>
+        validateSqliteValueMapping('JSON', { facts: extractStorageFacts(schema) }),
+      ).toThrow(
         /JSON composite output is not preserved.*physicalType.*paired parameter and result mappings/,
       )
     }
@@ -341,8 +362,14 @@ function registerMappingGroup5() {
     const schema = union([branch, branch])
     const output = { at: new Date('2026-01-01T00:00:00.000Z').toString() }
 
-    expect(() => validateSqliteValueMapping('JSON', { schema })).not.toThrow()
-    expect(mapSqliteParamValue('JSON', output, { schema })).toBe(JSON.stringify(output))
+    expect(() =>
+      validateSqliteValueMapping('JSON', { facts: extractStorageFacts(schema) }),
+    ).not.toThrow()
+
+    expect(
+      mapSqliteParamValue('JSON', output, { facts: extractStorageFacts(schema) }),
+    ).toBe(JSON.stringify(output))
+
     expect(mapSqliteResultValue('JSON', JSON.stringify(output))).toEqual(output)
   })
 }
@@ -375,7 +402,11 @@ function registerMappingGroup7() {
   it('should reject non-finite nested numbers before JSON serialization', () => {
     const schema = union([object({ value: number() }), object({ value: number() })])
     expect(() =>
-      mapSqliteParamValue('JSON', { value: Number.POSITIVE_INFINITY }, { schema }),
+      mapSqliteParamValue(
+        'JSON',
+        { value: Number.POSITIVE_INFINITY },
+        { facts: extractStorageFacts(schema) },
+      ),
     ).toThrow(QueryError)
   })
 }
@@ -392,7 +423,10 @@ function registerMappingGroup8() {
       mapSqliteParamValue(
         'JSON',
         { value: Number.POSITIVE_INFINITY },
-        { schema: target, authoredSchema },
+        {
+          facts: extractStorageFacts(target),
+          authoredFacts: extractStorageFacts(authoredSchema),
+        },
       ),
     ).toThrow(QueryError)
   })
@@ -591,7 +625,11 @@ function registerMappingGroup18() {
     [isoTimestamp(), '2026-01-02T03:04:05.123456+11:00'],
   ])('should preserve exact ISO text for matching SQLite references', (format, value) => {
     const schema = pipe(string(), format)
-    const context = { schema, authoredSchema: schema }
+    const context = {
+      facts: extractStorageFacts(schema),
+      authoredFacts: extractStorageFacts(schema),
+    }
+
     expect(mapSqliteParamValue('TEXT', value, context)).toBe(value)
     expect(mapSqliteResultValue('TEXT', value, context)).toBe(value)
   })
@@ -600,8 +638,8 @@ function registerMappingGroup18() {
 function registerMappingGroup19() {
   it('should preserve SQLite temporal text without native precision formatting', () => {
     const context = {
-      schema: pipe(string(), isoTime()),
-      authoredSchema: pipe(string(), isoTimeSecond()),
+      facts: extractStorageFacts(pipe(string(), isoTime())),
+      authoredFacts: extractStorageFacts(pipe(string(), isoTimeSecond())),
     }
 
     expect(mapSqliteResultValue('TEXT', '03:04', context)).toBe('03:04')
@@ -613,14 +651,18 @@ function registerMappingGroup20() {
   it('should retain Date output for SQLite references and reject local string-to-Date changes', () => {
     const schema = date()
     const value = new Date('2026-01-02T03:04:05Z')
-    const context = { schema, authoredSchema: schema }
+    const context = {
+      facts: extractStorageFacts(schema),
+      authoredFacts: extractStorageFacts(schema),
+    }
+
     expect(mapSqliteParamValue('DATETIME', value, context)).toBe(value.toISOString())
     expect(mapSqliteResultValue('DATETIME', value.toISOString(), context)).toEqual(value)
 
     expect(() =>
       validateSqliteValueMapping('TEXT', {
-        schema: pipe(string(), isoTimestamp()),
-        authoredSchema: pipe(string(), isoTimestamp(), toDate()),
+        facts: extractStorageFacts(pipe(string(), isoTimestamp())),
+        authoredFacts: extractStorageFacts(pipe(string(), isoTimestamp(), toDate())),
       }),
     ).toThrow(SchemaError)
   })

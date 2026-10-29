@@ -1,6 +1,6 @@
 import type { AnySchema } from '@/types/schema'
 
-import { analyzeSchema } from './analyzeSchema'
+import { unwrapSchema } from '../valibot/unwrapSchema'
 
 /**
  * Unwraps optional/nullable/nullish wrappers and pipes to the base schema.
@@ -14,5 +14,5 @@ import { analyzeSchema } from './analyzeSchema'
  * @returns Innermost base schema type
  */
 export function getBaseSchema(schema: AnySchema): AnySchema {
-  return analyzeSchema(schema).baseSchema
+  return unwrapSchema(schema, true)
 }

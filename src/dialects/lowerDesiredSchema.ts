@@ -3,21 +3,15 @@ import type {
   AuthoredDesiredSchema,
   AuthoredDesiredTable,
   LoweredDesiredColumn,
-  LoweredDesiredSchema,
+  StorageDesiredSchema,
 } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
-import { analyzeSchema } from '@/schemas'
-import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
 import { MigrationError } from '@/utils/error'
 
 /** Dialect decisions consumed by the shared desired-schema graph lowerer. */
 type DesiredSchemaLoweringHooks<Context> = Readonly<{
   validateIdentity?(identity: CanonicalRelationIdentity): void
-  lowerPhysicalType(
-    column: AuthoredDesiredColumn,
-    analysis: SchemaAnalysis,
-    context: Context,
-  ): string
+  lowerPhysicalType(column: AuthoredDesiredColumn, context: Context): string
   lowerReferenceType(
     table: AuthoredDesiredTable,
     column: AuthoredDesiredColumn,
@@ -27,7 +21,6 @@ type DesiredSchemaLoweringHooks<Context> = Readonly<{
     table: AuthoredDesiredTable,
     column: AuthoredDesiredColumn,
     dataType: string,
-    analysis: SchemaAnalysis,
     context: Context,
   ): LoweredDesiredColumn
 }>
@@ -87,12 +80,11 @@ export function lowerDesiredSchemaGraph<Context>(
   graph: AuthoredDesiredSchema,
   context: Context,
   hooks: DesiredSchemaLoweringHooks<Context>,
-): LoweredDesiredSchema {
+): StorageDesiredSchema {
   const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
-  const analyses = new Map<AuthoredDesiredColumn, SchemaAnalysis>()
 
   for (const table of graph.tables) {
-    registerTable(table, analyses, resolvedTypes, context, hooks)
+    registerTable(table, resolvedTypes, context, hooks)
   }
 
   resolveReferenceTypes(graph, resolvedTypes, hooks)
@@ -103,13 +95,7 @@ export function lowerDesiredSchemaGraph<Context>(
       loweredColumns.set(
         column,
         Object.freeze(
-          hooks.lowerColumn(
-            table,
-            column,
-            resolvedTypes.get(column)!,
-            analyses.get(column)!,
-            context,
-          ),
+          hooks.lowerColumn(table, column, resolvedTypes.get(column)!, context),
         ),
       )
     }
@@ -118,10 +104,9 @@ export function lowerDesiredSchemaGraph<Context>(
   return freezeLoweredSchema(graph, loweredColumns)
 }
 
-/** Validates one table and registers schema analyses and independent physical types. */
+/** Validates one table and registers independent physical types. */
 function registerTable<Context>(
   table: AuthoredDesiredTable,
-  analyses: Map<AuthoredDesiredColumn, SchemaAnalysis>,
   resolvedTypes: Map<AuthoredDesiredColumn, string>,
   context: Context,
   hooks: DesiredSchemaLoweringHooks<Context>,
@@ -135,11 +120,8 @@ function registerTable<Context>(
   }
 
   for (const column of orderedColumns(table)) {
-    const analysis = analyzeSchema(column.schema)
-    analyses.set(column, analysis)
-
     if (column.reference === undefined) {
-      resolvedTypes.set(column, hooks.lowerPhysicalType(column, analysis, context))
+      resolvedTypes.set(column, hooks.lowerPhysicalType(column, context))
     }
   }
 }
@@ -230,7 +212,7 @@ function resolvePendingReference<Context>(
 function freezeLoweredSchema(
   graph: AuthoredDesiredSchema,
   loweredColumns: ReadonlyMap<AuthoredDesiredColumn, LoweredDesiredColumn>,
-): LoweredDesiredSchema {
+): StorageDesiredSchema {
   return Object.freeze({
     tables: Object.freeze(
       graph.tables.map((table) => {
@@ -239,7 +221,6 @@ function freezeLoweredSchema(
           : [table.metadata.primaryKey]
 
         return Object.freeze({
-          handle: table.handle,
           identity: table.identity,
           columns: Object.freeze(
             table.columns.map((column) => loweredColumns.get(column)!),

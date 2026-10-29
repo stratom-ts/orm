@@ -9,6 +9,7 @@ import type {
   OperationCommand,
 } from '@/dialects'
 import { column, defineTable, postgresDialect } from '@/index'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 
 import type { MigrationContractCase, QueryCompilerScenarios } from './dialectContractKit'
 import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
@@ -748,7 +749,7 @@ export const postgresSemanticContractInput = {
         },
         {
           dataType: 'numeric',
-          context: { schema: bigint() },
+          context: { facts: extractStorageFacts(bigint()) },
           paramValue: 9007199254740993n,
           resultValue: '9007199254740993',
           expected: {
@@ -758,7 +759,7 @@ export const postgresSemanticContractInput = {
         },
         {
           dataType: 'bigint',
-          context: { schema: pipe(number(), safeInteger()) },
+          context: { facts: extractStorageFacts(pipe(number(), safeInteger())) },
           paramValue: 42,
           resultValue: '42',
           expected: { mappedParam: 42, mappedResult: 42 },

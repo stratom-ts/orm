@@ -3,6 +3,7 @@ import { bigint, date, integer, number, pipe, string } from 'valibot'
 import type { CompiledQuery, SqlAst } from '@/dialects'
 import { sqliteDialect as sqliteContractDialect } from '@/dialects/sqlite'
 import { defineTable } from '@/index'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 
 import type { QueryCompilerScenarios } from './dialectContractKit'
 import {
@@ -464,7 +465,7 @@ export const sqliteSemanticContractInput = {
         },
         {
           dataType: 'BIGINT',
-          context: { schema: bigint() },
+          context: { facts: extractStorageFacts(bigint()) },
           paramValue: 42n,
           resultValue: 42n,
           expected: { mappedParam: 42n, mappedResult: 42n },

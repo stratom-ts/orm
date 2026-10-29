@@ -2,6 +2,7 @@ import { array, object, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import { assertSqliteDefaultCompatibility } from '@/dialects/sqlite/defaultCompatibility'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { AnySchema } from '@/types/schema'
 
 function registerDefaultCompatibilityGroup1() {
@@ -19,7 +20,7 @@ function registerDefaultCompatibilityGroup1() {
         assertSqliteDefaultCompatibility(
           { kind: 'literal', value: 'ok' },
           'TEXT',
-          string(),
+          extractStorageFacts(string()),
           false,
           'records.value',
         )
@@ -40,7 +41,7 @@ function registerDefaultCompatibilityGroup1() {
       assertSqliteDefaultCompatibility(
         { kind: 'literal', value: '[]' },
         'JSON',
-        schema,
+        extractStorageFacts(schema),
         false,
         'records.value',
       ),
@@ -50,7 +51,7 @@ function registerDefaultCompatibilityGroup1() {
       assertSqliteDefaultCompatibility(
         { kind: 'literal', value: '{}' },
         'JSON',
-        schema,
+        extractStorageFacts(schema),
         false,
         'records.value',
       ),

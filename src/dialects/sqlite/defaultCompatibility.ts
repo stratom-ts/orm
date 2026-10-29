@@ -1,7 +1,5 @@
 import type { DatabaseDefault } from '@/schemas'
-import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
-import type { AnySchema } from '@/types/schema'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
 import { mapSqliteResultValueFacts } from './mapping'
@@ -77,31 +75,11 @@ function compatibleResult(value: unknown, facts: StorageFacts): boolean {
   }
 }
 
-/** Temporary native-schema entry point; #388 supplies facts from shared lowering. */
-export function assertSqliteDefaultCompatibility(
-  value: DatabaseDefault,
-  dataType: string,
-  schema: AnySchema,
-  hasCustomResultMapping: boolean,
-  identity: string,
-): void {
-  if (value.kind === 'dialectExpression' || hasCustomResultMapping) return
-
-  const facts = extractStorageFacts(schema)
-  assertSqliteDefaultCompatibilityFacts(
-    value,
-    dataType,
-    facts,
-    hasCustomResultMapping,
-    identity,
-  )
-}
-
 /**
  * Checks only logical family and JSON shape, without validating a read against the
  * schema.
  */
-export function assertSqliteDefaultCompatibilityFacts(
+export function assertSqliteDefaultCompatibility(
   value: DatabaseDefault,
   dataType: string,
   facts: StorageFacts,

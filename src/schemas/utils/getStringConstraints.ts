@@ -1,7 +1,7 @@
 import type { StringConstraints } from '@/types/constraints'
 import type { AnySchema, AnySchemaAsync } from '@/types/schema'
 
-import { analyzeSchema } from './analyzeSchema'
+import { extractStorageFacts } from '../valibot/storageFacts'
 
 /**
  * Reads min/max length constraints from a string schema pipe.
@@ -17,5 +17,5 @@ import { analyzeSchema } from './analyzeSchema'
 export function getStringConstraints(
   schema: AnySchema | AnySchemaAsync,
 ): StringConstraints {
-  return analyzeSchema(schema as AnySchema).stringConstraints
+  return extractStorageFacts(schema as AnySchema).stringConstraints
 }

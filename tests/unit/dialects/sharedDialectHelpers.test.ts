@@ -191,7 +191,9 @@ it.each(members)('should preserve missing-target diagnostics for $name', (member
 
   expect(() =>
     member.schema.lowerDesiredSchema({
-      tables: graph.tables.filter((table) => table.handle !== Parent),
+      tables: graph.tables.filter(
+        (table) => table.identity.relation.spelling !== Parent.getTableMetadata().name,
+      ),
     }),
   ).toThrow(
     /Reference \[.*relation:"children", column:"parentId"\] targets unregistered relation \[.*relation:"parents"\]/,

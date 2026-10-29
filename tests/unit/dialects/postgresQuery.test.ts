@@ -23,6 +23,7 @@ import {
 } from '@/dialects/postgres/mapping'
 import { column, defineTable, postgresDialect, reference } from '@/index'
 import { createValueMapper } from '@/query/mapping'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 
 const registerQueryCases1 = () => {
   it('should reject reference transformations that change the resolved output kind', () => {
@@ -109,7 +110,7 @@ const registerQueryCases2 = () => {
 const registerQueryCases3 = () => {
   it('should map bigint numeric values from the effective schema without losing precision', () => {
     const schema = pipe(bigint(), minValue(-(2n ** 63n)), maxValue(2n ** 63n - 1n))
-    const context = { schema }
+    const context = { facts: extractStorageFacts(schema) }
     expect(mapPostgresParamValue('numeric', 9007199254740993n, context)).toBe(
       '9007199254740993',
     )
@@ -126,7 +127,10 @@ const registerQueryCases3 = () => {
   })
 
   it('should reject unsafe numeric results for number output', () => {
-    const context = { schema: pipe(string(), toNumber(), safeInteger()) }
+    const context = {
+      facts: extractStorageFacts(pipe(string(), toNumber(), safeInteger())),
+    }
+
     expect(mapPostgresResultValue('bigint', '42', context)).toBe(42)
 
     expect(mapPostgresResultValue('numeric', '9007199254740993.0', context)).toBe(
@@ -142,8 +146,16 @@ const registerQueryCases3 = () => {
     )
 
     expect(mapPostgresResultValue('bigint', 42, context)).toBe(42)
-    expect(mapPostgresResultValue('numeric', '1.5', { schema: number() })).toBe('1.5')
-    expect(mapPostgresResultValue('numeric', '1.000', { schema: bigint() })).toBe(1n)
+
+    expect(
+      mapPostgresResultValue('numeric', '1.5', { facts: extractStorageFacts(number()) }),
+    ).toBe('1.5')
+
+    expect(
+      mapPostgresResultValue('numeric', '1.000', {
+        facts: extractStorageFacts(bigint()),
+      }),
+    ).toBe(1n)
   })
 }
 

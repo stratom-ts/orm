@@ -24,6 +24,7 @@ import { sqliteIdentity } from '@/dialects/sqlite/identity'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
 import type { AuthoredDesiredSchema, LoweredDesiredTable } from '@/dialects/types'
 import { column, defineTable, reference } from '@/index'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import { MigrationError, SchemaError, attemptSync } from '@/utils/error'
 
 const context = {
@@ -258,9 +259,9 @@ const registerDesiredSchemaCases5 = () => {
     const min = -9223372036854775808n
     const max = 9223372036854775807n
 
-    expect(sqliteSchema.inferColumnType(literal(min))).toBe('BIGINT')
-    expect(sqliteSchema.inferColumnType(literal(max))).toBe('BIGINT')
-    expect(sqliteSchema.inferColumnType(literal(42n))).toBe('BIGINT')
+    expect(sqliteSchema.inferColumnType(extractStorageFacts(literal(min)))).toBe('BIGINT')
+    expect(sqliteSchema.inferColumnType(extractStorageFacts(literal(max)))).toBe('BIGINT')
+    expect(sqliteSchema.inferColumnType(extractStorageFacts(literal(42n)))).toBe('BIGINT')
 
     for (const value of [min - 1n, max + 1n]) {
       const Records = defineTable(

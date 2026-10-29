@@ -65,10 +65,13 @@ import {
   validatePostgresValueMappingFromFacts,
 } from '@/dialects/postgres/mapping'
 import { SchemaError, postgresDialect } from '@/index'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
+import type { AnySchema } from '@/types/schema'
 import { attemptSync } from '@/utils/error'
 
-const { inferColumnType } = postgresDialect.schema
+const inferColumnType = (schema: AnySchema) =>
+  postgresDialect.schema.inferColumnType(extractStorageFacts(schema))
 
 function storageFacts(overrides: Partial<StorageFacts>): StorageFacts {
   return {
