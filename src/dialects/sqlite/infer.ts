@@ -1,7 +1,5 @@
-import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
-
-import { analyzeSchema, withNumberConstraints } from '@/schemas/utils/analyzeSchema'
-import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts } from '@/storage/facts'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
@@ -9,80 +7,63 @@ import type { SqlDataType } from '../types'
 
 import { isSqliteSupportedBigInt, isSqliteSupportedNumber } from './numeric'
 
-/** Throws the contract required when a choice schema has no safe default mapping. */
-function unsupportedChoiceType(type: string): never {
+function unsupportedChoiceType(): never {
   throw new SchemaError({
-    message: `cannot infer a SQLite column type for a mixed or unsupported ${type} output; specify column({ physicalType: { sqlite: ... } }) and explicit parameter and result mappings`,
+    message:
+      'cannot infer a SQLite column type for a mixed or unsupported choice output; specify column({ physicalType: { sqlite: ... } }) and explicit parameter and result mappings',
   })
 }
 
-/** Infers storage for enum and picklist values from their validated output options. */
-export function inferSqliteChoiceType(analysis: SchemaAnalysis): SqlDataType {
-  const schema = (analysis.outputSchema ??
-    analysis.baseSchema) as typeof analysis.baseSchema & {
-    options?: unknown[]
-  }
+/** Infers storage from finite-choice evidence, without inspecting a schema. */
+export function inferSqliteChoiceFacts(facts: StorageFacts): SqlDataType {
+  const values = facts.finiteValues
+  const kind = facts.outputKind
 
-  const options = schema.options
-  const kind = analysis.outputKind
-
-  if (!options?.length || !kind) return unsupportedChoiceType(schema.type)
-
+  if (!values?.length || !kind) return unsupportedChoiceType()
   if (kind === 'string') return 'TEXT'
 
   if (kind === 'number') {
-    const numbers = (analysis.finiteValues ?? options) as number[]
+    if (
+      values.some((value) => typeof value !== 'number' || !isSqliteSupportedNumber(value))
+    )
+      return unsupportedChoiceType()
 
-    if (!numbers.length || numbers.some((value) => !isSqliteSupportedNumber(value))) {
-      return unsupportedChoiceType(schema.type)
-    }
-
-    return numbers.every(Number.isInteger) ? 'INTEGER' : 'REAL'
+    return values.every((value) => Number.isInteger(value)) ? 'INTEGER' : 'REAL'
   }
 
   if (kind === 'bigint') {
-    const values = (analysis.finiteValues ?? options) as bigint[]
-
-    if (!values.length || values.some((value) => !isSqliteSupportedBigInt(value))) {
-      return unsupportedChoiceType(schema.type)
-    }
+    if (
+      values.some((value) => typeof value !== 'bigint' || !isSqliteSupportedBigInt(value))
+    )
+      return unsupportedChoiceType()
 
     return 'BIGINT'
   }
 
   if (kind === 'boolean') return 'BOOLEAN'
 
-  return unsupportedChoiceType(schema.type)
+  return unsupportedChoiceType()
 }
 
-/**
- * Maps supported literal values to SQLite logical storage types.
- *
- * @param literal - Literal schema value used to infer physical storage.
- *
- * @returns The SQLite storage type supported by the literal value.
- */
 function inferSqliteLiteralType(literal: unknown): SqlDataType {
   if (typeof literal === 'string') return 'TEXT'
 
   if (typeof literal === 'number') {
-    if (!isSqliteSupportedNumber(literal)) {
+    if (!isSqliteSupportedNumber(literal))
       throw new SchemaError({
         message:
           'cannot infer a SQLite column type for a non-finite or unsafe integer literal',
       })
-    }
 
     return Number.isInteger(literal) ? 'INTEGER' : 'REAL'
   }
 
   if (typeof literal === 'bigint') {
-    if (!isSqliteSupportedBigInt(literal)) {
+    if (!isSqliteSupportedBigInt(literal))
       throw new SchemaError({
         message:
           'cannot infer a SQLite column type for a bigint literal outside the signed 64-bit integer range',
       })
-    }
 
     return 'BIGINT'
   }
@@ -93,44 +74,40 @@ function inferSqliteLiteralType(literal: unknown): SqlDataType {
   throw new SchemaError({ message: 'cannot infer a SQLite column type for this literal' })
 }
 
-/** Infers a SQLite declared type while retaining useful logical type spellings. */
-export function inferSqliteColumnType(
-  schema: AnySchema,
-  analysis: SchemaAnalysis = analyzeSchema(schema),
-): SqlDataType {
-  const inferred = inferEffectiveSqliteType(analysis)
+/** Temporary Valibot entry point until the shared graph supplies facts. */
+export function inferSqliteColumnType(schema: AnySchema): SqlDataType {
+  return inferSqliteColumnFacts(extractStorageFacts(schema))
+}
+
+/** Infers a SQLite declared type from semantic storage evidence. */
+export function inferSqliteColumnFacts(facts: StorageFacts): SqlDataType {
+  const inferred = inferEffectiveSqliteType(facts)
 
   if (inferred) return inferred
 
-  const effectiveSchema = analysis.outputSchema ?? analysis.baseSchema
-  const detail = analysis.unresolvedTransformation
-    ? 'an unresolved transformation'
-    : `a "${effectiveSchema.type}" schema`
+  const detail =
+    facts.outputState === 'unresolved'
+      ? 'an unresolved transformation'
+      : 'the registered schema'
 
   throw new SchemaError({
     message: `cannot infer a SQLite column type for ${detail}; specify it explicitly with column({ physicalType: { sqlite: ... } })`,
   })
 }
 
-function inferEffectiveSqliteType(analysis: SchemaAnalysis): SqlDataType | undefined {
-  if (analysis.composite) return inferSqliteCompositeType(analysis)
+function inferEffectiveSqliteType(facts: StorageFacts): SqlDataType | undefined {
+  if (facts.composite) return inferSqliteCompositeType(facts)
 
-  const effectiveSchema = analysis.outputSchema
+  if (facts.finiteEvidence === 'singleton')
+    return inferSqliteLiteralType(facts.singletonValue)
 
-  if (effectiveSchema?.type === 'literal')
-    return inferSqliteLiteralType(
-      (effectiveSchema as LiteralSchema<Literal, ErrorMessage<BaseIssue<unknown>>>)
-        .literal,
-    )
+  if (facts.finiteEvidence === 'choice') return inferSqliteChoiceFacts(facts)
 
-  if (effectiveSchema?.type === 'enum' || effectiveSchema?.type === 'picklist')
-    return inferSqliteChoiceType(analysis)
-
-  switch (analysis.outputKind) {
+  switch (facts.outputKind) {
     case 'string':
       return 'TEXT'
     case 'number':
-      return inferSqliteNumberOutputType(analysis)
+      return inferSqliteNumberOutputType(facts)
     case 'bigint':
       return 'BIGINT'
     case 'boolean':
@@ -144,8 +121,8 @@ function inferEffectiveSqliteType(analysis: SchemaAnalysis): SqlDataType | undef
   }
 }
 
-function inferSqliteNumberOutputType(analysis: SchemaAnalysis): SqlDataType {
-  const { minValue, maxValue, isInteger, isSafeInteger } = analysis.numberConstraints
+function inferSqliteNumberOutputType(facts: StorageFacts): SqlDataType {
+  const { minValue, maxValue, isInteger, isSafeInteger } = facts.numberConstraints
 
   if (isSafeInteger || isInteger) return 'INTEGER'
 
@@ -160,13 +137,12 @@ function inferSqliteNumberOutputType(analysis: SchemaAnalysis): SqlDataType {
   return 'REAL'
 }
 
-/** Selects one logical declared type for compatible output branches. */
-function inferSqliteCompositeType(analysis: SchemaAnalysis): SqlDataType {
-  const composite = analysis.composite!
+function inferSqliteCompositeType(facts: StorageFacts): SqlDataType {
+  const composite = facts.composite!
   const branches = composite.branches.filter((branch) => !branch.nullOnly)
-  const kind = analysis.outputKind
+  const kind = facts.outputKind
 
-  if (kind === 'json' && analysis.jsonOutputCompatible !== true)
+  if (kind === 'json' && facts.jsonOutputCompatible !== true)
     throw new SchemaError({
       message:
         'SQLite JSON composite output is not preserved by JSON serialization; provide column({ physicalType: { sqlite: ... } }) and paired parameter and result mappings',
@@ -175,26 +151,47 @@ function inferSqliteCompositeType(analysis: SchemaAnalysis): SqlDataType {
   if (
     !branches.length ||
     !kind ||
-    (composite.type === 'intersect' && branches.length !== composite.branches.length)
+    (composite.kind === 'intersection' && branches.length !== composite.branches.length)
   )
-    return unsupportedCompositeType(composite.type)
+    return unsupportedCompositeType(composite.kind)
 
   const numericBranches =
     kind === 'number'
-      ? branches.map((branch) =>
-          withNumberConstraints(branch, analysis.numberConstraints),
-        )
+      ? branches.map((branch) => ({
+          ...branch,
+          numberConstraints: {
+            ...branch.numberConstraints,
+            ...(facts.numberConstraints.minValue === undefined
+              ? {}
+              : {
+                  minValue: Math.max(
+                    branch.numberConstraints.minValue ?? -Infinity,
+                    facts.numberConstraints.minValue,
+                  ),
+                }),
+            ...(facts.numberConstraints.maxValue === undefined
+              ? {}
+              : {
+                  maxValue: Math.min(
+                    branch.numberConstraints.maxValue ?? Infinity,
+                    facts.numberConstraints.maxValue,
+                  ),
+                }),
+            ...(facts.numberConstraints.isInteger ? { isInteger: true } : {}),
+            ...(facts.numberConstraints.isSafeInteger ? { isSafeInteger: true } : {}),
+          },
+        }))
       : branches
 
   const types = numericBranches.map((branch) => inferEffectiveSqliteType(branch))
 
-  if (types.some((type) => !type)) return unsupportedCompositeType(composite.type)
+  if (types.some((type) => !type)) return unsupportedCompositeType(composite.kind)
   if (types.every((type) => type === types[0])) return types[0]!
 
   if (kind === 'number' && types.every((type) => type === 'INTEGER' || type === 'REAL'))
     return 'REAL'
 
-  return unsupportedCompositeType(composite.type)
+  return unsupportedCompositeType(composite.kind)
 }
 
 function unsupportedCompositeType(type: string): never {

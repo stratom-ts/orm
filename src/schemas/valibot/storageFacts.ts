@@ -30,17 +30,13 @@ function projectStorageFacts(analysis: SchemaAnalysis): StorageFacts {
     allowsUndefined: analysis.allowsUndefined,
     outputMayBeUndefined: analysis.outputMayBeUndefined,
     omitOnInsert: analysis.omitOnInsert,
-    schemaDefault:
-      analysis.schemaDefault === undefined
-        ? { kind: 'absent' }
-        : typeof analysis.schemaDefault === 'function'
-          ? { kind: 'factory' }
-          : { kind: 'value', value: analysis.schemaDefault },
+    schemaDefault: projectDefault(analysis.schemaDefault),
     stringConstraints: { ...analysis.stringConstraints },
     stringFormats: [...analysis.stringFormats],
     numberConstraints: { ...analysis.numberConstraints },
     bigintConstraints: { ...analysis.bigintConstraints },
     ...finiteChoiceEvidence(analysis, effectiveType),
+    inputSingleton: analysis.baseSchema.type === 'literal',
     ...(effectiveType === 'literal' ? { singletonValue } : {}),
     finiteValues: analysis.finiteValues && [...analysis.finiteValues],
     composite:
@@ -52,9 +48,29 @@ function projectStorageFacts(analysis: SchemaAnalysis): StorageFacts {
           }
         : undefined,
     jsonShape: outputJsonShape(analysis, branches),
+    defaultJsonShape: defaultJsonShape(analysis),
     jsonOutputCompatible: analysis.jsonOutputCompatible,
     nullOnly: analysis.nullOnly,
   }
+}
+
+function projectDefault(
+  value: SchemaAnalysis['schemaDefault'],
+): StorageFacts['schemaDefault'] {
+  if (value === undefined) return { kind: 'absent' }
+  if (typeof value === 'function') return { kind: 'factory' }
+
+  return { kind: 'value', value }
+}
+
+function defaultJsonShape(analysis: SchemaAnalysis): StorageFacts['defaultJsonShape'] {
+  if (analysis.outputKind !== 'json') return undefined
+
+  return ['array', 'tuple', 'loose_tuple', 'strict_tuple', 'tuple_with_rest'].includes(
+    analysis.baseSchema.type,
+  )
+    ? 'array'
+    : 'object'
 }
 
 function finiteChoiceEvidence(

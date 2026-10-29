@@ -13,11 +13,12 @@ import type {
 } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
-import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts } from '@/storage/facts'
 import { MigrationError } from '@/utils/error'
 
 import { assertSqliteDefaultCompatibility } from './defaultCompatibility'
-import { inferSqliteColumnType } from './infer'
+import { inferSqliteColumnFacts } from './infer'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
 import {
   assertSafeSqliteDataType,
@@ -100,7 +101,7 @@ function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
 /** Selects the explicit physical type or infers one from the column schema. */
 function physicalType(
   column: AuthoredDesiredColumn,
-  analysis: SchemaAnalysis,
+  facts: StorageFacts,
   hasGlobalParameterMapping: boolean,
   hasGlobalResultMapping: boolean,
 ): string {
@@ -113,14 +114,14 @@ function physicalType(
 
   if (
     explicit !== undefined &&
-    analysis.baseSchema.type === 'literal' &&
-    (analysis.outputKind === 'number' || analysis.outputKind === 'bigint') &&
+    facts.inputSingleton &&
+    (facts.outputKind === 'number' || facts.outputKind === 'bigint') &&
     (!hasParameterMapping || !hasResultMapping)
   ) {
-    inferSqliteColumnType(column.schema, analysis)
+    inferSqliteColumnFacts(facts)
   }
 
-  const selected = explicit ?? inferSqliteColumnType(column.schema, analysis)
+  const selected = explicit ?? inferSqliteColumnFacts(facts)
 
   return assertSafeSqliteDataType(String(selected))
 }
@@ -227,7 +228,7 @@ function lowerColumn(
   table: AuthoredDesiredTable,
   column: AuthoredDesiredColumn,
   dataType: string,
-  analysis: SchemaAnalysis,
+  facts: StorageFacts,
   hasResultMapping: boolean,
 ): LoweredDesiredColumn {
   if (column.metadata?.comment !== undefined) {
@@ -250,7 +251,7 @@ function lowerColumn(
   return {
     identifier: column.identifier,
     dataType,
-    notNull: !analysis.nullable,
+    notNull: !facts.nullable,
     unique:
       (column.metadata?.unique ?? false) &&
       !(primaryKey.length === 1 && primaryKey[0] === column.name),
@@ -302,21 +303,21 @@ export function lowerSqliteDesiredSchema(
 ): LoweredDesiredSchema {
   return lowerDesiredSchemaGraph(graph, context, {
     validateIdentity: assertMainIdentity,
-    lowerPhysicalType: (column, analysis, options) =>
+    lowerPhysicalType: (column, _analysis, options) =>
       physicalType(
         column,
-        analysis,
+        extractStorageFacts(column.schema),
         options?.hasGlobalParameterMapping ?? false,
         options?.hasGlobalResultMapping ?? false,
       ),
     lowerReferenceType: (table, column, inheritedType) =>
       validateReferencePhysicalType(table, column, inheritedType),
-    lowerColumn: (table, column, dataType, analysis, options) =>
+    lowerColumn: (table, column, dataType, _analysis, options) =>
       lowerColumn(
         table,
         column,
         dataType,
-        analysis,
+        extractStorageFacts(column.schema),
         options?.hasGlobalResultMapping ?? false,
       ),
   })

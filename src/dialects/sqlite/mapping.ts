@@ -1,11 +1,12 @@
 import { types } from 'node:util'
 
-import { analyzeSchema } from '@/schemas/utils/analyzeSchema'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts } from '@/storage/facts'
 import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
-import { inferSqliteChoiceType, inferSqliteColumnType } from './infer'
+import { inferSqliteChoiceFacts, inferSqliteColumnFacts } from './infer'
 import { normalizeSqliteDataType } from './normalize'
 import {
   isSqliteSafeInteger,
@@ -13,18 +14,30 @@ import {
   isSqliteSupportedNumber,
 } from './numeric'
 
-/** Rejects affinities that cannot preserve the schema's values with built-in mapping. */
+/** Temporary native-schema entry point; #388 supplies facts from shared query mapping. */
 export function validateSqliteValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
 ): void {
-  const analysis = analyzeSchema(context.schema)
+  validateSqliteValueMappingFacts(
+    dataType,
+    extractStorageFacts(context.schema),
+    context.authoredSchema ? extractStorageFacts(context.authoredSchema) : undefined,
+  )
+}
+
+/** Validates built-in mapping from resolved and locally authored storage facts. */
+export function validateSqliteValueMappingFacts(
+  dataType: string,
+  analysis: StorageFacts,
+  authored?: StorageFacts,
+): void {
   const affinity = normalizeSqliteDataType(dataType)
   const kind = analysis.outputKind
-  const authored = context.authoredSchema && analyzeSchema(context.authoredSchema)
   const incompatibleAuthoredOutput = authored && authored.outputKind !== kind
 
-  validateSqliteCompositeMapping(context, analysis, authored)
+  if (analysis.composite) inferSqliteColumnFacts(analysis)
+  if (authored?.composite) inferSqliteColumnFacts(authored)
 
   const supported =
     kind === 'date' ||
@@ -34,41 +47,28 @@ export function validateSqliteValueMapping(
     (kind === 'bigint' &&
       (affinity === 'integer' || affinity === 'numeric' || affinity === 'blob'))
 
-  if (!supported || analysis.unresolvedTransformation || incompatibleAuthoredOutput) {
+  if (!supported || analysis.outputState === 'unresolved' || incompatibleAuthoredOutput) {
     throw new SchemaError({
-      message: `SQLite ${kind ?? analysis.baseSchema.type} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
+      message: `SQLite ${kind ?? analysis.outputState} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
     })
   }
 }
 
-function validateSqliteCompositeMapping(
-  context: DialectValueMappingContext,
-  analysis: ReturnType<typeof analyzeSchema>,
-  authored: ReturnType<typeof analyzeSchema> | undefined,
-): void {
-  if (analysis.composite) inferSqliteColumnType(context.schema, analysis)
-  if (authored?.composite) inferSqliteColumnType(context.authoredSchema!, authored)
-}
+/** Chooses logical conversion independently of SQLite affinity. */
+export function mappingTypeFacts(
+  dataType: string,
+  analysis: StorageFacts,
+  authored?: StorageFacts,
+): string {
+  validateSqliteValueMappingFacts(dataType, analysis, authored)
 
-/** Resolves logical value semantics independently of physical storage overrides. */
-function mappingType(dataType: string, context?: DialectValueMappingContext): string {
-  if (!context) return declaredType(dataType)
-
-  validateSqliteValueMapping(dataType, context)
-  const analysis = analyzeSchema(context.schema)
-
-  if (analysis.composite) return inferSqliteColumnType(context.schema, analysis)
+  if (analysis.composite) return inferSqliteColumnFacts(analysis)
 
   switch (analysis.outputKind) {
     case 'string':
       return 'TEXT'
     case 'number':
-      if (
-        analysis.outputSchema?.type === 'enum' ||
-        analysis.outputSchema?.type === 'picklist'
-      ) {
-        return inferSqliteChoiceType(analysis)
-      }
+      if (analysis.finiteEvidence === 'choice') return inferSqliteChoiceFacts(analysis)
 
       return analysis.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
     case 'bigint':
@@ -280,7 +280,7 @@ function mapRealValue(dataType: string, value: unknown): unknown {
   return typeof value === 'number' ? finiteNumber(dataType, value) : value
 }
 
-/** Maps a JavaScript parameter value to SQLite's declared logical type. */
+/** Temporary native-schema entry point; #388 supplies facts from shared query mapping. */
 export function mapSqliteParamValue(
   dataType: string,
   value: unknown,
@@ -288,19 +288,35 @@ export function mapSqliteParamValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  const type = mappingType(dataType, context)
+  return mapSqliteParamValueFacts(
+    dataType,
+    value,
+    context && extractStorageFacts(context.schema),
+    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
+  )
+}
+
+/**
+ * Maps a parameter from semantic storage facts, or from the declared type without
+ * context.
+ */
+export function mapSqliteParamValueFacts(
+  dataType: string,
+  value: unknown,
+  facts?: StorageFacts,
+  authored?: StorageFacts,
+): unknown {
+  if (value === null || value === undefined) return value
+
+  const type = facts
+    ? mappingTypeFacts(dataType, facts, authored)
+    : declaredType(dataType)
 
   if (BOOLEAN_TYPES.has(type)) return typeof value === 'boolean' ? (value ? 1 : 0) : value
   if (DATE_TYPES.has(type)) return mapDateParamValue(dataType, value)
 
   if (type === 'JSON') {
-    const authored = context?.authoredSchema && analyzeSchema(context.authoredSchema)
-
-    if (
-      context &&
-      (analyzeSchema(context.schema).composite || authored?.composite) &&
-      containsNonFiniteNumber(value)
-    )
+    if ((facts?.composite || authored?.composite) && containsNonFiniteNumber(value))
       throw new QueryError({
         message:
           'SQLite JSON composite cannot serialize a non-finite number without changing it to null',
@@ -324,7 +340,7 @@ function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): bool
   return Object.values(value).some((item) => containsNonFiniteNumber(item, seen))
 }
 
-/** Maps a SQLite result value to the declared logical JavaScript type. */
+/** Temporary native-schema entry point; #388 supplies facts from shared query mapping. */
 export function mapSqliteResultValue(
   dataType: string,
   value: unknown,
@@ -332,7 +348,26 @@ export function mapSqliteResultValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  const type = mappingType(dataType, context)
+  return mapSqliteResultValueFacts(
+    dataType,
+    value,
+    context && extractStorageFacts(context.schema),
+    context?.authoredSchema && extractStorageFacts(context.authoredSchema),
+  )
+}
+
+/** Maps a result from semantic storage facts, or from the declared type without context. */
+export function mapSqliteResultValueFacts(
+  dataType: string,
+  value: unknown,
+  facts?: StorageFacts,
+  authored?: StorageFacts,
+): unknown {
+  if (value === null || value === undefined) return value
+
+  const type = facts
+    ? mappingTypeFacts(dataType, facts, authored)
+    : declaredType(dataType)
 
   if (BOOLEAN_TYPES.has(type)) {
     if (value === 0 || value === 0n) return false

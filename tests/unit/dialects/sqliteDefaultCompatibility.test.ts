@@ -1,14 +1,15 @@
-import { string } from 'valibot'
+import { array, object, pipe, string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import { assertSqliteDefaultCompatibility } from '@/dialects/sqlite/defaultCompatibility'
+import type { AnySchema } from '@/types/schema'
 
 function registerDefaultCompatibilityGroup1() {
   it('should preserve defects from SQLite result mapping during default validation', async () => {
     const defect = new TypeError('mapping failed')
     const mapping = await import('@/dialects/sqlite/mapping')
 
-    const spy = vi.spyOn(mapping, 'mapSqliteResultValue').mockImplementation(() => {
+    const spy = vi.spyOn(mapping, 'mapSqliteResultValueFacts').mockImplementation(() => {
       throw defect
     })
 
@@ -31,6 +32,29 @@ function registerDefaultCompatibilityGroup1() {
     } finally {
       spy.mockRestore()
     }
+  })
+
+  it('keeps the base array default policy for a transformed pipeline', () => {
+    const schema = pipe(array(string()) as AnySchema, object({}) as AnySchema)
+    expect(() =>
+      assertSqliteDefaultCompatibility(
+        { kind: 'literal', value: '[]' },
+        'JSON',
+        schema,
+        false,
+        'records.value',
+      ),
+    ).not.toThrow()
+
+    expect(() =>
+      assertSqliteDefaultCompatibility(
+        { kind: 'literal', value: '{}' },
+        'JSON',
+        schema,
+        false,
+        'records.value',
+      ),
+    ).toThrow('incompatible')
   })
 }
 

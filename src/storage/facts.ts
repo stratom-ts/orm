@@ -48,6 +48,8 @@ export interface StorageFacts {
   bigintConstraints: Readonly<{ minValue?: bigint; maxValue?: bigint }>
   /** A singleton assertion and a finite choice retain distinct storage policies. */
   finiteEvidence?: 'singleton' | 'choice'
+  /** Input evidence asserts one value before output conversion. */
+  inputSingleton?: boolean
   /**
    * Original singleton output, retained even if later validators narrow finiteValues
    * away.
@@ -61,6 +63,8 @@ export interface StorageFacts {
     branches: readonly StorageFacts[]
   }
   jsonShape?: 'object' | 'array' | 'mixed'
+  /** JSON shape used by database-default compatibility's existing base-schema policy. */
+  defaultJsonShape?: 'object' | 'array'
   jsonOutputCompatible?: boolean
   nullOnly: boolean
 }
