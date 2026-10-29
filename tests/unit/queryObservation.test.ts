@@ -432,8 +432,8 @@ it.each([false, true])(
   },
 )
 
-it('keeps root and ancestor guards, scoped lifetime and shared close draining', async () => {
-  const { db, original, events, controls } = controlled()
+it('keeps root and ancestor guards and scoped lifetime', async () => {
+  const { db, original, events } = controlled()
   let expired: typeof db | undefined
   try {
     await db.transaction(async (trx) => {
@@ -452,14 +452,63 @@ it('keeps root and ancestor guards, scoped lifetime and shared close draining', 
     const count = events.length
     await expect(expired!.ping()).rejects.toThrow('no longer active')
     expect(events).toHaveLength(count)
+  } finally {
+    await db.close()
+  }
+})
+
+it('drains traced queries and session release before closing the shared provider', async () => {
+  const entered = deferred()
+  const finishQuery = deferred()
+  const releasing = deferred()
+  const finishRelease = deferred()
+  const { db, original, controls } = controlled(
+    {},
+    {
+      beforeCall: async (_session, sql) => {
+        if (sql === 'select 5') {
+          entered.resolve()
+          await finishQuery.promise
+        }
+      },
+      beforeRelease: async () => {
+        releasing.resolve()
+        await finishRelease.promise
+      },
+    },
+  )
+
+  try {
     const pending = db.sql`select 5`
+    await entered.promise
     const close = original.close()
-    await pending
-    await close
+
+    // Let runnable close work proceed while the physical query remains gated.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(controls.closeCount).toBe(0)
+
+    finishQuery.resolve()
+    await releasing.promise
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(controls.closeCount).toBe(0)
+
+    finishRelease.resolve()
+    await Promise.all([pending, close])
     await db.close()
     expect(controls.closeCount).toBe(1)
+
+    expect(controls.events).toEqual([
+      'lease-opened:1',
+      'statement:1:select 5',
+      'release-started:1:reuse',
+      'release-finished:1:reuse',
+      'provider-closed',
+    ])
+
     await expect(db.ping()).rejects.toThrow('closed')
   } finally {
+    finishQuery.resolve()
+    finishRelease.resolve()
     await db.close()
   }
 })
@@ -547,6 +596,24 @@ it('does no parameter snapshot or timing work without subscribers', async () => 
     snapshot.mockRestore()
     clock.mockRestore()
     await db.close()
+  }
+})
+
+it('does no tracing work through the original client with active subscribers', async () => {
+  const { original, events } = controlled()
+  const params = ['secret']
+  const snapshot = vi.spyOn(params, 'map')
+  const clock = vi.spyOn(performance, 'now')
+  try {
+    const query = markCompiledQuery({ sql: 'select $1', params })
+    await original.execute(query)
+    expect(events).toEqual([])
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(clock).not.toHaveBeenCalled()
+  } finally {
+    snapshot.mockRestore()
+    clock.mockRestore()
+    await original.close()
   }
 })
 
