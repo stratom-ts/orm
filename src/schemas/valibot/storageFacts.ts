@@ -13,6 +13,10 @@ export function extractStorageFacts(schema: AnySchema): StorageFacts {
 function projectStorageFacts(analysis: SchemaAnalysis): StorageFacts {
   const branches = analysis.composite?.branches.map(projectStorageFacts)
   const effectiveType = analysis.outputSchema?.type
+  const singletonValue = (
+    analysis.outputSchema as (AnySchema & { literal?: unknown }) | undefined
+  )?.literal
+
   return {
     outputKind: analysis.outputKind,
     outputState: analysis.unresolvedTransformation
@@ -36,12 +40,8 @@ function projectStorageFacts(analysis: SchemaAnalysis): StorageFacts {
     stringFormats: [...analysis.stringFormats],
     numberConstraints: { ...analysis.numberConstraints },
     bigintConstraints: { ...analysis.bigintConstraints },
-    finiteEvidence:
-      effectiveType === 'literal'
-        ? 'singleton'
-        : effectiveType === 'enum' || effectiveType === 'picklist'
-          ? 'choice'
-          : undefined,
+    ...finiteChoiceEvidence(analysis, effectiveType),
+    ...(effectiveType === 'literal' ? { singletonValue } : {}),
     finiteValues: analysis.finiteValues && [...analysis.finiteValues],
     composite:
       analysis.composite && branches
@@ -55,6 +55,23 @@ function projectStorageFacts(analysis: SchemaAnalysis): StorageFacts {
     jsonOutputCompatible: analysis.jsonOutputCompatible,
     nullOnly: analysis.nullOnly,
   }
+}
+
+function finiteChoiceEvidence(
+  analysis: SchemaAnalysis,
+  effectiveType: string | undefined,
+): Pick<StorageFacts, 'finiteEvidence' | 'finiteSourceValues'> {
+  if (effectiveType === 'literal') return { finiteEvidence: 'singleton' }
+
+  if (effectiveType === 'enum' || effectiveType === 'picklist')
+    return {
+      finiteEvidence: 'choice',
+      finiteSourceValues: [
+        ...(analysis.outputSchema as AnySchema & { options: readonly unknown[] }).options,
+      ],
+    }
+
+  return { finiteEvidence: undefined }
 }
 
 function outputJsonShape(

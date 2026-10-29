@@ -7,7 +7,7 @@ Singleton assertions and finite choices remain distinct even when they describe 
 Defaults distinguish absence, a known value (including null), and an unevaluated factory.
 
 The extraction is additive. Existing consumers still use the native analysis representation through `src/schemas/utils/analyzeSchema.ts`.
-Issues #386 and #387 migrate PostgreSQL and SQLite to the facts.
+PostgreSQL storage decisions use these facts after #386; SQLite migration remains in #387. PostgreSQL's native-schema entry adapters are temporary until #388 supplies facts through shared contexts.
 Issue #388 must remove the transitional entry point and duplicated native analysis state after those migrations.
 The new facts are private and are not exported from the package entry point.
 

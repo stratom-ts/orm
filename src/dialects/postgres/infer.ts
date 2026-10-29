@@ -1,11 +1,5 @@
-import type { BaseIssue, ErrorMessage, Literal, LiteralSchema } from 'valibot'
-
-import {
-  analyzeSchema,
-  withBigintConstraints,
-  withNumberConstraints,
-} from '@/schemas/utils/analyzeSchema'
-import type { SchemaAnalysis } from '@/schemas/utils/analyzeSchema'
+import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts, StorageStringFormat } from '@/storage/facts'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
 import { isNumber } from '@/utils'
@@ -35,10 +29,10 @@ const STRING_FORMAT_STORAGE = {
   iso_date_time: 'timestamp',
   iso_date_time_second: 'timestamp',
   iso_timestamp: 'timestamptz',
-} as const satisfies Record<SchemaAnalysis['stringFormats'][number], SqlDataType>
+} as const satisfies Record<StorageStringFormat, SqlDataType>
 
 /** Selects native storage only when all retained formats agree on one target. */
-function inferPostgresFormatType(analysis: SchemaAnalysis): SqlDataType | undefined {
+function inferPostgresFormatType(analysis: StorageFacts): SqlDataType | undefined {
   const targets = [
     ...new Set(analysis.stringFormats.map((format) => STRING_FORMAT_STORAGE[format])),
   ].sort()
@@ -95,7 +89,7 @@ function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
  *
  * @returns Inferred column type for the literal
  */
-function inferPostgresLiteralType(literal: Literal) {
+function inferPostgresLiteralType(literal: unknown) {
   if (typeof literal === 'string') return 'text'
 
   if (typeof literal === 'number') {
@@ -128,23 +122,19 @@ function unsupportedChoiceType(type: string): never {
 }
 
 /** Infers storage from the effective enum or picklist output options. */
-function inferPostgresChoiceType(analysis: SchemaAnalysis): SqlDataType {
-  const schema = analysis.outputSchema as typeof analysis.baseSchema & {
-    options?: unknown[]
-  }
-
-  const options = schema.options
+function inferPostgresChoiceType(analysis: StorageFacts): SqlDataType {
+  const options = analysis.finiteValues
   const kind = analysis.outputKind
 
-  if (!options?.length || !kind) return unsupportedChoiceType(schema.type)
+  if (!options?.length || !kind) return unsupportedChoiceType('choice')
 
   if (kind === 'string') return 'text'
   if (kind === 'boolean') return 'boolean'
 
   if (kind === 'number') {
-    const numbers = (analysis.finiteValues ?? options) as number[]
+    const numbers = options as number[]
 
-    if (!numbers.length) return unsupportedChoiceType(schema.type)
+    if (!numbers.length) return unsupportedChoiceType('choice')
 
     if (
       numbers.some(
@@ -153,7 +143,7 @@ function inferPostgresChoiceType(analysis: SchemaAnalysis): SqlDataType {
           (Number.isInteger(value) && !Number.isSafeInteger(value)),
       )
     )
-      return unsupportedChoiceType(schema.type)
+      return unsupportedChoiceType('choice')
 
     let min = Infinity
     let max = -Infinity
@@ -173,16 +163,16 @@ function inferPostgresChoiceType(analysis: SchemaAnalysis): SqlDataType {
   }
 
   if (kind === 'bigint') {
-    const values = (analysis.finiteValues ?? options) as bigint[]
+    const values = options as bigint[]
 
-    if (!values.length) return unsupportedChoiceType(schema.type)
+    if (!values.length) return unsupportedChoiceType('choice')
 
     return values.some((option) => option < INT64_MIN || option > INT64_MAX)
       ? 'numeric'
       : 'bigint'
   }
 
-  return unsupportedChoiceType(schema.type)
+  return unsupportedChoiceType('choice')
 }
 
 /**
@@ -201,36 +191,34 @@ function inferPostgresChoiceType(analysis: SchemaAnalysis): SqlDataType {
  *
  * @throws SchemaError when the schema type cannot be inferred
  */
-export function inferPostgresColumnType(
-  schema: AnySchema,
-  analysis: SchemaAnalysis = analyzeSchema(schema),
-): SqlDataType {
-  const inferred = inferEffectivePostgresType(analysis)
+export function inferPostgresColumnType(schema: AnySchema): SqlDataType {
+  // Remove this extraction adapter when shared callers pass facts in #388.
+  return inferPostgresColumnTypeFromFacts(extractStorageFacts(schema))
+}
+
+/** Selects PostgreSQL storage from provider-neutral evidence. */
+export function inferPostgresColumnTypeFromFacts(facts: StorageFacts): SqlDataType {
+  const inferred = inferEffectivePostgresType(facts)
 
   if (inferred) return inferred
 
-  const baseSchema = analysis.outputSchema ?? analysis.baseSchema
-  const detail = analysis.unresolvedTransformation
-    ? 'an unresolved transformation'
-    : `a "${baseSchema.type}" schema`
+  const detail =
+    facts.outputState === 'unresolved'
+      ? 'an unresolved transformation'
+      : 'the schema output'
 
   throw new SchemaError({
     message: `cannot infer a SQL column type for ${detail}; specify it explicitly with column({ physicalType: { postgresql: ... } })`,
   })
 }
 
-function inferEffectivePostgresType(analysis: SchemaAnalysis): SqlDataType | undefined {
+function inferEffectivePostgresType(analysis: StorageFacts): SqlDataType | undefined {
   if (analysis.composite) return inferPostgresCompositeType(analysis)
 
-  const schema = analysis.outputSchema
+  if (analysis.finiteEvidence === 'singleton')
+    return inferPostgresLiteralType(analysis.singletonValue)
 
-  if (schema?.type === 'literal')
-    return inferPostgresLiteralType(
-      (schema as LiteralSchema<Literal, ErrorMessage<BaseIssue<unknown>>>).literal,
-    )
-
-  if (schema?.type === 'enum' || schema?.type === 'picklist')
-    return inferPostgresChoiceType(analysis)
+  if (analysis.finiteEvidence === 'choice') return inferPostgresChoiceType(analysis)
 
   switch (analysis.outputKind) {
     case 'string':
@@ -262,7 +250,7 @@ function inferEffectivePostgresType(analysis: SchemaAnalysis): SqlDataType | und
 }
 
 /** Widens compatible branch storage without changing the output family. */
-function inferPostgresCompositeType(analysis: SchemaAnalysis): SqlDataType {
+function inferPostgresCompositeType(analysis: StorageFacts): SqlDataType {
   const composite = analysis.composite!
   const branches = composite.branches.filter((branch) => !branch.nullOnly)
   const kind = analysis.outputKind
@@ -276,24 +264,20 @@ function inferPostgresCompositeType(analysis: SchemaAnalysis): SqlDataType {
   if (
     !branches.length ||
     !kind ||
-    (composite.type === 'intersect' && branches.length !== composite.branches.length)
+    (composite.kind === 'intersection' && branches.length !== composite.branches.length)
   )
-    return unsupportedCompositeType(composite.type)
+    return unsupportedCompositeType(composite.kind)
 
   const constrainedBranches =
     kind === 'number'
-      ? branches.map((branch) =>
-          withNumberConstraints(branch, analysis.numberConstraints),
-        )
+      ? branches.map((branch) => withNumberFacts(branch, analysis.numberConstraints))
       : kind === 'bigint'
-        ? branches.map((branch) =>
-            withBigintConstraints(branch, analysis.bigintConstraints),
-          )
+        ? branches.map((branch) => withBigintFacts(branch, analysis.bigintConstraints))
         : branches
 
   const types = constrainedBranches.map((branch) => inferEffectivePostgresType(branch))
 
-  if (types.some((type) => !type)) return unsupportedCompositeType(composite.type)
+  if (types.some((type) => !type)) return unsupportedCompositeType(composite.kind)
 
   const storage = types as SqlDataType[]
   const inferred =
@@ -310,7 +294,7 @@ function inferPostgresCompositeType(analysis: SchemaAnalysis): SqlDataType {
             ? storage[0]
             : undefined
 
-  return inferred ?? unsupportedCompositeType(composite.type)
+  return inferred ?? unsupportedCompositeType(composite.kind)
 }
 
 function isPostgresTextStorage(type: SqlDataType): boolean {
@@ -319,8 +303,8 @@ function isPostgresTextStorage(type: SqlDataType): boolean {
 
 /** Keeps one result format for every string branch before widening its width. */
 function inferPostgresCompositeStringType(
-  analysis: SchemaAnalysis,
-  branches: readonly SchemaAnalysis[],
+  analysis: StorageFacts,
+  branches: readonly StorageFacts[],
   types: readonly SqlDataType[],
 ): SqlDataType | undefined {
   const outerFormat = inferPostgresFormatType(analysis)
@@ -356,7 +340,7 @@ function inferPostgresCompositeStringType(
   return `varchar(${Math.max(...types.map((type) => Number(type.match(/\d+/)![0])))})`
 }
 
-function isSafePostgresNumberBranch(branch: SchemaAnalysis): boolean {
+function isSafePostgresNumberBranch(branch: StorageFacts): boolean {
   const { minValue, maxValue, isSafeInteger } = branch.numberConstraints
 
   if (isSafeInteger) return true
@@ -374,24 +358,24 @@ function isSafePostgresNumberBranch(branch: SchemaAnalysis): boolean {
     return members.length > 0 && members.every(isSafePostgresNumberBranch)
   }
 
-  const literal = (branch.outputSchema as (AnySchema & { literal?: unknown }) | undefined)
-    ?.literal
-
-  if (typeof literal === 'number' && Number.isSafeInteger(literal)) return true
-
-  const options = (
-    branch.outputSchema as (AnySchema & { options?: unknown[] }) | undefined
-  )?.options
+  if (branch.finiteEvidence === 'singleton')
+    return (
+      typeof branch.singletonValue === 'number' &&
+      Number.isSafeInteger(branch.singletonValue)
+    )
 
   return (
-    Array.isArray(options) &&
-    options.every((value) => typeof value === 'number' && Number.isSafeInteger(value))
+    branch.finiteEvidence === 'choice' &&
+    !!branch.finiteSourceValues?.length &&
+    branch.finiteSourceValues.every(
+      (value) => typeof value === 'number' && Number.isSafeInteger(value),
+    )
   )
 }
 
 /** Promotes integer widths, and uses doubles only for safe integer branches. */
 function inferPostgresCompositeNumberType(
-  branches: readonly SchemaAnalysis[],
+  branches: readonly StorageFacts[],
   types: readonly SqlDataType[],
 ): SqlDataType | undefined {
   const integers = ['smallint', 'integer', 'bigint']
@@ -424,4 +408,48 @@ function inferPostgresNumberOutputType(constraints: NumberConstraints): SqlDataT
     return 'bigint'
 
   return inferPostgresNumberType(constraints)
+}
+
+function withNumberFacts(facts: StorageFacts, outer: NumberConstraints): StorageFacts {
+  const numberConstraints = { ...facts.numberConstraints }
+
+  if (outer.minValue !== undefined)
+    numberConstraints.minValue = Math.max(
+      numberConstraints.minValue ?? -Infinity,
+      outer.minValue,
+    )
+
+  if (outer.maxValue !== undefined)
+    numberConstraints.maxValue = Math.min(
+      numberConstraints.maxValue ?? Infinity,
+      outer.maxValue,
+    )
+
+  if (outer.isInteger) numberConstraints.isInteger = true
+  if (outer.isSafeInteger) numberConstraints.isSafeInteger = true
+
+  return { ...facts, numberConstraints }
+}
+
+function withBigintFacts(
+  facts: StorageFacts,
+  outer: StorageFacts['bigintConstraints'],
+): StorageFacts {
+  const bigintConstraints = { ...facts.bigintConstraints }
+
+  if (
+    outer.minValue !== undefined &&
+    (bigintConstraints.minValue === undefined ||
+      outer.minValue > bigintConstraints.minValue)
+  )
+    bigintConstraints.minValue = outer.minValue
+
+  if (
+    outer.maxValue !== undefined &&
+    (bigintConstraints.maxValue === undefined ||
+      outer.maxValue < bigintConstraints.maxValue)
+  )
+    bigintConstraints.maxValue = outer.maxValue
+
+  return { ...facts, bigintConstraints }
 }

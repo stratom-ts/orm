@@ -48,7 +48,14 @@ export interface StorageFacts {
   bigintConstraints: Readonly<{ minValue?: bigint; maxValue?: bigint }>
   /** A singleton assertion and a finite choice retain distinct storage policies. */
   finiteEvidence?: 'singleton' | 'choice'
+  /**
+   * Original singleton output, retained even if later validators narrow finiteValues
+   * away.
+   */
+  singletonValue?: unknown
   finiteValues?: readonly unknown[]
+  /** Original finite choices, before later validation narrows finiteValues. */
+  finiteSourceValues?: readonly unknown[]
   composite?: {
     kind: 'alternatives' | 'intersection'
     branches: readonly StorageFacts[]
