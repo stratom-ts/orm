@@ -28,7 +28,7 @@ export function postgresMigrationProgram(
 }
 
 /** Validates and serializes the two numeric advisory-lock parameters. */
-function advisoryLockKey(params: unknown[]): string {
+function advisoryLockKey(params: readonly unknown[]): string {
   const [classId, lockId] = params
 
   if (typeof classId !== 'number' || typeof lockId !== 'number') {
@@ -51,7 +51,7 @@ export function createPostgresMigrationRuntime(
   options: MigrationRuntimeFixtureOptions = {},
 ) {
   const calls: string[] = []
-  const queries: { sql: string; params: unknown[] }[] = []
+  const queries: { sql: string; params: readonly unknown[] }[] = []
   const discard = vi.fn<() => void>()
   const prepare = vi.fn<(program: MigrationProgram) => Promise<MigrationProgram>>(
     async (migrationProgram: MigrationProgram) => migrationProgram,
@@ -61,11 +61,11 @@ export function createPostgresMigrationRuntime(
   const { hang, cancel } = createInFlightCancellation()
 
   /** Applies the fixture's configured lock-acquisition outcome. */
-  const acquire = (query: { sql: string; params: unknown[] }) =>
+  const acquire = (query: { sql: string; params: readonly unknown[] }) =>
     acquireFixtureLock(query, options)
 
   /** Releases the fixture lease with configured cleanup behavior. */
-  const release = (query: { sql: string; params: unknown[] }) =>
+  const release = (query: { sql: string; params: readonly unknown[] }) =>
     releaseFixtureLock(query, options)
 
   const executor: Executor = createMigrationRuntimeExecutor(
@@ -177,12 +177,18 @@ function createRuntimeFixtureRunner(
  */
 function createMigrationRuntimeExecutor(
   calls: string[],
-  queries: { sql: string; params: unknown[] }[],
+  queries: { sql: string; params: readonly unknown[] }[],
   held: Promise<void> | undefined,
   options: MigrationRuntimeFixtureOptions,
   hang: () => Promise<never>,
-  acquire: (query: { sql: string; params: unknown[] }) => Promise<{ locked: boolean }[]>,
-  release: (query: { sql: string; params: unknown[] }) => { unlocked: boolean }[],
+  acquire: (query: {
+    sql: string
+    params: readonly unknown[]
+  }) => Promise<{ locked: boolean }[]>,
+  release: (query: {
+    sql: string
+    params: readonly unknown[]
+  }) => { unlocked: boolean }[],
 ): Executor {
   return {
     /** Runs a fixture statement with configured outcomes. */
@@ -230,7 +236,7 @@ function createInFlightCancellation() {
  * @returns A native row reporting the configured or shared-manager lock outcome.
  */
 async function acquireFixtureLock(
-  query: { sql: string; params: unknown[] },
+  query: { sql: string; params: readonly unknown[] },
   options: NonNullable<Parameters<typeof createPostgresMigrationRuntime>[0]>,
 ) {
   if (options.lockGate !== undefined) await options.lockGate
@@ -263,7 +269,7 @@ async function acquireFixtureLock(
  * @returns A native row reporting the unlock outcome after shared ownership is released.
  */
 function releaseFixtureLock(
-  query: { sql: string; params: unknown[] },
+  query: { sql: string; params: readonly unknown[] },
   options: NonNullable<Parameters<typeof createPostgresMigrationRuntime>[0]>,
 ) {
   if (options.failUnlock) throw new Error('unlock failed')
@@ -335,11 +341,17 @@ type MigrationRuntimeFixtureOptions = {
 async function executeRuntimeFixture(
   query: Parameters<Executor['execute']>[0],
   calls: string[],
-  queries: { sql: string; params: unknown[] }[],
+  queries: { sql: string; params: readonly unknown[] }[],
   options: MigrationRuntimeFixtureOptions,
   hang: () => Promise<never>,
-  acquire: (query: { sql: string; params: unknown[] }) => Promise<{ locked: boolean }[]>,
-  release: (query: { sql: string; params: unknown[] }) => { unlocked: boolean }[],
+  acquire: (query: {
+    sql: string
+    params: readonly unknown[]
+  }) => Promise<{ locked: boolean }[]>,
+  release: (query: {
+    sql: string
+    params: readonly unknown[]
+  }) => { unlocked: boolean }[],
 ) {
   calls.push(query.sql)
   queries.push(query)

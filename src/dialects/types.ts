@@ -195,7 +195,7 @@ export type QuerySessionIdentity = Readonly<{
 /** Parameterized SQL produced by dialect compilation. */
 export type CompiledQuery = {
   sql: string
-  params: unknown[]
+  params: readonly unknown[]
   /** Optional member-owned execution guard evaluated on the pinned session. */
   assertSession?: (identity: QuerySessionIdentity) => void
 }

@@ -205,7 +205,7 @@ export type CatalogExecutor = {
    * @returns Query result rows, or the native write result for a statement without
    *   returned rows.
    */
-  execute(query: { sql: string; params: unknown[] }): Promise<unknown[]>
+  execute(query: { sql: string; params: readonly unknown[] }): Promise<unknown[]>
 }
 
 export interface CatalogIntrospector {

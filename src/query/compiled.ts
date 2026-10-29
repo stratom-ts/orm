@@ -4,7 +4,7 @@ import { QueryError } from '@/utils/error'
 declare const compiledQuery: unique symbol
 
 /** SQL produced by a builder or the scoped SQL helpers. */
-export type CompiledQuery = DialectCompiledQuery & {
+export type CompiledQuery = Readonly<DialectCompiledQuery> & {
   readonly [compiledQuery]: true
 }
 
@@ -14,7 +14,7 @@ const queries = new WeakSet()
 export function markCompiledQuery(query: DialectCompiledQuery): CompiledQuery {
   const snapshot = Object.freeze({ ...query, params: Object.freeze([...query.params]) })
   queries.add(snapshot)
-  return snapshot as unknown as CompiledQuery
+  return snapshot as CompiledQuery
 }
 
 /** Rejects plain objects and copied markers from JavaScript callers. */

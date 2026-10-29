@@ -350,14 +350,29 @@ it('rejects unmarked objects, copied queries, and mutation after compilation', a
     // @ts-expect-error Plain SQL objects are not executable queries.
     await expect(db.execute({ sql: 'untrusted', params: [] })).rejects.toThrow(/compile/)
     const query = db.sql.fragment`select ${1}`
+    expectTypeOf(query.params).toEqualTypeOf<readonly unknown[]>()
     await expect(db.execute({ ...query })).rejects.toThrow(/compile/)
 
     expect(() => {
+      // @ts-expect-error Compiled SQL is readonly.
       query.sql = 'untrusted'
     }).toThrow(TypeError)
 
     expect(() => {
-      query.params.push('untrusted')
+      // @ts-expect-error Compiled parameters are readonly.
+      query.params[0] = 'untrusted'
+    }).toThrow(TypeError)
+
+    expect(() => Array.prototype.push.call(query.params, 'untrusted')).toThrow(TypeError)
+
+    expect(() => {
+      // @ts-expect-error The compiled parameter array cannot be replaced.
+      query.params = []
+    }).toThrow(TypeError)
+
+    expect(() => {
+      // @ts-expect-error Compiled session guards are readonly.
+      query.assertSession = () => undefined
     }).toThrow(TypeError)
 
     expect(controls.openCount).toBe(0)

@@ -62,13 +62,13 @@ type NativePostgresClient = {
       | string
       | {
           text: string
-          values: unknown[]
+          values: readonly unknown[]
           signal?: AbortSignal
           types?: {
             getTypeParser(oid: number, format?: string): (value: string) => unknown
           }
         },
-    values?: unknown[],
+    values?: readonly unknown[],
   ): Promise<NativePostgresResult>
 }
 
