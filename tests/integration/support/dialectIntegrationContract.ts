@@ -1937,6 +1937,23 @@ async function assertSubqueryReads(
       .execute(),
   ).toEqual([{ missing: null }, { missing: null }])
 
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label])
+      .where(exists(one))
+      .orderBy(ContractRecords.label)
+      .execute(),
+  ).toEqual([{ label: 'a' }, { label: 'b' }])
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label])
+      .where(exists(absent))
+      .execute(),
+  ).toEqual([])
+
   await assertCorrelatedSubqueryReads(db)
 
   const selected = db.from(inner).select([inner.id]).where(eq(inner.label, 'a'))
