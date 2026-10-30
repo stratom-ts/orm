@@ -617,3 +617,50 @@ export function isTableHandle(value: unknown): value is TableHandle {
     return false
   }
 }
+
+/** A distinct occurrence of a registered table in a query. */
+export function alias<
+  S extends TableSchema,
+  R extends RelationIdentityInput,
+  const N extends string,
+>(table: TableHandle<S, R>, name: N): TableHandle<S, R & { readonly alias: N }> {
+  if (!isTableHandle(table))
+    throw new SchemaError({ message: 'alias requires a defined table' })
+
+  assertNonEmptyString(name, 'query alias')
+  const metadata = table.getTableMetadata()
+  const relation = { ...metadata.relation, alias: name }
+  const handle = {
+    [TABLE_HANDLE]: true,
+    getSchema: () => table.getSchema(),
+    getTableMetadata: () => ({ ...metadata, relation }),
+  }
+
+  for (const column of Object.keys(table.getSchema().entries)) {
+    Object.defineProperty(handle, column, {
+      value: { relation, column, __type: undefined },
+      enumerable: true,
+    })
+  }
+
+  definedTableHandles.set(handle, {
+    getSchema: handle.getSchema,
+    getTableMetadata: handle.getTableMetadata,
+  })
+
+  aliasSources.set(handle, table)
+  aliasOccurrences.set(relation, name)
+  return handle as TableHandle<S, R & { readonly alias: N }>
+}
+
+const aliasSources = new WeakMap<object, TableHandle>()
+const aliasOccurrences = new WeakMap<object, string>()
+
+export function baseTable(handle: TableHandle): TableHandle {
+  const base = aliasSources.get(handle)
+  return base ? baseTable(base) : handle
+}
+
+export function occurrenceAlias(relation: RelationIdentityInput): string | undefined {
+  return aliasOccurrences.get(relation)
+}

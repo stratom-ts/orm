@@ -26,7 +26,7 @@ export type {
   MigrationCapabilityIssue,
 } from '@/ddl/migrationProgram'
 export * from '@/dialects'
-export { defineTable, isTableHandle } from './defineTable'
+export { alias, defineTable, isTableHandle } from './defineTable'
 export type {
   DeleteBuilder,
   ExcludedRef,
@@ -41,6 +41,10 @@ export type {
   WriteResult,
 } from '@/query'
 export {
+  scalar,
+  inQuery,
+  exists,
+  outer,
   and,
   count,
   countAll,

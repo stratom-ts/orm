@@ -235,7 +235,9 @@ function createRelationContext(
       ...(relation.database === undefined ? {} : { database: relation.database }),
       ...(relation.schema === undefined ? {} : { schema: relation.schema }),
       table: relation.table,
-      alias,
+      alias:
+        (relations[index] as RelationIdentityInput & { queryAlias?: string })
+          .queryAlias ?? alias,
     }
   })
 }
@@ -251,6 +253,11 @@ function resolveRelationAlias(
   target: RelationIdentityInput,
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
+  const preparedAlias = (target as RelationIdentityInput & { queryAlias?: string })
+    .queryAlias
+
+  if (preparedAlias) return preparedAlias
+
   const resolved = resolveRelation(target)
   const exactMatches = relations.filter(
     (relation) =>
@@ -388,6 +395,12 @@ function compilePredicate(
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
   switch (pred.kind) {
+    case 'exists':
+      return `exists (${compileSelect(pred.query, resolveRelation, params).sql})`
+    case 'inQuery':
+      return `${compileExpression(pred.left, params, relations, resolveRelation)} in (${compileSingleSubquery(pred.query, resolveRelation, params)})`
+    case 'exprCmp':
+      return compileExpressionComparison(pred, params, relations, resolveRelation)
     case 'cmp':
       return compileComparison(pred, params, relations, resolveRelation)
     case 'and': {
@@ -461,6 +474,10 @@ function compileExpression(
   resolveRelation: PostgresQueryRelationResolver,
 ): string {
   switch (expr.kind) {
+    case 'scalar':
+      return `(${compileSingleSubquery(expr.query, resolveRelation, params)})`
+    case 'outer':
+      throw new QueryError({ message: 'Unresolved outer reference' })
     case 'column':
       return qualifyColumn(expr.column, relations, expr.relation, resolveRelation)
     case 'count_all':
@@ -596,6 +613,7 @@ function compileJoin(
 function compileSelect(
   node: SelectAst,
   resolveRelation: PostgresQueryRelationResolver,
+  params: unknown[] = [],
 ): CompiledQuery {
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const relations = createRelationContext(
@@ -604,7 +622,6 @@ function compileSelect(
   )
 
   const tableAlias = quoteIdentifier(relations[0]!.alias)
-  const params: unknown[] = []
   const selection = (node as Partial<SelectAst>).selection
 
   if (!Array.isArray(selection) || selection.length === 0) {
@@ -870,6 +887,8 @@ function compileDelete(
 
 /** Adds the database precondition carried by explicitly database-qualified relations. */
 function queryExpressionRelations(expression: SqlExprAst): RelationIdentityInput[] {
+  if (expression.kind === 'scalar') return []
+  if (expression.kind === 'outer') return []
   if (expression.kind === 'now') return []
 
   if (expression.kind === 'column') {
@@ -892,6 +911,17 @@ function queryPredicateRelations(
   predicate: PredicateAst | undefined,
 ): RelationIdentityInput[] {
   if (predicate === undefined) return []
+
+  if (predicate.kind === 'exists' || predicate.kind === 'inQuery')
+    return predicate.kind === 'inQuery' ? queryExpressionRelations(predicate.left) : []
+
+  if (predicate.kind === 'exprCmp')
+    return [
+      ...queryExpressionRelations(predicate.left),
+      ...(predicate.right.kind === 'value'
+        ? []
+        : queryExpressionRelations(predicate.right)),
+    ]
 
   if (predicate.kind === 'not') return queryPredicateRelations(predicate.pred)
 
@@ -1099,7 +1129,7 @@ function collectSessionRequirements(
  *
  * @returns Compiled query with SQL string and bound parameters
  */
-export function compilePostgresQuery(
+function compilePostgresQueryNode(
   node: SqlAst,
   resolveRelation: PostgresQueryRelationResolver = createPostgresQueryRelationResolver(),
 ): CompiledQuery {
@@ -1174,4 +1204,90 @@ function compileComparison(
   if (nullComparison) return nullComparison
 
   throw new QueryError({ message: `comparison '${pred.op}' does not accept null` })
+}
+
+/** Compiles the complete statement and snapshots every nested session requirement. */
+export function compilePostgresQuery(
+  node: SqlAst,
+  resolveRelation: PostgresQueryRelationResolver = createPostgresQueryRelationResolver(),
+): CompiledQuery {
+  const compiled = compilePostgresQueryNode(node, resolveRelation)
+  const guards: NonNullable<CompiledQuery['assertSession']>[] = compiled.assertSession
+    ? [compiled.assertSession]
+    : []
+
+  collectNestedGuards(node, guards, resolveRelation)
+  return guards.length
+    ? {
+        ...compiled,
+        assertSession(identity) {
+          for (const guard of guards) guard(identity)
+        },
+      }
+    : compiled
+}
+
+function compileExpressionComparison(
+  pred: Extract<PredicateAst, { kind: 'exprCmp' }>,
+  params: unknown[],
+  relations: readonly PostgresRelation[],
+  resolveRelation: PostgresQueryRelationResolver,
+): string {
+  const left = compileExpression(pred.left, params, relations, resolveRelation)
+
+  if (pred.right.kind === 'value') {
+    if (pred.right.value === null && (pred.op === 'eq' || pred.op === 'neq'))
+      return `${left} is ${pred.op === 'neq' ? 'not ' : ''}null`
+
+    params.push(pred.right.value)
+    return `${left} ${comparisonSql(pred.op)} $${params.length}`
+  }
+
+  return `${left} ${comparisonSql(pred.op)} ${compileExpression(pred.right, params, relations, resolveRelation)}`
+}
+
+function collectNestedGuards(
+  value: unknown,
+  guards: NonNullable<CompiledQuery['assertSession']>[],
+  resolveRelation: PostgresQueryRelationResolver,
+): void {
+  if (!value || typeof value !== 'object') return
+
+  for (const [key, child] of Object.entries(value) as [string, unknown][]) {
+    if (key === 'value' || key === 'values') continue
+
+    if (
+      child &&
+      typeof child === 'object' &&
+      'kind' in child &&
+      child.kind === 'select'
+    ) {
+      const select = child as SelectAst
+      const guard = guardQuerySession(
+        { sql: '', params: [] },
+        [select.relation, ...(select.joins ?? []).map((j) => j.relation)],
+        selectRelationReferences(select),
+        resolveRelation,
+      ).assertSession
+
+      guards.push(...(guard ? [guard] : []))
+    }
+
+    if (Array.isArray(child))
+      child.forEach((value) => collectNestedGuards(value, guards, resolveRelation))
+    else collectNestedGuards(child, guards, resolveRelation)
+  }
+}
+
+function compileSingleSubquery(
+  node: SelectAst,
+  resolveRelation: PostgresQueryRelationResolver,
+  params: unknown[],
+): string {
+  if (node.selection.length !== 1)
+    throw new QueryError({
+      message: 'Scalar and IN subqueries require exactly one projected value',
+    })
+
+  return compileSelect(node, resolveRelation, params).sql
 }

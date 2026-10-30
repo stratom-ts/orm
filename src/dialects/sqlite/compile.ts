@@ -184,7 +184,12 @@ function createRelationContext(
         ? candidate
         : `__stratom_${index}`
 
-    return { ...relation, alias }
+    return {
+      ...relation,
+      alias:
+        (inputs[index] as RelationIdentityInput & { queryAlias?: string }).queryAlias ??
+        alias,
+    }
   })
 }
 
@@ -203,6 +208,11 @@ function resolveRelationAlias(
   target: RelationIdentityInput,
   resolveRelation: SqliteQueryRelationResolver,
 ): string {
+  const preparedAlias = (target as RelationIdentityInput & { queryAlias?: string })
+    .queryAlias
+
+  if (preparedAlias) return preparedAlias
+
   const resolved = resolveRelation(target)
   const matches = relations.filter((relation) => relation.tableKey === resolved.tableKey)
 
@@ -304,6 +314,12 @@ function compilePredicate(
   resolveRelation: SqliteQueryRelationResolver,
 ): string {
   switch (predicate.kind) {
+    case 'exists':
+      return `exists (${compileSelect(predicate.query, resolveRelation, params).sql})`
+    case 'inQuery':
+      return `${compileExpression(predicate.left, params, relations, resolveRelation)} in (${compileSingleSubquery(predicate.query, resolveRelation, params)})`
+    case 'exprCmp':
+      return compileExpressionComparison(predicate, params, relations, resolveRelation)
     case 'cmp':
       return compileComparison(predicate, params, relations, resolveRelation)
     case 'and':
@@ -373,6 +389,10 @@ function compileExpression(
   resolveRelation: SqliteQueryRelationResolver,
 ): string {
   switch (expression.kind) {
+    case 'scalar':
+      return `(${compileSingleSubquery(expression.query, resolveRelation, params)})`
+    case 'outer':
+      throw new QueryError({ message: 'Unresolved outer reference' })
     case 'column':
       return qualifyColumn(
         expression.column,
@@ -516,6 +536,7 @@ function assertPagination(value: number, description: string): void {
 function compileSelect(
   node: SelectAst,
   resolveRelation: SqliteQueryRelationResolver,
+  params: unknown[] = [],
 ): CompiledQuery {
   if (!Array.isArray(node.selection as unknown)) {
     throw new InvariantError('select items must be an array')
@@ -526,7 +547,6 @@ function compileSelect(
     resolveRelation,
   )
 
-  const params: unknown[] = []
   const selection =
     node.selection.length === 0
       ? '*'
@@ -902,4 +922,39 @@ function compileComparison(
   throw new QueryError({
     message: `comparison '${predicate.op}' does not accept null`,
   })
+}
+
+function compileExpressionComparison(
+  predicate: Extract<PredicateAst, { kind: 'exprCmp' }>,
+  params: unknown[],
+  relations: readonly SqliteRelation[],
+  resolveRelation: SqliteQueryRelationResolver,
+): string {
+  const left = compileExpression(predicate.left, params, relations, resolveRelation)
+
+  if (predicate.right.kind === 'value') {
+    if (
+      predicate.right.value === null &&
+      (predicate.op === 'eq' || predicate.op === 'neq')
+    )
+      return `${left} is ${predicate.op === 'neq' ? 'not ' : ''}null`
+
+    params.push(predicate.right.value)
+    return `${left} ${comparisonSql(predicate.op)} ?`
+  }
+
+  return `${left} ${comparisonSql(predicate.op)} ${compileExpression(predicate.right, params, relations, resolveRelation)}`
+}
+
+function compileSingleSubquery(
+  node: SelectAst,
+  resolveRelation: SqliteQueryRelationResolver,
+  params: unknown[],
+): string {
+  if (node.selection.length !== 1)
+    throw new QueryError({
+      message: 'Scalar and IN subqueries require exactly one projected value',
+    })
+
+  return compileSelect(node, resolveRelation, params).sql
 }

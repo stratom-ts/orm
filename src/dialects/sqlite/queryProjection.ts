@@ -2,7 +2,14 @@ import type { RelationIdentityInput } from '@/schemas'
 import type { TableHandle } from '@/types'
 import { QueryError } from '@/utils/error'
 
-import type { DialectQueryResolution, SelectItemAst, SqlAst } from '../types'
+import type {
+  DialectQueryResolution,
+  PredicateAst,
+  SelectAst,
+  SelectItemAst,
+  SqlAst,
+  SqlExprAst,
+} from '../types'
 
 /** Resolves a registered relation without silently selecting an ambiguous handle. */
 function selectedHandle(
@@ -36,7 +43,12 @@ function handleColumns(
 }
 
 /** Preserves authored result names for registered wildcard SELECT and RETURNING queries. */
-export function projectSqliteQuery(query: DialectQueryResolution, node: SqlAst): SqlAst {
+export function projectSqliteQuery(
+  query: DialectQueryResolution,
+  authored: SqlAst,
+): SqlAst {
+  const node = projectNestedQueries(query, authored)
+
   if (node.kind !== 'select') {
     const handle = selectedHandle(query, node.relation)
 
@@ -74,4 +86,61 @@ export function projectSqliteQuery(query: DialectQueryResolution, node: SqlAst):
     throw new QueryError({ message: 'SQLite query output columns are ambiguous' })
 
   return { ...node, selection: projected }
+}
+
+/** Applies the same authored output-name rules in every nested select. */
+function projectNestedQueries(query: DialectQueryResolution, node: SqlAst): SqlAst {
+  if (node.kind === 'insert') return node
+
+  const where = node.where ? projectPredicate(query, node.where) : undefined
+
+  if (node.kind !== 'select') return { ...node, ...(where ? { where } : {}) }
+
+  return {
+    ...node,
+    selection: node.selection.map((item) =>
+      item.kind === 'expr'
+        ? { ...item, expr: projectExpression(query, item.expr) }
+        : item,
+    ),
+    ...(where ? { where } : {}),
+    ...(node.having ? { having: projectPredicate(query, node.having) } : {}),
+    ...(node.joins
+      ? {
+          joins: node.joins.map((join) => ({
+            ...join,
+            on: projectPredicate(query, join.on),
+          })),
+        }
+      : {}),
+  }
+}
+
+function projectExpression(query: DialectQueryResolution, expr: SqlExprAst): SqlExprAst {
+  return expr.kind === 'scalar'
+    ? { ...expr, query: projectSqliteQuery(query, expr.query) as SelectAst }
+    : expr
+}
+
+function projectPredicate(
+  query: DialectQueryResolution,
+  pred: PredicateAst,
+): PredicateAst {
+  if (pred.kind === 'exists' || pred.kind === 'inQuery')
+    return { ...pred, query: projectSqliteQuery(query, pred.query) as SelectAst }
+
+  if (pred.kind === 'and' || pred.kind === 'or')
+    return { ...pred, preds: pred.preds.map((p) => projectPredicate(query, p)) }
+
+  if (pred.kind === 'not') return { ...pred, pred: projectPredicate(query, pred.pred) }
+
+  if (pred.kind === 'exprCmp')
+    return {
+      ...pred,
+      left: projectExpression(query, pred.left),
+      right:
+        pred.right.kind === 'value' ? pred.right : projectExpression(query, pred.right),
+    }
+
+  return pred
 }
