@@ -1009,6 +1009,22 @@ function relationSessionRequirement(
   }
 }
 
+/** Keeps prepared references with their owning occurrence's session requirements. */
+function isLocalReference(
+  reference: RelationIdentityInput,
+  physicalRelations: readonly RelationIdentityInput[],
+): boolean {
+  const alias = (reference as RelationIdentityInput & { queryAlias?: string }).queryAlias
+  return (
+    alias === undefined ||
+    physicalRelations.some(
+      (physical) =>
+        (physical as RelationIdentityInput & { queryAlias?: string }).queryAlias ===
+        alias,
+    )
+  )
+}
+
 /**
  * Adds physical-session preconditions to a compiled PostgreSQL query.
  *
@@ -1030,7 +1046,7 @@ function guardQuerySession(
   const resolvedPhysical = physicalRelations.map(resolveRelation)
   const requirements = collectSessionRequirements(
     resolvedPhysical,
-    references,
+    references.filter((reference) => isLocalReference(reference, physicalRelations)),
     resolveRelation,
   )
 

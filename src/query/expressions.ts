@@ -45,6 +45,14 @@ function isColumnRef(value: unknown): value is ColumnRef {
  *
  * @param column - Column reference or unqualified name.
  */
+function colRef<C extends ColumnRef | string>(
+  column: C,
+): ColumnExprAst & {
+  column: C extends ColumnRef<string, infer N> ? N : C
+} & (C extends ColumnRef<string, string, infer V>
+    ? { readonly __value?: V; readonly __source?: C }
+    : unknown)
+
 function colRef(column: ColumnRef | string): ColumnExprAst {
   if (typeof column === 'string') {
     return { kind: 'column', column }
@@ -453,7 +461,7 @@ export type ExpressionBuilder = {
    *
    * @returns A scalar column-expression AST for the supplied name or reference.
    */
-  ref(column: ColumnRef | string): ColumnExprAst
+  ref: typeof colRef
   scalar: typeof scalar
   inQuery: typeof inQuery
   exists: typeof exists
@@ -561,11 +569,23 @@ type Compatible<A, B> = unknown extends A | B
       ? unknown
       : never
 
-type CompatibleOperands<L, R> = L extends ScalarExpression
-  ? Compatible<OperandValue<L>, OperandValue<R>>
-  : R extends ScalarExpression
-    ? Compatible<OperandValue<L>, OperandValue<R>>
-    : unknown
+type InvalidScalarPair<L, R> = L extends unknown
+  ? R extends unknown
+    ? L extends ScalarExpression
+      ? Compatible<OperandValue<L>, OperandValue<R>> extends never
+        ? true
+        : never
+      : R extends ScalarExpression
+        ? Compatible<OperandValue<L>, OperandValue<R>> extends never
+          ? true
+          : never
+        : never
+    : never
+  : never
+
+type CompatibleOperands<L, R> = [InvalidScalarPair<L, R>] extends [never]
+  ? unknown
+  : never
 
 const queryExpressions = new WeakSet()
 

@@ -46,6 +46,7 @@ function handleColumns(
 export function projectSqliteQuery(
   query: DialectQueryResolution,
   authored: SqlAst,
+  discardOutputs = false,
 ): SqlAst {
   const node = projectNestedQueries(query, authored)
 
@@ -82,7 +83,7 @@ export function projectSqliteQuery(
       : [item.alias ?? (item.kind === 'column' ? item.column : '')],
   )
 
-  if (new Set(names).size !== names.length)
+  if (!discardOutputs && new Set(names).size !== names.length)
     throw new QueryError({ message: 'SQLite query output columns are ambiguous' })
 
   return { ...node, selection: projected }
@@ -127,7 +128,10 @@ function projectPredicate(
   pred: PredicateAst,
 ): PredicateAst {
   if (pred.kind === 'exists' || pred.kind === 'inQuery')
-    return { ...pred, query: projectSqliteQuery(query, pred.query) as SelectAst }
+    return {
+      ...pred,
+      query: projectSqliteQuery(query, pred.query, pred.kind === 'exists') as SelectAst,
+    }
 
   if (pred.kind === 'and' || pred.kind === 'or')
     return { ...pred, preds: pred.preds.map((p) => projectPredicate(query, p)) }

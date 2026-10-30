@@ -1,4 +1,4 @@
-import { nullable, number, string } from 'valibot'
+import { date, nullable, number, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 
 import type { Dialect } from '@/dialects'
@@ -6,6 +6,7 @@ import {
   QueryError,
   alias,
   and,
+  column,
   defineTable,
   eq,
   exists,
@@ -300,7 +301,7 @@ function mappedFrom(
     createTableBuilder({ handle, dialect, query: f.query, executor: f.executor, mapper })
 }
 
-it('retains inner-only PostgreSQL guards in immutable snapshots', () => {
+function guardedQueries() {
   const Guarded = defineTable(
     'guarded',
     { id: number() },
@@ -314,7 +315,19 @@ it('retains inner-only PostgreSQL guards in immutable snapshots', () => {
   )
 
   const f = fixture(postgresDialect)
-  const query = postgresDialect.query.resolve([Users, Guarded])
+  const Other = defineTable(
+    'other_guarded',
+    { id: number() },
+    {
+      primaryKey: 'id',
+      namespace: [
+        { role: 'database', spelling: 'other' },
+        { role: 'schema', spelling: 'tenant' },
+      ],
+    },
+  )
+
+  const query = postgresDialect.query.resolve([Users, Guarded, Other])
 
   const inner = createTableBuilder({
     handle: Guarded,
@@ -330,12 +343,30 @@ it('retains inner-only PostgreSQL guards in immutable snapshots', () => {
     executor: f.executor,
   }).where(exists(inner))
 
+  const second = createTableBuilder({
+    handle: Other,
+    dialect: postgresDialect,
+    query,
+    executor: f.executor,
+  }).select([Other.id])
+
+  return { outer, second }
+}
+
+it('retains inner-only PostgreSQL guards in immutable snapshots', () => {
+  const { outer, second } = guardedQueries()
   const compiled = outer.compile()
   expect(() => compiled.assertSession?.({ database: 'wrong' })).toThrow(/required/)
   expect(() => compiled.assertSession?.({ database: 'required' })).not.toThrow()
-  outer.where(eq(Users.id, 5)).compile()
+
+  // Use one resolution object for both compiled statements.
+  const secondCompiled = second.compile()
+  expect(() => secondCompiled.assertSession?.({ database: 'required' })).toThrow(/other/)
+  expect(() => secondCompiled.assertSession?.({ database: 'other' })).not.toThrow()
   expect(compiled.params).toEqual([])
   expect(() => compiled.assertSession?.({ database: 'wrong' })).toThrow(/required/)
+  expect(() => compiled.assertSession?.({ database: 'required' })).not.toThrow()
+  expect(() => compiled.assertSession?.({ database: 'other' })).toThrow(/required/)
 })
 
 it('infers aliases, scalar values and joined column nullability', () => {
@@ -380,3 +411,164 @@ it('validates dynamic projection counts without collapsing duplicate output name
       .compile(),
   ).not.toThrow()
 })
+
+for (const dialect of [postgresDialect, sqliteDialect]) {
+  it(`${dialect.id} allows duplicate outputs and joined wildcards in EXISTS`, () => {
+    const { from } = fixture(dialect)
+    expect(() =>
+      from(Users)
+        .where(exists(from(Posts).select([Posts.id, Posts.id])))
+        .compile(),
+    ).not.toThrow()
+
+    expect(() =>
+      from(Users)
+        .where(
+          exists(from(Posts).innerJoin(Users, eq(Users.id, Posts.userId)).selectAll()),
+        )
+        .compile(),
+    ).not.toThrow()
+  })
+
+  it(`${dialect.id} maps resolved outer sources in predicates and reused nested scalar outputs`, async () => {
+    const {
+      f,
+      from,
+      Dates,
+      mapParamValue,
+      mapResultValue,
+      fallbackParam,
+      fallbackResult,
+    } = outerMappingFixture(dialect)
+
+    const authored = new Date('2026-01-01')
+
+    const inner = from(Posts)
+      .select((b) => [b.as(b.outer(Dates.at), 'at')])
+      .where((b) => b.eq(b.outer(Dates.at), authored))
+
+    const middle = from(Posts).select((b) => [b.as(scalar(inner), 'at')])
+
+    const query = from(Dates).select((b) => [
+      b.as(scalar(middle), 'first'),
+      b.as(scalar(middle), 'second'),
+    ])
+
+    const expectedParams = [`param:${String(authored)}`, `param:${String(authored)}`]
+    expect(query.compile().params).toEqual(expectedParams)
+    expect(mapParamValue).toHaveBeenCalledTimes(2)
+    mapParamValue.mockClear()
+    expect(query.compile().params).toEqual(expectedParams)
+    expect(mapParamValue).toHaveBeenCalledTimes(2)
+    f.executor.execute.mockResolvedValueOnce([{ first: '2026-01-01', second: null }])
+    expect(await query.execute()).toEqual([{ first: authored, second: null }])
+    expect(mapResultValue).toHaveBeenCalledTimes(1)
+    expect(mapResultValue).toHaveBeenCalledWith('date', '2026-01-01')
+    expect(fallbackParam).not.toHaveBeenCalled()
+    expect(fallbackResult).not.toHaveBeenCalled()
+  })
+}
+
+it('infers raw ref expressions and rejects mixed scalar unions on either side', () => {
+  const { from } = fixture(postgresDialect)
+  const titles = from(Posts).select((b) => [b.ref(Posts.title)])
+  type Row = Awaited<ReturnType<typeof titles.execute>>[number]
+  expectTypeOf<Row>().toEqualTypeOf<{ title: string }>()
+
+  const manual = from(Posts).select(() => [
+    { kind: 'column' as const, column: 'title' as const },
+  ])
+
+  type Manual = Awaited<ReturnType<typeof manual.execute>>[number]
+  expectTypeOf<Manual>().toEqualTypeOf<{ title: unknown }>()
+
+  // @ts-expect-error numeric column cannot compare with a string ref scalar
+  eq(Users.id, scalar(titles))
+  const mixed = Math.random() > 0.5 ? scalar(titles) : 1
+
+  // @ts-expect-error every scalar union alternative must be compatible
+  eq(Users.id, mixed)
+
+  // @ts-expect-error scalar on the left cannot hide behind a column union
+  eq(Math.random() > 0.5 ? scalar(titles) : Users.id, 1)
+})
+
+it('does not infer inner session requirements from a resolved outer occurrence', () => {
+  const TenantUsers = defineTable(
+    'same_users',
+    { id: number() },
+    { primaryKey: 'id', namespace: [{ role: 'schema', spelling: 'tenant' }] },
+  )
+
+  const LocalUsers = defineTable('same_users', { id: number() }, { primaryKey: 'id' })
+  const query = postgresDialect.query.resolve([TenantUsers, LocalUsers])
+  const executor = fixture(postgresDialect).executor
+  const from = <H extends Parameters<typeof createTableBuilder>[0]['handle']>(
+    handle: H,
+  ) => createTableBuilder({ handle, dialect: postgresDialect, query, executor })
+
+  const compiled = from(TenantUsers)
+    .where(exists(from(LocalUsers).where(eq(LocalUsers.id, outer(TenantUsers.id)))))
+    .compile()
+
+  expect(() =>
+    compiled.assertSession?.({
+      database: 'db0',
+      namespaceContext: { writableDefault: [{ role: 'schema', spelling: 'public' }] },
+    }),
+  ).not.toThrow()
+})
+
+function outerMappingFixture(dialect: Dialect) {
+  const f = fixture(dialect)
+  const mapParamValue = vi.fn<(type: string, value: unknown) => unknown>(
+    (_: string, value: unknown) => `param:${String(value)}`,
+  )
+
+  const mapResultValue = vi.fn<(type: string, value: unknown) => unknown>(
+    (_: string, value: unknown) => new Date(String(value)),
+  )
+
+  const Dates = defineTable(
+    'outer_dates',
+    {
+      at: pipe(
+        date(),
+        column({
+          mapParam: (value) => mapParamValue('date', value),
+          mapResult: (value) => mapResultValue('date', value),
+        }),
+      ),
+    },
+    { primaryKey: 'at' },
+  )
+
+  const queryResolution = dialect.query.resolve([Dates, Posts])
+  const fallbackParam = vi.fn<(type: string, value: unknown) => unknown>(
+    (_: string, value: unknown) => value,
+  )
+
+  const fallbackResult = vi.fn<(type: string, value: unknown) => unknown>(
+    (_: string, value: unknown) => value,
+  )
+
+  const mapper = createValueMapper(
+    dialect,
+    { mapParamValue: fallbackParam, mapResultValue: fallbackResult },
+    [Dates, Posts],
+    queryResolution,
+  )
+
+  const from = <H extends Parameters<typeof createTableBuilder>[0]['handle']>(
+    handle: H,
+  ) =>
+    createTableBuilder({
+      handle,
+      dialect,
+      query: queryResolution,
+      executor: f.executor,
+      mapper,
+    })
+
+  return { f, from, Dates, mapParamValue, mapResultValue, fallbackParam, fallbackResult }
+}

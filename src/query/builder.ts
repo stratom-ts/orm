@@ -512,14 +512,12 @@ function resultColumnsForSelection(
 
       add(
         item.alias,
-        expression.kind === 'scalar'
-          ? scalarSourceMapping(expression.query)
-          : handle && expression.kind === 'column'
-            ? {
-                handle,
-                column: findColumn(query, handle, expression.column, expression.relation),
-              }
-            : undefined,
+        handle && expression.kind === 'column'
+          ? {
+              handle,
+              column: findColumn(query, handle, expression.column, expression.relation),
+            }
+          : undefined,
       )
     }
   }
@@ -2258,9 +2256,7 @@ function buildUpdateAst<THandle extends TableHandle>(
     kind: 'update',
     relation: info.relation,
     set,
-    ...(where
-      ? { where: prepareWritePredicate(query, handle, mapper, options.executor, where) }
-      : {}),
+    ...(where ? prepareWriteScope(query, handle, mapper, options.executor, where) : {}),
     allowAll,
     ...(returning ? { returning } : {}),
   }
@@ -2307,9 +2303,7 @@ function buildDeleteAst<THandle extends TableHandle>(
   return {
     kind: 'delete',
     relation: info.relation,
-    ...(where
-      ? { where: prepareWritePredicate(query, handle, mapper, options.executor, where) }
-      : {}),
+    ...(where ? prepareWriteScope(query, handle, mapper, options.executor, where) : {}),
     allowAll,
     ...(returning ? { returning } : {}),
   }
@@ -2781,7 +2775,9 @@ type InferCallbackSelection<H, I extends readonly SelectionItem[], N> = {
         ? C
         : K extends string
           ? K
-          : never
+          : K extends { kind: 'column'; column: infer C extends string }
+            ? C
+            : never
   ]: K extends { expr: infer E }
     ? E extends { readonly __source?: infer C extends ColumnRef }
       ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
@@ -2792,13 +2788,19 @@ type InferCallbackSelection<H, I extends readonly SelectionItem[], N> = {
       : E extends { readonly __value?: infer V }
         ? V
         : unknown
-    : K extends ColumnRef | string
-      ? InferSelectedColumns<H, readonly [K], N>[keyof InferSelectedColumns<
+    : K extends { readonly __source?: infer C extends ColumnRef }
+      ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
           H,
-          readonly [K],
+          readonly [C],
           N
         >]
-      : unknown
+      : K extends ColumnRef | string
+        ? InferSelectedColumns<H, readonly [K], N>[keyof InferSelectedColumns<
+            H,
+            readonly [K],
+            N
+          >]
+        : unknown
 }
 
 const authoredSelects = new WeakMap<
@@ -3001,7 +3003,10 @@ class SelectPreparation {
   }
   expressionSource(expr: SqlExprAst): ResultColumn | undefined {
     if (expr.kind === 'column') {
-      const entry = this.scope.find((e) => e.relation === expr.relation)
+      const entry = [this.scope, ...this.enclosing]
+        .flat()
+        .find((e) => e.relation === expr.relation)
+
       return entry ? { handle: entry.handle, column: expr.column } : undefined
     }
 
@@ -3087,11 +3092,32 @@ class SelectPreparation {
           ? this.expressionSource(first.expr)
           : undefined
 
+    const columns = new Map<string, ResultColumn>()
+    for (const item of result.selection) {
+      const mapping =
+        item.kind === 'column'
+          ? this.expressionSource(item)
+          : item.kind === 'expr'
+            ? this.expressionSource(item.expr)
+            : undefined
+
+      if (mapping && item.kind !== 'all')
+        columns.set(
+          item.alias ?? (item.kind === 'column' ? item.column : ''),
+          item.kind === 'expr' && item.expr.kind === 'scalar'
+            ? { ...mapping, scalar: true }
+            : mapping,
+        )
+    }
+
+    preparedColumns.set(result, columns)
+
     if (source) preparedSources.set(result, source)
 
     return result
   }
 }
+const preparedColumns = new WeakMap<SelectAst, Map<string, ResultColumn>>()
 const preparedSources = new WeakMap<SelectAst, ResultColumn>()
 
 function hasNested(node: unknown): boolean {
@@ -3111,13 +3137,13 @@ function hasNested(node: unknown): boolean {
   )
 }
 
-function prepareWritePredicate(
+function prepareWriteScope(
   query: DialectQueryResolution,
   handle: TableHandle,
   mapper: ValueMapper | undefined,
   owner: object,
   where: PredicateAst,
-): PredicateAst {
+): Pick<SelectAst, 'relation' | 'where'> {
   const node: SelectAst = {
     kind: 'select',
     relation: handle.getTableMetadata().relation,
@@ -3128,37 +3154,18 @@ function prepareWritePredicate(
   authoredSelects.set(node, { handles: [handle], query, mapper })
   const prepared = prepareStatement(node, owner)
 
-  // UPDATE/DELETE use their physical target alias in both compilers.
-  const target = prepared.relation as PreparedRelation
-
-  if (target.queryAlias) delete target.queryAlias
-
-  return prepared.where!
-}
-
-function scalarSourceMapping(placeholder: SelectAst): ResultColumn | undefined {
-  const builder = nestedDefinitions.get(placeholder)
-  const definition = builder && selectDefinitions.get(builder)
-  const inner = definition?.build()
-  const context = inner && authoredSelects.get(inner)
-  const mapping =
-    inner && context
-      ? resultColumnsForSelection(context.query, context.handles, inner.selection)
-          .values()
-          .next().value
-      : undefined
-
-  return mapping ? { ...mapping, scalar: true } : undefined
+  return { relation: prepared.relation, where: prepared.where! }
 }
 
 async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
   const { ast, resultColumns } = buildSelectQuery(options)
+  const prepared = prepareStatement(ast, options.executor)
   return runQuery(
     options.query,
     options.executor,
     options.handle,
     options.mapper,
-    resultColumns,
-    prepareStatement(ast, options.executor),
+    preparedColumns.get(prepared) ?? resultColumns,
+    prepared,
   )
 }

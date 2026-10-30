@@ -5,7 +5,16 @@ import { array, boolean, date, integer, number, object, pipe, string } from 'val
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Db } from '@/index'
-import { DriverError, column, defineTable, eq, reference } from '@/index'
+import {
+  DriverError,
+  column,
+  createDatabase,
+  defineTable,
+  eq,
+  exists,
+  outer,
+  reference,
+} from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
@@ -325,3 +334,49 @@ async function assertPhysicalIndexes(admin: Client, schema: string) {
     { indexName: 'events_created_at_idx', isUnique: false },
   ])
 }
+
+it('keeps qualified outer occurrence guards separate from an unqualified inner namesake', async () => {
+  await withPostgresDatabase(
+    [OmittedItems],
+    async ({ db, alternateSchema, connector }) => {
+      await db.migrate().execute()
+      await db.insert(OmittedItems).values({ id: 'one', value: 'local' }).execute()
+      const QualifiedItems = defineTable(
+        'omitted_items',
+        { id: string(), value: string() },
+        {
+          primaryKey: 'id',
+          namespace: [{ role: 'schema', spelling: alternateSchema }],
+        },
+      )
+
+      const scoped = createDatabase({
+        connector,
+        schemas: [OmittedItems, QualifiedItems],
+      })
+
+      await scoped.migrate().execute()
+
+      await scoped
+        .insert(QualifiedItems)
+        .values([
+          { id: 'one', value: 'matched' },
+          { id: 'two', value: 'excluded' },
+        ])
+        .execute()
+
+      const inner = scoped
+        .from(OmittedItems)
+        .where(eq(OmittedItems.id, outer(QualifiedItems.id)))
+
+      expect(
+        await scoped
+          .from(QualifiedItems)
+          .select([QualifiedItems.value])
+          .where(exists(inner))
+          .execute(),
+      ).toEqual([{ value: 'matched' }])
+    },
+    { useRegistrationDefault: false, sessionSchema: 'isolated' },
+  )
+})
