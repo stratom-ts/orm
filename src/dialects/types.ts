@@ -433,6 +433,7 @@ export type OrderByAst = {
   readonly column: string
   readonly relation?: RelationIdentityInput
   readonly direction: 'asc' | 'desc'
+  readonly nulls?: 'first' | 'last'
 }
 
 /** Explicit join clause (no FK relation sugar). */

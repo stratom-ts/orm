@@ -105,3 +105,5 @@ export type {
 
 export type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 export type { SqlTag, SqlFragment } from './sql'
+
+export { keysetAfter, keysetBefore, type KeysetOrderTerm } from './query/keyset'

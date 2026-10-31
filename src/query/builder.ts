@@ -1498,12 +1498,14 @@ export type SelectBuilder<
    *
    * @param column - Column reference or authored name used to address the query member.
    * @param direction - Ascending or descending sort direction.
+   * @param nulls - Explicit null placement, or the dialect default when omitted.
    *
    * @returns A fresh select builder with the requested sort clause appended.
    */
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
+    nulls?: 'first' | 'last',
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Sets the maximum number of result rows.
@@ -1763,7 +1765,7 @@ function createSelectPagination<THandle extends TableHandle>(
      * @param column - Column to order by.
      * @param direction - Sort direction.
      */
-    orderBy(column, direction: 'asc' | 'desc' = 'asc') {
+    orderBy(column, direction: 'asc' | 'desc' = 'asc', nulls) {
       const q = toQualified(column)
       return next({
         orderBy: [
@@ -1772,6 +1774,7 @@ function createSelectPagination<THandle extends TableHandle>(
             column: q.column,
             ...(q.relation !== undefined ? { relation: q.relation } : {}),
             direction,
+            ...(nulls === undefined ? {} : { nulls }),
           },
         ],
       }) as never
@@ -2046,12 +2049,14 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    *
    * @param column - Column reference or authored name used to address the query member.
    * @param direction - Ascending or descending sort direction.
+   * @param nulls - Explicit null placement, or the dialect default when omitted.
    *
    * @returns A fresh select builder with the requested sort clause appended.
    */
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
+    nulls?: 'first' | 'last',
   ): SelectBuilder<THandle, InferSelect<THandle>>
   /**
    * Sets the maximum number of result rows.
@@ -2601,8 +2606,8 @@ function createTablePagination<THandle extends TableHandle>(
      * @param column - Column to order by.
      * @param direction - Optional sort direction.
      */
-    orderBy(column, direction) {
-      return rootSelect().orderBy(column, direction) as never
+    orderBy(column, direction, nulls) {
+      return rootSelect().orderBy(column, direction, nulls) as never
     },
 
     /**
