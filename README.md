@@ -610,6 +610,45 @@ const Post = defineTable(
 )
 ```
 
+For circular declarations, pass a local Valibot schema and a deferred target:
+
+```typescript
+import type { ReferenceTarget } from 'stratom'
+
+const Person = defineTable(
+  'people',
+  {
+    id: string(),
+    teamId: nullable(reference(string(), (): ReferenceTarget => Team, 'id')),
+  },
+  { primaryKey: 'id' },
+)
+const Team = defineTable(
+  'teams',
+  {
+    id: string(),
+    ownerId: reference(string(), (): ReferenceTarget => Person, 'id'),
+  },
+  { primaryKey: 'id' },
+)
+```
+
+`reference(localSchema, () => target, key, options?)` validates values with the
+local schema. It retains that schema's input, output, and column options. The
+callback supplies the target handle or raw schema during complete-graph lowering.
+The target's selected physical type is inherited as with eager references.
+The local schema must have a compatible input/output type and storage family.
+The callback runs once per graph, including when one declaration is reused.
+Its first resolved relation identity stays fixed for that declaration. A later
+resolution to another identity fails before planning or execution can use it.
+Missing, ambiguous, non-key, or incompatible targets also fail during lowering.
+The local schema does not inherit the target's Valibot validators.
+
+TypeScript needs an explicit callback return type for mutually circular
+initializers. `ReferenceTarget` works when the local schema defines the value
+contract. When the callback has a concrete return type, its column keys and
+input/output types also constrain the reference.
+
 The target must be a single-column primary key or independently unique through
 `unique: true` or a one-column unique index. A member of a composite primary key
 is not a candidate key by itself. Registered table cycles are supported.

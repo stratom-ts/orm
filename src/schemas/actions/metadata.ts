@@ -41,7 +41,7 @@ function actionMetadata(value: unknown): MetadataRecord | undefined {
  */
 export function findSchemaMetadata<T extends MetadataRecord>(
   schema: AnySchema,
-  kind: T['kind'],
+  kind: T['kind'] | readonly T['kind'][],
 ): T | undefined {
   const traversable = schema as TraversableSchema
 
@@ -51,7 +51,13 @@ export function findSchemaMetadata<T extends MetadataRecord>(
     const metadata = actions
       .map(actionMetadata)
       .reverse()
-      .find((candidate) => candidate?.kind === kind)
+      .find(
+        (candidate) =>
+          candidate !== undefined &&
+          (typeof kind === 'string'
+            ? candidate.kind === kind
+            : kind.includes(candidate.kind)),
+      )
 
     if (metadata) return metadata as T
 

@@ -1,4 +1,5 @@
 import type {
+  InferInput,
   InferOutput,
   MetadataAction,
   ObjectEntries,
@@ -11,6 +12,8 @@ import { getMetadata, metadata, pipe } from 'valibot'
 import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
+import type { LazyReferenceMetadata } from './lazyReference'
+import { createLazyReferenceMetadata } from './lazyReference'
 import { findSchemaMetadata } from './metadata'
 import { isTableMetadata } from './table'
 import type { ReferenceMetadata, ReferentialAction } from './types'
@@ -104,19 +107,51 @@ export function reference<T extends ReferenceTarget, K extends ReferenceColumnKe
   tableOrSchema: T,
   key: K,
   options?: ReferenceOptions,
-): ReferenceSchema<T, K> {
-  const schema: ReferenceTargetSchema = isReferenceTargetHandle(tableOrSchema)
-    ? tableOrSchema.getSchema()
-    : tableOrSchema
+): ReferenceSchema<T, K>
+export function reference<
+  S extends AnySchema,
+  T extends ReferenceTarget,
+  K extends ReferenceColumnKey<T>,
+>(
+  schema: S,
+  target: () => T,
+  key: K &
+    (NonNullable<InferOutput<S>> extends NonNullable<InferOutput<ReferencedColumn<T, K>>>
+      ? NonNullable<InferInput<S>> extends NonNullable<InferInput<ReferencedColumn<T, K>>>
+        ? unknown
+        : never
+      : never),
+  options?: ReferenceOptions,
+): SchemaWithPipe<readonly [S, MetadataAction<InferOutput<S>, LazyReferenceMetadata>]>
+
+export function reference(
+  tableOrSchema: ReferenceTarget | AnySchema,
+  keyOrTarget: PropertyKey | (() => ReferenceTarget),
+  optionsOrKey?: ReferenceOptions | PropertyKey,
+  lazyOptions?: ReferenceOptions,
+): unknown {
+  if (typeof keyOrTarget === 'function') {
+    return pipe(
+      tableOrSchema as AnySchema,
+      metadata(
+        createLazyReferenceMetadata(keyOrTarget, optionsOrKey as string, lazyOptions),
+      ),
+    )
+  }
+
+  const key = keyOrTarget
+  const options = optionsOrKey as ReferenceOptions | undefined
+  const target = tableOrSchema as ReferenceTarget
+  const schema: ReferenceTargetSchema = isReferenceTargetHandle(target)
+    ? target.getSchema()
+    : target
 
   const schemaMetadata = getMetadata(schema) as Record<string, unknown>
   const tableMeta = isTableMetadata(schemaMetadata) ? schemaMetadata : null
 
-  const tableInfo = isReferenceTargetHandle(tableOrSchema)
-    ? tableOrSchema.getTableMetadata()
-    : null
+  const tableInfo = isReferenceTargetHandle(target) ? target.getTableMetadata() : null
 
-  const targetRelation = isReferenceTargetHandle(tableOrSchema)
+  const targetRelation = isReferenceTargetHandle(target)
     ? tableInfo?.relation
     : tableMeta?.relation
 
@@ -172,7 +207,12 @@ export function isReferenceMetadata(
  * @returns Reference metadata, or `undefined` if none
  */
 export function getReferenceMetadata(schema: AnySchema): ReferenceMetadata | undefined {
-  return findSchemaMetadata<ReferenceMetadata>(schema, 'reference')
+  const metadata = findSchemaMetadata<ReferenceMetadata | LazyReferenceMetadata>(schema, [
+    'reference',
+    'lazy-reference',
+  ])
+
+  return metadata?.kind === 'reference' ? metadata : undefined
 }
 
 type ReferenceColumnKey<T extends ReferenceTarget> = T extends ReferenceTargetHandle

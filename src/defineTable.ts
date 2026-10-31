@@ -23,6 +23,7 @@ import {
   isSqlNullable,
   table,
 } from '@/schemas'
+import { getLazyReferenceMetadata } from '@/schemas/actions/lazyReference'
 import { validateRelationInput } from '@/schemas/actions/relation'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageDefault } from '@/storage/facts'
@@ -357,11 +358,12 @@ function validateColumns(schema: TableSchema, tableName: string): void {
   for (const [columnName, columnSchema] of Object.entries(schema.entries)) {
     const colSchema = columnSchema as AnySchema
 
+    const lazy = getLazyReferenceMetadata(colSchema)
     const ref = getReferenceMetadata(colSchema)
     validateOptionalColumn(tableName, columnName, colSchema)
     validateColumnOptions(tableName, columnName, colSchema)
     validateColumnReference(columnName, ref)
-    const actions = [ref?.onDelete, ref?.onUpdate]
+    const actions = [(lazy ?? ref)?.onDelete, (lazy ?? ref)?.onUpdate]
 
     if (actions.includes('set null') && !isSqlNullable(colSchema)) {
       throw new SchemaError({
