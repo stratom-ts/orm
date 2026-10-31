@@ -28,8 +28,8 @@ const page = await db
 For a single unique column, use one term and one cursor value:
 
 ```ts
-const order = [{ column: Users.id, direction: 'asc', nulls: 'last' }] as const
-const predicate = keysetAfter(order, [last.id])
+const idOrder = [{ column: Users.id, direction: 'asc', nulls: 'last' }] as const
+const predicate = keysetAfter(idOrder, [last.id])
 ```
 
 `keysetBefore` selects rows before the cursor in the declared order. It does not reverse the query order.
@@ -38,6 +38,7 @@ For the nearest previous page, reverse every direction and null placement in the
 ```ts
 const previous = await db
   .from(Users)
+  .where(eq(Users.active, true))
   .where(keysetBefore(order, [first.score, first.id]))
   .orderBy(Users.score, 'desc', 'first')
   .orderBy(Users.id, 'desc', 'first')
