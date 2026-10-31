@@ -880,3 +880,21 @@ later relation cannot hide a reconciliation issue on an earlier relation.
 
 Only recognized `SchemaError` failures enter this ranking. Unexpected thrown values retain
 their identity. Planning throws before it returns any plan when an identifier issue exists.
+
+### Column mapping and result projections
+
+`defineDialect()` binds the query resolver to the shared application-column projection.
+Public lookup uses exact application names. The member SQL compiler receives physical
+column identifiers after one translation; it must not resolve them as application
+properties again. Preserve relation qualification and session guards when rendering them.
+
+Implement `ReturningAst.kind: 'projection'` by rendering each physical `column` with its
+requested SQL `alias`. Wildcard operations expand to declared columns. The compiled
+`resultProjection` metadata restores output names that need internal SQL aliases before
+value mapping. Short, round-trippable output names can serve as their SQL aliases;
+other names receive deterministic bounded internal aliases. This conservative output
+bound is separate from each member's physical identifier validation.
+
+The extension contract fixture exercises a mapped property through filtering, selection,
+physical compilation, and result mapping. It uses the same compilation boundary without
+PostgreSQL fallback or compatibility adapters.
