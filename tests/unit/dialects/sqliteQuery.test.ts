@@ -1,8 +1,8 @@
 import { number, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { sqliteDialect } from '@/dialects'
 import { compileSqliteQuery } from '@/dialects/sqlite/compile'
-import { sqliteQuery } from '@/dialects/sqlite/query'
 import { column, defineTable } from '@/index'
 import { InvariantError, QueryError } from '@/utils/error'
 
@@ -137,13 +137,13 @@ function assertSqliteJoin() {
 }
 
 const registerQueryCases3 = () => {
-  it('should share main-defaulted ASCII-insensitive relation and member lookup with compilation', () => {
-    const resolved = sqliteQuery.resolve([Records, Events], {
+  it('should share main-defaulted ASCII-insensitive relation and exact application lookup with compilation', () => {
+    const resolved = sqliteDialect.query.resolve([Records, Events], {
       registrationDefault: main,
     })
 
     expect(resolved.findRelationMatches(records)).toEqual([Records])
-    expect(resolved.findColumnMatches(Records, 'ID')).toEqual(['id'])
+    expect(resolved.findColumnMatches(Records, 'ID')).toEqual([])
 
     expect(
       resolved.compile({
@@ -231,7 +231,7 @@ const registerQueryCases5 = () => {
      * rejection.
      */
     const invalidDefault = () =>
-      sqliteQuery.resolve([Records], {
+      sqliteDialect.query.resolve([Records], {
         registrationDefault: [{ role: 'database', spelling: 'archive' }],
       })
 
@@ -325,7 +325,7 @@ const registerQueryCases7 = () => {
 
 function registerQueryGroup1() {
   it('should reject registered wildcard joins whose output names collide', () => {
-    const resolved = sqliteQuery.resolve([Records, Events])
+    const resolved = sqliteDialect.query.resolve([Records, Events])
     expect(() =>
       resolved.compile({
         kind: 'select',
@@ -345,13 +345,13 @@ function registerQueryGroup1() {
           },
         ],
       }),
-    ).toThrow('SQLite query output columns are ambiguous')
+    ).toThrow('Query output columns are ambiguous')
   })
 }
 
 function registerQueryGroup2() {
   it('should expand a relation-scoped wildcard join using authored names and preserve output aliases', () => {
-    const resolved = sqliteQuery.resolve([Records, Events])
+    const resolved = sqliteDialect.query.resolve([Records, Events])
     expect(
       resolved.compile({
         kind: 'select',

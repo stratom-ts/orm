@@ -265,6 +265,9 @@ function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
 
+  if (returning.kind === 'projection')
+    return ` returning ${returning.columns.map(({ column, alias }) => `${quoteIdentifier(column)} as ${quoteIdentifier(alias)}`).join(', ')}`
+
   const candidate = returning as {
     readonly kind?: unknown
     readonly columns?: readonly string[]

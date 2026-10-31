@@ -192,8 +192,13 @@ describe('CRUD compile', () => {
       .values(exactAndNullishRow as never)
       .compile()
 
-    expect(exactAndNullish.sql.toLowerCase()).not.toContain('"exact"')
-    expect(exactAndNullish.sql.toLowerCase()).not.toContain('"nullishvalue"')
+    expect(exactAndNullish.sql.split(' returning ')[0]!.toLowerCase()).not.toContain(
+      '"exact"',
+    )
+
+    expect(exactAndNullish.sql.split(' returning ')[0]!.toLowerCase()).not.toContain(
+      '"nullishvalue"',
+    )
 
     const explicitNull = db
       .insert(WrapperBehavior)
@@ -267,7 +272,11 @@ describe('CRUD compile: should compile insert with parameterized values and sche
     expect(compiled.sql.toLowerCase()).toContain('update')
     expect(compiled.sql.toLowerCase()).toContain('set')
     expect(compiled.sql.toLowerCase()).toContain('where')
-    expect(compiled.sql.toLowerCase()).toContain('returning *')
+
+    expect(compiled.sql.toLowerCase()).toContain(
+      'returning "id", "email", "displayname", "active"',
+    )
+
     expect(compiled.params).toEqual(['X', 'a@b.com'])
 
     await db.close()
@@ -694,7 +703,11 @@ describe('CRUD execute terminals', () => {
     const result = await db.insert(Users).values({ email: 'a@b.com' }).execute()
     expect(result).toEqual(rows)
 
-    expect(connector.prepared.some((s) => /returning \*/i.test(s))).toBe(true)
+    expect(
+      connector.prepared.some((s) =>
+        /returning "id", "email", "displayName", "active"/i.test(s),
+      ),
+    ).toBe(true)
 
     await db.close()
   })

@@ -5,8 +5,6 @@ import { QueryError } from '@/utils/error'
 import type { DialectQueryResolution, DialectQueryResolveOptions } from '../types'
 
 import { compileSqliteQuery, createSqliteQueryRelationResolver } from './compile'
-import { asciiFoldSqliteIdentifier } from './identity'
-import { projectSqliteQuery } from './queryProjection'
 
 type ResolvedRelation = ReturnType<ReturnType<typeof createSqliteQueryRelationResolver>>
 type RegisteredRelation = Readonly<{ handle: TableHandle; relation: ResolvedRelation }>
@@ -36,13 +34,12 @@ function findSqliteQueryColumnMatches(
   handle: TableHandle,
   column: string,
 ): readonly string[] {
-  if (typeof column !== 'string' || column.length === 0) {
-    throw new QueryError({ message: 'SQLite query column must be a non-empty string' })
+  if (typeof column !== 'string') {
+    throw new QueryError({ message: 'SQLite application column must be a string' })
   }
 
-  const key = asciiFoldSqliteIdentifier(column)
   return Object.keys(handle.getSchema().entries).filter(
-    (candidate) => asciiFoldSqliteIdentifier(candidate) === key,
+    (candidate) => candidate === column,
   )
 }
 
@@ -60,7 +57,7 @@ export function resolveSqliteQuery(
   const query: DialectQueryResolution = Object.freeze({
     /** Compiles the current query or command into SQL and ordered bound parameters. */
     compile(node: Parameters<typeof compileSqliteQuery>[0]) {
-      return compileSqliteQuery(projectSqliteQuery(query, node), resolveRelation)
+      return compileSqliteQuery(node, resolveRelation)
     },
     findRelationMatches(
       relation: RelationIdentityInput,

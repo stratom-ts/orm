@@ -318,7 +318,7 @@ const extensionCompilerScenarios = {
   'select.join.inner': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
-    selection: [{ kind: 'all' }],
+    selection: [{ kind: 'column', relation: contractRelation, column: 'id' }],
     joins: [
       {
         type: 'inner',
@@ -336,7 +336,7 @@ const extensionCompilerScenarios = {
   'select.join.left': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
-    selection: [{ kind: 'all' }],
+    selection: [{ kind: 'column', relation: contractRelation, column: 'id' }],
     joins: [
       {
         type: 'left',
@@ -354,7 +354,7 @@ const extensionCompilerScenarios = {
   'select.join.right': unsupportedSimpleSelect({
     kind: 'select',
     relation: contractRelation,
-    selection: [{ kind: 'all' }],
+    selection: [{ kind: 'column', relation: contractRelation, column: 'id' }],
     joins: [
       {
         type: 'right',
@@ -1324,3 +1324,40 @@ function createMismatchedQueryRecords(dialect: Dialect) {
     { primaryKey: 'id' },
   )
 }
+
+it('maps extension application properties to physical columns without fallback lookup', async () => {
+  const calls = createExtensionContractCalls()
+  const dialect = createExtensionContractDialect(calls)
+  unregister = registerDialectForTest(dialect)
+  const Records = defineTable(
+    'mapped_extension',
+    { label: pipe(string(), column({ name: 'stored_label' })) },
+    { primaryKey: 'label' },
+  )
+
+  const db = createDatabase({
+    connector: createContractConnector().connector,
+    schemas: [Records],
+    defaultNamespace: [{ role: 'database', spelling: 'fixture_tenant' }],
+  })
+
+  try {
+    expect(await db.from(Records).where(Records.label, 'eq', 'Ada').execute()).toEqual([
+      {
+        label:
+          'fixture-result:fixture_tenant.mapped_extension.stored_label:fixture-param:Ada',
+      },
+    ])
+
+    expect(calls.compiledAst[0]).toMatchObject({
+      selection: [{ column: 'stored_label', alias: 'label' }],
+      where: { column: 'stored_label' },
+    })
+
+    expect(
+      dialect.query.resolve([Records]).findColumnMatches(Records, 'stored_label'),
+    ).toEqual([])
+  } finally {
+    await db.close()
+  }
+})

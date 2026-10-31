@@ -335,6 +335,9 @@ function compileReturning(returning: ReturningAst | undefined): string {
   if (!returning) return ''
   if (returning.kind === 'all') return ' returning *'
 
+  if (returning.kind === 'projection')
+    return ` returning ${returning.columns.map(({ column, alias }) => (alias === column ? quoteIdentifier(column) : `${quoteIdentifier(column)} as ${quoteIdentifier(alias)}`)).join(', ')}`
+
   if (!Array.isArray(returning.columns) || returning.columns.length === 0) {
     throw new InvariantError('returning columns must not be empty')
   }

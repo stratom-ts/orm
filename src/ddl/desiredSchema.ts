@@ -13,6 +13,7 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 import type { ReferenceMetadata } from '@/schemas'
 import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
+import { physicalColumnName } from '@/schemas/physicalColumn'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
@@ -25,9 +26,8 @@ import { MigrationError, isErrorTag } from '@/utils/error'
  * @param column - Column name to check.
  */
 function isCandidateKey(table: AuthoredDesiredTable, column: string): boolean {
-  const columnKey = table.columns.find(
-    (candidate) => candidate.identifier.spelling === column,
-  )?.identifier.comparisonKey
+  const columnKey = table.columns.find((candidate) => candidate.name === column)
+    ?.identifier.comparisonKey
 
   if (columnKey === undefined) return false
 
@@ -116,6 +116,7 @@ export function registerDesiredSchema(
   const tables: AuthoredDesiredTable[] = handles.map((handle) =>
     registerDesiredTable(
       handle,
+      handles,
       forRelation(identities.resolve(handle.getTableMetadata().relation)),
     ),
   )
@@ -250,6 +251,7 @@ type AuthoredDesiredSchemaLowerer = Readonly<{
  */
 function registerDesiredTable(
   handle: TableHandle,
+  handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
 ): AuthoredDesiredTable {
   const metadata = handle.getTableMetadata()
@@ -261,7 +263,7 @@ function registerDesiredTable(
 
     const reference = getReferenceMetadata(schema)
     const columnMetadata = getColumnMetadata(schema)
-    const identifier = identities.member('column', name)
+    const identifier = identities.member('column', physicalColumnName(handle, name))
     columns.push({
       name,
       identifier,
@@ -273,7 +275,7 @@ function registerDesiredTable(
             reference: {
               metadata: reference,
               targetRelation: identities.resolve(reference.target.relation),
-              targetColumn: identities.member('column', reference.target.column),
+              targetColumn: resolveReferenceIdentifier(reference, handles, identities),
             },
           }),
     })
@@ -368,4 +370,28 @@ function assertReferencedColumn(
       )} is not a candidate key`,
     })
   }
+}
+
+/** Resolves reference properties exactly, then takes the target storage identifier. */
+function resolveReferenceIdentifier(
+  reference: ReferenceMetadata,
+  handles: readonly TableHandle[],
+  identities: CanonicalRelationIdentityModule,
+): CanonicalIdentifier {
+  const relation = identities.resolve(reference.target.relation)
+  const target = handles.find((handle) =>
+    identities.equals(identities.resolve(handle.getTableMetadata().relation), relation),
+  )
+
+  if (!target)
+    throw new MigrationError({
+      message: `Reference targets unregistered relation ${identities.format(relation)}`,
+    })
+
+  if (!Object.hasOwn(target.getSchema().entries, reference.target.column))
+    throw new MigrationError({
+      message: `Reference targets missing application column ${JSON.stringify(reference.target.column)}`,
+    })
+
+  return identities.member('column', physicalColumnName(target, reference.target.column))
 }

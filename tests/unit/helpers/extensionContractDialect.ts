@@ -10,6 +10,7 @@ import type {
   CatalogSet,
   CatalogSnapshot,
 } from '@/dialects/catalog'
+import { compileColumnQuery } from '@/dialects/columnQuery'
 import type {
   AuthoredDesiredSchema,
   Dialect,
@@ -40,6 +41,7 @@ import type {
   OperationSessionProvider,
 } from '@/operations/operationSession'
 import type { RelationIdentityInput } from '@/schemas'
+import { physicalColumnName } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
 import { InvariantError } from '@/utils/error'
 
@@ -327,7 +329,7 @@ function compileContractPredicate(
 
     const columnMatches =
       predicateHandle.length === 1
-        ? findContractQueryColumnMatches(predicateHandle[0]!, node.where.column)
+        ? findContractPhysicalColumnMatches(predicateHandle[0]!, node.where.column)
         : []
 
     if (columnMatches.length !== 1) {
@@ -385,7 +387,7 @@ function compileContractSelection(
 
         const columnMatches =
           selectedHandle.length === 1
-            ? findContractQueryColumnMatches(selectedHandle[0]!, item.column)
+            ? findContractPhysicalColumnMatches(selectedHandle[0]!, item.column)
             : []
 
         if (columnMatches.length !== 1) {
@@ -440,10 +442,20 @@ function findContractQueryColumnMatches(
   handle: TableHandle,
   column: string,
 ): readonly string[] {
-  const expected = identityPolicy.comparisonKey(column)
-  return Object.keys(handle.getSchema().entries).filter(
-    (candidate) => identityPolicy.comparisonKey(candidate) === expected,
-  )
+  return Object.keys(handle.getSchema().entries).filter((property) => property === column)
+}
+
+/** Matches already-resolved storage names in the compiler's separate lookup domain. */
+function findContractPhysicalColumnMatches(
+  handle: TableHandle,
+  column: string,
+): readonly string[] {
+  return Object.keys(handle.getSchema().entries)
+    .map((property) => physicalColumnName(handle, property))
+    .filter(
+      (name) =>
+        identityPolicy.comparisonKey(name) === identityPolicy.comparisonKey(column),
+    )
 }
 
 /**
@@ -900,7 +912,7 @@ function createContractQueryFacet(calls: ExtensionContractCalls) {
     /** Binds query compilation and matching to the registered table handles. */
     resolve(registered: readonly TableHandle[], options?: DialectQueryResolveOptions) {
       calls.events.push('query.resolve')
-      return {
+      const resolved = {
         /** Compiles the current query or command into SQL and ordered bound parameters. */
         compile(node: SqlAst) {
           calls.events.push('query.compile')
@@ -924,6 +936,11 @@ function createContractQueryFacet(calls: ExtensionContractCalls) {
           calls.events.push('query.findColumnMatches')
           return findContractQueryColumnMatches(handle, column)
         },
+      }
+
+      return {
+        ...resolved,
+        compile: (node: SqlAst) => compileColumnQuery(resolved, node),
       }
     },
     /** Maps an authored value to its physical SQL parameter representation. */

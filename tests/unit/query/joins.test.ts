@@ -83,7 +83,7 @@ describe('joins compile', () => {
 
     expect(compiled.sql).toMatch(/"public\.posts"\."userId"/)
     expect(compiled.sql).toMatch(/"public\.users"\."id"/)
-    expect(compiled.sql).toMatch(/"public\.posts"\.\*/)
+    expect(compiled.sql).toContain('"public.posts"."title" as "title"')
     expect(compiled.sql).toContain('"email"')
     expect(compiled.params).toEqual([])
 

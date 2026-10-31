@@ -90,7 +90,7 @@ describe('insert upsert builder compilation', () => {
     const ignored = doNothing.doNothing().compile()
 
     expect(ignored.sql).toContain(
-      'on conflict ("tenant", "externalId") do nothing returning *',
+      'on conflict ("tenant", "externalId") do nothing returning "id", "tenant", "externalId", "email", "name", "locked", "generated"',
     )
 
     expect(ignored.params).toEqual([

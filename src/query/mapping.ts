@@ -509,13 +509,12 @@ function mapObjectRow(
     value: unknown,
   ) => unknown,
 ): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-
-  for (const [key, value] of Object.entries(row)) {
-    out[key] = mapResultValueForColumn(handle, key, value)
-  }
-
-  return out
+  return Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [
+      key,
+      mapResultValueForColumn(handle, key, value),
+    ]),
+  )
 }
 
 /**

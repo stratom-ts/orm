@@ -124,6 +124,12 @@ export function reference<T extends ReferenceTarget, K extends ReferenceColumnKe
     throw new SchemaError({ message: 'reference target is missing relation metadata' })
   }
 
+  if (!Object.hasOwn(schema.entries, key)) {
+    throw new SchemaError({
+      message: `Reference target application column ${JSON.stringify(key)} is not defined`,
+    })
+  }
+
   return pipe(
     schema.entries[key as string] as never,
     metadata({

@@ -200,6 +200,8 @@ export type QuerySessionIdentity = Readonly<{
 export type CompiledQuery = {
   sql: string
   params: readonly unknown[]
+  /** SQL output aliases restored before application value mapping. */
+  resultProjection?: readonly Readonly<{ sqlName: string; outputName: string }>[]
   /** Optional member-owned execution guard evaluated on the pinned session. */
   assertSession?: (identity: QuerySessionIdentity) => void
 }
@@ -458,6 +460,10 @@ export type SelectAst = {
 export type ReturningAst =
   | { readonly kind: 'all' }
   | { readonly kind: 'columns'; readonly columns: readonly string[] }
+  | {
+      readonly kind: 'projection'
+      readonly columns: readonly Readonly<{ column: string; alias: string }>[]
+    }
 
 /** One assignment in an insert conflict update action. */
 export type InsertConflictAssignmentAst = Readonly<{

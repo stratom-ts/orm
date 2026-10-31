@@ -1,5 +1,6 @@
 import type { DialectMigrationAdapter } from '@/ddl/migrationProgram'
 
+import { compileColumnQuery } from './columnQuery'
 import type { Dialect } from './types'
 
 type DialectDefinition = Omit<Dialect, 'migration'> &
@@ -24,7 +25,20 @@ export function defineDialect({
     identity,
     naming,
     schema,
-    query,
+    query: {
+      rawSql: query.rawSql,
+      validateValueMapping: query.validateValueMapping?.bind(query),
+      mapParamValue: query.mapParamValue?.bind(query),
+      mapResultValue: query.mapResultValue?.bind(query),
+      resolve(handles, options) {
+        const resolved = query.resolve(handles, options)
+        return {
+          compile: (node) => compileColumnQuery(resolved, node),
+          findRelationMatches: resolved.findRelationMatches.bind(resolved),
+          findColumnMatches: resolved.findColumnMatches.bind(resolved),
+        }
+      },
+    },
     catalog,
     operations,
     migration: {
