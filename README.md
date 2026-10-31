@@ -649,6 +649,22 @@ initializers. `ReferenceTarget` works when the local schema defines the value
 contract. When the callback has a concrete return type, its column keys and
 input/output types also constrain the reference.
 
+For checked keys in a circular declaration, define a narrow contract independently
+of the table initializers. Use `(): IdTarget => Team` and `(): IdTarget => Person`
+in the example above:
+
+```typescript
+import type { TableHandle, TableSchema } from 'stratom'
+
+type IdSchema = Omit<TableSchema, 'entries'> & {
+  entries: { id: ReturnType<typeof string> }
+}
+type IdTarget = Pick<TableHandle<IdSchema>, 'getSchema' | 'getTableMetadata'>
+```
+
+This contract permits only `id` and rejects a numeric local schema for that
+string key. The tables retain the full inferred types of their other columns.
+
 The target must be a single-column primary key or independently unique through
 `unique: true` or a one-column unique index. A member of a composite primary key
 is not a candidate key by itself. Registered table cycles are supported.

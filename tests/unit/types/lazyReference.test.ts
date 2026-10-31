@@ -2,6 +2,7 @@ import type { InferInput, InferOutput } from 'valibot'
 import { number, object, pipe, string, title, toNumber } from 'valibot'
 import { expectTypeOf, it } from 'vitest'
 
+import type { TableHandle, TableSchema } from '@/index'
 import { defineTable, reference, table } from '@/index'
 
 it('infers lazy handle and raw-schema keys while preserving local input and output', () => {
@@ -31,4 +32,51 @@ it('infers lazy handle and raw-schema keys while preserving local input and outp
 
   // @ts-expect-error The local schema must retain the target input contract.
   reference(number(), () => Target, 'id')
+})
+
+type IdSchema = Omit<TableSchema, 'entries'> & {
+  entries: { id: ReturnType<typeof string> }
+}
+
+type IdTarget = Pick<TableHandle<IdSchema>, 'getSchema' | 'getTableMetadata'>
+
+it('checks narrow target contracts across genuinely circular declarations', () => {
+  const A = defineTable(
+    'a',
+    {
+      id: string(),
+      bId: (() => {
+        // @ts-expect-error The circular target contract exposes no missing key.
+        reference(string(), (): IdTarget => B, 'missing')
+        return reference(string(), (): IdTarget => B, 'id')
+      })(),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const B = defineTable(
+    'b',
+    {
+      id: string(),
+      count: number(),
+      aId: (() => {
+        // @ts-expect-error A circular string key rejects a numeric local schema.
+        reference(number(), (): IdTarget => A, 'id')
+        return reference(string(), (): IdTarget => A, 'id')
+      })(),
+    },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf(A.bId.__type).toEqualTypeOf<string>()
+  expectTypeOf(B.aId.__type).toEqualTypeOf<string>()
+  expectTypeOf(B.count.__type).toEqualTypeOf<number>()
+
+  expectTypeOf<
+    InferInput<ReturnType<typeof A.getSchema>['entries']['bId']>
+  >().toEqualTypeOf<string>()
+
+  expectTypeOf<
+    InferOutput<ReturnType<typeof B.getSchema>['entries']['aId']>
+  >().toEqualTypeOf<string>()
 })
