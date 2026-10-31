@@ -442,7 +442,7 @@ export const sqliteSemanticContractInput = {
       }),
       expected: {
         relationMatches: ['records'],
-        columnMatches: ['label'],
+        columnMatches: [],
         compiled: {
           parameterCount: 0,
           addressesMain: true,

@@ -132,7 +132,8 @@ describe('select compile', () => {
     const db = createDatabase({ connector, schemas: [Users] })
 
     const all = db.from(Users).selectAll().compile()
-    expect(all.sql.toLowerCase()).toMatch(/select \* from/)
+    expect(all.sql).toContain('select "public.users"."id" as "id"')
+    expect(all.sql).not.toContain('*')
     expect(all.sql).toContain('"public"')
     expect(all.sql).toContain('"users"')
 
@@ -236,7 +237,7 @@ describe('select compile: should accumulate repeated predicates in one complete 
       .compile()
 
     expect({ sql: compiled.sql, params: compiled.params }).toEqual({
-      sql: 'select * from "public"."users" as "public.users" where ("public.users"."active" = $1 and "public.users"."active" = $2)',
+      sql: 'select "public.users"."id" as "id", "public.users"."email" as "email", "public.users"."displayName" as "displayName", "public.users"."active" as "active", "public.users"."score" as "score", "public.users"."deletedAt" as "deletedAt", "public.users"."createdAt" as "createdAt" from "public"."users" as "public.users" where ("public.users"."active" = $1 and "public.users"."active" = $2)',
       params: [true, false],
     })
 
@@ -260,7 +261,7 @@ describe('select compile: should accumulate repeated predicates in one complete 
     const compiled = db.from(Users).limit(1).limit(2).offset(3).offset(4).compile()
 
     expect({ sql: compiled.sql, params: compiled.params }).toEqual({
-      sql: 'select * from "public"."users" as "public.users" limit $1 offset $2',
+      sql: 'select "public.users"."id" as "id", "public.users"."email" as "email", "public.users"."displayName" as "displayName", "public.users"."active" as "active", "public.users"."score" as "score", "public.users"."deletedAt" as "deletedAt", "public.users"."createdAt" as "createdAt" from "public"."users" as "public.users" limit $1 offset $2',
       params: [2, 4],
     })
 

@@ -232,7 +232,10 @@ const queryCompilerScenarios = {
     node: {
       kind: 'select',
       relation: records,
-      selection: [{ kind: 'all' }],
+      selection: [
+        { kind: 'column', relation: records, column: 'id' },
+        { kind: 'column', relation: events, column: 'id', alias: 'eventId' },
+      ],
       joins: [
         {
           type: 'left',
@@ -248,7 +251,7 @@ const queryCompilerScenarios = {
       ],
     },
     expected: {
-      sql: 'select * from "contract_schema"."records" as "contract_database.contract_schema.records" left join "contract_schema"."events" as "contract_database.contract_schema.events" on "contract_database.contract_schema.records"."id" = "contract_database.contract_schema.events"."record_id"',
+      sql: 'select "contract_database.contract_schema.records"."id", "contract_database.contract_schema.events"."id" as "eventId" from "contract_schema"."records" as "contract_database.contract_schema.records" left join "contract_schema"."events" as "contract_database.contract_schema.events" on "contract_database.contract_schema.records"."id" = "contract_database.contract_schema.events"."record_id"',
       params: [],
     },
   }),
@@ -259,7 +262,10 @@ const queryCompilerScenarios = {
     node: {
       kind: 'select',
       relation: records,
-      selection: [{ kind: 'all' }],
+      selection: [
+        { kind: 'column', relation: records, column: 'id' },
+        { kind: 'column', relation: events, column: 'id', alias: 'eventId' },
+      ],
       joins: [
         {
           type: 'right',
@@ -275,7 +281,7 @@ const queryCompilerScenarios = {
       ],
     },
     expected: {
-      sql: 'select * from "contract_schema"."records" as "contract_database.contract_schema.records" right join "contract_schema"."events" as "contract_database.contract_schema.events" on "contract_database.contract_schema.records"."id" = "contract_database.contract_schema.events"."record_id"',
+      sql: 'select "contract_database.contract_schema.records"."id", "contract_database.contract_schema.events"."id" as "eventId" from "contract_schema"."records" as "contract_database.contract_schema.records" right join "contract_schema"."events" as "contract_database.contract_schema.events" on "contract_database.contract_schema.records"."id" = "contract_database.contract_schema.events"."record_id"',
       params: [],
     },
   }),
@@ -300,7 +306,7 @@ const queryCompilerScenarios = {
       },
     },
     expected: {
-      sql: 'select * from "contract_schema"."records" as "contract_database.contract_schema.records" where ("id" = $1 and "id" <> $2 and "id" > $3 and "id" >= $4 and "id" < $5 and "id" <= $6)',
+      sql: 'select "contract_database.contract_schema.records"."id" as "id", "contract_database.contract_schema.records"."label" as "label", "contract_database.contract_schema.records"."active" as "active", "contract_database.contract_schema.records"."amount" as "amount", "contract_database.contract_schema.records"."deleted_at" as "deleted_at", "contract_database.contract_schema.records"."created_at" as "created_at" from "contract_schema"."records" as "contract_database.contract_schema.records" where ("id" = $1 and "id" <> $2 and "id" > $3 and "id" >= $4 and "id" < $5 and "id" <= $6)',
       params: [1, 2, 3, 4, 5, 6],
     },
   }),
@@ -330,7 +336,7 @@ const queryCompilerScenarios = {
       },
     },
     expected: {
-      sql: 'select * from "contract_schema"."records" as "contract_database.contract_schema.records" where (not ("id" = $1 or ("id" > $2 and "id" < $3)))',
+      sql: 'select "contract_database.contract_schema.records"."id" as "id", "contract_database.contract_schema.records"."label" as "label", "contract_database.contract_schema.records"."active" as "active", "contract_database.contract_schema.records"."amount" as "amount", "contract_database.contract_schema.records"."deleted_at" as "deleted_at", "contract_database.contract_schema.records"."created_at" as "created_at" from "contract_schema"."records" as "contract_database.contract_schema.records" where (not ("id" = $1 or ("id" > $2 and "id" < $3)))',
       params: [1, 2, 9],
     },
   }),
@@ -351,7 +357,7 @@ const queryCompilerScenarios = {
       },
     },
     expected: {
-      sql: 'select * from "contract_schema"."records" as "contract_database.contract_schema.records" where ("deleted_at" is null or "deleted_at" is not null)',
+      sql: 'select "contract_database.contract_schema.records"."id" as "id", "contract_database.contract_schema.records"."label" as "label", "contract_database.contract_schema.records"."active" as "active", "contract_database.contract_schema.records"."amount" as "amount", "contract_database.contract_schema.records"."deleted_at" as "deleted_at", "contract_database.contract_schema.records"."created_at" as "created_at" from "contract_schema"."records" as "contract_database.contract_schema.records" where ("deleted_at" is null or "deleted_at" is not null)',
       params: [],
     },
   }),
@@ -463,7 +469,7 @@ const queryCompilerScenarios = {
       offset: 20,
     },
     expected: {
-      sql: 'select * from "contract_schema"."records" as "contract_database.contract_schema.records" limit $1 offset $2',
+      sql: 'select "contract_database.contract_schema.records"."id" as "id", "contract_database.contract_schema.records"."label" as "label", "contract_database.contract_schema.records"."active" as "active", "contract_database.contract_schema.records"."amount" as "amount", "contract_database.contract_schema.records"."deleted_at" as "deleted_at", "contract_database.contract_schema.records"."created_at" as "created_at" from "contract_schema"."records" as "contract_database.contract_schema.records" limit $1 offset $2',
       params: [10, 20],
     },
   }),
@@ -502,7 +508,7 @@ const queryCompilerScenarios = {
       returning: { kind: 'all' },
     },
     expected: {
-      sql: 'update "contract_schema"."records" as "contract_database.contract_schema.records" set "label" = $1, "amount" = $2 where "id" = $3 returning *',
+      sql: 'update "contract_schema"."records" as "contract_database.contract_schema.records" set "label" = $1, "amount" = $2 where "id" = $3 returning "id", "label", "active", "amount", "deleted_at", "created_at"',
       params: ['updated', 7, 1],
     },
   }),
