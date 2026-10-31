@@ -6,7 +6,8 @@ import type {
   SqlAst,
 } from '@/dialects'
 import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
-import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
+import { getColumnMetadata } from '@/schemas'
+import { createReferenceResolver } from '@/schemas/actions/lazyReference'
 import type { RelationIdentityInput } from '@/schemas/actions/relation'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
@@ -174,6 +175,7 @@ function resolveColumnDataType(
   query: DialectQueryResolution,
   registered: readonly TableHandle[],
   resolving: readonly { handle: TableHandle; column: string }[],
+  resolveReference: ReturnType<typeof createReferenceResolver>,
 ): ColumnValueMapping | undefined {
   const entries = handle.getSchema().entries as Record<
     string,
@@ -186,13 +188,14 @@ function resolveColumnDataType(
 
   const schema = columnSchema as AnySchema
   const columnMetadata = getColumnMetadata(schema)
-  const referenceMetadata = getReferenceMetadata(schema)
+  const referenceMetadata = resolveReference(schema)
 
   if (referenceMetadata) {
     const result = resolveReferenceDataType(
       query,
       referenceMetadata,
       resolving,
+      resolveReference,
       dialect,
       registered,
     )
@@ -241,6 +244,7 @@ function resolveReferenceDataType(
   }>,
   referenceMetadata: ReferenceMetadata,
   resolving: readonly { handle: TableHandle; column: string }[],
+  resolveReference: ReturnType<typeof createReferenceResolver>,
   dialect: Dialect,
   registered: readonly TableHandle[],
 ) {
@@ -263,10 +267,15 @@ function resolveReferenceDataType(
     })
   }
 
-  const result = resolveColumnDataType(target, targetColumn, dialect, query, registered, [
-    ...resolving,
-    { handle: target, column: targetColumn },
-  ])
+  const result = resolveColumnDataType(
+    target,
+    targetColumn,
+    dialect,
+    query,
+    registered,
+    [...resolving, { handle: target, column: targetColumn }],
+    resolveReference,
+  )
 
   if (result === undefined) {
     throw new SchemaError({
@@ -316,19 +325,23 @@ export function createValueMapper(
   registered: readonly TableHandle[] = [],
   query: DialectQueryResolution = dialect.query.resolve(registered),
 ): ValueMapper {
+  const resolveReference = createReferenceResolver()
   const typeCache = new WeakMap<TableHandle, Record<string, string>>()
   const contexts: MappingContexts = new WeakMap()
   /** Returns physical SQL types keyed by the table's authored column names. */
   const columnTypes = (handle: TableHandle) =>
-    cachedColumnTypes(handle, typeCache, dialect, query, registered, contexts, map)
+    cachedColumnTypes(
+      handle,
+      typeCache,
+      dialect,
+      query,
+      registered,
+      contexts,
+      map,
+      resolveReference,
+    )
 
-  /**
-   * Maps a JavaScript parameter value for a table column.
-   *
-   * @param handle - Table containing the column.
-   * @param column - Column receiving the parameter.
-   * @param value - JavaScript value to map.
-   */
+  /** Maps a parameter with the client graph's resolved storage context. */
   const mapParamForColumn = (handle: TableHandle, column: string, value: unknown) =>
     mapParam(handle, column, value, dialect, map, columnTypes, contexts)
 
@@ -458,6 +471,7 @@ function cachedColumnTypes(
   registered: readonly TableHandle[],
   contexts: MappingContexts,
   map: ValueMapConfig | undefined,
+  resolveReference: ReturnType<typeof createReferenceResolver>,
 ): Record<string, string> {
   const cached = typeCache.get(handle)
 
@@ -467,7 +481,15 @@ function cachedColumnTypes(
   const logical: Record<string, DialectValueMappingContext> = {}
 
   for (const name of Object.keys(handle.getSchema().entries)) {
-    const dt = resolveColumnDataType(handle, name, dialect, query, registered, [])
+    const dt = resolveColumnDataType(
+      handle,
+      name,
+      dialect,
+      query,
+      registered,
+      [],
+      resolveReference,
+    )
 
     if (dt === undefined) continue
 

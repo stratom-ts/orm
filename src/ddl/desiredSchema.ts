@@ -12,7 +12,8 @@ import type {
   CanonicalRelationRegistry,
 } from '@/migrations/canonicalRelationIdentity'
 import type { ReferenceMetadata } from '@/schemas'
-import { getColumnMetadata, getReferenceMetadata } from '@/schemas'
+import { getColumnMetadata } from '@/schemas'
+import { createReferenceResolver } from '@/schemas/actions/lazyReference'
 import { physicalColumnName } from '@/schemas/physicalColumn'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
@@ -113,15 +114,25 @@ export function registerDesiredSchema(
   ) => CanonicalRelationIdentityModule = () => identities,
 ): AuthoredDesiredSchema {
   const registry = identities.createRegistry<AuthoredDesiredTable>()
-  const tables: AuthoredDesiredTable[] = handles.map((handle) =>
-    registerDesiredTable(
-      handle,
-      handles,
-      forRelation(identities.resolve(handle.getTableMetadata().relation)),
+  const resolveReference = createReferenceResolver((source, selected, reference) =>
+    validateLazyReference(handles, identities, source, selected, reference),
+  )
+
+  const orderedHandles = [...handles].sort((left, right) =>
+    identities.compare(
+      identities.resolve(left.getTableMetadata().relation),
+      identities.resolve(right.getTableMetadata().relation),
     ),
   )
 
-  tables.sort((left, right) => identities.compare(left.identity, right.identity))
+  const tables: AuthoredDesiredTable[] = orderedHandles.map((handle) =>
+    registerDesiredTable(
+      handle,
+      handles,
+      resolveReference,
+      forRelation(identities.resolve(handle.getTableMetadata().relation)),
+    ),
+  )
 
   validateRegisteredTables(tables, identities, registry)
 
@@ -150,6 +161,46 @@ export function registerDesiredSchema(
       ),
     ),
   })
+}
+
+/** Rejects deferred targets that disagree with registered columns or local storage. */
+function validateLazyReference(
+  handles: readonly TableHandle[],
+  identities: CanonicalRelationIdentityModule,
+  source: AnySchema,
+  selected: AnySchema,
+  reference: ReferenceMetadata,
+): void {
+  const relation = identities.resolve(reference.target.relation)
+  const matches = handles.filter((handle) =>
+    identities.equals(identities.resolve(handle.getTableMetadata().relation), relation),
+  )
+
+  if (matches.length !== 1)
+    throw new MigrationError({
+      message:
+        matches.length === 0
+          ? `Lazy reference targets unregistered relation ${identities.format(relation)}`
+          : `Lazy reference targets ambiguous relation ${identities.format(relation)}`,
+    })
+
+  const registered = matches[0]!.getSchema().entries[reference.target.column]
+
+  if (registered !== selected)
+    throw new MigrationError({
+      message: 'Lazy reference target column differs from the registered declaration',
+    })
+
+  const sourceFacts = extractStorageFacts(source)
+  const targetFacts = extractStorageFacts(selected)
+
+  if (
+    sourceFacts.outputKind === undefined ||
+    sourceFacts.outputKind !== targetFacts.outputKind
+  )
+    throw new MigrationError({
+      message: 'Lazy reference has incompatible local and target column types',
+    })
 }
 
 /**
@@ -252,16 +303,23 @@ type AuthoredDesiredSchemaLowerer = Readonly<{
 function registerDesiredTable(
   handle: TableHandle,
   handles: readonly TableHandle[],
+  resolveReference: ReturnType<typeof createReferenceResolver>,
   identities: CanonicalRelationIdentityModule,
 ): AuthoredDesiredTable {
   const metadata = handle.getTableMetadata()
   const identity = identities.resolve(metadata.relation)
   const columns: AuthoredDesiredColumn[] = []
 
-  for (const [name, value] of Object.entries(handle.getSchema().entries)) {
-    const schema = value as AnySchema
+  const entries = Object.entries(handle.getSchema().entries)
+  const references = new Map(
+    [...entries]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([name, value]) => [name, resolveReference(value as AnySchema)]),
+  )
 
-    const reference = getReferenceMetadata(schema)
+  for (const [name, value] of entries) {
+    const schema = value as AnySchema
+    const reference = references.get(name)
     const columnMetadata = getColumnMetadata(schema)
     const identifier = identities.member('column', physicalColumnName(handle, name))
     columns.push({
