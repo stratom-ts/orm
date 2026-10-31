@@ -197,6 +197,7 @@ type PlanningIssue = {
   identity: CanonicalRelationIdentity
   target: string
   property:
+    | 'identifier'
     | 'invalid_desired_table'
     | 'duplicate_registered_table'
     | 'duplicate_catalog_table'
@@ -212,6 +213,7 @@ type PlanningIssue = {
     | 'unsupported_catalog_semantics'
     | 'opaque_catalog_object'
   message: string
+  cause?: unknown
 }
 
 const MIGRATION_PHASE: Record<MigrationStep['kind'], number> = {
@@ -231,6 +233,9 @@ const MIGRATION_PHASE: Record<MigrationStep['kind'], number> = {
 
 // Issues sort by schema/table/member first; this rank resolves one target's properties.
 const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
+  // Relation and member order come first. Identifier failures precede all other
+  // properties of the same target because that target cannot be addressed safely.
+  identifier: -1,
   invalid_desired_table: 0,
   duplicate_registered_table: 1,
   duplicate_catalog_table: 2,
@@ -245,6 +250,214 @@ const ISSUE_PROPERTY_ORDER: Record<PlanningIssue['property'], number> = {
   ambiguous_semantic_match: 11,
   unsupported_catalog_semantics: 12,
   opaque_catalog_object: 13,
+}
+
+/**
+ * Collects only recognized naming failures. Invalid members stay internal until issue
+ * selection.
+ */
+class RankedNames {
+  constructor(
+    readonly originalIdentity: CanonicalRelationIdentityModule,
+    readonly original: DialectNaming,
+    readonly issues: PlanningIssue[],
+    readonly defaultNamespace: readonly NamespaceIdentifierInput[],
+  ) {}
+
+  record(
+    identity: CanonicalRelationIdentity,
+    target: string,
+    description: string,
+    cause: unknown,
+  ) {
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
+
+    this.issues.push({
+      identity,
+      target,
+      property: 'identifier',
+      message: `Cannot address ${description} of ${this.originalIdentity.format(identity)}: ${cause.message}`,
+      cause,
+    })
+  }
+
+  validate(
+    identity: CanonicalRelationIdentity,
+    name: string,
+    description: string,
+    target = name,
+  ) {
+    try {
+      this.original.validate(name, description)
+    } catch (cause) {
+      this.record(identity, target, `${description} ${JSON.stringify(name)}`, cause)
+    }
+  }
+
+  resolve = (
+    input: Parameters<CanonicalRelationIdentityModule['resolve']>[0],
+  ): CanonicalRelationIdentity => {
+    try {
+      return this.originalIdentity.resolve(input)
+    } catch (cause) {
+      if (!isErrorTag(cause, 'SchemaError')) throw cause
+
+      return this.rejectedRelation(input)
+    }
+  }
+
+  rejectedRelation(
+    input: Parameters<CanonicalRelationIdentityModule['resolve']>[0],
+    namespaceOnly = false,
+  ): CanonicalRelationIdentity {
+    const rejected: { spelling: string; role: string; cause: unknown }[] = []
+    const safe = (spelling: string, role: string) => {
+      try {
+        this.originalIdentity.member('namespace', spelling)
+        return spelling
+      } catch (cause) {
+        if (!isErrorTag(cause, 'SchemaError')) throw cause
+
+        rejected.push({ spelling, role, cause })
+        return '__stratom_rejected_identifier__'
+      }
+    }
+
+    const namespace = (input.namespace ?? this.defaultNamespace).map((segment) => ({
+      role: segment.role,
+      spelling: safe(segment.spelling, segment.role),
+    }))
+
+    const relation = safe(input.relation, 'relation')
+    const resolved = this.originalIdentity.resolve({ namespace, relation })
+
+    const restore = (role: string, identifier: CanonicalIdentifier) => {
+      const invalid = rejected.find((entry) => entry.role === role)
+      return invalid
+        ? { spelling: invalid.spelling, comparisonKey: invalid.spelling }
+        : identifier
+    }
+
+    const identity = {
+      namespace: resolved.namespace.map((segment) => ({
+        ...segment,
+        identifier: restore(segment.role, segment.identifier),
+      })),
+      relation: namespaceOnly
+        ? { spelling: '', comparisonKey: '' }
+        : restore('relation', resolved.relation),
+    }
+
+    for (const entry of rejected)
+      this.record(
+        identity,
+        '',
+        `${entry.role} ${JSON.stringify(entry.spelling)}`,
+        entry.cause,
+      )
+    return identity
+  }
+
+  get identities(): CanonicalRelationIdentityModule {
+    return {
+      ...this.originalIdentity,
+      resolve: this.resolve,
+      resolveNamespace: (namespace) => {
+        try {
+          return this.originalIdentity.resolveNamespace(namespace)
+        } catch (cause) {
+          if (!isErrorTag(cause, 'SchemaError')) throw cause
+
+          return this.rejectedRelation(
+            { namespace: namespace ?? this.defaultNamespace, relation: '__namespace__' },
+            true,
+          ).namespace
+        }
+      },
+    }
+  }
+
+  get naming(): DialectNaming {
+    return {
+      ...this.original,
+      generate: (seed) => this.generate(seed),
+      createRegistry: () => this.createRegistry(),
+    }
+  }
+
+  generate(seed: PhysicalNameSeed): string {
+    try {
+      const name = this.original.generate(seed)
+      this.validate(seed.owner, name, `generated ${seed.kind} name`, this.targetKey(name))
+      return name
+    } catch (cause) {
+      this.record(seed.owner, '', `generated ${seed.kind} name`, cause)
+      return ''
+    }
+  }
+
+  createRegistry(): PhysicalNameRegistry {
+    const registry = this.original.createRegistry()
+    return {
+      reserve: (options) => {
+        try {
+          registry.reserve(options)
+        } catch (cause) {
+          this.record(
+            options.owner,
+            options.kind === 'relation' ? '' : this.targetKey(options.name),
+            `${options.description} ${JSON.stringify(options.name)}`,
+            cause,
+          )
+        }
+      },
+    }
+  }
+
+  namingFor(identity: CanonicalRelationIdentity): DialectNaming {
+    return {
+      ...this.naming,
+      validate: (name, description) => {
+        const relationTarget = description.endsWith('identifier')
+        this.validate(
+          identity,
+          name,
+          description,
+          relationTarget ? '' : this.targetKey(name),
+        )
+      },
+    }
+  }
+
+  targetKey(spelling: string): string {
+    try {
+      return this.originalIdentity.member('namespace', spelling).comparisonKey
+    } catch (cause) {
+      if (!isErrorTag(cause, 'SchemaError')) throw cause
+
+      return spelling
+    }
+  }
+
+  identitiesFor = (
+    identity: CanonicalRelationIdentity,
+  ): CanonicalRelationIdentityModule => {
+    return {
+      ...this.identities,
+      member: (role, spelling) => {
+        try {
+          const identifier = this.originalIdentity.member(role, spelling)
+          this.validate(identity, spelling, role, identifier.comparisonKey)
+          return identifier
+        } catch (cause) {
+          this.record(identity, spelling, `${role} ${JSON.stringify(spelling)}`, cause)
+
+          // Rejected ordering keys stay internal. Final issue selection prevents a plan.
+          return { spelling, comparisonKey: spelling }
+        }
+      },
+    }
+  }
 }
 
 /**
@@ -1628,20 +1841,6 @@ function validateDesiredNames(
   }
 }
 
-/** Validates relation and namespace names introduced by ownership declarations. */
-function validateOwnershipNames(
-  ownership: ReturnType<typeof resolveMigrationOwnership>,
-  naming: DialectNaming,
-): void {
-  for (const identity of [...ownership.explicitRelations, ...ownership.absentRelations]) {
-    validateCanonicalRelationNames(identity, naming)
-  }
-
-  for (const namespace of ownership.completeNamespaces) {
-    validateCanonicalNamespaceNames(namespace, naming)
-  }
-}
-
 type ExistingColumnReconciliation = Readonly<{
   live: CatalogTable
   desired: LoweredDesiredTable
@@ -2203,14 +2402,15 @@ function reservePlanningCatalogNames(
   sortedCatalogTables: readonly CatalogTable[],
   identities: CanonicalRelationIdentityModule,
   physicalNames: ReturnType<MigrationPlanningContext['naming']['createRegistry']>,
+  names: RankedNames,
 ) {
   const representedCatalogNames = new Set<string>()
 
   reserveCatalogTableNames(
     sortedCatalogTables,
-    identities,
     physicalNames,
     representedCatalogNames,
+    names,
   )
 
   reservePhysicalCatalogNames(
@@ -2295,15 +2495,15 @@ function reservePhysicalCatalogNames(
  */
 function reserveCatalogTableNames(
   sortedCatalogTables: readonly CatalogTable[],
-  identities: CanonicalRelationIdentityModule,
   physicalNames: PhysicalNameRegistry,
   representedCatalogNames: Set<string>,
+  names: RankedNames,
 ) {
   for (const table of sortedCatalogTables) {
     const identity = table.identity
     const namespace = identity.namespace
     reserveCatalogConstraintNames(
-      identities,
+      names.identitiesFor(identity),
       identity,
       physicalNames,
       representedCatalogNames,
@@ -2591,7 +2791,11 @@ function assertPlanningIssues(
     .sort((left, right) => comparePlanningIssues(left, right, identities))
     .at(0)
 
-  if (issue) throw new MigrationError({ message: issue.message })
+  if (issue)
+    throw new MigrationError({
+      message: issue.message,
+      ...(issue.cause === undefined ? {} : { cause: issue.cause }),
+    })
 }
 
 /**
@@ -2627,7 +2831,7 @@ function buildMigrationPlan(
     planning,
     catalog,
     registrationDefault,
-    state.identities,
+    state.names.originalIdentity,
     state.desiredTables,
     state.planningCatalog,
   )
@@ -2671,8 +2875,19 @@ function registerLoweredTables(
   sortedSchemas: TableHandle[],
   identities: CanonicalRelationIdentityModule,
   planning: MigrationPlanningContext,
+  forRelation: (identity: CanonicalRelationIdentity) => CanonicalRelationIdentityModule,
+  issues: PlanningIssue[],
 ) {
-  const lowered = lowerDesiredSchema(sortedSchemas, identities, planning.schema)
+  let lowered: LoweredDesiredSchema
+  try {
+    lowered = lowerDesiredSchema(sortedSchemas, identities, planning.schema, forRelation)
+  } catch (cause) {
+    if (isErrorTag(cause, 'MigrationError') && !cause.defect)
+      assertPlanningIssues(issues, identities)
+
+    throw cause
+  }
+
   const desiredTables = identities.createRegistry<LoweredDesiredTable>()
   for (const table of lowered.tables) desiredTables.set(table.identity, table)
   return { desiredTables, lowered }
@@ -2862,6 +3077,7 @@ function createDesiredNameReservations(
 }
 
 type DesiredTableReconciliation = {
+  names: RankedNames
   sortedSchemas: TableHandle[]
   registered: CanonicalRelationRegistry<TableHandle>
   existing: CanonicalRelationRegistry<CatalogTable>
@@ -2979,9 +3195,11 @@ function createPlanningState(
     desiredTables,
     lowered,
     issues,
+    desiredState.names.identitiesFor,
   )
 
   const { planningCatalog, ownership, sortedCatalogTables } = catalogState
+  validateCatalogNames(sortedCatalogTables, desiredState.names)
   const reservations = createPlanningReservations(
     planningCatalog,
     naming,
@@ -2989,9 +3207,37 @@ function createPlanningState(
     ownership,
     sortedCatalogTables,
     steps,
+    desiredState.names,
   )
 
   return { ...desiredState, ...catalogState, ...reservations, planning }
+}
+
+/** Validates catalog members even when reconciliation does not address them. */
+function validateCatalogNames(
+  sortedCatalogTables: readonly CatalogTable[],
+  names: RankedNames,
+) {
+  for (const table of sortedCatalogTables) {
+    const scoped = names.identitiesFor(table.identity)
+
+    validateCanonicalRelationNames(table.identity, names.namingFor(table.identity))
+
+    for (const column of table.columns) scoped.member('column', column.name)
+
+    for (const index of table.indexes) {
+      scoped.member('index', index.name)
+      index.columns.forEach((column) => scoped.member('column', column))
+    }
+
+    for (const key of [
+      table.primaryKey,
+      ...table.uniqueConstraints,
+      ...table.foreignKeys,
+    ]) {
+      key?.columns.forEach((column) => scoped.member('column', column))
+    }
+  }
 }
 
 /**
@@ -3017,6 +3263,7 @@ function resolvePlanningCatalog(
   desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
   lowered: LoweredDesiredSchema,
   issues: PlanningIssue[],
+  forRelation: (identity: CanonicalRelationIdentity) => CanonicalRelationIdentityModule,
 ) {
   const ownership = resolveMigrationOwnership(schemas, ownershipDeclarations, identities)
   const planningCatalog = catalogForPlanning(
@@ -3025,6 +3272,7 @@ function resolvePlanningCatalog(
     desiredTables,
     lowered.tables.map(({ identity }) => identity),
     ownership,
+    forRelation,
   )
 
   const sortedCatalogTables = [...planningCatalog.tables].sort((left, right) =>
@@ -3045,6 +3293,12 @@ function reconcileDesiredTable(
   handle: TableHandle,
   input: DesiredTableReconciliation,
 ): void {
+  const identityForNames = input.identities.resolve(handle.getTableMetadata().relation)
+  input = {
+    ...input,
+    identities: input.names.identitiesFor(identityForNames),
+    naming: input.names.namingFor(identityForNames),
+  }
   const { issues, identities, ensuredSchemas, steps, planning } = input
   const prepared = prepareDesiredTable({ ...input, handle })
 
@@ -3372,17 +3626,27 @@ function createPlanningReservations(
   ownership: ResolvedMigrationOwnership,
   sortedCatalogTables: CatalogTable[],
   steps: MigrationStep[],
+  names: RankedNames,
 ) {
   const ensuredSchemas = [...planningCatalog.namespaces]
   const registered = identities.createRegistry<TableHandle>()
   const physicalNames = naming.createRegistry()
-  validateOwnershipNames(ownership, naming)
+
+  for (const identity of [...ownership.explicitRelations, ...ownership.absentRelations]) {
+    validateCanonicalRelationNames(identity, names.namingFor(identity))
+  }
+
+  for (const namespace of ownership.completeNamespaces) {
+    const identity = { namespace, relation: { spelling: '', comparisonKey: '' } }
+    validateCanonicalNamespaceNames(namespace, names.namingFor(identity))
+  }
 
   reservePlanningCatalogNames(
     planningCatalog,
     sortedCatalogTables,
     identities,
     physicalNames,
+    names,
   )
 
   appendOwnedNamespaces(ownership, ensuredSchemas, steps)
@@ -3421,7 +3685,7 @@ function initializeDesiredPlanning(
   planning: MigrationPlanningContext,
   registrationDefault: readonly NamespaceIdentifierInput[] | undefined,
 ) {
-  const identities = planning.identity.create({
+  const originalIdentities = planning.identity.create({
     context: catalog.namespaceContext,
     ...(registrationDefault === undefined ? {} : { registrationDefault }),
   })
@@ -3429,25 +3693,43 @@ function initializeDesiredPlanning(
   const steps: MigrationStep[] = []
   const deferredForeignKeys: Extract<MigrationStep, { kind: 'add_foreign_key' }>[] = []
   const issues: PlanningIssue[] = []
+  const names = new RankedNames(
+    originalIdentities,
+    planning.naming,
+    issues,
+    registrationDefault ?? catalog.namespaceContext.writableDefault,
+  )
+
+  const identities = names.identities
   const sortedSchemas = [...schemas].sort((left, right) =>
     compareTableHandles(left, right, identities),
   )
 
-  const naming = planning.naming
-  validateDesiredNames(sortedSchemas, identities, naming)
+  for (const handle of sortedSchemas) {
+    const identity = identities.resolve(handle.getTableMetadata().relation)
+    validateDesiredNames(
+      [handle],
+      names.identitiesFor(identity),
+      names.namingFor(identity),
+    )
+  }
+
   const { desiredTables, lowered } = registerLoweredTables(
     sortedSchemas,
     identities,
     planning,
+    names.identitiesFor,
+    issues,
   )
 
   return {
+    names,
     identities,
     steps,
     deferredForeignKeys,
     issues,
     sortedSchemas,
-    naming,
+    naming: names.naming,
     desiredTables,
     lowered,
   }

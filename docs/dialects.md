@@ -863,3 +863,20 @@ that row, and an explicit limit when the application requires one row. Neither
 adapter adds an implicit limit. IN and NOT IN retain native SQL NULL semantics.
 See the README's typed subquery examples for explicit correlation, aliases and
 transaction-safe query factories.
+
+### Planning identifier diagnostics
+
+Planning ranks identifier failures with reconciliation issues. Canonical relation order
+comes first, then the canonical member key, then property order, then diagnostic text.
+Relation and namespace identifier failures use the empty member key. A member that cannot
+be canonicalized uses its original spelling as a rejected ordering key. These rejected
+keys stay inside planning and never appear in a returned Migration Plan.
+
+For the same relation and member, identifier failures precede invalid desired tables,
+duplicates, primary keys, unique constraints, foreign keys, defaults, identity generation,
+index definitions, ambiguous matches, unsupported catalog semantics, and opaque objects.
+The existing order among those other properties is unchanged. An identifier failure on a
+later relation cannot hide a reconciliation issue on an earlier relation.
+
+Only recognized `SchemaError` failures enter this ranking. Unexpected thrown values retain
+their identity. Planning throws before it returns any plan when an identifier issue exists.

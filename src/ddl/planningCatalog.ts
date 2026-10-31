@@ -357,6 +357,9 @@ export function catalogForPlanning(
   desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
   desiredRelations: readonly CanonicalRelationIdentity[],
   ownership: ResolvedMigrationOwnership,
+  forRelation: (
+    identity: CanonicalRelationIdentity,
+  ) => CanonicalRelationIdentityModule = () => identities,
 ): PlanningCatalog {
   /**
    * Checks whether the catalog request covers a migration target.
@@ -369,8 +372,8 @@ export function catalogForPlanning(
   const tables: PlanningCatalogTable[] = projectPlanningRelations(
     namespaces,
     snapshot,
-    identities,
     desiredTables,
+    forRelation,
   )
 
   const reservations = requireComplete(snapshot.nameReservations, 'physical names')
@@ -410,8 +413,8 @@ function projectPlanningRelations(
     relations: CatalogSet<CatalogRelation>
   }>[],
   snapshot: CatalogSnapshot,
-  identities: CanonicalRelationIdentityModule,
   desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
+  forRelation: (identity: CanonicalRelationIdentity) => CanonicalRelationIdentityModule,
 ) {
   const tables: PlanningCatalogTable[] = []
 
@@ -435,7 +438,12 @@ function projectPlanningRelations(
         : requireComplete(namespace.relations, namespaceTarget)
 
     for (const relation of relations)
-      appendPlanningRelation(relation, tables, identities, desiredTables)
+      appendPlanningRelation(
+        relation,
+        tables,
+        forRelation(relation.identity),
+        desiredTables,
+      )
   }
 
   return tables
