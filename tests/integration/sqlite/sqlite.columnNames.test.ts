@@ -16,7 +16,11 @@ import {
 import { withSqliteDatabase } from './sqliteIntegration'
 
 it('maps application names across SQLite queries, constraints and application renames', async () => {
-  await withSqliteDatabase(schemas, async ({ db, connector }) => {
+  await withSqliteDatabase(schemas, async ({ db, connector, native }) => {
+    // Node 22.5 does not enable foreign-key enforcement by default.
+    native.exec('pragma foreign_keys = on')
+    expect(native.prepare('pragma foreign_keys').get()).toEqual({ foreign_keys: 1 })
+
     await exerciseColumnNames(db)
     const renamed = createDatabase({ connector, schemas: renamedSchemas })
     const canonicalA = createDatabase({ connector, schemas: [CanonicalA] })
