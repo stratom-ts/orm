@@ -561,10 +561,15 @@ function compileOrderBy(
 ): string {
   if (!orderBy || orderBy.length === 0) return ''
 
-  const parts = orderBy.map(
-    (o) =>
-      `${qualifyColumn(o.column, relations, o.relation, resolveRelation)} ${o.direction === 'desc' ? 'desc' : 'asc'}`,
-  )
+  const parts = orderBy.map((o) => {
+    const nulls: unknown = o.nulls
+
+    if (nulls !== undefined && nulls !== 'first' && nulls !== 'last') {
+      throw new InvariantError('null placement must be first or last')
+    }
+
+    return `${qualifyColumn(o.column, relations, o.relation, resolveRelation)} ${o.direction === 'desc' ? 'desc' : 'asc'}${o.nulls === undefined ? '' : ` nulls ${o.nulls}`}`
+  })
 
   return ` order by ${parts.join(', ')}`
 }

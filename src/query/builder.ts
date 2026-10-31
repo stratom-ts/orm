@@ -39,6 +39,8 @@ import type { CompiledQuery } from './compiled'
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
+import { after, before } from './keyset'
+import type { OrderTerm } from './keyset'
 import type { ValueMapper } from './mapping'
 import { recordQueryRelation } from './sourceRelation'
 import type { WildcardProjection, projectionShape } from './subquery'
@@ -1494,16 +1496,40 @@ export type SelectBuilder<
       | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
+   * Adds an exclusive cursor boundary after the supplied values, combined with existing
+   * filters.
+   *
+   * @param order - Sort terms matching ORDER BY, including a unique tie-breaker.
+   * @param values - Application cursor values in sort-term order.
+   */
+  after(
+    order: readonly OrderTerm[],
+    values: readonly unknown[],
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
+  /**
+   * Adds an exclusive cursor boundary before the supplied values, combined with existing
+   * filters.
+   *
+   * @param order - Sort terms matching ORDER BY, including a unique tie-breaker.
+   * @param values - Application cursor values in sort-term order.
+   */
+  before(
+    order: readonly OrderTerm[],
+    values: readonly unknown[],
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
+  /**
    * Adds an ordering clause with an ascending or descending direction.
    *
    * @param column - Column reference or authored name used to address the query member.
    * @param direction - Ascending or descending sort direction.
+   * @param nulls - Explicit null placement, or the dialect default when omitted.
    *
    * @returns A fresh select builder with the requested sort clause appended.
    */
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
+    nulls?: 'first' | 'last',
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Sets the maximum number of result rows.
@@ -1763,7 +1789,7 @@ function createSelectPagination<THandle extends TableHandle>(
      * @param column - Column to order by.
      * @param direction - Sort direction.
      */
-    orderBy(column, direction: 'asc' | 'desc' = 'asc') {
+    orderBy(column, direction: 'asc' | 'desc' = 'asc', nulls) {
       const q = toQualified(column)
       return next({
         orderBy: [
@@ -1772,6 +1798,7 @@ function createSelectPagination<THandle extends TableHandle>(
             column: q.column,
             ...(q.relation !== undefined ? { relation: q.relation } : {}),
             direction,
+            ...(nulls === undefined ? {} : { nulls }),
           },
         ],
       }) as never
@@ -1847,6 +1874,7 @@ function createSelectBuilder<THandle extends TableHandle>(
   const builder = {
     ...createSelectSelection(state, next),
     ...createSelectFilters(state, next),
+    ...createSelectBoundaries(state, next),
     ...createSelectPagination(state, next),
     ...createSelectGrouping(state, next),
     ...createSelectJoins(state, next),
@@ -2042,16 +2070,40 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
       | ((builder: ExpressionBuilder) => PredicateAst),
   ): SelectBuilder<THandle, InferSelect<THandle>>
   /**
+   * Adds an exclusive cursor boundary after the supplied values, combined with existing
+   * filters.
+   *
+   * @param order - Sort terms matching ORDER BY, including a unique tie-breaker.
+   * @param values - Application cursor values in sort-term order.
+   */
+  after(
+    order: readonly OrderTerm[],
+    values: readonly unknown[],
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
+   * Adds an exclusive cursor boundary before the supplied values, combined with existing
+   * filters.
+   *
+   * @param order - Sort terms matching ORDER BY, including a unique tie-breaker.
+   * @param values - Application cursor values in sort-term order.
+   */
+  before(
+    order: readonly OrderTerm[],
+    values: readonly unknown[],
+  ): SelectBuilder<THandle, InferSelect<THandle>>
+  /**
    * Adds an ordering clause with an ascending or descending direction.
    *
    * @param column - Column reference or authored name used to address the query member.
    * @param direction - Ascending or descending sort direction.
+   * @param nulls - Explicit null placement, or the dialect default when omitted.
    *
    * @returns A fresh select builder with the requested sort clause appended.
    */
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
+    nulls?: 'first' | 'last',
   ): SelectBuilder<THandle, InferSelect<THandle>>
   /**
    * Sets the maximum number of result rows.
@@ -2458,6 +2510,23 @@ function createSelectFilters<THandle extends TableHandle>(
   }
 }
 
+/** Adds cursor boundaries through the same immutable predicate state as WHERE. */
+function createSelectBoundaries<THandle extends TableHandle>(
+  state: SelectState,
+  next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
+): Pick<SelectBuilder<THandle, unknown>, 'after' | 'before'> {
+  return {
+    /** Adds a boundary after the cursor without changing the query order. */
+    after(order, values) {
+      return next({ where: mergeWhere(state.where, after(order, values)) }) as never
+    },
+    /** Adds a boundary before the cursor without changing the query order. */
+    before(order, values) {
+      return next({ where: mergeWhere(state.where, before(order, values)) }) as never
+    },
+  }
+}
+
 /**
  * Adds grouping and HAVING clauses without mutating the current builder.
  *
@@ -2510,7 +2579,7 @@ function createSelectGrouping<THandle extends TableHandle>(
  */
 function createTableSelection<THandle extends TableHandle>(
   rootSelect: () => SelectBuilder<THandle, unknown>,
-): Pick<QueryBuilder<THandle>, 'selectAll' | 'select' | 'where'> {
+): Pick<QueryBuilder<THandle>, 'selectAll' | 'select' | 'where' | 'after' | 'before'> {
   return {
     /**
      * Selects every column from the root or a joined table.
@@ -2528,6 +2597,16 @@ function createTableSelection<THandle extends TableHandle>(
      */
     select(input: SelectSelectionInput) {
       return rootSelect().select(input as never) as never
+    },
+
+    /** Starts a select query after the cursor without adding ORDER BY clauses. */
+    after(order, values) {
+      return rootSelect().after(order, values) as never
+    },
+
+    /** Starts a select query before the cursor without adding ORDER BY clauses. */
+    before(order, values) {
+      return rootSelect().before(order, values) as never
     },
 
     /**
@@ -2601,8 +2680,8 @@ function createTablePagination<THandle extends TableHandle>(
      * @param column - Column to order by.
      * @param direction - Optional sort direction.
      */
-    orderBy(column, direction) {
-      return rootSelect().orderBy(column, direction) as never
+    orderBy(column, direction, nulls) {
+      return rootSelect().orderBy(column, direction, nulls) as never
     },
 
     /**

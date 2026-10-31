@@ -59,3 +59,5 @@ export {
   validateInsertRow,
   validateUpdatePatch,
 } from './validate'
+
+export { after, before, type OrderTerm } from './keyset'

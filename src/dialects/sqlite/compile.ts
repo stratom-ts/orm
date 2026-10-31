@@ -484,7 +484,13 @@ function compileOrderBy(
         throw new InvariantError('order direction must be asc or desc')
       }
 
-      return `${qualifyColumn(item.column, relations, item.relation, resolveRelation)} ${direction}`
+      const nulls: unknown = item.nulls
+
+      if (nulls !== undefined && nulls !== 'first' && nulls !== 'last') {
+        throw new InvariantError('null placement must be first or last')
+      }
+
+      return `${qualifyColumn(item.column, relations, item.relation, resolveRelation)} ${direction}${item.nulls === undefined ? '' : ` nulls ${item.nulls}`}`
     })
     .join(', ')}`
 }
