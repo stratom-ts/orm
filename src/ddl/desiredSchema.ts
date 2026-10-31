@@ -108,10 +108,16 @@ function assertUniqueColumnNames(
 export function registerDesiredSchema(
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
+  forRelation: (
+    identity: CanonicalRelationIdentity,
+  ) => CanonicalRelationIdentityModule = () => identities,
 ): AuthoredDesiredSchema {
   const registry = identities.createRegistry<AuthoredDesiredTable>()
   const tables: AuthoredDesiredTable[] = handles.map((handle) =>
-    registerDesiredTable(handle, identities),
+    registerDesiredTable(
+      handle,
+      forRelation(identities.resolve(handle.getTableMetadata().relation)),
+    ),
   )
 
   tables.sort((left, right) => identities.compare(left.identity, right.identity))
@@ -194,9 +200,10 @@ export function lowerDesiredSchema(
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
   lowerer: AuthoredDesiredSchemaLowerer,
+  forRelation?: (identity: CanonicalRelationIdentity) => CanonicalRelationIdentityModule,
 ): LoweredDesiredSchema {
   try {
-    const graph = registerDesiredSchema(handles, identities)
+    const graph = registerDesiredSchema(handles, identities, forRelation)
     const lowered = lowerer.lowerDesiredSchema(graph)
     const registry = identities.createRegistry<TableHandle>()
     for (const handle of handles)

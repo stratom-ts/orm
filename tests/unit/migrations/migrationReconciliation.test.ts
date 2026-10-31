@@ -1,12 +1,15 @@
 import { number, pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
+import { planMigration as planNativeMigration } from '@/ddl/migrationPlan'
 import { MigrationError, column, defineTable, postgresDialect, reference } from '@/index'
+import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import type { TableHandle } from '@/types'
-import { attemptSync } from '@/utils/error'
+import { SchemaError, attemptSync } from '@/utils/error'
 
 import type { PostgresCatalogSnapshotFixture as CatalogSnapshot } from '../dialects/postgresCatalogFixtures'
 import {
+  completePostgresCatalog,
   postgresCatalogPrimaryKey as createCatalogPrimaryKey,
   planPostgresMigration as planMigration,
 } from '../dialects/postgresCatalogFixtures'
@@ -1086,5 +1089,371 @@ function createMembershipsCatalog(): CatalogSnapshot['tables'][number] {
         ...SUPPORTED_CATALOG_SEMANTICS,
       },
     ],
+  }
+}
+
+describe('ranked identifier failures', () => {
+  it('selects an earlier reconciliation issue in either desired and catalog order', () => {
+    const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
+    const Zeta = defineTable('zeta', { id: string() }, { primaryKey: 'id' })
+    const catalog: CatalogSnapshot = {
+      ...emptyCatalog(),
+      tables: [
+        {
+          schema: 'public',
+          name: 'accounts',
+          columns: [
+            {
+              name: 'id',
+              dataType: 'text',
+              isNullable: false,
+              defaultExpression: "'old'",
+            },
+          ],
+          primaryKey: catalogPrimaryKey('accounts'),
+        },
+        {
+          schema: 'public',
+          name: 'zeta',
+          columns: [
+            { name: 'id', dataType: 'text', isNullable: false },
+            { name: '', dataType: 'text', isNullable: true },
+          ],
+          primaryKey: catalogPrimaryKey('zeta'),
+        },
+      ],
+    }
+
+    const expected = planningError([Accounts, Zeta], catalog).message
+    expect(expected).toMatch(/accounts.*default|default.*accounts/i)
+
+    for (const desired of [
+      [Accounts, Zeta],
+      [Zeta, Accounts],
+    ]) {
+      for (const tables of [catalog.tables, [...catalog.tables].reverse()]) {
+        expect(planningError(desired, { ...catalog, tables }).message).toBe(expected)
+      }
+    }
+  })
+})
+
+const invalidIdentifierName = 'x'.repeat(64)
+
+function invalidIdentifierTable(source: string) {
+  const name =
+    source === 'unaddressable desired column'
+      ? ''
+      : source === 'desired column'
+        ? invalidIdentifierName
+        : 'id'
+
+  return defineTable(
+    source === 'desired relation' ? invalidIdentifierName : 'zeta',
+    { id: string(), [name]: string() },
+    {
+      primaryKey: 'id',
+      ...(source.includes('index')
+        ? {
+            indexes: [
+              {
+                columns: ['id'],
+                ...(source === 'explicit index' ? { name: invalidIdentifierName } : {}),
+              },
+            ],
+          }
+        : {}),
+    },
+  )
+}
+
+function invalidIdentifierCatalog(source: string): CatalogSnapshot {
+  const accounts = {
+    schema: 'public',
+    name: 'accounts',
+    columns: [
+      { name: 'id', dataType: 'text', isNullable: false, defaultExpression: "'old'" },
+    ],
+    primaryKey: catalogPrimaryKey('accounts'),
+  }
+
+  const zeta = {
+    schema: 'public',
+    name: 'zeta',
+    columns: [
+      { name: 'id', dataType: 'text', isNullable: false },
+      ...(source === 'catalog column'
+        ? [{ name: invalidIdentifierName, dataType: 'text', isNullable: true }]
+        : []),
+    ],
+    primaryKey: catalogPrimaryKey('zeta'),
+    indexes:
+      source === 'catalog index'
+        ? [
+            {
+              name: invalidIdentifierName,
+              columns: ['id'],
+              unique: false,
+              ...SUPPORTED_CATALOG_SEMANTICS,
+            },
+          ]
+        : [],
+  }
+
+  return {
+    ...emptyCatalog(),
+    tables: [accounts, ...(source.startsWith('catalog') ? [zeta] : [])],
+  }
+}
+
+function invalidIdentifierDialect(source: string) {
+  return {
+    ...postgresDialect,
+    naming: {
+      ...postgresDialect.naming,
+      generate: (seed: Parameters<typeof postgresDialect.naming.generate>[0]) =>
+        seed.owner.relation.spelling === 'zeta' &&
+        source === `generated ${seed.kind === 'primaryKey' ? 'constraint' : seed.kind}`
+          ? invalidIdentifierName
+          : postgresDialect.naming.generate(seed),
+    },
+  }
+}
+
+function identifierError(
+  schemas: TableHandle[],
+  catalog: CatalogSnapshot,
+  dialect = postgresDialect,
+) {
+  const result = attemptSync(() => planMigration(schemas, catalog, dialect))
+
+  if (result.ok) throw new Error('Expected migration planning to fail')
+
+  expect(result.error).toBeInstanceOf(MigrationError)
+  return result.error as MigrationError
+}
+
+it.each([
+  ['unaddressable desired column', 'column'],
+  ['desired column', 'column'],
+  ['desired relation', 'relation'],
+  ['explicit index', 'index'],
+  ['catalog column', 'column'],
+  ['catalog index', 'index'],
+  ['generated index', 'index'],
+  ['generated constraint', 'primary key'],
+])('ranks %s failures and retains the owning relation and role', (source, role) => {
+  const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
+  const bad = source.startsWith('catalog')
+    ? defineTable('zeta', { id: string() }, { primaryKey: 'id' })
+    : invalidIdentifierTable(source)
+
+  const catalog = invalidIdentifierCatalog(source)
+  const dialect = invalidIdentifierDialect(source)
+  const expected = identifierError([Accounts, bad], catalog, dialect).message
+  expect(expected).toMatch(/accounts.*default|default.*accounts/i)
+
+  for (const desired of [
+    [Accounts, bad],
+    [bad, Accounts],
+  ]) {
+    for (const tables of [catalog.tables, [...catalog.tables].reverse()]) {
+      expect(identifierError(desired, { ...catalog, tables }, dialect).message).toBe(
+        expected,
+      )
+    }
+  }
+
+  const diagnostic = identifierError(
+    [bad],
+    { ...catalog, tables: catalog.tables.filter((table) => table.name !== 'accounts') },
+    dialect,
+  )
+
+  expect(diagnostic.message).toMatch(
+    new RegExp(`Cannot address.*${role}.*of.*(?:zeta|xxxx)`, 'i'),
+  )
+})
+
+it.each([new Error('identifier defect'), Object.freeze({ defect: true }), 'defect'])(
+  'preserves unexpected naming failures by identity: %s',
+  (defect) => {
+    const Zeta = defineTable('zeta', { id: string() }, { primaryKey: 'id' })
+    const dialect = {
+      ...postgresDialect,
+      naming: {
+        ...postgresDialect.naming,
+        validate() {
+          throw defect
+        },
+      },
+    }
+
+    const result = attemptSync(() => planMigration([Zeta], emptyCatalog(), dialect))
+
+    if (result.ok) throw new Error('Expected naming defect')
+
+    expect(result.error).toBe(defect)
+  },
+)
+
+it('ranks identifier validation before default drift for the same canonical column', () => {
+  const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
+  const dialect = {
+    ...postgresDialect,
+    naming: {
+      ...postgresDialect.naming,
+      validate(name: string, description: string) {
+        if (name === 'id' && description === 'column')
+          throw new SchemaError({ message: 'rejected column' })
+
+        postgresDialect.naming.validate(name, description)
+      },
+    },
+  }
+
+  expect(
+    identifierError([Accounts], invalidIdentifierCatalog('desired column'), dialect)
+      .message,
+  ).toMatch(/Cannot address column "id" of.*accounts/)
+})
+
+function rejectedIdentifierCatalog(name: string, role: string) {
+  const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
+  const snapshot = completePostgresCatalog(
+    invalidIdentifierCatalog('desired relation'),
+    createCatalogRequest([Accounts], []),
+  )
+
+  const original = snapshot.request.relations[0]!.identity
+  const rejected = {
+    namespace: original.namespace.map((segment) =>
+      segment.role === role
+        ? { ...segment, identifier: { spelling: name, comparisonKey: name } }
+        : segment,
+    ),
+    relation:
+      role === 'relation'
+        ? { spelling: name, comparisonKey: name }
+        : { spelling: 'zeta', comparisonKey: 'zeta' },
+  }
+
+  return {
+    ...snapshot,
+    request: {
+      ...snapshot.request,
+      relations: [
+        ...snapshot.request.relations,
+        { identity: rejected, shape: 'complete' as const },
+      ],
+      completeNamespaces: [rejected.namespace],
+    },
+  }
+}
+
+it.each([
+  ['relation', 'zeta\0bad'],
+  ['relation', 'zeta\ud800'],
+  ['schema', 'zeta\0bad'],
+])('ranks an unaddressable desired %s %j', (role, name) => {
+  const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
+  const Invalid = defineTable(
+    role === 'relation' ? name : 'zeta',
+    { id: string() },
+    {
+      primaryKey: 'id',
+      ...(role === 'schema'
+        ? { namespace: [{ role: 'schema' as const, spelling: name }] }
+        : {}),
+    },
+  )
+
+  const catalog = rejectedIdentifierCatalog(name, role)
+  const first = attemptSync(() =>
+    planNativeMigration([Accounts, Invalid], catalog, postgresDialect),
+  )
+
+  const second = attemptSync(() =>
+    planNativeMigration([Invalid, Accounts], catalog, postgresDialect),
+  )
+
+  expect(first).toEqual(second)
+
+  if (first.ok) throw new Error('Expected rejected identifier to prevent a plan')
+
+  expect(first.error).toBeInstanceOf(MigrationError)
+
+  expect((first.error as MigrationError).message).toMatch(
+    /accounts.*default|default.*accounts/i,
+  )
+})
+
+it('ranks identifiers reachable through namespace ownership', () => {
+  const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
+  const name = 'zeta\0bad'
+  expect(() =>
+    planNativeMigration(
+      [Accounts],
+      rejectedIdentifierCatalog(name, 'schema'),
+      postgresDialect,
+      {
+        migrationOwnership: [
+          { kind: 'completeNamespace', namespace: [{ role: 'schema', spelling: name }] },
+        ],
+      },
+    ),
+  ).toThrow(/accounts.*default|default.*accounts/i)
+})
+
+it.each(['explicit', 'generated'])(
+  'uses canonical member order for %s index name failures',
+  (origin) => {
+    const name = 'Z'.repeat(64)
+    const Accounts = defineTable(
+      'accounts',
+      { id: string(), aaa: string() },
+      {
+        primaryKey: 'id',
+        indexes: [{ columns: ['id'], ...(origin === 'explicit' ? { name } : {}) }],
+      },
+    )
+
+    const dialect = foldingIdentifierDialect(name)
+    const catalog = invalidIdentifierCatalog('desired column')
+    catalog.tables[0]!.columns = [
+      { name: 'id', dataType: 'text', isNullable: false },
+      { name: 'aaa', dataType: 'text', isNullable: false, defaultExpression: "'old'" },
+    ]
+
+    expect(identifierError([Accounts], catalog, dialect).message).toMatch(
+      /default.*aaa|aaa.*default/i,
+    )
+  },
+)
+
+function foldingIdentifierDialect(generatedName: string) {
+  return {
+    ...postgresDialect,
+    identity: {
+      ...postgresDialect.identity,
+      create: (options: Parameters<typeof postgresDialect.identity.create>[0]) => {
+        const original = postgresDialect.identity.create(options)
+        return {
+          ...original,
+          member: (role: Parameters<typeof original.member>[0], spelling: string) => {
+            const identifier = original.member(role, spelling)
+            return {
+              ...identifier,
+              comparisonKey: identifier.comparisonKey.toLowerCase(),
+            }
+          },
+        }
+      },
+    },
+    naming: {
+      ...postgresDialect.naming,
+      generate: (seed: Parameters<typeof postgresDialect.naming.generate>[0]) =>
+        seed.kind === 'index' ? generatedName : postgresDialect.naming.generate(seed),
+    },
   }
 }
