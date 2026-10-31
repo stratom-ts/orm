@@ -1,6 +1,10 @@
 # Keyset pagination
 
-`after(order, values)` and `before(order, values)` return ordinary predicates for `.where()`.
+Use `.after(order, values)` and `.before(order, values)` directly on a query builder.
+Both methods add exclusive cursor filters and preserve the existing selection and filters.
+They do not add or change ORDER BY clauses.
+The standalone `after(order, values)` and `before(order, values)` helpers remain available for predicate composition.
+For example, `.after(order, values)` is equivalent to `.where(after(order, values))`.
 Each order term requires `column`, `direction` (`asc` or `desc`), and `nulls` (`first` or `last`).
 Pass the same columns, directions, and null placement to `.orderBy(column, direction, nulls)`.
 Cursor values are application values in order-term order. Existing value mapping applies during query compilation.
@@ -18,7 +22,7 @@ const order = [
 const page = await db
   .from(Users)
   .where(eq(Users.active, true))
-  .where(after(order, [last.score, last.id]))
+  .after(order, [last.score, last.id])
   .orderBy(Users.score, 'asc', 'last')
   .orderBy(Users.id, 'asc', 'last')
   .limit(20)
@@ -39,7 +43,7 @@ For the nearest previous page, reverse every direction and null placement in the
 const previous = await db
   .from(Users)
   .where(eq(Users.active, true))
-  .where(before(order, [first.score, first.id]))
+  .before(order, [first.score, first.id])
   .orderBy(Users.score, 'desc', 'first')
   .orderBy(Users.id, 'desc', 'first')
   .limit(20)

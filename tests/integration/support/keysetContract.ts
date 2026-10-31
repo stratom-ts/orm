@@ -106,7 +106,7 @@ async function assertMappedCursor(db: Db): Promise<void> {
     (
       await db
         .from(Entries)
-        .where(after(mapped, [true, rows[2]!.createdAt, 3]))
+        .after(mapped, [true, rows[2]!.createdAt, 3])
         .orderBy(Entries.active, 'asc', 'last')
         .orderBy(Entries.createdAt, 'asc', 'last')
         .orderBy(Entries.id, 'asc', 'last')
@@ -138,7 +138,8 @@ async function traverse(
       query = query.orderBy(term.column, direction, nulls)
     }
 
-    if (cursor) query = query.where((backward ? before : after)(order, cursor))
+    if (cursor)
+      query = backward ? query.before(order, cursor) : query.after(order, cursor)
 
     const page = await query.execute()
 

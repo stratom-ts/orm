@@ -1,5 +1,5 @@
 import { number } from 'valibot'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { compilePostgresQuery } from '@/dialects/postgres/compile'
 import { compileSqliteQuery } from '@/dialects/sqlite/compile'
@@ -79,3 +79,76 @@ it.each([compilePostgresQuery, compileSqliteQuery])(
     )
   },
 )
+
+it('adds root cursor boundaries without changing the original builder', async () => {
+  const db = createDatabase({
+    connector: createMockPostgresConnector(),
+    schemas: [Entries],
+  })
+
+  try {
+    const base = db.from(Entries)
+    const original = base.selectAll().compile()
+    const following = base.after(order, [2]).compile()
+    const preceding = base.before(order, [5]).compile()
+    expect(following).toEqual(base.where(after(order, [2])).compile())
+    expect(preceding).toEqual(base.where(before(order, [5])).compile())
+    expect(base.selectAll().compile()).toEqual(original)
+    expect(original.params).toEqual([])
+    expect(following.params).toEqual([2])
+    expect(preceding.params).toEqual([5])
+    expect(following.sql).not.toContain('order by')
+  } finally {
+    await db.close()
+  }
+})
+
+it('combines boundaries with filters while retaining selected output and immutable branches', async () => {
+  const db = createDatabase({
+    connector: createMockPostgresConnector(),
+    schemas: [Entries],
+  })
+
+  try {
+    const base = db.from(Entries).select([Entries.id]).where(Entries.score, 'gt', 10)
+    const original = base.compile()
+    const bounded = base.after(order, [2]).before(order, [5])
+    type Row = Awaited<ReturnType<typeof bounded.execute>>[number]
+    expectTypeOf<Row>().toEqualTypeOf<{ id: number }>()
+
+    expect(bounded.compile()).toEqual(
+      base
+        .where(after(order, [2]))
+        .where(before(order, [5]))
+        .compile(),
+    )
+
+    expect(bounded.compile().params).toEqual([10, 2, 5])
+    expect(base.compile()).toEqual(original)
+    expect(original.params).toEqual([10])
+  } finally {
+    await db.close()
+  }
+})
+
+it('validates cursor boundaries on root and selected builders', async () => {
+  const db = createDatabase({
+    connector: createMockPostgresConnector(),
+    schemas: [Entries],
+  })
+
+  try {
+    expect(() => db.from(Entries).after(order, [])).toThrow(QueryError)
+    expect(() => db.from(Entries).before([], [])).toThrow(QueryError)
+
+    expect(() => db.from(Entries).select([Entries.id]).after(order, [undefined])).toThrow(
+      QueryError,
+    )
+
+    expect(() => db.from(Entries).where(Entries.id, 'gt', 1).before(order, [])).toThrow(
+      QueryError,
+    )
+  } finally {
+    await db.close()
+  }
+})
