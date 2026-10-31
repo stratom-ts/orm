@@ -1,8 +1,8 @@
 import { boolean, date, nullable, number, pipe } from 'valibot'
 import { expect } from 'vitest'
 
-import type { Db, KeysetOrderTerm } from '@/index'
-import { column, defineTable, eq, keysetAfter, keysetBefore } from '@/index'
+import type { Db, OrderTerm } from '@/index'
+import { after, before, column, defineTable, eq } from '@/index'
 
 export const Entries = defineTable(
   'keyset.entries',
@@ -44,7 +44,7 @@ async function assertTraversal(db: Db): Promise<void> {
   ] as const) {
     // Mixed directions expose bugs hidden by a uniform tuple comparison.
     const tieDirection = scenario.nulls === 'first' ? 'asc' : 'desc'
-    const order: readonly KeysetOrderTerm[] = [
+    const order: readonly OrderTerm[] = [
       { column: Entries.score, direction: scenario.direction, nulls: scenario.nulls },
       { column: Entries.id, direction: tieDirection, nulls: 'last' },
     ]
@@ -62,7 +62,7 @@ async function assertBoundaries(db: Db): Promise<void> {
     (
       await db
         .from(Entries)
-        .where(keysetAfter(unique, [3]))
+        .where(after(unique, [3]))
         .orderBy(Entries.id)
         .execute()
     ).map((row) => row.id),
@@ -72,7 +72,7 @@ async function assertBoundaries(db: Db): Promise<void> {
     (
       await db
         .from(Entries)
-        .where(keysetBefore(unique, [3]))
+        .where(before(unique, [3]))
         .orderBy(Entries.id)
         .execute()
     ).map((row) => row.id),
@@ -82,14 +82,14 @@ async function assertBoundaries(db: Db): Promise<void> {
   expect(
     await db
       .from(Entries)
-      .where(keysetAfter(nullOrder, [null]))
+      .where(after(nullOrder, [null]))
       .execute(),
   ).toEqual([])
 
   expect(
     await db
       .from(Entries)
-      .where(keysetBefore([{ ...nullOrder[0], nulls: 'first' }], [null]))
+      .where(before([{ ...nullOrder[0], nulls: 'first' }], [null]))
       .execute(),
   ).toEqual([])
 }
@@ -106,7 +106,7 @@ async function assertMappedCursor(db: Db): Promise<void> {
     (
       await db
         .from(Entries)
-        .where(keysetAfter(mapped, [true, rows[2]!.createdAt, 3]))
+        .where(after(mapped, [true, rows[2]!.createdAt, 3]))
         .orderBy(Entries.active, 'asc', 'last')
         .orderBy(Entries.createdAt, 'asc', 'last')
         .orderBy(Entries.id, 'asc', 'last')
@@ -118,7 +118,7 @@ async function assertMappedCursor(db: Db): Promise<void> {
 /** Fetches bounded pages in either direction, retaining the original cursor order. */
 async function traverse(
   db: Db,
-  order: readonly KeysetOrderTerm[],
+  order: readonly OrderTerm[],
   backward: boolean,
 ): Promise<number[]> {
   const ids: number[] = []
@@ -138,8 +138,7 @@ async function traverse(
       query = query.orderBy(term.column, direction, nulls)
     }
 
-    if (cursor)
-      query = query.where((backward ? keysetBefore : keysetAfter)(order, cursor))
+    if (cursor) query = query.where((backward ? before : after)(order, cursor))
 
     const page = await query.execute()
 

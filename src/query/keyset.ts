@@ -5,7 +5,7 @@ import { QueryError } from '@/utils/error'
 import { and, eq, gt, isColumnRef, lt, neq, or } from './expressions'
 
 /** One keyset sort term. Match its direction and null placement in ORDER BY. */
-export type KeysetOrderTerm = {
+export type OrderTerm = {
   readonly column: ColumnRef | string
   readonly direction: 'asc' | 'desc'
   readonly nulls: 'first' | 'last'
@@ -17,8 +17,8 @@ export type KeysetOrderTerm = {
  * @param order - Sort terms matching the query's ORDER BY clauses.
  * @param values - Application cursor values in sort-term order.
  */
-export function keysetAfter(
-  order: readonly KeysetOrderTerm[],
+export function after(
+  order: readonly OrderTerm[],
   values: readonly unknown[],
 ): PredicateAst {
   return keysetBoundary(order, values, true)
@@ -30,8 +30,8 @@ export function keysetAfter(
  * @param order - Sort terms including a unique, nonnullable tie-breaker.
  * @param values - Application cursor values in sort-term order.
  */
-export function keysetBefore(
-  order: readonly KeysetOrderTerm[],
+export function before(
+  order: readonly OrderTerm[],
   values: readonly unknown[],
 ): PredicateAst {
   return keysetBoundary(order, values, false)
@@ -39,7 +39,7 @@ export function keysetBefore(
 
 /** Builds a lexicographic boundary from ordinary mapped comparison predicates. */
 function keysetBoundary(
-  order: readonly KeysetOrderTerm[],
+  order: readonly OrderTerm[],
   values: readonly unknown[],
   after: boolean,
 ): PredicateAst {
@@ -70,7 +70,7 @@ function keysetBoundary(
 }
 
 /** Validates descriptors that can arrive from JavaScript callers. */
-function validateTerm(term: unknown, value: unknown): asserts term is KeysetOrderTerm {
+function validateTerm(term: unknown, value: unknown): asserts term is OrderTerm {
   if (
     typeof term !== 'object' ||
     term === null ||
@@ -96,7 +96,7 @@ function validateTerm(term: unknown, value: unknown): asserts term is KeysetOrde
  * cursor.
  */
 function strictBoundary(
-  term: KeysetOrderTerm,
+  term: OrderTerm,
   value: unknown,
   after: boolean,
 ): PredicateAst | undefined {

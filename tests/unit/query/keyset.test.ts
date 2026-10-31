@@ -3,14 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 import { compilePostgresQuery } from '@/dialects/postgres/compile'
 import { compileSqliteQuery } from '@/dialects/sqlite/compile'
-import type { KeysetOrderTerm } from '@/index'
-import {
-  QueryError,
-  createDatabase,
-  defineTable,
-  keysetAfter,
-  keysetBefore,
-} from '@/index'
+import type { OrderTerm } from '@/index'
+import { QueryError, after, before, createDatabase, defineTable } from '@/index'
 
 import { createMockPostgresConnector } from '../dialects/postgresNativeClientFixtures'
 
@@ -23,26 +17,21 @@ const Entries = defineTable(
 const order = [{ column: Entries.id, direction: 'asc', nulls: 'last' }] as const
 
 describe('keyset input validation', () => {
-  it.each([keysetAfter, keysetBefore])(
-    'rejects invalid cursor shape and descriptors',
-    (helper) => {
-      expect(() => helper([], [])).toThrow(QueryError)
-      expect(() => helper(order, [])).toThrow(QueryError)
-      expect(() => helper(order, [1, 2])).toThrow(QueryError)
-      expect(() => helper(order, [undefined])).toThrow(QueryError)
+  it.each([after, before])('rejects invalid cursor shape and descriptors', (helper) => {
+    expect(() => helper([], [])).toThrow(QueryError)
+    expect(() => helper(order, [])).toThrow(QueryError)
+    expect(() => helper(order, [1, 2])).toThrow(QueryError)
+    expect(() => helper(order, [undefined])).toThrow(QueryError)
 
-      for (const term of [
-        { column: '', direction: 'asc', nulls: 'last' },
-        { column: Entries.id, direction: 'up', nulls: 'last' },
-        { column: Entries.id, direction: 'asc', nulls: 'middle' },
-        null,
-      ]) {
-        expect(() => helper([term] as unknown as KeysetOrderTerm[], [1])).toThrow(
-          QueryError,
-        )
-      }
-    },
-  )
+    for (const term of [
+      { column: '', direction: 'asc', nulls: 'last' },
+      { column: Entries.id, direction: 'up', nulls: 'last' },
+      { column: Entries.id, direction: 'asc', nulls: 'middle' },
+      null,
+    ]) {
+      expect(() => helper([term] as unknown as OrderTerm[], [1])).toThrow(QueryError)
+    }
+  })
 })
 
 it('compiles explicit null placement without changing omitted defaults', async () => {
@@ -59,7 +48,7 @@ it('compiles explicit null placement without changing omitted defaults', async (
       .from(Entries)
       .orderBy(Entries.score, 'desc', 'first')
       .orderBy(Entries.id, 'asc', 'last')
-      .where(keysetAfter(order, [2]))
+      .where(after(order, [2]))
       .compile()
 
     expect(query.sql).toMatch(

@@ -60,4 +60,4 @@ export {
   validateUpdatePatch,
 } from './validate'
 
-export { keysetAfter, keysetBefore, type KeysetOrderTerm } from './keyset'
+export { after, before, type OrderTerm } from './keyset'

@@ -1,6 +1,6 @@
 # Keyset pagination
 
-`keysetAfter(order, values)` and `keysetBefore(order, values)` return ordinary predicates for `.where()`.
+`after(order, values)` and `before(order, values)` return ordinary predicates for `.where()`.
 Each order term requires `column`, `direction` (`asc` or `desc`), and `nulls` (`first` or `last`).
 Pass the same columns, directions, and null placement to `.orderBy(column, direction, nulls)`.
 Cursor values are application values in order-term order. Existing value mapping applies during query compilation.
@@ -18,7 +18,7 @@ const order = [
 const page = await db
   .from(Users)
   .where(eq(Users.active, true))
-  .where(keysetAfter(order, [last.score, last.id]))
+  .where(after(order, [last.score, last.id]))
   .orderBy(Users.score, 'asc', 'last')
   .orderBy(Users.id, 'asc', 'last')
   .limit(20)
@@ -29,17 +29,17 @@ For a single unique column, use one term and one cursor value:
 
 ```ts
 const idOrder = [{ column: Users.id, direction: 'asc', nulls: 'last' }] as const
-const predicate = keysetAfter(idOrder, [last.id])
+const predicate = after(idOrder, [last.id])
 ```
 
-`keysetBefore` selects rows before the cursor in the declared order. It does not reverse the query order.
+`before` selects rows before the cursor in the declared order. It does not reverse the query order.
 For the nearest previous page, reverse every direction and null placement in the query, then reverse the returned rows:
 
 ```ts
 const previous = await db
   .from(Users)
   .where(eq(Users.active, true))
-  .where(keysetBefore(order, [first.score, first.id]))
+  .where(before(order, [first.score, first.id]))
   .orderBy(Users.score, 'desc', 'first')
   .orderBy(Users.id, 'desc', 'first')
   .limit(20)
