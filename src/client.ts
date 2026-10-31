@@ -39,9 +39,10 @@ import {
   validateUpdatePatch,
 } from '@/query'
 import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
-import { assertCompiledQuery } from '@/query/compiled'
+import { assertCompiledQuery, restoreResultNames } from '@/query/compiled'
 import type { QueryTracing, TracingOptions } from '@/query/observation'
 import { createQueryTracing } from '@/query/observation'
+import { validateColumnNames } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
@@ -911,7 +912,7 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
   const execute = async (compiled: ExecutableQuery): Promise<unknown[]> => {
     ensureClientOpen()
     assertCompiledQuery(compiled)
-    return clientExecutor.execute(compiled)
+    return restoreResultNames(compiled, await clientExecutor.execute(compiled))
   }
 
   const queryContext = { ...context, executor: clientExecutor, ensureClientOpen }
@@ -962,6 +963,7 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
 
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
+  validateColumnNames(schemas, dialect)
   const isRegistered = createRegistrationCheck(schemas)
   const query = dialect.query.resolve(
     schemas,

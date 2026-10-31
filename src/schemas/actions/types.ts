@@ -130,6 +130,8 @@ export type PhysicalTypeIntent = Readonly<Record<string, string>>
 export type ColumnMetadata = {
   /** Discriminant for column metadata. */
   kind: 'column'
+  /** Exact physical database name; APIs continue to use the application property. */
+  name?: string
   /** Tagged database default, distinct from Valibot application defaults. */
   databaseDefault?: DatabaseDefault
   /** Dialect-selectable physical type intent. */

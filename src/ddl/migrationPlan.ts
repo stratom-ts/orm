@@ -27,6 +27,7 @@ import {
 } from '@/migrations/migrationOwnership'
 import type { PhysicalNameRegistry, PhysicalNameSeed } from '@/migrations/physicalNaming'
 import { getReferenceMetadata } from '@/schemas/actions/reference'
+import { physicalColumnName } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError, isErrorTag } from '@/utils/error'
@@ -1483,7 +1484,7 @@ function structuredReference(
  * @param naming - Selected member's physical naming rules.
  */
 function desiredIndexes(
-  info: ReturnType<TableHandle['getTableMetadata']>,
+  handle: TableHandle,
   identity: CanonicalRelationIdentity,
   naming: DialectNaming,
   identities: CanonicalRelationIdentityModule,
@@ -1493,6 +1494,7 @@ function desiredIndexes(
   unique: boolean
   origin: 'explicit' | 'generated'
 }[] {
+  const info = handle.getTableMetadata()
   return (info.indexes ?? [])
     .map((raw) => {
       const index = raw
@@ -1504,11 +1506,13 @@ function desiredIndexes(
             naming.generate({
               kind: 'index',
               owner: identity,
-              columns: index.columns,
+              columns: index.columns.map((column) => physicalColumnName(handle, column)),
               unique,
             }),
         ),
-        columns: index.columns.map((column) => identities.member('column', column)),
+        columns: index.columns.map((column) =>
+          identities.member('column', physicalColumnName(handle, column)),
+        ),
         unique,
         origin: index.name === undefined ? ('generated' as const) : ('explicit' as const),
       }
@@ -2294,7 +2298,7 @@ function prepareDesiredTable({
 
   validateDesiredColumnNames(desired, naming)
 
-  const indexes = desiredIndexes(info, identity, naming, identities)
+  const indexes = desiredIndexes(handle, identity, naming, identities)
 
   validateDesiredIndexes(indexes, identities, identity, naming)
 

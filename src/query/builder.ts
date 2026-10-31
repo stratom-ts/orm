@@ -34,12 +34,13 @@ import type {
 } from '@/types/views'
 import { InvariantError, QueryError } from '@/utils/error'
 
+import { markCompiledQuery, restoreResultNames } from './compiled'
 import type { CompiledQuery } from './compiled'
-import { markCompiledQuery } from './compiled'
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
 import type { ValueMapper } from './mapping'
+import { recordQueryRelation } from './sourceRelation'
 import type { WildcardProjection, projectionShape } from './subquery'
 import { nestedDefinitions, selectDefinitions } from './subquery'
 import type { ExcludedRef } from './upsert'
@@ -118,6 +119,7 @@ function mapJoinsParams(
  */
 function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): JoinAst {
   const info = table.getTableMetadata()
+  recordQueryRelation(info.relation, table)
   return {
     type,
     relation: info.relation,
@@ -540,17 +542,17 @@ function mapSelectedRows(
   return rows.map((row) => {
     if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
 
-    const output: Record<string, unknown> = {}
-
-    for (const [key, value] of Object.entries(row)) {
-      const mapping = columns.get(key)
-      output[key] =
-        mapping && !(mapping.scalar && value === null)
-          ? mapper.mapResultValue(baseTable(mapping.handle), mapping.column, value)
-          : value
-    }
-
-    return output
+    return Object.fromEntries(
+      Object.entries(row).map(([key, value]) => {
+        const mapping = columns.get(key)
+        return [
+          key,
+          mapping && !(mapping.scalar && value === null)
+            ? mapper.mapResultValue(baseTable(mapping.handle), mapping.column, value)
+            : value,
+        ]
+      }),
+    )
   })
 }
 
@@ -578,7 +580,10 @@ async function runQuery<T>(
   ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
 ): Promise<T> {
   const compiled = query.compile(ast)
-  const rows = await executeQueryOperation(ast, () => executor.execute(compiled))
+  const rows = restoreResultNames(
+    compiled,
+    await executeQueryOperation(ast, () => executor.execute(compiled)),
+  )
 
   if (mapper && ast.kind === 'select') {
     return mapSelectedRows(mapper, rows, resultColumns) as T
@@ -616,7 +621,11 @@ async function runWrite(
   const compiled = query.compile(ast)
 
   if (ast.returning) {
-    const rows = await executeQueryOperation(ast, () => executor.execute(compiled))
+    const rows = restoreResultNames(
+      compiled,
+      await executeQueryOperation(ast, () => executor.execute(compiled)),
+    )
+
     return mapper ? mapper.mapResultRows(handle, rows) : rows
   }
 
@@ -1656,6 +1665,7 @@ function buildSelectQuery(
 ) {
   const { handle, query, state } = options
   const info = handle.getTableMetadata()
+  recordQueryRelation(info.relation, handle)
   const handles = [handle, ...state.joinedHandles]
   const selection =
     state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
@@ -2185,6 +2195,7 @@ function buildInsertAst<THandle extends TableHandle>(
   }
 
   const info = handle.getTableMetadata()
+  recordQueryRelation(info.relation, handle)
 
   if (columnSet.length === 0) {
     throw new QueryError({
@@ -2233,6 +2244,7 @@ function buildUpdateAst<THandle extends TableHandle>(
 ): UpdateAst {
   const { handle, mapper, patch, where, allowAll, returning } = options
   const info = handle.getTableMetadata()
+  recordQueryRelation(info.relation, handle)
 
   if (where && allowAll) {
     throw new QueryError({
@@ -2287,6 +2299,7 @@ function buildDeleteAst<THandle extends TableHandle>(
 ): DeleteAst {
   const { handle, mapper, where, allowAll, returning } = options
   const info = handle.getTableMetadata()
+  recordQueryRelation(info.relation, handle)
 
   if (where && allowAll) {
     throw new QueryError({
@@ -2819,10 +2832,13 @@ class StatementPreparation {
   private sequence = 0
   constructor(readonly owner: object) {}
   relation(handle: TableHandle): PreparedRelation {
-    return {
+    const relation = {
       ...handle.getTableMetadata().relation,
       queryAlias: `__stratom_q${this.sequence++}`,
     }
+
+    recordQueryRelation(relation, handle)
+    return relation
   }
   prepare(node: SelectAst, enclosing: readonly (readonly ScopeEntry[])[]): SelectAst {
     return new SelectPreparation(this, node, enclosing).prepare()
