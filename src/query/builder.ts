@@ -1,3 +1,4 @@
+import { baseTable, occurrenceAlias } from '@/defineTable'
 import type {
   ComparisonOp,
   DeleteAst,
@@ -39,6 +40,8 @@ import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
 import type { ValueMapper } from './mapping'
+import type { WildcardProjection, projectionShape } from './subquery'
+import { nestedDefinitions, selectDefinitions } from './subquery'
 import type { ExcludedRef } from './upsert'
 import { isExcludedRef } from './upsert'
 import { buildInsertSchema, validateUpdatePatchWithStructuredValues } from './validate'
@@ -56,6 +59,7 @@ export type { CompiledQuery } from './compiled'
 
 type WhereInput =
   | PredicateAst
+  | ((builder: ExpressionBuilder) => PredicateAst)
   | Record<string, unknown>
   | [column: ColumnRef | string, op: ComparisonOp, value: unknown]
 
@@ -130,7 +134,10 @@ function isPredicateAst(value: unknown): value is PredicateAst {
   if (typeof value !== 'object' || value === null || !('kind' in value)) return false
 
   const kind = (value as { kind?: unknown }).kind
-  return typeof kind === 'string' && ['cmp', 'and', 'or', 'not'].includes(kind)
+  return (
+    typeof kind === 'string' &&
+    ['cmp', 'and', 'or', 'not', 'exists', 'inQuery', 'exprCmp'].includes(kind)
+  )
 }
 
 /**
@@ -139,6 +146,8 @@ function isPredicateAst(value: unknown): value is PredicateAst {
  * @param input - Where input to normalize.
  */
 function normalizeWhere(input: WhereInput): PredicateAst {
+  if (typeof input === 'function') return input(eb)
+
   if (Array.isArray(input)) {
     const [column, op, value] = input
     return cmp(column, op, value)
@@ -359,6 +368,10 @@ function mapPredicateParams(
         kind: 'not',
         pred: mapPredicateParams(query, handles, mapper, pred.pred)!,
       }
+    case 'exists':
+    case 'inQuery':
+    case 'exprCmp':
+      return pred
     default: {
       const _exhaustive: never = pred
       return _exhaustive
@@ -398,7 +411,12 @@ function findHandle(
 ): TableHandle {
   if (!relation) return handles[0]!
 
-  const matches = query.findRelationMatches(relation, handles)
+  const matches = occurrenceAlias(relation)
+    ? handles.filter((h) => h.getTableMetadata().relation === relation)
+    : query.findRelationMatches(
+        relation,
+        handles.filter((h) => !occurrenceAlias(h.getTableMetadata().relation)),
+      )
 
   if (matches.length === 1) return matches[0]!
 
@@ -447,7 +465,7 @@ function findColumn(
   })
 }
 
-type ResultColumn = { handle: TableHandle; column: string }
+type ResultColumn = { handle: TableHandle; column: string; scalar?: boolean }
 
 /**
  * Builds result-column mappings for a selection.
@@ -486,6 +504,7 @@ function resultColumnsForSelection(
       })
     } else {
       const expression = item.expr
+
       const handle =
         expression.kind === 'column'
           ? findHandle(query, handles, expression.relation)
@@ -525,9 +544,10 @@ function mapSelectedRows(
 
     for (const [key, value] of Object.entries(row)) {
       const mapping = columns.get(key)
-      output[key] = mapping
-        ? mapper.mapResultValue(mapping.handle, mapping.column, value)
-        : value
+      output[key] =
+        mapping && !(mapping.scalar && value === null)
+          ? mapper.mapResultValue(baseTable(mapping.handle), mapping.column, value)
+          : value
     }
 
     return output
@@ -1042,7 +1062,10 @@ export type UpdateBuilder<
    *   using AND.
    */
   where(
-    predicate: Record<string, unknown> | PredicateAst,
+    predicate:
+      | Record<string, unknown>
+      | PredicateAst
+      | ((builder: ExpressionBuilder) => PredicateAst),
   ): UpdateBuilder<THandle, TResult>
   /** Opt into full-table update (no where). */
   all(): UpdateBuilder<THandle, TResult>
@@ -1210,7 +1233,10 @@ export type DeleteBuilder<
    *   using AND.
    */
   where(
-    predicate: Record<string, unknown> | PredicateAst,
+    predicate:
+      | Record<string, unknown>
+      | PredicateAst
+      | ((builder: ExpressionBuilder) => PredicateAst),
   ): DeleteBuilder<THandle, TResult>
   /** Opt into full-table delete (no where). */
   all(): DeleteBuilder<THandle, TResult>
@@ -1351,7 +1377,11 @@ export type SelectBuilder<
   HasSelection extends boolean = false,
   /** Schema-and-table identities whose selected columns are outer-join nullable. */
   TNullable = never,
+  TProjection extends readonly unknown[] = HasSelection extends true
+    ? []
+    : WildcardProjection<InferSelect<THandle>>,
 > = {
+  readonly [projectionShape]?: TProjection
   /**
    * Selects every column from the root or requested joined table.
    *
@@ -1361,7 +1391,10 @@ export type SelectBuilder<
     THandle,
     MergeSelection<HasSelection, TResult, InferSelectAllSide<THandle, TNullable>>,
     true,
-    TNullable
+    TNullable,
+    HasSelection extends true
+      ? [...TProjection, ...WildcardProjection<InferSelect<THandle>>]
+      : TProjection
   >
   /**
    * Selects every column from the root or requested joined table.
@@ -1376,7 +1409,10 @@ export type SelectBuilder<
     THandle,
     MergeSelection<HasSelection, TResult, InferSelectAllSide<TSide, TNullable>>,
     true,
-    TNullable
+    TNullable,
+    HasSelection extends true
+      ? [...TProjection, ...WildcardProjection<InferSelect<TSide>>]
+      : WildcardProjection<InferSelect<TSide>>
   >
   /**
    * Adds selected columns or expressions to the query's result shape.
@@ -1396,7 +1432,8 @@ export type SelectBuilder<
       InferSelectedColumns<THandle, TCols, TNullable>
     >,
     true,
-    TNullable
+    TNullable,
+    HasSelection extends true ? [...TProjection, ...TCols] : TCols
   >
   /**
    * Adds selected columns or expressions to the query's result shape.
@@ -1405,16 +1442,19 @@ export type SelectBuilder<
    *
    * @returns A fresh select builder with the requested columns or expressions added.
    */
-  select(
-    callback: (
-      builder: ExpressionBuilder,
-    ) => readonly (
-      | ColumnRef
-      | string
-      | { expr: SqlExprAst; alias: string }
-      | SelectItemAst
-    )[],
-  ): SelectBuilder<THandle, Record<string, unknown>, true, TNullable>
+  select<const TItems extends readonly SelectionItem[]>(
+    callback: (builder: ExpressionBuilder) => TItems,
+  ): SelectBuilder<
+    THandle,
+    MergeSelection<
+      HasSelection,
+      TResult,
+      InferCallbackSelection<THandle, TItems, TNullable>
+    >,
+    true,
+    TNullable,
+    HasSelection extends true ? [...TProjection, ...TItems] : TItems
+  >
   /**
    * Adds a filter and combines it with any existing predicate using AND.
    *
@@ -1429,7 +1469,7 @@ export type SelectBuilder<
     column: TCol,
     op: ComparisonOp,
     value: InferColumnValue<TCol>,
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Adds a filter and combines it with any existing predicate using AND.
    *
@@ -1443,7 +1483,7 @@ export type SelectBuilder<
       | Record<string, unknown>
       | PredicateAst
       | ((builder: ExpressionBuilder) => PredicateAst),
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Adds an ordering clause with an ascending or descending direction.
    *
@@ -1455,7 +1495,7 @@ export type SelectBuilder<
   orderBy(
     column: ColumnRef | string,
     direction?: 'asc' | 'desc',
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Sets the maximum number of result rows.
    *
@@ -1463,7 +1503,9 @@ export type SelectBuilder<
    *
    * @returns A fresh select builder with the requested row limit.
    */
-  limit(count: number): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  limit(
+    count: number,
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Sets the number of result rows to skip.
    *
@@ -1471,7 +1513,9 @@ export type SelectBuilder<
    *
    * @returns A fresh select builder with the requested row offset.
    */
-  offset(count: number): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  offset(
+    count: number,
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Adds columns to the query's grouping clause.
    *
@@ -1482,7 +1526,7 @@ export type SelectBuilder<
    */
   groupBy(
     columns: readonly (ColumnRef | string)[] | ColumnRef | string,
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Adds a predicate evaluated against grouped query results.
    *
@@ -1492,7 +1536,7 @@ export type SelectBuilder<
    */
   having(
     predicate: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst),
-  ): SelectBuilder<THandle, TResult, HasSelection, TNullable>
+  ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
    * Adds an inner join and its ON predicate to the current query.
    *
@@ -1509,7 +1553,8 @@ export type SelectBuilder<
     THandle,
     MergeJoinStar<HasSelection, TResult, InferSelect<TSide>>,
     HasSelection,
-    TNullable
+    TNullable,
+    HasSelection extends true ? TProjection : readonly [unknown, unknown]
   >
   /**
    * Adds a left join and its ON predicate to the current query.
@@ -1527,7 +1572,8 @@ export type SelectBuilder<
     THandle,
     MergeJoinStar<HasSelection, TResult, NullableFields<InferSelect<TSide>>>,
     HasSelection,
-    TNullable | TableIdentityOf<TSide>
+    TNullable | TableIdentityOf<TSide>,
+    HasSelection extends true ? TProjection : readonly [unknown, unknown]
   >
   /**
    * Adds a right join and its ON predicate to the current query.
@@ -1545,7 +1591,8 @@ export type SelectBuilder<
     THandle,
     HasSelection extends true ? TResult : RightJoinStarResult<THandle, TResult, TSide>,
     HasSelection,
-    TNullable | TableIdentityOf<THandle>
+    TNullable | TableIdentityOf<THandle>,
+    HasSelection extends true ? TProjection : readonly [unknown, unknown]
   >
   /**
    * Compiles the current query or command into SQL and ordered bound parameters.
@@ -1598,38 +1645,39 @@ type SelectState = {
 }
 
 /** Builds the select AST and result-column mappings. */
-function buildSelectQuery(options: {
-  handle: TableHandle
-  query: DialectQueryResolution
-  mapper?: ValueMapper
-  state: SelectState
-}) {
-  const { handle, query, mapper, state } = options
+function buildSelectQuery(
+  options: {
+    handle: TableHandle
+    query: DialectQueryResolution
+    mapper?: ValueMapper
+    state: SelectState
+  },
+  mapResults = true,
+) {
+  const { handle, query, state } = options
   const info = handle.getTableMetadata()
   const handles = [handle, ...state.joinedHandles]
   const selection =
     state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
 
-  const resultColumns = resultColumnsForSelection(query, handles, selection)
+  const resultColumns = mapResults
+    ? resultColumnsForSelection(query, handles, selection)
+    : new Map<string, ResultColumn>()
+
   const ast: SelectAst = {
     kind: 'select',
     relation: info.relation,
     selection,
-    ...(state.joins.length > 0
-      ? { joins: mapJoinsParams(query, handles, mapper, state.joins) }
-      : {}),
-    ...(state.where
-      ? { where: mapPredicateParams(query, handles, mapper, state.where) }
-      : {}),
+    ...(state.joins.length > 0 ? { joins: state.joins } : {}),
+    ...(state.where ? { where: state.where } : {}),
     ...(state.orderBy.length > 0 ? { orderBy: state.orderBy } : {}),
     ...(state.limit !== undefined ? { limit: state.limit } : {}),
     ...(state.offset !== undefined ? { offset: state.offset } : {}),
     ...(state.groupBy.length > 0 ? { groupBy: state.groupBy } : {}),
-    ...(state.having
-      ? { having: mapPredicateParams(query, handles, mapper, state.having) }
-      : {}),
+    ...(state.having ? { having: state.having } : {}),
   }
 
+  authoredSelects.set(ast, { handles, query, mapper: options.mapper })
   return { ast, resultColumns }
 }
 
@@ -1769,13 +1817,13 @@ function createSelectBuilder<THandle extends TableHandle>(
     })
 
   /** Compiles the current select query. */
-  const compile = () => markCompiledQuery(query.compile(buildSelectQuery(options).ast))
+  const compile = () =>
+    markCompiledQuery(
+      query.compile(prepareStatement(buildSelectQuery(options).ast, options.executor)),
+    )
 
   /** Executes the current select query. */
-  const execute = async () => {
-    const { ast, resultColumns } = buildSelectQuery(options)
-    return runQuery(query, executor, handle, mapper, resultColumns, ast)
-  }
+  const execute = () => executeSelect(options)
 
   /** Executes the select and returns its first row. */
   const executeTakeFirst = async () => {
@@ -1786,7 +1834,7 @@ function createSelectBuilder<THandle extends TableHandle>(
   /** Executes the query and requires its first result. */
   const executeTakeFirstOrThrow = () => takeFirstSelectRow(execute)
 
-  return {
+  const builder = {
     ...createSelectSelection(state, next),
     ...createSelectFilters(state, next),
     ...createSelectPagination(state, next),
@@ -1797,6 +1845,13 @@ function createSelectBuilder<THandle extends TableHandle>(
     executeTakeFirst: executeTakeFirst as never,
     executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
   }
+
+  selectDefinitions.set(builder, {
+    owner: executor,
+    build: () => buildSelectQuery(options, false).ast,
+  })
+
+  return builder
 }
 
 // ---------------------------------------------------------------------------
@@ -1808,6 +1863,8 @@ function createSelectBuilder<THandle extends TableHandle>(
  * Default terminal path is `select *`; use insert/update/delete for writes.
  */
 export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
+  readonly [projectionShape]?: WildcardProjection<InferSelect<THandle>>
+
   /** Compile `select * from table` (default read path). */
   compile(): CompiledQuery
   /**
@@ -1838,7 +1895,13 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    */
   executeTakeFirstOrThrow(): Promise<InferSelect<THandle>>
   /** Explicit select-all (same as default execute path). */
-  selectAll(): SelectBuilder<THandle, InferSelect<THandle>, true>
+  selectAll(): SelectBuilder<
+    THandle,
+    InferSelect<THandle>,
+    true,
+    never,
+    WildcardProjection<InferSelect<THandle>>
+  >
   /**
    * Selects every column from the root or requested joined table.
    *
@@ -1848,7 +1911,13 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    */
   selectAll<TSide extends TableHandle>(
     handle: TSide,
-  ): SelectBuilder<THandle, InferSelect<TSide>, true>
+  ): SelectBuilder<
+    THandle,
+    InferSelect<TSide>,
+    true,
+    never,
+    WildcardProjection<InferSelect<TSide>>
+  >
   /**
    * Adds selected columns or expressions to the query's result shape.
    *
@@ -1859,7 +1928,7 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    */
   select<const TCols extends readonly (ColumnRef | string)[]>(
     columns: TCols,
-  ): SelectBuilder<THandle, InferSelectedColumns<THandle, TCols>, true>
+  ): SelectBuilder<THandle, InferSelectedColumns<THandle, TCols>, true, never, TCols>
   /**
    * Adds selected columns or expressions to the query's result shape.
    *
@@ -1867,16 +1936,15 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    *
    * @returns A fresh select builder with the requested columns or expressions added.
    */
-  select(
-    callback: (
-      builder: ExpressionBuilder,
-    ) => readonly (
-      | ColumnRef
-      | string
-      | { expr: SqlExprAst; alias: string }
-      | SelectItemAst
-    )[],
-  ): SelectBuilder<THandle, Record<string, unknown>, true>
+  select<const TItems extends readonly SelectionItem[]>(
+    callback: (builder: ExpressionBuilder) => TItems,
+  ): SelectBuilder<
+    THandle,
+    InferCallbackSelection<THandle, TItems, never>,
+    true,
+    never,
+    TItems
+  >
   /**
    * Adds an inner join and its ON predicate to the current query.
    *
@@ -1889,7 +1957,13 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   innerJoin<TSide extends TableHandle>(
     table: TSide,
     on: JoinOnInput,
-  ): SelectBuilder<THandle, InferSelect<THandle> & InferSelect<TSide>>
+  ): SelectBuilder<
+    THandle,
+    InferSelect<THandle> & InferSelect<TSide>,
+    false,
+    never,
+    readonly [unknown, unknown]
+  >
   /**
    * Adds a left join and its ON predicate to the current query.
    *
@@ -1906,7 +1980,8 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     THandle,
     InferSelect<THandle> & NullableFields<InferSelect<TSide>>,
     false,
-    TableIdentityOf<TSide>
+    TableIdentityOf<TSide>,
+    readonly [unknown, unknown]
   >
   /**
    * Adds a right join and its ON predicate to the current query.
@@ -1924,7 +1999,8 @@ export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
     THandle,
     NullableFields<InferSelect<THandle>> & InferSelect<TSide>,
     false,
-    TableIdentityOf<THandle>
+    TableIdentityOf<THandle>,
+    readonly [unknown, unknown]
   >
   /**
    * Adds a filter and combines it with any existing predicate using AND.
@@ -2057,7 +2133,7 @@ export function createTableBuilder<THandle extends TableHandle>(
     state: emptySelectState(),
   })
 
-  return {
+  const builder = {
     /** Compiles the default select query. */
     compile: () => defaultSelect.compile(),
     /** Executes the default select query. */
@@ -2072,6 +2148,9 @@ export function createTableBuilder<THandle extends TableHandle>(
     ...createTableJoins(rootSelect),
     ...createTablePagination(rootSelect),
   }
+
+  selectDefinitions.set(builder, selectDefinitions.get(defaultSelect)!)
+  return builder
 }
 
 type InsertBuilderOptions<THandle extends TableHandle> = {
@@ -2177,7 +2256,7 @@ function buildUpdateAst<THandle extends TableHandle>(
     kind: 'update',
     relation: info.relation,
     set,
-    ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
+    ...(where ? prepareWriteScope(query, handle, mapper, options.executor, where) : {}),
     allowAll,
     ...(returning ? { returning } : {}),
   }
@@ -2224,7 +2303,7 @@ function buildDeleteAst<THandle extends TableHandle>(
   return {
     kind: 'delete',
     relation: info.relation,
-    ...(where ? { where: mapPredicateParams(query, [handle], mapper, where) } : {}),
+    ...(where ? prepareWriteScope(query, handle, mapper, options.executor, where) : {}),
     allowAll,
     ...(returning ? { returning } : {}),
   }
@@ -2680,4 +2759,413 @@ function createTableGrouping<THandle extends TableHandle>(
       return rootSelect().having(input as never) as never
     },
   }
+}
+
+type SelectionItem =
+  | ColumnRef
+  | string
+  | { expr: SqlExprAst; alias: string }
+  | SelectItemAst
+
+type InferCallbackSelection<H, I extends readonly SelectionItem[], N> = {
+  [
+    K in I[number] as K extends { alias: infer A extends string }
+      ? A
+      : K extends ColumnRef<string, infer C>
+        ? C
+        : K extends string
+          ? K
+          : K extends { kind: 'column'; column: infer C extends string }
+            ? C
+            : never
+  ]: K extends { expr: infer E }
+    ? E extends { readonly __source?: infer C extends ColumnRef }
+      ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
+          H,
+          readonly [C],
+          N
+        >]
+      : E extends { readonly __value?: infer V }
+        ? V
+        : unknown
+    : K extends { readonly __source?: infer C extends ColumnRef }
+      ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
+          H,
+          readonly [C],
+          N
+        >]
+      : K extends ColumnRef | string
+        ? InferSelectedColumns<H, readonly [K], N>[keyof InferSelectedColumns<
+            H,
+            readonly [K],
+            N
+          >]
+        : unknown
+}
+
+const authoredSelects = new WeakMap<
+  SelectAst,
+  { handles: readonly TableHandle[]; query: DialectQueryResolution; mapper?: ValueMapper }
+>()
+
+type PreparedRelation = RelationIdentityInput & { queryAlias?: string }
+type ScopeEntry = { handle: TableHandle; relation: PreparedRelation }
+
+function prepareStatement(root: SelectAst, owner: object): SelectAst {
+  return new StatementPreparation(owner).prepare(root, [])
+}
+
+class StatementPreparation {
+  private sequence = 0
+  constructor(readonly owner: object) {}
+  relation(handle: TableHandle): PreparedRelation {
+    return {
+      ...handle.getTableMetadata().relation,
+      queryAlias: `__stratom_q${this.sequence++}`,
+    }
+  }
+  prepare(node: SelectAst, enclosing: readonly (readonly ScopeEntry[])[]): SelectAst {
+    return new SelectPreparation(this, node, enclosing).prepare()
+  }
+}
+
+class SelectPreparation {
+  readonly handles: readonly TableHandle[]
+  readonly query: DialectQueryResolution
+  readonly mapper: ValueMapper | undefined
+  readonly scope: readonly ScopeEntry[]
+  constructor(
+    readonly statement: StatementPreparation,
+    readonly node: SelectAst,
+    readonly enclosing: readonly (readonly ScopeEntry[])[],
+  ) {
+    const context = authoredSelects.get(node)
+
+    if (!context) throw new InvariantError('Missing authored select context')
+
+    this.handles = context.handles
+    this.query = context.query
+    this.mapper = context.mapper
+
+    const names = this.handles
+      .map((h) => occurrenceAlias(h.getTableMetadata().relation))
+      .filter((n) => n !== undefined)
+
+    if (new Set(names).size !== names.length)
+      throw new QueryError({ message: 'Duplicate relation aliases in query' })
+
+    const nested = enclosing.length > 0 || hasNested(node) || names.length > 0
+    this.scope = this.handles.map((handle) => ({
+      handle,
+      relation: nested ? statement.relation(handle) : handle.getTableMetadata().relation,
+    }))
+  }
+  resolve(
+    ref: QualifiedColumnAst,
+    available: readonly ScopeEntry[] = this.scope,
+  ): { entry: ScopeEntry; column: string } {
+    const handle = findHandle(
+      this.query,
+      available.map((e) => e.handle),
+      ref.relation,
+    )
+
+    return {
+      entry: available.find((e) => e.handle === handle)!,
+      column: findColumn(this.query, handle, ref.column, ref.relation),
+    }
+  }
+  column(
+    ref: QualifiedColumnAst,
+    available: readonly ScopeEntry[] = this.scope,
+  ): QualifiedColumnAst {
+    const found = this.resolve(ref, available)
+    return { column: found.column, relation: found.entry.relation }
+  }
+  inner(
+    placeholder: SelectAst,
+    single: boolean,
+    available: readonly ScopeEntry[],
+  ): SelectAst {
+    const builder = nestedDefinitions.get(placeholder)
+    const definition = builder && selectDefinitions.get(builder)
+
+    if (!definition)
+      throw new QueryError({ message: 'Subqueries require a select builder' })
+
+    if (definition.owner !== this.statement.owner)
+      throw new QueryError({ message: 'Subqueries must share the same client scope' })
+
+    const result = this.statement.prepare(definition.build(), [
+      available,
+      ...this.enclosing,
+    ])
+
+    if (single && result.selection.length !== 1)
+      throw new QueryError({
+        message: 'Scalar and IN subqueries require exactly one projected value',
+      })
+
+    return result
+  }
+  outer(ref: QualifiedColumnAst): SqlExprAst {
+    for (const parent of this.enclosing) {
+      const matches =
+        ref.relation && occurrenceAlias(ref.relation)
+          ? parent.filter((e) => e.handle.getTableMetadata().relation === ref.relation)
+          : this.query.findRelationMatches(
+              ref.relation!,
+              parent
+                .map((e) => e.handle)
+                .filter((h) => !occurrenceAlias(h.getTableMetadata().relation)),
+            )
+
+      if (matches.length > 0) return { kind: 'column', ...this.column(ref, parent) }
+    }
+
+    throw new QueryError({
+      message: 'Outer column is not available in an enclosing scope',
+    })
+  }
+  expression(
+    expr: SqlExprAst,
+    available: readonly ScopeEntry[] = this.scope,
+  ): SqlExprAst {
+    if (expr.kind === 'scalar')
+      return { kind: 'scalar', query: this.inner(expr.query, true, available) }
+
+    if (expr.kind === 'outer') return this.outer(expr.ref)
+    if (expr.kind === 'column') return { kind: 'column', ...this.column(expr, available) }
+
+    if ('arg' in expr)
+      return { ...expr, arg: { kind: 'column', ...this.column(expr.arg, available) } }
+
+    return expr
+  }
+  comparison(
+    pred: Extract<PredicateAst, { kind: 'exprCmp' }>,
+    available: readonly ScopeEntry[],
+  ): PredicateAst {
+    const left = this.expression(pred.left, available)
+    let right =
+      pred.right.kind === 'value' ? pred.right : this.expression(pred.right, available)
+    const source = this.expressionSource(left)
+
+    if (right.kind === 'value' && right.value !== null && this.mapper && source) {
+      right = {
+        kind: 'value',
+        value: this.mapper.mapParam(baseTable(source.handle), source.column, right.value),
+      }
+    }
+
+    return { ...pred, left, right }
+  }
+  predicate(
+    pred: PredicateAst,
+    available: readonly ScopeEntry[] = this.scope,
+  ): PredicateAst {
+    if (pred.kind === 'exists')
+      return { kind: 'exists', query: this.inner(pred.query, false, available) }
+
+    if (pred.kind === 'inQuery')
+      return {
+        kind: 'inQuery',
+        left: this.expression(pred.left, available),
+        query: this.inner(pred.query, true, available),
+      }
+
+    if (pred.kind === 'exprCmp') return this.comparison(pred, available)
+
+    if (pred.kind === 'and' || pred.kind === 'or')
+      return { ...pred, preds: pred.preds.map((p) => this.predicate(p, available)) }
+
+    if (pred.kind === 'not')
+      return { kind: 'not', pred: this.predicate(pred.pred, available) }
+
+    const left = this.resolve(pred, available)
+    return {
+      ...pred,
+      column: left.column,
+      relation: left.entry.relation,
+      ...(pred.right
+        ? { right: this.column(pred.right, available) }
+        : {
+            value:
+              pred.value === null || !this.mapper
+                ? pred.value
+                : this.mapper.mapParam(
+                    baseTable(left.entry.handle),
+                    left.column,
+                    pred.value,
+                  ),
+          }),
+    }
+  }
+  expressionSource(expr: SqlExprAst): ResultColumn | undefined {
+    if (expr.kind === 'column') {
+      const entry = [this.scope, ...this.enclosing]
+        .flat()
+        .find((e) => e.relation === expr.relation)
+
+      return entry ? { handle: entry.handle, column: expr.column } : undefined
+    }
+
+    if (expr.kind === 'scalar') return preparedSources.get(expr.query)
+
+    return undefined
+  }
+  selectionItem(item: SelectItemAst): SelectItemAst[] {
+    if (item.kind === 'all') {
+      const selected = item.relation
+        ? this.scope.filter(
+            (e) => e.handle === findHandle(this.query, this.handles, item.relation),
+          )
+        : this.scope
+
+      return selected.flatMap((entry) =>
+        Object.keys(entry.handle.getSchema().entries).map((name) => ({
+          kind: 'column' as const,
+          column: name,
+          relation: entry.relation,
+          alias: name,
+        })),
+      )
+    }
+
+    if (item.kind === 'column') return [{ ...item, ...this.column(item) }]
+
+    return [{ ...item, expr: this.expression(item.expr) }]
+  }
+  prepare(): SelectAst {
+    const { node, query, handles, mapper } = this
+
+    if (
+      !hasNested(node) &&
+      this.enclosing.length === 0 &&
+      !handles.some((h) => occurrenceAlias(h.getTableMetadata().relation))
+    ) {
+      return {
+        ...node,
+        ...(node.joins
+          ? { joins: mapJoinsParams(query, handles, mapper, node.joins) }
+          : {}),
+        ...(node.where
+          ? { where: mapPredicateParams(query, handles, mapper, node.where) }
+          : {}),
+        ...(node.having
+          ? { having: mapPredicateParams(query, handles, mapper, node.having) }
+          : {}),
+      }
+    }
+
+    const selection = node.selection.flatMap((item) => this.selectionItem(item))
+    const result: SelectAst = {
+      ...node,
+      relation: this.scope[0]!.relation,
+      selection,
+      ...(node.joins
+        ? {
+            joins: node.joins.map((j, i) => ({
+              ...j,
+              relation: this.scope[i + 1]!.relation,
+              on: this.predicate(j.on, this.scope.slice(0, i + 2)),
+            })),
+          }
+        : {}),
+      ...(node.where ? { where: this.predicate(node.where) } : {}),
+      ...(node.having ? { having: this.predicate(node.having) } : {}),
+      ...(node.orderBy
+        ? { orderBy: node.orderBy.map((c) => ({ ...c, ...this.column(c) })) }
+        : {}),
+      ...(node.groupBy ? { groupBy: node.groupBy.map((c) => this.column(c)) } : {}),
+    }
+
+    return this.recordSource(result)
+  }
+
+  recordSource(result: SelectAst): SelectAst {
+    const first = result.selection[0]!
+    const source =
+      first.kind === 'column'
+        ? this.expressionSource(first)
+        : first.kind === 'expr'
+          ? this.expressionSource(first.expr)
+          : undefined
+
+    const columns = new Map<string, ResultColumn>()
+    for (const item of result.selection) {
+      const mapping =
+        item.kind === 'column'
+          ? this.expressionSource(item)
+          : item.kind === 'expr'
+            ? this.expressionSource(item.expr)
+            : undefined
+
+      if (mapping && item.kind !== 'all')
+        columns.set(
+          item.alias ?? (item.kind === 'column' ? item.column : ''),
+          item.kind === 'expr' && item.expr.kind === 'scalar'
+            ? { ...mapping, scalar: true }
+            : mapping,
+        )
+    }
+
+    preparedColumns.set(result, columns)
+
+    if (source) preparedSources.set(result, source)
+
+    return result
+  }
+}
+const preparedColumns = new WeakMap<SelectAst, Map<string, ResultColumn>>()
+const preparedSources = new WeakMap<SelectAst, ResultColumn>()
+
+function hasNested(node: unknown): boolean {
+  if (!node || typeof node !== 'object') return false
+
+  if (
+    'kind' in node &&
+    ['scalar', 'inQuery', 'exists', 'outer'].includes(String(node.kind))
+  )
+    return true
+
+  return Object.entries(node).some(
+    ([key, value]) =>
+      key !== 'value' &&
+      key !== 'values' &&
+      (Array.isArray(value) ? value.some(hasNested) : hasNested(value)),
+  )
+}
+
+function prepareWriteScope(
+  query: DialectQueryResolution,
+  handle: TableHandle,
+  mapper: ValueMapper | undefined,
+  owner: object,
+  where: PredicateAst,
+): Pick<SelectAst, 'relation' | 'where'> {
+  const node: SelectAst = {
+    kind: 'select',
+    relation: handle.getTableMetadata().relation,
+    selection: [{ kind: 'all' }],
+    where,
+  }
+
+  authoredSelects.set(node, { handles: [handle], query, mapper })
+  const prepared = prepareStatement(node, owner)
+
+  return { relation: prepared.relation, where: prepared.where! }
+}
+
+async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
+  const { ast, resultColumns } = buildSelectQuery(options)
+  const prepared = prepareStatement(ast, options.executor)
+  return runQuery(
+    options.query,
+    options.executor,
+    options.handle,
+    options.mapper,
+    preparedColumns.get(prepared) ?? resultColumns,
+    prepared,
+  )
 }

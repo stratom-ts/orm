@@ -365,6 +365,8 @@ export type DateFnExprAst =
 /** Scalar SQL expression (select list / having). */
 export type SqlExprAst =
   | ColumnExprAst
+  | { readonly kind: 'scalar'; readonly query: SelectAst }
+  | { readonly kind: 'outer'; readonly ref: ColumnExprAst }
   | AggregateExprAst
   | StringFnExprAst
   | DateFnExprAst
@@ -405,6 +407,14 @@ export type QualifiedColumnAst = {
  * `cmp` is either column-vs-value (`value`) or column-vs-column (`right`).
  */
 export type PredicateAst =
+  | { readonly kind: 'exists'; readonly query: SelectAst }
+  | { readonly kind: 'inQuery'; readonly left: SqlExprAst; readonly query: SelectAst }
+  | {
+      readonly kind: 'exprCmp'
+      readonly left: SqlExprAst
+      readonly op: ComparisonOp
+      readonly right: SqlExprAst | { readonly kind: 'value'; readonly value: unknown }
+    }
   | {
       readonly kind: 'cmp'
       readonly column: string

@@ -25,6 +25,10 @@ export {
 } from './builder'
 export { excluded, type ExcludedRef } from './upsert'
 export {
+  scalar,
+  inQuery,
+  exists,
+  outer,
   and,
   count,
   countAll,

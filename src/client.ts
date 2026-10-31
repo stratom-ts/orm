@@ -575,7 +575,16 @@ function createClientExecutor(
           })
         },
       }
-    : executor
+    : {
+        execute(compiled, options) {
+          ensureClientOpen()
+          return executor.execute(compiled, options)
+        },
+        run(compiled, options) {
+          ensureClientOpen()
+          return executor.run(compiled, options)
+        },
+      }
 }
 
 /**

@@ -39,11 +39,17 @@ import type { Db, InferInsert, InferSelect, InferUpdate, TableHandle } from '@/i
 import {
   DriverError,
   ValidationError,
+  alias,
   column,
   defineTable,
   eq,
   excluded,
+  exists,
+  inQuery,
+  not,
+  outer,
   reference,
+  scalar,
 } from '@/index'
 
 const integrationCapabilityNames = [
@@ -811,6 +817,8 @@ function registerQueryDriverErrorIntegration(adapter: DialectIntegrationAdapter)
 }
 
 function registerCrudIntegration(adapter: DialectIntegrationAdapter) {
+  registerSubqueryIntegration(adapter)
+
   registerTransformedNullIntegration(adapter)
   registerNullableOutputIntegration(adapter)
 
@@ -1822,6 +1830,245 @@ function registerMappedJsonCompositeIntegration(
         await expect(db.from(ContractMappedJsonComposite).execute()).resolves.toEqual([
           { id: 'one', value },
         ])
+      })
+    },
+  )
+}
+
+function registerSubqueryIntegration(adapter: DialectIntegrationAdapter): void {
+  registerSubqueryNullIntegration(adapter)
+
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration', 'transaction'],
+    'should execute scalar, IN and correlated EXISTS through the outer scope',
+    async () => {
+      await adapter.withDatabase([ContractRecords], async ({ db }) => {
+        await db.migrate().execute()
+
+        await db
+          .insert(ContractRecords)
+          .values([{ label: 'a' }, { label: 'b' }])
+          .execute()
+
+        await assertSubqueryReads(db)
+        const inner = alias(ContractRecords, 'inner')
+
+        await db.transaction(async (trx) => {
+          const ids = trx.from(inner).select([inner.id]).where(eq(inner.label, 'a'))
+          expect(
+            await trx
+              .from(ContractRecords)
+              .where(inQuery(ContractRecords.id, ids))
+              .execute(),
+          ).toHaveLength(1)
+
+          await trx
+            .update(ContractRecords)
+            .set({ active: false })
+            .where((b) => b.inQuery(ContractRecords.id, ids))
+            .execute()
+        })
+
+        await assertSubqueryDelete(db)
+      })
+    },
+  )
+}
+
+async function assertSubqueryDelete(
+  db: Db<readonly [typeof ContractRecords]>,
+): Promise<void> {
+  const inner = alias(ContractRecords, 'inner')
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label, ContractRecords.active])
+      .orderBy(ContractRecords.label)
+      .execute(),
+  ).toEqual([
+    { label: 'a', active: false },
+    { label: 'b', active: true },
+  ])
+
+  await db
+    .delete(ContractRecords)
+    .where((b) =>
+      b.exists(
+        db
+          .from(inner)
+          .where(
+            b.and(eq(inner.active, false), eq(inner.id, b.outer(ContractRecords.id))),
+          ),
+      ),
+    )
+    .execute()
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label, ContractRecords.active])
+      .execute(),
+  ).toEqual([{ label: 'b', active: true }])
+}
+
+async function assertSubqueryReads(
+  db: Db<readonly [typeof ContractRecords]>,
+): Promise<void> {
+  const inner = alias(ContractRecords, 'inner')
+  const one = db.from(inner).select([inner.label]).where(eq(inner.label, 'a'))
+  expect(
+    await db
+      .from(ContractRecords)
+      .select((b) => [ContractRecords.label, b.as(scalar(one), 'one')])
+      .orderBy(ContractRecords.label)
+      .execute(),
+  ).toEqual([
+    { label: 'a', one: 'a' },
+    { label: 'b', one: 'a' },
+  ])
+
+  const absent = db.from(inner).select([inner.id]).where(eq(inner.label, 'missing'))
+  expect(
+    await db
+      .from(ContractRecords)
+      .select((b) => [b.as(scalar(absent), 'missing')])
+      .execute(),
+  ).toEqual([{ missing: null }, { missing: null }])
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label])
+      .where(exists(one))
+      .orderBy(ContractRecords.label)
+      .execute(),
+  ).toEqual([{ label: 'a' }, { label: 'b' }])
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label])
+      .where(exists(absent))
+      .execute(),
+  ).toEqual([])
+
+  await assertCorrelatedSubqueryReads(db)
+
+  const selected = db.from(inner).select([inner.id]).where(eq(inner.label, 'a'))
+  expect(
+    await db.from(ContractRecords).where(inQuery(ContractRecords.id, selected)).execute(),
+  ).toHaveLength(1)
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .where(not(inQuery(ContractRecords.id, selected)))
+      .execute(),
+  ).toHaveLength(1)
+}
+
+async function assertCorrelatedSubqueryReads(
+  db: Db<readonly [typeof ContractRecords]>,
+): Promise<void> {
+  const inner = alias(ContractRecords, 'inner')
+
+  const correlated = db
+    .from(inner)
+    .where((b) => b.and(eq(inner.id, outer(ContractRecords.id)), eq(inner.label, 'a')))
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label])
+      .where(exists(correlated))
+      .execute(),
+  ).toEqual([{ label: 'a' }])
+
+  const correlatedLabels = db
+    .from(inner)
+    .select([inner.label])
+    .where(eq(inner.id, outer(ContractRecords.id)))
+
+  expect(
+    await db
+      .from(ContractRecords)
+      .select((b) => [ContractRecords.label, b.as(scalar(correlatedLabels), 'value')])
+      .orderBy(ContractRecords.label)
+      .execute(),
+  ).toEqual([
+    { label: 'a', value: 'a' },
+    { label: 'b', value: 'b' },
+  ])
+
+  // Without the correlation predicate, the inner row projects either outer label.
+  expect(
+    await db
+      .from(ContractRecords)
+      .select([ContractRecords.label])
+      .where(
+        inQuery(
+          ContractRecords.label,
+          db
+            .from(inner)
+            .select((b) => [b.as(b.outer(ContractRecords.label), 'label')])
+            .where((b) =>
+              b.and(eq(inner.id, b.outer(ContractRecords.id)), eq(inner.label, 'a')),
+            ),
+        ),
+      )
+      .execute(),
+  ).toEqual([{ label: 'a' }])
+}
+
+const ContractSubqueryValues = defineTable(
+  'contract_subquery_values',
+  { id: pipe(number(), integer()), value: nullable(pipe(number(), integer())) },
+  { primaryKey: 'id' },
+)
+
+function registerSubqueryNullIntegration(adapter: DialectIntegrationAdapter): void {
+  registerDialectIntegrationScenario(
+    adapter,
+    ['query', 'migration'],
+    'should preserve NULL semantics in scalar comparisons, IN and NOT IN',
+    async () => {
+      await adapter.withDatabase([ContractSubqueryValues], async ({ db }) => {
+        await db.migrate().execute()
+
+        await db
+          .insert(ContractSubqueryValues)
+          .values([
+            { id: 1, value: 1 },
+            { id: 2, value: null },
+          ])
+          .execute()
+
+        const inner = alias(ContractSubqueryValues, 'inner')
+        const values = db.from(inner).select([inner.value])
+        expect(
+          await db
+            .from(ContractSubqueryValues)
+            .select([ContractSubqueryValues.id])
+            .where(inQuery(ContractSubqueryValues.id, values))
+            .execute(),
+        ).toEqual([{ id: 1 }])
+
+        expect(
+          await db
+            .from(ContractSubqueryValues)
+            .where(not(inQuery(ContractSubqueryValues.id, values)))
+            .execute(),
+        ).toEqual([])
+
+        const absent = scalar(db.from(inner).select([inner.id]).where(eq(inner.id, 99)))
+        expect(
+          await db
+            .from(ContractSubqueryValues)
+            .where(eq(ContractSubqueryValues.id, absent))
+            .execute(),
+        ).toEqual([])
       })
     },
   )

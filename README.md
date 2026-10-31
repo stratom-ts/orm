@@ -1013,6 +1013,96 @@ If runtime capability lookup or tracing channels are unavailable, `withTracing`
 returns the original client unchanged and emits no events. OpenTelemetry integration
 is not included.
 
+## Typed subqueries
+
+Use `scalar(query)`, `inQuery(column, query)`, and `exists(query)` as imports or
+expression-builder methods. Subqueries are reusable select builders; compiled SQL
+snapshots are not accepted. Compilation executes no SQL.
+
+```typescript
+import { alias, exists, inQuery, outer, scalar } from 'stratom'
+
+const titles = db
+  .from(Posts)
+  .select([Posts.title])
+  .where((b) => b.eq(Posts.userId, b.outer(Users.id)))
+  .orderBy(Posts.id, 'desc')
+  .limit(1)
+
+const rows = await db
+  .from(Users)
+  .select((b) => [Users.id, b.as(b.scalar(titles), 'latestTitle')])
+  .execute()
+// { id: number; latestTitle: string | null }[]
+
+const ids = db.from(Posts).select([Posts.userId])
+await db
+  .from(Users)
+  .where((b) => b.inQuery(Users.id, ids))
+  .execute()
+await db
+  .from(Users)
+  .where((b) => b.not(b.exists(titles)))
+  .execute()
+
+const employee = alias(Users, 'employee')
+const manager = alias(Users, 'manager')
+const managers = db
+  .from(manager)
+  .where((b) => b.eq(manager.id, b.outer(employee.managerId)))
+await db.from(employee).where(exists(managers)).execute()
+```
+
+Scalar projections retain the selected column's value type and result mapping,
+with `null` added for an empty result. An empty scalar result bypasses non-null
+column conversions. Aggregate and function outputs remain `unknown`; they receive
+no inferred conversion and cannot satisfy typed scalar comparisons or IN operands.
+Column aliases and scalar aliases retain their literal output names.
+
+Scalar and IN queries must project exactly one value. Known invalid tuples fail
+type checking. Dynamic arrays are accepted and validated after wildcard expansion
+at compilation. Chained selections count every projected value, including repeated
+output names. EXISTS has no single-value restriction. Scalar comparisons work on
+either side, including scalar versus literal and scalar versus scalar. The new
+forms require compatible declared types after removing nullability and perform no
+implicit coercion. Existing literal `null` equality and inequality still mean
+`IS NULL` and `IS NOT NULL`.
+
+Ordinary references resolve within their own query. Use `outer(column)` explicitly
+for correlation; lookup starts at the nearest enclosing scope. Aliases identify
+distinct occurrences of a registered table. Reuse the same alias handle when
+referencing an occurrence. Unavailable or ambiguous references, duplicate aliases,
+and references to relations unavailable at a JOIN ON position fail before execution.
+
+Subquery predicates work in WHERE, HAVING, JOIN ON, and UPDATE/DELETE filters.
+Subqueries in FROM, insert values, update assignments, or RETURNING expressions,
+CTEs, set operations, lateral joins, and implicit correlation are not supported.
+No relationship inference or nested result objects are added.
+
+Both builders must belong to the same client scope. Separate clients, root versus
+transaction clients, distinct transactions, and parent versus nested transactions
+cannot be mixed, even when they share a connector or dialect. Execute through the
+outer builder; it retains transaction and client lifecycle checks. Use a query
+factory to reuse a definition across scopes:
+
+```typescript
+const postUserIds = (scope: typeof db) => scope.from(Posts).select([Posts.userId])
+
+await db.transaction(async (trx) => {
+  const ids = postUserIds(trx)
+  await trx
+    .from(Users)
+    .where((b) => b.inQuery(Users.id, ids))
+    .execute()
+})
+```
+
+Both dialects preserve SQL three-valued logic for comparisons, IN and NOT IN,
+including NULL-containing inner results. Zero scalar rows produce NULL. PostgreSQL
+rejects multiple scalar rows; SQLite uses the first row. No implicit limit or
+portable cardinality check is inserted. Use explicit ordering and `.limit(1)` when
+one deterministic row is required.
+
 ## License
 
 MIT

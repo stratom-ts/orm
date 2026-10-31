@@ -849,3 +849,17 @@ descriptor; it cannot call a shard-only registration function.
 The minimal test member in `tests/unit/helpers/extensionContractDialect.ts` demonstrates the
 extension boundary. It supplies every Dialect facet, is selected only by its connector,
 and requires no edits to the architectural consumers.
+
+## Subquery cardinality
+
+Both adapters compile scalar, IN and EXISTS subqueries as structured nested selects
+with one ordered binding sequence. Nested relations retain session guards, and the
+outer client owns execution. Scalar and IN projections must contain one value;
+EXISTS can select multiple values.
+
+An empty scalar select yields SQL NULL. PostgreSQL raises a cardinality violation
+for multiple scalar rows. SQLite chooses the first row; supply ordering to define
+that row, and an explicit limit when the application requires one row. Neither
+adapter adds an implicit limit. IN and NOT IN retain native SQL NULL semantics.
+See the README's typed subquery examples for explicit correlation, aliases and
+transaction-safe query factories.

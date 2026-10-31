@@ -11,6 +11,14 @@ import type {
 import type { ColumnRef } from '@/types'
 import { QueryError } from '@/utils/error'
 
+import { nestedQuery } from './subquery'
+import type {
+  ScalarExpression,
+  ScalarValue,
+  SelectQuery,
+  SingleProjection,
+} from './subquery'
+
 /**
  * Checks whether a value is a column reference.
  *
@@ -37,6 +45,14 @@ function isColumnRef(value: unknown): value is ColumnRef {
  *
  * @param column - Column reference or unqualified name.
  */
+function colRef<C extends ColumnRef | string>(
+  column: C,
+): ColumnExprAst & {
+  column: C extends ColumnRef<string, infer N> ? N : C
+} & (C extends ColumnRef<string, string, infer V>
+    ? { readonly __value?: V; readonly __source?: C }
+    : unknown)
+
 function colRef(column: ColumnRef | string): ColumnExprAst {
   if (typeof column === 'string') {
     return { kind: 'column', column }
@@ -99,11 +115,23 @@ function toQualified(column: ColumnRef | string): QualifiedColumnAst {
  * @param value - Literal value or right-hand column reference.
  */
 function cmpLeaf(
-  column: ColumnRef | string,
+  column: ColumnRef | string | SqlExprAst,
   op: ComparisonOp,
   value: unknown,
 ): PredicateAst {
-  const left = toQualified(column)
+  if (isExpression(column) || isExpression(value)) {
+    return {
+      kind: 'exprCmp',
+      left: operand(column),
+      op,
+      right:
+        isColumnRef(value) || isExpression(value)
+          ? operand(value)
+          : { kind: 'value', value },
+    }
+  }
+
+  const left = toQualified(column as ColumnRef | string)
 
   if (isColumnRef(value)) {
     return {
@@ -136,7 +164,10 @@ function cmpLeaf(
  *
  * @returns Equality predicate AST node
  */
-export function eq(column: ColumnRef | string, value: unknown): PredicateAst {
+export function eq<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+  column: L,
+  value: R & CompatibleOperands<L, R>,
+): PredicateAst {
   return cmpLeaf(column, 'eq', value)
 }
 
@@ -151,7 +182,10 @@ export function eq(column: ColumnRef | string, value: unknown): PredicateAst {
  *
  * @returns Not-equal predicate AST node
  */
-export function neq(column: ColumnRef | string, value: unknown): PredicateAst {
+export function neq<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+  column: L,
+  value: R & CompatibleOperands<L, R>,
+): PredicateAst {
   return cmpLeaf(column, 'neq', value)
 }
 
@@ -166,7 +200,10 @@ export function neq(column: ColumnRef | string, value: unknown): PredicateAst {
  *
  * @returns Greater-than predicate AST node
  */
-export function gt(column: ColumnRef | string, value: unknown): PredicateAst {
+export function gt<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+  column: L,
+  value: R & CompatibleOperands<L, R>,
+): PredicateAst {
   return cmpLeaf(column, 'gt', value)
 }
 
@@ -181,7 +218,10 @@ export function gt(column: ColumnRef | string, value: unknown): PredicateAst {
  *
  * @returns Greater-than-or-equal predicate AST node
  */
-export function gte(column: ColumnRef | string, value: unknown): PredicateAst {
+export function gte<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+  column: L,
+  value: R & CompatibleOperands<L, R>,
+): PredicateAst {
   return cmpLeaf(column, 'gte', value)
 }
 
@@ -196,7 +236,10 @@ export function gte(column: ColumnRef | string, value: unknown): PredicateAst {
  *
  * @returns Less-than predicate AST node
  */
-export function lt(column: ColumnRef | string, value: unknown): PredicateAst {
+export function lt<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+  column: L,
+  value: R & CompatibleOperands<L, R>,
+): PredicateAst {
   return cmpLeaf(column, 'lt', value)
 }
 
@@ -211,7 +254,10 @@ export function lt(column: ColumnRef | string, value: unknown): PredicateAst {
  *
  * @returns Less-than-or-equal predicate AST node
  */
-export function lte(column: ColumnRef | string, value: unknown): PredicateAst {
+export function lte<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+  column: L,
+  value: R & CompatibleOperands<L, R>,
+): PredicateAst {
   return cmpLeaf(column, 'lte', value)
 }
 
@@ -415,7 +461,11 @@ export type ExpressionBuilder = {
    *
    * @returns A scalar column-expression AST for the supplied name or reference.
    */
-  ref(column: ColumnRef | string): ColumnExprAst
+  ref: typeof colRef
+  scalar: typeof scalar
+  inQuery: typeof inQuery
+  exists: typeof exists
+  outer: typeof outer
   eq: typeof eq
   neq: typeof neq
   gt: typeof gt
@@ -436,11 +486,23 @@ export type ExpressionBuilder = {
   now: typeof now
   dateTrunc: typeof dateTrunc
   /** Alias an expression for select lists. */
-  as(expr: SqlExprAst, alias: string): { expr: SqlExprAst; alias: string }
+  as<E extends SqlExprAst | ColumnRef, const N extends string>(
+    expr: E,
+    alias: N,
+  ): {
+    expr: E extends ColumnRef<string, string, infer V>
+      ? ColumnExprAst & { readonly __value?: V; readonly __source?: E }
+      : E
+    alias: N
+  }
 }
 
 export const eb: ExpressionBuilder = {
   ref: colRef,
+  scalar,
+  inQuery,
+  exists,
+  outer,
   eq,
   neq,
   gt,
@@ -460,18 +522,7 @@ export const eb: ExpressionBuilder = {
   length,
   now,
   dateTrunc,
-  /**
-   * Aliases an expression for a select list.
-   *
-   * @example
-   *   eb.as(eb.countAll(), 'total')
-   *
-   * @param expr - SQL expression to alias.
-   * @param alias - Result alias.
-   */
-  as(expr, alias) {
-    return { expr, alias }
-  },
+  as: aliasExpression,
 }
 
 /**
@@ -496,3 +547,95 @@ export function cmp(
 }
 
 export { columnName, columnRelation, colRef, isColumnRef, toQualified }
+
+export type OuterExpression<T = unknown> = {
+  readonly kind: 'outer'
+  readonly ref: ColumnExprAst
+  readonly __value?: T
+}
+
+type OperandValue<T> =
+  T extends ColumnRef<string, string, infer V>
+    ? V
+    : T extends ScalarExpression<infer V> | OuterExpression<infer V>
+      ? V
+      : T
+
+type Compatible<A, B> = unknown extends A | B
+  ? never
+  : [NonNullable<A>] extends [NonNullable<B>]
+    ? unknown
+    : [NonNullable<B>] extends [NonNullable<A>]
+      ? unknown
+      : never
+
+type InvalidScalarPair<L, R> = L extends unknown
+  ? R extends unknown
+    ? L extends ScalarExpression
+      ? Compatible<OperandValue<L>, OperandValue<R>> extends never
+        ? true
+        : never
+      : R extends ScalarExpression
+        ? Compatible<OperandValue<L>, OperandValue<R>> extends never
+          ? true
+          : never
+        : never
+    : never
+  : never
+
+type CompatibleOperands<L, R> = [InvalidScalarPair<L, R>] extends [never]
+  ? unknown
+  : never
+
+const queryExpressions = new WeakSet()
+
+function isExpression(value: unknown): value is SqlExprAst {
+  return typeof value === 'object' && value !== null && queryExpressions.has(value)
+}
+
+function rememberExpression<T extends SqlExprAst>(expression: T): T {
+  queryExpressions.add(expression)
+  return expression
+}
+
+function operand(value: ColumnRef | string | SqlExprAst): SqlExprAst {
+  return isExpression(value) ? value : colRef(value)
+}
+
+export function scalar<Q extends SelectQuery>(
+  query: Q & SingleProjection<Q>,
+): ScalarExpression<ScalarValue<Q>> {
+  return rememberExpression({ kind: 'scalar', query: nestedQuery(query) })
+}
+
+export function exists(query: SelectQuery): PredicateAst {
+  return { kind: 'exists', query: nestedQuery(query) }
+}
+
+export function inQuery<C extends ColumnRef, Q extends SelectQuery>(
+  column: C,
+  query: Q & SingleProjection<Q> & Compatible<OperandValue<C>, ScalarValue<Q>>,
+): PredicateAst {
+  return { kind: 'inQuery', left: colRef(column), query: nestedQuery(query) }
+}
+
+export function outer<C extends ColumnRef>(column: C): OuterExpression<OperandValue<C>> {
+  return rememberExpression({ kind: 'outer', ref: colRef(column) })
+}
+
+function aliasExpression<E extends SqlExprAst | ColumnRef, const N extends string>(
+  expr: E,
+  alias: N,
+): {
+  expr: E extends ColumnRef<string, string, infer V>
+    ? ColumnExprAst & { readonly __value?: V; readonly __source?: E }
+    : E
+  alias: N
+}
+
+function aliasExpression(
+  expr: SqlExprAst | ColumnRef,
+  alias: string,
+): { expr: SqlExprAst; alias: string } {
+  return { expr: isColumnRef(expr) ? colRef(expr) : expr, alias }
+}

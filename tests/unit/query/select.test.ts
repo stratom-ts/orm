@@ -115,14 +115,14 @@ describe('select result types', () => {
     expectTypeOf<Row>().toEqualTypeOf<{ id: number; email: string }>()
   })
 
-  it('should type expression-callback selects as Record<string, unknown>', () => {
+  it('should infer aliases with unknown aggregate values', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
     const query = db.from(Users).select((b) => [b.as(countAll(), 'total')])
 
     type Row = Awaited<ReturnType<typeof query.execute>>[number]
-    expectTypeOf<Row>().toEqualTypeOf<Record<string, unknown>>()
+    expectTypeOf<Row>().toEqualTypeOf<{ total: unknown }>()
   })
 })
 
