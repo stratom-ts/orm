@@ -18,6 +18,7 @@ import {
   nonNullable,
   nonNullish,
   nonOptional,
+  normalize,
   null as nullSchema,
   nullable,
   nullish,
@@ -28,7 +29,9 @@ import {
   pipe,
   string,
   title,
+  toBigint,
   toDate,
+  toLowerCase,
   toNumber,
   toString,
   transform,
@@ -664,6 +667,54 @@ it('should keep nullable transform inputs separate from non-null stored outputs'
   expectTypeOf<InferInsert<typeof Transformed>['stringFromNullable']>().toEqualTypeOf<
     string | null
   >()
+})
+
+it('should infer normalized string and bigint inputs and outputs', () => {
+  const lower = pipe(string(), toLowerCase())
+  const normalizedBigint = pipe(string(), normalize('NFKC'), toBigint())
+  const defaultedNullableBigint = pipe(nullable(string(), '1'), toBigint())
+  const nullableBigint = nullable(normalizedBigint)
+  const Normalized = defineTable(
+    'normalized_nullable_views',
+    { id: string(), lower, normalizedBigint, nullableBigint, defaultedNullableBigint },
+    { primaryKey: 'id' },
+  )
+
+  expectTypeOf<InferInput<typeof lower>>().toEqualTypeOf<string>()
+  expectTypeOf<InferOutput<typeof lower>>().toEqualTypeOf<string>()
+  expectTypeOf<InferInsert<typeof Normalized>['lower']>().toEqualTypeOf<string>()
+  expectTypeOf<InferSelect<typeof Normalized>['lower']>().toEqualTypeOf<string>()
+
+  expectTypeOf<InferInput<typeof normalizedBigint>>().toEqualTypeOf<string>()
+  expectTypeOf<InferOutput<typeof normalizedBigint>>().toEqualTypeOf<bigint>()
+
+  expectTypeOf<
+    InferInsert<typeof Normalized>['normalizedBigint']
+  >().toEqualTypeOf<string>()
+
+  expectTypeOf<InferUpdate<typeof Normalized>['normalizedBigint']>().toEqualTypeOf<
+    string | undefined
+  >()
+
+  expectTypeOf<
+    InferSelect<typeof Normalized>['normalizedBigint']
+  >().toEqualTypeOf<bigint>()
+
+  expectTypeOf<InferInsert<typeof Normalized>['nullableBigint']>().toEqualTypeOf<
+    string | null
+  >()
+
+  expectTypeOf<InferSelect<typeof Normalized>['nullableBigint']>().toEqualTypeOf<
+    bigint | null
+  >()
+
+  expectTypeOf<InferInsert<typeof Normalized>['defaultedNullableBigint']>().toEqualTypeOf<
+    string | null
+  >()
+
+  expectTypeOf<
+    InferSelect<typeof Normalized>['defaultedNullableBigint']
+  >().toEqualTypeOf<bigint>()
 })
 
 it('should keep nullish transform inputs and omission separate from stored outputs', () => {
