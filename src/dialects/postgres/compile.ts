@@ -863,6 +863,11 @@ function compileUpdate(
 
   const setSql = (node.set as UpdateAst['set'])
     .map((item) => {
+      if (item.addition) {
+        params.push(item.addition.delta)
+        return `${quoteIdentifier(item.column)} = ${quoteIdentifier(relations[0]!.alias)}.${quoteIdentifier(item.addition.source)} + cast($${params.length} as numeric)`
+      }
+
       params.push(item.value)
       return `${quoteIdentifier(item.column)} = $${params.length}`
     })

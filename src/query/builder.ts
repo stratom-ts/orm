@@ -34,6 +34,8 @@ import type {
 } from '@/types/views'
 import { InvariantError, QueryError } from '@/utils/error'
 
+import { isAddition } from './arithmetic'
+import type { UpdatePatch } from './arithmetic'
 import { markCompiledQuery, restoreResultNames } from './compiled'
 import type { CompiledQuery } from './compiled'
 import type { Executor } from './executor'
@@ -297,31 +299,6 @@ function mapWriteParams(
       return mapper.mapParam(handle, col, value)
     }),
   )
-}
-
-/**
- * Maps SET clause parameters through the value mapper.
- *
- * @example
- *   mapSetParams(handle, mapper, [{ column: 'name', value: 'Alice' }])
- *
- * @param handle - Table handle for column metadata.
- * @param mapper - Value mapper for parameter conversion.
- * @param set - SET items with column names and values.
- *
- * @returns Mapped SET items
- */
-function mapSetParams(
-  handle: TableHandle,
-  mapper: ValueMapper | undefined,
-  set: readonly { readonly column: string; readonly value: unknown }[],
-): readonly { readonly column: string; readonly value: unknown }[] {
-  if (!mapper) return set
-
-  return set.map((item) => ({
-    column: item.column,
-    value: mapper.mapParam(handle, item.column, item.value),
-  }))
 }
 
 /**
@@ -1040,9 +1017,9 @@ export type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
    * @returns An update builder containing the validated and mapped column patch.
    *
    * @throws {ValidationError} Invalid literal values are rejected synchronously; deferred
-   *   expressions may fail during execution.
+   *   expressions are checked before SQL execution.
    */
-  set(patch: InferUpdate<THandle>): UpdateBuilder<THandle, InferSelect<THandle>>
+  set(patch: UpdatePatch<THandle>): UpdateBuilder<THandle, InferSelect<THandle>>
 }
 
 export type UpdateBuilder<
@@ -2310,10 +2287,10 @@ function buildUpdateAst<THandle extends TableHandle>(
     })
   }
 
-  const set = mapSetParams(
-    handle,
-    mapper,
-    Object.entries(patch).map(([column, value]) => ({ column, value })),
+  const set: UpdateAst['set'] = Object.entries(patch).map(([column, value]) =>
+    isAddition(value)
+      ? { column, addition: { source: value.column.column, delta: value.delta } }
+      : { column, value: mapper ? mapper.mapParam(handle, column, value) : value },
   )
 
   return {

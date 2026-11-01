@@ -237,7 +237,20 @@ class ColumnQuery {
     return {
       ...node,
       ...(node.kind === 'update'
-        ? { set: node.set.map((item) => this.column(item, relation)) }
+        ? {
+            set: node.set.map((item) =>
+              item.addition
+                ? {
+                    ...this.column(item, relation),
+                    addition: {
+                      ...item.addition,
+                      source: this.column({ column: item.addition.source }, relation)
+                        .column,
+                    },
+                  }
+                : this.column(item, relation),
+            ),
+          }
         : {}),
       ...(where ? { where } : {}),
       ...(node.returning

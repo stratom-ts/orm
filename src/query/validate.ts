@@ -332,7 +332,13 @@ export function validateUpdatePatchWithStructuredValues(
     Object.entries(authoredPatch).filter(([, value]) => !isStructuredValue(value)),
   )
 
-  const result = safeParse(schema, literalPatch)
+  // Omit structured fields themselves so optional defaults cannot run their transforms.
+  const literalEntries = { ...schema.entries }
+  for (const key of Object.keys(authoredPatch)) {
+    if (isStructuredValue(authoredPatch[key])) delete literalEntries[key]
+  }
+
+  const result = safeParse(object(literalEntries), literalPatch)
 
   if (!result.success)
     throw new ValidationError({

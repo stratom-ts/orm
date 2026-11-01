@@ -271,6 +271,11 @@ export type DialectQuery = Readonly<{
     placeholder(position: number): string
   }>
 
+  /** Proves native number arithmetic support; absent extensions reject addition. */
+  numericAssignmentType?: (
+    dataType: string,
+    context: DialectValueMappingContext,
+  ) => 'integer' | 'float' | undefined
   /** Rejects unproven built-in mappings during client construction, before SQL. */
   validateValueMapping?: (dataType: string, context: DialectValueMappingContext) => void
   /**
@@ -499,7 +504,14 @@ export type InsertAst = {
 export type UpdateAst = {
   readonly kind: 'update'
   readonly relation: RelationIdentityInput
-  readonly set: readonly { readonly column: string; readonly value: unknown }[]
+  readonly set: readonly (
+    | { readonly column: string; readonly value: unknown; readonly addition?: never }
+    | {
+        readonly column: string
+        readonly addition: { readonly source: string; readonly delta: number }
+        readonly value?: never
+      }
+  )[]
   /** Predicate; empty + allowAll is full-table update. */
   readonly where?: PredicateAst
   readonly allowAll: boolean

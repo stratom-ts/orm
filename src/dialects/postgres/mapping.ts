@@ -593,3 +593,24 @@ function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): bool
   seen.add(value)
   return Object.values(value).some((item) => containsNonFiniteNumber(item, seen))
 }
+
+/** Proves native numeric storage without invoking custom mappings. */
+export function numericAssignmentType(
+  dataType: string,
+  context: DialectValueMappingContext,
+): 'integer' | 'float' | undefined {
+  const facts = context.authoredFacts ?? context.facts
+  const storage = mappingStorage(dataType)
+
+  if (
+    facts.outputKind !== 'number' ||
+    facts.outputState !== 'known' ||
+    !['smallint', 'integer', 'bigint', 'real', 'double precision'].includes(storage)
+  )
+    return undefined
+
+  return facts.numberConstraints.isInteger ||
+    ['smallint', 'integer', 'bigint'].includes(storage)
+    ? 'integer'
+    : 'float'
+}

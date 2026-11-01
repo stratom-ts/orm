@@ -61,3 +61,5 @@ export {
 } from './validate'
 
 export { after, before, type OrderTerm } from './keyset'
+
+export { add, type Addition, type UpdatePatch } from './arithmetic'
