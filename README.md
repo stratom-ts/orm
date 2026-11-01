@@ -883,6 +883,80 @@ await db.transaction(async (trx) => {
 })
 ```
 
+### Serializable read/diff/write workflows
+
+Use a root transaction option when history must record the actual stored predecessor:
+
+```ts
+await db.transaction(
+  async (tx) => {
+    await requireProject(tx, userId, workspaceId, projectId)
+    const before = await tx
+      .from(Issues)
+      .where({ workspaceId, projectId, number })
+      .executeTakeFirstOrThrow()
+    const changes = changesFor(before, { ...before, ...patch })
+    if (!changes.length) return before
+
+    const after = await tx
+      .update(Issues)
+      .set({ ...patch, updatedAt: new Date() })
+      .where({ id: before.id, workspaceId, projectId })
+      .executeTakeFirstOrThrow()
+    await recordActivity(tx, before.id, changes)
+    return after
+  },
+  { isolationLevel: 'serializable' },
+)
+```
+
+The option applies before the callback, including its authorization queries. Queries
+retain ordinary predicates, result mapping, missing-row behavior, and scope checks.
+An unchanged save issues no data UPDATE, writes no history, preserves `updatedAt`,
+and fires no UPDATE trigger. A later history failure rolls back the edit.
+
+PostgreSQL emits `BEGIN ISOLATION LEVEL SERIALIZABLE`. Its snapshot and predicate
+dependency tracking permit a committed result only when the transactions have a
+serial order. SELECT does not acquire a row write lock. Concurrent updates acquire
+row locks when they execute. Predicate tracking can cover rows, pages, or relations,
+so unrelated edits can also conflict. An overlapping stale editor can fail with
+SQLSTATE `40001` instead of waiting and then reading a newer predecessor. All related
+read/diff/write workflows must use this protocol for the stated history guarantee.
+See [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html).
+
+For SQLite, pass `{ behavior: 'immediate' }` as the second argument instead:
+
+```ts
+await sqliteDb.transaction(
+  async (tx) => {
+    // Run the same authorization/read/diff/update/history workflow above.
+  },
+  { behavior: 'immediate' },
+)
+```
+
+SQLite emits `BEGIN IMMEDIATE`, acquiring database write ownership before any read.
+It serializes writers at database granularity, including edits to unrelated rows.
+Another connection can fail with `SQLITE_BUSY` or `SQLITE_LOCKED` at acquisition or
+commit, depending on native busy policy, journal mode, and active readers. A plain
+SQLite SELECT alone provides no equivalent write ownership. See
+[SQLite transactions](https://www.sqlite.org/lang_transaction.html).
+
+Successful competing edits chain history from the stored predecessor. Contention
+can reject an entire attempt. Recognized contention errors expose `kind: 'transient'`
+and `retryable: true`. Stratom does not retry automatically. Callers must decide
+whether to retry the whole transaction after a known rollback. Do not blindly replay
+an unknown commit outcome. Commit, rollback, and failed transaction cleanup release
+ownership through the existing pinned-session lifecycle.
+
+PostgreSQL accepts only `isolationLevel: 'serializable'`. SQLite accepts only
+`behavior: 'immediate'`. Each dialect rejects the other option with `QueryError`.
+The options cannot be combined. Omitting options preserves default transaction behavior.
+Explicit options on nested transactions fail with
+`QueryError`, even when they match the root. Nested calls without options inherit
+the root transaction and use savepoints. Unsupported options and dialect capabilities
+fail explicitly. This API does not detect edits based on stale form data.
+
 ## Migrations
 
 Migrations diff your registered handles against the live database. Destructive
