@@ -1092,3 +1092,42 @@ it.each(['native family', 'ambiguous precision', 'Date output'])(
     expect(prepare).not.toHaveBeenCalled()
   },
 )
+
+it.each([postgresDialect, sqliteDialect])(
+  'identifies the relation and column in $id inference failures',
+  (dialect) => {
+    const Issues = defineTable(
+      'issues',
+      {
+        id: string(),
+        title: pipe(
+          string(),
+          transform((value) => value),
+        ),
+      },
+      { primaryKey: 'id' },
+    )
+
+    expect(() => createValueMapper(dialect, undefined, [Issues])).toThrow(
+      /Column "title" in \[relation:"issues"\]: cannot infer .*unresolved transformation/,
+    )
+  },
+)
+
+it('preserves unexpected inference defects by identity', async () => {
+  const defect = new Error('inference defect')
+  const Issues = defineTable('issues', { id: string() }, { primaryKey: 'id' })
+  const dialect = {
+    ...postgresDialect,
+    schema: {
+      ...postgresDialect.schema,
+      inferColumnType() {
+        throw defect
+      },
+    },
+  }
+
+  await expect(async () => createValueMapper(dialect, undefined, [Issues])).rejects.toBe(
+    defect,
+  )
+})
