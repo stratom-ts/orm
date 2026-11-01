@@ -5,6 +5,10 @@ import { createDb0NodeSqliteOperationSessionProvider } from './operationSession'
 
 /** Compiles SQLite lifecycle commands for the pinned native operation session. */
 export function compileSqliteOperationCommand(command: OperationCommand): CompiledQuery {
+  if (command.kind === 'begin' && command.isolationLevel === 'serializable') {
+    return { sql: 'begin immediate', params: [] }
+  }
+
   return compileCommonOperationCommand(command)
 }
 

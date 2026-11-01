@@ -1,3 +1,5 @@
+import { QueryError } from '@/utils/error'
+
 import type { CompiledQuery, OperationCommand } from './types'
 
 /** Compiles the lifecycle SQL shared by PostgreSQL and SQLite operation sessions. */
@@ -6,6 +8,14 @@ export function compileCommonOperationCommand(command: OperationCommand): Compil
     case 'ping':
       return { sql: 'select 1', params: [] }
     case 'begin':
+      if (command.isolationLevel !== undefined) {
+        throw new QueryError({
+          message:
+            'Selected dialect does not support the requested transaction isolation level',
+        })
+      }
+
+      return { sql: 'begin', params: [] }
     case 'commit':
     case 'rollback':
       return { sql: command.kind, params: [] }

@@ -310,7 +310,8 @@ export type DialectQuery = Readonly<{
 /** Structured operation lifecycle command compiled by the selected dialect. */
 export type OperationCommand =
   | Readonly<{ kind: 'ping' }>
-  | Readonly<{ kind: 'begin' | 'commit' | 'rollback' }>
+  | Readonly<{ kind: 'begin'; isolationLevel?: 'serializable' }>
+  | Readonly<{ kind: 'commit' | 'rollback' }>
   | Readonly<{
       kind: 'createSavepoint' | 'rollbackToSavepoint' | 'releaseSavepoint'
       id: number

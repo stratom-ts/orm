@@ -53,6 +53,11 @@ import { createSqlTag } from './sql'
 export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'
 
+/** Options established before a root transaction runs its first query. */
+export type TransactionOptions = Readonly<{
+  isolationLevel: 'serializable'
+}>
+
 type TransactionContext = {
   nextSavepointId: number
   poisoned: boolean
@@ -248,7 +253,10 @@ export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]>
    * @throws {Error} The callback's thrown value propagates unchanged, including tagged
    *   errors and defects.
    */
-  transaction<T>(fn: (trx: Db<TSchemas>) => Promise<T>): Promise<T>
+  transaction<T>(
+    fn: (trx: Db<TSchemas>) => Promise<T>,
+    options?: TransactionOptions,
+  ): Promise<T>
   /**
    * Releases underlying connection resources. Idempotent after first call.
    *
@@ -372,12 +380,13 @@ async function runRootTransaction<T>(
   inheritedTransactionFrame: TransactionScopeFrame | undefined,
   fn: (scope: TransactionScope) => Promise<T>,
   tracing?: QueryTracing,
+  options?: TransactionOptions,
 ): Promise<T> {
   return coordinator.run(async (operation) => {
     await runOperationCommand(
       operation.executor,
       operations,
-      { kind: 'begin' },
+      { kind: 'begin', ...(options ? { isolationLevel: options.isolationLevel } : {}) },
       dialectId,
     )
 
@@ -904,10 +913,6 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
     ensureClientOpen,
   )
 
-  /** Checks connectivity through the current operation executor. */
-  const ping = () =>
-    pingClient(clientExecutor, dialect.operations, dialect.id, ensureClientOpen)
-
   /** Executes SQL through the current scope without repeating value mapping. */
   const execute = async (compiled: ExecutableQuery): Promise<unknown[]> => {
     ensureClientOpen()
@@ -920,28 +925,30 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
 
   const { update, delete: delete_ } = createUpdateDeleteMethods(queryContext)
 
-  /** Creates migration operations for the registered desired schema. */
-  const migrate = () =>
-    createScopedMigration(context, clientExecutor, ensureClientOpen, transactionScope)
-
-  /** Runs a transaction that commits on success and rolls back on failure. */
-  const transaction = <T>(fn: (trx: Db<TSchemas>) => Promise<T>) =>
-    runClientTransaction(fn, context, transactionScope, ensureClientOpen, createClient)
-
   /** Closes the root client; rejects transaction-scoped closure. */
   const closeScopedClient = () => closeClient(ensureClientOpen, close, transactionScope)
 
   return {
     schemas,
-    ping,
+    ping: () =>
+      pingClient(clientExecutor, dialect.operations, dialect.id, ensureClientOpen),
     sql: createSqlTag(dialect.query.rawSql, execute),
     execute,
     from,
     insert,
     update,
     delete: delete_,
-    migrate,
-    transaction,
+    migrate: () =>
+      createScopedMigration(context, clientExecutor, ensureClientOpen, transactionScope),
+    transaction: (fn, options) =>
+      runClientTransaction(
+        fn,
+        context,
+        transactionScope,
+        ensureClientOpen,
+        createClient,
+        options,
+      ),
     close: closeScopedClient,
     [Symbol.asyncDispose]: closeScopedClient,
   }
@@ -1002,6 +1009,25 @@ type DatabaseClientContext<TSchemas extends readonly TableHandle[]> = ReturnType
   typeof createDatabaseContext<TSchemas>
 >
 
+/** Validates and copies caller-owned transaction options before work enters the queue. */
+function resolveTransactionOptions(options: unknown): TransactionOptions | undefined {
+  if (options === undefined) return undefined
+
+  if (
+    options === null ||
+    typeof options !== 'object' ||
+    !('isolationLevel' in options) ||
+    options.isolationLevel !== 'serializable' ||
+    Reflect.ownKeys(options).some((key) => key !== 'isolationLevel')
+  ) {
+    throw new QueryError({
+      message: 'Unsupported transaction options; expected isolationLevel: serializable',
+    })
+  }
+
+  return { isolationLevel: 'serializable' }
+}
+
 /**
  * Selects a root transaction or nested savepoint while preserving scope ownership.
  *
@@ -1020,9 +1046,24 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
   transactionScope: TransactionScope | undefined,
   ensureClientOpen: () => void,
   createClient: (executor: Executor, transactionScope?: TransactionScope) => Db<TSchemas>,
+  options?: TransactionOptions,
 ): Promise<T> {
   const { coordinator, dialect } = context
   ensureClientOpen()
+
+  if (transactionScope) {
+    const ownershipError = transactionScopeOwnershipError(transactionScope)
+
+    if (ownershipError) throw ownershipError
+
+    if (options !== undefined) {
+      throw new QueryError({
+        message: 'Transaction options cannot be set inside a nested transaction',
+      })
+    }
+  }
+
+  const resolvedOptions = resolveTransactionOptions(options)
   const inheritedTransactionFrame = activeTransactionScope.getStore()
 
   if (!transactionScope) {
@@ -1033,6 +1074,7 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
       inheritedTransactionFrame,
       (scope) => fn(createClient(scope.operation.executor, scope)),
       context.tracing,
+      resolvedOptions,
     )
   }
 
