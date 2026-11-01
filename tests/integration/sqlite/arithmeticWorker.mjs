@@ -8,8 +8,11 @@ const options = /** @type {{ library: string; path: string; hold: boolean }} */ 
   workerData
 )
 
-/** @type {typeof import('stratom')} */
-const library = /** @type {typeof import('stratom')} */ (await import(options.library))
+/** @type {typeof import('../../../src/index')} */
+const library = /** @type {typeof import('../../../src/index')} */ (
+  await import(options.library)
+)
+
 const { add, createDatabase, defineTable } = library
 
 if (!parentPort) throw new Error('worker requires a parent port')
