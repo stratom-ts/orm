@@ -508,7 +508,14 @@ function applyTransformation(result: RecursiveAnalysis, action: PipeAction): voi
     parse_boolean: 'boolean',
     to_date: 'date',
     to_string: 'string',
+    trim: 'string',
   }
+
+  // Trimming cannot increase string length, but can invalidate lower bounds and formats.
+  const maxLength =
+    action.type === 'trim' && result.outputKind === 'string'
+      ? result.stringConstraints.maxLength
+      : undefined
 
   result.outputKind = conversions[action.type]
   result.outputState = result.outputKind === undefined ? 'unresolved' : 'known'
@@ -516,6 +523,9 @@ function applyTransformation(result: RecursiveAnalysis, action: PipeAction): voi
   if (result.outputState !== 'unresolved') result.nullable = false
 
   resetOutputFacts(result)
+
+  if (maxLength !== undefined) result.stringConstraints.maxLength = maxLength
+
   result.jsonOutputCompatible =
     result.outputKind === 'string' ||
     result.outputKind === 'number' ||

@@ -12,7 +12,7 @@ import type { RelationIdentityInput } from '@/schemas/actions/relation'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
-import { QueryError, SchemaError } from '@/utils/error'
+import { QueryError, SchemaError, isErrorTag } from '@/utils/error'
 
 type ColumnValueMapping = { dataType: string; context: DialectValueMappingContext }
 type MappingContexts = WeakMap<TableHandle, Record<string, DialectValueMappingContext>>
@@ -213,12 +213,20 @@ function resolveColumnDataType(
   const selected = columnMetadata?.physicalType?.[dialect.id]
   const facts = extractStorageFacts(schema)
 
-  return {
-    dataType:
-      selected === undefined
-        ? String(dialect.schema.inferColumnType(facts))
-        : String(selected),
-    context: { facts },
+  try {
+    return {
+      dataType:
+        selected === undefined
+          ? String(dialect.schema.inferColumnType(facts))
+          : String(selected),
+      context: { facts },
+    }
+  } catch (cause) {
+    if (!isErrorTag(cause, 'SchemaError')) throw cause
+
+    throw new SchemaError({
+      message: `Column ${JSON.stringify(columnName)} in ${formatRelationInput(handle.getTableMetadata().relation)}: ${cause.message}`,
+    })
   }
 }
 

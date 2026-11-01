@@ -8,6 +8,7 @@ import {
   fallback,
   integer,
   intersect,
+  length,
   literal,
   maxLength,
   maxValue,
@@ -26,6 +27,7 @@ import {
   toDate,
   toNumber,
   transform,
+  trim,
   tuple,
   undefinedable,
   union,
@@ -333,4 +335,77 @@ it('describes absent, null, value and factory defaults without executing user co
   expect(fallbackFactory).not.toHaveBeenCalled()
   expect(transformation).not.toHaveBeenCalled()
   expect(mapping).not.toHaveBeenCalled()
+})
+
+it('recognizes trim output and applies constraints after normalization', () => {
+  expect(
+    extractStorageFacts(pipe(string(), trim(), minLength(1), maxLength(200))),
+  ).toMatchObject({
+    outputKind: 'string',
+    outputState: 'known',
+    nullable: false,
+    outputMayBeUndefined: false,
+    stringConstraints: { minLength: 1, maxLength: 200 },
+  })
+
+  expect(
+    extractStorageFacts(pipe(string(), minLength(10), maxLength(20), trim()))
+      .stringConstraints,
+  ).toEqual({ maxLength: 20 })
+
+  expect(
+    extractStorageFacts(pipe(string(), length(10), trim())).stringConstraints,
+  ).toEqual({ maxLength: 10 })
+
+  expect(
+    extractStorageFacts(pipe(string(), minLength(10), trim(), minLength(1)))
+      .stringConstraints,
+  ).toEqual({ minLength: 1 })
+})
+
+it('discards finite and format facts that trimming can change', () => {
+  for (const schema of [
+    pipe(literal<string>(' padded '), trim()),
+    pipe(picklist([' a ', ' b '] as string[]), trim()),
+    pipe(string(), uuid(), trim()),
+  ]) {
+    expect(extractStorageFacts(schema)).toMatchObject({
+      outputKind: 'string',
+      outputState: 'known',
+      finiteEvidence: undefined,
+      finiteValues: undefined,
+      singletonValue: undefined,
+      stringFormats: [],
+    })
+  }
+})
+
+it('preserves wrappers and defaults surrounding trimmed titles', () => {
+  const title = pipe(string(), trim(), minLength(1), maxLength(200))
+  expect(extractStorageFacts(nullable(title))).toMatchObject({
+    outputKind: 'string',
+    nullable: true,
+    outputMayBeUndefined: false,
+  })
+
+  expect(extractStorageFacts(optional(title, '  Default title  '))).toMatchObject({
+    outputKind: 'string',
+    omitOnInsert: true,
+    allowsUndefined: true,
+    outputMayBeUndefined: false,
+    schemaDefault: { kind: 'value', value: '  Default title  ' },
+  })
+
+  expect(
+    extractStorageFacts(
+      pipe(
+        title,
+        transform((value) => value),
+      ),
+    ),
+  ).toMatchObject({
+    outputKind: undefined,
+    outputState: 'unresolved',
+    stringConstraints: {},
+  })
 })
