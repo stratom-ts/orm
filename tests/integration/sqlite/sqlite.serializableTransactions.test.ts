@@ -5,6 +5,7 @@ import { expect, it } from 'vitest'
 
 import { createDatabase } from '@/index'
 
+import { deferred } from '../../helpers/deferredPromise'
 import {
   History,
   assertWorkflow,
@@ -12,6 +13,7 @@ import {
   initialDate,
   seed,
   tables,
+  waitForRead,
 } from '../support/serializableTransactions'
 
 import { withSqliteDatabase } from './sqliteIntegration'
@@ -59,26 +61,19 @@ it('acquires write ownership before authorization reads and chains a competing c
     tables,
     async ({ db, filePath }) => {
       await seed(db)
-      let release!: () => void
-      let read!: () => void
-      const readGate = new Promise<void>((r) => {
-        read = r
-      })
-
-      const gate = new Promise<void>((r) => {
-        release = r
-      })
+      const readGate = deferred()
+      const gate = deferred()
 
       const first = edit(db, intent, 'B', {
         afterRead: async () => {
-          read()
-          await gate
+          readGate.resolve()
+          await gate.promise
         },
       })
 
       let worker: Worker | undefined
       try {
-        await readGate
+        await waitForRead(readGate.promise, first, 'first edit')
         worker = new Worker(new URL('./serializableWorker.mjs', import.meta.url), {
           workerData: { path: filePath!, library: import.meta.resolve('stratom') },
         })
@@ -87,7 +82,7 @@ it('acquires write ownership before authorization reads and chains a competing c
           (await once(worker, 'message', { signal: AbortSignal.timeout(10000) }))[0],
         ).toEqual({ state: 'busy', entered: false })
 
-        release()
+        gate.resolve()
         await first
         const result = once(worker, 'message', { signal: AbortSignal.timeout(10000) })
         worker.postMessage('retry')
@@ -98,7 +93,7 @@ it('acquires write ownership before authorization reads and chains a competing c
           { before: 'B', after: 'C', issue: 1 },
         ])
       } finally {
-        release()
+        gate.resolve()
         await Promise.allSettled([first])
         await worker?.terminate()
       }

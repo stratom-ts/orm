@@ -122,3 +122,17 @@ export async function assertWorkflow(db: Db, observer: Db, intent: TransactionOp
     { before: 'B', after: 'C', issue: 1 },
   ])
 }
+
+/** Unwinds the test immediately if an edit settles before its read barrier. */
+export async function waitForRead(
+  read: Promise<void>,
+  operation: Promise<unknown>,
+  name: string,
+): Promise<void> {
+  await Promise.race([
+    read,
+    operation.then(() => {
+      throw new Error(`${name} finished before the read barrier`)
+    }),
+  ])
+}

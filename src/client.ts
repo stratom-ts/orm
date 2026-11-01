@@ -1016,21 +1016,20 @@ function resolveTransactionOptions(options: unknown): TransactionOptions | undef
   if (
     options !== null &&
     typeof options === 'object' &&
-    Reflect.ownKeys(options).length === 1
+    Reflect.ownKeys(options).every(
+      (key) => key === 'isolationLevel' || key === 'behavior',
+    )
   ) {
-    if (
-      Object.hasOwn(options, 'isolationLevel') &&
-      'isolationLevel' in options &&
-      options.isolationLevel === 'serializable'
-    ) {
+    const isolationLevel =
+      'isolationLevel' in options ? options.isolationLevel : undefined
+
+    const behavior = 'behavior' in options ? options.behavior : undefined
+
+    if (isolationLevel === 'serializable' && behavior === undefined) {
       return { isolationLevel: 'serializable' }
     }
 
-    if (
-      Object.hasOwn(options, 'behavior') &&
-      'behavior' in options &&
-      options.behavior === 'immediate'
-    ) {
+    if (behavior === 'immediate' && isolationLevel === undefined) {
       return { behavior: 'immediate' }
     }
   }

@@ -50,7 +50,7 @@ it('rejects invalid options before running user work and leaves the client usabl
     { isolationLevel: 'read committed' },
     { behavior: 'deferred' },
     { behavior: 'immediate', isolationLevel: 'serializable' },
-    { behavior: 'immediate', isolationLevel: undefined },
+    { behavior: undefined, isolationLevel: undefined },
     { isolationLevel: 'serializable', mode: 'immediate' },
   ]) {
     await expect(db.transaction(callback, options as never)).rejects.toThrow(QueryError)
@@ -211,3 +211,31 @@ it('does not enter a callback after a failed begin and releases the session for 
   expect(await db.transaction(callback, { isolationLevel: 'serializable' })).toBe(42)
   await db.close()
 })
+
+it.each([
+  {
+    dialect: 'postgresql',
+    options: { isolationLevel: 'serializable', behavior: undefined },
+    begin: 'begin isolation level serializable',
+  },
+  {
+    dialect: 'sqlite',
+    options: { behavior: 'immediate', isolationLevel: undefined },
+    begin: 'begin immediate',
+  },
+] as const)(
+  'accepts an explicitly undefined opposing option on $dialect',
+  async ({ dialect, options, begin }) => {
+    const controls = createControllableProvider()
+    const db = createDatabase({
+      connector: customConnector(dialect),
+      schemas: [],
+      operationSessionProvider: controls.provider,
+    })
+
+    const typedOptions: TransactionOptions = options
+    await expect(db.transaction(async () => 42, typedOptions)).resolves.toBe(42)
+    expect(controls.calls.map((call) => call.sql)).toEqual([begin, 'commit'])
+    await db.close()
+  },
+)

@@ -8,6 +8,7 @@ import {
   initialDate,
   seed,
   tables,
+  waitForRead,
 } from '../support/serializableTransactions'
 
 import { withPostgresDatabase } from './postgresIntegration'
@@ -52,7 +53,7 @@ it('rejects an overlapping stale edit and a new transaction chains from the comm
     const secondClient = createDatabase(tables)
     let second: Promise<unknown> | undefined
     try {
-      await firstRead.promise
+      await waitForRead(firstRead.promise, first, 'first edit')
       second = edit(secondClient, intent, 'C', {
         afterRead: async () => {
           secondRead.resolve()
@@ -65,7 +66,7 @@ it('rejects an overlapping stale edit and a new transaction chains from the comm
         (error: unknown) => ({ error }),
       )
 
-      await secondRead.promise
+      await waitForRead(secondRead.promise, second, 'second edit')
       firstGate.resolve()
       await first
       secondGate.resolve()
