@@ -109,7 +109,19 @@ type IsSqlNullablePipe<
         ? IsSqlNullableSchema<TItem>
         : TItem extends {
               kind: 'transformation'
-              type: 'to_number' | 'to_boolean' | 'parse_boolean' | 'to_date' | 'to_string'
+              type:
+                | 'to_number'
+                | 'to_boolean'
+                | 'parse_boolean'
+                | 'to_date'
+                | 'to_string'
+                | 'trim'
+                | 'trim_start'
+                | 'trim_end'
+                | 'to_lower_case'
+                | 'to_upper_case'
+                | 'normalize'
+                | 'to_bigint'
             }
           ? false
           : TNullable

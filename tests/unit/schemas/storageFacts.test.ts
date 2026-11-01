@@ -14,6 +14,7 @@ import {
   maxValue,
   minLength,
   minValue,
+  normalize,
   null as nullSchema,
   nullable,
   nullish,
@@ -24,10 +25,17 @@ import {
   pipe,
   safeInteger,
   string,
+  toBigint,
   toDate,
+  toLowerCase,
+  toMaxValue,
+  toMinValue,
   toNumber,
+  toUpperCase,
   transform,
   trim,
+  trimEnd,
+  trimStart,
   tuple,
   undefinedable,
   union,
@@ -403,6 +411,107 @@ it('preserves wrappers and defaults surrounding trimmed titles', () => {
         transform((value) => value),
       ),
     ),
+  ).toMatchObject({
+    outputKind: undefined,
+    outputState: 'unresolved',
+    stringConstraints: {},
+  })
+})
+
+it('recognizes string normalization output and retains only safe length facts', () => {
+  for (const action of [trimStart(), trimEnd()]) {
+    expect(extractStorageFacts(pipe(string(), maxLength(20), action))).toMatchObject({
+      outputKind: 'string',
+      stringConstraints: { maxLength: 20 },
+    })
+  }
+
+  for (const action of [toLowerCase(), toUpperCase(), normalize(), normalize('NFKC')]) {
+    expect(
+      extractStorageFacts(pipe(string(), maxLength(20), uuid(), action)),
+    ).toMatchObject({
+      outputKind: 'string',
+      stringConstraints: {},
+      stringFormats: [],
+      finiteEvidence: undefined,
+    })
+  }
+})
+
+it('tracks numeric clamp bounds without stale finite or integer evidence', () => {
+  expect(
+    extractStorageFacts(
+      pipe(number(), integer(), minValue(-10), maxValue(50), toMinValue(0)),
+    ),
+  ).toMatchObject({
+    outputKind: 'number',
+    numberConstraints: { minValue: 0, maxValue: 50, isInteger: true },
+    finiteEvidence: undefined,
+  })
+
+  expect(
+    extractStorageFacts(pipe(number(), integer(), toMaxValue(2.5))).numberConstraints,
+  ).toEqual({ maxValue: 2.5 })
+
+  expect(
+    extractStorageFacts(
+      pipe(number(), safeInteger(), toMaxValue(Number.MAX_SAFE_INTEGER + 1)),
+    ).numberConstraints,
+  ).toMatchObject({ isInteger: true, maxValue: Number.MAX_SAFE_INTEGER + 1 })
+
+  expect(
+    extractStorageFacts(pipe(number(), integer(), toMinValue(Number.POSITIVE_INFINITY)))
+      .numberConstraints,
+  ).toMatchObject({ minValue: Number.POSITIVE_INFINITY })
+
+  expect(
+    extractStorageFacts(pipe(number(), integer(), toMinValue(Number.POSITIVE_INFINITY)))
+      .numberConstraints.isInteger,
+  ).toBeUndefined()
+
+  expect(
+    extractStorageFacts(pipe(number(), minValue(10), toMaxValue(5))).numberConstraints,
+  ).toEqual({ minValue: 5, maxValue: 5 })
+
+  expect(
+    extractStorageFacts(pipe(number(), maxValue(-10), toMinValue(5))).numberConstraints,
+  ).toEqual({ minValue: 5, maxValue: 5 })
+
+  expect(
+    extractStorageFacts(pipe(number(), minValue(1), maxValue(4), toMinValue(Number.NaN))),
+  ).toMatchObject({ numberConstraints: { minValue: 1, maxValue: 4 } })
+
+  for (const schema of [
+    pipe(picklist([1, 2] as number[]), toMinValue(0)),
+    pipe(picklist([1, 2] as number[]), toMaxValue(1)),
+  ]) {
+    expect(extractStorageFacts(schema)).toMatchObject({
+      finiteEvidence: undefined,
+      finiteValues: undefined,
+      singletonValue: undefined,
+    })
+  }
+})
+
+it('tracks bigint clamps and conversion output', () => {
+  expect(
+    extractStorageFacts(pipe(bigint(), minValue(-20n), maxValue(20n), toMinValue(0n))),
+  ).toMatchObject({
+    outputKind: 'bigint',
+    bigintConstraints: { minValue: 0n, maxValue: 20n },
+  })
+
+  expect(
+    extractStorageFacts(pipe(bigint(), minValue(10n), toMaxValue(5n))).bigintConstraints,
+  ).toEqual({ minValue: 5n, maxValue: 5n })
+
+  expect(extractStorageFacts(pipe(string(), toBigint()))).toMatchObject({
+    outputKind: 'bigint',
+    outputState: 'known',
+  })
+
+  expect(
+    extractStorageFacts(pipe(string(), maxLength(1), toMinValue('zz'))),
   ).toMatchObject({
     outputKind: undefined,
     outputState: 'unresolved',

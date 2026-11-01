@@ -391,10 +391,18 @@ The defaults favour safe, unsurprising types: a JS `number` is a double, so
 and integer widths only narrow/widen when an `integer()` or `safeInteger()`
 constraint and bounds justify it. PostgreSQL uses `numeric` for an unbounded
 `bigint()` schema; two bounds within signed 64-bit range allow `bigint` storage.
-Known Valibot conversions such as `toNumber()`, `toBoolean()`, `parseBoolean()`,
-`toDate()`, and `toString()` select storage from their output. Pipeline analysis
-follows transformations in order. This PostgreSQL example accepts a string on insert
-and returns a number on select:
+Known Valibot transformations such as `toNumber()`, `toBoolean()`, `parseBoolean()`,
+`toDate()`, `toString()`, `toBigint()`, `trim()`, `trimStart()`, `trimEnd()`,
+`toLowerCase()`, `toUpperCase()`, `normalize()`, `toMinValue()`, and `toMaxValue()`
+select storage from their output. Pipeline analysis follows transformations in order.
+String trimming keeps a prior maximum length because it cannot increase length;
+case conversion and Unicode normalization clear prior length and format facts because
+their output can differ in length and spelling. Min/max value transformations clamp
+to their requirement rather than reject out-of-range values, retain the numeric output
+family, and update compatible bounds. Later validations apply to the clamped output.
+`toBigint()` uses the normal bigint output mapping: PostgreSQL can use unbounded
+`numeric`, while SQLite requires values within signed 64-bit range.
+This PostgreSQL example accepts a string on insert and returns a number on select:
 
 ```typescript
 import postgresql from 'db0/connectors/postgresql'

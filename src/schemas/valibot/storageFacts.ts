@@ -278,6 +278,70 @@ function resetOutputFacts(result: RecursiveAnalysis): void {
   result.stringFormats = []
 }
 
+function clearFiniteEvidence(result: RecursiveAnalysis): void {
+  result.finiteEvidence = undefined
+  result.singletonValue = undefined
+  result.finiteSourceValues = undefined
+  result.finiteValues = undefined
+  result.composite = undefined
+  result.jsonShape = undefined
+}
+
+function applyNumberClamp(
+  result: RecursiveAnalysis,
+  action: PipeAction,
+  requirement: number,
+): void {
+  const constraints = { ...result.numberConstraints }
+
+  if (action.type === 'to_min_value') {
+    constraints.minValue = Math.max(constraints.minValue ?? -Infinity, requirement)
+
+    if (constraints.maxValue !== undefined)
+      constraints.maxValue = Math.max(constraints.maxValue, requirement)
+  } else {
+    if (constraints.minValue !== undefined)
+      constraints.minValue = Math.min(constraints.minValue, requirement)
+
+    constraints.maxValue = Math.min(constraints.maxValue ?? Infinity, requirement)
+  }
+
+  if (!Number.isInteger(requirement)) {
+    delete constraints.isInteger
+    delete constraints.isSafeInteger
+  } else if (!Number.isSafeInteger(requirement)) delete constraints.isSafeInteger
+
+  clearFiniteEvidence(result)
+  result.numberConstraints = constraints
+  result.jsonOutputCompatible = true
+}
+
+function applyBigintClamp(
+  result: RecursiveAnalysis,
+  action: PipeAction,
+  requirement: bigint,
+): void {
+  const constraints = { ...result.bigintConstraints }
+
+  if (action.type === 'to_min_value') {
+    if (constraints.minValue === undefined || requirement > constraints.minValue)
+      constraints.minValue = requirement
+
+    if (constraints.maxValue !== undefined && requirement > constraints.maxValue)
+      constraints.maxValue = requirement
+  } else {
+    if (constraints.minValue !== undefined && requirement < constraints.minValue)
+      constraints.minValue = requirement
+
+    if (constraints.maxValue === undefined || requirement < constraints.maxValue)
+      constraints.maxValue = requirement
+  }
+
+  clearFiniteEvidence(result)
+  result.bigintConstraints = constraints
+  result.jsonOutputCompatible = false
+}
+
 function changesValue(schema: AnySchema): boolean {
   const traversable = schema as TraversableSchema
   const pipe = traversable.pipe ?? []
@@ -502,6 +566,26 @@ function applySchemaItem(result: RecursiveAnalysis, schema: AnySchema): void {
 }
 
 function applyTransformation(result: RecursiveAnalysis, action: PipeAction): void {
+  if (
+    (action.type === 'to_min_value' || action.type === 'to_max_value') &&
+    result.outputKind === 'number' &&
+    typeof action.requirement === 'number'
+  ) {
+    if (Number.isNaN(action.requirement)) return
+
+    applyNumberClamp(result, action, action.requirement)
+    return
+  }
+
+  if (
+    (action.type === 'to_min_value' || action.type === 'to_max_value') &&
+    result.outputKind === 'bigint' &&
+    typeof action.requirement === 'bigint'
+  ) {
+    applyBigintClamp(result, action, action.requirement)
+    return
+  }
+
   const conversions: Partial<Record<string, StorageOutputKind>> = {
     to_number: 'number',
     to_boolean: 'boolean',
@@ -509,11 +593,19 @@ function applyTransformation(result: RecursiveAnalysis, action: PipeAction): voi
     to_date: 'date',
     to_string: 'string',
     trim: 'string',
+    trim_start: 'string',
+    trim_end: 'string',
+    to_lower_case: 'string',
+    to_upper_case: 'string',
+    normalize: 'string',
+    to_bigint: 'bigint',
   }
 
-  // Trimming cannot increase string length, but can invalidate lower bounds and formats.
   const maxLength =
-    action.type === 'trim' && result.outputKind === 'string'
+    (action.type === 'trim' ||
+      action.type === 'trim_start' ||
+      action.type === 'trim_end') &&
+    result.outputKind === 'string'
       ? result.stringConstraints.maxLength
       : undefined
 
