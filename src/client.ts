@@ -36,7 +36,6 @@ import {
   createUpdateBuilder,
   createValueMapper,
   validateInsertRow,
-  validateUpdatePatch,
 } from '@/query'
 import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 import { assertCompiledQuery, restoreResultNames } from '@/query/compiled'
@@ -47,6 +46,7 @@ import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
 
+import { prepareUpdatePatch } from './query/arithmetic'
 import type { SqlTag } from './sql'
 import { createSqlTag } from './sql'
 
@@ -1220,7 +1220,7 @@ function updateTable<THandle extends TableHandle>(
      * @param patch - Non-empty patch of updatable columns.
      */
     set: (patch) => {
-      const validated = validateUpdatePatch(handle, patch)
+      const validated = prepareUpdatePatch(handle, patch, mapper)
       return createUpdateBuilder({
         handle,
         dialect,

@@ -821,6 +821,12 @@ function compileUpdate(
   const assignments = node.set
     .map((item) => {
       assertAstNonEmptyString(item.column, 'update column')
+
+      if (item.addition) {
+        params.push(item.addition.delta)
+        return `${quoteIdentifier(item.column)} = ${quoteIdentifier(relations[0]!.alias)}.${quoteIdentifier(item.addition.source)} + ?`
+      }
+
       params.push(item.value)
       return `${quoteIdentifier(item.column)} = ?`
     })

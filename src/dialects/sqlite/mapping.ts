@@ -374,3 +374,22 @@ export function mapSqliteResultValueFacts(
 
   return value
 }
+
+/** Proves native numeric storage without invoking custom mappings. */
+export function numericAssignmentType(
+  dataType: string,
+  context: DialectValueMappingContext,
+): 'integer' | 'float' | undefined {
+  const facts = context.authoredFacts ?? context.facts
+  const storage = normalizeSqliteDataType(dataType)
+
+  if (
+    facts.outputKind !== 'number' ||
+    facts.outputState !== 'known' ||
+    !['integer', 'real', 'numeric'].includes(storage)
+  )
+    return undefined
+
+  // INTEGER affinity can still store fractional values without an integer schema.
+  return facts.numberConstraints.isInteger ? 'integer' : 'float'
+}

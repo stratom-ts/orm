@@ -2,6 +2,7 @@ import { quoteIdentifier } from './compile'
 import {
   mapSqliteParamValue,
   mapSqliteResultValue,
+  numericAssignmentType,
   validateSqliteValueMapping,
 } from './mapping'
 import { resolveSqliteQuery } from './queryAddressing'
@@ -12,6 +13,7 @@ export const sqliteQuery = {
     quoteIdentifier,
     placeholder: (_position: number): string => '?',
   },
+  numericAssignmentType,
   validateValueMapping: validateSqliteValueMapping,
   resolve: resolveSqliteQuery,
   mapResultValue: mapSqliteResultValue,

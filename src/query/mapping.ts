@@ -12,7 +12,7 @@ import type { RelationIdentityInput } from '@/schemas/actions/relation'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
-import { SchemaError } from '@/utils/error'
+import { QueryError, SchemaError } from '@/utils/error'
 
 type ColumnValueMapping = { dataType: string; context: DialectValueMappingContext }
 type MappingContexts = WeakMap<TableHandle, Record<string, DialectValueMappingContext>>
@@ -43,6 +43,9 @@ export type ValueMapConfig = {
 }
 
 export type ValueMapper = {
+  /** Proves native numeric storage and standard mappings for an update operand. */
+  numericAssignmentType(handle: TableHandle, column: string): 'integer' | 'float'
+
   /** SQL data type per column name for a table. */
   columnTypes(handle: TableHandle): Record<string, string>
   /**
@@ -366,12 +369,44 @@ export function createValueMapper(
   for (const handle of registered) columnTypes(handle)
 
   return {
+    numericAssignmentType: (handle, column) =>
+      numericAssignmentType(handle, column, dialect, map, columnTypes, contexts),
     columnTypes,
     mapParam: mapParamForColumn,
     mapResultValue: mapResultValueForColumn,
     mapResultRow,
     mapResultRows,
   }
+}
+
+/** Proves native storage and rejects effective custom mappings without invoking hooks. */
+function numericAssignmentType(
+  handle: TableHandle,
+  column: string,
+  dialect: Dialect,
+  map: ValueMapConfig | undefined,
+  columnTypes: ValueMapper['columnTypes'],
+  contexts: MappingContexts,
+): 'integer' | 'float' {
+  const meta = columnMeta(handle, column)
+  const dataType = columnTypes(handle)[column]!
+  const context = contexts.get(handle)?.[column]
+  const kind = context && dialect.query.numericAssignmentType?.(dataType, context)
+
+  if (
+    meta?.mapParam ||
+    meta?.mapResult ||
+    map?.mapParamValue ||
+    map?.mapResultValue ||
+    !kind
+  ) {
+    throw new QueryError({
+      message:
+        'add requires native numeric storage and standard parameter/result mappings',
+    })
+  }
+
+  return kind
 }
 
 /**

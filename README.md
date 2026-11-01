@@ -828,6 +828,43 @@ Writes without returned rows produce `[]` with the built-in providers. Use write
 builders for affected-row counts. SQL templates do not apply schema validation,
 write-builder full-table checks, or Migration Plan destructive-change policy.
 
+### Atomic numeric updates
+
+Use `add` in an update patch to allocate a project-local number atomically:
+
+```ts
+import { add } from 'stratom'
+
+await db.transaction(async (tx) => {
+  const project = await tx
+    .update(Project)
+    .set({ nextIssueNumber: add(Project.nextIssueNumber, 1) })
+    .where({ workspaceId, id: projectId })
+    .returning([Project.nextIssueNumber])
+    .executeTakeFirstOrThrow()
+  const issueNumber = project.nextIssueNumber - 1
+  await tx.insert(Issue).values({ projectId, issueNumber, title }).execute()
+  await tx.insert(History).values({ projectId, issueNumber, event: 'created' }).execute()
+})
+```
+
+RETURNING reports the updated value: incrementing 1 returns 2, so the allocated
+number is 1. A later transaction failure rolls back all three writes. Callers own
+bounded whole-transaction retries for recognized database contention failures.
+
+`add(column, delta)` accepts finite JavaScript numbers, including negative deltas.
+The source must belong to the exact updated handle. Nullable sources propagate
+SQL null and require nullable targets. Integer targets require integer sources
+and deltas. Floating-point targets accept fractional deltas. Both columns must
+use native numeric storage and standard dialect mappings. Column hooks and client
+mapping overrides disqualify participating columns. Bigint, nested arithmetic,
+and arithmetic in inserts, upserts, predicates, or SELECT are unsupported.
+
+Literal assignments retain schema validation. Computed results rely on database
+constraints, not arbitrary Valibot refinements or transforms. The library does not
+read a row to validate a computed result. Existing numeric mapping checks still
+apply, without a new precision or overflow guarantee across dialects.
+
 ### Transactions
 
 The callback commits on success and rolls back on throw; nested calls use
