@@ -16,6 +16,8 @@ import {
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
+const intent = { behavior: 'immediate' } as const
+
 it('rolls back failed history, releases ownership and preserves scoped mapping', async () => {
   await withSqliteDatabase(
     tables,
@@ -26,7 +28,7 @@ it('rolls back failed history, releases ownership and preserves scoped mapping',
       })
 
       try {
-        await assertWorkflow(db, observer)
+        await assertWorkflow(db, observer, intent)
       } finally {
         await observer.close()
       }
@@ -43,7 +45,11 @@ it('does not update data or fire an UPDATE trigger for an unchanged save', async
       "create trigger reject_edit_update before update on edit_issues begin select raise(abort, 'unexpected update'); end",
     )
 
-    expect(await edit(db, 'A')).toMatchObject({ title: 'A', updatedAt: initialDate })
+    expect(await edit(db, intent, 'A')).toMatchObject({
+      title: 'A',
+      updatedAt: initialDate,
+    })
+
     expect(await db.from(History).execute()).toEqual([])
   })
 })
@@ -63,7 +69,7 @@ it('acquires write ownership before authorization reads and chains a competing c
         release = r
       })
 
-      const first = edit(db, 'B', {
+      const first = edit(db, intent, 'B', {
         afterRead: async () => {
           read()
           await gate

@@ -69,7 +69,7 @@ async function edit() {
 
       return before.title
     },
-    { isolationLevel: 'serializable' },
+    { behavior: 'immediate' },
   )
 }
 

@@ -8,10 +8,9 @@ export function compileCommonOperationCommand(command: OperationCommand): Compil
     case 'ping':
       return { sql: 'select 1', params: [] }
     case 'begin':
-      if (command.isolationLevel !== undefined) {
+      if (command.isolationLevel !== undefined || command.behavior !== undefined) {
         throw new QueryError({
-          message:
-            'Selected dialect does not support the requested transaction isolation level',
+          message: 'Selected dialect does not support the requested transaction options',
         })
       }
 

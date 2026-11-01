@@ -54,9 +54,9 @@ export type { ValueMapConfig } from '@/query'
 export type { TableHandle } from '@/types'
 
 /** Options established before a root transaction runs its first query. */
-export type TransactionOptions = Readonly<{
-  isolationLevel: 'serializable'
-}>
+export type TransactionOptions =
+  | Readonly<{ isolationLevel: 'serializable'; behavior?: never }>
+  | Readonly<{ behavior: 'immediate'; isolationLevel?: never }>
 
 type TransactionContext = {
   nextSavepointId: number
@@ -386,7 +386,7 @@ async function runRootTransaction<T>(
     await runOperationCommand(
       operation.executor,
       operations,
-      { kind: 'begin', ...(options ? { isolationLevel: options.isolationLevel } : {}) },
+      { kind: 'begin', ...options },
       dialectId,
     )
 
@@ -1014,18 +1014,31 @@ function resolveTransactionOptions(options: unknown): TransactionOptions | undef
   if (options === undefined) return undefined
 
   if (
-    options === null ||
-    typeof options !== 'object' ||
-    !('isolationLevel' in options) ||
-    options.isolationLevel !== 'serializable' ||
-    Reflect.ownKeys(options).some((key) => key !== 'isolationLevel')
+    options !== null &&
+    typeof options === 'object' &&
+    Reflect.ownKeys(options).length === 1
   ) {
-    throw new QueryError({
-      message: 'Unsupported transaction options; expected isolationLevel: serializable',
-    })
+    if (
+      Object.hasOwn(options, 'isolationLevel') &&
+      'isolationLevel' in options &&
+      options.isolationLevel === 'serializable'
+    ) {
+      return { isolationLevel: 'serializable' }
+    }
+
+    if (
+      Object.hasOwn(options, 'behavior') &&
+      'behavior' in options &&
+      options.behavior === 'immediate'
+    ) {
+      return { behavior: 'immediate' }
+    }
   }
 
-  return { isolationLevel: 'serializable' }
+  throw new QueryError({
+    message:
+      'Unsupported transaction options; use isolationLevel: serializable or behavior: immediate',
+  })
 }
 
 /**

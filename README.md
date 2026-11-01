@@ -924,6 +924,17 @@ SQLSTATE `40001` instead of waiting and then reading a newer predecessor. All re
 read/diff/write workflows must use this protocol for the stated history guarantee.
 See [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html).
 
+For SQLite, pass `{ behavior: 'immediate' }` as the second argument instead:
+
+```ts
+await sqliteDb.transaction(
+  async (tx) => {
+    // Run the same authorization/read/diff/update/history workflow above.
+  },
+  { behavior: 'immediate' },
+)
+```
+
 SQLite emits `BEGIN IMMEDIATE`, acquiring database write ownership before any read.
 It serializes writers at database granularity, including edits to unrelated rows.
 Another connection can fail with `SQLITE_BUSY` or `SQLITE_LOCKED` at acquisition or
@@ -938,8 +949,10 @@ whether to retry the whole transaction after a known rollback. Do not blindly re
 an unknown commit outcome. Commit, rollback, and failed transaction cleanup release
 ownership through the existing pinned-session lifecycle.
 
-Only `isolationLevel: 'serializable'` is supported. Omitting options preserves the
-default transaction behavior. Explicit options on nested transactions fail with
+PostgreSQL accepts only `isolationLevel: 'serializable'`. SQLite accepts only
+`behavior: 'immediate'`. Each dialect rejects the other option with `QueryError`.
+The options cannot be combined. Omitting options preserves default transaction behavior.
+Explicit options on nested transactions fail with
 `QueryError`, even when they match the root. Nested calls without options inherit
 the root transaction and use savepoints. Unsupported options and dialect capabilities
 fail explicitly. This API does not detect edits based on stale form data.

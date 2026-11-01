@@ -10,7 +10,11 @@ import { createDb0PostgresOperationSessionProvider } from './operationSession'
 export function compilePostgresOperationCommand(
   command: OperationCommand,
 ): CompiledQuery {
-  if (command.kind === 'begin' && command.isolationLevel === 'serializable') {
+  if (
+    command.kind === 'begin' &&
+    command.isolationLevel === 'serializable' &&
+    command.behavior === undefined
+  ) {
     return { sql: 'begin isolation level serializable', params: [] }
   }
 

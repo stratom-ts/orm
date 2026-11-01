@@ -10,6 +10,10 @@ import {
   createMockPostgresConnector,
   createMockStatement,
 } from './dialects/postgresNativeClientFixtures'
+import {
+  createControllableProvider,
+  customConnector,
+} from './helpers/operationSessionFixtures'
 
 it('establishes serialization before the callback and inherits it through savepoints', async () => {
   const connector = createMockPostgresConnector()
@@ -44,6 +48,9 @@ it('rejects invalid options before running user work and leaves the client usabl
     null,
     {},
     { isolationLevel: 'read committed' },
+    { behavior: 'deferred' },
+    { behavior: 'immediate', isolationLevel: 'serializable' },
+    { behavior: 'immediate', isolationLevel: undefined },
     { isolationLevel: 'serializable', mode: 'immediate' },
   ]) {
     await expect(db.transaction(callback, options as never)).rejects.toThrow(QueryError)
@@ -63,12 +70,22 @@ it('compiles supported dialect contracts and refuses an unsupported capability',
     params: [],
   })
 
-  expect(sqliteDialect.operations.compile(command)).toEqual({
+  const immediate = { kind: 'begin', behavior: 'immediate' } as const
+  expect(sqliteDialect.operations.compile(immediate)).toEqual({
     sql: 'begin immediate',
     params: [],
   })
 
   expect(() => compileCommonOperationCommand(command)).toThrow(QueryError)
+  expect(() => compileCommonOperationCommand(immediate)).toThrow(QueryError)
+  expect(() => postgresDialect.operations.compile(immediate)).toThrow(QueryError)
+  expect(() => sqliteDialect.operations.compile(command)).toThrow(QueryError)
+
+  for (const dialect of [postgresDialect, sqliteDialect]) {
+    expect(() =>
+      dialect.operations.compile({ ...command, ...immediate } as never),
+    ).toThrow(QueryError)
+  }
 
   for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(dialect.operations.compile({ kind: 'begin' })).toEqual({
@@ -84,7 +101,8 @@ it('compiles supported dialect contracts and refuses an unsupported capability',
 
 it('exports the accepted option and rejects unsupported isolation levels at the type boundary', () => {
   expectTypeOf<TransactionOptions>().toEqualTypeOf<
-    Readonly<{ isolationLevel: 'serializable' }>
+    | Readonly<{ isolationLevel: 'serializable'; behavior?: never }>
+    | Readonly<{ behavior: 'immediate'; isolationLevel?: never }>
   >()
 
   expectTypeOf<Parameters<Db['transaction']>[1]>().toEqualTypeOf<
@@ -93,35 +111,82 @@ it('exports the accepted option and rejects unsupported isolation levels at the 
 
   // @ts-expect-error Only serializable isolation is supported.
   const unsupported: TransactionOptions = { isolationLevel: 'read committed' }
-  expect(unsupported).toBeDefined()
+  const combined: TransactionOptions = {
+    isolationLevel: 'serializable',
+    // @ts-expect-error Dialect-specific intent options are mutually exclusive.
+    behavior: 'immediate',
+  }
+
+  expectTypeOf(unsupported).toEqualTypeOf<TransactionOptions>()
+  expectTypeOf(combined).toEqualTypeOf<TransactionOptions>()
 })
 
-it('copies options before a queued transaction can observe caller mutation', async () => {
-  const connector = createMockPostgresConnector()
-  const db = createDatabase({ connector, schemas: [] })
-  const entered = deferred()
-  const gate = deferred()
-  const first = db.transaction(async () => {
-    entered.resolve()
-    await gate.promise
-  })
+it.each([
+  {
+    dialect: 'postgresql',
+    options: { isolationLevel: 'serializable' },
+    begin: 'begin isolation level serializable',
+  },
+  { dialect: 'sqlite', options: { behavior: 'immediate' }, begin: 'begin immediate' },
+] as const)(
+  'copies $dialect options before a queued transaction can observe caller mutation',
+  async ({ dialect, options, begin }) => {
+    const controls = createControllableProvider()
+    const db = createDatabase({
+      connector: customConnector(dialect),
+      schemas: [],
+      operationSessionProvider: controls.provider,
+    })
 
-  await entered.promise
-  const options = { isolationLevel: 'serializable' } as const
-  const second = db.transaction(async () => 42, options)
-  Object.assign(options, { isolationLevel: undefined, kind: 'rollback' })
-  gate.resolve()
-  await first
-  expect(await second).toBe(42)
+    const entered = deferred()
+    const gate = deferred()
+    const first = db.transaction(async () => {
+      entered.resolve()
+      await gate.promise
+    })
 
-  expect(connector.prepared.filter((sql) => sql.startsWith('begin'))).toEqual([
-    'begin',
-    'begin isolation level serializable',
-  ])
+    await entered.promise
+    const second = db.transaction(async () => 42, options)
 
-  expect(connector.prepared).not.toContain('rollback')
-  await db.close()
-})
+    Object.assign(options, {
+      isolationLevel: undefined,
+      behavior: undefined,
+      kind: 'rollback',
+    })
+
+    gate.resolve()
+    await first
+    expect(await second).toBe(42)
+
+    expect(
+      controls.calls.map((call) => call.sql).filter((sql) => sql.startsWith('begin')),
+    ).toEqual(['begin', begin])
+
+    expect(controls.calls.map((call) => call.sql)).not.toContain('rollback')
+    await db.close()
+  },
+)
+
+it.each([
+  { dialect: 'postgresql', options: { behavior: 'immediate' } },
+  { dialect: 'sqlite', options: { isolationLevel: 'serializable' } },
+] as const)(
+  'rejects unsupported intent on $dialect before entering the callback',
+  async ({ dialect, options }) => {
+    const controls = createControllableProvider()
+    const db = createDatabase({
+      connector: customConnector(dialect),
+      schemas: [],
+      operationSessionProvider: controls.provider,
+    })
+
+    const callback = vi.fn<() => Promise<number>>(async () => 42)
+    await expect(db.transaction(callback, options)).rejects.toThrow(QueryError)
+    expect(callback).not.toHaveBeenCalled()
+    await expect(db.transaction(callback)).resolves.toBe(42)
+    await db.close()
+  },
+)
 
 it('does not enter a callback after a failed begin and releases the session for the next attempt', async () => {
   let fail = true
