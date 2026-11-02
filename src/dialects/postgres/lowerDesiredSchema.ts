@@ -118,7 +118,7 @@ function lowerGeneration(
  * Selects and validates a column's PostgreSQL physical type.
  *
  * @param column - Authored desired column.
- * @param analysis - Analysis of the column schema.
+ * @param facts - Semantic storage facts for the column.
  * @param hasGlobalParameterMapping - Whether the client maps every parameter.
  * @param hasGlobalResultMapping - Whether the client maps every result.
  */

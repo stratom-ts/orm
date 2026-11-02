@@ -28,9 +28,9 @@ import {
   address,
   assertIdentifier,
   assertMain,
-  columnSql,
-  createSql,
-  indexSql,
+  compileColumnDefinition,
+  compileCreateIndex,
+  compileCreateTable,
   quoteSqliteIdentifier,
   statement,
 } from './sql'
@@ -265,7 +265,7 @@ function createAction(planned: PlannedMigration, group: TableGroup): MigrationAc
           'Invalid SQLite index step',
         )
 
-      return indexSql(name, {
+      return compileCreateIndex(name, {
         name: step.target.index.spelling,
         columns: step.columns.map((column) => column.spelling),
         unique: step.unique,
@@ -275,7 +275,7 @@ function createAction(planned: PlannedMigration, group: TableGroup): MigrationAc
   return {
     sourceStepIndexes: group.steps.map(({ index }) => index),
     transaction: 'required',
-    statements: [createSql(name, definition), ...indexes],
+    statements: [compileCreateTable(name, definition), ...indexes],
   }
 }
 
@@ -293,7 +293,7 @@ function directAction(planned: PlannedMigration, group: TableGroup): MigrationAc
       return statement(`drop index ${address(step.target.index.spelling)}`)
 
     if (step.kind === 'create_index')
-      return indexSql(name, {
+      return compileCreateIndex(name, {
         name: step.target.index.spelling,
         columns: step.columns.map((column) => column.spelling),
         unique: step.unique,
@@ -316,7 +316,9 @@ function directAction(planned: PlannedMigration, group: TableGroup): MigrationAc
         'Missing final SQLite column',
       )
 
-    return statement(`alter table ${address(name)} add column ${columnSql(column)}`)
+    return statement(
+      `alter table ${address(name)} add column ${compileColumnDefinition(column)}`,
+    )
   })
 
   return {

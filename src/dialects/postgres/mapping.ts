@@ -88,20 +88,20 @@ function canStoreOutputKind(base: string, kind: StorageFacts['outputKind']): boo
  * and `any()` outputs are accepted because their inferred type admits any driver value.
  *
  * @param dataType - Selected PostgreSQL column type.
- * @param analysis - Analysis of the column's logical schema.
+ * @param facts - Analysis of the column's logical schema.
  *
  * @throws SchemaError when built-in mapping cannot return the output kind
  */
-function assertPostgresScalarStorage(dataType: string, analysis: StorageFacts): void {
-  if (analysis.composite) return
+function assertPostgresScalarStorage(dataType: string, facts: StorageFacts): void {
+  if (facts.composite) return
 
-  const kind = analysis.outputKind
+  const kind = facts.outputKind
 
-  if (analysis.outputState === 'unconstrained') return
+  if (facts.outputState === 'unconstrained') return
 
   const base = mappingStorage(dataType)
 
-  assertTemporalFormatStorage(base, analysis)
+  assertTemporalFormatStorage(base, facts)
 
   if (canStoreOutputKind(base, kind)) return
 
@@ -111,13 +111,11 @@ function assertPostgresScalarStorage(dataType: string, analysis: StorageFacts): 
 }
 
 /** Rejects proven ISO formats stored in a different native temporal type. */
-function assertTemporalFormatStorage(base: string, analysis: StorageFacts): void {
-  if (analysis.outputKind !== 'string') return
+function assertTemporalFormatStorage(base: string, facts: StorageFacts): void {
+  if (facts.outputKind !== 'string') return
   if (!TEMPORAL_STORAGE.has(base)) return
 
-  const formats = analysis.stringFormats.filter(
-    (format) => TEMPORAL_FORMAT_STORAGE[format],
-  )
+  const formats = facts.stringFormats.filter((format) => TEMPORAL_FORMAT_STORAGE[format])
 
   if (formats.length && !matchesTemporalFormatStorage(base, formats)) {
     throw new SchemaError({
@@ -255,12 +253,12 @@ function parseNativeTimestamp(base: string, value: string | number): Date | unde
 function mapTemporalResult(
   base: string,
   value: unknown,
-  analysis: StorageFacts | undefined,
+  facts: StorageFacts | undefined,
 ): unknown {
-  const kind = analysis?.outputKind
+  const kind = facts?.outputKind
 
   if (kind === 'string' && typeof value === 'string') {
-    const iso = mapIsoStringResult(base, value, analysis?.stringFormats ?? [])
+    const iso = mapIsoStringResult(base, value, facts?.stringFormats ?? [])
 
     if (iso !== undefined) return iso
   }
@@ -313,18 +311,15 @@ function validatePostgresValueMappingFromFacts(
   assertPostgresScalarStorage(dataType, target)
 }
 
-function validatePostgresCompositeMapping(
-  dataType: string,
-  analysis: StorageFacts,
-): void {
-  if (!analysis.composite) return
+function validatePostgresCompositeMapping(dataType: string, facts: StorageFacts): void {
+  if (!facts.composite) return
 
   const base = mappingStorage(dataType)
 
-  if (analysis.outputKind === 'string' && (base === 'text' || base === 'varchar')) return
+  if (facts.outputKind === 'string' && (base === 'text' || base === 'varchar')) return
 
-  const inferred = extractPostgresBaseType(inferPostgresColumnTypeFromFacts(analysis))
-  const kind = analysis.outputKind
+  const inferred = extractPostgresBaseType(inferPostgresColumnTypeFromFacts(facts))
+  const kind = facts.outputKind
   const compatible =
     kind === 'number'
       ? isPostgresCompositeNumberStorage(inferred, base)
@@ -458,9 +453,9 @@ function mapPostgresResultValueFromFacts(
 
   const base = mappingStorage(dataType)
 
-  const analysis = referenceTemporalAnalysis(base, authored) ?? target
+  const facts = referenceTemporalAnalysis(base, authored) ?? target
 
-  const kind = analysis?.outputKind
+  const kind = facts?.outputKind
 
   if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base)) return mapBigintResult(value)
 
@@ -472,7 +467,7 @@ function mapPostgresResultValueFromFacts(
     base === 'timestamp' ||
     base === 'timestamptz'
   )
-    return mapTemporalResult(base, value, analysis)
+    return mapTemporalResult(base, value, facts)
 
   if (base === 'json' || base === 'jsonb')
     return typeof value === 'string' ? parseJsonResult(value) : value
@@ -535,13 +530,13 @@ function mapPostgresParamValue(
 function mapPostgresParamValueFromFacts(
   dataType: string,
   value: unknown,
-  analysis?: StorageFacts,
+  facts?: StorageFacts,
   authored?: StorageFacts,
 ): unknown {
   if (value === null || value === undefined) return value
 
   const base = mappingStorage(dataType)
-  const kind = analysis?.outputKind
+  const kind = facts?.outputKind
 
   if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base))
     return mapBigintResult(value).toString()
@@ -555,7 +550,7 @@ function mapPostgresParamValueFromFacts(
   }
 
   if (base === 'json' || base === 'jsonb') {
-    assertPostgresJsonCompositeParam(value, analysis, authored)
+    assertPostgresJsonCompositeParam(value, facts, authored)
 
     if (typeof value !== 'string') return JSON.stringify(value)
 
@@ -571,10 +566,10 @@ function mapPostgresParamValueFromFacts(
 
 function assertPostgresJsonCompositeParam(
   value: unknown,
-  analysis: StorageFacts | undefined,
+  facts: StorageFacts | undefined,
   authored: StorageFacts | undefined,
 ): void {
-  if (!(analysis?.composite || authored?.composite) || !containsNonFiniteNumber(value))
+  if (!(facts?.composite || authored?.composite) || !containsNonFiniteNumber(value))
     return
 
   throw new QueryError({

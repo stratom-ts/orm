@@ -268,7 +268,7 @@ type ConnectorState = {
   closing?: Promise<void>
 }
 
-type LeaseState = { queue: Promise<void>; cancelled: boolean; released: boolean }
+type NativeSessionState = { queue: Promise<void>; cancelled: boolean; released: boolean }
 
 /** Verifies that db0 still owns the same clean native instance. */
 async function verifyNative(
@@ -352,12 +352,12 @@ async function disposeAfterFailure(
 }
 
 /** Releases a session after proving reuse or discarding the native instance. */
-async function releaseLease(
+async function releaseNativeSession(
   connector: Connector,
   owner: ConnectorState,
   database: NativeDatabase,
   identity: OperationSessionIdentity,
-  state: LeaseState,
+  state: NativeSessionState,
   finish: () => void,
   disposition: 'reuse' | 'discard',
   dialectId: string,
@@ -410,7 +410,7 @@ function enqueue<T>(
   owner: ConnectorState,
   database: NativeDatabase,
   identity: OperationSessionIdentity,
-  state: LeaseState,
+  state: NativeSessionState,
   query: CompiledQuery,
   execute: (statement: NativeStatement, params: SqliteBinding[]) => T,
   dialectId: string,
@@ -499,8 +499,8 @@ function runStatement(
   }
 }
 
-/** Creates an exclusive lease over one open DatabaseSync. */
-function createLease(
+/** Creates an operation session with an exclusive lease over one open DatabaseSync. */
+function createNativeOperationSession(
   connector: Connector,
   owner: ConnectorState,
   database: NativeDatabase,
@@ -508,7 +508,7 @@ function createLease(
   finish: () => void,
   dialectId: string,
 ): OperationSession {
-  const state: LeaseState = {
+  const state: NativeSessionState = {
     queue: Promise.resolve(),
     cancelled: false,
     released: false,
@@ -540,7 +540,7 @@ function createLease(
     },
     /** Settles all work, then proves reuse or discards the native instance. */
     release: (disposition) =>
-      releaseLease(
+      releaseNativeSession(
         connector,
         owner,
         database,
@@ -616,7 +616,7 @@ async function openNativeLease(
 
     assertCleanTransaction(claimed, dialectId)
 
-    return createLease(
+    return createNativeOperationSession(
       connector,
       owner,
       claimed,

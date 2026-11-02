@@ -13,7 +13,7 @@ function unsupportedChoiceType(): never {
 }
 
 /** Infers storage from finite-choice evidence, without inspecting a schema. */
-function inferSqliteChoiceFacts(facts: StorageFacts): SqlDataType {
+function inferSqliteChoiceType(facts: StorageFacts): SqlDataType {
   const values = facts.finiteValues
   const kind = facts.outputKind
 
@@ -72,10 +72,8 @@ function inferSqliteLiteralType(literal: unknown): SqlDataType {
   throw new SchemaError({ message: 'cannot infer a SQLite column type for this literal' })
 }
 
-/** Temporary Valibot entry point until the shared graph supplies facts. */
-
 /** Infers a SQLite declared type from semantic storage evidence. */
-function inferSqliteColumnFacts(facts: StorageFacts): SqlDataType {
+function inferSqliteColumnTypeFromFacts(facts: StorageFacts): SqlDataType {
   const inferred = inferEffectiveSqliteType(facts)
 
   if (inferred) return inferred
@@ -96,7 +94,7 @@ function inferEffectiveSqliteType(facts: StorageFacts): SqlDataType | undefined 
   if (facts.finiteEvidence === 'singleton')
     return inferSqliteLiteralType(facts.singletonValue)
 
-  if (facts.finiteEvidence === 'choice') return inferSqliteChoiceFacts(facts)
+  if (facts.finiteEvidence === 'choice') return inferSqliteChoiceType(facts)
 
   switch (facts.outputKind) {
     case 'string':
@@ -195,4 +193,4 @@ function unsupportedCompositeType(type: string): never {
   })
 }
 
-export { inferSqliteChoiceFacts, inferSqliteColumnFacts }
+export { inferSqliteChoiceType, inferSqliteColumnTypeFromFacts }

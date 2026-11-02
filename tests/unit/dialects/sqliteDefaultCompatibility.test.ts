@@ -10,9 +10,11 @@ function registerDefaultCompatibilityGroup1() {
     const defect = new TypeError('mapping failed')
     const mapping = await import('@/dialects/sqlite/mapping')
 
-    const spy = vi.spyOn(mapping, 'mapSqliteResultValueFacts').mockImplementation(() => {
-      throw defect
-    })
+    const spy = vi
+      .spyOn(mapping, 'mapSqliteResultValueFromFacts')
+      .mockImplementation(() => {
+        throw defect
+      })
 
     try {
       let failure: unknown

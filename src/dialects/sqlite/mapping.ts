@@ -5,7 +5,7 @@ import { QueryError, SchemaError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
-import { inferSqliteChoiceFacts, inferSqliteColumnFacts } from './infer'
+import { inferSqliteChoiceType, inferSqliteColumnTypeFromFacts } from './infer'
 import { normalizeSqliteDataType } from './normalize'
 import {
   isSqliteSafeInteger,
@@ -18,21 +18,21 @@ function validateSqliteValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
 ): void {
-  validateSqliteValueMappingFacts(dataType, context.facts, context.authoredFacts)
+  validateSqliteValueMappingFromFacts(dataType, context.facts, context.authoredFacts)
 }
 
 /** Validates built-in mapping from resolved and locally authored storage facts. */
-function validateSqliteValueMappingFacts(
+function validateSqliteValueMappingFromFacts(
   dataType: string,
-  analysis: StorageFacts,
+  facts: StorageFacts,
   authored?: StorageFacts,
 ): void {
   const affinity = normalizeSqliteDataType(dataType)
-  const kind = analysis.outputKind
+  const kind = facts.outputKind
   const incompatibleAuthoredOutput = authored && authored.outputKind !== kind
 
-  if (analysis.composite) inferSqliteColumnFacts(analysis)
-  if (authored?.composite) inferSqliteColumnFacts(authored)
+  if (facts.composite) inferSqliteColumnTypeFromFacts(facts)
+  if (authored?.composite) inferSqliteColumnTypeFromFacts(authored)
 
   const supported =
     kind === 'date' ||
@@ -42,30 +42,30 @@ function validateSqliteValueMappingFacts(
     (kind === 'bigint' &&
       (affinity === 'integer' || affinity === 'numeric' || affinity === 'blob'))
 
-  if (!supported || analysis.outputState === 'unresolved' || incompatibleAuthoredOutput) {
+  if (!supported || facts.outputState === 'unresolved' || incompatibleAuthoredOutput) {
     throw new SchemaError({
-      message: `SQLite ${kind ?? analysis.outputState} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
+      message: `SQLite ${kind ?? facts.outputState} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
     })
   }
 }
 
 /** Chooses logical conversion independently of SQLite affinity. */
-function mappingTypeFacts(
+function mappingTypeFromFacts(
   dataType: string,
-  analysis: StorageFacts,
+  facts: StorageFacts,
   authored?: StorageFacts,
 ): string {
-  validateSqliteValueMappingFacts(dataType, analysis, authored)
+  validateSqliteValueMappingFromFacts(dataType, facts, authored)
 
-  if (analysis.composite) return inferSqliteColumnFacts(analysis)
+  if (facts.composite) return inferSqliteColumnTypeFromFacts(facts)
 
-  switch (analysis.outputKind) {
+  switch (facts.outputKind) {
     case 'string':
       return 'TEXT'
     case 'number':
-      if (analysis.finiteEvidence === 'choice') return inferSqliteChoiceFacts(analysis)
+      if (facts.finiteEvidence === 'choice') return inferSqliteChoiceType(facts)
 
-      return analysis.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
+      return facts.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
     case 'bigint':
       return 'BIGINT'
     case 'boolean':
@@ -283,14 +283,19 @@ function mapSqliteParamValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  return mapSqliteParamValueFacts(dataType, value, context?.facts, context?.authoredFacts)
+  return mapSqliteParamValueFromFacts(
+    dataType,
+    value,
+    context?.facts,
+    context?.authoredFacts,
+  )
 }
 
 /**
  * Maps a parameter from semantic storage facts, or from the declared type without
  * context.
  */
-function mapSqliteParamValueFacts(
+function mapSqliteParamValueFromFacts(
   dataType: string,
   value: unknown,
   facts?: StorageFacts,
@@ -299,7 +304,7 @@ function mapSqliteParamValueFacts(
   if (value === null || value === undefined) return value
 
   const type = facts
-    ? mappingTypeFacts(dataType, facts, authored)
+    ? mappingTypeFromFacts(dataType, facts, authored)
     : declaredType(dataType)
 
   if (BOOLEAN_TYPES.has(type)) return typeof value === 'boolean' ? (value ? 1 : 0) : value
@@ -338,7 +343,7 @@ function mapSqliteResultValue(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  return mapSqliteResultValueFacts(
+  return mapSqliteResultValueFromFacts(
     dataType,
     value,
     context?.facts,
@@ -347,7 +352,7 @@ function mapSqliteResultValue(
 }
 
 /** Maps a result from semantic storage facts, or from the declared type without context. */
-function mapSqliteResultValueFacts(
+function mapSqliteResultValueFromFacts(
   dataType: string,
   value: unknown,
   facts?: StorageFacts,
@@ -356,7 +361,7 @@ function mapSqliteResultValueFacts(
   if (value === null || value === undefined) return value
 
   const type = facts
-    ? mappingTypeFacts(dataType, facts, authored)
+    ? mappingTypeFromFacts(dataType, facts, authored)
     : declaredType(dataType)
 
   if (BOOLEAN_TYPES.has(type)) {
@@ -396,11 +401,11 @@ function numericAssignmentType(
 
 export {
   validateSqliteValueMapping,
-  validateSqliteValueMappingFacts,
-  mappingTypeFacts,
+  validateSqliteValueMappingFromFacts,
+  mappingTypeFromFacts,
   mapSqliteParamValue,
-  mapSqliteParamValueFacts,
+  mapSqliteParamValueFromFacts,
   mapSqliteResultValue,
-  mapSqliteResultValueFacts,
+  mapSqliteResultValueFromFacts,
   numericAssignmentType,
 }

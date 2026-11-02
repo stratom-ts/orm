@@ -158,17 +158,17 @@ type SqliteRelation = SqliteQueryRelation & Readonly<{ alias: string }>
 /**
  * Resolves query relations and assigns unambiguous aliases.
  *
- * @param inputs - Contract inputs keyed by the facets exercised by this shard.
+ * @param relations - Authored relations participating in the query.
  * @param resolveRelation - Resolves authored relation intent under the selected query
  *   namespace rules.
  *
  * @returns Query relations and assigns unambiguous aliases.
  */
 function createRelationContext(
-  inputs: readonly RelationIdentityInput[],
+  relations: readonly RelationIdentityInput[],
   resolveRelation: SqliteQueryRelationResolver,
 ): readonly SqliteRelation[] {
-  const resolved = inputs.map(resolveRelation)
+  const resolved = relations.map(resolveRelation)
   const candidates = resolved.map((relation) => `${relation.database}.${relation.table}`)
   const counts = new Map<string, number>()
 
@@ -187,8 +187,8 @@ function createRelationContext(
     return {
       ...relation,
       alias:
-        (inputs[index] as RelationIdentityInput & { queryAlias?: string }).queryAlias ??
-        alias,
+        (relations[index] as RelationIdentityInput & { queryAlias?: string })
+          .queryAlias ?? alias,
     }
   })
 }

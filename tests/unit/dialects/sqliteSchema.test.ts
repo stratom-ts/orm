@@ -53,11 +53,11 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { assertSqliteDefaultCompatibility } from '@/dialects/sqlite/defaultCompatibility'
-import { inferSqliteColumnFacts } from '@/dialects/sqlite/infer'
+import { inferSqliteColumnTypeFromFacts } from '@/dialects/sqlite/infer'
 import {
-  mapSqliteParamValueFacts,
-  mapSqliteResultValueFacts,
-  validateSqliteValueMappingFacts,
+  mapSqliteParamValueFromFacts,
+  mapSqliteResultValueFromFacts,
+  validateSqliteValueMappingFromFacts,
 } from '@/dialects/sqlite/mapping'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
@@ -642,17 +642,19 @@ function facts(overrides: Partial<StorageFacts>): StorageFacts {
 
 it('distinguishes singleton safety from finite-choice safety', () => {
   expect(
-    inferSqliteColumnFacts(
+    inferSqliteColumnTypeFromFacts(
       facts({ finiteEvidence: 'singleton', singletonValue: 1.5, finiteValues: [1.5] }),
     ),
   ).toBe('REAL')
 
   expect(
-    inferSqliteColumnFacts(facts({ finiteEvidence: 'choice', finiteValues: [1, 2] })),
+    inferSqliteColumnTypeFromFacts(
+      facts({ finiteEvidence: 'choice', finiteValues: [1, 2] }),
+    ),
   ).toBe('INTEGER')
 
   expect(() =>
-    inferSqliteColumnFacts(
+    inferSqliteColumnTypeFromFacts(
       facts({
         finiteEvidence: 'singleton',
         singletonValue: Number.MAX_SAFE_INTEGER + 1,
@@ -662,7 +664,7 @@ it('distinguishes singleton safety from finite-choice safety', () => {
   ).toThrow('unsafe integer literal')
 
   expect(() =>
-    inferSqliteColumnFacts(
+    inferSqliteColumnTypeFromFacts(
       facts({
         finiteEvidence: 'choice',
         finiteValues: [1, Number.MAX_SAFE_INTEGER + 1],
@@ -673,7 +675,7 @@ it('distinguishes singleton safety from finite-choice safety', () => {
 
 it('keeps bigint limits and composite numeric selection', () => {
   expect(() =>
-    inferSqliteColumnFacts(
+    inferSqliteColumnTypeFromFacts(
       facts({
         outputKind: 'bigint',
         finiteEvidence: 'singleton',
@@ -686,13 +688,13 @@ it('keeps bigint limits and composite numeric selection', () => {
   const integer = facts({ numberConstraints: { isInteger: true } })
   const real = facts({})
   expect(
-    inferSqliteColumnFacts(
+    inferSqliteColumnTypeFromFacts(
       facts({ composite: { kind: 'alternatives', branches: [integer, real] } }),
     ),
   ).toBe('REAL')
 
   expect(() =>
-    inferSqliteColumnFacts(
+    inferSqliteColumnTypeFromFacts(
       facts({
         outputKind: 'json',
         composite: { kind: 'intersection', branches: [facts({ outputKind: 'json' })] },
@@ -704,15 +706,19 @@ it('keeps bigint limits and composite numeric selection', () => {
 
 it('maps logical values while keeping resolved and authored facts separate', () => {
   const resolved = facts({ outputKind: 'boolean' })
-  expect(mapSqliteParamValueFacts('INTEGER', true, resolved)).toBe(1)
-  expect(mapSqliteResultValueFacts('INTEGER', 0, resolved)).toBe(false)
+  expect(mapSqliteParamValueFromFacts('INTEGER', true, resolved)).toBe(1)
+  expect(mapSqliteResultValueFromFacts('INTEGER', 0, resolved)).toBe(false)
 
   expect(() =>
-    validateSqliteValueMappingFacts('INTEGER', resolved, facts({ outputKind: 'string' })),
+    validateSqliteValueMappingFromFacts(
+      'INTEGER',
+      resolved,
+      facts({ outputKind: 'string' }),
+    ),
   ).toThrow(SchemaError)
 
   expect(() =>
-    mapSqliteParamValueFacts(
+    mapSqliteParamValueFromFacts(
       'INTEGER',
       Number.MAX_SAFE_INTEGER + 1,
       facts({ numberConstraints: { isInteger: true } }),

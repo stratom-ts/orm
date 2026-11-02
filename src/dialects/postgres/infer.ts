@@ -30,9 +30,9 @@ const STRING_FORMAT_STORAGE = {
 } as const satisfies Record<StorageStringFormat, SqlDataType>
 
 /** Selects native storage only when all retained formats agree on one target. */
-function inferPostgresFormatType(analysis: StorageFacts): SqlDataType | undefined {
+function inferPostgresFormatType(facts: StorageFacts): SqlDataType | undefined {
   const targets = [
-    ...new Set(analysis.stringFormats.map((format) => STRING_FORMAT_STORAGE[format])),
+    ...new Set(facts.stringFormats.map((format) => STRING_FORMAT_STORAGE[format])),
   ].sort()
 
   if (targets.length > 1)
@@ -120,9 +120,9 @@ function unsupportedChoiceType(type: string): never {
 }
 
 /** Infers storage from the effective enum or picklist output options. */
-function inferPostgresChoiceType(analysis: StorageFacts): SqlDataType {
-  const options = analysis.finiteValues
-  const kind = analysis.outputKind
+function inferPostgresChoiceType(facts: StorageFacts): SqlDataType {
+  const options = facts.finiteValues
+  const kind = facts.outputKind
 
   if (!options?.length || !kind) return unsupportedChoiceType('choice')
 
@@ -189,25 +189,24 @@ function inferPostgresColumnTypeFromFacts(facts: StorageFacts): SqlDataType {
   })
 }
 
-function inferEffectivePostgresType(analysis: StorageFacts): SqlDataType | undefined {
-  if (analysis.composite) return inferPostgresCompositeType(analysis)
+function inferEffectivePostgresType(facts: StorageFacts): SqlDataType | undefined {
+  if (facts.composite) return inferPostgresCompositeType(facts)
 
-  if (analysis.finiteEvidence === 'singleton')
-    return inferPostgresLiteralType(analysis.singletonValue)
+  if (facts.finiteEvidence === 'singleton')
+    return inferPostgresLiteralType(facts.singletonValue)
 
-  if (analysis.finiteEvidence === 'choice') return inferPostgresChoiceType(analysis)
+  if (facts.finiteEvidence === 'choice') return inferPostgresChoiceType(facts)
 
-  switch (analysis.outputKind) {
+  switch (facts.outputKind) {
     case 'string':
       return (
-        inferPostgresFormatType(analysis) ??
-        inferPostgresStringType(analysis.stringConstraints)
+        inferPostgresFormatType(facts) ?? inferPostgresStringType(facts.stringConstraints)
       )
     case 'number': {
-      return inferPostgresNumberOutputType(analysis.numberConstraints)
+      return inferPostgresNumberOutputType(facts.numberConstraints)
     }
     case 'bigint': {
-      const { minValue, maxValue } = analysis.bigintConstraints
+      const { minValue, maxValue } = facts.bigintConstraints
       return minValue !== undefined &&
         maxValue !== undefined &&
         minValue >= INT64_MIN &&
@@ -227,12 +226,12 @@ function inferEffectivePostgresType(analysis: StorageFacts): SqlDataType | undef
 }
 
 /** Widens compatible branch storage without changing the output family. */
-function inferPostgresCompositeType(analysis: StorageFacts): SqlDataType {
-  const composite = analysis.composite!
+function inferPostgresCompositeType(facts: StorageFacts): SqlDataType {
+  const composite = facts.composite!
   const branches = composite.branches.filter((branch) => !branch.nullOnly)
-  const kind = analysis.outputKind
+  const kind = facts.outputKind
 
-  if (kind === 'json' && analysis.jsonOutputCompatible !== true)
+  if (kind === 'json' && facts.jsonOutputCompatible !== true)
     throw new SchemaError({
       message:
         'PostgreSQL JSON composite output is not preserved by JSON serialization; provide column({ physicalType: { postgresql: ... } }) and paired parameter and result mappings',
@@ -247,9 +246,9 @@ function inferPostgresCompositeType(analysis: StorageFacts): SqlDataType {
 
   const constrainedBranches =
     kind === 'number'
-      ? branches.map((branch) => withNumberFacts(branch, analysis.numberConstraints))
+      ? branches.map((branch) => withNumberFacts(branch, facts.numberConstraints))
       : kind === 'bigint'
-        ? branches.map((branch) => withBigintFacts(branch, analysis.bigintConstraints))
+        ? branches.map((branch) => withBigintFacts(branch, facts.bigintConstraints))
         : branches
 
   const types = constrainedBranches.map((branch) => inferEffectivePostgresType(branch))
@@ -259,7 +258,7 @@ function inferPostgresCompositeType(analysis: StorageFacts): SqlDataType {
   const storage = types as SqlDataType[]
   const inferred =
     kind === 'string'
-      ? inferPostgresCompositeStringType(analysis, branches, storage)
+      ? inferPostgresCompositeStringType(facts, branches, storage)
       : kind === 'number'
         ? inferPostgresCompositeNumberType(constrainedBranches, storage)
         : kind === 'bigint' &&
@@ -280,11 +279,11 @@ function isPostgresTextStorage(type: SqlDataType): boolean {
 
 /** Keeps one result format for every string branch before widening its width. */
 function inferPostgresCompositeStringType(
-  analysis: StorageFacts,
+  facts: StorageFacts,
   branches: readonly StorageFacts[],
   types: readonly SqlDataType[],
 ): SqlDataType | undefined {
-  const outerFormat = inferPostgresFormatType(analysis)
+  const outerFormat = inferPostgresFormatType(facts)
   const allText = types.every(isPostgresTextStorage)
 
   if (outerFormat && allText) return outerFormat
@@ -301,16 +300,16 @@ function inferPostgresCompositeStringType(
 
     if (outerFormat && outerFormat !== type) return undefined
 
-    if (allText && analysis.stringConstraints.maxLength !== undefined)
-      return inferPostgresStringType(analysis.stringConstraints)
+    if (allText && facts.stringConstraints.maxLength !== undefined)
+      return inferPostgresStringType(facts.stringConstraints)
 
     return type
   }
 
   if (!allText) return undefined
 
-  if (analysis.stringConstraints.maxLength !== undefined)
-    return inferPostgresStringType(analysis.stringConstraints)
+  if (facts.stringConstraints.maxLength !== undefined)
+    return inferPostgresStringType(facts.stringConstraints)
 
   if (types.includes('text')) return 'text'
 
