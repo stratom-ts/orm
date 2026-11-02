@@ -55,24 +55,6 @@ const POSTGRES_ALLOWED_BASE_TYPES = new Set([
 ])
 
 /**
- * SQL default expressions that may appear unquoted (not string literals).
- * Case-insensitive match after trim/collapse whitespace.
- */
-const ALLOWED_DEFAULT_EXPRESSIONS = new Set([
-  'null',
-  'true',
-  'false',
-  'now()',
-  'current_timestamp',
-  'current_date',
-  'current_time',
-  'localtimestamp',
-  'localtime',
-  'gen_random_uuid()',
-  'uuid_generate_v4()',
-])
-
-/**
  * Validates and returns a safe SQL type fragment for DDL.
  *
  * @example
@@ -125,25 +107,14 @@ export function assertSafePostgresDataType(dataType: string): string {
 }
 
 /**
- * Formats a column default for DDL.
- *
- * - Number / boolean / null → SQL literals
- * - Allowlisted expressions (`now()`, `gen_random_uuid()`, …) → raw SQL
- * - Other strings → single-quoted literals (escaped)
+ * Formats a tagged literal without interpreting string contents as SQL expressions.
  *
  * @example
- *   formatPostgresDefault(null) // 'null'
- *   formatPostgresDefault(42) // '42'
- *   formatPostgresDefault('now()') // 'now()'
- *   formatPostgresDefault("O'Brien") // 'O''Brien'
+ *   formatPostgresLiteral('now()') // "'now()'"
  *
- * @param value - Default value to format.
- *
- * @returns SQL default expression
- *
- * @throws Error when value is a non-finite number
+ * @param value - Literal value to format.
  */
-export function formatPostgresDefault(value: string | number | boolean | null): string {
+export function formatPostgresLiteral(value: string | number | boolean | null): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
 
@@ -154,31 +125,6 @@ export function formatPostgresDefault(value: string | number | boolean | null): 
 
     return String(value)
   }
-
-  const trimmed = value.trim()
-  const collapsed = trimmed.toLowerCase().replace(/\s+/g, ' ')
-
-  if (ALLOWED_DEFAULT_EXPRESSIONS.has(collapsed)) {
-    return collapsed
-  }
-
-  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
-    return trimmed
-  }
-
-  return `'${value.replaceAll("'", "''")}'`
-}
-
-/**
- * Formats a tagged literal without interpreting string contents as SQL expressions.
- *
- * @example
- *   formatPostgresLiteral('now()') // "'now()'"
- *
- * @param value - Literal value to format.
- */
-export function formatPostgresLiteral(value: string | number | boolean | null): string {
-  if (typeof value !== 'string') return formatPostgresDefault(value)
 
   const escapedQuotes = value.replaceAll("'", "''")
   return value.includes('\\')

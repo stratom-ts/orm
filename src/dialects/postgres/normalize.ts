@@ -1,5 +1,3 @@
-import { formatPostgresDefault } from './validate'
-
 /**
  * Normalizes PostgreSQL type names and aliases for comparison.
  *
@@ -76,11 +74,6 @@ function extractPostgresBaseType(dataType: string): string {
   return normalizePostgresDataType(dataType).replace(/\(.*\)$/, '')
 }
 
-/** Formats and normalizes a primitive PostgreSQL column default for comparison. */
-function normalizePostgresDefaultValue(value: string | number | boolean | null): string {
-  return normalizePostgresDefaultExpression(formatPostgresDefault(value))
-}
-
 function stripEnclosingParens(s: string): string {
   if (s.length < 2 || s[0] !== '(' || s[s.length - 1] !== ')') return s
 
@@ -125,6 +118,5 @@ function normalizePostgresDefaultExpression(expression: string): string {
 export {
   normalizePostgresDataType,
   extractPostgresBaseType,
-  normalizePostgresDefaultValue,
   normalizePostgresDefaultExpression,
 }

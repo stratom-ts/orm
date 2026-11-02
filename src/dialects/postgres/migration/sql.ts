@@ -1,5 +1,5 @@
 import type { CompiledQuery } from '../../types'
-import { assertSafePostgresDataType, formatPostgresDefault } from '../validate'
+import { assertSafePostgresDataType } from '../validate'
 
 import type {
   PostgresCreateTableAst,
@@ -19,16 +19,15 @@ function quoteIdentifier(ident: string): string {
 }
 
 /**
- * Qualifies a table name with its schema, defaulting to `public`.
+ * Qualifies a table name with its resolved schema.
  *
- * @param schema - Schema/namespace name (defaults to `public`)
+ * @param schema - Resolved schema/namespace name.
  * @param table - Table name.
  *
  * @returns Qualified table reference (e.g. `"public"."users"`)
  */
-function qualifyPostgresTable(schema: string | undefined, table: string): string {
-  const schemaName = schema ?? 'public'
-  return `${quoteIdentifier(schemaName)}.${quoteIdentifier(table)}`
+function qualifyPostgresTable(schema: string, table: string): string {
+  return `${quoteIdentifier(schema)}.${quoteIdentifier(table)}`
 }
 
 /**
@@ -78,8 +77,6 @@ function compileColumnDefinition(
 
   if (col.databaseDefault !== undefined && !col.generated && !col.autoIncrement) {
     parts.push(`default ${col.databaseDefault.sql}`)
-  } else if (col.defaultValue !== undefined && !col.generated && !col.autoIncrement) {
-    parts.push(`default ${formatPostgresDefault(col.defaultValue)}`)
   }
 
   if (col.references) {
@@ -146,7 +143,7 @@ function compileCreateTable(node: PostgresCreateTableAst): string {
  * @returns CREATE INDEX DDL statement
  */
 function compileCreateIndex(node: {
-  schema?: string
+  schema: string
   table: string
   name: string
   columns: readonly string[]
@@ -166,7 +163,7 @@ function compileCreateIndex(node: {
  * @returns ALTER TABLE ADD COLUMN DDL statement
  */
 function compileAddColumn(node: {
-  schema?: string
+  schema: string
   table: string
   column: PostgresCreateTableColumnAst
 }): string {
@@ -185,12 +182,12 @@ function compileAddColumn(node: {
  * @returns ALTER TABLE ADD FOREIGN KEY DDL statement
  */
 function compileAddForeignKey(node: {
-  schema?: string
+  schema: string
   table: string
   column: string
   name?: string
   references: {
-    schema?: string
+    schema: string
     table: string
     column: string
     onDelete?: string
@@ -223,7 +220,7 @@ function compileAddForeignKey(node: {
  * @param node - Unique constraint definition.
  */
 function compileAddUniqueConstraint(node: {
-  schema?: string
+  schema: string
   table: string
   column: string
   name: string
@@ -268,9 +265,8 @@ function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
       }
     }
     case 'drop_index': {
-      const schemaName = (node as { readonly schema?: string }).schema ?? 'public'
       return {
-        sql: `drop index ${quoteIdentifier(schemaName)}.${quoteIdentifier(node.index)}`,
+        sql: `drop index ${quoteIdentifier(node.schema)}.${quoteIdentifier(node.index)}`,
         params: [],
       }
     }
