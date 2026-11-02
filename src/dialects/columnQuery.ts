@@ -1,3 +1,4 @@
+import { outputAliases, prepareSelectProjection } from '@/query/projection'
 import { queryRelationSource } from '@/query/sourceRelation'
 import type { RelationIdentityInput } from '@/schemas'
 import { physicalColumnName } from '@/schemas/physicalColumn'
@@ -98,63 +99,6 @@ class ColumnQuery {
     }
   }
 
-  selection(node: SelectAst): SelectItemAst[] {
-    const relations = [node.relation, ...(node.joins ?? []).map((join) => join.relation)]
-    return (node.selection.length ? node.selection : [{ kind: 'all' as const }]).flatMap(
-      (item): SelectItemAst[] => {
-        if (item.kind !== 'all') return [item]
-
-        const selected = item.relation ? [item.relation] : relations
-        const handles = selected.map((relation) => this.handle(relation))
-
-        if (handles.some((handle) => !handle)) return [item]
-
-        return handles.flatMap((handle, index) =>
-          Object.keys(handle!.getSchema().entries).map((column) => ({
-            kind: 'column' as const,
-            relation: selected[index],
-            column,
-            alias: column,
-          })),
-        )
-      },
-    )
-  }
-
-  /** Uses a conservative SQL output bound; application names have no storage limit. */
-  aliases(
-    names: readonly string[],
-    projection?: { sqlName: string; outputName: string }[],
-    discard = false,
-  ): string[] {
-    if (!discard && new Set(names).size !== names.length)
-      throw new QueryError({
-        message: 'Query output columns are ambiguous; supply explicit aliases',
-      })
-
-    const reserved = new Set(names)
-    let sequence = 0
-    return names.map((outputName) => {
-      let sqlName = outputName
-
-      if (
-        outputName.length === 0 ||
-        new TextEncoder().encode(outputName).length > 63 ||
-        outputName.includes('\0') ||
-        new TextDecoder().decode(new TextEncoder().encode(outputName)) !== outputName
-      ) {
-        do {
-          sqlName = `__stratom_c${sequence++}`
-        } while (reserved.has(sqlName))
-
-        reserved.add(sqlName)
-        projection?.push({ sqlName, outputName })
-      }
-
-      return sqlName
-    })
-  }
-
   returning(
     returning: ReturningAst,
     relation: RelationIdentityInput,
@@ -171,12 +115,16 @@ class ColumnQuery {
         ? Object.keys(handle.getSchema().entries)
         : [...returning.columns]
 
-    const aliases = this.aliases(names, projection)
+    const outputs = outputAliases(names)
+    projection?.push(
+      ...outputs.filter(({ sqlName, outputName }) => sqlName !== outputName),
+    )
+
     return {
       kind: 'projection',
       columns: names.map((column, index) => ({
         column: this.column({ column }, relation).column,
-        alias: aliases[index],
+        alias: outputs[index].sqlName,
       })),
     }
   }
@@ -284,18 +232,17 @@ class ColumnQuery {
   ): SelectAst {
     const relation = node.relation
     const where = node.where ? this.predicate(node.where, relation) : undefined
-    const selection = this.selection(node)
-    const names = selection.map((item) =>
-      item.kind === 'all'
-        ? '*'
-        : (item.alias ?? (item.kind === 'column' ? item.column : '')),
+    const prepared = prepareSelectProjection(
+      node,
+      this.query,
+      discard ? 'discarded' : 'rows',
     )
 
-    const aliases = this.aliases(names, projection, discard)
+    projection?.push(...prepared.resultNames)
     return {
       ...node,
-      selection: selection.map((item, index) =>
-        this.selectItem(item, aliases[index], relation),
+      selection: prepared.node.selection.map((item, index) =>
+        this.selectItem(item, prepared.outputs[index].sqlName, relation),
       ),
       ...(where ? { where } : {}),
       ...(node.joins
