@@ -2,7 +2,7 @@ import type { DatabaseDefault } from '@/schemas'
 import type { StorageFacts } from '@/storage/facts'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
-import { mapSqliteResultValueFacts } from './mapping'
+import { mapSqliteResultValueFromFacts } from './mapping'
 import { normalizeSqliteDataType } from './normalize'
 
 /** Applies ordinary-table affinity to a supported literal's storage value. */
@@ -104,7 +104,7 @@ export function assertSqliteDefaultCompatibility(
   let compatible = false
   try {
     const stored = storedLiteral(literal, dataType)
-    const mapped = mapSqliteResultValueFacts(dataType, stored, facts)
+    const mapped = mapSqliteResultValueFromFacts(dataType, stored, facts)
     compatible = compatibleResult(mapped, facts)
   } catch (cause) {
     if (!(isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'SchemaError')))

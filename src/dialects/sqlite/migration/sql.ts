@@ -11,7 +11,12 @@ import {
   validateSqliteObjectName,
 } from '../naming'
 
-import type { Column, Definition, ForeignKey, Index } from './definition'
+import type {
+  SqliteColumnDefinition,
+  SqliteForeignKeyDefinition,
+  SqliteIndexDefinition,
+  SqliteTableDefinition,
+} from './definition'
 import { SqliteMigrationCapabilityError, capabilityError } from './error'
 
 /** Quotes a single SQLite identifier, including literal dots and quotes. */
@@ -86,7 +91,7 @@ function address(name: string): string {
 }
 
 /** Compiles one supported SQLite column, with exact rowid-alias behavior. */
-function columnSql(column: Column): string {
+function compileColumnDefinition(column: SqliteColumnDefinition): string {
   const primary = column.rowidAlias
     ? ` primary key${column.autoIncrement ? ' autoincrement' : ''}`
     : ''
@@ -110,7 +115,7 @@ function actionSql(action: string): string {
 }
 
 /** Compiles a same-database foreign key using SQLite's unqualified REFERENCES syntax. */
-function foreignKeySql(key: ForeignKey): string {
+function foreignKeySql(key: SqliteForeignKeyDefinition): string {
   assertMain(key.relation)
 
   if (key.columns.length !== key.referencedColumns.length)
@@ -120,7 +125,10 @@ function foreignKeySql(key: ForeignKey): string {
 }
 
 /** Compiles every final column and retained simple constraint into one CREATE TABLE. */
-function createSql(name: string, definition: Definition): CompiledQuery {
+function compileCreateTable(
+  name: string,
+  definition: SqliteTableDefinition,
+): CompiledQuery {
   try {
     validateSqliteObjectName(name, 'table')
   } catch (cause) {
@@ -132,7 +140,7 @@ function createSql(name: string, definition: Definition): CompiledQuery {
   if (!definition.columns.length)
     throw capabilityError('SQLite table must retain at least one column')
 
-  const clauses = definition.columns.map(columnSql)
+  const clauses = definition.columns.map(compileColumnDefinition)
 
   if (
     definition.primaryKey.length &&
@@ -146,7 +154,7 @@ function createSql(name: string, definition: Definition): CompiledQuery {
 }
 
 /** Compiles a simple main-database index without relying on IF NOT EXISTS. */
-function indexSql(table: string, index: Index): CompiledQuery {
+function compileCreateIndex(table: string, index: SqliteIndexDefinition): CompiledQuery {
   try {
     validateSqliteObjectName(index.name, 'index')
   } catch (cause) {
@@ -166,8 +174,8 @@ export {
   assertMain,
   statement,
   address,
-  columnSql,
+  compileColumnDefinition,
   columnsSql,
-  createSql,
-  indexSql,
+  compileCreateTable,
+  compileCreateIndex,
 }

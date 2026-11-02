@@ -10,12 +10,12 @@ import type {
 /**
  * Wraps an identifier in double quotes, escaping any internal quotes.
  *
- * @param ident - The identifier to quote (e.g. table name, column name)
+ * @param identifier - The identifier to quote (e.g. table name, column name)
  *
  * @returns Quoted identifier safe for SQL
  */
-function quoteIdentifier(ident: string): string {
-  return `"${ident.replaceAll('"', '""')}"`
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replaceAll('"', '""')}"`
 }
 
 /**

@@ -17,7 +17,7 @@ import type { StorageFacts } from '@/storage/facts'
 import { MigrationError } from '@/utils/error'
 
 import { assertSqliteDefaultCompatibility } from './defaultCompatibility'
-import { inferSqliteColumnFacts } from './infer'
+import { inferSqliteColumnTypeFromFacts } from './infer'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
 import {
   assertSafeSqliteDataType,
@@ -70,8 +70,7 @@ function portableExpression(expression: string): string {
  *
  * @param value - Runtime value to validate, normalize, or map.
  *
- * @returns The dialect's lowered database default, or undefined when no default is
- *   declared.
+ * @returns The dialect's lowered database default.
  */
 function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
   let sql: string
@@ -117,10 +116,10 @@ function physicalType(
     (facts.outputKind === 'number' || facts.outputKind === 'bigint') &&
     (!hasParameterMapping || !hasResultMapping)
   ) {
-    inferSqliteColumnFacts(facts)
+    inferSqliteColumnTypeFromFacts(facts)
   }
 
-  const selected = explicit ?? inferSqliteColumnFacts(facts)
+  const selected = explicit ?? inferSqliteColumnTypeFromFacts(facts)
 
   return assertSafeSqliteDataType(selected)
 }
@@ -218,7 +217,7 @@ function lowerGeneration(
  * @param table - Table metadata or evidence used to resolve its members.
  * @param column - Authored or observed column metadata used for storage comparison.
  * @param dataType - Physical SQL type used for validation, comparison, or value mapping.
- * @param analysis - Resolved schema facts for physical type selection and validation.
+ * @param facts - Resolved schema facts for physical type selection and validation.
  *
  * @returns The desired column's validated physical storage, generation, and default
  *   metadata.

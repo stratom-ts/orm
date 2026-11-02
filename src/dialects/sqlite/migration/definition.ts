@@ -9,7 +9,7 @@ import { assertSafeSqliteDataType, assertSafeSqliteDefaultExpression } from '../
 
 import { capabilityCheck, capabilityError } from './error'
 
-type Column = {
+type SqliteColumnDefinition = {
   name: string
   dataType: string
   notNull: boolean
@@ -18,7 +18,7 @@ type Column = {
   autoIncrement: boolean
 }
 
-type ForeignKey = {
+type SqliteForeignKeyDefinition = {
   columns: readonly string[]
   relation: CanonicalRelationIdentity
   referencedColumns: readonly string[]
@@ -26,14 +26,14 @@ type ForeignKey = {
   onUpdate: string
 }
 
-type Index = { name: string; columns: readonly string[]; unique: boolean }
+type SqliteIndexDefinition = { name: string; columns: readonly string[]; unique: boolean }
 
-type Definition = {
-  columns: Column[]
+type SqliteTableDefinition = {
+  columns: SqliteColumnDefinition[]
   primaryKey: readonly string[]
   unique: (readonly string[])[]
-  foreignKeys: ForeignKey[]
-  indexes: Index[]
+  foreignKeys: SqliteForeignKeyDefinition[]
+  indexes: SqliteIndexDefinition[]
 }
 
 /** Requires one fully observed fact before preserving catalog state. */
@@ -88,7 +88,7 @@ function observedTable(
 function desiredColumn(
   column: LoweredDesiredColumn,
   primaryKey: readonly string[],
-): Column {
+): SqliteColumnDefinition {
   const name = column.identifier.spelling
   const rowidAlias =
     primaryKey.length === 1 &&
@@ -112,7 +112,7 @@ function desiredColumn(
 }
 
 /** Produces an empty physical definition from a registered desired table. */
-function desiredDefinition(table: LoweredDesiredTable): Definition {
+function desiredDefinition(table: LoweredDesiredTable): SqliteTableDefinition {
   const primaryKey = table.primaryKey.map((column) => column.spelling)
   return {
     columns: table.columns.map((column) => desiredColumn(column, primaryKey)),
@@ -145,7 +145,7 @@ function assertSimple(value: {
 }
 
 /** Preserves every observed physical member, including additive live columns. */
-function observedDefinition(table: CatalogTable): Definition {
+function observedDefinition(table: CatalogTable): SqliteTableDefinition {
   const primaryKey =
     table.primaryKey.state === 'absent'
       ? []
@@ -190,7 +190,9 @@ function observedDefinition(table: CatalogTable): Definition {
 }
 
 /** Reads native column storage, defaults and rowid generation without lossy projection. */
-function observedColumn(column: CatalogTable['columns']['items'][number]): Column {
+function observedColumn(
+  column: CatalogTable['columns']['items'][number],
+): SqliteColumnDefinition {
   const generation =
     column.generation.state === 'absent'
       ? undefined
@@ -231,7 +233,12 @@ function literalDefault(value: string | undefined): boolean {
   return value === undefined || isSqliteDefaultLiteral(value)
 }
 
-export type { Column, ForeignKey, Index, Definition }
+export type {
+  SqliteColumnDefinition,
+  SqliteForeignKeyDefinition,
+  SqliteIndexDefinition,
+  SqliteTableDefinition,
+}
 
 export {
   fact,

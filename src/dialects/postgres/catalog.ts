@@ -36,7 +36,7 @@ import {
 const UNPAIRED_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
-const createConstraintQueryData = `
+const POSTGRES_CONSTRAINT_CATALOG_SQL = `
       select n.nspname as schema, tbl.relname as table_name, con.conname as constraint_name,
              con.contype as constraint_type, con.convalidated as is_valid,
              con.condeferrable as is_deferrable, con.condeferred as initially_deferred,
@@ -97,7 +97,7 @@ const createConstraintQueryData = `
       order by n.nspname, tbl.relname, con.conname
     `
 
-const createCatalogQueriesData = `
+const POSTGRES_INDEX_CATALOG_SQL = `
       select n.nspname as schema, tbl.relname as table_name, idx.relname as index_name,
              i.indisunique as is_unique, (i.indisvalid and i.indisready) as is_valid,
              coalesce((to_jsonb(i) ->> 'indnullsnotdistinct')::boolean, false) as nulls_not_distinct,
@@ -139,7 +139,7 @@ const createCatalogQueriesData = `
       order by n.nspname, tbl.relname, idx.relname
     `
 
-const createCatalogQueriesData2 = `
+const POSTGRES_OPAQUE_CATALOG_SQL = `
       select n.nspname as schema, c.relname as table_name, 'trigger' as object_kind,
              t.tgname as object_name,
              pg_get_triggerdef(t.oid, true) as native_definition
@@ -1122,7 +1122,7 @@ function appendColumns(
 /** Builds the PostgreSQL constraint evidence query for the requested schemas. */
 function createConstraintQuery(scopeSchemas: readonly string[]) {
   const constraintQuery = {
-    sql: createConstraintQueryData,
+    sql: POSTGRES_CONSTRAINT_CATALOG_SQL,
     params: [scopeSchemas],
   }
 
@@ -1149,12 +1149,12 @@ function createCatalogQueries(scopeSchemas: readonly string[]) {
   const constraintQuery = createConstraintQuery(scopeSchemas)
 
   const indexQuery = {
-    sql: createCatalogQueriesData,
+    sql: POSTGRES_INDEX_CATALOG_SQL,
     params: [scopeSchemas],
   }
 
   const opaqueQuery = {
-    sql: createCatalogQueriesData2,
+    sql: POSTGRES_OPAQUE_CATALOG_SQL,
     params: [scopeSchemas],
   }
 

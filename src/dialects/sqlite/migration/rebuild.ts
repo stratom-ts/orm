@@ -6,7 +6,7 @@ import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationId
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from '../normalize'
 import { assertSafeSqliteDataType } from '../validate'
 
-import type { Column, Definition } from './definition'
+import type { SqliteColumnDefinition, SqliteTableDefinition } from './definition'
 import {
   desiredColumn,
   literalDefault,
@@ -18,8 +18,8 @@ import { capabilityError } from './error'
 import {
   address,
   columnsSql,
-  createSql,
-  indexSql,
+  compileCreateIndex,
+  compileCreateTable,
   quoteSqliteIdentifier,
   statement,
 } from './sql'
@@ -30,7 +30,7 @@ type TableGroup = {
 }
 
 /** Applies one semantic column operation to the retained table definition. */
-function applyColumn(definition: Definition, step: MigrationStep): void {
+function applyColumn(definition: SqliteTableDefinition, step: MigrationStep): void {
   if (step.target.kind !== 'column') return
 
   const name = step.target.column.spelling
@@ -66,7 +66,7 @@ function applyColumn(definition: Definition, step: MigrationStep): void {
 }
 
 /** Permits only SQLite affinity changes that preserve all possible stored values. */
-function changeType(column: Column, desired: string): void {
+function changeType(column: SqliteColumnDefinition, desired: string): void {
   const from = normalizeSqliteDataType(column.dataType)
   const to = normalizeSqliteDataType(desired)
 
@@ -89,7 +89,7 @@ function changeType(column: Column, desired: string): void {
  * Removes only constraints authorized by a dropped column; retained indexes require
  * explicit drops.
  */
-function removeColumn(definition: Definition, name: string): void {
+function removeColumn(definition: SqliteTableDefinition, name: string): void {
   const touches = (columns: readonly string[]) =>
     columns.some((column) => sameName(column, name))
 
@@ -107,7 +107,10 @@ function removeColumn(definition: Definition, name: string): void {
 }
 
 /** Merges touching additions and explicit drops into one complete retained definition. */
-function finalDefinition(planned: PlannedMigration, group: TableGroup): Definition {
+function finalDefinition(
+  planned: PlannedMigration,
+  group: TableGroup,
+): SqliteTableDefinition {
   const definition = observedDefinition(observedTable(planned, group.identity))
   const desired = planned.desiredTables.get(group.identity)
 
@@ -134,7 +137,7 @@ function finalDefinition(planned: PlannedMigration, group: TableGroup): Definiti
 
 /** Adds one registered column and its unique constraint to a final retained definition. */
 function addColumn(
-  definition: Definition,
+  definition: SqliteTableDefinition,
   step: Extract<MigrationStep, { kind: 'add_column' }>,
   desired: LoweredDesiredTable | undefined,
 ): void {
@@ -152,7 +155,7 @@ function addColumn(
 }
 
 /** Reads a newly added desired column and rejects required-column backfills. */
-function desiredColumnForAddition(column: LoweredDesiredColumn): Column {
+function desiredColumnForAddition(column: LoweredDesiredColumn): SqliteColumnDefinition {
   const result = desiredColumn(column, [])
   const normalized =
     result.defaultSql === undefined
@@ -171,7 +174,10 @@ function desiredColumnForAddition(column: LoweredDesiredColumn): Column {
 }
 
 /** Chooses an unshadowed rowid spelling shared by old and replacement definitions. */
-function hiddenRowid(old: Definition, final: Definition): string | undefined {
+function hiddenRowid(
+  old: SqliteTableDefinition,
+  final: SqliteTableDefinition,
+): string | undefined {
   if (old.columns.some((column) => column.rowidAlias)) return undefined
 
   const name = ['rowid', '_rowid_', 'oid'].find(
@@ -188,7 +194,12 @@ function hiddenRowid(old: Definition, final: Definition): string | undefined {
 }
 
 /** Projects every retained column and rowid explicitly without casts or positional copies. */
-function copySql(name: string, replacement: string, old: Definition, final: Definition) {
+function copySql(
+  name: string,
+  replacement: string,
+  old: SqliteTableDefinition,
+  final: SqliteTableDefinition,
+) {
   const rowid = hiddenRowid(old, final)
   const columns = final.columns.map((column) => column.name)
   const expressions = final.columns.map((column) =>
@@ -236,7 +247,7 @@ function rebuild(
   const old = observedDefinition(observedTable(planned, group.identity))
   const final = finalDefinition(planned, group)
   const statements = [
-    createSql(replacement, final),
+    compileCreateTable(replacement, final),
     copySql(name, replacement, old, final),
   ]
 
@@ -248,7 +259,7 @@ function rebuild(
     statement(
       `alter table ${address(replacement)} rename to ${quoteSqliteIdentifier(name)}`,
     ),
-    ...final.indexes.map((index) => indexSql(name, index)),
+    ...final.indexes.map((index) => compileCreateIndex(name, index)),
   )
 
   const preconditions: MigrationPrecondition[] = group.steps
