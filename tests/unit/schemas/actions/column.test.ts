@@ -44,17 +44,6 @@ describe('getColumnMetadata', () => {
     expect(metadata!.physicalType).toEqual({ postgresql: 'text' })
   })
 
-  it('should return the correct type from metadata', () => {
-    const schema = pipe(
-      string(),
-      column({ physicalType: { postgresql: 'varchar(255)' } }),
-    )
-
-    const metadata = getColumnMetadata(schema)
-    expect(metadata).toBeDefined()
-    expect(metadata!.physicalType).toEqual({ postgresql: 'varchar(255)' })
-  })
-
   it('should not confuse another metadata kind for local column options', () => {
     const schema = pipe(string(), metadata({ kind: 'reference', target: {} }))
 

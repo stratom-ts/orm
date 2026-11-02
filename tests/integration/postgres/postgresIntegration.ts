@@ -39,10 +39,6 @@ type SessionHooks = Readonly<{
 }>
 
 type PostgresDatabaseOptions = Readonly<{
-  library?: {
-    createDatabase: typeof createDatabase
-    createDb0PostgresOperationSessionProvider: typeof createDb0PostgresOperationSessionProvider
-  }
   useRegistrationDefault?: boolean
   applicationId?: string
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -176,16 +172,13 @@ function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
   schemas: TSchemas,
   options: PostgresClientOptions,
 ): Db<TSchemas> {
-  const realProvider = (
-    options.library?.createDb0PostgresOperationSessionProvider ??
-    createDb0PostgresOperationSessionProvider
-  )(connector)
+  const realProvider = createDb0PostgresOperationSessionProvider(connector)
 
   const operationSessionProvider = options.hooks
     ? observeSessionProvider(realProvider, options.hooks)
     : realProvider
 
-  return (options.library?.createDatabase ?? createDatabase)({
+  return createDatabase({
     connector,
     schemas,
     operationSessionProvider,
@@ -487,7 +480,7 @@ function createPostgresCallbackContext<TSchemas extends readonly TableHandle[], 
         postgresql({ url: input.url }),
         schema,
         additionalSchemas,
-        { ...additionalOptions, library: options.library },
+        additionalOptions,
       )
 
       cleanup.push(() => additional.close())

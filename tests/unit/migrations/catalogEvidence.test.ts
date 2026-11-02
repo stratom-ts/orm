@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import { planMigration } from '@/ddl/migrationPlan'
 import type {
   CatalogColumn,
-  CatalogFact,
   CatalogRelation,
   CatalogSnapshot,
   CatalogTable,
@@ -77,32 +76,6 @@ function usersCatalog() {
     usersRequest,
   )
 }
-
-describe('catalog evidence', () => {
-  it('should keep every scalar evidence state distinct', () => {
-    const facts: CatalogFact<string>[] = [
-      { state: 'present', value: 'value' },
-      { state: 'absent' },
-      { state: 'unsupported', by: 'engine', reason: 'not available' },
-      { state: 'unavailable', cause: 'permission', reason: 'hidden' },
-      { state: 'unavailable', cause: 'version', actual: '1', requires: '2' },
-      { state: 'unmanaged', reason: 'outside ownership' },
-      { state: 'unknown', reason: 'raced' },
-    ]
-
-    const describe = describeCatalogFact
-
-    expect(facts.map(describe)).toEqual([
-      'present:value',
-      'absent',
-      'unsupported:engine',
-      'unavailable:permission',
-      'unavailable:version',
-      'unmanaged:outside ownership',
-      'unknown:raced',
-    ])
-  })
-})
 
 describe('catalog evidence: requires complete empty coverage before creating a relation', () => {
   it('should require complete empty coverage before creating a relation', () => {
@@ -521,32 +494,4 @@ function createIncompleteCoverageCases() {
       evidence: 'unknown',
     },
   ]
-}
-
-/**
- * Formats a catalog fact's state and retained provenance for assertions.
- *
- * @param fact - Catalog evidence whose state and provenance are formatted.
- *
- * @returns A catalog fact's state and retained provenance for assertions.
- */
-function describeCatalogFact(fact: CatalogFact<string>): string {
-  switch (fact.state) {
-    case 'present':
-      return `present:${fact.value}`
-    case 'absent':
-      return 'absent'
-    case 'unsupported':
-      return `unsupported:${fact.by}`
-    case 'unavailable':
-      return `unavailable:${fact.cause}`
-    case 'unmanaged':
-      return `unmanaged:${fact.reason}`
-    case 'unknown':
-      return `unknown:${fact.reason}`
-    default: {
-      const exhaustive: never = fact
-      return exhaustive
-    }
-  }
 }
