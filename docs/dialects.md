@@ -97,8 +97,8 @@ reference-type compatibility, defaults, generation, and final physical column me
 Do not copy the graph algorithm into a member or widen `DialectSchema` with these hooks.
 
 `inferColumnType(facts)` maps logical storage facts to a physical type.
-`normalizeDataType()` supplies catalog-comparison form, and
-`normalizeDefaultValue()` may supply default-value comparison form. Unsupported type,
+`normalizeDataType()` supplies catalog-comparison form. Lowered `databaseDefault`
+values carry both SQL and normalized comparison forms. Unsupported type,
 default, generation, or reference forms fail with `MigrationError`; they never degrade
 to a convenient PostgreSQL or text default.
 

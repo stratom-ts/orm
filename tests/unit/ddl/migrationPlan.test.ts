@@ -373,7 +373,6 @@ const lowerCustomDesiredSchema = (graph: AuthoredDesiredSchema) => ({
           }),
       ...(column.name === 'taggedStatus'
         ? {
-            defaultValue: 'legacy',
             databaseDefault: {
               sql: 'custom_database:ready',
               normalized: 'custom_database:ready',
@@ -834,7 +833,6 @@ function createCustomPlanningDialect() {
   const lowerDesiredSchema = lowerCustomDesiredSchema
   const inferColumnType = inferCustomPlanningType
   const normalizeDataType = normalizeCustomPlanningType
-  const normalizeDefaultValue = normalizeCustomPlanningDefault
   const dialect: Dialect = {
     id: 'mysql',
     classifyDriverError: () => ({ kind: 'unknown', retryable: false }),
@@ -844,7 +842,6 @@ function createCustomPlanningDialect() {
       lowerDesiredSchema,
       inferColumnType,
       normalizeDataType,
-      normalizeDefaultValue,
     },
     query: exactQueryAddressing(compile),
     operations: {
@@ -861,7 +858,6 @@ function createCustomPlanningDialect() {
         schema: {
           lowerDesiredSchema,
           normalizeDataType,
-          normalizeDefaultValue,
         },
       },
       catalog: { introspectCatalog: introspect },
@@ -1031,9 +1027,4 @@ function inferCustomPlanningType() {
 /** Normalizes physical SQL type spelling for stable schema comparison. */
 function normalizeCustomPlanningType(dataType: string) {
   return dataType === 'custom_string_alias' ? 'custom_string' : dataType
-}
-
-/** Normalizes the fixture default into its comparison spelling. */
-function normalizeCustomPlanningDefault(value: string | number | boolean | null) {
-  return `custom_default:${String(value)}`
 }

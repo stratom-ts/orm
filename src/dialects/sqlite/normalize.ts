@@ -1,5 +1,4 @@
 import { trimSqliteWhitespace } from './defaultExpression'
-import { formatSqliteLiteral } from './validate'
 
 /** Returns SQLite's stable affinity key for a declared type spelling. */
 function normalizeSqliteDataType(dataType: string): string {
@@ -74,11 +73,6 @@ function normalizeSqliteDefaultExpression(expression: string): string {
   return collapseUnquotedWhitespace(result)
 }
 
-/** Normalizes a primitive default under SQLite's literal rules. */
-function normalizeSqliteDefaultValue(value: string | number | boolean | null): string {
-  return normalizeSqliteDefaultExpression(formatSqliteLiteral(value))
-}
-
 /** Collapses spacing outside SQL string literals while preserving doubled quotes. */
 function collapseUnquotedWhitespace(expression: string): string {
   let quoted = false
@@ -105,8 +99,4 @@ function collapseUnquotedWhitespace(expression: string): string {
   return result
 }
 
-export {
-  normalizeSqliteDataType,
-  normalizeSqliteDefaultExpression,
-  normalizeSqliteDefaultValue,
-}
+export { normalizeSqliteDataType, normalizeSqliteDefaultExpression }

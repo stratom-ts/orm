@@ -63,7 +63,6 @@ type ExpectedMigrationStep =
       dataType: string
       notNull: boolean
       unique?: boolean
-      defaultValue?: string | number | boolean | null
       databaseDefault?: LoweredDatabaseDefault
       generated?: 'always' | 'byDefault'
       autoIncrement?: boolean

@@ -5,11 +5,7 @@ import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationId
 
 import { isSqliteDefaultLiteral } from '../defaultExpression'
 import { asciiFoldSqliteIdentifier } from '../identity'
-import {
-  assertSafeSqliteDataType,
-  assertSafeSqliteDefaultExpression,
-  formatSqliteLiteral,
-} from '../validate'
+import { assertSafeSqliteDataType, assertSafeSqliteDefaultExpression } from '../validate'
 
 import { capabilityCheck, capabilityError } from './error'
 
@@ -111,9 +107,6 @@ function desiredColumn(
             assertSafeSqliteDefaultExpression(column.databaseDefault!.sql),
           ),
         }
-      : {}),
-    ...(column.defaultValue !== undefined
-      ? { defaultSql: capabilityCheck(() => formatSqliteLiteral(column.defaultValue!)) }
       : {}),
   }
 }

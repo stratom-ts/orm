@@ -94,7 +94,6 @@ function createTableStepToAst(
       notNull: column.notNull,
       unique: column.unique,
       autoIncrement: column.autoIncrement,
-      ...(column.defaultValue === undefined ? {} : { defaultValue: column.defaultValue }),
       ...(column.databaseDefault === undefined
         ? {}
         : { databaseDefault: column.databaseDefault }),
@@ -137,7 +136,6 @@ function addColumnStepToAst(
           }
         : {}),
       autoIncrement: step.autoIncrement ?? false,
-      ...(step.defaultValue !== undefined ? { defaultValue: step.defaultValue } : {}),
       ...(step.databaseDefault !== undefined
         ? { databaseDefault: step.databaseDefault }
         : {}),

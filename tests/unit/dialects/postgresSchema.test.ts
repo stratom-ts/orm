@@ -64,6 +64,7 @@ import {
   mapPostgresResultValueFromFacts,
   validatePostgresValueMappingFromFacts,
 } from '@/dialects/postgres/mapping'
+import { normalizePostgresDefaultExpression } from '@/dialects/postgres/normalize'
 import { SchemaError, postgresDialect } from '@/index'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
@@ -493,8 +494,8 @@ const registerSchemaCases13 = () => {
     )
   })
 
-  it('should normalize a default value to the catalog comparison key', () => {
-    expect(postgresDialect.schema.normalizeDefaultValue?.('pending')).toBe("'pending'")
+  it('should normalize a lowered default expression to the catalog comparison key', () => {
+    expect(normalizePostgresDefaultExpression("('pending'::text)")).toBe("'pending'")
   })
 }
 

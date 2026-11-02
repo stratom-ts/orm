@@ -5,12 +5,11 @@ type PostgresCreateTableColumnAst = {
   readonly unique: boolean
   readonly uniqueConstraintName?: string
   readonly autoIncrement: boolean
-  readonly defaultValue?: string | number | boolean | null
   readonly databaseDefault?: Readonly<{ sql: string; normalized: string }>
   readonly generated?: 'always' | 'byDefault'
   readonly references?: Readonly<{
     readonly table: string
-    readonly schema?: string
+    readonly schema: string
     readonly column: string
     readonly onDelete?: string
     readonly onUpdate?: string

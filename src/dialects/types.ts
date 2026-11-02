@@ -121,7 +121,6 @@ export type LoweredDesiredColumn = Readonly<{
   notNull: boolean
   unique: boolean
   autoIncrement: boolean
-  defaultValue?: string | number | boolean | null
   databaseDefault?: LoweredDatabaseDefault
   generated?: 'always' | 'byDefault'
   reference?: Readonly<{
@@ -187,7 +186,6 @@ export type DialectSchema = Readonly<{
    * @returns The normalized type spelling used for storage equality.
    */
   normalizeDataType(dataType: string): string
-  normalizeDefaultValue?: (value: string | number | boolean | null) => string
 }>
 
 /** Database session evidence available immediately before physical execution. */

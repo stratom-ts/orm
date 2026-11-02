@@ -100,7 +100,6 @@ type MigrationStep =
       dataType: string
       notNull: boolean
       unique?: boolean
-      defaultValue?: string | number | boolean | null
       databaseDefault?: LoweredDatabaseDefault
       generated?: 'always' | 'byDefault'
       autoIncrement?: boolean
@@ -190,7 +189,6 @@ type MigrationPlanningContext = Readonly<{
      * @returns The normalized type spelling used for storage equality.
      */
     normalizeDataType(dataType: string): string
-    normalizeDefaultValue?: (value: string | number | boolean | null) => string
   }>
 }>
 
@@ -755,29 +753,15 @@ function normalizeAction(action: string | undefined): string {
  * @param target - Structured diagnostic target for the column.
  * @param live - Introspected column definition.
  * @param desired - Desired column definition.
- * @param planning - Selected member's bound planning semantics.
  */
 function defaultMismatch(
   target: string,
   live: CatalogColumn,
   desired: LoweredDesiredColumn,
-  planning: MigrationPlanningContext,
 ): string | undefined {
   if (live.defaultExpression === undefined) return
 
-  const expected =
-    desired.databaseDefault?.normalized ??
-    (desired.defaultValue === undefined
-      ? null
-      : planning.schema.normalizeDefaultValue?.(desired.defaultValue))
-
-  if (
-    desired.databaseDefault === undefined &&
-    desired.defaultValue !== undefined &&
-    expected === undefined
-  ) {
-    return `Cannot compare default for ${target}: dialect does not normalize defaults`
-  }
+  const expected = desired.databaseDefault?.normalized ?? null
 
   if (live.defaultExpression !== expected) {
     return `Unsupported default change for ${target}`
@@ -1152,7 +1136,6 @@ function matchDesiredForeignKeys(
  * @param live - Introspected table definition.
  * @param desired - Dialect-lowered desired table definition.
  * @param shape - Ownership shape controlling whether extra objects are drift.
- * @param planning - Selected member's bound planning semantics.
  * @param issues - Mutable collection that receives unsupported-drift issues.
  * @param identities - Identity module used for comparison and diagnostics.
  */
@@ -1160,7 +1143,6 @@ function collectManagedPropertyIssues(
   live: CatalogTable,
   desired: LoweredDesiredTable,
   shape: 'complete' | 'additive',
-  planning: MigrationPlanningContext,
   issues: PlanningIssue[],
   identities: CanonicalRelationIdentityModule,
 ): void {
@@ -1168,14 +1150,7 @@ function collectManagedPropertyIssues(
   const tableName = identities.format(identity)
   const liveColumns = collectLiveColumnNames(live, identity, identities, issues)
 
-  collectColumnPropertyIssues(
-    desired,
-    liveColumns,
-    identities,
-    identity,
-    planning,
-    issues,
-  )
+  collectColumnPropertyIssues(desired, liveColumns, identities, identity, issues)
 
   collectPrimaryKeyIssues(live, identities, desired, issues, identity, tableName)
 
@@ -1319,7 +1294,6 @@ function collectColumnPropertyIssues(
   liveColumns: Map<string, CatalogColumn>,
   identities: CanonicalRelationIdentityModule,
   identity: CanonicalRelationIdentity,
-  planning: MigrationPlanningContext,
   issues: PlanningIssue[],
 ) {
   for (const column of desired.columns) {
@@ -1327,7 +1301,7 @@ function collectColumnPropertyIssues(
 
     if (!current) continue
 
-    collectExistingColumnIssues(identities, identity, column, current, planning, issues)
+    collectExistingColumnIssues(identities, identity, column, current, issues)
   }
 }
 
@@ -1340,8 +1314,6 @@ function collectColumnPropertyIssues(
  * @param column - Authored or observed column metadata used for storage comparison.
  * @param current - Existing definition or resolved properties being compared with desired
  *   metadata.
- * @param planning - Selected identity, naming, and schema semantics for Migration Plan
- *   construction.
  * @param issues - Mutable validation or capability issues collected before exposing a
  *   plan.
  */
@@ -1350,7 +1322,6 @@ function collectExistingColumnIssues(
   identity: CanonicalRelationIdentity,
   column: LoweredDesiredColumn,
   current: CatalogColumn,
-  planning: MigrationPlanningContext,
   issues: PlanningIssue[],
 ) {
   const columnLabel = identities.format(identity, {
@@ -1358,7 +1329,7 @@ function collectExistingColumnIssues(
     spelling: column.identifier.spelling,
   })
 
-  const defaultMessage = defaultMismatch(columnLabel, current, column, planning)
+  const defaultMessage = defaultMismatch(columnLabel, current, column)
 
   if (defaultMessage) {
     issues.push({
@@ -2033,9 +2004,6 @@ function appendDesiredColumn(input: MissingColumnPlanning) {
     dataType: desiredColumn.dataType,
     notNull: desiredColumn.notNull,
     ...(desiredColumn.unique ? { unique: true } : {}),
-    ...(desiredColumn.defaultValue !== undefined
-      ? { defaultValue: desiredColumn.defaultValue }
-      : {}),
     ...(desiredColumn.databaseDefault !== undefined
       ? { databaseDefault: desiredColumn.databaseDefault }
       : {}),
@@ -3303,7 +3271,7 @@ function reconcileDesiredTable(
     identities: input.names.identitiesFor(identityForNames),
     naming: input.names.namingFor(identityForNames),
   }
-  const { issues, identities, ensuredSchemas, steps, planning } = input
+  const { issues, identities, ensuredSchemas, steps } = input
   const prepared = prepareDesiredTable({ ...input, handle })
 
   if (!prepared) return
@@ -3324,7 +3292,7 @@ function reconcileDesiredTable(
   }
 
   const relationStepStart = steps.length
-  collectManagedPropertyIssues(live, createAst, shape, planning, issues, identities)
+  collectManagedPropertyIssues(live, createAst, shape, issues, identities)
   reconcileExistingColumns({ ...input, live, desired: createAst, identity, shape })
 
   reconcileIndexes({

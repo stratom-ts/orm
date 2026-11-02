@@ -7,7 +7,7 @@ import type {
 import { compilePostgresDdl } from '@/dialects/postgres/migration/sql'
 import {
   assertSafePostgresDataType,
-  formatPostgresDefault,
+  formatPostgresLiteral,
 } from '@/dialects/postgres/validate'
 import { SchemaError } from '@/utils/error'
 
@@ -37,6 +37,12 @@ function col(
   }
 }
 
+/** Lowers an explicit literal for the DDL compiler fixture. */
+function literalDefault(value: string | number | boolean | null) {
+  const sql = formatPostgresLiteral(value)
+  return { sql, normalized: sql }
+}
+
 const compile = compilePostgresDdl
 
 const registerValidationCases1 = () => {
@@ -47,7 +53,7 @@ const registerValidationCases1 = () => {
 
     expect(() => assertSafePostgresDataType('unknown_type')).toThrow(SchemaError)
 
-    expect(() => formatPostgresDefault(Number.POSITIVE_INFINITY)).toThrow(SchemaError)
+    expect(() => formatPostgresLiteral(Number.POSITIVE_INFINITY)).toThrow(SchemaError)
   })
 }
 
@@ -137,7 +143,10 @@ const registerValidationCases4 = () => {
     const sql = compile(
       createTable(
         col('id', { dataType: 'uuid' }),
-        col('ts', { dataType: 'timestamptz', defaultValue: 'now()' }),
+        col('ts', {
+          dataType: 'timestamptz',
+          databaseDefault: { sql: 'now()', normalized: 'now()' },
+        }),
       ),
     ).sql.toLowerCase()
 
@@ -147,7 +156,12 @@ const registerValidationCases4 = () => {
 
   it('should emit gen_random_uuid() unquoted', () => {
     const sql = compile(
-      createTable(col('id', { dataType: 'uuid', defaultValue: 'gen_random_uuid()' })),
+      createTable(
+        col('id', {
+          dataType: 'uuid',
+          databaseDefault: { sql: 'gen_random_uuid()', normalized: 'gen_random_uuid()' },
+        }),
+      ),
     ).sql.toLowerCase()
 
     expect(sql).toContain('default gen_random_uuid()')
@@ -156,16 +170,24 @@ const registerValidationCases4 = () => {
   it('should emit current_timestamp unquoted', () => {
     const sql = compile(
       createTable(
-        col('ts', { dataType: 'timestamptz', defaultValue: 'current_timestamp' }),
+        col('ts', {
+          dataType: 'timestamptz',
+          databaseDefault: { sql: 'current_timestamp', normalized: 'current_timestamp' },
+        }),
       ),
     ).sql.toLowerCase()
 
     expect(sql).toContain('default current_timestamp')
   })
 
-  it('should case-insensitively match allowlisted expressions', () => {
+  it('should preserve explicitly lowered expressions', () => {
     const sql = compile(
-      createTable(col('ts', { dataType: 'timestamptz', defaultValue: 'NOW()' })),
+      createTable(
+        col('ts', {
+          dataType: 'timestamptz',
+          databaseDefault: { sql: 'NOW()', normalized: 'NOW()' },
+        }),
+      ),
     ).sql.toLowerCase()
 
     expect(sql).toContain('default now()')
@@ -176,9 +198,18 @@ const registerValidationCases5 = () => {
   it('should emit null, true, false as SQL literals', () => {
     const sql = compile(
       createTable(
-        col('a', { dataType: 'text', defaultValue: null }),
-        col('b', { dataType: 'boolean', defaultValue: true }),
-        col('c', { dataType: 'boolean', defaultValue: false }),
+        col('a', {
+          dataType: 'text',
+          databaseDefault: literalDefault(null),
+        }),
+        col('b', {
+          dataType: 'boolean',
+          databaseDefault: literalDefault(true),
+        }),
+        col('c', {
+          dataType: 'boolean',
+          databaseDefault: literalDefault(false),
+        }),
       ),
     ).sql.toLowerCase()
 
@@ -189,7 +220,12 @@ const registerValidationCases5 = () => {
 
   it('should emit numeric defaults as literals', () => {
     const sql = compile(
-      createTable(col('n', { dataType: 'integer', defaultValue: 42 })),
+      createTable(
+        col('n', {
+          dataType: 'integer',
+          databaseDefault: literalDefault(42),
+        }),
+      ),
     ).sql.toLowerCase()
 
     expect(sql).toContain('default 42')
@@ -197,7 +233,12 @@ const registerValidationCases5 = () => {
 
   it('should escape single quotes in string defaults', () => {
     const sql = compile(
-      createTable(col('n', { dataType: 'text', defaultValue: "O'Brien" })),
+      createTable(
+        col('n', {
+          dataType: 'text',
+          databaseDefault: literalDefault("O'Brien"),
+        }),
+      ),
     ).sql
 
     expect(sql).toContain("default 'O''Brien'")
@@ -205,12 +246,11 @@ const registerValidationCases5 = () => {
 }
 
 const registerValidationCases6 = () => {
-  it('should prefer pre-normalized database defaults during compilation', () => {
+  it('should preserve pre-normalized database defaults during compilation', () => {
     const sql = compile(
       createTable(
         col('n', {
           dataType: 'text',
-          defaultValue: 'legacy',
           databaseDefault: {
             sql: "E'path\\\\'",
             normalized: "E'path\\\\'",
@@ -220,12 +260,16 @@ const registerValidationCases6 = () => {
     ).sql
 
     expect(sql).toContain("default E'path\\\\'")
-    expect(sql).not.toContain('legacy')
   })
 
   it('should quote unknown string defaults to prevent SQL execution', () => {
     const sql = compile(
-      createTable(col('n', { dataType: 'text', defaultValue: 'drop table users' })),
+      createTable(
+        col('n', {
+          dataType: 'text',
+          databaseDefault: literalDefault('drop table users'),
+        }),
+      ),
     ).sql
 
     expect(sql).toContain("default 'drop table users'")
@@ -235,7 +279,12 @@ const registerValidationCases6 = () => {
 const registerValidationCases7 = () => {
   it('should quote strings that look like injection attempts', () => {
     const sql = compile(
-      createTable(col('n', { dataType: 'text', defaultValue: 'now(); select 1' })),
+      createTable(
+        col('n', {
+          dataType: 'text',
+          databaseDefault: literalDefault('now(); select 1'),
+        }),
+      ),
     ).sql
 
     expect(sql).toContain("default 'now(); select 1'")
