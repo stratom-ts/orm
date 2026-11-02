@@ -241,11 +241,11 @@ async function assertDefaultedEvent(admin: Client, db: Db, accountId: string) {
   expect(defaulted.createdAt).toBeInstanceOf(Date)
 
   expect(defaulted.createdAt.getTime()).toBeGreaterThanOrEqual(
-    beforeDefault.rows[0]!.now.getTime(),
+    beforeDefault.rows[0].now.getTime(),
   )
 
   expect(defaulted.createdAt.getTime()).toBeLessThanOrEqual(
-    afterDefault.rows[0]!.now.getTime(),
+    afterDefault.rows[0].now.getTime(),
   )
 
   await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })

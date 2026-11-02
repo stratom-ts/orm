@@ -131,7 +131,7 @@ function cmpLeaf(
     }
   }
 
-  const left = toQualified(column as ColumnRef | string)
+  const left = toQualified(column)
 
   if (isColumnRef(value)) {
     return {
@@ -164,7 +164,7 @@ function cmpLeaf(
  *
  * @returns Equality predicate AST node
  */
-export function eq<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+function eq<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
   column: L,
   value: R & CompatibleOperands<L, R>,
 ): PredicateAst {
@@ -182,7 +182,7 @@ export function eq<L extends ColumnRef | string | ScalarExpression | OuterExpres
  *
  * @returns Not-equal predicate AST node
  */
-export function neq<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+function neq<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
   column: L,
   value: R & CompatibleOperands<L, R>,
 ): PredicateAst {
@@ -200,7 +200,7 @@ export function neq<L extends ColumnRef | string | ScalarExpression | OuterExpre
  *
  * @returns Greater-than predicate AST node
  */
-export function gt<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+function gt<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
   column: L,
   value: R & CompatibleOperands<L, R>,
 ): PredicateAst {
@@ -218,7 +218,7 @@ export function gt<L extends ColumnRef | string | ScalarExpression | OuterExpres
  *
  * @returns Greater-than-or-equal predicate AST node
  */
-export function gte<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+function gte<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
   column: L,
   value: R & CompatibleOperands<L, R>,
 ): PredicateAst {
@@ -236,7 +236,7 @@ export function gte<L extends ColumnRef | string | ScalarExpression | OuterExpre
  *
  * @returns Less-than predicate AST node
  */
-export function lt<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+function lt<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
   column: L,
   value: R & CompatibleOperands<L, R>,
 ): PredicateAst {
@@ -254,7 +254,7 @@ export function lt<L extends ColumnRef | string | ScalarExpression | OuterExpres
  *
  * @returns Less-than-or-equal predicate AST node
  */
-export function lte<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
+function lte<L extends ColumnRef | string | ScalarExpression | OuterExpression, R>(
   column: L,
   value: R & CompatibleOperands<L, R>,
 ): PredicateAst {
@@ -271,12 +271,12 @@ export function lte<L extends ColumnRef | string | ScalarExpression | OuterExpre
  *
  * @returns AND predicate AST node
  */
-export function and(...preds: PredicateAst[]): PredicateAst {
+function and(...preds: PredicateAst[]): PredicateAst {
   if (preds.length === 0) {
     throw new QueryError({ message: 'and() requires at least one predicate' })
   }
 
-  if (preds.length === 1) return preds[0]!
+  if (preds.length === 1) return preds[0]
 
   return { kind: 'and', preds }
 }
@@ -291,12 +291,12 @@ export function and(...preds: PredicateAst[]): PredicateAst {
  *
  * @returns OR predicate AST node
  */
-export function or(...preds: PredicateAst[]): PredicateAst {
+function or(...preds: PredicateAst[]): PredicateAst {
   if (preds.length === 0) {
     throw new QueryError({ message: 'or() requires at least one predicate' })
   }
 
-  if (preds.length === 1) return preds[0]!
+  if (preds.length === 1) return preds[0]
 
   return { kind: 'or', preds }
 }
@@ -311,7 +311,7 @@ export function or(...preds: PredicateAst[]): PredicateAst {
  *
  * @returns NOT predicate AST node
  */
-export function not(pred: PredicateAst): PredicateAst {
+function not(pred: PredicateAst): PredicateAst {
   return { kind: 'not', pred }
 }
 
@@ -323,7 +323,7 @@ export function not(pred: PredicateAst): PredicateAst {
  *
  * @returns Count-all aggregate expression AST node
  */
-export function countAll(): AggregateExprAst {
+function countAll(): AggregateExprAst {
   return { kind: 'count_all' }
 }
 
@@ -337,7 +337,7 @@ export function countAll(): AggregateExprAst {
  *
  * @returns Count aggregate expression AST node
  */
-export function count(column: ColumnRef | string): AggregateExprAst {
+function count(column: ColumnRef | string): AggregateExprAst {
   return { kind: 'count', arg: colRef(column) }
 }
 
@@ -351,7 +351,7 @@ export function count(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Min aggregate expression AST node
  */
-export function min(column: ColumnRef | string): AggregateExprAst {
+function min(column: ColumnRef | string): AggregateExprAst {
   return { kind: 'min', arg: colRef(column) }
 }
 
@@ -365,7 +365,7 @@ export function min(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Max aggregate expression AST node
  */
-export function max(column: ColumnRef | string): AggregateExprAst {
+function max(column: ColumnRef | string): AggregateExprAst {
   return { kind: 'max', arg: colRef(column) }
 }
 
@@ -379,7 +379,7 @@ export function max(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Sum aggregate expression AST node
  */
-export function sum(column: ColumnRef | string): AggregateExprAst {
+function sum(column: ColumnRef | string): AggregateExprAst {
   return { kind: 'sum', arg: colRef(column) }
 }
 
@@ -393,7 +393,7 @@ export function sum(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Lower-case string function expression AST node
  */
-export function lower(column: ColumnRef | string): StringFnExprAst {
+function lower(column: ColumnRef | string): StringFnExprAst {
   return { kind: 'lower', arg: colRef(column) }
 }
 
@@ -407,7 +407,7 @@ export function lower(column: ColumnRef | string): StringFnExprAst {
  *
  * @returns Upper-case string function expression AST node
  */
-export function upper(column: ColumnRef | string): StringFnExprAst {
+function upper(column: ColumnRef | string): StringFnExprAst {
   return { kind: 'upper', arg: colRef(column) }
 }
 
@@ -421,7 +421,7 @@ export function upper(column: ColumnRef | string): StringFnExprAst {
  *
  * @returns Length string function expression AST node
  */
-export function length(column: ColumnRef | string): StringFnExprAst {
+function length(column: ColumnRef | string): StringFnExprAst {
   return { kind: 'length', arg: colRef(column) }
 }
 
@@ -433,7 +433,7 @@ export function length(column: ColumnRef | string): StringFnExprAst {
  *
  * @returns Current timestamp expression AST node
  */
-export function now(): DateFnExprAst {
+function now(): DateFnExprAst {
   return { kind: 'now' }
 }
 
@@ -448,12 +448,12 @@ export function now(): DateFnExprAst {
  *
  * @returns Date truncation expression AST node
  */
-export function dateTrunc(unit: string, column: ColumnRef | string): DateFnExprAst {
+function dateTrunc(unit: string, column: ColumnRef | string): DateFnExprAst {
   return { kind: 'date_trunc', unit, arg: colRef(column) }
 }
 
 /** Expression builder passed to select/where/having/join-on callbacks. */
-export type ExpressionBuilder = {
+type ExpressionBuilder = {
   /**
    * Converts a column name or reference into a scalar column expression.
    *
@@ -497,7 +497,7 @@ export type ExpressionBuilder = {
   }
 }
 
-export const eb: ExpressionBuilder = {
+const eb: ExpressionBuilder = {
   ref: colRef,
   scalar,
   inQuery,
@@ -538,17 +538,11 @@ export const eb: ExpressionBuilder = {
  *
  * @returns Comparison predicate AST node
  */
-export function cmp(
-  column: ColumnRef | string,
-  op: ComparisonOp,
-  value: unknown,
-): PredicateAst {
+function cmp(column: ColumnRef | string, op: ComparisonOp, value: unknown): PredicateAst {
   return cmpLeaf(column, op, value)
 }
 
-export { columnName, columnRelation, colRef, isColumnRef, toQualified }
-
-export type OuterExpression<T = unknown> = {
+type OuterExpression<T = unknown> = {
   readonly kind: 'outer'
   readonly ref: ColumnExprAst
   readonly __value?: T
@@ -602,24 +596,24 @@ function operand(value: ColumnRef | string | SqlExprAst): SqlExprAst {
   return isExpression(value) ? value : colRef(value)
 }
 
-export function scalar<Q extends SelectQuery>(
+function scalar<Q extends SelectQuery>(
   query: Q & SingleProjection<Q>,
 ): ScalarExpression<ScalarValue<Q>> {
   return rememberExpression({ kind: 'scalar', query: nestedQuery(query) })
 }
 
-export function exists(query: SelectQuery): PredicateAst {
+function exists(query: SelectQuery): PredicateAst {
   return { kind: 'exists', query: nestedQuery(query) }
 }
 
-export function inQuery<C extends ColumnRef, Q extends SelectQuery>(
+function inQuery<C extends ColumnRef, Q extends SelectQuery>(
   column: C,
   query: Q & SingleProjection<Q> & Compatible<OperandValue<C>, ScalarValue<Q>>,
 ): PredicateAst {
   return { kind: 'inQuery', left: colRef(column), query: nestedQuery(query) }
 }
 
-export function outer<C extends ColumnRef>(column: C): OuterExpression<OperandValue<C>> {
+function outer<C extends ColumnRef>(column: C): OuterExpression<OperandValue<C>> {
   return rememberExpression({ kind: 'outer', ref: colRef(column) })
 }
 
@@ -638,4 +632,36 @@ function aliasExpression(
   alias: string,
 ): { expr: SqlExprAst; alias: string } {
   return { expr: isColumnRef(expr) ? colRef(expr) : expr, alias }
+}
+
+export { columnName, columnRelation, colRef, isColumnRef, toQualified }
+
+export type { ExpressionBuilder, OuterExpression }
+
+export {
+  eq,
+  neq,
+  gt,
+  gte,
+  lt,
+  lte,
+  and,
+  or,
+  not,
+  countAll,
+  count,
+  min,
+  max,
+  sum,
+  lower,
+  upper,
+  length,
+  now,
+  dateTrunc,
+  eb,
+  cmp,
+  scalar,
+  exists,
+  inQuery,
+  outer,
 }

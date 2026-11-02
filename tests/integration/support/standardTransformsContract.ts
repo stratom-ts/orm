@@ -27,7 +27,7 @@ let checkedInputCount = 0
 const INT64_MIN = -(2n ** 63n)
 const INT64_MAX = 2n ** 63n - 1n
 
-export const StandardTransforms = defineTable(
+const StandardTransforms = defineTable(
   'standard_transforms',
   {
     id: string(),
@@ -62,7 +62,7 @@ export const StandardTransforms = defineTable(
 )
 
 /** Exercises known transforms through write validation and output-aware CRUD mapping. */
-export async function assertStandardTransformCrud(
+async function assertStandardTransformCrud(
   db: Db<readonly [typeof StandardTransforms]>,
   dialect: 'postgres' | 'sqlite',
 ) {
@@ -224,3 +224,5 @@ async function assertBigintLimits(
       .execute(),
   ).rejects.toThrow(ValidationError)
 }
+
+export { StandardTransforms, assertStandardTransformCrud }

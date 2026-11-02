@@ -103,7 +103,7 @@ function validatePrimaryKey(
   }
 
   for (const pk of primaryKeys) {
-    if (isSqlNullable(schema.entries[pk] as AnySchema)) {
+    if (isSqlNullable(schema.entries[pk])) {
       throw new SchemaError({
         message: `primaryKey column "${pk}" on table "${metadata.name}" cannot be nullable`,
       })
@@ -436,7 +436,7 @@ function buildTableHandle<
     })
   }
 
-  const entries = schema.entries as ObjectEntries
+  const entries = schema.entries
 
   const columnNames = Object.keys(entries)
 
@@ -512,7 +512,7 @@ function createColumnRefs<
     columns[columnName] = {
       relation: metadata.relation,
       column: columnName,
-      __type: undefined as never,
+      __type: undefined,
     }
   }
 
@@ -566,7 +566,7 @@ function createColumnRefs<
  * @throws {SchemaError} The table name, columns, keys, indexes, or references are
  *   invalid.
  */
-export function defineTable<
+function defineTable<
   const TName extends string,
   TCols extends ObjectEntries,
   const TNamespace extends readonly NamespaceIdentifierInput[] | undefined = undefined,
@@ -594,7 +594,7 @@ export function defineTable<
  *
  * @returns `true` if `value` is a table handle from `defineTable`
  */
-export function isTableHandle(value: unknown): value is TableHandle {
+function isTableHandle(value: unknown): value is TableHandle {
   if (typeof value !== 'object' || value === null) {
     return false
   }
@@ -621,7 +621,7 @@ export function isTableHandle(value: unknown): value is TableHandle {
 }
 
 /** A distinct occurrence of a registered table in a query. */
-export function alias<
+function alias<
   S extends TableSchema,
   R extends RelationIdentityInput,
   const N extends string,
@@ -658,11 +658,13 @@ export function alias<
 const aliasSources = new WeakMap<object, TableHandle>()
 const aliasOccurrences = new WeakMap<object, string>()
 
-export function baseTable(handle: TableHandle): TableHandle {
+function baseTable(handle: TableHandle): TableHandle {
   const base = aliasSources.get(handle)
   return base ? baseTable(base) : handle
 }
 
-export function occurrenceAlias(relation: RelationIdentityInput): string | undefined {
+function occurrenceAlias(relation: RelationIdentityInput): string | undefined {
   return aliasOccurrences.get(relation)
 }
+
+export { defineTable, isTableHandle, alias, baseTable, occurrenceAlias }

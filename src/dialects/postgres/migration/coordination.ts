@@ -19,10 +19,10 @@ const POSTGRES_MIGRATION_ADVISORY_LOCK_CLASS = 0x7363_686d // 'schm'
 const POSTGRES_MIGRATION_ADVISORY_LOCK_ID = 0x6f72_6d00 // 'orm\0'
 
 /** PostgreSQL runtime input after the member has resolved coordination defaults. */
-export type PostgresMigrationRuntimeOptions = MigrationRuntimeOptions &
+type PostgresMigrationRuntimeOptions = MigrationRuntimeOptions &
   Readonly<{ lockTimeoutMs: number }>
 
-export class PostgresMigrationCancellationError extends TaggedError(
+class PostgresMigrationCancellationError extends TaggedError(
   'PostgresMigrationCancellationError',
 )<{
   message: string
@@ -45,16 +45,16 @@ export class PostgresMigrationCancellationError extends TaggedError(
   }
 }
 
-export class PostgresMigrationLockTimeoutError extends PostgresMigrationCancellationError {}
-export class PostgresMigrationSignalAbortedError extends PostgresMigrationCancellationError {}
+class PostgresMigrationLockTimeoutError extends PostgresMigrationCancellationError {}
+class PostgresMigrationSignalAbortedError extends PostgresMigrationCancellationError {}
 
-export type CancellationState = {
+type CancellationState = {
   cancelled: boolean
   /** True when cancellation occurred during an in-flight physical call. */
   sessionUncertain?: boolean
 }
 
-export type PostgresAdvisoryLockIdentity = Readonly<{
+type PostgresAdvisoryLockIdentity = Readonly<{
   kind: 'database' | 'scoped'
   classId: number
   lockId: number
@@ -69,7 +69,7 @@ export type PostgresAdvisoryLockIdentity = Readonly<{
  *
  * @param identity - Canonical portable identity to map to an advisory-lock key.
  */
-export function mapPostgresAdvisoryLockIdentity(
+function mapPostgresAdvisoryLockIdentity(
   identity: MigrationCoordinationLockIdentity,
 ): PostgresAdvisoryLockIdentity {
   if (identity.kind === 'database') {
@@ -91,7 +91,7 @@ export function mapPostgresAdvisoryLockIdentity(
 }
 
 const MIGRATION_LOCK_POLL_INTERVAL_MS = 100
-export const POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS = 5_000
+const POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS = 5_000
 
 /** Describes whether a lock attempt reached its configured deadline or watchdog. */
 function lockAttemptTimeoutMessage(
@@ -169,7 +169,7 @@ async function cancelSession(
  *
  * @returns The operation value, or rejection with cancellation and cleanup evidence.
  */
-export async function runCancellable<T>(options: {
+async function runCancellable<T>(options: {
   runtime: PostgresMigrationRuntimeOptions
   state: CancellationState
 
@@ -599,7 +599,7 @@ async function attemptCoordinationLock(
  * @param options - Runtime session and lock configuration.
  * @param state - Shared cancellation and session-certainty state.
  */
-export async function acquireCoordination(
+async function acquireCoordination(
   options: PostgresMigrationRuntimeOptions,
   state: CancellationState,
 ): Promise<readonly PostgresAdvisoryLockIdentity[]> {
@@ -634,7 +634,7 @@ export async function acquireCoordination(
  * @param options - Runtime capabilities for the locked session.
  * @param identities - Confirmed locks to release in reverse acquisition order.
  */
-export async function releaseCoordination(
+async function releaseCoordination(
   options: PostgresMigrationRuntimeOptions,
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
@@ -647,7 +647,7 @@ export async function releaseCoordination(
 ): Promise<void> {
   const failures = await releaseCoordinationFailures(options, identities)
 
-  if (failures.length > 0) throw failures[0]!.cause
+  if (failures.length > 0) throw failures[0].cause
 }
 
 /**
@@ -659,7 +659,7 @@ export async function releaseCoordination(
  * @param options - Runtime capabilities for the locked session.
  * @param identities - Confirmed locks to release in reverse acquisition order.
  */
-export async function releaseCoordinationFailures(
+async function releaseCoordinationFailures(
   options: PostgresMigrationRuntimeOptions,
   identities: readonly PostgresAdvisoryLockIdentity[] = [
     {
@@ -709,7 +709,7 @@ export async function releaseCoordinationFailures(
  * @param options - Runtime capabilities for the transaction session.
  * @param precondition - Semantic assertion to evaluate.
  */
-export async function assertPrecondition(
+async function assertPrecondition(
   options: PostgresMigrationRuntimeOptions,
   precondition: MigrationPrecondition,
 ): Promise<void> {
@@ -762,4 +762,23 @@ function waitForLockPoll(
 
     signal?.addEventListener('abort', abort, { once: true })
   })
+}
+
+export type {
+  PostgresMigrationRuntimeOptions,
+  CancellationState,
+  PostgresAdvisoryLockIdentity,
+}
+
+export {
+  PostgresMigrationCancellationError,
+  PostgresMigrationLockTimeoutError,
+  PostgresMigrationSignalAbortedError,
+  mapPostgresAdvisoryLockIdentity,
+  POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS,
+  runCancellable,
+  acquireCoordination,
+  releaseCoordination,
+  releaseCoordinationFailures,
+  assertPrecondition,
 }

@@ -332,7 +332,7 @@ async function executeMigrationTransaction(
  *
  * @param input - Runtime session capabilities and migration preparation callback.
  */
-export async function executePostgresMigration(
+async function executePostgresMigration(
   input: MigrationRuntimeOptions,
 ): Promise<{ outcome: 'applied' | 'unchanged' }> {
   const options: PostgresMigrationRuntimeOptions = {
@@ -420,7 +420,7 @@ function migrationExecutionOutcome(
   }
 
   if (cleanupFailures.length > 0) {
-    const cause = cleanupFailures[0]!.cause
+    const cause = cleanupFailures[0].cause
     throw executionError({
       cause,
       stage: 'unlock',
@@ -456,7 +456,7 @@ async function executeProgramActions(
   if (state.primary) return
 
   for (let actionIndex = 0; actionIndex < program.actions.length; actionIndex++) {
-    const action = program.actions[actionIndex]!
+    const action = program.actions[actionIndex]
 
     try {
       state.ddlStarted = true
@@ -699,3 +699,5 @@ async function beginMigrationTransaction(
     retainCancellationFailures(cleanupFailures, cause)
   }
 }
+
+export { executePostgresMigration }

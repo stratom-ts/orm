@@ -18,36 +18,36 @@ import type {
 import { planMigration } from './migrationPlan'
 
 /** Destructive migrate operations that require explicit execution permission. */
-export type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
+type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
 
 /** Optional cancellation and finite coordination deadline for migration execution. */
-export type MigrationExecuteOptions = Readonly<{
+type MigrationExecuteOptions = Readonly<{
   signal?: AbortSignal
   lockTimeoutMs?: number
 }>
 
 /** Non-executable statement preview; every bound parameter is redacted. */
-export type MigrationDryRunStatement = Readonly<{
+type MigrationDryRunStatement = Readonly<{
   sql: string
   /** One `[REDACTED]` marker per bound parameter, preserving count and order. */
   params: readonly '[REDACTED]'[]
 }>
 
 /** Non-executable physical action projected from dialect whole-plan lowering. */
-export type MigrationDryRunAction = Readonly<{
+type MigrationDryRunAction = Readonly<{
   sourceStepIndexes: readonly number[]
   transaction: 'required' | 'allowed' | 'forbidden'
   statements: readonly MigrationDryRunStatement[]
 }>
 
 /** Ordered, non-executable physical preview of a complete Migration Plan. */
-export type MigrationDryRun = Readonly<{
+type MigrationDryRun = Readonly<{
   atomicity: 'plan-atomic' | 'statement-atomic' | 'non-atomic'
   preconditions: MigrationProgram['preconditions']
   actions: readonly MigrationDryRunAction[]
 }>
 
-export type MigrateBuilder = {
+type MigrateBuilder = {
   /**
    * Grants execution permission for destructive migration operations.
    *
@@ -365,7 +365,7 @@ type MigrateBuilderOptions = {
  * @returns A migration builder separating generic planning and permissions from dialect
  *   execution.
  */
-export function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
+function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
   const { migration, runOperation, applicationId, assertCanExecute } = options
   const { schemas, defaultNamespace, migrationOwnership } = options
   const planningOptions = { schemas, migration, defaultNamespace, migrationOwnership }
@@ -634,3 +634,14 @@ function isDefect(cause: unknown): boolean {
     !isErrorTag(cause, 'SchemaError')
   )
 }
+
+export type {
+  MigrationAllow,
+  MigrationExecuteOptions,
+  MigrationDryRunStatement,
+  MigrationDryRunAction,
+  MigrationDryRun,
+  MigrateBuilder,
+}
+
+export { createMigrateBuilder }

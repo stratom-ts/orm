@@ -43,7 +43,7 @@ function desiredSchemaIdentitiesEqual(
 }
 
 /** Formats a structured relation and optional column spelling for diagnostics. */
-export function formatDesiredSchemaIdentity(
+function formatDesiredSchemaIdentity(
   identity: CanonicalRelationIdentity,
   column?: string,
 ): string {
@@ -76,7 +76,7 @@ function orderedColumns(table: AuthoredDesiredTable): AuthoredDesiredColumn[] {
 }
 
 /** Lowers one complete desired-schema graph through narrow dialect-owned decisions. */
-export function lowerDesiredSchemaGraph<Context>(
+function lowerDesiredSchemaGraph<Context>(
   graph: AuthoredDesiredSchema,
   context: Context,
   hooks: DesiredSchemaLoweringHooks<Context>,
@@ -153,7 +153,7 @@ function resolveReferenceTypes<Context>(
     }
 
     if (!progress) {
-      const first = unresolved[0]!
+      const first = unresolved[0]
       throw new MigrationError({
         message: `Cannot resolve reference-only physical type cycle at ${formatDesiredSchemaIdentity(first.table.identity, first.column.name)}`,
       })
@@ -243,3 +243,5 @@ function freezeLoweredSchema(
     ),
   })
 }
+
+export { formatDesiredSchemaIdentity, lowerDesiredSchemaGraph }

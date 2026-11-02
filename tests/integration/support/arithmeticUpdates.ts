@@ -4,7 +4,7 @@ import { expect } from 'vitest'
 import { add, column, defineTable } from '@/index'
 import type { Db } from '@/index'
 
-export const Projects = defineTable(
+const Projects = defineTable(
   'counter_projects',
   {
     id: pipe(number(), integer()),
@@ -16,7 +16,8 @@ export const Projects = defineTable(
   },
   { primaryKey: 'id' },
 )
-export const Issues = defineTable(
+
+const Issues = defineTable(
   'counter_issues',
   {
     number: pipe(number(), integer()),
@@ -24,7 +25,8 @@ export const Issues = defineTable(
   },
   { primaryKey: ['project', 'number'] },
 )
-export const History = defineTable(
+
+const History = defineTable(
   'counter_history',
   {
     number: pipe(number(), integer()),
@@ -33,9 +35,10 @@ export const History = defineTable(
   },
   { primaryKey: ['project', 'number', 'event'] },
 )
-export const tables = [Projects, Issues, History] as const
 
-export async function seed(db: Db<typeof tables>) {
+const tables = [Projects, Issues, History] as const
+
+async function seed(db: Db<typeof tables>) {
   await db.migrate().execute()
 
   await db
@@ -61,7 +64,7 @@ export async function seed(db: Db<typeof tables>) {
     .execute()
 }
 
-export async function allocate(db: Db<typeof tables>, fail = false) {
+async function allocate(db: Db<typeof tables>, fail = false) {
   return db.transaction(async (tx) => {
     const updated = await tx
       .update(Projects)
@@ -112,10 +115,7 @@ async function assertNumericAssignments(db: Db<typeof tables>) {
   ).toMatchObject({ fraction: 4294967296 })
 }
 
-export async function basicAndRollback(
-  db: Db<typeof tables>,
-  observer: Db<typeof tables>,
-) {
+async function basicAndRollback(db: Db<typeof tables>, observer: Db<typeof tables>) {
   await seed(db)
   await assertNumericAssignments(db)
 
@@ -153,3 +153,5 @@ export async function basicAndRollback(
     { project: 1, number: 1, event: 'created' },
   ])
 }
+
+export { Projects, Issues, History, tables, seed, allocate, basicAndRollback }

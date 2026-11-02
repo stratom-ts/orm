@@ -170,7 +170,7 @@ const expectedProfile: MigrationSemanticProfile = {
  * @returns The lower observations in their required order.
  */
 function lower(planned: PlannedMigration, profile = expectedProfile): MigrationProgram {
-  const result = postgresDialect.migration!.lower(planned, profile)
+  const result = postgresDialect.migration.lower(planned, profile)
 
   if (result.issues)
     throw new Error(result.issues.map((issue) => issue.message).join('\n'))
@@ -235,7 +235,7 @@ describe('PostgreSQL whole-plan lowering', () => {
     const planned = plan()
 
     expect(
-      postgresDialect.migration!.lower(
+      postgresDialect.migration.lower(
         { ...planned, plan: { steps: [] } },
         expectedProfile,
       ),
@@ -257,7 +257,7 @@ describe('PostgreSQL whole-plan lowering: lowers one semantic step to one exact 
     ])
 
     expect(
-      postgresDialect.migration!.lower(
+      postgresDialect.migration.lower(
         {
           ...planned,
           plan: {
@@ -400,7 +400,7 @@ describe('PostgreSQL whole-plan lowering: compiles a plan-atomic program with ca
 
 describe('PostgreSQL whole-plan validation', () => {
   it('should report a different executing database as a profile mismatch', () => {
-    const result = postgresDialect.migration!.lower(plan(), {
+    const result = postgresDialect.migration.lower(plan(), {
       ...expectedProfile,
       namespaceContext: {
         writableDefault: [
@@ -418,7 +418,7 @@ describe('PostgreSQL whole-plan validation', () => {
   })
 
   it('should return profile capability issues without a partial program', () => {
-    const result = postgresDialect.migration!.lower(plan(), {
+    const result = postgresDialect.migration.lower(plan(), {
       identityAdapter: 'sqlite',
       namespaceContext: {
         writableDefault: [{ role: 'database', spelling: 'production' }],
@@ -500,7 +500,7 @@ describe('PostgreSQL whole-plan validation: rejects a mismatched $field before p
         },
       }
 
-      const result = postgresDialect.migration!.lower(
+      const result = postgresDialect.migration.lower(
         guardedPlan,
         testCase.executingProfile,
       )
@@ -523,7 +523,7 @@ describe('PostgreSQL whole-plan validation: rejects a mismatched $field before p
 describe('PostgreSQL whole-plan validation: treats an empty registration default as none', () => {
   it('should treat an empty registration default as none', () => {
     expect(
-      postgresDialect.migration!.lower(plan(), {
+      postgresDialect.migration.lower(plan(), {
         ...expectedProfile,
         registrationDefault: [],
       }).issues,
@@ -546,7 +546,7 @@ describe('PostgreSQL whole-plan validation: accepts equivalent spellings of one 
     )
 
     expect(
-      postgresDialect.migration!.lower(planned, {
+      postgresDialect.migration.lower(planned, {
         ...expectedProfile,
         registrationDefault: [
           { role: 'database', spelling: 'test' },
@@ -599,7 +599,7 @@ describe('PostgreSQL lowering dependencies and malformed steps', () => {
       desiredTables: planned.identities.createRegistry(),
     }
 
-    const result = postgresDialect.migration!.lower(malformed, expectedProfile)
+    const result = postgresDialect.migration.lower(malformed, expectedProfile)
 
     assertMalformedPlanIssues(result, malformed)
   })
@@ -654,7 +654,7 @@ describe('PostgreSQL lowering dependencies and malformed steps: reports unsuppor
       foreignKey,
     )
 
-    const result = postgresDialect.migration!.lower(cyclePlan, expectedProfile)
+    const result = postgresDialect.migration.lower(cyclePlan, expectedProfile)
 
     expect(result.program).toBeUndefined()
 
@@ -725,7 +725,7 @@ describe('PostgreSQL lowering preconditions and target validation: rejects cross
       },
     }
 
-    const result = postgresDialect.migration!.lower(crossDatabase, expectedProfile)
+    const result = postgresDialect.migration.lower(crossDatabase, expectedProfile)
 
     expect(result.program).toBeUndefined()
 
@@ -792,7 +792,7 @@ describe('PostgreSQL lowering preconditions and target validation: rejects Postg
         },
       }
 
-      const result = postgresDialect.migration!.lower(malformed, expectedProfile)
+      const result = postgresDialect.migration.lower(malformed, expectedProfile)
 
       expect(result.program).toBeUndefined()
 
@@ -951,7 +951,7 @@ function assertMalformedPlanIssues(
     structuredClone(assertReturnsEveryDeterministicIssueAndNoPartialProgramForData),
   )
 
-  expect(postgresDialect.migration!.lower(malformed, expectedProfile)).toEqual(result)
+  expect(postgresDialect.migration.lower(malformed, expectedProfile)).toEqual(result)
 }
 
 /**

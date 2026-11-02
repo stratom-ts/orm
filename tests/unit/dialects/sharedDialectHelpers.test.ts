@@ -170,7 +170,7 @@ it.each(members)(
 
     expect(
       Object.fromEntries(
-        lowered.tables[0]!.columns.map((column) => [
+        lowered.tables[0].columns.map((column) => [
           column.identifier.spelling,
           column.notNull,
         ]),

@@ -336,7 +336,7 @@ async function assertLockContention(
   firstReachedDdl: ReturnType<typeof deferred>,
   firstOutcome: Promise<Settlement<void>>,
   observer: LockObserver,
-  second: import('@/index').Db<readonly [typeof CoordinatedRowsAfter]>,
+  second: Db<readonly [typeof CoordinatedRowsAfter]>,
 ): Promise<void> {
   await waitForBarrier(
     firstReachedDdl.promise,

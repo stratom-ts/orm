@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { SchemaError, getTableMetadata, isTableMetadata, table } from '@/index'
 
 /** Finds relation option type coverage evidence in the source syntax tree. */
-export const relationOptionTypeCoverage = () => {
+const relationOptionTypeCoverage = () => {
   table({
     name: 'events',
     primaryKey: 'id',
@@ -175,7 +175,7 @@ describe('table action namespace intent: rejects malformed namespace intent', ()
         name: 'events',
         primaryKey: 'id',
         namespace: 'app' as never,
-      } as never),
+      }),
     ).toThrow(SchemaError)
 
     expect(() =>
@@ -281,3 +281,5 @@ describe('isTableMetadata', () => {
     expect(isTableMetadata(undefined)).toBe(false)
   })
 })
+
+export { relationOptionTypeCoverage }

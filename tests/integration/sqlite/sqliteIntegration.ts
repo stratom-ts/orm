@@ -13,7 +13,7 @@ import type { DialectIntegrationAdapter } from '../support/dialectIntegrationCon
 import { collectClosedSqliteStatements } from './sqliteNativeLifetime'
 
 type SqliteDatabaseOptions = Readonly<{
-  library?: Pick<typeof import('@/index'), 'createDatabase'>
+  library?: { createDatabase: typeof createDatabase }
   map?: ValueMapConfig
   file?: boolean
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -24,7 +24,7 @@ type CallbackSettlement<T> =
   | Readonly<{ status: 'fulfilled'; value: T }>
   | Readonly<{ status: 'rejected'; reason: unknown }>
 
-export type SqliteDatabaseContext<TSchemas extends readonly TableHandle[]> = Readonly<{
+type SqliteDatabaseContext<TSchemas extends readonly TableHandle[]> = Readonly<{
   connector: ReturnType<typeof nodeSqliteConnector>
   db: Db<TSchemas>
   /** Use only during the callback, sequentially with public db operations. */
@@ -34,10 +34,7 @@ export type SqliteDatabaseContext<TSchemas extends readonly TableHandle[]> = Rea
 }>
 
 /** Owns one native SQLite connection and, when requested, its temporary database file. */
-export async function withSqliteDatabase<
-  const TSchemas extends readonly TableHandle[],
-  TResult,
->(
+async function withSqliteDatabase<const TSchemas extends readonly TableHandle[], TResult>(
   schemas: TSchemas,
   callback: (context: SqliteDatabaseContext<TSchemas>) => Promise<TResult>,
   options: SqliteDatabaseOptions = {},
@@ -61,7 +58,7 @@ export async function withSqliteDatabase<
         ? {}
         : { migrationOwnership: options.migrationOwnership }),
     })
-    const native = await connector.getInstance!()
+    const native = await connector.getInstance()
     const value = await callback({
       connector,
       db,
@@ -85,7 +82,7 @@ export async function withSqliteDatabase<
 }
 
 /** Owns a native connector without creating a Client that could claim its provider. */
-export async function withSqliteConnector<TResult>(
+async function withSqliteConnector<TResult>(
   callback: (
     context: Readonly<{
       connector: ReturnType<typeof nodeSqliteConnector>
@@ -96,7 +93,7 @@ export async function withSqliteConnector<TResult>(
   const connector = nodeSqliteConnector({ name: ':memory:' })
   let settlement: CallbackSettlement<TResult>
   try {
-    const native = await connector.getInstance!()
+    const native = await connector.getInstance()
     settlement = { status: 'fulfilled', value: await callback({ connector, native }) }
   } catch (reason) {
     settlement = { status: 'rejected', reason }
@@ -170,7 +167,7 @@ async function cleanupSqliteDatabase(
 
 const supported = { state: 'supported' as const }
 
-export const sqliteIntegrationAdapter: DialectIntegrationAdapter = {
+const sqliteIntegrationAdapter: DialectIntegrationAdapter = {
   name: 'SQLite node-sqlite',
   dialectId: 'sqlite',
   capabilities: {
@@ -203,3 +200,7 @@ export const sqliteIntegrationAdapter: DialectIntegrationAdapter = {
     )
   },
 }
+
+export type { SqliteDatabaseContext }
+
+export { withSqliteDatabase, withSqliteConnector, sqliteIntegrationAdapter }

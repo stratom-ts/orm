@@ -17,7 +17,7 @@ import { createControllableProvider } from '../helpers/operationSessionFixtures'
  * @returns A PostgreSQL connector fixture with observable leases, calls, cancellation,
  *   and disposal.
  */
-export function createPostgresNativeConnector(options?: NativeConnectorOptions) {
+function createPostgresNativeConnector(options?: NativeConnectorOptions) {
   const state: NativeConnectorFixtureState = createNativeConnectorState(options)
 
   /** Creates the client fixture used by the contract scenario. */
@@ -74,7 +74,7 @@ type PostgresControllableProviderOptions = Omit<
 }
 
 /** Creates controlled sessions with PostgreSQL identity, catalog, and lock replies. */
-export function createPostgresControllableProvider(
+function createPostgresControllableProvider(
   options?: PostgresControllableProviderOptions,
 ) {
   return createControllableProvider({
@@ -311,3 +311,5 @@ function createNativeConnectorState(
     queryCalls: [],
   }
 }
+
+export { createPostgresNativeConnector, createPostgresControllableProvider }

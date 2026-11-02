@@ -52,9 +52,9 @@ type ReferenceTargetSchema = SchemaWithPipe<
   ]
 >
 
-export type ReferenceTarget = ReferenceTargetSchema | ReferenceTargetHandle
+type ReferenceTarget = ReferenceTargetSchema | ReferenceTargetHandle
 
-export type ReferenceOptions = {
+type ReferenceOptions = {
   onDelete?: ReferentialAction
   onUpdate?: ReferentialAction
 }
@@ -103,12 +103,12 @@ type ReferenceHandleSchemaEntries<T extends ReferenceTargetHandle> = ReturnType<
  *
  * @returns Piped schema for the FK column with reference metadata
  */
-export function reference<T extends ReferenceTarget, K extends ReferenceColumnKey<T>>(
+function reference<T extends ReferenceTarget, K extends ReferenceColumnKey<T>>(
   tableOrSchema: T,
   key: K,
   options?: ReferenceOptions,
 ): ReferenceSchema<T, K>
-export function reference<
+function reference<
   S extends AnySchema,
   T extends ReferenceTarget,
   K extends ReferenceColumnKey<T>,
@@ -124,7 +124,7 @@ export function reference<
   options?: ReferenceOptions,
 ): SchemaWithPipe<readonly [S, MetadataAction<InferOutput<S>, LazyReferenceMetadata>]>
 
-export function reference(
+function reference(
   tableOrSchema: ReferenceTarget | AnySchema,
   keyOrTarget: PropertyKey | (() => ReferenceTarget),
   optionsOrKey?: ReferenceOptions | PropertyKey,
@@ -176,7 +176,7 @@ export function reference(
       ...(options?.onDelete !== undefined ? { onDelete: options.onDelete } : {}),
       ...(options?.onUpdate !== undefined ? { onUpdate: options.onUpdate } : {}),
     }),
-  ) as never
+  )
 }
 
 /**
@@ -189,7 +189,7 @@ export function reference(
  *
  * @returns `true` if `metadata` is `ReferenceMetadata`
  */
-export function isReferenceMetadata(
+function isReferenceMetadata(
   metadata: Record<string, unknown> | undefined,
 ): metadata is ReferenceMetadata {
   return metadata?.kind === 'reference'
@@ -206,7 +206,7 @@ export function isReferenceMetadata(
  *
  * @returns Reference metadata, or `undefined` if none
  */
-export function getReferenceMetadata(schema: AnySchema): ReferenceMetadata | undefined {
+function getReferenceMetadata(schema: AnySchema): ReferenceMetadata | undefined {
   const metadata = findSchemaMetadata<ReferenceMetadata | LazyReferenceMetadata>(schema, [
     'reference',
     'lazy-reference',
@@ -245,3 +245,7 @@ type ReferenceSchema<T extends ReferenceTarget, K extends PropertyKey> = SchemaW
     >,
   ]
 >
+
+export type { ReferenceTarget, ReferenceOptions }
+
+export { reference, isReferenceMetadata, getReferenceMetadata }

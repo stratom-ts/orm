@@ -125,7 +125,7 @@ insert into child values (1,20);`
 /** Opens the exact production connector and pinned session for a real migration. */
 async function fixture(sql = initial) {
   const connector = nodeSqliteConnector({ name: ':memory:' })
-  const native = await connector.getInstance!()
+  const native = await connector.getInstance()
   native.exec(sql)
   const provider = sqliteDialect.operations.createSessionProvider(
     connector,
@@ -365,7 +365,7 @@ it('should resolve the production member and create a desired FK graph through C
   await withSqliteDatabase([Parent, Owner], async ({ db }) => {
     const preview = await db.migrate().dryRun()
     expect(preview.actions).toHaveLength(2)
-    expect(preview.actions[0]!.statements[0]!.sql).toContain('"owners"')
+    expect(preview.actions[0].statements[0].sql).toContain('"owners"')
     await db.migrate().execute()
     expect(await db.migrate().plan()).toEqual({ steps: [] })
     expect((await db.migrate().dryRun()).actions).toEqual([])
@@ -519,7 +519,7 @@ it('should allow quoted object names, sqlite_ columns and non-ASCII prefix looka
     const preview = await db.migrate().dryRun()
     expect(preview.actions).toHaveLength(1)
 
-    expect(preview.actions[0]!.statements.map(({ sql }) => sql)).toEqual([
+    expect(preview.actions[0].statements.map(({ sql }) => sql)).toEqual([
       expect.stringMatching(/^create table/),
       expect.stringMatching(/^create index/),
     ])
@@ -613,7 +613,7 @@ it.each([false, true])(
         const preview = await db.migrate().dryRun()
         expect(preview.actions).toHaveLength(1)
 
-        expect(preview.actions[0]!.statements[0]!.sql).toMatch(
+        expect(preview.actions[0].statements[0].sql).toMatch(
           rebuild ? /^create table/ : /^alter table/,
         )
 
@@ -974,7 +974,7 @@ it('should coalesce touching changes and retain additive data, constraints, inde
     const before = await planned(test.executor)
     expect(before.program.actions).toHaveLength(1)
 
-    expect(before.program.actions[0]!.sourceStepIndexes).toEqual(
+    expect(before.program.actions[0].sourceStepIndexes).toEqual(
       before.migration.plan.steps.map((_, index) => index),
     )
 
@@ -1108,9 +1108,7 @@ it('should use direct legal ADD COLUMN without rebuilding existing rowids', asyn
   try {
     const { program } = await planned(test.executor, [Add], [])
     expect(
-      program.actions[0]!.statements.every((query) =>
-        query.sql.startsWith('alter table'),
-      ),
+      program.actions[0].statements.every((query) => query.sql.startsWith('alter table')),
     ).toBe(true)
 
     await execute(test.executor, [Add], [])
@@ -1167,7 +1165,7 @@ it('should roll back catalog, data and FK policy after failure at every rebuild 
   const seed = await fixture()
   const program = (await planned(seed.executor)).program
   await seed.close()
-  for (const [index] of program.actions[0]!.statements.entries())
+  for (const [index] of program.actions[0].statements.entries())
     await assertRebuildRollback(program, index)
 })
 
@@ -1188,7 +1186,7 @@ async function assertRebuildRollback(program: MigrationProgram, index: number) {
       stage: 'ddl',
       outcome: 'rolledBack',
       actionIndex: 0,
-      sourceStepIndexes: program.actions[0]!.sourceStepIndexes,
+      sourceStepIndexes: program.actions[0].sourceStepIndexes,
       cause: expect.objectContaining({ message: `injected ${index}` }) as object,
     })
 
@@ -1553,7 +1551,7 @@ it.each([true, false])(
     try {
       const ownership = unique ? completeMain : []
       const preview = await planned(test.executor, [Keep], ownership)
-      expect(preview.program.actions[0]!.statements).toEqual([
+      expect(preview.program.actions[0].statements).toEqual([
         { sql: 'drop index "main"."parent_label"', params: [] },
       ])
 
@@ -1728,14 +1726,14 @@ it('should reserve deterministic replacement names against existing namespace ob
   const test = await fixture()
   try {
     const first = await planned(test.executor)
-    const firstSql = first.program.actions[0]!.statements[0]!.sql
+    const firstSql = first.program.actions[0].statements[0].sql
     const name = /"main"\."([^"]+)"/.exec(firstSql)?.[1]
 
     if (!name) throw new Error('Missing replacement name')
 
     test.native.exec(`create table "${name}"(id INTEGER)`)
     const next = await planned(test.executor)
-    expect(next.program.actions[0]!.statements[0]!.sql).not.toBe(firstSql)
+    expect(next.program.actions[0].statements[0].sql).not.toBe(firstSql)
     expect((await planned(test.executor)).program).toEqual(next.program)
     await execute(test.executor)
 
@@ -1762,7 +1760,7 @@ it.each([false, true])(
           if (query.sql === 'pragma foreign_keys=1')
             throw new Error('FK restore injected')
 
-          if (failDdl && query.sql === program.actions[0]!.statements[0]!.sql)
+          if (failDdl && query.sql === program.actions[0].statements[0].sql)
             throw new Error('DDL injected')
 
           await test.executor.run(query)

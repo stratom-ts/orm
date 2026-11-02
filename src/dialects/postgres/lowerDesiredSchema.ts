@@ -137,7 +137,7 @@ function physicalType(
     hasGlobalResultMapping || typeof metadata?.mapResult === 'function'
 
   const selected = assertSafePostgresDataType(
-    String(explicit ?? inferPostgresColumnTypeFromFacts(facts)),
+    explicit ?? inferPostgresColumnTypeFromFacts(facts),
   )
 
   if (explicit !== undefined && (!hasParameterMapping || !hasResultMapping))
@@ -162,7 +162,7 @@ function validateReferencePhysicalType(
 
   if (selected === undefined) return inheritedType
 
-  const localType = assertSafePostgresDataType(String(selected))
+  const localType = assertSafePostgresDataType(selected)
 
   if (normalizePostgresDataType(localType) !== normalizePostgresDataType(inheritedType)) {
     throw new MigrationError({

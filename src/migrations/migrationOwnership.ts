@@ -12,11 +12,11 @@ import type {
   RelationIdentityInput,
 } from './canonicalRelationIdentity'
 
-export type MigrationRelationShape = 'complete' | 'additive'
+type MigrationRelationShape = 'complete' | 'additive'
 
-export type MigrationOwnershipRelation = RelationIdentityInput | TableHandle
+type MigrationOwnershipRelation = RelationIdentityInput | TableHandle
 
-export type MigrationOwnershipDeclaration =
+type MigrationOwnershipDeclaration =
   | Readonly<{
       kind: 'relation'
       relation: MigrationOwnershipRelation
@@ -32,9 +32,9 @@ export type MigrationOwnershipDeclaration =
     }>
 
 /** Invalid authored migration ownership, retained as schema configuration failure. */
-export class MigrationOwnershipSchemaError extends SchemaError {}
+class MigrationOwnershipSchemaError extends SchemaError {}
 
-export type ResolvedMigrationOwnership = {
+type ResolvedMigrationOwnership = {
   /**
    * Reads a relation's resolved complete or additive migration authority.
    *
@@ -93,13 +93,13 @@ function compareNamespaceSpelling(
   const length = Math.min(left.length, right.length)
 
   for (let index = 0; index < length; index++) {
-    const role = compareCodeUnits(left[index]!.role, right[index]!.role)
+    const role = compareCodeUnits(left[index].role, right[index].role)
 
     if (role !== 0) return role
 
     const spelling = compareCodeUnits(
-      left[index]!.identifier.spelling,
-      right[index]!.identifier.spelling,
+      left[index].identifier.spelling,
+      right[index].identifier.spelling,
     )
 
     if (spelling !== 0) return spelling
@@ -143,7 +143,7 @@ function relationInput(handle: TableHandle): RelationIdentityInput {
  * @param declarations - Explicit migration ownership declarations.
  * @param registrationDefault - Optional namespace for unqualified registrations.
  */
-export function createCatalogRequest(
+function createCatalogRequest(
   schemas: readonly TableHandle[],
   declarations: readonly MigrationOwnershipDeclaration[],
   registrationDefault?: readonly NamespaceIdentifierInput[],
@@ -266,7 +266,7 @@ function resolveRelationDeclarations(
  * @param declarations - Explicit migration ownership declarations.
  * @param identities - Canonical relation identity module.
  */
-export function resolveMigrationOwnership(
+function resolveMigrationOwnership(
   schemas: readonly TableHandle[],
   declarations: readonly MigrationOwnershipDeclaration[],
   identities: CanonicalRelationIdentityModule,
@@ -447,9 +447,9 @@ function resolveCompleteNamespaces(
     })
 
   for (let index = 1; index < completeNamespaces.length; index++) {
-    if (sameNamespace(completeNamespaces[index - 1]!, completeNamespaces[index]!)) {
+    if (sameNamespace(completeNamespaces[index - 1], completeNamespaces[index])) {
       throw new MigrationOwnershipSchemaError({
-        message: `Duplicate complete-namespace migration ownership for ${formatNamespace(completeNamespaces[index]!)}`,
+        message: `Duplicate complete-namespace migration ownership for ${formatNamespace(completeNamespaces[index])}`,
       })
     }
   }
@@ -467,3 +467,12 @@ type ResolvedRelationDeclarations = {
     | Readonly<{ kind: 'absentRelation'; relation: RelationIdentityInput }>
   identity: CanonicalRelationIdentity
 }[]
+
+export type {
+  MigrationRelationShape,
+  MigrationOwnershipRelation,
+  MigrationOwnershipDeclaration,
+  ResolvedMigrationOwnership,
+}
+
+export { MigrationOwnershipSchemaError, createCatalogRequest, resolveMigrationOwnership }

@@ -1,10 +1,10 @@
 /** Trims only the whitespace accepted by SQLite's SQL tokenizer. */
-export function trimSqliteWhitespace(value: string): string {
+function trimSqliteWhitespace(value: string): string {
   return value.replace(/^[ \t\r\n\f]+|[ \t\r\n\f]+$/g, '')
 }
 
 /** Recognizes supported native literals without rewriting their SQL or storage class. */
-export function isSqliteDefaultLiteral(value: string): boolean {
+function isSqliteDefaultLiteral(value: string): boolean {
   return /^(?:null|true|false|[+-]?[ \t\r\n\f]*(?:0x[\da-f]{1,16}|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)|x'(?:[\da-f]{2})*'|'(?:[^'\0]|'')*')$/i.test(
     trimSqliteWhitespace(value),
   )
@@ -48,7 +48,7 @@ const token =
   /[ \t\r\n\f]*(x'(?:[\da-f]{2})*'|'(?:[^'\0]|'')*'|0x[\da-f]{1,16}(?![\w\u0080-\uffff])|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?(?![\w\u0080-\uffff])|[a-z_][a-z_\d]*|\|\||<<|>>|<=|>=|<>|!=|==|[(),=<>+*/%&|~-])/iy
 
 /** Proves the syntax and call signatures of a bounded constant-expression subset. */
-export function isSqliteDefaultExpression(value: string): boolean {
+function isSqliteDefaultExpression(value: string): boolean {
   const tokens: string[] = []
   let offset = 0
 
@@ -60,7 +60,7 @@ export function isSqliteDefaultExpression(value: string): boolean {
 
     if (!match || tokens.length === 256) return false
 
-    tokens.push(match[1]!)
+    tokens.push(match[1])
     offset = token.lastIndex
   }
 
@@ -156,19 +156,19 @@ function safeAbsOperand(tokens: readonly string[]): boolean {
   let operand = tokens
 
   while (operand.length > 1) {
-    if (/^[+-]$/.test(operand[0]!)) operand = operand.slice(1)
+    if (/^[+-]$/.test(operand[0])) operand = operand.slice(1)
     else if (enclosingParens(operand)) operand = operand.slice(1, -1)
     else break
   }
 
   if (operand.length === 1) {
-    const literal = operand[0]!
+    const literal = operand[0]
     return isSqliteDefaultLiteral(literal) && !/^(?:\d+|0x[\da-f]+)$/i.test(literal)
   }
 
   if (!enclosingParens(operand.slice(1))) return false
 
-  const name = operand[0]!.toLowerCase()
+  const name = operand[0].toLowerCase()
 
   if (name === 'cast') return /^(?:real|text|blob)$/i.test(operand.at(-2)!)
 
@@ -205,3 +205,5 @@ function enclosingParens(tokens: readonly string[]): boolean {
 
   return depth === 0
 }
+
+export { trimSqliteWhitespace, isSqliteDefaultLiteral, isSqliteDefaultExpression }

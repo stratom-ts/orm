@@ -38,9 +38,7 @@ it('composes numeric assignments and rolls back the complete allocation transact
 
 it('exports add from the built public package', async () => {
   const name = 'stratom'
-  const library: typeof import('@/index') = (await import(
-    name
-  )) as typeof import('@/index')
+  const library = (await import(name)) as { add: typeof add }
 
   expect(library.add(tables[0].nextIssueNumber, 1)).toBeDefined()
 })

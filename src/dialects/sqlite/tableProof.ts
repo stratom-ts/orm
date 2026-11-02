@@ -22,7 +22,7 @@ import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './nor
 import { assertSafeSqliteDefaultExpression } from './validate'
 
 /** A known malformed or contradictory SQLite table observation. */
-export class SqliteTableMetadataError extends Error {}
+class SqliteTableMetadataError extends Error {}
 
 const complete = { state: 'complete' } as const
 const absent = { state: 'absent' } as const
@@ -59,7 +59,7 @@ function compareFact(left: CatalogFact<string>, right: CatalogFact<string>): num
 }
 
 /** Stable native ordering for raw and decoded SQLite observations. */
-export function serializeSqliteObservation(value: unknown): string {
+function serializeSqliteObservation(value: unknown): string {
   if (Array.isArray(value))
     return `[${value.map(serializeSqliteObservation).sort(compare).join(',')}]`
 
@@ -70,10 +70,13 @@ export function serializeSqliteObservation(value: unknown): string {
       .join(',')}}`
   }
 
-  return String(JSON.stringify(typeof value === 'bigint' ? value.toString() : value))
+  if (value === undefined || typeof value === 'function' || typeof value === 'symbol')
+    return 'undefined'
+
+  return JSON.stringify(typeof value === 'bigint' ? value.toString() : value)
 }
 
-export function sortSqliteRows<T>(rows: readonly T[]): T[] {
+function sortSqliteRows<T>(rows: readonly T[]): T[] {
   return [...rows].sort((left, right) =>
     compare(serializeSqliteObservation(left), serializeSqliteObservation(right)),
   )
@@ -163,7 +166,7 @@ function relationProofDecisions(
   }
 }
 
-export type SqliteTableObservations = {
+type SqliteTableObservations = {
   xinfo: Map<string, XInfoRow[]>
   indexLists: Map<string, IndexListRow[]>
   indexInfos: Map<string, IndexInfoRow[]>
@@ -171,7 +174,7 @@ export type SqliteTableObservations = {
   errors: ReadonlyMap<string, string>
 }
 
-export type TableRow = {
+type TableRow = {
   schema: string
   name: string
   type: string
@@ -180,14 +183,14 @@ export type TableRow = {
   strict: number
 }
 
-export type SchemaRow = {
+type SchemaRow = {
   type: string
   name: string
   tbl_name: string
   sql: string | null
 }
 
-export type XInfoRow = {
+type XInfoRow = {
   cid: number
   name: string
   type: string
@@ -197,7 +200,7 @@ export type XInfoRow = {
   hidden: number
 }
 
-export type IndexListRow = {
+type IndexListRow = {
   seq: number
   name: string
   unique: number
@@ -205,7 +208,7 @@ export type IndexListRow = {
   partial: number
 }
 
-export type IndexInfoRow = {
+type IndexInfoRow = {
   seqno: number
   cid: number
   name: string | null
@@ -214,7 +217,7 @@ export type IndexInfoRow = {
   key: number
 }
 
-export type ForeignKeyRow = {
+type ForeignKeyRow = {
   id: number
   seq: number
   table: string
@@ -320,7 +323,7 @@ function tokenizeSqliteSql(sql: string) {
   const collector = createSqlTokenCollector()
 
   while (index < sql.length) {
-    const character = sql[index]!
+    const character = sql[index]
     const blockCommentEnd =
       character === '/' && sql[index + 1] === '*' ? sql.indexOf('*/', index + 2) : null
 
@@ -415,7 +418,7 @@ function definitionBlockCommentEnd(sql: string, index: number): number {
 
 function definitionWordEnd(sql: string, index: number): number {
   let end = index + 1
-  while (end < sql.length && /[A-Za-z0-9_$\u0080-\uFFFF]/.test(sql[end]!)) end++
+  while (end < sql.length && /[A-Za-z0-9_$\u0080-\uFFFF]/.test(sql[end])) end++
   return end
 }
 
@@ -425,7 +428,7 @@ function definitionTokens(sql: string): DefinitionToken[] {
   let index = 0
 
   while (index < sql.length) {
-    const char = sql[index]!
+    const char = sql[index]
 
     if (/\s/.test(char)) {
       index++
@@ -500,7 +503,7 @@ function definitionSegments(
   const segments: DefinitionToken[][] = [[]]
   let depth = 1
   for (let index = open + 1; index < tokens.length; index++) {
-    const token = tokens[index]!
+    const token = tokens[index]
 
     if (token.kind === 'symbol' && token.value === '(') depth++
     if (token.kind === 'symbol' && token.value === ')') depth--
@@ -629,7 +632,7 @@ function definitionTopLevelIndex(
   let depth = 0
 
   for (let index = start; index < segment.length; index++) {
-    const token = segment[index]!
+    const token = segment[index]
 
     if (token.kind === 'symbol' && token.value === '(') depth++
     if (token.kind === 'symbol' && token.value === ')') depth--
@@ -746,7 +749,7 @@ function definitionColumnDefault(
 function definitionColumnCollation(segment: readonly DefinitionToken[]): string | null {
   let depth = 0
   for (let index = 1; index < segment.length; index++) {
-    const token = segment[index]!
+    const token = segment[index]
 
     if (token.kind === 'symbol' && token.value === '(') depth++
     if (token.kind === 'symbol' && token.value === ')') depth--
@@ -832,7 +835,7 @@ function decodeDefinitionSegment(
   let depth = 0
 
   for (let index = start; index < segment.length; index++) {
-    const token = segment[index]!
+    const token = segment[index]
 
     if (token.kind === 'symbol' && token.value === '(') depth++
     if (token.kind === 'symbol' && token.value === ')') depth--
@@ -949,7 +952,7 @@ function hasSqlToken(sql: string, wanted: string): boolean {
 }
 
 /** Checks reservation-only definitions with the same native SQL scanner as table proof. */
-export function containsNamedSqliteConstraint(sql: string): boolean {
+function containsNamedSqliteConstraint(sql: string): boolean {
   return hasSqlToken(sql, 'CONSTRAINT')
 }
 
@@ -1659,7 +1662,7 @@ const byOpaque = (left: OpaqueCatalogObject, right: OpaqueCatalogObject) =>
   compare(left.reason, right.reason) ||
   compare(JSON.stringify(left.nativeDefinition), JSON.stringify(right.nativeDefinition))
 
-export const compareSqliteOpaque = byOpaque
+const compareSqliteOpaque = byOpaque
 
 function relationKind(row: TableRow): CatalogRelation['kind'] {
   if (row.type === 'view') return 'view'
@@ -1723,8 +1726,8 @@ function createPrimaryKey(
   const pkSimple = primaryKeyIndexSemantics(pkIndex, indexInfos, row, pks)
 
   if (rowidAlias) {
-    const column = decodedColumns.find((entry) => entry.name === pks[0]!.name)!
-    decodedColumns[columns.indexOf(pks[0]!)!] = {
+    const column = decodedColumns.find((entry) => entry.name === pks[0].name)!
+    decodedColumns[columns.indexOf(pks[0])] = {
       ...column,
       nullable: present(false),
       generation: present({ kind: 'rowidAlias', autoIncrement }),
@@ -1778,8 +1781,8 @@ function primaryKeyIndexSemantics(
       : pkTerms.length === pks.length &&
         pkTerms.every(
           (entry, position) =>
-            entry.cid === pks[position]!.cid &&
-            entry.name === pks[position]!.name &&
+            entry.cid === pks[position].cid &&
+            entry.name === pks[position].name &&
             entry.desc === 0 &&
             entry.coll === 'BINARY',
         ))
@@ -1911,7 +1914,7 @@ function definitionIndexTermIsSimple(
 ): boolean {
   if (term.length === 0) return false
 
-  const head = term[0]!
+  const head = term[0]
 
   if (head.kind !== 'identifier' && head.kind !== 'word' && head.kind !== 'string')
     return false
@@ -2105,7 +2108,7 @@ function decodeForeignKeySource(
       `SQLite foreign-key group on ${JSON.stringify(row.name)} has non-contiguous sequence`,
     )
 
-  const first = group[0]!
+  const first = group[0]
   const onDelete = action(first.on_delete, 'foreign_key_list', 0)
   const onUpdate = action(first.on_update, 'foreign_key_list', 0)
 
@@ -2273,7 +2276,7 @@ function nativeTypeParts(type: string): NativeTypePart[] {
   }
 
   for (let index = 0; index < type.length; index++) {
-    const character = type[index]!
+    const character = type[index]
 
     const close =
       character === '[' ? ']' : character === '"' || character === '`' ? character : null
@@ -2358,7 +2361,7 @@ function verifyNativeColumns(
     )
 
   for (const [index, column] of native.columns.entries()) {
-    const observed = columns[index]!
+    const observed = columns[index]
     const columnLabel = `SQLite table ${JSON.stringify(row.name)} column ${JSON.stringify(observed.name)}`
 
     if (!nativeTypeMatches(column.type, observed.type))
@@ -2398,7 +2401,7 @@ function sameNativeColumns(left: readonly string[], right: readonly string[]): b
     left.length === right.length &&
     left.every(
       (name, index) =>
-        asciiFoldSqliteIdentifier(name) === asciiFoldSqliteIdentifier(right[index]!),
+        asciiFoldSqliteIdentifier(name) === asciiFoldSqliteIdentifier(right[index]),
     )
   )
 }
@@ -2412,10 +2415,10 @@ function sameNativeTerms(
     left.every(
       (term, index) =>
         asciiFoldSqliteIdentifier(term.name) ===
-          asciiFoldSqliteIdentifier(right[index]!.name) &&
+          asciiFoldSqliteIdentifier(right[index].name) &&
         asciiFoldSqliteIdentifier(term.coll) ===
-          asciiFoldSqliteIdentifier(right[index]!.coll) &&
-        term.desc === right[index]!.desc,
+          asciiFoldSqliteIdentifier(right[index].coll) &&
+        term.desc === right[index].desc,
     )
   )
 }
@@ -2429,9 +2432,9 @@ function sameNativeKeyIdentity(
     left.every(
       (term, index) =>
         asciiFoldSqliteIdentifier(term.name) ===
-          asciiFoldSqliteIdentifier(right[index]!.name) &&
+          asciiFoldSqliteIdentifier(right[index].name) &&
         asciiFoldSqliteIdentifier(term.coll) ===
-          asciiFoldSqliteIdentifier(right[index]!.coll),
+          asciiFoldSqliteIdentifier(right[index].coll),
     )
   )
 }
@@ -2460,7 +2463,7 @@ function verifyNativePrimaryKey(
     row.wr === 0 &&
     native.primaryKey?.rowidAlias === true &&
     pkColumns.length === 1 &&
-    pkColumns[0]!.type.toUpperCase() === 'INTEGER'
+    pkColumns[0].type.toUpperCase() === 'INTEGER'
 
   const pkIndex = (evidence.indexLists.get(row.name) ?? []).find(
     (index) => index.origin === 'pk',
@@ -2552,10 +2555,10 @@ function verifyNativeForeignKeys(
 
   const remaining = [...observedForeignKeys.values()].map((group) => ({
     columns: group.sort((a, b) => a.seq - b.seq).map((key) => key.from),
-    table: group[0]!.table,
+    table: group[0].table,
     referencedColumns: group.map((key) => key.to),
-    onDelete: group[0]!.on_delete,
-    onUpdate: group[0]!.on_update,
+    onDelete: group[0].on_delete,
+    onUpdate: group[0].on_update,
   }))
 
   for (const key of native.foreignKeys) {
@@ -2784,7 +2787,7 @@ function validateOwnerIndexes(
           scopeIdentity(owner.name).relation.comparisonKey,
     )
 
-    if (matches.length !== 1 || matches[0]!.sql === null)
+    if (matches.length !== 1 || matches[0].sql === null)
       throw new SqliteTableMetadataError(
         `SQLite user index ${JSON.stringify(entry.name)} has missing or mismatched sqlite_schema evidence`,
       )
@@ -2802,7 +2805,7 @@ function validateOwnerIndexes(
       )
 }
 
-export type SqliteProofBatchInput = {
+type SqliteProofBatchInput = {
   scopeRows: readonly TableRow[]
   mainTables: readonly TableRow[]
   schemaRows: readonly SchemaRow[]
@@ -2811,7 +2814,7 @@ export type SqliteProofBatchInput = {
   identities: CanonicalRelationIdentityModule
 }
 
-export type SqliteProofBatchResult = {
+type SqliteProofBatchResult = {
   relations: CatalogRelation[]
   errors: Map<string, string>
   acquisitionErrors: Map<string, string>
@@ -2954,7 +2957,7 @@ function downgradeInvalidParents(
 }
 
 /** Proves requested tables and applies the existing single-pass invalid-parent rule. */
-export function proveSqliteTables(input: SqliteProofBatchInput): SqliteProofBatchResult {
+function proveSqliteTables(input: SqliteProofBatchInput): SqliteProofBatchResult {
   const ordered = orderedProofInput(input)
   const { scopeRows, schemaRows, evidence, identities } = ordered
   const errors = new Map(evidence.errors)
@@ -3140,7 +3143,7 @@ function nativeRowidAlias(
   return (
     primary?.rowidAlias === true &&
     primary.columns.length === 1 &&
-    asciiFoldSqliteIdentifier(primary.columns[0]!) === asciiFoldSqliteIdentifier(column)
+    asciiFoldSqliteIdentifier(primary.columns[0]) === asciiFoldSqliteIdentifier(column)
   )
 }
 
@@ -3160,13 +3163,13 @@ function recoverRowidColumnFacts(
   if (
     row.wr !== 0 ||
     primary.length !== 1 ||
-    primary[0]!.pk !== 1 ||
-    primary[0]!.type.toUpperCase() !== 'INTEGER'
+    primary[0].pk !== 1 ||
+    primary[0].type.toUpperCase() !== 'INTEGER'
   )
     return columns
 
   const ambiguous = columns.map((column) =>
-    column.name === primary[0]!.name
+    column.name === primary[0].name
       ? { ...column, nullable: unknown(reason), generation: unknown(reason) }
       : column,
   )
@@ -3183,10 +3186,10 @@ function recoverRowidColumnFacts(
     return ambiguous
   }
 
-  if (!nativeRowidAlias(schema.sql, primary[0]!.name, native)) return ambiguous
+  if (!nativeRowidAlias(schema.sql, primary[0].name, native)) return ambiguous
 
   return columns.map((column) =>
-    column.name === primary[0]!.name
+    column.name === primary[0].name
       ? {
           ...column,
           nullable: present(false),
@@ -3225,10 +3228,10 @@ function decodeTablePrimaryKey(
   const rowidAlias =
     row.wr === 0 &&
     pks.length === 1 &&
-    pks[0]!.type.toUpperCase() === 'INTEGER' &&
+    pks[0].type.toUpperCase() === 'INTEGER' &&
     pkIndex === undefined &&
     schema !== undefined &&
-    nativeRowidAlias(schema.sql, pks[0]!.name, native)
+    nativeRowidAlias(schema.sql, pks[0].name, native)
 
   const sqlEvidence = tableSqlEvidence(schema, rowidAlias, nativeDefinition)
   const { createSql, constraintName, autoIncrement } = sqlEvidence
@@ -3479,3 +3482,24 @@ type SqliteIndexEvidence = {
  * @param first - Initial observed evidence.
  * @param second - Repeated observed evidence.
  */
+
+export type {
+  SqliteTableObservations,
+  TableRow,
+  SchemaRow,
+  XInfoRow,
+  IndexListRow,
+  IndexInfoRow,
+  ForeignKeyRow,
+  SqliteProofBatchInput,
+  SqliteProofBatchResult,
+}
+
+export {
+  SqliteTableMetadataError,
+  serializeSqliteObservation,
+  sortSqliteRows,
+  containsNamedSqliteConstraint,
+  compareSqliteOpaque,
+  proveSqliteTables,
+}

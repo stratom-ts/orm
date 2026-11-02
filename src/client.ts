@@ -50,11 +50,8 @@ import { prepareUpdatePatch } from './query/arithmetic'
 import type { SqlTag } from './sql'
 import { createSqlTag } from './sql'
 
-export type { ValueMapConfig } from '@/query'
-export type { TableHandle } from '@/types'
-
 /** Options established before a root transaction runs its first query. */
-export type TransactionOptions =
+type TransactionOptions =
   | Readonly<{ isolationLevel: 'serializable'; behavior?: never }>
   | Readonly<{ behavior: 'immediate'; isolationLevel?: never }>
 
@@ -77,9 +74,6 @@ type TransactionScopeFrame = {
 }
 
 const activeTransactionScope = new AsyncLocalStorage<TransactionScopeFrame>()
-
-export { QUERY_CHANNEL } from '@/query/observation'
-export type { QueryEvent, TracingOptions, QuerySource } from '@/query/observation'
 
 /**
  * Checks whether one transaction scope is nested beneath another.
@@ -167,7 +161,7 @@ async function drainTransactionScope(scope: TransactionScope): Promise<void> {
 }
 
 /** Options for {@link createDatabase}. */
-export type CreateDatabaseConfig<
+type CreateDatabaseConfig<
   TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 > = {
   /** Db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
@@ -193,7 +187,7 @@ export type CreateDatabaseConfig<
  * Stratom client: owns the db0 database lifecycle and table registry.
  * Transaction clients (`trx`) share the same query and execution surface.
  */
-export type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
+type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
   /** Registered table handles from `createDatabase`. */
   readonly schemas: TSchemas
   /**
@@ -773,7 +767,7 @@ function createDatabaseLifecycle(coordinator: OperationCoordinator) {
  *   invalid.
  * @throws {QueryError} The connector or session provider lacks required capabilities.
  */
-export function createDatabase<
+function createDatabase<
   const TSchemas extends readonly TableHandle[] = readonly TableHandle[],
 >(config: CreateDatabaseConfig<TSchemas>): Db<TSchemas> {
   const context = createDatabaseContext(config)
@@ -803,7 +797,7 @@ const tracingFactories = new WeakMap<object, (tracing: QueryTracing) => object>(
 const tracedClients = new WeakSet()
 
 /** Returns an isolated tracing view sharing the client's sessions and close lifecycle. */
-export function withTracing<TSchemas extends readonly TableHandle[]>(
+function withTracing<TSchemas extends readonly TableHandle[]>(
   db: Db<TSchemas>,
   options: TracingOptions = {},
 ): Db<TSchemas> {
@@ -1547,3 +1541,15 @@ function createScopedMigration<TSchemas extends readonly TableHandle[]>(
     context.tracing,
   )
 }
+
+export type { ValueMapConfig } from '@/query'
+
+export type { TableHandle } from '@/types'
+
+export { QUERY_CHANNEL } from '@/query/observation'
+
+export type { QueryEvent, TracingOptions, QuerySource } from '@/query/observation'
+
+export type { TransactionOptions, CreateDatabaseConfig, Db }
+
+export { createDatabase, withTracing }

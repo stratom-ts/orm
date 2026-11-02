@@ -10,7 +10,7 @@ const additions = new WeakSet()
 const ADD = Symbol('stratom.add')
 
 /** Opaque update-only addition, with SQL null propagation. */
-export type Addition<T = number | null> = Readonly<{
+type Addition<T = number | null> = Readonly<{
   [ADD]: T
   column: ColumnRef
   delta: number
@@ -23,7 +23,7 @@ export type Addition<T = number | null> = Readonly<{
  * Computed results rely on database constraints; Valibot refinements and
  * transforms do not run on them. RETURNING uses normal result mapping.
  */
-export function add<T extends number | null>(
+function add<T extends number | null>(
   column: ColumnRef<string, string, T>,
   delta: number,
 ): Addition<T> {
@@ -48,7 +48,7 @@ export function add<T extends number | null>(
 }
 
 /** Recognizes only tokens created by add, never lookalike objects. */
-export function isAddition(value: unknown): value is Addition {
+function isAddition(value: unknown): value is Addition {
   return typeof value === 'object' && value !== null && additions.has(value)
 }
 
@@ -59,14 +59,14 @@ type NumericAddition<T> = [Exclude<T, null | undefined>] extends [number]
   : never
 
 /** Literal update values plus compatible numeric additions on writable columns. */
-export type UpdatePatch<T extends TableHandle> = {
+type UpdatePatch<T extends TableHandle> = {
   [K in keyof InferUpdate<T>]?:
     | InferUpdate<T>[K]
     | NumericAddition<K extends keyof InferSelect<T> ? InferSelect<T>[K] : never>
 }
 
 /** Validates addition ownership and compatibility without parsing computed values. */
-export function prepareUpdatePatch(
+function prepareUpdatePatch(
   handle: TableHandle,
   patch: unknown,
   mapper: ValueMapper | undefined,
@@ -88,8 +88,8 @@ export function prepareUpdatePatch(
     }
 
     const entries = handle.getSchema().entries as Record<string, AnySchema>
-    const sourceFacts = extractStorageFacts(entries[source]!)
-    const targetFacts = extractStorageFacts(entries[target]!)
+    const sourceFacts = extractStorageFacts(entries[source])
+    const targetFacts = extractStorageFacts(entries[target])
 
     if (!mapper) throw new QueryError({ message: 'add requires a numeric value mapper' })
 
@@ -114,3 +114,7 @@ export function prepareUpdatePatch(
 
   return cleaned
 }
+
+export type { Addition, UpdatePatch }
+
+export { add, isAddition, prepareUpdatePatch }

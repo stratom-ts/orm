@@ -43,7 +43,7 @@ function registerMigrationGroup1() {
     const defect = new TypeError('lowering defect')
     const originalStack = defect.stack
 
-    vi.spyOn(sqliteDialect.migration!, 'lower').mockImplementation(() => {
+    vi.spyOn(sqliteDialect.migration, 'lower').mockImplementation(() => {
       throw defect
     })
 
@@ -73,20 +73,18 @@ function registerMigrationGroup2() {
 
     const defect = new TypeError('profile getter failed')
     const originalStack = defect.stack
-    const lower = sqliteDialect.migration!.lower.bind(sqliteDialect.migration)
-    vi.spyOn(sqliteDialect.migration!, 'lower').mockImplementation(
-      (planned, expected) => {
-        const injected = new Proxy(planned, {
-          get(target, property, receiver) {
-            if (property === 'profile') throw defect
+    const lower = sqliteDialect.migration.lower.bind(sqliteDialect.migration)
+    vi.spyOn(sqliteDialect.migration, 'lower').mockImplementation((planned, expected) => {
+      const injected = new Proxy(planned, {
+        get(target, property, receiver) {
+          if (property === 'profile') throw defect
 
-            return Reflect.get(target, property, receiver) as unknown
-          },
-        })
+          return Reflect.get(target, property, receiver) as unknown
+        },
+      })
 
-        return lower(injected, expected)
-      },
-    )
+      return lower(injected, expected)
+    })
 
     try {
       const rejection = await db

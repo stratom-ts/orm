@@ -14,7 +14,7 @@ import {
 } from './numeric'
 
 /** Maps or validates values using logical storage evidence. */
-export function validateSqliteValueMapping(
+function validateSqliteValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
 ): void {
@@ -22,7 +22,7 @@ export function validateSqliteValueMapping(
 }
 
 /** Validates built-in mapping from resolved and locally authored storage facts. */
-export function validateSqliteValueMappingFacts(
+function validateSqliteValueMappingFacts(
   dataType: string,
   analysis: StorageFacts,
   authored?: StorageFacts,
@@ -50,7 +50,7 @@ export function validateSqliteValueMappingFacts(
 }
 
 /** Chooses logical conversion independently of SQLite affinity. */
-export function mappingTypeFacts(
+function mappingTypeFacts(
   dataType: string,
   analysis: StorageFacts,
   authored?: StorageFacts,
@@ -276,7 +276,7 @@ function mapRealValue(dataType: string, value: unknown): unknown {
 }
 
 /** Maps or validates values using logical storage evidence. */
-export function mapSqliteParamValue(
+function mapSqliteParamValue(
   dataType: string,
   value: unknown,
   context?: DialectValueMappingContext,
@@ -290,7 +290,7 @@ export function mapSqliteParamValue(
  * Maps a parameter from semantic storage facts, or from the declared type without
  * context.
  */
-export function mapSqliteParamValueFacts(
+function mapSqliteParamValueFacts(
   dataType: string,
   value: unknown,
   facts?: StorageFacts,
@@ -331,7 +331,7 @@ function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): bool
 }
 
 /** Maps or validates values using logical storage evidence. */
-export function mapSqliteResultValue(
+function mapSqliteResultValue(
   dataType: string,
   value: unknown,
   context?: DialectValueMappingContext,
@@ -347,7 +347,7 @@ export function mapSqliteResultValue(
 }
 
 /** Maps a result from semantic storage facts, or from the declared type without context. */
-export function mapSqliteResultValueFacts(
+function mapSqliteResultValueFacts(
   dataType: string,
   value: unknown,
   facts?: StorageFacts,
@@ -376,7 +376,7 @@ export function mapSqliteResultValueFacts(
 }
 
 /** Proves native numeric storage without invoking custom mappings. */
-export function numericAssignmentType(
+function numericAssignmentType(
   dataType: string,
   context: DialectValueMappingContext,
 ): 'integer' | 'float' | undefined {
@@ -392,4 +392,15 @@ export function numericAssignmentType(
 
   // INTEGER affinity can still store fractional values without an integer schema.
   return facts.numberConstraints.isInteger ? 'integer' : 'float'
+}
+
+export {
+  validateSqliteValueMapping,
+  validateSqliteValueMappingFacts,
+  mappingTypeFacts,
+  mapSqliteParamValue,
+  mapSqliteParamValueFacts,
+  mapSqliteResultValue,
+  mapSqliteResultValueFacts,
+  numericAssignmentType,
 }

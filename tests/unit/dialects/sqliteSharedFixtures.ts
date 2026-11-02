@@ -70,18 +70,16 @@ function controlledProviderQueryRows(sql: string, created: boolean): unknown[] {
 }
 
 /** Creates deterministic session controls for the common SQLite contract. */
-export function createSqliteCommonRuntime() {
+function createSqliteCommonRuntime() {
   return createOperationSessionCommonRuntime().runtime
 }
 
 /** Creates the connector selected by the controlled SQLite provider contract. */
-export function createSqliteProviderContractConnector() {
+function createSqliteProviderContractConnector() {
   return customConnector('sqlite')
 }
 
-export function createSqliteControllableProvider(
-  options?: ProviderContractFactoryOptions,
-) {
+function createSqliteControllableProvider(options?: ProviderContractFactoryOptions) {
   let created = false
   return createControllableProvider({
     ...options,
@@ -95,7 +93,7 @@ export function createSqliteControllableProvider(
 }
 
 /** Creates the table handles used by the successful controlled migration scenario. */
-export function createSqliteProviderMigrationSchemas() {
+function createSqliteProviderMigrationSchemas() {
   return [
     defineTable(
       'provider_contract_events',
@@ -106,7 +104,7 @@ export function createSqliteProviderMigrationSchemas() {
 }
 
 /** Creates duplicate table handles that force the controlled planning failure. */
-export function createSqliteProviderPlanningFailureSchemas() {
+function createSqliteProviderPlanningFailureSchemas() {
   return [
     defineTable(
       'provider_planning_events',
@@ -257,9 +255,7 @@ async function executeCoordination(
 }
 
 /** Adapts actual BEGIN IMMEDIATE execution to dialect-neutral semantic events. */
-export const createSqliteCoordinationRuntime: CoordinationContractFactory = (
-  options = {},
-) => {
+const createSqliteCoordinationRuntime: CoordinationContractFactory = (options = {}) => {
   const controls: Controls = options
   const events: CoordinationContractEvent[] = []
   const listeners = new Map<CoordinationContractEvent, () => void>()
@@ -303,4 +299,13 @@ export const createSqliteCoordinationRuntime: CoordinationContractFactory = (
             listeners.set(event, resolve)
           }),
   }
+}
+
+export {
+  createSqliteCommonRuntime,
+  createSqliteProviderContractConnector,
+  createSqliteControllableProvider,
+  createSqliteProviderMigrationSchemas,
+  createSqliteProviderPlanningFailureSchemas,
+  createSqliteCoordinationRuntime,
 }

@@ -4,7 +4,7 @@ import { expect } from 'vitest'
 import type { Db, OrderTerm } from '@/index'
 import { after, before, column, defineTable, eq } from '@/index'
 
-export const Entries = defineTable(
+const Entries = defineTable(
   'keyset.entries',
   {
     id: pipe(number(), column({ name: 'entry_id' })),
@@ -25,7 +25,7 @@ const rows = [
 ]
 
 /** Exercises exclusive cursor boundaries through mapped public queries on each dialect. */
-export async function assertKeyset(db: Db): Promise<void> {
+async function assertKeyset(db: Db): Promise<void> {
   await db.migrate().execute()
   await db.insert(Entries).values(rows).execute()
 
@@ -106,7 +106,7 @@ async function assertMappedCursor(db: Db): Promise<void> {
     (
       await db
         .from(Entries)
-        .after(mapped, [true, rows[2]!.createdAt, 3])
+        .after(mapped, [true, rows[2].createdAt, 3])
         .orderBy(Entries.active, 'asc', 'last')
         .orderBy(Entries.createdAt, 'asc', 'last')
         .orderBy(Entries.id, 'asc', 'last')
@@ -124,7 +124,9 @@ async function traverse(
   const ids: number[] = []
   let cursor: readonly unknown[] | undefined
 
-  for (let pageIndex = 0; pageIndex < rows.length; pageIndex++) {
+  let remainingPages = rows.length
+
+  while (remainingPages-- > 0) {
     let query = db.from(Entries).where(eq(Entries.active, true)).limit(2)
 
     for (const term of order) {
@@ -152,3 +154,5 @@ async function traverse(
 
   return ids
 }
+
+export { Entries, assertKeyset }

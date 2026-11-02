@@ -183,8 +183,8 @@ describe('joins compile: should map joined-table parameters and results with the
 
     expect(query.compile().params).toEqual([when.toISOString()])
     const rows = await query.execute()
-    expect(rows[0]!.createdAt).toBeInstanceOf(Date)
-    expect(rows[0]!.createdAt.toISOString()).toBe(when.toISOString())
+    expect(rows[0].createdAt).toBeInstanceOf(Date)
+    expect(rows[0].createdAt.toISOString()).toBe(when.toISOString())
 
     await db.close()
   })

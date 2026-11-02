@@ -73,10 +73,11 @@ type NativePostgresClient = {
   ): Promise<NativePostgresResult>
 }
 
-export const POSTGRES_OPERATION_IDENTITY_SQL =
+const POSTGRES_OPERATION_IDENTITY_SQL =
   'select pg_backend_pid()::text as "physicalSession", current_database() as "database", current_schema() as "schema"'
-export const POSTGRES_OPERATION_ROLLBACK_SQL = 'rollback /* stratom operation release */'
-export const POSTGRES_OPERATION_UNLOCK_SQL =
+
+const POSTGRES_OPERATION_ROLLBACK_SQL = 'rollback /* stratom operation release */'
+const POSTGRES_OPERATION_UNLOCK_SQL =
   'select pg_advisory_unlock_all() /* stratom operation release */'
 
 /**
@@ -532,7 +533,7 @@ function createNativeOperationSession(
  *
  * @param connector - Db0 PostgreSQL connector.
  */
-export function createDb0PostgresOperationSessionProvider(
+function createDb0PostgresOperationSessionProvider(
   connector: Connector,
   dialectId = 'postgresql',
 ): OperationSessionProvider {
@@ -722,4 +723,11 @@ function closeNativeProvider(
     throw cause
   })
   return state.closePromise
+}
+
+export {
+  POSTGRES_OPERATION_IDENTITY_SQL,
+  POSTGRES_OPERATION_ROLLBACK_SQL,
+  POSTGRES_OPERATION_UNLOCK_SQL,
+  createDb0PostgresOperationSessionProvider,
 }

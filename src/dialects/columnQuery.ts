@@ -18,10 +18,7 @@ import type {
 } from './types'
 
 /** Binds logical addressing to one compilation, leaving the builder AST unchanged. */
-export function compileColumnQuery(
-  query: DialectQueryResolution,
-  node: SqlAst,
-): CompiledQuery {
+function compileColumnQuery(query: DialectQueryResolution, node: SqlAst): CompiledQuery {
   const projection: { sqlName: string; outputName: string }[] = []
   const lowered = new ColumnQuery(query).statement(node, projection)
   const compiled = query.compile(lowered)
@@ -179,7 +176,7 @@ class ColumnQuery {
       kind: 'projection',
       columns: names.map((column, index) => ({
         column: this.column({ column }, relation).column,
-        alias: aliases[index]!,
+        alias: aliases[index],
       })),
     }
   }
@@ -298,7 +295,7 @@ class ColumnQuery {
     return {
       ...node,
       selection: selection.map((item, index) =>
-        this.selectItem(item, aliases[index]!, relation),
+        this.selectItem(item, aliases[index], relation),
       ),
       ...(where ? { where } : {}),
       ...(node.joins
@@ -319,3 +316,5 @@ class ColumnQuery {
     }
   }
 }
+
+export { compileColumnQuery }

@@ -15,14 +15,14 @@ import type { Column, Definition, ForeignKey, Index } from './definition'
 import { SqliteMigrationCapabilityError, capabilityError } from './error'
 
 /** Quotes a single SQLite identifier, including literal dots and quotes. */
-export function quoteSqliteIdentifier(value: string): string {
+function quoteSqliteIdentifier(value: string): string {
   if (!value || value.includes('\0')) throw capabilityError('Invalid SQLite identifier')
 
   return `"${value.replaceAll('"', '""')}"`
 }
 
 /** Verifies a structured identifier rather than accepting a forged comparison key. */
-export function assertIdentifier(identifier: CanonicalIdentifier): void {
+function assertIdentifier(identifier: CanonicalIdentifier): void {
   if (!hasValidIdentifierSpelling(identifier.spelling))
     throw new SqliteMigrationCapabilityError(
       'invalid_target',
@@ -58,7 +58,7 @@ function hasValidIdentifierSpelling(value: string): boolean {
 }
 
 /** Rejects targets outside the supported main profile before SQL compilation. */
-export function assertMain(identity: CanonicalRelationIdentity): void {
+function assertMain(identity: CanonicalRelationIdentity): void {
   const segment = identity.namespace[0]
 
   if (
@@ -76,17 +76,17 @@ export function assertMain(identity: CanonicalRelationIdentity): void {
 }
 
 /** Compiles a statement with its explicit ordered parameter bindings. */
-export function statement(sql: string, params: unknown[] = []): CompiledQuery {
+function statement(sql: string, params: unknown[] = []): CompiledQuery {
   return { sql, params }
 }
 
 /** Formats a validated ordinary main-database table address. */
-export function address(name: string): string {
+function address(name: string): string {
   return `"main".${quoteSqliteIdentifier(name)}`
 }
 
 /** Compiles one supported SQLite column, with exact rowid-alias behavior. */
-export function columnSql(column: Column): string {
+function columnSql(column: Column): string {
   const primary = column.rowidAlias
     ? ` primary key${column.autoIncrement ? ' autoincrement' : ''}`
     : ''
@@ -95,7 +95,7 @@ export function columnSql(column: Column): string {
 }
 
 /** Formats ordered columns for a key, index or explicit projection. */
-export function columnsSql(columns: readonly string[]): string {
+function columnsSql(columns: readonly string[]): string {
   if (!columns.length) throw capabilityError('SQLite key/index columns cannot be empty')
 
   return columns.map(quoteSqliteIdentifier).join(', ')
@@ -120,7 +120,7 @@ function foreignKeySql(key: ForeignKey): string {
 }
 
 /** Compiles every final column and retained simple constraint into one CREATE TABLE. */
-export function createSql(name: string, definition: Definition): CompiledQuery {
+function createSql(name: string, definition: Definition): CompiledQuery {
   try {
     validateSqliteObjectName(name, 'table')
   } catch (cause) {
@@ -146,7 +146,7 @@ export function createSql(name: string, definition: Definition): CompiledQuery {
 }
 
 /** Compiles a simple main-database index without relying on IF NOT EXISTS. */
-export function indexSql(table: string, index: Index): CompiledQuery {
+function indexSql(table: string, index: Index): CompiledQuery {
   try {
     validateSqliteObjectName(index.name, 'index')
   } catch (cause) {
@@ -158,4 +158,16 @@ export function indexSql(table: string, index: Index): CompiledQuery {
   return statement(
     `create ${index.unique ? 'unique ' : ''}index ${address(index.name)} on ${quoteSqliteIdentifier(table)} (${columnsSql(index.columns)})`,
   )
+}
+
+export {
+  quoteSqliteIdentifier,
+  assertIdentifier,
+  assertMain,
+  statement,
+  address,
+  columnSql,
+  columnsSql,
+  createSql,
+  indexSql,
 }

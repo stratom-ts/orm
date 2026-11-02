@@ -109,7 +109,7 @@ export function assertSafePostgresDataType(dataType: string): string {
     })
   }
 
-  const base = match[1]!.replace(/\s+/g, ' ').trim()
+  const base = match[1].replace(/\s+/g, ' ').trim()
 
   if (!POSTGRES_ALLOWED_BASE_TYPES.has(base)) {
     throw new SchemaError({

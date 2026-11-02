@@ -1,7 +1,9 @@
 import { bigint, date, number, pipe, safeInteger, string } from 'valibot'
 
+import type { Db } from '@/client'
 import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationPlan, PlannedMigration } from '@/ddl/migrationPlan'
+import type { MigrationProgram } from '@/ddl/migrationProgram'
 import type {
   CatalogExecutor,
   CatalogRequest,
@@ -73,7 +75,7 @@ const createPostgresLifecycleRuntimeData: MigrationPlan = {
   ],
 }
 
-const fixtureData: import('@/ddl/migrationProgram').MigrationProgram = {
+const fixtureData: MigrationProgram = {
   atomicity: 'plan-atomic',
   preconditions: [
     {
@@ -628,7 +630,7 @@ function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
     connector,
     schemas: [LifecycleRecords],
     /** Executes query for the current fixture scenario. */
-    executeQuery: (database: import('@/client').Db) =>
+    executeQuery: (database: Db) =>
       database
         .from(LifecycleRecords)
         .where(LifecycleRecords.label, 'eq', 'connector-selected')
@@ -659,7 +661,7 @@ function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
   }
 }
 
-export const postgresSemanticContractInput = {
+const postgresSemanticContractInput = {
   identity: {
     dialect: postgresDialect,
     context: namespaceContext,
@@ -1119,3 +1121,5 @@ function createPostgresLifecycleExpectation() {
     queryParam: 'connector-selected',
   }
 }
+
+export { postgresSemanticContractInput }

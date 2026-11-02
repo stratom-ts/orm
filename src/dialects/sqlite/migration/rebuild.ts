@@ -1,5 +1,6 @@
 import type { MigrationStep, PlannedMigration } from '@/ddl/migrationPlan'
 import type { MigrationAction, MigrationPrecondition } from '@/ddl/migrationProgram'
+import type { LoweredDesiredColumn, LoweredDesiredTable } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from '../normalize'
@@ -23,7 +24,7 @@ import {
   statement,
 } from './sql'
 
-export type TableGroup = {
+type TableGroup = {
   identity: CanonicalRelationIdentity
   steps: { step: MigrationStep; index: number }[]
 }
@@ -106,10 +107,7 @@ function removeColumn(definition: Definition, name: string): void {
 }
 
 /** Merges touching additions and explicit drops into one complete retained definition. */
-export function finalDefinition(
-  planned: PlannedMigration,
-  group: TableGroup,
-): Definition {
+function finalDefinition(planned: PlannedMigration, group: TableGroup): Definition {
   const definition = observedDefinition(observedTable(planned, group.identity))
   const desired = planned.desiredTables.get(group.identity)
 
@@ -138,7 +136,7 @@ export function finalDefinition(
 function addColumn(
   definition: Definition,
   step: Extract<MigrationStep, { kind: 'add_column' }>,
-  desired: import('@/dialects/types').LoweredDesiredTable | undefined,
+  desired: LoweredDesiredTable | undefined,
 ): void {
   const column = desired?.columns.find(
     (candidate) =>
@@ -154,9 +152,7 @@ function addColumn(
 }
 
 /** Reads a newly added desired column and rejects required-column backfills. */
-function desiredColumnForAddition(
-  column: import('@/dialects/types').LoweredDesiredColumn,
-): Column {
+function desiredColumnForAddition(column: LoweredDesiredColumn): Column {
   const result = desiredColumn(column, [])
   const normalized =
     result.defaultSql === undefined
@@ -231,7 +227,7 @@ function sequenceRaise(name: string, replacement: string) {
 }
 
 /** Builds one plan-atomic rebuild group with all source-step provenance. */
-export function rebuild(
+function rebuild(
   planned: PlannedMigration,
   group: TableGroup,
   replacement: string,
@@ -268,8 +264,12 @@ export function rebuild(
     action: {
       sourceStepIndexes: group.steps.map(({ index }) => index),
       transaction: 'required',
-      statements: [statements[0]!, ...statements.slice(1)],
+      statements: [statements[0], ...statements.slice(1)],
     },
     preconditions,
   }
 }
+
+export type { TableGroup }
+
+export { finalDefinition, rebuild }

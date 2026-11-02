@@ -7,12 +7,12 @@ import type { Equals } from '@/types/equals'
 // Symbol.for keeps the brand stable when two copies of Stratom are loaded.
 const errorBrand = Symbol.for('stratom.error')
 
-export type Attempt<T> =
+type Attempt<T> =
   | Readonly<{ ok: true; value: T }>
   | Readonly<{ ok: false; error: unknown }>
 
 /** Settles an asynchronous operation without introducing another error boundary. */
-export async function attempt<T>(operation: () => Promise<T>): Promise<Attempt<T>> {
+async function attempt<T>(operation: () => Promise<T>): Promise<Attempt<T>> {
   try {
     return { ok: true, value: await operation() }
   } catch (error) {
@@ -21,7 +21,7 @@ export async function attempt<T>(operation: () => Promise<T>): Promise<Attempt<T
 }
 
 /** Settles a synchronous operation without introducing another error boundary. */
-export function attemptSync<T>(operation: () => T): Attempt<T> {
+function attemptSync<T>(operation: () => T): Attempt<T> {
   try {
     return { ok: true, value: operation() }
   } catch (error) {
@@ -40,7 +40,7 @@ export function attemptSync<T>(operation: () => T): Attempt<T> {
  *
  * @returns Error constructor that accepts optional payload fields
  */
-export function TaggedError<Tag extends string>(
+function TaggedError<Tag extends string>(
   tag: Tag,
 ): new <A extends Record<string, unknown> = Record<string, unknown>>(
   ...args: Equals<A, Record<string, unknown>> extends true
@@ -208,7 +208,7 @@ function serializeNativeError(
  * @example
  *   throw new MigrationError({ message: 'Cannot drop column with data' })
  */
-export class MigrationError extends TaggedError('MigrationError')<{
+class MigrationError extends TaggedError('MigrationError')<{
   message: string
   cause?: unknown
   defect?: true
@@ -222,7 +222,7 @@ export class MigrationError extends TaggedError('MigrationError')<{
 }> {}
 
 /** Observable stage at which migration execution stopped. */
-export type MigrationExecutionStage =
+type MigrationExecutionStage =
   | 'lock'
   | 'transaction'
   | 'introspection'
@@ -238,7 +238,7 @@ export type MigrationExecutionStage =
   | 'sessionCleanup'
 
 /** Database effect known after a migration execution attempt. */
-export type MigrationExecutionOutcome =
+type MigrationExecutionOutcome =
   | 'unchanged'
   | 'rolledBack'
   | 'applied'
@@ -246,7 +246,7 @@ export type MigrationExecutionOutcome =
   | 'unknown'
 
 /** Secondary cleanup failure retained without replacing the primary cause. */
-export type MigrationCleanupFailure = Readonly<{
+type MigrationCleanupFailure = Readonly<{
   stage: 'rollback' | 'unlock' | 'sessionCleanup'
   cause: unknown
 }>
@@ -257,7 +257,7 @@ export type MigrationCleanupFailure = Readonly<{
  * @example
  *   throw new SchemaError({ message: 'table() metadata is required' })
  */
-export class SchemaError extends TaggedError('SchemaError')<{
+class SchemaError extends TaggedError('SchemaError')<{
   message: string
 }> {}
 
@@ -267,14 +267,14 @@ export class SchemaError extends TaggedError('SchemaError')<{
  * @example
  *   throw new QueryError({ message: 'Database has been closed' })
  */
-export class QueryError extends TaggedError('QueryError')<{
+class QueryError extends TaggedError('QueryError')<{
   message: string
   cause?: unknown
   cleanupFailures?: readonly MigrationCleanupFailure[]
 }> {}
 
 /** Portable meaning of a native database failure. */
-export type DriverErrorKind =
+type DriverErrorKind =
   | 'uniqueViolation'
   | 'foreignKeyViolation'
   | 'notNullViolation'
@@ -283,7 +283,7 @@ export type DriverErrorKind =
   | 'unknown'
 
 /** Fields a selected dialect can establish from native diagnostics. */
-export type DriverErrorClassification = Readonly<{
+type DriverErrorClassification = Readonly<{
   kind: DriverErrorKind
   /** Potentially transient. Replay still requires caller-owned idempotency or recovery. */
   retryable: boolean
@@ -292,10 +292,10 @@ export type DriverErrorClassification = Readonly<{
   columns?: readonly string[]
 }>
 
-export type DriverErrorClassifier = (cause: unknown) => DriverErrorClassification
+type DriverErrorClassifier = (cause: unknown) => DriverErrorClassification
 
 /** Error thrown by db0, a database driver, or the database while executing SQL. */
-export class DriverError extends TaggedError('DriverError')<
+class DriverError extends TaggedError('DriverError')<
   {
     message: string
     dialect: string
@@ -307,7 +307,7 @@ export class DriverError extends TaggedError('DriverError')<
 > {}
 
 /** Preserves any native rejection from one physical SQL call. */
-export function driverError(
+function driverError(
   cause: unknown,
   dialect: string,
   sql: string,
@@ -340,10 +340,7 @@ function readDriverCode(cause: unknown): string | undefined {
 }
 
 /** Applies the selected member's policy only to a recognized driver failure. */
-export function classifyDriverError(
-  failure: unknown,
-  classify: DriverErrorClassifier,
-): unknown {
+function classifyDriverError(failure: unknown, classify: DriverErrorClassifier): unknown {
   if (!isErrorTag(failure, 'DriverError')) return failure
 
   const classification = classify(failure.cause)
@@ -372,7 +369,7 @@ export function classifyDriverError(
   })
 }
 
-export type ValidationOperation = 'insert' | 'update'
+type ValidationOperation = 'insert' | 'update'
 
 type ValidationErrorArgs = Readonly<{
   table: string
@@ -396,7 +393,7 @@ function formatValidationIssues(issues: ValidationErrorArgs['issues']): string {
  * @example
  *   throw new ValidationError({ table: 'users', operation: 'insert', issues })
  */
-export class ValidationError extends TaggedError('ValidationError')<{
+class ValidationError extends TaggedError('ValidationError')<{
   table: string
   operation: ValidationOperation
   issues: [BaseIssue<unknown>, ...BaseIssue<unknown>[]]
@@ -420,7 +417,7 @@ export class ValidationError extends TaggedError('ValidationError')<{
 }
 
 /** Error thrown when an internal contract or invariant is violated. */
-export class InvariantError extends TaggedError('InvariantError')<{
+class InvariantError extends TaggedError('InvariantError')<{
   message: string
 }> {
   /** Creates a structured invariant error with its diagnostic message. */
@@ -430,7 +427,7 @@ export class InvariantError extends TaggedError('InvariantError')<{
 }
 
 /** Errors exposed by Stratom's public API. */
-export type StratomError =
+type StratomError =
   | SchemaError
   | ValidationError
   | QueryError
@@ -448,7 +445,7 @@ const errorTags = new Set<StratomError['_tag']>([
 ])
 
 /** Recognizes a Stratom error from either copy of the package. */
-export function isStratomError(error: unknown): error is StratomError {
+function isStratomError(error: unknown): error is StratomError {
   if (typeof error !== 'object' || error === null) return false
 
   try {
@@ -463,7 +460,7 @@ export function isStratomError(error: unknown): error is StratomError {
 }
 
 /** Narrows a caught value to one Stratom error tag. */
-export function isErrorTag<T extends StratomError['_tag']>(
+function isErrorTag<T extends StratomError['_tag']>(
   error: unknown,
   tag: T,
 ): error is Extract<StratomError, { _tag: T }> {
@@ -472,4 +469,32 @@ export function isErrorTag<T extends StratomError['_tag']>(
   } catch {
     return false
   }
+}
+
+export type {
+  Attempt,
+  MigrationExecutionStage,
+  MigrationExecutionOutcome,
+  MigrationCleanupFailure,
+  DriverErrorKind,
+  DriverErrorClassification,
+  DriverErrorClassifier,
+  ValidationOperation,
+  StratomError,
+}
+
+export {
+  attempt,
+  attemptSync,
+  TaggedError,
+  MigrationError,
+  SchemaError,
+  QueryError,
+  DriverError,
+  driverError,
+  classifyDriverError,
+  ValidationError,
+  InvariantError,
+  isStratomError,
+  isErrorTag,
 }

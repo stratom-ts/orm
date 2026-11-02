@@ -14,7 +14,7 @@ type Enrichment = Readonly<{
 }>
 
 /** Adds phase or release diagnostics without changing the primary failure. */
-export function enrichMigrationError(
+function enrichMigrationError(
   error: MigrationError,
   changes: Enrichment,
 ): MigrationError {
@@ -109,10 +109,7 @@ function retainedExecutionDiagnostics(
 }
 
 /** Constructs an execution failure from adapter facts and any existing diagnostics. */
-export function migrationExecutionError(
-  cause: unknown,
-  facts: ExecutionFacts,
-): MigrationError {
+function migrationExecutionError(cause: unknown, facts: ExecutionFacts): MigrationError {
   const structured = isErrorTag(cause, 'MigrationError') ? cause : undefined
   const defect = structured ? structured.defect === true : facts.defect
   const diagnostics = retainedExecutionDiagnostics(structured, facts)
@@ -128,3 +125,5 @@ export function migrationExecutionError(
     ...diagnostics.fields,
   })
 }
+
+export { enrichMigrationError, migrationExecutionError }

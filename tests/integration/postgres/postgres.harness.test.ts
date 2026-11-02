@@ -114,7 +114,7 @@ function registerLifecycleIntegration() {
           'select pg_backend_pid()::text as "physicalSession"',
         )
 
-        const physicalSession = adminIdentity.rows[0]!.physicalSession
+        const physicalSession = adminIdentity.rows[0].physicalSession
         sessions.set(physicalSession, { role: 'admin', physicalSession })
         const additional = createDatabase([] as const, {
           hooks: { before: observeSession('additional') },

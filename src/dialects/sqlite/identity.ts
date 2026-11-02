@@ -10,7 +10,7 @@ import { InvariantError, SchemaError } from '@/utils/error'
 const SQLITE_IDENTITY = 'sqlite' as const
 
 /** SQLite compares only ASCII letters without regard to case. */
-export function asciiFoldSqliteIdentifier(spelling: string): string {
+function asciiFoldSqliteIdentifier(spelling: string): string {
   let key = ''
 
   for (const character of spelling) {
@@ -32,7 +32,7 @@ function requireDatabaseNamespace(
 }
 
 /** Canonical SQLite database-alias and relation identity semantics. */
-export const SQLITE_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
+const SQLITE_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
   id: SQLITE_IDENTITY,
   comparisonKey: asciiFoldSqliteIdentifier,
   /** Resolves authored namespace segments using the configured writable defaults. */
@@ -63,3 +63,5 @@ export const sqliteIdentity = {
     })
   },
 }
+
+export { asciiFoldSqliteIdentifier, SQLITE_IDENTITY_POLICY }

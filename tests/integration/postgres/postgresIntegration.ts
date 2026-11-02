@@ -18,7 +18,7 @@ import { waitForPostgres } from './postgres.setup'
 const postgresUrl = process.env.POSTGRESQL_URL
 type PostgresConnector = ReturnType<typeof postgresql>
 
-export type SessionEvent = Readonly<{
+type SessionEvent = Readonly<{
   sql: string
   physicalSession: string
 }>
@@ -39,10 +39,10 @@ type SessionHooks = Readonly<{
 }>
 
 type PostgresDatabaseOptions = Readonly<{
-  library?: Pick<
-    typeof import('@/index'),
-    'createDatabase' | 'createDb0PostgresOperationSessionProvider'
-  >
+  library?: {
+    createDatabase: typeof createDatabase
+    createDb0PostgresOperationSessionProvider: typeof createDb0PostgresOperationSessionProvider
+  }
   useRegistrationDefault?: boolean
   applicationId?: string
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -61,7 +61,7 @@ type CallbackSettlement<T> =
   | Readonly<{ status: 'fulfilled'; value: T }>
   | Readonly<{ status: 'rejected'; reason: unknown }>
 
-export type PostgresDatabaseContext<TSchemas extends readonly TableHandle[]> = Readonly<{
+type PostgresDatabaseContext<TSchemas extends readonly TableHandle[]> = Readonly<{
   db: Db<TSchemas>
   schema: string
   alternateSchema: string
@@ -85,7 +85,7 @@ export type PostgresDatabaseContext<TSchemas extends readonly TableHandle[]> = R
 }>
 
 /** Quotes PostgreSQL identifiers used to create and inspect isolated test namespaces. */
-export function quoteIdentifier(value: string): string {
+function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`
 }
 
@@ -103,7 +103,7 @@ function newTestSchema(): string {
  *
  * @returns The connected administrative PostgreSQL client owned by the harness.
  */
-export async function createAdminClient(): Promise<Client> {
+async function createAdminClient(): Promise<Client> {
   if (!postgresUrl) {
     throw new Error('POSTGRESQL_URL is required for PostgreSQL integration tests')
   }
@@ -202,7 +202,7 @@ function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
 }
 
 /** Runs a callback with a unique namespace and retains callback and cleanup errors. */
-export async function withPostgresDatabase<
+async function withPostgresDatabase<
   const TSchemas extends readonly TableHandle[],
   TResult,
 >(
@@ -245,7 +245,7 @@ export async function withPostgresDatabase<
 
 const supported = { state: 'supported' as const }
 
-export const postgresIntegrationAdapter: DialectIntegrationAdapter = {
+const postgresIntegrationAdapter: DialectIntegrationAdapter = {
   name: 'PostgreSQL',
   dialectId: 'postgresql',
   readiness: waitForPostgres,
@@ -494,4 +494,13 @@ function createPostgresCallbackContext<TSchemas extends readonly TableHandle[], 
       return additional
     },
   }
+}
+
+export type { SessionEvent, PostgresDatabaseContext }
+
+export {
+  quoteIdentifier,
+  createAdminClient,
+  withPostgresDatabase,
+  postgresIntegrationAdapter,
 }

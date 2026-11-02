@@ -10,7 +10,7 @@ import { createDatabase } from '@/index'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import type { TableHandle } from '@/types'
 
-export type DialectLifecycleContractRuntime = Readonly<{
+type DialectLifecycleContractRuntime = Readonly<{
   dialect: Dialect
   registerDialect?: boolean
   connector: Connector
@@ -87,7 +87,7 @@ export type DialectLifecycleContractRuntime = Readonly<{
       }>
 }>
 
-export type DialectLifecycleContractFactory = () => DialectLifecycleContractRuntime
+type DialectLifecycleContractFactory = () => DialectLifecycleContractRuntime
 
 /**
  * Requires explicit reasons for unsupported or unavailable catalog capabilities.
@@ -110,7 +110,7 @@ function expectExplicitCapabilityEvidence(catalog: CatalogSnapshot): void {
 }
 
 /** Runs the single public connector-selected lifecycle smoke. */
-export async function runDialectLifecycleContract(
+async function runDialectLifecycleContract(
   runtime: DialectLifecycleContractRuntime,
 ): Promise<void> {
   const unregister =
@@ -219,7 +219,7 @@ async function assertLifecycleMigration(
 }
 
 /** Registers the single public connector-selected lifecycle smoke. */
-export function registerDialectLifecycleContract(
+function registerDialectLifecycleContract(
   name: string,
   createRuntime: DialectLifecycleContractFactory,
 ): void {
@@ -229,3 +229,7 @@ export function registerDialectLifecycleContract(
     })
   })
 }
+
+export type { DialectLifecycleContractRuntime, DialectLifecycleContractFactory }
+
+export { runDialectLifecycleContract, registerDialectLifecycleContract }

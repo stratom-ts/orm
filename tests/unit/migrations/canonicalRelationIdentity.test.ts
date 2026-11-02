@@ -33,7 +33,7 @@ describe('canonical relation identity', () => {
 
     const differentRole: CanonicalRelationIdentity = {
       ...identity,
-      namespace: [identity.namespace[0]!, { ...identity.namespace[1]!, role: 'catalog' }],
+      namespace: [identity.namespace[0], { ...identity.namespace[1], role: 'catalog' }],
     }
 
     expect(identity).toEqual({
@@ -306,7 +306,7 @@ describe('canonical SQLite relation identity: resolves SQLite omission from regi
     const identity = identities.resolve({ relation: 'events' })
     const differentRole: CanonicalRelationIdentity = {
       ...identity,
-      namespace: [{ ...identity.namespace[0]!, role: 'catalog' }],
+      namespace: [{ ...identity.namespace[0], role: 'catalog' }],
     }
 
     expect(identities.equals(identity, differentRole)).toBe(false)

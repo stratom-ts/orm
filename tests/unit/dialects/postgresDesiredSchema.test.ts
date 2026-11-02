@@ -836,7 +836,7 @@ const registerDesiredSchemaCases21 = () => {
       [Users],
       postgresIdentities(),
       postgresDialect.schema,
-    ).tables[0]!
+    ).tables[0]
 
     const columns = Object.fromEntries(
       table.columns.map((item) => [item.identifier.spelling, item]),
@@ -1070,7 +1070,7 @@ const registerDesiredSchemaCases27 = () => {
       [Defaults],
       postgresIdentities(),
       postgresDialect.schema,
-    ).tables[0]!
+    ).tables[0]
 
     const defaults = table.columns.map((column) => column.databaseDefault?.sql)
 
@@ -1383,7 +1383,7 @@ const registerDesiredSchemaCases34 = () => {
       [Identities],
       postgresIdentities(),
       postgresDialect.schema,
-    ).tables[0]!.columns
+    ).tables[0].columns
 
     expect(columns.find((value) => value.identifier.spelling === 'id')?.generated).toBe(
       'byDefault',

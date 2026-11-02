@@ -37,7 +37,7 @@ export function table<TInput = unknown, const TName extends string = string>(
   config: TableActionConfig & { name: TName },
 ): MetadataAction<TInput, TableMetadata<TName>> {
   const relation = createRelationInput(config.name, config.namespace)
-  const primaryKey = Array.isArray(config.primaryKey as unknown)
+  const primaryKey = Array.isArray(config.primaryKey)
     ? [...(config.primaryKey as readonly string[])]
     : config.primaryKey
 

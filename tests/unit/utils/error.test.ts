@@ -406,7 +406,7 @@ it('should keep the brand private, non-enumerable, and protected from payload ov
     [brandSymbol]: false,
   } as never)
 
-  const brand = Object.getOwnPropertySymbols(error)[0]!
+  const brand = Object.getOwnPropertySymbols(error)[0]
   expect(error._tag).toBe('QueryError')
   expect(brand).toBe(brandSymbol)
 

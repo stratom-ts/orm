@@ -1,6 +1,6 @@
 import { SchemaError } from '@/utils/error'
 
-export type MigrationCoordinationScopeInput = Readonly<{
+type MigrationCoordinationScopeInput = Readonly<{
   /** Stable dialect identity supplied by the owning runtime. */
   dialect: string
   /** Stable database identity supplied by the owning runtime. */
@@ -9,7 +9,7 @@ export type MigrationCoordinationScopeInput = Readonly<{
   applicationId?: string
 }>
 
-export type MigrationCoordinationScope = Readonly<{
+type MigrationCoordinationScope = Readonly<{
   database: Readonly<{
     dialect: string
     name: string
@@ -19,7 +19,7 @@ export type MigrationCoordinationScope = Readonly<{
 }>
 
 /** Portable coordination identities; physical lock fields belong to a dialect. */
-export type MigrationCoordinationLockIdentity =
+type MigrationCoordinationLockIdentity =
   | Readonly<{ kind: 'database'; canonicalIdentity: string }>
   | Readonly<{ kind: 'scoped'; canonicalIdentity: string }>
 
@@ -66,7 +66,7 @@ function assertStableIdentifier(value: unknown, label: string): asserts value is
  *
  * @param applicationId - Stable application identity to validate.
  */
-export function validateApplicationId(applicationId: string): void {
+function validateApplicationId(applicationId: string): void {
   assertStableIdentifier(applicationId, 'applicationId')
 }
 
@@ -82,7 +82,7 @@ export function validateApplicationId(applicationId: string): void {
  *
  * @param input - Stable dialect, database, and optional application identities.
  */
-export function createMigrationCoordinationScope(
+function createMigrationCoordinationScope(
   input: MigrationCoordinationScopeInput,
 ): MigrationCoordinationScope {
   assertStableIdentifier(input.dialect, 'dialect identity')
@@ -108,7 +108,7 @@ export function createMigrationCoordinationScope(
  *
  * @param scope - Canonical migration coordination scope.
  */
-export function migrationLockAcquisitionOrder(
+function migrationLockAcquisitionOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {
   const database: MigrationCoordinationLockIdentity = Object.freeze({
@@ -144,8 +144,21 @@ export function migrationLockAcquisitionOrder(
  *
  * @param scope - Canonical migration coordination scope.
  */
-export function migrationLockReleaseOrder(
+function migrationLockReleaseOrder(
   scope: MigrationCoordinationScope,
 ): readonly MigrationCoordinationLockIdentity[] {
   return Object.freeze([...migrationLockAcquisitionOrder(scope)].reverse())
+}
+
+export type {
+  MigrationCoordinationScopeInput,
+  MigrationCoordinationScope,
+  MigrationCoordinationLockIdentity,
+}
+
+export {
+  validateApplicationId,
+  createMigrationCoordinationScope,
+  migrationLockAcquisitionOrder,
+  migrationLockReleaseOrder,
 }

@@ -32,7 +32,7 @@ export const POSTGRES_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
     }
 
     if (selected.length === 1 && selected[0]?.role === 'schema') {
-      return [writableDefault[0]!, selected[0]]
+      return [writableDefault[0], selected[0]]
     }
 
     if (
@@ -45,7 +45,7 @@ export const POSTGRES_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
       })
     }
 
-    if (selected[0]!.spelling !== writableDefault[0]!.spelling) {
+    if (selected[0].spelling !== writableDefault[0].spelling) {
       throw new SchemaError({
         message: 'PostgreSQL relation database must match the writable database',
       })

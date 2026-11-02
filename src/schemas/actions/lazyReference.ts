@@ -10,7 +10,7 @@ import { createRelationInput, sameRelationInput } from './relation'
 import type { ReferenceMetadata } from './types'
 
 /** Deferred reference intent. Reading metadata does not evaluate the target. */
-export type LazyReferenceMetadata = ReferenceOptions & {
+type LazyReferenceMetadata = ReferenceOptions & {
   kind: 'lazy-reference'
   resolve(): ResolvedLazyReference
 }
@@ -56,7 +56,7 @@ function resolveTarget(target: () => ReferenceTarget, column: string) {
 }
 
 /** Captures stable relation intent while evaluating the target once per graph. */
-export function createLazyReferenceMetadata(
+function createLazyReferenceMetadata(
   target: () => ReferenceTarget,
   column: string,
   options?: ReferenceOptions,
@@ -89,16 +89,14 @@ export function createLazyReferenceMetadata(
       pinned ??= Object.freeze({ relation: snapshot, column })
       return Object.freeze({
         metadata: Object.freeze({ kind: 'reference', target: pinned, ...actions }),
-        schema: schema.entries[column] as AnySchema,
+        schema: schema.entries[column],
       })
     },
   })
 }
 
 /** Finds deferred intent through the same pipes and wrappers as eager references. */
-export function getLazyReferenceMetadata(
-  schema: AnySchema,
-): LazyReferenceMetadata | undefined {
+function getLazyReferenceMetadata(schema: AnySchema): LazyReferenceMetadata | undefined {
   const metadata = findSchemaMetadata<ReferenceMetadata | LazyReferenceMetadata>(schema, [
     'reference',
     'lazy-reference',
@@ -108,7 +106,7 @@ export function getLazyReferenceMetadata(
 }
 
 /** Resolves declarations once within one complete registration or query graph. */
-export function createReferenceResolver(
+function createReferenceResolver(
   validate?: (source: AnySchema, target: AnySchema, metadata: ReferenceMetadata) => void,
 ) {
   const resolved = new Map<LazyReferenceMetadata, ResolvedLazyReference>()
@@ -128,3 +126,7 @@ export function createReferenceResolver(
     return result.metadata
   }
 }
+
+export type { LazyReferenceMetadata }
+
+export { createLazyReferenceMetadata, getLazyReferenceMetadata, createReferenceResolver }

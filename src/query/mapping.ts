@@ -18,7 +18,7 @@ type ColumnValueMapping = { dataType: string; context: DialectValueMappingContex
 type MappingContexts = WeakMap<TableHandle, Record<string, DialectValueMappingContext>>
 
 /** CreateDatabase-level value mapping overrides. */
-export type ValueMapConfig = {
+type ValueMapConfig = {
   /**
    * Maps a database result value into its declared JavaScript representation.
    *
@@ -42,7 +42,7 @@ export type ValueMapConfig = {
   mapParamValue?(dataType: string, value: unknown): unknown
 }
 
-export type ValueMapper = {
+type ValueMapper = {
   /** Proves native numeric storage and standard mappings for an update operand. */
   numericAssignmentType(handle: TableHandle, column: string): 'integer' | 'float'
 
@@ -117,7 +117,7 @@ function resolveReferencedHandle(
 ): TableHandle {
   const matches = query.findRelationMatches(relation)
 
-  if (matches.length === 1) return matches[0]!
+  if (matches.length === 1) return matches[0]
 
   if (matches.length === 0) {
     throw new SchemaError({
@@ -149,7 +149,7 @@ function resolveColumnName(
   const matches = query.findColumnMatches(handle, columnName)
   const table = relation ? formatRelationInput(relation) : handle.getTableMetadata().name
 
-  if (matches.length === 1) return matches[0]!
+  if (matches.length === 1) return matches[0]
 
   if (matches.length === 0) {
     throw new SchemaError({
@@ -205,7 +205,7 @@ function resolveColumnDataType(
 
     const selected = columnMetadata?.physicalType?.[dialect.id]
     return {
-      dataType: selected === undefined ? result.dataType : String(selected),
+      dataType: selected === undefined ? result.dataType : selected,
       context: { ...result.context, authoredFacts: extractStorageFacts(schema) },
     }
   }
@@ -215,10 +215,7 @@ function resolveColumnDataType(
 
   try {
     return {
-      dataType:
-        selected === undefined
-          ? String(dialect.schema.inferColumnType(facts))
-          : String(selected),
+      dataType: selected === undefined ? dialect.schema.inferColumnType(facts) : selected,
       context: { facts },
     }
   } catch (cause) {
@@ -330,7 +327,7 @@ function columnMeta(handle: TableHandle, columnName: string): ColumnMetadata | u
  * @returns Value mapper with `columnTypes`, `mapParam`, `mapResultRow`, and
  *   `mapResultRows`
  */
-export function createValueMapper(
+function createValueMapper(
   dialect: Dialect,
   map?: ValueMapConfig,
   registered: readonly TableHandle[] = [],
@@ -397,7 +394,7 @@ function numericAssignmentType(
   contexts: MappingContexts,
 ): 'integer' | 'float' {
   const meta = columnMeta(handle, column)
-  const dataType = columnTypes(handle)[column]!
+  const dataType = columnTypes(handle)[column]
   const context = contexts.get(handle)?.[column]
   const kind = context && dialect.query.numericAssignmentType?.(dataType, context)
 
@@ -604,3 +601,7 @@ function mapRows(
     return mapResultRow(handle, row as Record<string, unknown>)
   })
 }
+
+export type { ValueMapConfig, ValueMapper }
+
+export { createValueMapper }

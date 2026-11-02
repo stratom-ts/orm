@@ -12,7 +12,7 @@ import { formatPostgresDefault } from './validate'
  *
  * @returns Canonical type (e.g. `integer`, `varchar`)
  */
-export function normalizePostgresDataType(dataType: string): string {
+function normalizePostgresDataType(dataType: string): string {
   const normalized = dataType.toLowerCase().trim()
   const typeMappings: Record<string, string> = {
     bool: 'boolean',
@@ -72,14 +72,12 @@ export function normalizePostgresDataType(dataType: string): string {
  *
  * @returns Base type name (e.g. `varchar`, `numeric`)
  */
-export function extractPostgresBaseType(dataType: string): string {
+function extractPostgresBaseType(dataType: string): string {
   return normalizePostgresDataType(dataType).replace(/\(.*\)$/, '')
 }
 
 /** Formats and normalizes a primitive PostgreSQL column default for comparison. */
-export function normalizePostgresDefaultValue(
-  value: string | number | boolean | null,
-): string {
+function normalizePostgresDefaultValue(value: string | number | boolean | null): string {
   return normalizePostgresDefaultExpression(formatPostgresDefault(value))
 }
 
@@ -109,7 +107,7 @@ function stripAllEnclosingParens(expression: string): string {
 }
 
 /** Canonicalizes PostgreSQL default expressions for migration comparison. */
-export function normalizePostgresDefaultExpression(expression: string): string {
+function normalizePostgresDefaultExpression(expression: string): string {
   const normalized = stripAllEnclosingParens(expression.trim())
   const withoutCasts = normalized.replace(
     /(?:::(?:[a-z][a-z0-9_ ]*|"[^"]+")(?:\s*\([^)]*\))?(?:\[\])?)+$/i,
@@ -122,4 +120,11 @@ export function normalizePostgresDefaultExpression(expression: string): string {
   if (/^null$/i.test(currentTimestampCandidate)) return 'null'
 
   return withoutCasts
+}
+
+export {
+  normalizePostgresDataType,
+  extractPostgresBaseType,
+  normalizePostgresDefaultValue,
+  normalizePostgresDefaultExpression,
 }

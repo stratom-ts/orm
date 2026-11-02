@@ -13,7 +13,7 @@ import {
 
 import { capabilityCheck, capabilityError } from './error'
 
-export type Column = {
+type Column = {
   name: string
   dataType: string
   notNull: boolean
@@ -22,7 +22,7 @@ export type Column = {
   autoIncrement: boolean
 }
 
-export type ForeignKey = {
+type ForeignKey = {
   columns: readonly string[]
   relation: CanonicalRelationIdentity
   referencedColumns: readonly string[]
@@ -30,9 +30,9 @@ export type ForeignKey = {
   onUpdate: string
 }
 
-export type Index = { name: string; columns: readonly string[]; unique: boolean }
+type Index = { name: string; columns: readonly string[]; unique: boolean }
 
-export type Definition = {
+type Definition = {
   columns: Column[]
   primaryKey: readonly string[]
   unique: (readonly string[])[]
@@ -41,7 +41,7 @@ export type Definition = {
 }
 
 /** Requires one fully observed fact before preserving catalog state. */
-export function fact<T>(value: CatalogFact<T>, label: string): T {
+function fact<T>(value: CatalogFact<T>, label: string): T {
   if (value.state !== 'present')
     throw capabilityError(`Incomplete SQLite evidence: ${label} (${value.state})`)
 
@@ -49,7 +49,7 @@ export function fact<T>(value: CatalogFact<T>, label: string): T {
 }
 
 /** Requires complete member coverage before rebuilding a table. */
-export function complete<T>(value: CatalogSet<T>, label: string): readonly T[] {
+function complete<T>(value: CatalogSet<T>, label: string): readonly T[] {
   if (value.coverage.state !== 'complete')
     throw capabilityError(`Incomplete SQLite evidence: ${label}`)
 
@@ -57,7 +57,7 @@ export function complete<T>(value: CatalogSet<T>, label: string): readonly T[] {
 }
 
 /** Resolves an authoritative ordinary permanent main table definition. */
-export function observedTable(
+function observedTable(
   planned: PlannedMigration,
   identity: CanonicalRelationIdentity,
 ): CatalogTable {
@@ -89,7 +89,7 @@ export function observedTable(
 }
 
 /** Converts a desired column into the supported SQLite physical definition. */
-export function desiredColumn(
+function desiredColumn(
   column: LoweredDesiredColumn,
   primaryKey: readonly string[],
 ): Column {
@@ -119,7 +119,7 @@ export function desiredColumn(
 }
 
 /** Produces an empty physical definition from a registered desired table. */
-export function desiredDefinition(table: LoweredDesiredTable): Definition {
+function desiredDefinition(table: LoweredDesiredTable): Definition {
   const primaryKey = table.primaryKey.map((column) => column.spelling)
   return {
     columns: table.columns.map((column) => desiredColumn(column, primaryKey)),
@@ -152,7 +152,7 @@ function assertSimple(value: {
 }
 
 /** Preserves every observed physical member, including additive live columns. */
-export function observedDefinition(table: CatalogTable): Definition {
+function observedDefinition(table: CatalogTable): Definition {
   const primaryKey =
     table.primaryKey.state === 'absent'
       ? []
@@ -229,11 +229,24 @@ function observedColumn(column: CatalogTable['columns']['items'][number]): Colum
 }
 
 /** Compares names under SQLite's ASCII identifier folding. */
-export function sameName(left: string, right: string): boolean {
+function sameName(left: string, right: string): boolean {
   return asciiFoldSqliteIdentifier(left) === asciiFoldSqliteIdentifier(right)
 }
 
 /** Proves a constant default rather than permitting executable expressions as a backfill. */
-export function literalDefault(value: string | undefined): boolean {
+function literalDefault(value: string | undefined): boolean {
   return value === undefined || isSqliteDefaultLiteral(value)
+}
+
+export type { Column, ForeignKey, Index, Definition }
+
+export {
+  fact,
+  complete,
+  observedTable,
+  desiredColumn,
+  desiredDefinition,
+  observedDefinition,
+  sameName,
+  literalDefault,
 }

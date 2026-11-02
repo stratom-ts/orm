@@ -67,7 +67,7 @@ function normalizeQueryStart(sql: string): string {
  * @returns A native-client fixture with stable backend identity and db0 statement
  *   execution.
  */
-export function createNativePostgresClient(
+function createNativePostgresClient(
   prepare: (sql: string) => Statement,
   database = 'test',
   currentSchema = 'public',
@@ -98,7 +98,7 @@ export function createNativePostgresClient(
  * @returns A reusable db0 statement fixture with deterministic rows and optional
  *   execution failure.
  */
-export function createMockStatement(rows: unknown[] = []): Statement {
+function createMockStatement(rows: unknown[] = []): Statement {
   const statement: Statement = {
     /** Binds fixture parameter values and returns the statement for execution. */
     bind() {
@@ -130,7 +130,7 @@ export function createMockStatement(rows: unknown[] = []): Statement {
  * @returns A native PostgreSQL connector fixture with recorded SQL, bindings, and
  *   disposal state.
  */
-export function createMockPostgresConnector(options?: {
+function createMockPostgresConnector(options?: {
   onPrepare?: (sql: string) => Statement
   rowsBySql?: (sql: string) => unknown[]
   database?: string
@@ -299,3 +299,5 @@ function prepareRecordedStatement(
     get: () => base.get(),
   }
 }
+
+export { createNativePostgresClient, createMockStatement, createMockPostgresConnector }

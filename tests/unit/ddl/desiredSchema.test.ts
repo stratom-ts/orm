@@ -123,7 +123,7 @@ describe('whole-graph desired-schema lowering', () => {
       }),
     )
 
-    expect(registered.tables[0]!.identity.namespace).toEqual([
+    expect(registered.tables[0].identity.namespace).toEqual([
       {
         role: 'database',
         identifier: { spelling: 'attached', comparisonKey: 'attached' },
@@ -375,7 +375,7 @@ describe('desired-schema references: resolves reference chains and reports refer
     ).tables
 
     expect(
-      table!.columns.find((value) => value.identifier.spelling === 'tenantId')?.unique,
+      table.columns.find((value) => value.identifier.spelling === 'tenantId')?.unique,
     ).toBe(true)
   })
 })

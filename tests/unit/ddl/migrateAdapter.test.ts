@@ -200,7 +200,7 @@ describe('dialect-neutral migration adapter contract', () => {
     expect(member.introspectCatalog).toHaveBeenCalledTimes(2)
     expect(member.createIdentity).toHaveBeenCalledTimes(2)
     expect(member.execute).toHaveBeenCalledTimes(1)
-    expect(member.execute.mock.calls[0]![0].lockTimeoutMs).toBeUndefined()
+    expect(member.execute.mock.calls[0][0].lockTimeoutMs).toBeUndefined()
     expect(member.lower).toHaveBeenCalledTimes(1)
 
     expect(member.lower).toHaveBeenCalledWith(
@@ -319,7 +319,7 @@ describe('dialect-neutral migration program preview and issues', () => {
     assertMigrationPreview(preview, member)
 
     sourceStepIndexes.push(99)
-    expect(preview.actions[0]!.sourceStepIndexes).toEqual([1, 3])
+    expect(preview.actions[0].sourceStepIndexes).toEqual([1, 3])
   })
 })
 
@@ -391,8 +391,8 @@ function assertMigrationPreview(
     structuredClone(returnsGroupedPhysicalActionsWithStableRedactionAndNoExecutionData),
   )
 
-  expect('assertSession' in preview.actions[0]!.statements[0]!).toBe(false)
-  expect('assertSession' in preview.actions[1]!.statements[0]!).toBe(false)
+  expect('assertSession' in preview.actions[0].statements[0]).toBe(false)
+  expect('assertSession' in preview.actions[1].statements[0]).toBe(false)
   expect(member.execute).not.toHaveBeenCalled()
 
   expect(member.lower).toHaveBeenCalledWith(

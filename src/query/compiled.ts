@@ -4,14 +4,14 @@ import { QueryError } from '@/utils/error'
 declare const compiledQuery: unique symbol
 
 /** SQL produced by a builder or the scoped SQL helpers. */
-export type CompiledQuery = Readonly<DialectCompiledQuery> & {
+type CompiledQuery = Readonly<DialectCompiledQuery> & {
   readonly [compiledQuery]: true
 }
 
 const queries = new WeakSet()
 
 /** Marks an immutable snapshot so SQL cannot be replaced after compilation. */
-export function markCompiledQuery(query: DialectCompiledQuery): CompiledQuery {
+function markCompiledQuery(query: DialectCompiledQuery): CompiledQuery {
   const snapshot = Object.freeze({
     ...query,
     params: Object.freeze([...query.params]),
@@ -29,7 +29,7 @@ export function markCompiledQuery(query: DialectCompiledQuery): CompiledQuery {
 }
 
 /** Rejects plain objects and copied markers from JavaScript callers. */
-export function assertCompiledQuery(query: unknown): asserts query is CompiledQuery {
+function assertCompiledQuery(query: unknown): asserts query is CompiledQuery {
   if (typeof query !== 'object' || query === null || !queries.has(query)) {
     throw new QueryError({
       message: 'execute requires builder compile() output or sql.fragment/unsafe output',
@@ -38,10 +38,7 @@ export function assertCompiledQuery(query: unknown): asserts query is CompiledQu
 }
 
 /** Restores application output names independently of optional value mapping. */
-export function restoreResultNames(
-  query: DialectCompiledQuery,
-  rows: unknown[],
-): unknown[] {
+function restoreResultNames(query: DialectCompiledQuery, rows: unknown[]): unknown[] {
   if (!query.resultProjection) return rows
 
   const names = new Map(
@@ -56,3 +53,7 @@ export function restoreResultNames(
       : row,
   )
 }
+
+export type { CompiledQuery }
+
+export { markCompiledQuery, assertCompiledQuery, restoreResultNames }

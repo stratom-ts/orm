@@ -93,7 +93,7 @@ function checkProfile(
 
   if (
     planned.catalogSnapshot.source.dialect !== 'sqlite' ||
-    !(major! > 3 || (major === 3 && minor! >= 37))
+    !(major > 3 || (major === 3 && minor >= 37))
   )
     throw new SqliteMigrationCapabilityError(
       'profile_mismatch',
@@ -322,7 +322,7 @@ function directAction(planned: PlannedMigration, group: TableGroup): MigrationAc
   return {
     sourceStepIndexes: group.steps.map(({ index }) => index),
     transaction: 'required',
-    statements: [statements[0]!, ...statements.slice(1)],
+    statements: [statements[0], ...statements.slice(1)],
   }
 }
 
@@ -498,7 +498,7 @@ function orderGroups(planned: PlannedMigration, groups: TableGroup[]): TableGrou
     )
 
     // FK enforcement is off; cyclic groups are legal and checked together before commit.
-    ordered.push(pending.splice(ready < 0 ? 0 : ready, 1)[0]!)
+    ordered.push(pending.splice(ready < 0 ? 0 : ready, 1)[0])
   }
 
   return ordered
@@ -539,7 +539,7 @@ function dependsOn(
 }
 
 /** Lowers an entire SQLite Migration Plan; any issue suppresses the complete program. */
-export function lowerSqliteMigrationPlan(
+function lowerSqliteMigrationPlan(
   planned: PlannedMigration,
   expected: MigrationSemanticProfile,
 ): MigrationLoweringResult {
@@ -614,7 +614,7 @@ function rowidIssues(planned: PlannedMigration): MigrationCapabilityIssue[] {
 
       if (
         expected.length !== observed.length ||
-        expected.some((column, index) => !sameName(column.name, observed[index]!.name))
+        expected.some((column, index) => !sameName(column.name, observed[index].name))
       )
         throw new SqliteMigrationCapabilityError(
           'compile_failure',
@@ -682,3 +682,5 @@ function issue(
     sourceStepIndexes,
   }
 }
+
+export { lowerSqliteMigrationPlan }

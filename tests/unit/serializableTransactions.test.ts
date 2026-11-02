@@ -82,9 +82,9 @@ it('compiles supported dialect contracts and refuses an unsupported capability',
   expect(() => sqliteDialect.operations.compile(command)).toThrow(QueryError)
 
   for (const dialect of [postgresDialect, sqliteDialect]) {
-    expect(() =>
-      dialect.operations.compile({ ...command, ...immediate } as never),
-    ).toThrow(QueryError)
+    expect(() => dialect.operations.compile({ ...command, ...immediate })).toThrow(
+      QueryError,
+    )
   }
 
   for (const dialect of [postgresDialect, sqliteDialect]) {

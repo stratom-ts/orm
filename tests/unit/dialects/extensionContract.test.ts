@@ -29,6 +29,7 @@ import {
   registerDialectLifecycleContract,
   runDialectLifecycleContract,
 } from './dialectMemberContract'
+import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
 
 let unregister: (() => void) | undefined
 
@@ -187,7 +188,7 @@ const expectedExtensionMigrationPlan = {
  */
 function createContractRuntime(
   options?: ContractRuntimeOptions,
-): import('./dialectMemberContract').DialectLifecycleContractRuntime {
+): DialectLifecycleContractRuntime {
   const calls = createExtensionContractCalls()
   const unsupportedMigration = options?.migration === 'unsupported'
   const { dialect, faultyLifecycle } = createLifecycleDialect(

@@ -66,12 +66,9 @@ type IntegrationCapability =
   | Readonly<{ state: 'supported' }>
   | Readonly<{ state: 'unsupported'; reason: string }>
 
-export type IntegrationScenarioRegistrar = (
-  title: string,
-  test: () => Promise<void>,
-) => void
+type IntegrationScenarioRegistrar = (title: string, test: () => Promise<void>) => void
 
-export interface DialectIntegrationAdapter {
+interface DialectIntegrationAdapter {
   readonly name: string
   readonly dialectId: string
   readonly capabilities: Readonly<
@@ -100,7 +97,7 @@ export interface DialectIntegrationAdapter {
 }
 
 /** Rejects incomplete or unexplained integration capability declarations. */
-export function validateDialectIntegrationCapabilities(
+function validateDialectIntegrationCapabilities(
   capabilities: Readonly<Record<IntegrationCapabilityName, IntegrationCapability>>,
 ): void {
   for (const name of integrationCapabilityNames) {
@@ -422,7 +419,7 @@ const convertedNullOutput = {
 }
 
 /** Returns whether every capability required for an integration scenario is supported. */
-export function shouldRegisterDialectIntegrationScenario(
+function shouldRegisterDialectIntegrationScenario(
   capabilities: DialectIntegrationAdapter['capabilities'],
   required: readonly IntegrationCapabilityName[],
 ): boolean {
@@ -430,7 +427,7 @@ export function shouldRegisterDialectIntegrationScenario(
 }
 
 /** Registers dialect integration scenario checks against the selected dialect contract. */
-export function registerDialectIntegrationScenario(
+function registerDialectIntegrationScenario(
   adapter: Pick<DialectIntegrationAdapter, 'capabilities'>,
   capabilities: readonly IntegrationCapabilityName[],
   title: string,
@@ -448,9 +445,7 @@ export function registerDialectIntegrationScenario(
 }
 
 /** Registers public, reusable integration behavior for one complete Dialect member. */
-export function registerDialectIntegrationScenarios(
-  adapter: DialectIntegrationAdapter,
-): void {
+function registerDialectIntegrationScenarios(adapter: DialectIntegrationAdapter): void {
   describe(`${adapter.name} shared integration scenarios`, () => {
     validateDialectIntegrationCapabilities(adapter.capabilities)
     registerLifecycleIntegration(adapter)
@@ -2072,4 +2067,13 @@ function registerSubqueryNullIntegration(adapter: DialectIntegrationAdapter): vo
       })
     },
   )
+}
+
+export type { IntegrationScenarioRegistrar, DialectIntegrationAdapter }
+
+export {
+  validateDialectIntegrationCapabilities,
+  shouldRegisterDialectIntegrationScenario,
+  registerDialectIntegrationScenario,
+  registerDialectIntegrationScenarios,
 }

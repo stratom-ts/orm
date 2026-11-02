@@ -488,8 +488,8 @@ const registerMigrationRuntimeCases16 = () => {
 
     expect(locks).toHaveLength(1)
     expect(unlocks).toHaveLength(1)
-    expect(unlocks[0]!.params).toEqual(locks[0]!.params)
-    expect(locks[0]!.params).not.toEqual([0x7363_686d, 0x6f72_6d00])
+    expect(unlocks[0].params).toEqual(locks[0].params)
+    expect(locks[0].params).not.toEqual([0x7363_686d, 0x6f72_6d00])
   })
 
   it('should derive stable scoped keys and separate database/application identities', () => {
@@ -505,7 +505,7 @@ const registerMigrationRuntimeCases16 = () => {
             database,
             applicationId,
           }),
-        )[0]!,
+        )[0],
       )
 
     expect(scoped('test', 'billing')).toEqual(scoped('test', 'billing'))

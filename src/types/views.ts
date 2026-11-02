@@ -210,7 +210,7 @@ type InsertColumnValue<S> = S extends AnySchema ? DBType<InferInput<S>> : never
  * Select view: full row as returned from the database.
  * Nested object columns without `reference` remain plain object (JSON-shaped).
  */
-export type InferSelectFromSchema<S extends TableSchema> = {
+type InferSelectFromSchema<S extends TableSchema> = {
   [K in keyof S['entries']]-?: SelectColumnValue<S['entries'][K]>
 }
 
@@ -231,14 +231,14 @@ type OptionalInsertKeys<S extends TableSchema> = {
 }[keyof S['entries']]
 
 /** Insert view: omit always-generated; optional defaults / byDefault / optional wrappers. */
-export type InferInsertFromSchema<S extends TableSchema> = {
+type InferInsertFromSchema<S extends TableSchema> = {
   [K in RequiredInsertKeys<S>]-?: InsertColumnValue<S['entries'][K]>
 } & {
   [K in OptionalInsertKeys<S>]?: InsertColumnValue<S['entries'][K]>
 }
 
 /** Update view: partial patch; omit readonly and always-generated columns. */
-export type InferUpdateFromSchema<S extends TableSchema> = {
+type InferUpdateFromSchema<S extends TableSchema> = {
   [
     K in keyof S['entries'] as IsGeneratedAlways<S['entries'][K]> extends true
       ? never
@@ -265,17 +265,17 @@ type SchemaOf<T> = T extends {
     : never
 
 /** Select row type for a table handle or Valibot table schema. */
-export type InferSelect<T> = [SchemaOf<T>] extends [never]
+type InferSelect<T> = [SchemaOf<T>] extends [never]
   ? never
   : Prettify<InferSelectFromSchema<SchemaOf<T>>>
 
 /** Insert input type for a table handle or Valibot table schema. */
-export type InferInsert<T> = [SchemaOf<T>] extends [never]
+type InferInsert<T> = [SchemaOf<T>] extends [never]
   ? never
   : Prettify<InferInsertFromSchema<SchemaOf<T>>>
 
 /** Update patch type for a table handle or Valibot table schema. */
-export type InferUpdate<T> = [SchemaOf<T>] extends [never]
+type InferUpdate<T> = [SchemaOf<T>] extends [never]
   ? never
   : Prettify<InferUpdateFromSchema<SchemaOf<T>>>
 
@@ -284,7 +284,7 @@ type SelectedColumnName<C> =
   C extends ColumnRef<string, infer N extends string> ? N : C extends string ? C : never
 
 /** Table name on a handle (`getTableMetadata().name`) when available. */
-export type TableNameOf<T> = T extends {
+type TableNameOf<T> = T extends {
   /**
    * Returns the relation, primary-key, index, and ownership metadata attached to the
    * table.
@@ -298,7 +298,7 @@ export type TableNameOf<T> = T extends {
   : never
 
 /** Authored relation identity used to distinguish same-named relations. */
-export type TableIdentityOf<T> = T extends {
+type TableIdentityOf<T> = T extends {
   /**
    * Returns the relation, primary-key, index, and ownership metadata attached to the
    * table.
@@ -314,7 +314,7 @@ export type TableIdentityOf<T> = T extends {
   : never
 
 /** Every field of `T` widened with `| null` (outer-join side). */
-export type NullableFields<T> = {
+type NullableFields<T> = {
   [K in keyof T]: T[K] | null
 }
 
@@ -360,7 +360,7 @@ type SelectedColumnValue<T, C, TNullable = never> = C extends ColumnRef
  * `ColumnRef`s resolve from the ref; bare string names unknown on `T` stay
  * `unknown`. Pass `TNullable` (table-identity union) for outer-join sides.
  */
-export type InferSelectedColumns<
+type InferSelectedColumns<
   T,
   TCols extends readonly (ColumnRef | string)[],
   TNullable = never,
@@ -373,13 +373,13 @@ export type InferSelectedColumns<
 }
 
 /** `selectAll(side)` row fragment, nullable when that side is outer-joined. */
-export type InferSelectAllSide<TSide, TNullable = never> =
+type InferSelectAllSide<TSide, TNullable = never> =
   TableIdentityOf<TSide> extends TNullable
     ? NullableFields<InferSelect<TSide>>
     : InferSelect<TSide>
 
 /** Merge an additional selection into `TResult` once an explicit select exists. */
-export type MergeSelection<
+type MergeSelection<
   HasSelection extends boolean,
   TResult,
   TNew,
@@ -390,7 +390,7 @@ export type MergeSelection<
  * Once the consumer has narrowed with `.select` / `.selectAll`, joins only
  * affect row filtering / nullability tracking — not the projection type.
  */
-export type MergeJoinStar<
+type MergeJoinStar<
   HasSelection extends boolean,
   TResult,
   TSideRow,
@@ -400,8 +400,23 @@ export type MergeJoinStar<
  * Right join with implicit `*`: root columns become nullable, the joined side
  * is added, and any previously merged non-root fields are preserved.
  */
-export type RightJoinStarResult<THandle, TResult, TSide> = NullableFields<
-  InferSelect<THandle>
-> &
+type RightJoinStarResult<THandle, TResult, TSide> = NullableFields<InferSelect<THandle>> &
   Omit<TResult, keyof InferSelect<THandle>> &
   InferSelect<TSide>
+
+export type {
+  InferSelectFromSchema,
+  InferInsertFromSchema,
+  InferUpdateFromSchema,
+  InferSelect,
+  InferInsert,
+  InferUpdate,
+  TableNameOf,
+  TableIdentityOf,
+  NullableFields,
+  InferSelectedColumns,
+  InferSelectAllSide,
+  MergeSelection,
+  MergeJoinStar,
+  RightJoinStarResult,
+}

@@ -14,6 +14,7 @@ import {
   reference,
 } from '@/index'
 import { createTableBuilder, createValueMapper } from '@/query'
+import type { Executor } from '@/query'
 
 import { exactQueryAddressing } from '../helpers/queryAddressing'
 
@@ -382,7 +383,7 @@ function assertMissingRelationError(
  *
  * @returns An executor whose queries return no rows and whose statements do nothing.
  */
-function createEmptyQueryExecutor(): import('@/query').Executor {
+function createEmptyQueryExecutor(): Executor {
   return {
     /** Executes fixture SQL with the configured native observations. */
     execute: async () => [],

@@ -44,40 +44,40 @@ import type {
 import { catalogForPlanning } from './planningCatalog'
 
 /** Relation namespace addressed by a portable namespace step. */
-export type MigrationNamespaceTarget = Readonly<{
+type MigrationNamespaceTarget = Readonly<{
   kind: 'namespace'
   namespace: readonly CanonicalNamespaceSegment[]
 }>
 
 /** Whole relation addressed by a Migration Plan step. */
-export type MigrationRelationTarget = Readonly<{
+type MigrationRelationTarget = Readonly<{
   kind: 'relation'
   relation: CanonicalRelationIdentity
 }>
 
 /** One column of a relation addressed by a Migration Plan step. */
-export type MigrationColumnTarget = Readonly<{
+type MigrationColumnTarget = Readonly<{
   kind: 'column'
   relation: CanonicalRelationIdentity
   column: CanonicalIdentifier
 }>
 
 /** One index of a relation addressed by a Migration Plan step. */
-export type MigrationIndexTarget = Readonly<{
+type MigrationIndexTarget = Readonly<{
   kind: 'index'
   relation: CanonicalRelationIdentity
   index: CanonicalIdentifier
 }>
 
 /** Structured target every Migration Plan step addresses. */
-export type MigrationTarget =
+type MigrationTarget =
   | MigrationNamespaceTarget
   | MigrationRelationTarget
   | MigrationColumnTarget
   | MigrationIndexTarget
 
 /** Structured referenced column carried by a foreign-key payload. */
-export type MigrationColumnReference = Readonly<{
+type MigrationColumnReference = Readonly<{
   relation: CanonicalRelationIdentity
   column: CanonicalIdentifier
   onDelete?: string
@@ -85,7 +85,7 @@ export type MigrationColumnReference = Readonly<{
 }>
 
 /** Portable semantic desired-state Migration Plan step. */
-export type MigrationStep =
+type MigrationStep =
   | Readonly<{
       kind: 'ensure_namespace'
       target: MigrationNamespaceTarget
@@ -146,7 +146,7 @@ export type MigrationStep =
       target: MigrationIndexTarget
     }>
 
-export type MigrationPlan = Readonly<{
+type MigrationPlan = Readonly<{
   steps: readonly MigrationStep[]
 }>
 
@@ -154,7 +154,7 @@ export type MigrationPlan = Readonly<{
  * Resolved semantics every step of one Migration Plan was built under. Lowering must
  * reject a plan whose profile does not match its own dialect and registration inputs.
  */
-export type MigrationSemanticProfile = Readonly<{
+type MigrationSemanticProfile = Readonly<{
   /** Stable identity semantic key supplied by the selected Dialect member. */
   identityAdapter: string
   namespaceContext: NamespaceContext
@@ -167,7 +167,7 @@ export type MigrationSemanticProfile = Readonly<{
  * The pure planner depends only on the semantic policies needed to reconcile desired
  * and observed state. It does not select those policies from the complete Dialect.
  */
-export type MigrationPlanningContext = Readonly<{
+type MigrationPlanningContext = Readonly<{
   identity: DialectIdentity
   naming: DialectNaming
   schema: Readonly<{
@@ -531,13 +531,13 @@ function compareNamespaces(
   const length = Math.min(left.length, right.length)
 
   for (let index = 0; index < length; index++) {
-    const role = compareCodeUnits(left[index]!.role, right[index]!.role)
+    const role = compareCodeUnits(left[index].role, right[index].role)
 
     if (role !== 0) return role
 
     const identifier = compareCodeUnits(
-      left[index]!.identifier.comparisonKey,
-      right[index]!.identifier.comparisonKey,
+      left[index].identifier.comparisonKey,
+      right[index].identifier.comparisonKey,
     )
 
     if (identifier !== 0) return identifier
@@ -824,7 +824,7 @@ function compareStringArrays(left: readonly string[], right: readonly string[]):
   const length = Math.min(left.length, right.length)
 
   for (let index = 0; index < length; index++) {
-    const result = compareCodeUnits(left[index]!, right[index]!)
+    const result = compareCodeUnits(left[index], right[index])
 
     if (result !== 0) return result
   }
@@ -1578,7 +1578,7 @@ function reserveCatalogIndexes(
   }
 }
 
-export type PlannedMigration = {
+type PlannedMigration = {
   plan: MigrationPlan
   profile: MigrationSemanticProfile
   identities: CanonicalRelationIdentityModule
@@ -2361,8 +2361,8 @@ function validateDesiredIndexes(
   }>,
 ) {
   for (let index = 1; index < indexes.length; index++) {
-    const previous = indexes[index - 1]!
-    const current = indexes[index]!
+    const previous = indexes[index - 1]
+    const current = indexes[index]
 
     if (previous.name.comparisonKey !== current.name.comparisonKey) continue
 
@@ -2920,7 +2920,7 @@ function reconcileDesiredTables(input: DesiredTableReconciliation) {
  * @throws {MigrationError} When identity resolution, desired lowering, or reconciliation
  *   fails, including unsupported schema drift.
  */
-export function planMigration(
+function planMigration(
   schemas: readonly TableHandle[],
   catalog: CatalogSnapshot,
   planning: MigrationPlanningContext,
@@ -3787,3 +3787,19 @@ function requireRegisteredDesiredTable(
 
   return desired
 }
+
+export type {
+  MigrationNamespaceTarget,
+  MigrationRelationTarget,
+  MigrationColumnTarget,
+  MigrationIndexTarget,
+  MigrationTarget,
+  MigrationColumnReference,
+  MigrationStep,
+  MigrationPlan,
+  MigrationSemanticProfile,
+  MigrationPlanningContext,
+  PlannedMigration,
+}
+
+export { planMigration }

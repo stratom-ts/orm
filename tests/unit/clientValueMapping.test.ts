@@ -853,8 +853,8 @@ describe('client value mapping: uses dialect defaults when no client override ex
     expect(compiled.params).toContain('{"invoice":42}')
 
     const [row] = await db.from(LedgerEntries).execute()
-    expect(row!.recordedAt).toEqual(recordedAt)
-    expect(row!.payload).toEqual({ invoice: 42 })
+    expect(row.recordedAt).toEqual(recordedAt)
+    expect(row.payload).toEqual({ invoice: 42 })
     await db.close()
   })
 })
@@ -909,8 +909,8 @@ describe('client value mapping: returns invalid timestamp and JSON text unchange
     const db = createDatabase({ connector, schemas: [LedgerEntries] })
 
     const [row] = await db.from(LedgerEntries).execute()
-    expect(row!.recordedAt).toBe('not-a-date')
-    expect(row!.payload).toBe('{not-json}')
+    expect(row.recordedAt).toBe('not-a-date')
+    expect(row.payload).toBe('{not-json}')
     await db.close()
   })
 
@@ -938,21 +938,21 @@ function assertMappedResults(
   row: { id: string; recordedAt: Date; payload: unknown; note: string; source: string },
   recordedAt: Date,
 ) {
-  expect(row!.note).toBe('column-read:settled')
+  expect(row.note).toBe('column-read:settled')
 
-  expect(row!.recordedAt).toEqual({
+  expect(row.recordedAt).toEqual({
     mappedBy: 'client-result',
     dataType: 'timestamptz',
     value: recordedAt.toISOString(),
   })
 
-  expect(row!.payload).toEqual({
+  expect(row.payload).toEqual({
     mappedBy: 'client-result',
     dataType: 'jsonb',
     value: '{"invoice":42}',
   })
 
-  expect(row!.source).toEqual({
+  expect(row.source).toEqual({
     mappedBy: 'client-result',
     dataType: 'text',
     value: 'api',

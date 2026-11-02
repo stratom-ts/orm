@@ -427,6 +427,6 @@ function assertUnsupportedCapabilityRegistration(
         lifecycle: unsupportedInput,
         [facet]: supportedComposite,
       },
-    } as never),
+    }),
   ).toThrow(new RegExp(`shard complete disagrees about ${facet}`, 'i'))
 }

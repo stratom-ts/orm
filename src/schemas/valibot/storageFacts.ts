@@ -1072,7 +1072,7 @@ function applyCommonStringFormats(
 ): void {
   if (result.outputKind !== 'string') return
 
-  const formats = nonNull[0]!.stringFormats
+  const formats = nonNull[0].stringFormats
   const common = nonNull.every(
     (branch) =>
       branch.stringFormats.length === formats.length &&

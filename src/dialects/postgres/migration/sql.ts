@@ -288,7 +288,7 @@ function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
  *
  * @returns Compiled SQL and bound values in emitted order.
  */
-export function compilePostgresDdl(node: PostgresDdlAst): CompiledQuery {
+function compilePostgresDdl(node: PostgresDdlAst): CompiledQuery {
   switch (node.kind) {
     case 'create_schema':
       return {
@@ -364,3 +364,5 @@ function compileNullabilityAlteration(
     }
   }
 }
+
+export { compilePostgresDdl }

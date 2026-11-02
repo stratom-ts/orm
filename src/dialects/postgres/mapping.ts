@@ -92,10 +92,7 @@ function canStoreOutputKind(base: string, kind: StorageFacts['outputKind']): boo
  *
  * @throws SchemaError when built-in mapping cannot return the output kind
  */
-export function assertPostgresScalarStorage(
-  dataType: string,
-  analysis: StorageFacts,
-): void {
+function assertPostgresScalarStorage(dataType: string, analysis: StorageFacts): void {
   if (analysis.composite) return
 
   const kind = analysis.outputKind
@@ -134,7 +131,7 @@ function matchesTemporalFormatStorage(
   base: string,
   formats: StorageFacts['stringFormats'],
 ): boolean {
-  return formats.length === 1 && TEMPORAL_FORMAT_STORAGE[formats[0]!] === base
+  return formats.length === 1 && TEMPORAL_FORMAT_STORAGE[formats[0]] === base
 }
 
 /** Selects authored reference formats only when native storage can preserve them. */
@@ -178,7 +175,7 @@ function isoTimeResult(value: string, withSeconds: boolean): string {
       message: 'PostgreSQL time has finer precision than the schema output',
     })
 
-  return withSeconds ? `${minute}:${second}` : minute!
+  return withSeconds ? `${minute}:${second}` : minute
 }
 
 /** Converts PostgreSQL's session-offset spelling to an ISO timestamp offset. */
@@ -215,7 +212,7 @@ function isoTimestampResult(value: string): string {
 /** Restores the strict Valibot minute or second form from native timestamp text. */
 function isoDateTimeResult(value: string, withSeconds: boolean): string {
   const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/.exec(value)
-  return match ? `${match[1]}T${isoTimeResult(match[2]!, withSeconds)}` : value
+  return match ? `${match[1]}T${isoTimeResult(match[2], withSeconds)}` : value
 }
 
 /** Applies an ISO format only when its native storage matches the selected type. */
@@ -285,7 +282,7 @@ function mapTemporalResult(
 }
 
 /** Rejects storage and reference outputs that built-in mapping cannot preserve. */
-export function validatePostgresValueMapping(
+function validatePostgresValueMapping(
   dataType: string,
   context: DialectValueMappingContext,
 ): void {
@@ -293,7 +290,7 @@ export function validatePostgresValueMapping(
 }
 
 /** Validates selected storage against resolved and locally authored logical output. */
-export function validatePostgresValueMappingFromFacts(
+function validatePostgresValueMappingFromFacts(
   dataType: string,
   target: StorageFacts,
   authored?: StorageFacts,
@@ -435,7 +432,7 @@ function mapUuidValue(value: unknown): unknown {
  *
  * @returns Mapped JavaScript value
  */
-export function mapPostgresResultValue(
+function mapPostgresResultValue(
   dataType: string,
   value: unknown,
   context?: DialectValueMappingContext,
@@ -451,7 +448,7 @@ export function mapPostgresResultValue(
 }
 
 /** Maps a driver value using only logical storage facts. */
-export function mapPostgresResultValueFromFacts(
+function mapPostgresResultValueFromFacts(
   dataType: string,
   value: unknown,
   target?: StorageFacts,
@@ -519,7 +516,7 @@ function parseJsonResult(value: string): unknown {
  *
  * @returns PostgreSQL-compatible parameter value
  */
-export function mapPostgresParamValue(
+function mapPostgresParamValue(
   dataType: string,
   value: unknown,
   context?: DialectValueMappingContext,
@@ -535,7 +532,7 @@ export function mapPostgresParamValue(
 }
 
 /** Maps a parameter using only logical storage facts. */
-export function mapPostgresParamValueFromFacts(
+function mapPostgresParamValueFromFacts(
   dataType: string,
   value: unknown,
   analysis?: StorageFacts,
@@ -595,7 +592,7 @@ function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): bool
 }
 
 /** Proves native numeric storage without invoking custom mappings. */
-export function numericAssignmentType(
+function numericAssignmentType(
   dataType: string,
   context: DialectValueMappingContext,
 ): 'integer' | 'float' | undefined {
@@ -613,4 +610,15 @@ export function numericAssignmentType(
     ['smallint', 'integer', 'bigint'].includes(storage)
     ? 'integer'
     : 'float'
+}
+
+export {
+  assertPostgresScalarStorage,
+  validatePostgresValueMapping,
+  validatePostgresValueMappingFromFacts,
+  mapPostgresResultValue,
+  mapPostgresResultValueFromFacts,
+  mapPostgresParamValue,
+  mapPostgresParamValueFromFacts,
+  numericAssignmentType,
 }

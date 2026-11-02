@@ -567,18 +567,18 @@ function createSqliteConstraintRows(options: FixtureOptions) {
   const schema = structuredClone(fixtureSchemaRowsSchema)
 
   if (options.namedConstraint)
-    schema[0]!.sql =
+    schema[0].sql =
       "CREATE TABLE parent(id INTEGER, v VARCHAR(12) DEFAULT 'safe', b BLOB DEFAULT TRUE, r DOUBLE, d DECIMAL(10,2) DEFAULT (lower('x')), CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v), UNIQUE(b))"
 
   if (options.namedConstraint)
-    schema[1]!.sql =
+    schema[1].sql =
       'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, CONSTRAINT named_fk FOREIGN KEY(pa,pb) REFERENCES parent(id,v) ON UPDATE CASCADE ON DELETE SET NULL)'
 
   if (options.simpleForeignKey)
-    schema[1]!.sql =
+    schema[1].sql =
       'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(id) ON UPDATE CASCADE ON DELETE SET NULL)'
 
-  if (options.matchClause) schema[1]!.sql = `${schema[1]!.sql!.slice(0, -1)} MATCH FULL)`
+  if (options.matchClause) schema[1].sql = `${schema[1].sql!.slice(0, -1)} MATCH FULL)`
 
   if (options.richUniqueIndex)
     schema.find((entry) => entry.name === 'simple')!.sql =
@@ -589,7 +589,7 @@ function createSqliteConstraintRows(options: FixtureOptions) {
       'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT DEFAULT (random()))'
 
   if (options.checkConstraint)
-    schema[0]!.sql = `${schema[0]!.sql!.slice(0, -1)}, CHECK (b IS NULL OR b = 1))`
+    schema[0].sql = `${schema[0].sql!.slice(0, -1)}, CHECK (b IS NULL OR b = 1))`
 
   return schema
 }
@@ -618,10 +618,10 @@ function applySqliteSchemaClauses(
       'CREATE TABLE simple(id INTEGER PRIMARY KEY ON CONFLICT REPLACE)'
 
   if (options.richerClause === 'deferrable')
-    schema[1]!.sql = `${schema[1]!.sql!.slice(0, -1)} DEFERRABLE)`
+    schema[1].sql = `${schema[1].sql!.slice(0, -1)} DEFERRABLE)`
 
   if (options.richerClause === 'initially')
-    schema[1]!.sql = `${schema[1]!.sql!.slice(0, -1)} DEFERRABLE INITIALLY DEFERRED)`
+    schema[1].sql = `${schema[1].sql!.slice(0, -1)} DEFERRABLE INITIALLY DEFERRED)`
 
   if (options.scannerDecoys) {
     schema.find((entry) => entry.name === 'simple')!.sql =
@@ -670,7 +670,7 @@ function fixtureColumnRows(options: FixtureOptions): Record<string, unknown[]> {
     ]
 
   if (options.opaqueDefault || options.richUniqueIndex)
-    xinfo.simple!.push({
+    xinfo.simple.push({
       cid: 1,
       name: 'value',
       type: 'TEXT',
@@ -681,7 +681,7 @@ function fixtureColumnRows(options: FixtureOptions): Record<string, unknown[]> {
     })
 
   if (options.scannerDecoys) {
-    const simpleColumn = xinfo.simple![0] as Record<string, unknown>
+    const simpleColumn = xinfo.simple[0] as Record<string, unknown>
     simpleColumn.dflt_value = "'COLLATE ON CONFLICT DEFERRABLE INITIALLY'"
   }
 
@@ -1438,7 +1438,7 @@ function assertExternalNamespaceDiagnostics(
  *   operation.
  */
 function assertSqliteColumnEvidence(columns: readonly CatalogColumn[]) {
-  expect(columns[1]!.default).toMatchObject({
+  expect(columns[1].default).toMatchObject({
     state: 'present',
     value: {
       kind: 'literal',
@@ -1447,7 +1447,7 @@ function assertSqliteColumnEvidence(columns: readonly CatalogColumn[]) {
     },
   })
 
-  expect(columns[4]!.default).toMatchObject({
+  expect(columns[4].default).toMatchObject({
     state: 'present',
     value: {
       kind: 'portableExpression',
@@ -1456,7 +1456,7 @@ function assertSqliteColumnEvidence(columns: readonly CatalogColumn[]) {
     },
   })
 
-  expect(columns[2]!.default).toMatchObject({
+  expect(columns[2].default).toMatchObject({
     state: 'present',
     value: {
       kind: 'literal',
@@ -1465,7 +1465,7 @@ function assertSqliteColumnEvidence(columns: readonly CatalogColumn[]) {
     },
   })
 
-  expect(columns[0]!.generation).toMatchObject({
+  expect(columns[0].generation).toMatchObject({
     state: 'present',
     value: { kind: 'rowidAlias', autoIncrement: true },
   })
@@ -1776,7 +1776,7 @@ const registerCatalogCases2 = () => {
       ),
     ).toEqual(['integer', 'text', 'blob', 'real', 'numeric'])
 
-    expect(tableOf(parent).columns.items[1]!.dataType).toMatchObject({
+    expect(tableOf(parent).columns.items[1].dataType).toMatchObject({
       state: 'present',
       value: { native: 'VARCHAR(12)', comparisonKey: 'text' },
     })
@@ -1854,9 +1854,9 @@ const registerCatalogCases6 = () => {
     const generatedTable = tableOf(generated)
 
     expect(generated.management).toBe('unmanaged')
-    expect(generatedTable.columns.items[1]!.generation.state).toBe('unsupported')
+    expect(generatedTable.columns.items[1].generation.state).toBe('unsupported')
 
-    expect(generatedTable.columns.items[1]!.nativeDefinition).toMatchObject({
+    expect(generatedTable.columns.items[1].nativeDefinition).toMatchObject({
       state: 'present',
       value: expect.stringContaining('GENERATED ALWAYS') as unknown,
     })
@@ -1917,7 +1917,7 @@ const registerCatalogCases7 = () => {
     )
 
     expect(
-      tableOf(relationNamed(snapshot, 'child')).foreignKeys.items[0]!.name,
+      tableOf(relationNamed(snapshot, 'child')).foreignKeys.items[0].name,
     ).toMatchObject({
       state: 'unknown',
     })
@@ -1927,7 +1927,7 @@ const registerCatalogCases7 = () => {
       coverage: { state: 'unknown' },
     })
 
-    expect(parentTable.columns.items[0]!.generation).toMatchObject({
+    expect(parentTable.columns.items[0].generation).toMatchObject({
       state: 'present',
       value: { kind: 'rowidAlias', autoIncrement: false },
     })
@@ -1978,7 +1978,7 @@ const registerCatalogCases9 = () => {
       value: { name: { state: 'absent' }, columns: ['id'] },
     })
 
-    expect(tableOf(simple).columns.items[0]!.generation).toMatchObject({
+    expect(tableOf(simple).columns.items[0].generation).toMatchObject({
       state: 'present',
       value: { kind: 'rowidAlias', autoIncrement: false },
     })
@@ -1999,7 +1999,7 @@ const registerCatalogCases10 = () => {
 
     expect(relation.management).toBe('unmanaged')
 
-    expect(table.columns.items[1]!.default).toMatchObject({
+    expect(table.columns.items[1].default).toMatchObject({
       state: 'present',
       value: {
         kind: 'nativeExpression',
@@ -2065,7 +2065,7 @@ const registerCatalogCases12 = () => {
       }),
     )
 
-    expect(tableOf(child).foreignKeys.items[0]!.semantics).toMatchObject({
+    expect(tableOf(child).foreignKeys.items[0].semantics).toMatchObject({
       state: 'present',
     })
   })
@@ -2075,7 +2075,7 @@ const registerCatalogCases13 = () => {
   it('should report SQLite owner facts as unsupported by the engine', async () => {
     const snapshot = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
 
-    expect(snapshot.namespaces.items[0]!.owner).toEqual({
+    expect(snapshot.namespaces.items[0].owner).toEqual({
       state: 'unsupported',
       by: 'engine',
       reason: 'SQLite has no namespace owner',
@@ -2179,7 +2179,7 @@ const registerCatalogCases15 = () => {
     const relation = relationNamed(snapshot, 'pk_desc')
     const table = tableOf(relation)
 
-    expect(table.columns.items[0]!.generation).toEqual({ state: 'absent' })
+    expect(table.columns.items[0].generation).toEqual({ state: 'absent' })
 
     expect(table.primaryKey).toMatchObject({
       state: 'present',
@@ -2257,12 +2257,12 @@ const registerCatalogCases18 = () => {
     expect(s.request.absentRelations).toHaveLength(1)
 
     expect(
-      s.namespaces.items[0]!.relations.items.some(
+      s.namespaces.items[0].relations.items.some(
         (relation) => relation.identity.relation.comparisonKey === 'missing',
       ),
     ).toBe(false)
 
-    expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
+    expect(s.namespaces.items[0].relations.coverage.state).toBe('partial')
   })
 
   it('should not fabricate absence when the requested identity is present', async () => {
@@ -2272,9 +2272,9 @@ const registerCatalogCases18 = () => {
       completeNamespaces: [],
     })
 
-    expect(s.request.absentRelations[0]!.relation.spelling).toBe('child')
+    expect(s.request.absentRelations[0].relation.spelling).toBe('child')
     expect(relationNamed(s, 'child').table.state).toBe('present')
-    expect(s.namespaces.items[0]!.relations.coverage.state).toBe('partial')
+    expect(s.namespaces.items[0].relations.coverage.state).toBe('partial')
   })
 }
 
@@ -2367,14 +2367,14 @@ const registerCatalogCases22 = () => {
           absentRelations: [],
           completeNamespaces: [],
         })
-      ).namespaceContext.writableDefault[0]!.spelling,
+      ).namespaceContext.writableDefault[0].spelling,
     ).toBe('main')
   })
 
   it('should emit complete empty main', async () => {
     expect(
-      (await sqliteCatalog.introspectCatalog(emptyFixture(), request)).namespaces
-        .items[0]!.relations.items,
+      (await sqliteCatalog.introspectCatalog(emptyFixture(), request)).namespaces.items[0]
+        .relations.items,
     ).toEqual([])
   })
 
@@ -2386,7 +2386,7 @@ const registerCatalogCases22 = () => {
           absentRelations: [],
           completeNamespaces: [],
         })
-      ).namespaces.items[0]!.relations.coverage.state,
+      ).namespaces.items[0].relations.coverage.state,
     ).toBe('partial')
   })
 
@@ -2470,7 +2470,7 @@ const registerCatalogCases25 = () => {
   it('should report unsupported old versions deterministically', async () => {
     expect(
       (await sqliteCatalog.introspectCatalog(emptyFixture('3.36.9'), request))
-        .diagnostics[0]!.code,
+        .diagnostics[0].code,
     ).toBe('catalog.capability.version')
   })
 
@@ -2480,7 +2480,7 @@ const registerCatalogCases25 = () => {
       relations: [{ relation: { relation: 'x' }, shape: 'additive' }],
     })
 
-    expect(result.request.relations[0]!.shape).toBe('additive')
+    expect(result.request.relations[0].shape).toBe('additive')
   })
 }
 
@@ -2610,7 +2610,7 @@ const registerCatalogCases30 = () => {
     expect(childDiagnostic?.message).toContain('references invalid parent metadata')
     expect(simple.management).toBe('managed')
     expect(tableOf(simple).columns.coverage.state).toBe('complete')
-    expect(snapshot.namespaces.items[0]!.relations.coverage.state).toBe('partial')
+    expect(snapshot.namespaces.items[0].relations.coverage.state).toBe('partial')
     expect(snapshot.nameReservations.coverage.state).toBe('unknown')
   })
 }
@@ -2702,7 +2702,7 @@ const registerCatalogCases33 = () => {
       expect(() =>
         planMigration([], snapshot, sqliteDialect.migration.planning, {
           migrationOwnership: [
-            { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
+            { kind: 'completeNamespace', namespace: request.completeNamespaces[0] },
           ],
         }),
       ).toThrow(/catalog|unknown|incomplete/i)
@@ -2781,7 +2781,7 @@ const registerCatalogCases40 = () => {
     expect(() =>
       planMigration([], snapshot, sqliteDialect.migration.planning, {
         migrationOwnership: [
-          { kind: 'completeNamespace', namespace: request.completeNamespaces[0]! },
+          { kind: 'completeNamespace', namespace: request.completeNamespaces[0] },
         ],
       }),
     ).toThrow(/catalog|unknown|incomplete/i)
@@ -2796,11 +2796,11 @@ const registerCatalogCases41 = () => {
       relations: [{ relation: { relation: 'child' }, shape: 'complete' }],
     })
 
-    const child = result.namespaces.items[0]!.relations.items.find(
+    const child = result.namespaces.items[0].relations.items.find(
       (entry) => entry.identity.relation.spelling === 'child',
     )!
 
-    expect(tableOf(child).foreignKeys.items[0]!.validity.state).toBe('unknown')
+    expect(tableOf(child).foreignKeys.items[0].validity.state).toBe('unknown')
   })
 }
 
@@ -2940,7 +2940,7 @@ const registerCatalogCases44 = () => {
 const registerCatalogCases45 = () => {
   it('should preserve unsupported native evidence for rich objects', async () => {
     const result = await sqliteCatalog.introspectCatalog(fixtureExecutor(), request)
-    const virtual = result.namespaces.items[0]!.relations.items.find(
+    const virtual = result.namespaces.items[0].relations.items.find(
       (entry) => entry.identity.relation.spelling === 'virt',
     )!
 

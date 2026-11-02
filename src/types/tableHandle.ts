@@ -3,10 +3,10 @@ import type { RelationIdentityInput, TableMetadata, TableSchema } from '@/schema
 import type { InferSelectFromSchema } from './views'
 
 /** Runtime brand for table handles returned by `defineTable`. */
-export const TABLE_HANDLE = Symbol.for('stratom.TableHandle')
+const TABLE_HANDLE = Symbol.for('stratom.TableHandle')
 
 /** Stable typed reference to a table column (for where/select/join/orderBy). */
-export type ColumnRef<
+type ColumnRef<
   TTable extends string = string,
   TColumn extends string = string,
   TType = unknown,
@@ -21,10 +21,9 @@ export type ColumnRef<
 
 type ColumnEntries<S extends TableSchema> = S['entries']
 
-export type SchemaNameOf<S extends TableSchema> =
-  S extends TableSchema<infer N> ? N : string
+type SchemaNameOf<S extends TableSchema> = S extends TableSchema<infer N> ? N : string
 
-export type ColumnRefsOf<
+type ColumnRefsOf<
   S extends TableSchema,
   TRelation extends RelationIdentityInput = RelationIdentityInput,
 > = {
@@ -46,7 +45,7 @@ type HandleTableMetadata<
  * `db.from`. A schema with arbitrary column names omits the column map, which
  * would otherwise treat handle methods as columns.
  */
-export type TableHandle<
+type TableHandle<
   S extends TableSchema = TableSchema,
   TRelation extends RelationIdentityInput = RelationIdentityInput,
 > = {
@@ -56,3 +55,7 @@ export type TableHandle<
   /** Table metadata from `table()` / `getTableMetadata()`. */
   getTableMetadata(): HandleTableMetadata<SchemaNameOf<S>, TRelation>
 } & (string extends keyof ColumnEntries<S> ? unknown : ColumnRefsOf<S, TRelation>)
+
+export type { ColumnRef, SchemaNameOf, ColumnRefsOf, TableHandle }
+
+export { TABLE_HANDLE }

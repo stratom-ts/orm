@@ -27,7 +27,7 @@ import type {
  *
  * @returns Quoted identifier safe for SQL
  */
-export function quoteIdentifier(ident: string): string {
+function quoteIdentifier(ident: string): string {
   return `"${ident.replaceAll('"', '""')}"`
 }
 
@@ -38,18 +38,18 @@ function assertIdentifier(value: unknown, description: string): asserts value is
   }
 }
 
-export type PostgresQueryRelation = {
+type PostgresQueryRelation = {
   database?: string
   schema?: string
   table: string
 }
 
-export type PostgresQueryRelationResolver = (
+type PostgresQueryRelationResolver = (
   relation: RelationIdentityInput,
 ) => PostgresQueryRelation
 
 /** Binds PostgreSQL query addressing to one client registration default. */
-export function createPostgresQueryRelationResolver(
+function createPostgresQueryRelationResolver(
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): PostgresQueryRelationResolver {
   return (relation) => resolvePostgresQueryRelation(relation, registrationDefault)
@@ -121,7 +121,7 @@ function resolvePostgresQueryNamespace(
 }
 
 /** Resolves authored relation intent according to PostgreSQL query semantics. */
-export function resolvePostgresQueryRelation(
+function resolvePostgresQueryRelation(
   relation: RelationIdentityInput,
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): PostgresQueryRelation {
@@ -152,12 +152,12 @@ export function resolvePostgresQueryRelation(
   if (namespace.length === 0) return { table: candidate.relation }
 
   if (namespace.length === 1) {
-    return { schema: namespace[0]!.spelling, table: candidate.relation }
+    return { schema: namespace[0].spelling, table: candidate.relation }
   }
 
   return {
-    database: namespace[0]!.spelling,
-    schema: namespace[1]!.spelling,
+    database: namespace[0].spelling,
+    schema: namespace[1].spelling,
     table: candidate.relation,
   }
 }
@@ -225,7 +225,7 @@ function createRelationContext(
   }
 
   return resolved.map((relation, index) => {
-    const candidate = candidates[index]!
+    const candidate = candidates[index]
     const alias =
       counts.get(candidate) === 1 && utf8ByteLength(candidate) <= 63
         ? candidate
@@ -266,7 +266,7 @@ function resolveRelationAlias(
       relation.table === resolved.table,
   )
 
-  if (exactMatches.length === 1) return exactMatches[0]!.alias
+  if (exactMatches.length === 1) return exactMatches[0].alias
 
   const matches = relations.filter(
     (relation) =>
@@ -283,7 +283,7 @@ function resolveRelationAlias(
       ),
   )
 
-  if (matches.length === 1) return matches[0]!.alias
+  if (matches.length === 1) return matches[0].alias
 
   if (matches.length === 0) {
     throw new QueryError({
@@ -415,7 +415,7 @@ function compilePredicate(
       if (predicates.length === 0) return 'true'
 
       if (predicates.length === 1)
-        return compilePredicate(predicates[0]!, params, relations, resolveRelation)
+        return compilePredicate(predicates[0], params, relations, resolveRelation)
 
       return `(${predicates.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' and ')})`
     }
@@ -428,7 +428,7 @@ function compilePredicate(
       if (predicates.length === 0) return 'false'
 
       if (predicates.length === 1)
-        return compilePredicate(predicates[0]!, params, relations, resolveRelation)
+        return compilePredicate(predicates[0], params, relations, resolveRelation)
 
       return `(${predicates.map((p) => compilePredicate(p, params, relations, resolveRelation)).join(' or ')})`
     }
@@ -629,7 +629,7 @@ function compileSelect(
     resolveRelation,
   )
 
-  const tableAlias = quoteIdentifier(relations[0]!.alias)
+  const tableAlias = quoteIdentifier(relations[0].alias)
   const selection = (node as Partial<SelectAst>).selection
 
   if (!Array.isArray(selection) || selection.length === 0) {
@@ -644,7 +644,7 @@ function compileSelect(
 
   if (node.joins) {
     for (const [index, join] of node.joins.entries()) {
-      sql += compileJoin(join, relations[index + 1]!, params, relations, resolveRelation)
+      sql += compileJoin(join, relations[index + 1], params, relations, resolveRelation)
     }
   }
 
@@ -710,16 +710,17 @@ function compileInsert(
 ): CompiledQuery {
   if (
     !Array.isArray(node.columns) ||
-    !Array.isArray(node.values as unknown) ||
+    !Array.isArray(node.values) ||
     node.values.length === 0
   ) {
     throw new InvariantError('insert requires at least one values row')
   }
 
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
+  const values: InsertAst['values'] = node.values
 
   if (node.columns.length === 0) {
-    if (node.values.length !== 1 || node.values[0]?.length !== 0) {
+    if (values.length !== 1 || values[0]?.length !== 0) {
       throw new InvariantError(
         'PostgreSQL supports empty insert columns only as one DEFAULT VALUES row',
       )
@@ -742,7 +743,7 @@ function compileInsert(
     .join(', ')
 
   const params: unknown[] = []
-  const rowSql = node.values.map((row) => {
+  const rowSql = values.map((row) => {
     const placeholders = row.map((value) => {
       if (value === undefined) return 'default'
 
@@ -854,7 +855,7 @@ function compileUpdate(
 ): CompiledQuery {
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const relations = createRelationContext([node.relation], resolveRelation)
-  const tableAlias = quoteIdentifier(relations[0]!.alias)
+  const tableAlias = quoteIdentifier(relations[0].alias)
   const params: unknown[] = []
 
   if (!Array.isArray(node.set) || node.set.length === 0) {
@@ -865,7 +866,7 @@ function compileUpdate(
     .map((item) => {
       if (item.addition) {
         params.push(item.addition.delta)
-        return `${quoteIdentifier(item.column)} = ${quoteIdentifier(relations[0]!.alias)}.${quoteIdentifier(item.addition.source)} + cast($${params.length} as numeric)`
+        return `${quoteIdentifier(item.column)} = ${quoteIdentifier(relations[0].alias)}.${quoteIdentifier(item.addition.source)} + cast($${params.length} as numeric)`
       }
 
       params.push(item.value)
@@ -891,7 +892,7 @@ function compileDelete(
 ): CompiledQuery {
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const relations = createRelationContext([node.relation], resolveRelation)
-  const tableAlias = quoteIdentifier(relations[0]!.alias)
+  const tableAlias = quoteIdentifier(relations[0].alias)
   const params: unknown[] = []
   const whereSql = compileWhereClause(node.where, params, relations, resolveRelation)
   const sql = `delete from ${tableSql} as ${tableAlias}${whereSql}${compileReturning(node.returning)}`
@@ -1236,7 +1237,7 @@ function compileComparison(
 }
 
 /** Compiles the complete statement and snapshots every nested session requirement. */
-export function compilePostgresQuery(
+function compilePostgresQuery(
   node: SqlAst,
   resolveRelation: PostgresQueryRelationResolver = createPostgresQueryRelationResolver(),
 ): CompiledQuery {
@@ -1319,4 +1320,13 @@ function compileSingleSubquery(
     })
 
   return compileSelect(node, resolveRelation, params).sql
+}
+
+export type { PostgresQueryRelation, PostgresQueryRelationResolver }
+
+export {
+  quoteIdentifier,
+  createPostgresQueryRelationResolver,
+  resolvePostgresQueryRelation,
+  compilePostgresQuery,
 }

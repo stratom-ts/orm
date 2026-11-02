@@ -361,7 +361,7 @@ const registerOperationSessionCases11 = () => {
 
         if (index === 0) firstStarted.resolve()
 
-        const gate = gates[index]!
+        const gate = gates[index]
         await gate.promise
         return []
       },
@@ -377,9 +377,9 @@ const registerOperationSessionCases11 = () => {
     const second = session.run({ sql: 'update test set value = 1', params: [] })
     await firstStarted.promise
     expect(connector.maxActiveCalls).toBe(1)
-    gates[0]!.resolve()
+    gates[0].resolve()
     await first
-    gates[1]!.resolve()
+    gates[1].resolve()
     await second
 
     expect(session.identity).toMatchObject({

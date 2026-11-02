@@ -2,16 +2,16 @@ import { InvariantError, SchemaError } from '@/utils/error'
 
 import type { CanonicalRelationIdentity } from './canonicalRelationIdentity'
 
-export type GeneratedPhysicalNameKind =
+type GeneratedPhysicalNameKind =
   | 'index'
   | 'primaryKey'
   | 'unique'
   | 'foreignKey'
   | 'check'
 
-export type PhysicalNameKind = GeneratedPhysicalNameKind | 'relation'
+type PhysicalNameKind = GeneratedPhysicalNameKind | 'relation'
 
-export type PhysicalNameSeed = Readonly<{
+type PhysicalNameSeed = Readonly<{
   kind: GeneratedPhysicalNameKind
   owner: CanonicalRelationIdentity
   columns?: readonly string[]
@@ -22,7 +22,7 @@ export type PhysicalNameSeed = Readonly<{
   onUpdate?: string
 }>
 
-export type PhysicalNamingProfile = Readonly<{
+type PhysicalNamingProfile = Readonly<{
   id: string
   maximumLength: number
   lengthUnit: 'utf8Bytes' | 'unicodeScalars'
@@ -69,7 +69,7 @@ const UTF8_ENCODER = new TextEncoder()
  *
  * @param seed - Physical-name seed.
  */
-export function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
+function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
   return JSON.stringify([
     seed.kind,
     identityTuple(seed.owner),
@@ -90,7 +90,7 @@ export function serializePhysicalNameSeed(seed: PhysicalNameSeed): string {
  *
  * @param seed - Physical-name seed.
  */
-export function physicalNameDigest(seed: PhysicalNameSeed): string {
+function physicalNameDigest(seed: PhysicalNameSeed): string {
   let digest = 0xcbf29ce484222325n
 
   for (const byte of UTF8_ENCODER.encode(serializePhysicalNameSeed(seed))) {
@@ -153,7 +153,7 @@ const SUFFIX: Record<GeneratedPhysicalNameKind, string> = {
  * @param seed - Canonical physical-name seed.
  * @param profile - Physical naming profile.
  */
-export function generatePhysicalName(
+function generatePhysicalName(
   seed: PhysicalNameSeed,
   profile: PhysicalNamingProfile,
 ): string {
@@ -195,7 +195,7 @@ export function generatePhysicalName(
  * @param unique - Whether the index is unique.
  * @param profile - Physical naming profile.
  */
-export function generatedIndexName(
+function generatedIndexName(
   owner: CanonicalRelationIdentity,
   columns: readonly string[],
   unique: boolean,
@@ -214,7 +214,7 @@ export function generatedIndexName(
  * @param columns - Primary-key column spellings.
  * @param profile - Physical naming profile.
  */
-export function generatedPrimaryKeyName(
+function generatedPrimaryKeyName(
   owner: CanonicalRelationIdentity,
   columns: readonly string[],
   profile: PhysicalNamingProfile,
@@ -232,7 +232,7 @@ export function generatedPrimaryKeyName(
  * @param column - Unique column spelling.
  * @param profile - Physical naming profile.
  */
-export function generatedUniqueName(
+function generatedUniqueName(
   owner: CanonicalRelationIdentity,
   column: string,
   profile: PhysicalNamingProfile,
@@ -254,7 +254,7 @@ export function generatedUniqueName(
  * @param onUpdate - Optional update action.
  * @param profile - Physical naming profile.
  */
-export function generatedForeignKeyName(
+function generatedForeignKeyName(
   owner: CanonicalRelationIdentity,
   column: string,
   referencedRelation: CanonicalRelationIdentity,
@@ -287,7 +287,7 @@ export function generatedForeignKeyName(
  * @param description - Description used in validation errors.
  * @param profile - Physical naming profile.
  */
-export function validatePhysicalName(
+function validatePhysicalName(
   name: string,
   description: string,
   profile: PhysicalNamingProfile,
@@ -350,7 +350,7 @@ function namespaceKey(identity: CanonicalRelationIdentity): string {
  * @param kind - Physical-name kind.
  * @param owner - Owning relation identity.
  */
-export function physicalNameScopeKey(
+function physicalNameScopeKey(
   profile: PhysicalNamingProfile,
   kind: PhysicalNameKind,
   owner: CanonicalRelationIdentity,
@@ -362,7 +362,7 @@ export function physicalNameScopeKey(
   return `${scope}:${JSON.stringify(identityTuple(owner))}`
 }
 
-export type PhysicalNameRegistry = {
+type PhysicalNameRegistry = {
   /**
    * Reserves a physical name or accepts a repeated reservation from the same owner token.
    *
@@ -385,7 +385,7 @@ export type PhysicalNameRegistry = {
  *
  * @param profile - Physical naming profile.
  */
-export function createPhysicalNameRegistry(
+function createPhysicalNameRegistry(
   profile: PhysicalNamingProfile,
 ): PhysicalNameRegistry {
   const names = new Map<string, { token: string; description: string }>()
@@ -415,4 +415,25 @@ export function createPhysicalNameRegistry(
       names.set(key, { token, description })
     },
   }
+}
+
+export type {
+  GeneratedPhysicalNameKind,
+  PhysicalNameKind,
+  PhysicalNameSeed,
+  PhysicalNamingProfile,
+  PhysicalNameRegistry,
+}
+
+export {
+  serializePhysicalNameSeed,
+  physicalNameDigest,
+  generatePhysicalName,
+  generatedIndexName,
+  generatedPrimaryKeyName,
+  generatedUniqueName,
+  generatedForeignKeyName,
+  validatePhysicalName,
+  physicalNameScopeKey,
+  createPhysicalNameRegistry,
 }
