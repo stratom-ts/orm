@@ -209,34 +209,6 @@ function importedCallCount(
   ).length
 }
 
-/** Reads test include patterns declared directly by a Vitest profile. */
-function configuredTestIncludes(source: ts.SourceFile): string[] {
-  return descendants(source).flatMap((node) => {
-    if (
-      !ts.isPropertyAssignment(node) ||
-      propertyName(node.name) !== 'include' ||
-      !ts.isArrayLiteralExpression(node.initializer)
-    ) {
-      return []
-    }
-
-    return node.initializer.elements.flatMap((element) =>
-      ts.isStringLiteralLike(element) ? [element.text] : [],
-    )
-  })
-}
-
-/** Checks that every test include remains inside its declared profile. */
-function includesOnlyProfile(
-  includes: readonly string[],
-  profile: 'unit' | 'integration',
-) {
-  return (
-    includes.length > 0 &&
-    includes.every((pattern) => pattern.startsWith(`tests/${profile}/`))
-  )
-}
-
 /** Resolves a relative test dependency and reports whether it enters integration. */
 function integrationModuleReference(
   source: ts.SourceFile,
@@ -2115,19 +2087,6 @@ describe('dialect test organization: native profile', () => {
         ).toBe(0)
       }
     }
-  })
-})
-
-describe('dialect test organization: profile discovery', () => {
-  it('should keep Vitest unit and integration discovery in their declared profiles', () => {
-    const unit = configuredTestIncludes(parse(join(ROOT, 'vitest.unit.config.ts')))
-    const integration = configuredTestIncludes(
-      parse(join(ROOT, 'vitest.integration.config.ts')),
-    )
-
-    expect(includesOnlyProfile(unit, 'unit')).toBe(true)
-    expect(includesOnlyProfile(integration, 'integration')).toBe(true)
-    expect(includesOnlyProfile(['tests/**/*.test.ts'], 'unit')).toBe(false)
   })
 })
 

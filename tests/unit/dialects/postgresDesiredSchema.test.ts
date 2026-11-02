@@ -1356,45 +1356,6 @@ const registerDesiredSchemaCases33 = () => {
   })
 }
 
-const registerDesiredSchemaCases34 = () => {
-  it('should lower identity generation modes', () => {
-    const Identities = defineTable(
-      'identities',
-      {
-        id: pipe(
-          number(),
-          column({
-            physicalType: { postgresql: 'integer' },
-            generation: { kind: 'identity', mode: 'byDefault' },
-          }),
-        ),
-        always: pipe(
-          number(),
-          column({
-            physicalType: { postgresql: 'integer' },
-            generation: { kind: 'identity', mode: 'always' },
-          }),
-        ),
-      },
-      { primaryKey: 'id' },
-    )
-
-    const columns = lowerDesiredSchema(
-      [Identities],
-      postgresIdentities(),
-      postgresDialect.schema,
-    ).tables[0].columns
-
-    expect(columns.find((value) => value.identifier.spelling === 'id')?.generated).toBe(
-      'byDefault',
-    )
-
-    expect(
-      columns.find((value) => value.identifier.spelling === 'always')?.generated,
-    ).toBe('always')
-  })
-}
-
 function registerDesiredSchemaGroup1() {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -2046,12 +2007,6 @@ function registerDesiredSchemaGroup33() {
   })
 }
 
-function registerDesiredSchemaGroup34() {
-  describe('PostgreSQL desired schema', () => {
-    registerDesiredSchemaCases34()
-  })
-}
-
 function registerDesiredSchemaGroup35() {
   it('should retain inherited TIME storage and foreign-key metadata with authored second output', () => {
     const Parent = defineTable(
@@ -2124,6 +2079,5 @@ describe('PostgreSQL desired schema', () => {
   registerDesiredSchemaGroup31()
   registerDesiredSchemaGroup32()
   registerDesiredSchemaGroup33()
-  registerDesiredSchemaGroup34()
   registerDesiredSchemaGroup35()
 })

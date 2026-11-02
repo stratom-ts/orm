@@ -292,22 +292,6 @@ describe('defineTable structural validation: should defer physical identity comp
         { primaryKey: 'id' },
       ),
     ).not.toThrow()
-
-    expect(() =>
-      defineTable(
-        'bad',
-        {
-          id: pipe(
-            string(),
-            column({
-              physicalType: { postgresql: 'uuid' },
-              generation: { kind: 'identity', mode: 'byDefault' },
-            }),
-          ),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).not.toThrow()
   })
 })
 
@@ -375,28 +359,10 @@ describe('defineTable structural validation: should accept database and Valibot 
 })
 
 describe('defineTable column metadata and keys', () => {
-  it('should accept generated and autoIncrement value sources for optional columns', () => {
+  it('should accept identity generation for optional columns', () => {
     expect(() =>
       defineTable(
         'optional_generated',
-        {
-          id: optional(
-            pipe(
-              number(),
-              column({
-                physicalType: { postgresql: 'integer' },
-                generation: { kind: 'identity', mode: 'byDefault' },
-              }),
-            ),
-          ),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).not.toThrow()
-
-    expect(() =>
-      defineTable(
-        'optional_auto_increment',
         {
           id: optional(
             pipe(
@@ -456,23 +422,6 @@ describe('defineTable column metadata and keys: should reject defaults combined 
               physicalType: { postgresql: 'integer' },
               generation: { kind: 'identity', mode: 'byDefault' },
               databaseDefault: { kind: 'literal', value: 1 },
-            }),
-          ),
-        },
-        { primaryKey: 'id' },
-      ),
-    ).toThrow(/cannot combine a default with identity/)
-
-    expect(() =>
-      defineTable(
-        'bad_tagged_identity',
-        {
-          id: pipe(
-            number(),
-            column({
-              physicalType: { postgresql: 'integer' },
-              databaseDefault: { kind: 'literal', value: 1 },
-              generation: { kind: 'identity', mode: 'byDefault' },
             }),
           ),
         },

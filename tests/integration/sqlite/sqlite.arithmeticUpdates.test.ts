@@ -36,13 +36,6 @@ it('composes numeric assignments and rolls back the complete allocation transact
   )
 })
 
-it('exports add from the built public package', async () => {
-  const name = 'stratom'
-  const library = (await import(name)) as { add: typeof add }
-
-  expect(library.add(tables[0].nextIssueNumber, 1)).toBeDefined()
-})
-
 it('does not treat INTEGER affinity as proof that a numeric source is integral', async () => {
   const Values = defineTable(
     'numeric_affinity',

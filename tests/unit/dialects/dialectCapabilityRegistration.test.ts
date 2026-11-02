@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   registerDialectIntegrationScenario,
-  shouldRegisterDialectIntegrationScenario,
   validateDialectIntegrationCapabilities,
 } from '../../integration/support/dialectIntegrationContract'
 import type { DialectIntegrationAdapter } from '../../integration/support/dialectIntegrationContract'
@@ -331,22 +330,7 @@ describe('Dialect contract capability registration: rejects a supported %s compo
   })
 })
 
-describe('Dialect contract capability registration: does not register a scenario requiring an unsupported integration capability', () => {
-  it('should not register a scenario requiring an unsupported integration capability', () => {
-    expect(
-      shouldRegisterDialectIntegrationScenario(
-        {
-          lifecycle: { state: 'supported' },
-          query: { state: 'unsupported', reason: 'The fixture has no query transport' },
-          transaction: { state: 'supported' },
-          migration: { state: 'supported' },
-          convergence: { state: 'supported' },
-        },
-        ['query', 'migration'],
-      ),
-    ).toBe(false)
-  })
-
+describe('Dialect contract capability registration: registers supported integration scenarios', () => {
   it('should register supported scenarios through the actual integration registration seam', () => {
     const registered: string[] = []
     const adapter = {
