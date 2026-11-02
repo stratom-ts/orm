@@ -7,15 +7,13 @@ import { sqliteDialect } from './sqlite'
 import type { Dialect } from './types'
 
 /** Complete production dialect members used to construct the resolver registry. */
-export const productionDialects: readonly Dialect[] = Object.freeze([
+const productionDialects: readonly Dialect[] = Object.freeze([
   postgresDialect,
   sqliteDialect,
 ])
 
 /** Constructs a validated dialect registry without silently replacing duplicate ids. */
-export function createDialectRegistry(
-  dialects: readonly Dialect[],
-): Map<string, Dialect> {
+function createDialectRegistry(dialects: readonly Dialect[]): Map<string, Dialect> {
   const registry = new Map<string, Dialect>()
   for (const dialect of dialects) insertDialect(registry, dialect)
   return registry
@@ -29,7 +27,7 @@ const DIALECTS = createDialectRegistry(productionDialects)
  * This seam intentionally is not exported by the dialect barrel: production support
  * remains the static registration above.
  */
-export function registerDialectForTest(dialect: Dialect): () => void {
+function registerDialectForTest(dialect: Dialect): () => void {
   insertDialect(DIALECTS, dialect)
 
   return () => {
@@ -67,7 +65,7 @@ function insertDialect(registry: Map<string, Dialect>, dialect: Dialect): void {
  *
  * @throws SchemaError - When the connector dialect is not supported
  */
-export function resolveDialect(id: SQLDialect): Dialect {
+function resolveDialect(id: SQLDialect): Dialect {
   const dialect = DIALECTS.get(id)
 
   if (!dialect) {
@@ -77,4 +75,11 @@ export function resolveDialect(id: SQLDialect): Dialect {
   }
 
   return dialect
+}
+
+export {
+  productionDialects,
+  createDialectRegistry,
+  registerDialectForTest,
+  resolveDialect,
 }

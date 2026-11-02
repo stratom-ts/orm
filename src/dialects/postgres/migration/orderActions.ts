@@ -3,7 +3,7 @@ import type { MigrationCapabilityIssue } from '@/ddl/migrationProgram'
 import type { CompiledQuery } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 
-export type ActionDraft = {
+type ActionDraft = {
   step: MigrationStep
   sourceStepIndex: number
   statement: CompiledQuery
@@ -266,8 +266,8 @@ function actionDependencies(
 
   /** Records an action prerequisite when the candidate action must run first. */
   function addDependency(action: number, candidate: number, draft: ActionDraft): void {
-    if (action !== candidate && actionDependsOn(drafts[action]!, draft, planned)) {
-      dependencies[action]!.add(candidate)
+    if (action !== candidate && actionDependsOn(drafts[action], draft, planned)) {
+      dependencies[action].add(candidate)
     }
   }
 
@@ -289,23 +289,23 @@ function topologicalOrder(
 
   const available = drafts
     .map((_, index) => index)
-    .filter((index) => remaining[index]!.size === 0)
+    .filter((index) => remaining[index].size === 0)
 
   const ordered: ActionDraft[] = []
 
   /** Queues graph nodes whose prerequisites have all completed. */
   function makeAvailable(edges: Set<number>, index: number, completed: number): void {
     if (!edges.delete(completed) || edges.size !== 0) return
-    if (!ordered.includes(drafts[index]!)) available.push(index)
+    if (!ordered.includes(drafts[index])) available.push(index)
   }
 
   while (available.length > 0) {
     available.sort(
-      (left, right) => drafts[left]!.sourceStepIndex - drafts[right]!.sourceStepIndex,
+      (left, right) => drafts[left].sourceStepIndex - drafts[right].sourceStepIndex,
     )
 
     const next = available.shift()!
-    ordered.push(drafts[next]!)
+    ordered.push(drafts[next])
 
     for (const [index, edges] of remaining.entries()) {
       makeAvailable(edges, index, next)
@@ -335,12 +335,12 @@ function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
     stack.push(node)
     onStack.add(node)
 
-    for (const dependency of dependencies[node]!) {
+    for (const dependency of dependencies[node]) {
       if (indexes[dependency] === undefined) {
         visit(dependency)
-        lowLinks[node] = Math.min(lowLinks[node]!, lowLinks[dependency]!)
+        lowLinks[node] = Math.min(lowLinks[node], lowLinks[dependency])
       } else if (onStack.has(dependency)) {
-        lowLinks[node] = Math.min(lowLinks[node]!, indexes[dependency]!)
+        lowLinks[node] = Math.min(lowLinks[node], indexes[dependency])
       }
     }
 
@@ -363,7 +363,7 @@ function cycleIssues(
 ): MigrationCapabilityIssue[] {
   return dependencyCycles(dependencies).map((cycle) => {
     const sourceStepIndexes = cycle
-      .map((index) => drafts[index]!.sourceStepIndex)
+      .map((index) => drafts[index].sourceStepIndex)
       .sort((left, right) => left - right)
 
     return {
@@ -383,7 +383,7 @@ function cycleIssues(
  * @param drafts - Physical action drafts in source-step order.
  * @param planned - Planned migration supplying identities and catalog dependencies.
  */
-export function orderActions(
+function orderActions(
   drafts: readonly ActionDraft[],
   planned: PlannedMigration,
 ): OrderedActions {
@@ -419,7 +419,11 @@ function collectDependencyCycle(
     component.push(member)
   } while (member !== node)
 
-  if (component.length > 1 || (component.length === 1 && dependencies[node]!.has(node))) {
+  if (component.length > 1 || (component.length === 1 && dependencies[node].has(node))) {
     cycles.push(component)
   }
 }
+
+export type { ActionDraft }
+
+export { orderActions }

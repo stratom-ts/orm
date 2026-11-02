@@ -5,33 +5,27 @@ import type {
 } from '@/schemas/actions/relation'
 import { SchemaError } from '@/utils/error'
 
-export type {
-  NamespaceIdentifierInput,
-  NamespaceRole,
-  RelationIdentityInput,
-} from '@/schemas/actions/relation'
-
-export type NamespaceContext = Readonly<{
+type NamespaceContext = Readonly<{
   writableDefault: readonly NamespaceIdentifierInput[]
 }>
 
-export type CanonicalIdentifier = Readonly<{
+type CanonicalIdentifier = Readonly<{
   spelling: string
   comparisonKey: string
 }>
 
-export type CanonicalNamespaceSegment = Readonly<{
+type CanonicalNamespaceSegment = Readonly<{
   role: NamespaceRole
   identifier: CanonicalIdentifier
 }>
 
-export type CanonicalRelationIdentity = Readonly<{
+type CanonicalRelationIdentity = Readonly<{
   namespace: readonly CanonicalNamespaceSegment[]
   relation: CanonicalIdentifier
 }>
 
 /** Low-level identity rules implemented by an individual dialect member. */
-export type CanonicalRelationIdentityPolicy = Readonly<{
+type CanonicalRelationIdentityPolicy = Readonly<{
   id: string
   /**
    * Converts an identifier spelling into the selected policy's comparison key.
@@ -55,7 +49,7 @@ export type CanonicalRelationIdentityPolicy = Readonly<{
   ): readonly NamespaceIdentifierInput[]
 }>
 
-export type CanonicalRelationRegistry<T> = {
+type CanonicalRelationRegistry<T> = {
   /**
    * Reads the value registered under one canonical relation identity.
    *
@@ -84,7 +78,7 @@ export type CanonicalRelationRegistry<T> = {
   set(identity: CanonicalRelationIdentity, value: T): void
 }
 
-export type CanonicalRelationIdentityModule = {
+type CanonicalRelationIdentityModule = {
   /**
    * Resolves authored namespace segments using the configured writable defaults.
    *
@@ -340,7 +334,7 @@ function createRegistry<T>(): CanonicalRelationRegistry<T> {
  *
  * @param options - Identity policy, writable context, and optional registration default.
  */
-export function createCanonicalRelationIdentityModule(options: {
+function createCanonicalRelationIdentityModule(options: {
   policy: CanonicalRelationIdentityPolicy
   context: NamespaceContext
   registrationDefault?: readonly NamespaceIdentifierInput[]
@@ -393,8 +387,8 @@ function compareIdentities(
   const length = Math.min(left.namespace.length, right.namespace.length)
 
   for (let index = 0; index < length; index++) {
-    const leftSegment = left.namespace[index]!
-    const rightSegment = right.namespace[index]!
+    const leftSegment = left.namespace[index]
+    const rightSegment = right.namespace[index]
     const role = compareCodeUnits(leftSegment.role, rightSegment.role)
 
     if (role !== 0) return role
@@ -560,3 +554,21 @@ function resolveCanonicalNamespace(
 
   return namespace.map((segment) => canonicalSegment(policy, segment))
 }
+
+export type {
+  NamespaceIdentifierInput,
+  NamespaceRole,
+  RelationIdentityInput,
+} from '@/schemas/actions/relation'
+
+export type {
+  NamespaceContext,
+  CanonicalIdentifier,
+  CanonicalNamespaceSegment,
+  CanonicalRelationIdentity,
+  CanonicalRelationIdentityPolicy,
+  CanonicalRelationRegistry,
+  CanonicalRelationIdentityModule,
+}
+
+export { createCanonicalRelationIdentityModule }

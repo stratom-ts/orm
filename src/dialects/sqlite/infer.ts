@@ -13,7 +13,7 @@ function unsupportedChoiceType(): never {
 }
 
 /** Infers storage from finite-choice evidence, without inspecting a schema. */
-export function inferSqliteChoiceFacts(facts: StorageFacts): SqlDataType {
+function inferSqliteChoiceFacts(facts: StorageFacts): SqlDataType {
   const values = facts.finiteValues
   const kind = facts.outputKind
 
@@ -75,7 +75,7 @@ function inferSqliteLiteralType(literal: unknown): SqlDataType {
 /** Temporary Valibot entry point until the shared graph supplies facts. */
 
 /** Infers a SQLite declared type from semantic storage evidence. */
-export function inferSqliteColumnFacts(facts: StorageFacts): SqlDataType {
+function inferSqliteColumnFacts(facts: StorageFacts): SqlDataType {
   const inferred = inferEffectiveSqliteType(facts)
 
   if (inferred) return inferred
@@ -194,3 +194,5 @@ function unsupportedCompositeType(type: string): never {
     message: `cannot infer SQLite storage for incompatible ${type} branches; provide explicit physical type and parameter and result mappings`,
   })
 }
+
+export { inferSqliteChoiceFacts, inferSqliteColumnFacts }

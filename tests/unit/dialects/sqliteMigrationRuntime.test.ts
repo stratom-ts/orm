@@ -406,7 +406,7 @@ function registerMigrationRuntimeGroup12() {
     const test = fixture()
     const incompatible = {
       ...program(),
-      actions: [{ ...program().actions[0]!, transaction: 'forbidden' as const }],
+      actions: [{ ...program().actions[0], transaction: 'forbidden' as const }],
     }
 
     await expect(test.execute(incompatible)).rejects.toMatchObject({

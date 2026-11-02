@@ -10,7 +10,7 @@ import type {
 } from './migrationCoordinationContract'
 
 /** Builds a plan-atomic PostgreSQL migration program with optional scenario overrides. */
-export function postgresMigrationProgram(
+function postgresMigrationProgram(
   overrides: Partial<MigrationProgram> = {},
 ): MigrationProgram {
   return {
@@ -47,9 +47,7 @@ function advisoryLockKey(params: readonly unknown[]): string {
  * @returns A PostgreSQL migration runtime with semantic events and controlled
  *   coordination outcomes.
  */
-export function createPostgresMigrationRuntime(
-  options: MigrationRuntimeFixtureOptions = {},
-) {
+function createPostgresMigrationRuntime(options: MigrationRuntimeFixtureOptions = {}) {
   const calls: string[] = []
   const queries: { sql: string; params: readonly unknown[] }[] = []
   const discard = vi.fn<() => void>()
@@ -379,3 +377,5 @@ async function waitForCoordinationEvent(
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
 }
+
+export { postgresMigrationProgram, createPostgresMigrationRuntime }

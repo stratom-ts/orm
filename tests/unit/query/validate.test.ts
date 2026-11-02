@@ -76,7 +76,7 @@ describe('insert validation issues', () => {
 
     expect(error).toMatchObject({ table: 'validation_rows', operation: 'insert' })
     expect(error.issues).toHaveLength(1)
-    expect(getDotPath(error.issues[0]!)).toBe(path)
+    expect(getDotPath(error.issues[0])).toBe(path)
     expect(flatten(error.issues).root?.[0]).toContain(message)
     expect(error.message).toContain(message)
   })
@@ -99,7 +99,7 @@ describe('insert validation issues', () => {
 
     expect(error.table).toBe('validation_rows')
     expect(error.operation).toBe('insert')
-    expect(getDotPath(error.issues[0]!)).toBe(key)
+    expect(getDotPath(error.issues[0])).toBe(key)
     expect(flatten(error.issues).nested?.[key]?.[0]).toContain(message)
     expect(error.message).toContain(`${key}:`)
   })
@@ -108,7 +108,7 @@ describe('insert validation issues', () => {
     const error = captureValidationError(() => validateInsertRow(Rows, { name: 'A' }))
 
     expect(error.issues[0].type).toBe('object')
-    expect(getDotPath(error.issues[0]!)).toBe('count')
+    expect(getDotPath(error.issues[0])).toBe('count')
     expect(error.message).toContain('count:')
   })
 })
@@ -139,7 +139,7 @@ describe('insert issue aggregation', () => {
       }),
     )
 
-    expect(getDotPath(error.issues[0]!)).toBe('profile.alias')
+    expect(getDotPath(error.issues[0])).toBe('profile.alias')
     expect(flatten(error.issues).nested?.['profile.alias']).toHaveLength(1)
     expect(error.message).toContain('profile.alias:')
   })
@@ -154,7 +154,7 @@ describe('update validation issues', () => {
     const error = captureValidationError(() => validateUpdatePatch(Rows, patch))
 
     expect(error).toMatchObject({ table: 'validation_rows', operation: 'update' })
-    expect(getDotPath(error.issues[0]!)).toBe(path)
+    expect(getDotPath(error.issues[0])).toBe(path)
     expect(flatten(error.issues).root?.[0]).toContain(message)
     expect(error.message).toContain(message)
   })
@@ -168,7 +168,7 @@ describe('update validation issues', () => {
 
     expect(error.table).toBe('validation_rows')
     expect(error.operation).toBe('update')
-    expect(getDotPath(error.issues[0]!)).toBe(key)
+    expect(getDotPath(error.issues[0])).toBe(key)
     expect(flatten(error.issues).nested?.[key]?.[0]).toContain(message)
     expect(error.message).toContain(`${key}:`)
   })
@@ -180,7 +180,7 @@ describe('update validation issues', () => {
 
       expect(error.table).toBe('validation_rows')
       expect(error.operation).toBe('update')
-      expect(getDotPath(error.issues[0]!)).toBeNull()
+      expect(getDotPath(error.issues[0])).toBeNull()
 
       expect(flatten(error.issues).root?.[0]).toContain(
         'patch must include at least one column',
@@ -216,7 +216,7 @@ describe('nullable transformed outputs', () => {
     )
 
     expect(error.operation).toBe('insert')
-    expect(getDotPath(error.issues[0]!)).toBe('value')
+    expect(getDotPath(error.issues[0])).toBe('value')
   })
 
   it('should reject direct null update input at the value column', () => {
@@ -225,7 +225,7 @@ describe('nullable transformed outputs', () => {
     )
 
     expect(error.operation).toBe('update')
-    expect(getDotPath(error.issues[0]!)).toBe('value')
+    expect(getDotPath(error.issues[0])).toBe('value')
   })
 
   it.each([
@@ -249,7 +249,7 @@ describe('nullable transformed outputs', () => {
     )
 
     expect(error.operation).toBe('insert')
-    expect(getDotPath(error.issues[0]!)).toBe('value')
+    expect(getDotPath(error.issues[0])).toBe('value')
     expect(validateUpdatePatch(Transformed, { label: 'B' })).toEqual({ label: 'B' })
   })
 })

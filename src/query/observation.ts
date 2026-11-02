@@ -1,4 +1,4 @@
-import type { TracingChannel } from 'node:diagnostics_channel'
+import type { TracingChannel, tracingChannel } from 'node:diagnostics_channel'
 
 import type { CompiledQuery } from '@/dialects'
 
@@ -36,9 +36,7 @@ export type ExecutionOptions = Readonly<{ source: QuerySource; tracing?: QueryTr
 
 /** Looks up tracing without requiring newer TracingChannel.hasSubscribers support. */
 export function createQueryTracing(options: TracingOptions): QueryTracing | undefined {
-  type Diagnostics = Partial<
-    Pick<typeof import('node:diagnostics_channel'), 'tracingChannel'>
-  >
+  type Diagnostics = { tracingChannel?: typeof tracingChannel }
 
   const runtime: {
     process?: { getBuiltinModule?: (name: string) => Diagnostics | undefined }

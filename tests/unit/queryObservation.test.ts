@@ -424,7 +424,7 @@ it.each([false, true])(
       expect(events).toHaveLength(1)
       expect(events[0]?.error).toBe(fail ? failure : undefined)
       expect(events[0]?.durationMs).toBeGreaterThanOrEqual(0)
-      expect(Reflect.get(events[0]!, 'result')).toBeUndefined()
+      expect(Reflect.get(events[0], 'result')).toBeUndefined()
     } finally {
       channel.unsubscribe(subscribers)
       await db.close()

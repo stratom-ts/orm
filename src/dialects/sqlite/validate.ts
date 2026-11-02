@@ -7,7 +7,7 @@ import {
 } from './defaultExpression'
 
 /** Known SQLite validation rejection consumed by migration lowering. */
-export class SqliteValidationError extends MigrationError {}
+class SqliteValidationError extends MigrationError {}
 
 /** Detects tokens that SQLite cannot accept as a declared type identifier. */
 function containsReservedTypeWord(value: string): boolean {
@@ -17,7 +17,7 @@ function containsReservedTypeWord(value: string): boolean {
 }
 
 /** Validates a SQLite declared type while preserving its authored spelling. */
-export function assertSafeSqliteDataType(dataType: string): string {
+function assertSafeSqliteDataType(dataType: string): string {
   const value = trimSqliteWhitespace(dataType)
 
   if (!value)
@@ -75,7 +75,7 @@ export function assertSafeSqliteDataType(dataType: string): string {
 }
 
 /** Formats a tagged database literal for SQLite DDL. */
-export function formatSqliteLiteral(value: string | number | boolean | null): string {
+function formatSqliteLiteral(value: string | number | boolean | null): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean') return value ? '1' : '0'
 
@@ -91,7 +91,7 @@ export function formatSqliteLiteral(value: string | number | boolean | null): st
 }
 
 /** Validates supported literals separately from constant-expression syntax and calls. */
-export function assertSafeSqliteDefaultExpression(expression: string): string {
+function assertSafeSqliteDefaultExpression(expression: string): string {
   const value = trimSqliteWhitespace(expression)
 
   if (!isSqliteDefaultLiteral(value) && !isSqliteDefaultExpression(value)) {
@@ -104,10 +104,18 @@ export function assertSafeSqliteDefaultExpression(expression: string): string {
 }
 
 /** Wraps a SQLite expression in the form accepted by DEFAULT. */
-export function formatSqliteDefaultExpression(expression: string): string {
+function formatSqliteDefaultExpression(expression: string): string {
   const value = assertSafeSqliteDefaultExpression(expression)
 
   if (/^current_(timestamp|date|time)$/i.test(value)) return value.toUpperCase()
 
   return `(${value})`
+}
+
+export {
+  SqliteValidationError,
+  assertSafeSqliteDataType,
+  formatSqliteLiteral,
+  assertSafeSqliteDefaultExpression,
+  formatSqliteDefaultExpression,
 }

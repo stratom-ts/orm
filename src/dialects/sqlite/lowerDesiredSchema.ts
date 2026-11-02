@@ -122,7 +122,7 @@ function physicalType(
 
   const selected = explicit ?? inferSqliteColumnFacts(facts)
 
-  return assertSafeSqliteDataType(String(selected))
+  return assertSafeSqliteDataType(selected)
 }
 
 /**
@@ -143,7 +143,7 @@ function validateReferencePhysicalType(
 
   if (selected === undefined) return inheritedType
 
-  const localType = assertSafeSqliteDataType(String(selected))
+  const localType = assertSafeSqliteDataType(selected)
 
   if (normalizeSqliteDataType(localType) !== normalizeSqliteDataType(inheritedType)) {
     throw new MigrationError({

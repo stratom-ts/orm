@@ -4,7 +4,7 @@ type ParameterReference = Readonly<{
   index: number
 }>
 
-export type PostgresSqlScan = Readonly<{
+type PostgresSqlScan = Readonly<{
   requiresCleanup: boolean
   malformed: boolean
   parameters: readonly ParameterReference[]
@@ -117,7 +117,7 @@ class PostgresSqlScanner {
    */
   scan(): PostgresSqlScan {
     while (this.#index < this.sql.length && !this.#malformed) {
-      const character = this.sql[this.#index]!
+      const character = this.sql[this.#index]
       const next = this.sql[this.#index + 1]
 
       if (character === '\0') {
@@ -193,8 +193,8 @@ class PostgresSqlScanner {
   #readString(): void {
     const escapeString =
       this.#index > 0 &&
-      this.sql[this.#index - 1]!.toLowerCase() === 'e' &&
-      (this.#index === 1 || !isWordPart(this.sql[this.#index - 2]!))
+      this.sql[this.#index - 1].toLowerCase() === 'e' &&
+      (this.#index === 1 || !isWordPart(this.sql[this.#index - 2]))
 
     this.#markExecutable()
     this.#index++
@@ -295,7 +295,7 @@ class PostgresSqlScanner {
   #readWord(): void {
     const start = this.#index++
 
-    while (this.#index < this.sql.length && isWordPart(this.sql[this.#index]!)) {
+    while (this.#index < this.sql.length && isWordPart(this.sql[this.#index])) {
       this.#index++
     }
 
@@ -336,6 +336,10 @@ class PostgresSqlScanner {
  *
  * @param sql - PostgreSQL SQL text.
  */
-export function scanPostgresSql(sql: string): PostgresSqlScan {
+function scanPostgresSql(sql: string): PostgresSqlScan {
   return new PostgresSqlScanner(sql).scan()
 }
+
+export type { PostgresSqlScan }
+
+export { scanPostgresSql }

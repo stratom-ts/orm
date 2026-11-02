@@ -25,7 +25,7 @@ afterEach(files.cleanup)
 
 it('should return native SQLite counts through executor.run, including bigint changes', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
-  const native = await connector.getInstance!()
+  const native = await connector.getInstance()
   const prepare = native.prepare.bind(native)
 
   const spy = vi.spyOn(native, 'prepare').mockImplementation((sql) => {
@@ -62,7 +62,7 @@ it('should return native SQLite counts through executor.run, including bigint ch
 
 it('should classify a native SQLite open probe failure as DriverError', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
-  const native = await connector.getInstance!()
+  const native = await connector.getInstance()
   const prepareNative = native.prepare.bind(native)
   const cause = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' })
 
@@ -108,7 +108,7 @@ it.each([
     )
 
     const session = await provider.open()
-    const native = await connector.getInstance!()
+    const native = await connector.getInstance()
     const originalPrepare = native.prepare.bind(native)
     const nativeCause = Object.assign(new Error('native lifecycle failure'), {
       code: 'SQLITE_TEST',
@@ -168,7 +168,7 @@ it.each([undefined, null, 9, { code: 'SQLITE_CONSTRAINT_UNIQUE' }])(
     )
 
     const session = await provider.open()
-    const native = await connector.getInstance!()
+    const native = await connector.getInstance()
     const originalPrepare = native.prepare.bind(native)
     const sql = 'select ? as value'
 
@@ -209,7 +209,7 @@ it('should preserve a result-normalization defect with its original identity and
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
   const session = await provider.open()
-  const native = await connector.getInstance!()
+  const native = await connector.getInstance()
   const originalPrepare = native.prepare.bind(native)
   const defect = new TypeError('broken row getter')
   const originalStack = defect.stack
@@ -254,7 +254,7 @@ it.each([
   { name: 'primitive', defect: 17 },
 ])('should retain a $name identity defect and disposal failure', async ({ defect }) => {
   const nativeConnector = nodeSqliteConnector({ name: ':memory:' })
-  const database = await nativeConnector.getInstance!()
+  const database = await nativeConnector.getInstance()
   const prepareNative = database.prepare.bind(database)
   const cleanup = new Error('dispose failed')
   let disposals = 0
@@ -314,7 +314,7 @@ function legacyNative<T extends object>(native: T): T {
 /** Creates a fixture with the Node 22.5 DatabaseSync property surface. */
 async function baselineFixture() {
   const connector = nodeSqliteConnector({ name: ':memory:' })
-  const native = await connector.getInstance!()
+  const native = await connector.getInstance()
   const legacy = legacyNative(native)
 
   return { native, connector: { ...connector, getInstance: () => legacy } }
@@ -588,7 +588,7 @@ it('should reserve the shared lease before an asynchronous native lookup complet
         await finishLookup.promise
       }
 
-      return native.getInstance!()
+      return native.getInstance()
     },
   }
 
@@ -629,7 +629,7 @@ it('should reserve the shared lease before an asynchronous native lookup complet
 
 it('should reject connector aliases to an owned DatabaseSync without probing or disposing it', async () => {
   const connector = nodeSqliteConnector({ name: ':memory:' })
-  const native = await connector.getInstance!()
+  const native = await connector.getInstance()
   const first = createDb0NodeSqliteOperationSessionProvider(connector)
   const alias = createDb0NodeSqliteOperationSessionProvider({
     ...connector,
@@ -676,7 +676,7 @@ it.each(['native', 'legacy'] as const)(
   'should reject a stale native alias on the %s surface without disposing the live replacement',
   async (surface) => {
     const connector = nodeSqliteConnector({ name: ':memory:' })
-    const stale = await connector.getInstance!()
+    const stale = await connector.getInstance()
     const legacyStale = legacyNative(stale)
     const first = createDb0NodeSqliteOperationSessionProvider(connector)
     const alias = createDb0NodeSqliteOperationSessionProvider({
@@ -723,8 +723,8 @@ it.each(['reuse', 'discard'] as const)(
   async (disposition) => {
     const original = nodeSqliteConnector({ name: ':memory:' })
     const other = nodeSqliteConnector({ name: ':memory:' })
-    const originalNative = await original.getInstance!()
-    const otherNative = await other.getInstance!()
+    const originalNative = await original.getInstance()
+    const otherNative = await other.getInstance()
     let current = originalNative
     const first = createDb0NodeSqliteOperationSessionProvider({
       ...original,
@@ -950,7 +950,7 @@ it('should wait for the last provider teardown before a newly adapted provider o
     ...native,
     getInstance() {
       reads++
-      return native.getInstance!()
+      return native.getInstance()
     },
     async dispose() {
       disposals++
@@ -1042,7 +1042,7 @@ it('should block new leases after repeated discard failure until close disposes 
     /** Counts native instance access to prove poisoned open never reaches db0. */
     getInstance() {
       instanceReads++
-      return native.getInstance!()
+      return native.getInstance()
     },
     /** Fails both release disposal attempts, then permits close recovery. */
     dispose() {

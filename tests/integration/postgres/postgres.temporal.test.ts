@@ -41,7 +41,7 @@ it('should expose native temporal types and preserve microseconds in a non-UTC s
   await withPostgresDatabase(
     [PostgresTemporal],
     async ({ db, admin, connector, schema }) => {
-      const native = await connector.getInstance!()
+      const native = await connector.getInstance()
       await native.query("set time zone 'Australia/Hobart'")
       await db.migrate().execute()
       await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
@@ -94,7 +94,7 @@ it('should expose native temporal types and preserve microseconds in a non-UTC s
 
 it('should preserve a year-42 instant across a historical second-resolution offset', async () => {
   await withPostgresDatabase([PostgresTemporal], async ({ db, connector }) => {
-    const native = await connector.getInstance!()
+    const native = await connector.getInstance()
     await native.query("set time zone 'Australia/Hobart'")
     await db.migrate().execute()
 
@@ -150,7 +150,7 @@ it('should preserve authored temporal reference precision with native foreign ke
   await withPostgresDatabase(
     [Child, Parent],
     async ({ db, admin, connector, schema }) => {
-      const native = await connector.getInstance!()
+      const native = await connector.getInstance()
       await native.query("set time zone 'Australia/Hobart'")
       await db.migrate().execute()
       await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })

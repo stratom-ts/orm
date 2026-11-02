@@ -5,7 +5,7 @@ import { QueryError } from '@/utils/error'
 import { and, eq, gt, isColumnRef, lt, neq, or } from './expressions'
 
 /** One keyset sort term. Match its direction and null placement in ORDER BY. */
-export type OrderTerm = {
+type OrderTerm = {
   readonly column: ColumnRef | string
   readonly direction: 'asc' | 'desc'
   readonly nulls: 'first' | 'last'
@@ -17,10 +17,7 @@ export type OrderTerm = {
  * @param order - Sort terms matching the query's ORDER BY clauses.
  * @param values - Application cursor values in sort-term order.
  */
-export function after(
-  order: readonly OrderTerm[],
-  values: readonly unknown[],
-): PredicateAst {
+function after(order: readonly OrderTerm[], values: readonly unknown[]): PredicateAst {
   return keysetBoundary(order, values, true)
 }
 
@@ -30,10 +27,7 @@ export function after(
  * @param order - Sort terms including a unique, nonnullable tie-breaker.
  * @param values - Application cursor values in sort-term order.
  */
-export function before(
-  order: readonly OrderTerm[],
-  values: readonly unknown[],
-): PredicateAst {
+function before(order: readonly OrderTerm[], values: readonly unknown[]): PredicateAst {
   return keysetBoundary(order, values, false)
 }
 
@@ -65,7 +59,7 @@ function keysetBoundary(
 
   if (branches.length > 0) return or(...branches)
 
-  const column = order[0]!.column
+  const column = order[0].column
   return and(eq(column, null), neq(column, null))
 }
 
@@ -108,3 +102,7 @@ function strictBoundary(
 
   return nullOnBoundarySide ? or(comparison, eq(term.column, null)) : comparison
 }
+
+export type { OrderTerm }
+
+export { after, before }

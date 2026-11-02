@@ -97,9 +97,7 @@ function isAlwaysGenerated(schema: AnySchema): boolean {
  *
  * @returns Valibot object schema for insert validation
  */
-export function buildInsertSchema(
-  handle: TableHandle,
-): ObjectSchema<ObjectEntries, undefined> {
+function buildInsertSchema(handle: TableHandle): ObjectSchema<ObjectEntries, undefined> {
   const entries = handle.getSchema().entries as Record<string, AnySchema>
   const insertEntries: ObjectEntries = {}
 
@@ -131,9 +129,7 @@ export function buildInsertSchema(
  *
  * @returns Valibot object schema for update patch validation
  */
-export function buildUpdateSchema(
-  handle: TableHandle,
-): ObjectSchema<ObjectEntries, undefined> {
+function buildUpdateSchema(handle: TableHandle): ObjectSchema<ObjectEntries, undefined> {
   const entries = handle.getSchema().entries as Record<string, AnySchema>
   const updateEntries: ObjectEntries = {}
 
@@ -220,10 +216,7 @@ function assertObjectInput(
  *
  * @throws ValidationError - When the row fails validation
  */
-export function validateInsertRow(
-  handle: TableHandle,
-  row: unknown,
-): Record<string, unknown> {
+function validateInsertRow(handle: TableHandle, row: unknown): Record<string, unknown> {
   assertObjectInput(handle.getTableMetadata().name, 'insert', row)
   const entries = handle.getSchema().entries as Record<string, AnySchema>
   const schema = buildInsertSchema(handle)
@@ -312,7 +305,7 @@ function includeParsedDefaults(
  *
  * @throws ValidationError - When the patch fails validation
  */
-export function validateUpdatePatch(
+function validateUpdatePatch(
   handle: TableHandle,
   patch: unknown,
 ): Record<string, unknown> {
@@ -320,7 +313,7 @@ export function validateUpdatePatch(
 }
 
 /** Validates an update patch while preserving caller-owned structured values. */
-export function validateUpdatePatchWithStructuredValues(
+function validateUpdatePatchWithStructuredValues(
   handle: TableHandle,
   patch: unknown,
   isStructuredValue: (value: unknown) => boolean,
@@ -402,4 +395,12 @@ function assertUpdatableKeys(
       })
     }
   }
+}
+
+export {
+  buildInsertSchema,
+  buildUpdateSchema,
+  validateInsertRow,
+  validateUpdatePatch,
+  validateUpdatePatchWithStructuredValues,
 }

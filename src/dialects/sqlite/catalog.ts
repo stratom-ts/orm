@@ -230,8 +230,8 @@ function compareNamespaces(
   right: readonly CanonicalNamespaceSegment[],
 ) {
   for (let index = 0; index < Math.min(left.length, right.length); index++) {
-    const a = left[index]!
-    const b = right[index]!
+    const a = left[index]
+    const b = right[index]
     const role = compare(a.role, b.role)
 
     if (role) return role
@@ -867,8 +867,8 @@ function readSqliteVersionEvidence(versionRows: unknown[]) {
     return {
       version: decoded.version,
       versionLimited:
-        decoded.actualVersion[0]! < 3 ||
-        (decoded.actualVersion[0] === 3 && decoded.actualVersion[1]! < 37),
+        decoded.actualVersion[0] < 3 ||
+        (decoded.actualVersion[0] === 3 && decoded.actualVersion[1] < 37),
       versionError: undefined as string | undefined,
     }
   } catch (error) {
@@ -1456,11 +1456,6 @@ async function collectConsistentNameReservations(
   )
 }
 
-/** SQLite catalog observation. */
-export const sqliteCatalog = {
-  introspectCatalog: introspectSqliteCatalog,
-}
-
 /**
  * Assembles the SQLite catalog snapshot after inventory and consistency checks.
  *
@@ -1913,4 +1908,9 @@ function scopedSqliteCatalogRows(
         identities,
       ),
   )
+}
+
+/** SQLite catalog observation. */
+export const sqliteCatalog = {
+  introspectCatalog: introspectSqliteCatalog,
 }

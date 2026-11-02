@@ -365,7 +365,7 @@ it('should fail closed for repeated FK target columns instead of deduplicating c
       },
     )
 
-    const child = snapshot.namespaces.items[0]!.relations.items.find(
+    const child = snapshot.namespaces.items[0].relations.items.find(
       (relation) => relation.identity.relation.spelling === 'child',
     )!
 
@@ -407,7 +407,7 @@ it.each(['unique(a,b)', 'primary key(a,b)'])(
         },
       )
 
-      const child = snapshot.namespaces.items[0]!.relations.items.find(
+      const child = snapshot.namespaces.items[0].relations.items.find(
         (relation) => relation.identity.relation.spelling === 'child',
       )!
 

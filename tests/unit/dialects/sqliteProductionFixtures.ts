@@ -78,7 +78,7 @@ const lifecycleMigration: DialectLifecycleContractRuntime['migration'] = {
 }
 
 /** Builds an independently specified empty-catalog production lowering contract. */
-export async function createSqliteMigrationCase(): Promise<MigrationContractCase> {
+async function createSqliteMigrationCase(): Promise<MigrationContractCase> {
   const catalog = await sqliteDialect.catalog.introspectCatalog(
     {
       /** Observes an empty main database without assuming a production catalog shape. */
@@ -130,7 +130,7 @@ function mismatch(profile: MigrationSemanticProfile, message: string) {
 }
 
 /** Exercises unsupported structured targets through the same production lowerer. */
-export async function createSqliteUnsupportedCase() {
+async function createSqliteUnsupportedCase() {
   const base = await createSqliteMigrationCase()
   const relation = {
     namespace: [
@@ -167,7 +167,7 @@ export async function createSqliteUnsupportedCase() {
 }
 
 /** Runs the public lifecycle against deterministic SQLite catalog and session controls. */
-export function createSqliteLifecycleRuntime(): DialectLifecycleContractRuntime {
+function createSqliteLifecycleRuntime(): DialectLifecycleContractRuntime {
   const connector = customConnector('sqlite')
   const state: LifecycleState = { migrated: false, disposed: false }
 
@@ -322,4 +322,10 @@ function recordLifecycleProvider(state: LifecycleState): void {
       }
     },
   )
+}
+
+export {
+  createSqliteMigrationCase,
+  createSqliteUnsupportedCase,
+  createSqliteLifecycleRuntime,
 }

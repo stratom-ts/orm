@@ -189,20 +189,20 @@ describe('CRUD compile', () => {
 
     const exactAndNullish = db
       .insert(WrapperBehavior)
-      .values(exactAndNullishRow as never)
+      .values(exactAndNullishRow)
       .compile()
 
-    expect(exactAndNullish.sql.split(' returning ')[0]!.toLowerCase()).not.toContain(
+    expect(exactAndNullish.sql.split(' returning ')[0].toLowerCase()).not.toContain(
       '"exact"',
     )
 
-    expect(exactAndNullish.sql.split(' returning ')[0]!.toLowerCase()).not.toContain(
+    expect(exactAndNullish.sql.split(' returning ')[0].toLowerCase()).not.toContain(
       '"nullishvalue"',
     )
 
     const explicitNull = db
       .insert(WrapperBehavior)
-      .values({ ...complete, nullishValue: null } as never)
+      .values({ ...complete, nullishValue: null })
       .compile()
 
     expect(explicitNull.params).toContain(null)
@@ -338,7 +338,7 @@ describe('CRUD input validation', () => {
     const connector = createMockConnector()
     const db = createDatabase({ connector, schemas: [Users] })
 
-    expect(() => db.update(Users).set({} as never)).toThrow(
+    expect(() => db.update(Users).set({})).toThrow(
       /patch must include at least one column/,
     )
 

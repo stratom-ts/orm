@@ -21,10 +21,16 @@ import {
 } from 'valibot'
 import { beforeAll, expect, it } from 'vitest'
 
+import type { column, createDatabase, defineTable } from '@/index'
+
 import type { SqliteDatabaseContext } from './sqliteIntegration'
 import { withSqliteDatabase } from './sqliteIntegration'
 
-type Library = typeof import('@/index')
+type Library = {
+  column: typeof column
+  createDatabase: typeof createDatabase
+  defineTable: typeof defineTable
+}
 
 // A variable specifier keeps typecheck independent of a prior build.
 const packageName = 'stratom'

@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import type {
   CatalogFact,
+  CatalogNamespace,
   CatalogRelation,
   CatalogSet,
   CatalogSnapshot,
@@ -49,9 +50,7 @@ const CatalogChildren = defineTable(
  *
  * @param namespace - Ordered role-tagged namespace segments used for identity resolution.
  */
-function assertCatalogRelations(
-  namespace: import('@/dialects').CatalogNamespace | undefined,
-): void {
+function assertCatalogRelations(namespace: CatalogNamespace | undefined): void {
   const parents = namespace?.relations.items.find(
     ({ identity }) => identity.relation.spelling === 'catalog_parents',
   )
@@ -252,8 +251,8 @@ function assertCatalogAbsenceAndReservations(
       {
         role: 'database',
         identifier: {
-          spelling: database.rows[0]!.name,
-          comparisonKey: database.rows[0]!.name,
+          spelling: database.rows[0].name,
+          comparisonKey: database.rows[0].name,
         },
       },
       {

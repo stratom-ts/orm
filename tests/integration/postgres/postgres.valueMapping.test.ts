@@ -384,7 +384,7 @@ const StorageOutputs = defineTable(
 // PostgreSQL json has no equality operator. JSONB predicates run in the shared scenario.
 it('should preserve each accepted PostgreSQL storage representation through native results', async () => {
   await withPostgresDatabase([StorageOutputs], async ({ db, connector }) => {
-    await (await connector.getInstance!()).query("set lc_monetary to 'C'")
+    await (await connector.getInstance()).query("set lc_monetary to 'C'")
     await db.migrate().execute()
     await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
     const input = {

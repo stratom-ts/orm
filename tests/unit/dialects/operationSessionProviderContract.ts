@@ -12,7 +12,7 @@ import type { TableHandle } from '@/types'
 
 import { deferred } from '../../helpers/deferredPromise'
 
-export type ProviderContractFactoryOptions = Readonly<{
+type ProviderContractFactoryOptions = Readonly<{
   beforeCall?: (session: number, sql: string) => Promise<void>
   beforeCancel?: (session: number) => Promise<void>
   releaseFailure?: Readonly<{ session: number; value: unknown }>
@@ -22,7 +22,7 @@ export type ProviderContractFactoryOptions = Readonly<{
   invalidInitialSession?: 'identity' | 'capability'
 }>
 
-export type ProviderContractControls = Readonly<{
+type ProviderContractControls = Readonly<{
   provider: OperationSessionProvider
   events: string[]
   calls: { session: number; sql: string }[]
@@ -31,11 +31,11 @@ export type ProviderContractControls = Readonly<{
   readonly closeCount: number
 }>
 
-export type ProviderContractFactory = (
+type ProviderContractFactory = (
   options?: ProviderContractFactoryOptions,
 ) => ProviderContractControls
 
-export type ProviderMigrationContract = Readonly<{
+type ProviderMigrationContract = Readonly<{
   /**
    * Returns the connector owned by the operation-session fixture.
    *
@@ -56,12 +56,12 @@ export type ProviderMigrationContract = Readonly<{
   planningFailureSchemas(): readonly TableHandle[]
 }>
 
-export type ProviderMigrationSupport =
+type ProviderMigrationSupport =
   | Readonly<{ state: 'supported'; input: ProviderMigrationContract }>
   | Readonly<{ state: 'unsupported'; reason: string }>
 
 /** Validates explicit provider migration participation before any contract registers. */
-export function validateProviderMigrationSupport(
+function validateProviderMigrationSupport(
   migration: unknown,
 ): asserts migration is ProviderMigrationSupport {
   if (typeof migration !== 'object' || migration === null)
@@ -746,7 +746,7 @@ function registerMigrationOutcomeScenarios(
  * Migration participation is explicit. Supported fixtures exercise cleanup while
  * unsupported fixtures declare a reason.
  */
-export function registerOperationSessionProviderContract(
+function registerOperationSessionProviderContract(
   name: string,
   createProvider: ProviderContractFactory,
   migration: ProviderMigrationSupport,
@@ -776,3 +776,13 @@ export function registerOperationSessionProviderContract(
     }
   })
 }
+
+export type {
+  ProviderContractFactoryOptions,
+  ProviderContractControls,
+  ProviderContractFactory,
+  ProviderMigrationContract,
+  ProviderMigrationSupport,
+}
+
+export { validateProviderMigrationSupport, registerOperationSessionProviderContract }

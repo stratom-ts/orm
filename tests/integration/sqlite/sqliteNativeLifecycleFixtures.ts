@@ -49,7 +49,7 @@ const lifecycleMigration: DialectLifecycleContractRuntime['migration'] = {
  * Records public lifecycle calls around the real connector and selected production
  * facets.
  */
-export function createNativeSqliteLifecycleRuntime(): DialectLifecycleContractRuntime {
+function createNativeSqliteLifecycleRuntime(): DialectLifecycleContractRuntime {
   const connector = nodeSqliteConnector({ name: ':memory:' })
   const state = {
     initialized: false,
@@ -95,7 +95,7 @@ export function createNativeSqliteLifecycleRuntime(): DialectLifecycleContractRu
       queryParam: 'connector-selected',
     },
     postMigrationState: async () =>
-      (await connector.getInstance!())
+      (await connector.getInstance())
         .prepare('pragma table_info(lifecycle_records)')
         .all()
         .map((row) => row.name),
@@ -164,7 +164,7 @@ function recordProvider(
 }
 
 /** Adapts native SQLite calls to the reusable semantic session lifecycle. */
-export function createNativeSqliteCommonRuntime() {
+function createNativeSqliteCommonRuntime() {
   const native = createDb0NodeSqliteOperationSessionProvider(
     nodeSqliteConnector({ name: ':memory:' }),
   )
@@ -211,3 +211,5 @@ export function createNativeSqliteCommonRuntime() {
     events: () => events,
   }
 }
+
+export { createNativeSqliteLifecycleRuntime, createNativeSqliteCommonRuntime }

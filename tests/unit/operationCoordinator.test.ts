@@ -258,7 +258,7 @@ it('should snapshot nested namespace identity and discard when the live context 
   try {
     const error = await coordinator
       .run(async ({ identity }) => {
-        namespaceContext.writableDefault[1]!.spelling = 'tenant'
+        namespaceContext.writableDefault[1].spelling = 'tenant'
         capturedSchema = identity.namespaceContext?.writableDefault[1]?.spelling
       })
       .catch((cause: unknown) => cause)

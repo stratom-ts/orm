@@ -46,11 +46,11 @@ import type { TableHandle } from '@/types'
 import { InvariantError } from '@/utils/error'
 
 /** Real db0 selector used only to prove the test member contract; not production support. */
-export const EXTENSION_CONTRACT_DIALECT_ID = 'mysql'
-export const EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON =
+const EXTENSION_CONTRACT_DIALECT_ID = 'mysql'
+const EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON =
   'The contract fixture deliberately does not support migration execution'
 
-export type ExtensionContractCalls = {
+type ExtensionContractCalls = {
   events: string[]
   operationCommands: OperationCommand[]
   compiledAst: SqlAst[]
@@ -61,7 +61,7 @@ export type ExtensionContractCalls = {
 }
 
 /** Creates the extension contract calls fixture used by the contract scenario. */
-export function createExtensionContractCalls(): ExtensionContractCalls {
+function createExtensionContractCalls(): ExtensionContractCalls {
   return {
     events: [],
     operationCommands: [],
@@ -248,7 +248,7 @@ function compileContractQuery(
     throw new InvariantError('Extension contract compiler requires one resolved relation')
   }
 
-  const handle = relationMatches[0]!
+  const handle = relationMatches[0]
   const selection = compileContractSelection(
     node,
     handle,
@@ -329,7 +329,7 @@ function compileContractPredicate(
 
     const columnMatches =
       predicateHandle.length === 1
-        ? findContractPhysicalColumnMatches(predicateHandle[0]!, node.where.column)
+        ? findContractPhysicalColumnMatches(predicateHandle[0], node.where.column)
         : []
 
     if (columnMatches.length !== 1) {
@@ -338,7 +338,7 @@ function compileContractPredicate(
       )
     }
 
-    parameterColumns.push(identityPolicy.comparisonKey(columnMatches[0]!))
+    parameterColumns.push(identityPolicy.comparisonKey(columnMatches[0]))
 
     if (node.where.value !== undefined) params.push(node.where.value)
   }
@@ -387,7 +387,7 @@ function compileContractSelection(
 
         const columnMatches =
           selectedHandle.length === 1
-            ? findContractPhysicalColumnMatches(selectedHandle[0]!, item.column)
+            ? findContractPhysicalColumnMatches(selectedHandle[0], item.column)
             : []
 
         if (columnMatches.length !== 1) {
@@ -398,7 +398,7 @@ function compileContractSelection(
 
         return {
           output: item.alias ?? item.column,
-          physical: identityPolicy.comparisonKey(columnMatches[0]!),
+          physical: identityPolicy.comparisonKey(columnMatches[0]),
         }
       })
 }
@@ -825,7 +825,7 @@ function profileIssues(
  *
  * @returns The extension contract dialect fixture used by the contract scenario.
  */
-export function createExtensionContractDialect(
+function createExtensionContractDialect(
   calls: ExtensionContractCalls,
   options?: Readonly<{ migration?: 'supported' | 'unsupported' }>,
 ): Dialect {
@@ -1212,7 +1212,7 @@ function appendExtensionRelation(
     table: unsupported,
   }
 
-  const namespace = namespaces[namespaceIndex]!
+  const namespace = namespaces[namespaceIndex]
   namespaces[namespaceIndex] = {
     ...namespace,
     relations: {
@@ -1332,4 +1332,13 @@ async function executeExtensionSessionQuery(
       }),
     ),
   ]
+}
+
+export type { ExtensionContractCalls }
+
+export {
+  EXTENSION_CONTRACT_DIALECT_ID,
+  EXTENSION_CONTRACT_UNSUPPORTED_MIGRATION_REASON,
+  createExtensionContractCalls,
+  createExtensionContractDialect,
 }

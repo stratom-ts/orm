@@ -222,7 +222,7 @@ describe('catalog collection coverage states', () => {
     'should report $state column evidence without mutating the snapshot',
     (testCase) => {
       const catalog = usersCatalog()
-      const relation = catalog.namespaces.items[0]!.relations.items[0]!
+      const relation = catalog.namespaces.items[0].relations.items[0]
 
       if (relation.table.state !== 'present') throw new Error('expected table fixture')
 
@@ -246,8 +246,8 @@ describe('catalog collection coverage states', () => {
 describe('catalog evidence management and ownership', () => {
   it('should block a managed comparison when one observed fact is unavailable', () => {
     const catalog = usersCatalog()
-    const namespace = catalog.namespaces.items[0]!
-    const relation = namespace.relations.items[0]!
+    const namespace = catalog.namespaces.items[0]
+    const relation = namespace.relations.items[0]
 
     if (relation.table.state !== 'present') throw new Error('expected table fixture')
 
@@ -270,8 +270,8 @@ describe('catalog evidence management and ownership', () => {
 describe('catalog evidence management and ownership: does not treat an unmanaged collision as confirmed absence', () => {
   it('should not treat an unmanaged collision as confirmed absence', () => {
     const catalog = usersCatalog()
-    const namespace = catalog.namespaces.items[0]!
-    const relation = namespace.relations.items[0]!
+    const namespace = catalog.namespaces.items[0]
+    const relation = namespace.relations.items[0]
     const unmanaged: CatalogSnapshot = {
       ...catalog,
       namespaces: {
@@ -297,7 +297,7 @@ describe('catalog evidence management and ownership: does not treat an unmanaged
 describe('catalog evidence management and ownership: allows partial unmanaged remainder for an exact relation request', () => {
   it('should allow partial unmanaged remainder for an exact relation request', () => {
     const catalog = usersCatalog()
-    const namespace = catalog.namespaces.items[0]!
+    const namespace = catalog.namespaces.items[0]
     ;(namespace as { relations: typeof namespace.relations }).relations = {
       ...namespace.relations,
       coverage: {
@@ -315,7 +315,7 @@ describe('catalog evidence management and ownership: allows partial unmanaged re
 describe('catalog evidence management and ownership: rejects partial unmanaged remainder for complete namespace ownership', () => {
   it('should reject partial unmanaged remainder for complete namespace ownership', () => {
     const catalog = usersCatalog()
-    const namespace = catalog.namespaces.items[0]!
+    const namespace = catalog.namespaces.items[0]
     const ownership = [
       {
         kind: 'completeNamespace' as const,

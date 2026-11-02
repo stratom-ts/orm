@@ -174,7 +174,7 @@ function inferPostgresChoiceType(analysis: StorageFacts): SqlDataType {
 }
 
 /** Selects PostgreSQL storage from provider-neutral evidence. */
-export function inferPostgresColumnTypeFromFacts(facts: StorageFacts): SqlDataType {
+function inferPostgresColumnTypeFromFacts(facts: StorageFacts): SqlDataType {
   const inferred = inferEffectivePostgresType(facts)
 
   if (inferred) return inferred
@@ -290,8 +290,8 @@ function inferPostgresCompositeStringType(
   if (outerFormat && allText) return outerFormat
 
   if (types.every((type) => type === types[0])) {
-    const type = types[0]!
-    const formats = [...branches[0]!.stringFormats].sort().join(',')
+    const type = types[0]
+    const formats = [...branches[0].stringFormats].sort().join(',')
 
     if (
       (type === 'time' || type === 'timestamp') &&
@@ -358,7 +358,7 @@ function inferPostgresCompositeNumberType(
   const integers = ['smallint', 'integer', 'bigint']
 
   if (types.every((type) => integers.includes(type)))
-    return integers[Math.max(...types.map((type) => integers.indexOf(type)))]!
+    return integers[Math.max(...types.map((type) => integers.indexOf(type)))]
 
   if (
     types.every((type) => integers.includes(type) || type === 'double precision') &&
@@ -430,3 +430,5 @@ function withBigintFacts(
 
   return { ...facts, bigintConstraints }
 }
+
+export { inferPostgresColumnTypeFromFacts }

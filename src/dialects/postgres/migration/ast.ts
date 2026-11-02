@@ -1,4 +1,4 @@
-export type PostgresCreateTableColumnAst = {
+type PostgresCreateTableColumnAst = {
   readonly name: string
   readonly dataType: string
   readonly notNull: boolean
@@ -17,7 +17,7 @@ export type PostgresCreateTableColumnAst = {
   }>
 }
 
-export type PostgresCreateTableAst = {
+type PostgresCreateTableAst = {
   readonly kind: 'create_table'
   readonly table: string
   readonly schema: string
@@ -28,7 +28,7 @@ export type PostgresCreateTableAst = {
 
 type PostgresRelationAst = { readonly table: string; readonly schema: string }
 
-export type PostgresDdlAst =
+type PostgresDdlAst =
   | (PostgresRelationAst & {
       readonly kind: 'create_index'
       readonly name: string
@@ -67,3 +67,5 @@ export type PostgresDdlAst =
   | (PostgresRelationAst & { readonly kind: 'drop_index'; readonly index: string })
   | { readonly kind: 'create_schema'; readonly schema: string }
   | PostgresCreateTableAst
+
+export type { PostgresCreateTableColumnAst, PostgresCreateTableAst, PostgresDdlAst }

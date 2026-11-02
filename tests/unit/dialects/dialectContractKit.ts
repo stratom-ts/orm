@@ -88,7 +88,7 @@ type DialectMemberCapability<TShard extends string> =
   | Readonly<{ state: 'unsupported'; reason: string; shard: TShard }>
 
 /** Exhaustive test-only capability declaration for one complete Dialect member. */
-export type DialectContractMemberCapabilities<TShard extends string = string> = Readonly<
+type DialectContractMemberCapabilities<TShard extends string = string> = Readonly<
   Record<DialectMemberFacet, DialectMemberCapability<TShard>>
 >
 
@@ -161,7 +161,7 @@ type QueryCompilerScenario = Readonly<{
       }>
 }>
 
-export type QueryCompilerScenarios = Readonly<
+type QueryCompilerScenarios = Readonly<
   Record<QueryCompilerScenarioId, QueryCompilerScenario>
 >
 
@@ -244,7 +244,7 @@ type CatalogRequestEvidence = Readonly<{
   completeNamespaces: readonly CatalogNamespaceEvidence[]
 }>
 
-export type CatalogContractInput = Readonly<{
+type CatalogContractInput = Readonly<{
   dialect: Dialect
   executor: CatalogExecutor
   request: CatalogRequest
@@ -280,7 +280,7 @@ type OperationSessionCommonRuntime = Readonly<{
 }>
 
 /** Runs the shared operation-session lifecycle with failure-safe cleanup. */
-export async function runOperationSessionCommonContract(
+async function runOperationSessionCommonContract(
   runtime: OperationSessionCommonRuntime,
 ): Promise<void> {
   const provider = runtime.provider
@@ -338,7 +338,7 @@ type OperationSessionContract = Readonly<{
   >
 }>
 
-export type MigrationContractCase = Readonly<{
+type MigrationContractCase = Readonly<{
   dialect: Dialect
   planned: PlannedMigration
   profile: MigrationSemanticProfile
@@ -447,7 +447,7 @@ type DialectContractMemberRegistrations<
 }>
 
 /** Registers each declared member shard exactly once at one test entry point. */
-export function registerDialectContractMember<
+function registerDialectContractMember<
   const TCapabilities extends DialectContractMemberCapabilities,
 >(
   name: string,
@@ -970,7 +970,7 @@ function relationEvidence(identity: CanonicalRelationIdentity): CatalogRelationE
 }
 
 /** Runs the shared catalog assertions through the same seam used by registrations. */
-export async function runCatalogContract(input: CatalogContractInput): Promise<void> {
+async function runCatalogContract(input: CatalogContractInput): Promise<void> {
   const snapshot = await input.dialect.catalog.introspectCatalog(
     input.executor,
     input.request,
@@ -1163,4 +1163,17 @@ function registerDialectContractShard(
 
   if (capabilities.migration.shard === shard) registerMigration(name, inputs.migration)
   if (capabilities.lifecycle.shard === shard) registerLifecycle(name, inputs.lifecycle)
+}
+
+export type {
+  DialectContractMemberCapabilities,
+  QueryCompilerScenarios,
+  CatalogContractInput,
+  MigrationContractCase,
+}
+
+export {
+  runOperationSessionCommonContract,
+  registerDialectContractMember,
+  runCatalogContract,
 }

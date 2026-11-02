@@ -896,7 +896,7 @@ it.each([
   async (_kind, cause, message) => {
     const builder = createMigrateBuilder({
       schemas: [],
-      migration: postgresDialect.migration!,
+      migration: postgresDialect.migration,
       runOperation: async () => {
         throw cause
       },
@@ -1240,7 +1240,7 @@ describe('db.migrate() policy and coordination: executes no DDL when whole-plan 
       },
     ]
 
-    vi.spyOn(postgresDialect.migration!, 'lower').mockReturnValueOnce({
+    vi.spyOn(postgresDialect.migration, 'lower').mockReturnValueOnce({
       issues: capabilityIssues,
     })
 
@@ -1290,7 +1290,7 @@ describe('db.migrate() permissions and coordination', () => {
   it('should reject missing destructive permission in the authoritative transaction before DDL', async () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({ connector, schemas: [Users] })
-    const lower = vi.spyOn(postgresDialect.migration!, 'lower')
+    const lower = vi.spyOn(postgresDialect.migration, 'lower')
 
     const error = await db
       .migrate()
@@ -1319,7 +1319,7 @@ describe('db.migrate() permissions and coordination: normalizes a plain nonconfo
     const db = createDatabase({ connector, schemas: [] })
 
     const adapterFailure = new Error('plain adapter failure')
-    vi.spyOn(postgresDialect.migration!, 'execute').mockRejectedValueOnce(adapterFailure)
+    vi.spyOn(postgresDialect.migration, 'execute').mockRejectedValueOnce(adapterFailure)
 
     const error = await db
       .migrate()
@@ -1388,7 +1388,7 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
     connector.prepared.length = 0
     connector.runSql.length = 0
 
-    connector.liveTables[0]!.columns.push({
+    connector.liveTables[0].columns.push({
       name: 'legacy',
       dataType: 'text',
       isNullable: true,

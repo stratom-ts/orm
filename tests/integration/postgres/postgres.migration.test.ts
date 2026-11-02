@@ -157,7 +157,7 @@ describe('PostgreSQL migration runtime integration', () => {
           "select current_setting('server_version_num') as server_version_num",
         )
 
-        if (Number(version.rows[0]!.server_version_num) < 180000) {
+        if (Number(version.rows[0].server_version_num) < 180000) {
           skip()
           return
         }
@@ -171,7 +171,7 @@ describe('PostgreSQL migration runtime integration', () => {
           [schema],
         )
 
-        expect(Number(nullConstraints.rows[0]!.count)).toBeGreaterThan(0)
+        expect(Number(nullConstraints.rows[0].count)).toBeGreaterThan(0)
 
         const destructive = createDatabase([NotNullWithoutIndex], {
           migrationOwnership: [

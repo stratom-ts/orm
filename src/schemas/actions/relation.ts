@@ -1,16 +1,16 @@
 import { SchemaError } from '@/utils/error'
 
 /** Namespace roles understood by portable relation intent. */
-export type NamespaceRole = 'catalog' | 'database' | 'schema'
+type NamespaceRole = 'catalog' | 'database' | 'schema'
 
 /** One authored, role-tagged namespace segment. */
-export type NamespaceIdentifierInput = Readonly<{
+type NamespaceIdentifierInput = Readonly<{
   role: NamespaceRole
   spelling: string
 }>
 
 /** Dialect-neutral authored relation intent. */
-export type RelationIdentityInput = Readonly<{
+type RelationIdentityInput = Readonly<{
   namespace?: readonly NamespaceIdentifierInput[]
   relation: string
 }>
@@ -21,14 +21,14 @@ const NAMESPACE_ROLES = new Set<NamespaceRole>(['catalog', 'database', 'schema']
  * Validates portable relation structure. Dialect-specific namespace order and
  * supported roles are deliberately left to the selected identity member.
  */
-export function validateRelationInput(input: RelationIdentityInput): void {
+function validateRelationInput(input: RelationIdentityInput): void {
   if (typeof input.relation !== 'string' || input.relation.length === 0) {
     throw new SchemaError({ message: 'table relation must be a non-empty string' })
   }
 
   if (input.namespace === undefined) return
 
-  if (!Array.isArray(input.namespace as unknown)) {
+  if (!Array.isArray(input.namespace)) {
     throw new SchemaError({ message: 'table namespace must be an array' })
   }
 
@@ -40,10 +40,11 @@ export function validateRelationInput(input: RelationIdentityInput): void {
     }
 
     const segment = value as NamespaceIdentifierInput
+    const role = (value as { role: unknown }).role
 
-    if (!NAMESPACE_ROLES.has(segment.role)) {
+    if (!NAMESPACE_ROLES.has(role as NamespaceRole)) {
       throw new SchemaError({
-        message: `unsupported namespace role ${String(segment.role)}`,
+        message: `unsupported namespace role ${String(role)}`,
       })
     }
 
@@ -62,7 +63,7 @@ export function validateRelationInput(input: RelationIdentityInput): void {
 }
 
 /** Creates a relation input while omitting an empty namespace property. */
-export function createRelationInput(
+function createRelationInput(
   relation: string,
   namespace?: readonly NamespaceIdentifierInput[],
 ): RelationIdentityInput {
@@ -81,7 +82,7 @@ export function createRelationInput(
 }
 
 /** Compares authored relation intent without flattening namespace identifiers. */
-export function sameRelationInput(
+function sameRelationInput(
   left: RelationIdentityInput,
   right: RelationIdentityInput,
 ): boolean {
@@ -98,3 +99,7 @@ export function sameRelationInput(
     )
   )
 }
+
+export type { NamespaceRole, NamespaceIdentifierInput, RelationIdentityInput }
+
+export { validateRelationInput, createRelationInput, sameRelationInput }

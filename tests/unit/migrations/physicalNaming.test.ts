@@ -427,7 +427,7 @@ describe('physical name validation and legacy adoption: adopts one legacy genera
 
     expect(planMigration([Events], catalog, postgresDialect)).toEqual({ steps: [] })
 
-    catalog.tables[0]!.indexes!.push({
+    catalog.tables[0].indexes!.push({
       name: 'legacy_duplicate_idx',
       columns: ['createdAt'],
       unique: false,
@@ -512,7 +512,7 @@ describe('physical name validation and legacy adoption: adopts legacy constraint
 
     expect(planMigration([Accounts], catalog, postgresDialect)).toEqual({ steps: [] })
 
-    catalog.tables[0]!.uniqueConstraints!.push({
+    catalog.tables[0].uniqueConstraints!.push({
       name: 'another_email_key',
       columns: ['email'],
       ...supportedSimple,

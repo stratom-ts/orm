@@ -20,11 +20,21 @@ import {
 } from 'valibot'
 import { beforeAll, expect, it } from 'vitest'
 
+import type {
+  createDatabase,
+  createDb0PostgresOperationSessionProvider,
+  defineTable,
+} from '@/index'
+
 import { waitForPostgres } from './postgres.setup'
 import type { PostgresDatabaseContext } from './postgresIntegration'
 import { createAdminClient, withPostgresDatabase } from './postgresIntegration'
 
-type Library = typeof import('@/index')
+type Library = {
+  createDatabase: typeof createDatabase
+  createDb0PostgresOperationSessionProvider: typeof createDb0PostgresOperationSessionProvider
+  defineTable: typeof defineTable
+}
 
 // A variable specifier keeps typecheck independent of a prior build.
 const packageName = 'stratom'
@@ -188,7 +198,7 @@ it('should map, migrate and release the built package on native PostgreSQL', asy
         'select pg_backend_pid()::text as pid',
       )
 
-      sessions.add(identity.rows[0]!.pid)
+      sessions.add(identity.rows[0].pid)
       expect((await db.migrate().plan()).steps.length).toBeGreaterThan(0)
       await db.migrate().execute()
       expect(await db.migrate().plan()).toEqual({ steps: [] })

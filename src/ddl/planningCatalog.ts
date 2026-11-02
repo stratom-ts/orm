@@ -1,4 +1,5 @@
 import type {
+  CatalogColumn,
   CatalogFact,
   CatalogForeignKey,
   CatalogIndex,
@@ -6,6 +7,7 @@ import type {
   CatalogRelation,
   CatalogSet,
   CatalogSnapshot,
+  CatalogValueGeneration,
   OpaqueCatalogObject,
 } from '@/dialects/catalog'
 import type { LoweredDesiredTable } from '@/dialects/types'
@@ -18,7 +20,7 @@ import type {
 import type { ResolvedMigrationOwnership } from '@/migrations/migrationOwnership'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
-export type PlanningCatalogColumn = {
+type PlanningCatalogColumn = {
   name: string
   dataType?: string
   isNullable?: boolean
@@ -26,21 +28,21 @@ export type PlanningCatalogColumn = {
   identityGeneration?: 'always' | 'byDefault' | null
 }
 
-export type PlanningCatalogKeyConstraint = {
+type PlanningCatalogKeyConstraint = {
   name?: string
   columns: string[]
   semanticCompleteness: 'supportedSimple' | 'unsupported'
   isValid: boolean
 }
 
-export type PlanningCatalogForeignKey = PlanningCatalogKeyConstraint & {
+type PlanningCatalogForeignKey = PlanningCatalogKeyConstraint & {
   referencedRelation: CanonicalRelationIdentity
   referencedColumns: string[]
   onDelete: CatalogForeignKey['onDelete']
   onUpdate: CatalogForeignKey['onUpdate']
 }
 
-export type PlanningCatalogIndex = {
+type PlanningCatalogIndex = {
   name: string
   columns: string[]
   unique: boolean
@@ -48,7 +50,7 @@ export type PlanningCatalogIndex = {
   isValid: boolean
 }
 
-export type PlanningCatalogTable = {
+type PlanningCatalogTable = {
   identity: CanonicalRelationIdentity
   columns: PlanningCatalogColumn[]
   indexes: PlanningCatalogIndex[]
@@ -58,7 +60,7 @@ export type PlanningCatalogTable = {
   opaqueObjects: readonly string[]
 }
 
-export type PlanningCatalog = {
+type PlanningCatalog = {
   tables: PlanningCatalogTable[]
   namespaces: readonly CanonicalRelationIdentity['namespace'][]
   nameReservations: {
@@ -351,7 +353,7 @@ function appendProjectedTable(input: PlanningTableProjection) {
  * @param desiredRelations - Canonical desired relations the snapshot must cover.
  * @param ownership - Resolved migration ownership used to validate coverage.
  */
-export function catalogForPlanning(
+function catalogForPlanning(
   snapshot: CatalogSnapshot,
   identities: CanonicalRelationIdentityModule,
   desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
@@ -516,7 +518,7 @@ function assertRequestCoverage(
  * @returns Complete column facts into fields used for schema comparison.
  */
 function projectPlanningColumn(
-  column: import('@/dialects/catalog').CatalogColumn,
+  column: CatalogColumn,
   desired: LoweredDesiredTable | undefined,
   identities: CanonicalRelationIdentityModule,
   relation: CatalogRelation,
@@ -573,7 +575,7 @@ function projectPlanningColumn(
  * drift.
  */
 function generationMode(
-  generation: import('@/dialects/catalog').CatalogValueGeneration | null,
+  generation: CatalogValueGeneration | null,
 ): 'always' | 'byDefault' | null {
   if (generation?.kind === 'identity') return generation.mode
 
@@ -597,3 +599,14 @@ type PlanningTableProjection = {
   foreignKeys: readonly CatalogForeignKey[]
   opaqueObjects: readonly OpaqueCatalogObject[]
 }
+
+export type {
+  PlanningCatalogColumn,
+  PlanningCatalogKeyConstraint,
+  PlanningCatalogForeignKey,
+  PlanningCatalogIndex,
+  PlanningCatalogTable,
+  PlanningCatalog,
+}
+
+export { catalogForPlanning }

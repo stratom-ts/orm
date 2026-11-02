@@ -1,3 +1,3 @@
 export * from './actions/index'
-export * from './tableSchema'
+export type * from './tableSchema'
 export * from './utils/index'

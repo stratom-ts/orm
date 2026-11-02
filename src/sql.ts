@@ -4,10 +4,10 @@ import { markCompiledQuery } from '@/query/compiled'
 import { QueryError } from '@/utils/error'
 
 /** Parameterized fragment accepted by the SQL tag and execute(). */
-export type SqlFragment = CompiledQuery
+type SqlFragment = CompiledQuery
 
 /** Scoped SQL execution. Values bind; identifiers require id(). */
-export type SqlTag = {
+type SqlTag = {
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>
   fragment(strings: TemplateStringsArray, ...values: unknown[]): SqlFragment
   id(...parts: string[]): SqlFragment
@@ -58,19 +58,19 @@ function assertTemplate(
 }
 
 /** Creates an eager tag using the same executor as the surrounding client scope. */
-export function createSqlTag(
+function createSqlTag(
   syntax: DialectQuery['rawSql'],
   execute: (query: CompiledQuery) => Promise<unknown[]>,
 ): SqlTag {
   const fragment = (strings: TemplateStringsArray, ...values: unknown[]): SqlFragment => {
     assertTemplate(strings, values.length)
 
-    const parts: Part[] = [strings[0]!]
+    const parts: Part[] = [strings[0]]
     for (const [index, value] of values.entries()) {
       const nested =
         typeof value === 'object' && value !== null ? fragments.get(value) : undefined
 
-      parts.push(...(nested ?? [{ value }]), strings[index + 1]!)
+      parts.push(...(nested ?? [{ value }]), strings[index + 1])
     }
 
     return compileFragment(syntax, parts)
@@ -106,3 +106,7 @@ export function createSqlTag(
 
   return sql
 }
+
+export type { SqlFragment, SqlTag }
+
+export { createSqlTag }

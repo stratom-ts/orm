@@ -555,7 +555,7 @@ function outcome(state: State): { outcome: 'applied' | 'unchanged' } {
   }
 
   if (state.cleanupFailures.length) {
-    const cleanup = state.cleanupFailures[0]!
+    const cleanup = state.cleanupFailures[0]
     throw failure(
       { cause: cleanup.cause, stage: cleanup.stage },
       success,

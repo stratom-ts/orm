@@ -103,7 +103,7 @@ describe('migration ownership', () => {
       },
     )
 
-    expect(createCatalogRequest([Scoped], [], undefined).relations[0]!.relation).toBe(
+    expect(createCatalogRequest([Scoped], [], undefined).relations[0].relation).toBe(
       Scoped.getTableMetadata().relation,
     )
   })
@@ -361,7 +361,7 @@ describe('migration ownership identities and validation: stabilizes SQLite-equiv
     expect(message(duplicateRelations)).toBe(message([...duplicateRelations].reverse()))
 
     const contradictory = [
-      duplicateRelations[0]!,
+      duplicateRelations[0],
       { kind: 'absentRelation' as const, relation: { relation: 'users' } },
     ]
 

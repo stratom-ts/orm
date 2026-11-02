@@ -22,7 +22,7 @@ import type {
 import { asciiFoldSqliteIdentifier } from './identity'
 
 /** Quotes an SQL identifier and escapes embedded double quotes. */
-export function quoteIdentifier(identifier: string): string {
+function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
 }
 
@@ -101,18 +101,18 @@ function resolveSqliteQueryNamespace(
   assertMainNamespace(namespace, 'SQLite query relation namespace')
 }
 
-export type SqliteQueryRelation = Readonly<{
+type SqliteQueryRelation = Readonly<{
   database: 'main'
   table: string
   tableKey: string
 }>
 
-export type SqliteQueryRelationResolver = (
+type SqliteQueryRelationResolver = (
   relation: RelationIdentityInput,
 ) => SqliteQueryRelation
 
 /** Binds SQLite query addressing to one validated client registration default. */
-export function createSqliteQueryRelationResolver(
+function createSqliteQueryRelationResolver(
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): SqliteQueryRelationResolver {
   if (registrationDefault !== undefined) {
@@ -123,7 +123,7 @@ export function createSqliteQueryRelationResolver(
 }
 
 /** Resolves structured relation intent to SQLite's supported main database. */
-export function resolveSqliteQueryRelation(
+function resolveSqliteQueryRelation(
   relation: RelationIdentityInput,
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): SqliteQueryRelation {
@@ -178,7 +178,7 @@ function createRelationContext(
   }
 
   return resolved.map((relation, index) => {
-    const candidate = candidates[index]!
+    const candidate = candidates[index]
     const alias =
       counts.get(asciiFoldSqliteIdentifier(candidate)) === 1
         ? candidate
@@ -216,7 +216,7 @@ function resolveRelationAlias(
   const resolved = resolveRelation(target)
   const matches = relations.filter((relation) => relation.tableKey === resolved.tableKey)
 
-  if (matches.length === 1) return matches[0]!.alias
+  if (matches.length === 1) return matches[0].alias
 
   if (matches.length === 0) {
     throw new QueryError({
@@ -325,36 +325,42 @@ function compilePredicate(
       return compileExpressionComparison(predicate, params, relations, resolveRelation)
     case 'cmp':
       return compileComparison(predicate, params, relations, resolveRelation)
-    case 'and':
-      if (!Array.isArray(predicate.preds as unknown)) {
+    case 'and': {
+      if (!Array.isArray(predicate.preds)) {
         throw new InvariantError('and predicate requires a predicate array')
       }
 
-      if (predicate.preds.length === 0) {
+      const predicates: readonly PredicateAst[] = predicate.preds
+
+      if (predicates.length === 0) {
         throw new InvariantError('and predicate must not be empty')
       }
 
-      if (predicate.preds.length === 1)
-        return compilePredicate(predicate.preds[0]!, params, relations, resolveRelation)
+      if (predicates.length === 1)
+        return compilePredicate(predicates[0], params, relations, resolveRelation)
 
-      return `(${predicate.preds
+      return `(${predicates
         .map((item) => compilePredicate(item, params, relations, resolveRelation))
         .join(' and ')})`
-    case 'or':
-      if (!Array.isArray(predicate.preds as unknown)) {
+    }
+    case 'or': {
+      if (!Array.isArray(predicate.preds)) {
         throw new InvariantError('or predicate requires a predicate array')
       }
 
-      if (predicate.preds.length === 0) {
+      const predicates: readonly PredicateAst[] = predicate.preds
+
+      if (predicates.length === 0) {
         throw new InvariantError('or predicate must not be empty')
       }
 
-      if (predicate.preds.length === 1)
-        return compilePredicate(predicate.preds[0]!, params, relations, resolveRelation)
+      if (predicates.length === 1)
+        return compilePredicate(predicates[0], params, relations, resolveRelation)
 
-      return `(${predicate.preds
+      return `(${predicates
         .map((item) => compilePredicate(item, params, relations, resolveRelation))
         .join(' or ')})`
+    }
     case 'not':
       return `(not ${compilePredicate(predicate.pred, params, relations, resolveRelation)})`
     default:
@@ -547,7 +553,7 @@ function compileSelect(
   resolveRelation: SqliteQueryRelationResolver,
   params: unknown[] = [],
 ): CompiledQuery {
-  if (!Array.isArray(node.selection as unknown)) {
+  if (!Array.isArray(node.selection)) {
     throw new InvariantError('select items must be an array')
   }
 
@@ -559,14 +565,14 @@ function compileSelect(
   const selection =
     node.selection.length === 0
       ? '*'
-      : node.selection
+      : (node.selection as readonly SelectItemAst[])
           .map((item) => compileSelectItem(item, params, relations, resolveRelation))
           .join(', ')
 
-  let sql = `select ${selection} from ${qualifySqliteQueryRelation(node.relation, resolveRelation)} as ${quoteIdentifier(relations[0]!.alias)}`
+  let sql = `select ${selection} from ${qualifySqliteQueryRelation(node.relation, resolveRelation)} as ${quoteIdentifier(relations[0].alias)}`
 
   for (const [index, join] of (node.joins ?? []).entries()) {
-    sql += compileJoin(join, relations[index + 1]!, params, relations, resolveRelation)
+    sql += compileJoin(join, relations[index + 1], params, relations, resolveRelation)
   }
 
   sql += compileWhereClause(node.where, params, relations, resolveRelation)
@@ -642,16 +648,17 @@ function compileInsert(
 ): CompiledQuery {
   if (
     !Array.isArray(node.columns) ||
-    !Array.isArray(node.values as unknown) ||
+    !Array.isArray(node.values) ||
     node.values.length === 0
   ) {
     throw new InvariantError('insert requires at least one values row')
   }
 
   const table = qualifySqliteQueryRelation(node.relation, resolveRelation)
+  const rows: InsertAst['values'] = node.values
 
   if (node.columns.length === 0) {
-    if (node.values.length !== 1 || node.values[0]?.length !== 0) {
+    if (rows.length !== 1 || rows[0]?.length !== 0) {
       throw new InvariantError(
         'SQLite supports empty insert columns only as one DEFAULT VALUES row',
       )
@@ -807,7 +814,7 @@ function compileUpdate(
   node: UpdateAst,
   resolveRelation: SqliteQueryRelationResolver,
 ): CompiledQuery {
-  if (!Array.isArray(node.set as unknown) || node.set.length === 0) {
+  if (!Array.isArray(node.set) || node.set.length === 0) {
     throw new InvariantError('update requires at least one SET column')
   }
 
@@ -818,13 +825,13 @@ function compileUpdate(
   const relations = createRelationContext([node.relation], resolveRelation)
   const params: unknown[] = []
 
-  const assignments = node.set
+  const assignments = (node.set as UpdateAst['set'])
     .map((item) => {
       assertAstNonEmptyString(item.column, 'update column')
 
       if (item.addition) {
         params.push(item.addition.delta)
-        return `${quoteIdentifier(item.column)} = ${quoteIdentifier(relations[0]!.alias)}.${quoteIdentifier(item.addition.source)} + ?`
+        return `${quoteIdentifier(item.column)} = ${quoteIdentifier(relations[0].alias)}.${quoteIdentifier(item.addition.source)} + ?`
       }
 
       params.push(item.value)
@@ -835,7 +842,7 @@ function compileUpdate(
   const where = compileWhereClause(node.where, params, relations, resolveRelation)
 
   return {
-    sql: `update ${qualifySqliteQueryRelation(node.relation, resolveRelation)} as ${quoteIdentifier(relations[0]!.alias)} set ${assignments}${where}${compileReturning(node.returning)}`,
+    sql: `update ${qualifySqliteQueryRelation(node.relation, resolveRelation)} as ${quoteIdentifier(relations[0].alias)} set ${assignments}${where}${compileReturning(node.returning)}`,
     params,
   }
 }
@@ -862,13 +869,13 @@ function compileDelete(
   const where = compileWhereClause(node.where, params, relations, resolveRelation)
 
   return {
-    sql: `delete from ${qualifySqliteQueryRelation(node.relation, resolveRelation)} as ${quoteIdentifier(relations[0]!.alias)}${where}${compileReturning(node.returning)}`,
+    sql: `delete from ${qualifySqliteQueryRelation(node.relation, resolveRelation)} as ${quoteIdentifier(relations[0].alias)}${where}${compileReturning(node.returning)}`,
     params,
   }
 }
 
 /** Compiles SQLite 3.37's supported public query AST forms. */
-export function compileSqliteQuery(
+function compileSqliteQuery(
   node: SqlAst,
   resolveRelation: SqliteQueryRelationResolver = createSqliteQueryRelationResolver(),
 ): CompiledQuery {
@@ -972,4 +979,13 @@ function compileSingleSubquery(
     })
 
   return compileSelect(node, resolveRelation, params).sql
+}
+
+export type { SqliteQueryRelation, SqliteQueryRelationResolver }
+
+export {
+  quoteIdentifier,
+  createSqliteQueryRelationResolver,
+  resolveSqliteQueryRelation,
+  compileSqliteQuery,
 }

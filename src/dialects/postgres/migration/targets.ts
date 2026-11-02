@@ -32,9 +32,7 @@ type PostgresReferenceFields = PostgresRelationFields & {
  *
  * @param namespace - Canonical namespace containing a schema segment.
  */
-export function schemaFromNamespace(
-  namespace: CanonicalRelationIdentity['namespace'],
-): string {
+function schemaFromNamespace(namespace: CanonicalRelationIdentity['namespace']): string {
   const schema = namespace.find((segment) => segment.role === 'schema')
 
   if (!schema) {
@@ -157,7 +155,7 @@ function addColumnStepToAst(
  * @param step - Semantic migration step to convert.
  * @param planned - Planned migration supplying desired table ASTs.
  */
-export function stepToAst(
+function stepToAst(
   step: MigrationStep,
   planned: PlannedMigration,
 ): PostgresDdlAst | undefined {
@@ -285,7 +283,7 @@ function namespaceIssues(
  * @param step - Semantic migration step to validate.
  * @param expectedDatabase - Database identity resolved for the executing session.
  */
-export function stepTargetIssues(
+function stepTargetIssues(
   step: MigrationStep,
   expectedDatabase: CanonicalIdentifier | undefined,
 ): string[] {
@@ -412,3 +410,5 @@ function columnAlterationStepToAst(
       }
   }
 }
+
+export { schemaFromNamespace, stepToAst, stepTargetIssues }

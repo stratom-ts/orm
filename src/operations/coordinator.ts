@@ -33,7 +33,7 @@ type OperationFrame = {
 const activeOperation = new AsyncLocalStorage<OperationFrame>()
 
 /** Reads session cleanup causes from the failure itself. */
-export function getOperationReleaseCleanupFailures(cause: unknown): readonly unknown[] {
+function getOperationReleaseCleanupFailures(cause: unknown): readonly unknown[] {
   return operationCleanupFailures(cause).map((failure) => failure.cause)
 }
 
@@ -216,7 +216,7 @@ function assertStableSessionIdentity(
   }
 }
 
-export type OperationContext = Readonly<{
+type OperationContext = Readonly<{
   executor: Executor
   identity: OperationSessionIdentity
 
@@ -227,7 +227,7 @@ export type OperationContext = Readonly<{
   cancel(): Promise<void>
 }>
 
-export class OperationCoordinator {
+class OperationCoordinator {
   private tail = Promise.resolve()
   private closing = false
   private closePromise: Promise<void> | undefined
@@ -536,3 +536,7 @@ async function releaseOperationSession<T>(state: OperationState<T>): Promise<voi
     }
   }
 }
+
+export type { OperationContext }
+
+export { getOperationReleaseCleanupFailures, OperationCoordinator }

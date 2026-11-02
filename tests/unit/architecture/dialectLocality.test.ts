@@ -388,7 +388,7 @@ function dialectAssembly(
     (statement) => !ts.isImportDeclaration(statement),
   )
 
-  if (declarations.length !== 1 || !ts.isVariableStatement(declarations[0]!))
+  if (declarations.length !== 1 || !ts.isVariableStatement(declarations[0]))
     return undefined
 
   const statement = declarations[0]
@@ -418,7 +418,7 @@ function dialectAssembly(
 
   if (call.arguments.length !== 1) return undefined
 
-  const definition = call.arguments[0]!
+  const definition = call.arguments[0]
   return ts.isObjectLiteralExpression(definition) ? definition : undefined
 }
 
@@ -432,7 +432,7 @@ function dialectManifestViolations(
 
   if (!assembly) return [`${member.symbol}: invalid defineDialect assembly`]
 
-  const codePrefix = `${member.code[0]!.toUpperCase()}${member.code.slice(1)}`
+  const codePrefix = `${member.code[0].toUpperCase()}${member.code.slice(1)}`
   const defineDialect = imports.get('defineDialect')
   const violations =
     defineDialect?.imported === 'defineDialect' &&
@@ -443,7 +443,7 @@ function dialectManifestViolations(
   const expected: { property: string; identifier: string; module: string }[] = [
     ...REQUIRED_DIALECT_FACETS.map((facet) => ({
       property: facet,
-      identifier: `${member.code}${facet[0]!.toUpperCase()}${facet.slice(1)}`,
+      identifier: `${member.code}${facet[0].toUpperCase()}${facet.slice(1)}`,
       module: `./${facet}`,
     })),
     {
@@ -1538,7 +1538,7 @@ describe('production dialect source organization', () => {
 
         if (!existsSync(file)) return []
 
-        const symbol = `${code}${facet[0]!.toUpperCase()}${facet.slice(1)}`
+        const symbol = `${code}${facet[0].toUpperCase()}${facet.slice(1)}`
 
         const exportsSymbol = parse(file).statements.some(
           (statement) =>

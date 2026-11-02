@@ -531,8 +531,8 @@ function compareNamespaces(
   const length = Math.min(left.length, right.length)
 
   for (let index = 0; index < length; index++) {
-    const leftSegment = left[index]!
-    const rightSegment = right[index]!
+    const leftSegment = left[index]
+    const rightSegment = right[index]
     const role = compareCodeUnits(leftSegment.role, rightSegment.role)
 
     if (role !== 0) return role
@@ -1558,9 +1558,6 @@ async function introspectPostgresCatalog(
   )
 }
 
-/** PostgreSQL scoped catalog observation. */
-export const postgresCatalog = { introspectCatalog: introspectPostgresCatalog }
-
 /**
  * Resolves requested namespaces and binds relation membership checks.
  *
@@ -2268,3 +2265,6 @@ function decodePostgresForeignKey(
     ),
   }
 }
+
+/** PostgreSQL scoped catalog observation. */
+export const postgresCatalog = { introspectCatalog: introspectPostgresCatalog }

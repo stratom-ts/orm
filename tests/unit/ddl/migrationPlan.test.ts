@@ -197,7 +197,7 @@ describe('should plan PostgreSQL native string formats', () => {
 
       expect(planMigration([Desired], catalog, postgresDialect)).toEqual({ steps: [] })
 
-      catalog.tables[0]!.columns[0]!.dataType = 'text'
+      catalog.tables[0].columns[0].dataType = 'text'
 
       expect(planMigration([Desired], catalog, postgresDialect).steps).toMatchObject([
         { kind: 'alter_column_type', dataType },
@@ -270,7 +270,7 @@ const AuditEvents = defineTable(
 
 /** Returns a fresh cyclic permutation used to check input-order invariance. */
 function rotate<T>(values: readonly T[]): T[] {
-  return values.length < 2 ? [...values] : [...values.slice(1), values[0]!]
+  return values.length < 2 ? [...values] : [...values.slice(1), values[0]]
 }
 
 /** Builds mixed catalog evidence for schema reconciliation checks. */
@@ -636,8 +636,8 @@ describe('Migration Plan determinism and semantic profiles', () => {
     const expected = planMigration(handles, catalog, postgresDialect)
 
     const catalogs = [catalog, structuredClone(catalog), structuredClone(catalog)]
-    catalogs[1]!.tables.reverse()
-    catalogs[2]!.tables = rotate(catalogs[2]!.tables)
+    catalogs[1].tables.reverse()
+    catalogs[2].tables = rotate(catalogs[2].tables)
 
     for (const candidate of catalogs.slice(1)) {
       for (const table of candidate.tables) {
@@ -810,10 +810,8 @@ function assertCustomPlanningFacets(
   expect(planned.profile.identityAdapter).toBe('custom-identity')
   expect(identity.create).toHaveBeenCalled()
 
-  expect(
-    identityModules[0]!.resolve({ relation: 'portable_settings' }).namespace,
-  ).toEqual(
-    identityModules[0]!.resolve({
+  expect(identityModules[0].resolve({ relation: 'portable_settings' }).namespace).toEqual(
+    identityModules[0].resolve({
       namespace: [{ role: 'schema', spelling: 'public' }],
       relation: 'portable_settings',
     }).namespace,

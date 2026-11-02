@@ -194,7 +194,7 @@ function compareCapabilityIssues(
  * @param planned - Complete semantic plan and its canonical registrations.
  * @param expectedProfile - Semantic profile resolved by the executing session.
  */
-export function lowerPostgresMigrationPlan(
+function lowerPostgresMigrationPlan(
   planned: PlannedMigration,
   expectedProfile: MigrationSemanticProfile,
 ): MigrationLoweringResult {
@@ -398,3 +398,5 @@ function collectStepTargetIssues(
 
   return invalidTargets.length > 0 || missingDesiredTable
 }
+
+export { lowerPostgresMigrationPlan }

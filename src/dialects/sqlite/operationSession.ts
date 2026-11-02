@@ -280,7 +280,7 @@ async function verifyNative(
   probeOperation: string,
 ): Promise<void> {
   if (
-    (await connector.getInstance!()) !== database ||
+    (await connector.getInstance()) !== database ||
     owner.native !== database ||
     nativeOwners.get(database) !== owner
   ) {
@@ -302,7 +302,7 @@ async function dispose(connector: Connector, owner: ConnectorState): Promise<voi
 
   try {
     if (
-      (await connector.getInstance!()) !== database ||
+      (await connector.getInstance()) !== database ||
       nativeOwners.get(database) !== owner
     )
       throw new QueryError({ message: 'SQLite native session changed before disposal' })
@@ -559,7 +559,7 @@ async function claimNativeDatabase(
   owner: ConnectorState,
   dialectId: string,
 ): Promise<NativeDatabase> {
-  const database = await connector.getInstance!()
+  const database = await connector.getInstance()
   const DatabaseSync = process.getBuiltinModule('node:sqlite').DatabaseSync
 
   if (!(database instanceof DatabaseSync))

@@ -4,10 +4,11 @@ import { expect } from 'vitest'
 import type { Db } from '@/index'
 import { column, countAll, defineTable, eq, excluded, lower, reference } from '@/index'
 
-export const longProperty =
+const longProperty =
   '\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d\u540d'
-export const longAlias = `${longProperty}alias`
-export const Users = defineTable(
+
+const longAlias = `${longProperty}alias`
+const Users = defineTable(
   'mapped_users',
   {
     id: pipe(number(), column({ name: 'user_id' })),
@@ -17,7 +18,8 @@ export const Users = defineTable(
   },
   { primaryKey: 'id', indexes: [{ columns: ['fullName', 'active'] }] },
 )
-export const Posts = defineTable(
+
+const Posts = defineTable(
   'mapped_posts',
   {
     postId: pipe(number(), column({ name: 'post_id' })),
@@ -25,7 +27,8 @@ export const Posts = defineTable(
   },
   { primaryKey: 'postId' },
 )
-export const Swapped = defineTable(
+
+const Swapped = defineTable(
   'mapped_swaps',
   {
     left: pipe(string(), column({ name: 'right' })),
@@ -33,7 +36,8 @@ export const Swapped = defineTable(
   },
   { primaryKey: 'left' },
 )
-export const RenamedUsers = defineTable(
+
+const RenamedUsers = defineTable(
   'mapped_users',
   {
     applicationId: pipe(number(), column({ name: 'user_id' })),
@@ -43,7 +47,8 @@ export const RenamedUsers = defineTable(
   },
   { primaryKey: 'applicationId', indexes: [{ columns: ['display', 'enabled'] }] },
 )
-export const RenamedPosts = defineTable(
+
+const RenamedPosts = defineTable(
   'mapped_posts',
   {
     id: pipe(number(), column({ name: 'post_id' })),
@@ -51,12 +56,14 @@ export const RenamedPosts = defineTable(
   },
   { primaryKey: 'id' },
 )
-export const Bare = defineTable(
+
+const Bare = defineTable(
   'bare_columns',
   { id: number(), label: string() },
   { primaryKey: 'id' },
 )
-export const PhysicalOriginal = defineTable(
+
+const PhysicalOriginal = defineTable(
   'physical_changes',
   {
     id: pipe(number(), column({ name: 'row_id' })),
@@ -64,7 +71,8 @@ export const PhysicalOriginal = defineTable(
   },
   { primaryKey: 'id' },
 )
-export const PhysicalChanged = defineTable(
+
+const PhysicalChanged = defineTable(
   'physical_changes',
   {
     id: pipe(number(), column({ name: 'row_id' })),
@@ -72,7 +80,8 @@ export const PhysicalChanged = defineTable(
   },
   { primaryKey: 'id' },
 )
-export const CanonicalA = defineTable(
+
+const CanonicalA = defineTable(
   'canonical_columns',
   {
     a: pipe(string(), column({ name: 'first', unique: true })),
@@ -80,7 +89,8 @@ export const CanonicalA = defineTable(
   },
   { primaryKey: 'a', indexes: [{ columns: ['b', 'a'] }] },
 )
-export const CanonicalB = defineTable(
+
+const CanonicalB = defineTable(
   'canonical_columns',
   {
     renamedB: pipe(string(), column({ name: 'second' })),
@@ -88,8 +98,9 @@ export const CanonicalB = defineTable(
   },
   { primaryKey: 'renamedA', indexes: [{ columns: ['renamedB', 'renamedA'] }] },
 )
-export const schemas = [Users, Posts, Swapped, Bare, PhysicalOriginal] as const
-export const renamedSchemas = [
+
+const schemas = [Users, Posts, Swapped, Bare, PhysicalOriginal] as const
+const renamedSchemas = [
   RenamedUsers,
   RenamedPosts,
   Swapped,
@@ -98,7 +109,7 @@ export const renamedSchemas = [
 ] as const
 
 /** Exercises complete public query behavior against native storage in both dialects. */
-export async function exerciseColumnNames(
+async function exerciseColumnNames(
   db: Db,
   namespace: readonly string[] = [],
 ): Promise<void> {
@@ -266,7 +277,7 @@ async function assertSwaps(db: Db): Promise<void> {
 }
 
 /** Proves an application-only rename keeps data and generated physical object names. */
-export async function assertApplicationRename(db: Db): Promise<void> {
+async function assertApplicationRename(db: Db): Promise<void> {
   expect(await db.migrate().plan()).toEqual({ steps: [] })
 
   expect(await db.from(RenamedUsers).execute()).toEqual([
@@ -277,7 +288,7 @@ export async function assertApplicationRename(db: Db): Promise<void> {
 }
 
 /** A changed physical identifier remains an ownership-controlled storage change. */
-export async function assertPhysicalChanges(
+async function assertPhysicalChanges(
   complete: Db,
   additive: Db,
   original: Db,
@@ -304,4 +315,24 @@ export async function assertPhysicalChanges(
   expect(await original.from(PhysicalOriginal).execute()).toEqual([
     { id: 1, value: 'retained' },
   ])
+}
+
+export {
+  longProperty,
+  longAlias,
+  Users,
+  Posts,
+  Swapped,
+  RenamedUsers,
+  RenamedPosts,
+  Bare,
+  PhysicalOriginal,
+  PhysicalChanged,
+  CanonicalA,
+  CanonicalB,
+  schemas,
+  renamedSchemas,
+  exerciseColumnNames,
+  assertApplicationRename,
+  assertPhysicalChanges,
 }

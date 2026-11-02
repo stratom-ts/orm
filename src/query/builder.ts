@@ -52,15 +52,13 @@ import { isExcludedRef } from './upsert'
 import { buildInsertSchema, validateUpdatePatchWithStructuredValues } from './validate'
 
 /** Result when a write runs without `returning`. */
-export type WriteResult = {
+type WriteResult = {
   rowCount: number
 }
 
 /** Keeps count-only mode distinct from returned rows with a numeric rowCount column. */
 declare const noReturning: unique symbol
 type NoReturning = typeof noReturning
-
-export type { CompiledQuery } from './compiled'
 
 type WhereInput =
   | PredicateAst
@@ -170,7 +168,7 @@ function normalizeWhere(input: WhereInput): PredicateAst {
   }
 
   const preds = entries.map(([column, value]) => cmp(column, 'eq', value))
-  return preds.length === 1 ? preds[0]! : and(...preds)
+  return preds.length === 1 ? preds[0] : and(...preds)
 }
 
 /**
@@ -248,7 +246,7 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
       }
 
       if ('kind' in item) {
-        return item as SelectItemAst
+        return item
       }
 
       if ('expr' in item && 'alias' in item) {
@@ -259,7 +257,7 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
         }
       }
 
-      return selectionColumn(item as ColumnRef)
+      return selectionColumn(item)
     })
   } else {
     selection = input.map((c) => selectionColumn(c))
@@ -295,7 +293,7 @@ function mapWriteParams(
 
   return values.map((row) =>
     row.map((value, i) => {
-      const col = columns[i]!
+      const col = columns[i]
       return mapper.mapParam(handle, col, value)
     }),
   )
@@ -390,7 +388,7 @@ function findHandle(
   handles: readonly TableHandle[],
   relation: RelationIdentityInput | undefined,
 ): TableHandle {
-  if (!relation) return handles[0]!
+  if (!relation) return handles[0]
 
   const matches = occurrenceAlias(relation)
     ? handles.filter((h) => h.getTableMetadata().relation === relation)
@@ -399,7 +397,7 @@ function findHandle(
         handles.filter((h) => !occurrenceAlias(h.getTableMetadata().relation)),
       )
 
-  if (matches.length === 1) return matches[0]!
+  if (matches.length === 1) return matches[0]
 
   if (matches.length === 0) {
     throw new QueryError({
@@ -433,7 +431,7 @@ function findColumn(
     ? `${formatRelationInput(relation)}.${column}`
     : `${handle.getTableMetadata().name}.${column}`
 
-  if (matches.length === 1) return matches[0]!
+  if (matches.length === 1) return matches[0]
 
   if (matches.length === 0) {
     throw new QueryError({
@@ -671,10 +669,7 @@ function takeFirstOrThrow<T>(rows: T[], message: string): T {
 // Insert builder
 // ---------------------------------------------------------------------------
 
-export type InsertBuilder<
-  THandle extends TableHandle = TableHandle,
-  TResult = NoReturning,
-> = {
+type InsertBuilder<THandle extends TableHandle = TableHandle, TResult = NoReturning> = {
   /** Selects an authored candidate key to handle insert conflicts. */
   onConflict(
     columns: readonly TableColumnInput<THandle>[],
@@ -768,7 +763,7 @@ type ConflictUpdatePatch<THandle extends TableHandle> = {
 }
 
 /** Action-only state entered after selecting an insert conflict target. */
-export type InsertConflictBuilder<
+type InsertConflictBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = NoReturning,
 > = {
@@ -796,7 +791,7 @@ export type InsertConflictBuilder<
  *
  * @returns Insert builder with `returning`, `compile`, and `execute` methods
  */
-export function createInsertBuilder<THandle extends TableHandle>(
+function createInsertBuilder<THandle extends TableHandle>(
   options: InsertBuilderOptions<THandle>,
 ): InsertBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, rows, returning, conflict } = options
@@ -827,7 +822,7 @@ export function createInsertBuilder<THandle extends TableHandle>(
             ...captured,
             query,
             conflict: { target, action: { kind: 'doNothing' } },
-          }) as never,
+          }),
         doUpdate: (patch) =>
           createInsertBuilder({
             ...captured,
@@ -839,7 +834,7 @@ export function createInsertBuilder<THandle extends TableHandle>(
                 set: resolveConflictUpdate(handle, patch),
               },
             },
-          }) as never,
+          }),
       }
     },
     ...createWriteReturning((changes) =>
@@ -847,8 +842,8 @@ export function createInsertBuilder<THandle extends TableHandle>(
     ),
     compile,
     execute: execute as never,
-    executeTakeFirst: executeTakeFirst as never,
-    executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
+    executeTakeFirst: executeTakeFirst,
+    executeTakeFirstOrThrow: executeTakeFirstOrThrow,
   }
 }
 
@@ -856,7 +851,7 @@ export function createInsertBuilder<THandle extends TableHandle>(
 // Insert-values builder (db.insert(table).values(row))
 // ---------------------------------------------------------------------------
 
-export type InsertValuesBuilder<THandle extends TableHandle = TableHandle> = {
+type InsertValuesBuilder<THandle extends TableHandle = TableHandle> = {
   /**
    * Supplies insert rows for schema validation and SQL compilation.
    *
@@ -1008,7 +1003,7 @@ function mapConflictParams(
 // Update builder
 // ---------------------------------------------------------------------------
 
-export type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
+type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
   /**
    * Supplies the column patch for schema validation and update compilation.
    *
@@ -1022,10 +1017,7 @@ export type UpdateSetBuilder<THandle extends TableHandle = TableHandle> = {
   set(patch: UpdatePatch<THandle>): UpdateBuilder<THandle, InferSelect<THandle>>
 }
 
-export type UpdateBuilder<
-  THandle extends TableHandle = TableHandle,
-  TResult = NoReturning,
-> = {
+type UpdateBuilder<THandle extends TableHandle = TableHandle, TResult = NoReturning> = {
   /**
    * Adds a filter and combines it with any existing predicate using AND.
    *
@@ -1140,7 +1132,7 @@ export type UpdateBuilder<
  * @returns Update builder with `where`, `all`, `returning`, `compile`, and `execute`
  *   methods.
  */
-export function createUpdateBuilder<THandle extends TableHandle>(
+function createUpdateBuilder<THandle extends TableHandle>(
   options: UpdateBuilderOptions<THandle>,
 ): UpdateBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, patch, where, allowAll, returning } = options
@@ -1184,8 +1176,8 @@ export function createUpdateBuilder<THandle extends TableHandle>(
     ...createWriteReturning(next),
     compile,
     execute: execute as never,
-    executeTakeFirst: executeTakeFirst as never,
-    executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
+    executeTakeFirst: executeTakeFirst,
+    executeTakeFirstOrThrow: executeTakeFirstOrThrow,
   }
 }
 
@@ -1193,10 +1185,7 @@ export function createUpdateBuilder<THandle extends TableHandle>(
 // Delete builder
 // ---------------------------------------------------------------------------
 
-export type DeleteBuilder<
-  THandle extends TableHandle = TableHandle,
-  TResult = NoReturning,
-> = {
+type DeleteBuilder<THandle extends TableHandle = TableHandle, TResult = NoReturning> = {
   /**
    * Adds a filter and combines it with any existing predicate using AND.
    *
@@ -1307,7 +1296,7 @@ export type DeleteBuilder<
  * @returns Delete builder with `where`, `all`, `returning`, `compile`, and `execute`
  *   methods.
  */
-export function createDeleteBuilder<THandle extends TableHandle>(
+function createDeleteBuilder<THandle extends TableHandle>(
   options: DeleteBuilderOptions<THandle>,
 ): DeleteBuilder<THandle, unknown> {
   const { handle, dialect, executor, mapper, where, allowAll, returning } = options
@@ -1350,8 +1339,8 @@ export function createDeleteBuilder<THandle extends TableHandle>(
     ...createWriteReturning(next),
     compile,
     execute: execute as never,
-    executeTakeFirst: executeTakeFirst as never,
-    executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
+    executeTakeFirst: executeTakeFirst,
+    executeTakeFirstOrThrow: executeTakeFirstOrThrow,
   }
 }
 
@@ -1359,7 +1348,7 @@ export function createDeleteBuilder<THandle extends TableHandle>(
 // Select builder
 // ---------------------------------------------------------------------------
 
-export type SelectBuilder<
+type SelectBuilder<
   THandle extends TableHandle = TableHandle,
   TResult = InferSelect<THandle>,
   HasSelection extends boolean = false,
@@ -1778,7 +1767,7 @@ function createSelectPagination<THandle extends TableHandle>(
             ...(nulls === undefined ? {} : { nulls }),
           },
         ],
-      }) as never
+      })
     },
     /**
      * Sets the row limit.
@@ -1786,7 +1775,7 @@ function createSelectPagination<THandle extends TableHandle>(
      * @param count - Maximum rows to return.
      */
     limit(count) {
-      return next({ limit: count }) as never
+      return next({ limit: count })
     },
     /**
      * Sets the row offset.
@@ -1794,7 +1783,7 @@ function createSelectPagination<THandle extends TableHandle>(
      * @param count - Rows to skip.
      */
     offset(count) {
-      return next({ offset: count }) as never
+      return next({ offset: count })
     },
   }
 }
@@ -1877,7 +1866,7 @@ function createSelectBuilder<THandle extends TableHandle>(
  * Fluent query builder rooted on a registered table handle.
  * Default terminal path is `select *`; use insert/update/delete for writes.
  */
-export type QueryBuilder<THandle extends TableHandle = TableHandle> = {
+type QueryBuilder<THandle extends TableHandle = TableHandle> = {
   readonly [projectionShape]?: WildcardProjection<InferSelect<THandle>>
 
   /** Compile `select * from table` (default read path). */
@@ -2145,7 +2134,7 @@ function emptySelectState(): SelectState {
  * @returns Query builder with `selectAll`, `select`, `where`, `compile`, and `execute`
  *   methods.
  */
-export function createTableBuilder<THandle extends TableHandle>(
+function createTableBuilder<THandle extends TableHandle>(
   options: TableBuilderOptions<THandle>,
 ): QueryBuilder<THandle> {
   const { handle, dialect, executor, mapper } = options
@@ -2475,11 +2464,7 @@ function createSelectFilters<THandle extends TableHandle>(
           pred = normalizeWhere(arg as WhereInput)
         }
       } else {
-        pred = normalizeWhere([
-          args[0] as ColumnRef | string,
-          args[1] as ComparisonOp,
-          args[2],
-        ])
+        pred = cmp(args[0] as ColumnRef | string, args[1] as ComparisonOp, args[2])
       }
 
       return next({ where: mergeWhere(state.where, pred) }) as never
@@ -2495,11 +2480,11 @@ function createSelectBoundaries<THandle extends TableHandle>(
   return {
     /** Adds a boundary after the cursor without changing the query order. */
     after(order, values) {
-      return next({ where: mergeWhere(state.where, after(order, values)) }) as never
+      return next({ where: mergeWhere(state.where, after(order, values)) })
     },
     /** Adds a boundary before the cursor without changing the query order. */
     before(order, values) {
-      return next({ where: mergeWhere(state.where, before(order, values)) }) as never
+      return next({ where: mergeWhere(state.where, before(order, values)) })
     },
   }
 }
@@ -2530,7 +2515,7 @@ function createSelectGrouping<THandle extends TableHandle>(
           ...state.groupBy,
           ...list.map((c) => toQualified(c as ColumnRef | string)),
         ],
-      }) as never
+      })
     },
 
     /**
@@ -2542,7 +2527,7 @@ function createSelectGrouping<THandle extends TableHandle>(
       const pred = typeof input === 'function' ? input(eb) : input
       return next({
         having: state.having ? and(state.having, pred) : pred,
-      }) as never
+      })
     },
   }
 }
@@ -2635,7 +2620,7 @@ function createTableJoins<THandle extends TableHandle>(
      * @param on - Join predicate input.
      */
     rightJoin(table, on) {
-      return rootSelect().rightJoin(table, on) as never
+      return rootSelect().rightJoin(table, on)
     },
   }
 }
@@ -2765,11 +2750,9 @@ function createWriteFilters(
         return withWhere(args[0] as WhereInput) as never
       }
 
-      return withWhere([
-        args[0] as ColumnRef | string,
-        args[1] as ComparisonOp,
-        args[2],
-      ]) as never
+      return withWhere(
+        cmp(args[0] as ColumnRef | string, args[1] as ComparisonOp, args[2]),
+      ) as never
     },
 
     /** Allows the update to affect every row. */
@@ -2825,7 +2808,7 @@ function createTableGrouping<THandle extends TableHandle>(
      * @param input - Predicate or predicate factory.
      */
     having(input: PredicateAst | ((builder: ExpressionBuilder) => PredicateAst)) {
-      return rootSelect().having(input as never) as never
+      return rootSelect().having(input) as never
     },
   }
 }
@@ -3133,13 +3116,13 @@ class SelectPreparation {
     const selection = node.selection.flatMap((item) => this.selectionItem(item))
     const result: SelectAst = {
       ...node,
-      relation: this.scope[0]!.relation,
+      relation: this.scope[0].relation,
       selection,
       ...(node.joins
         ? {
             joins: node.joins.map((j, i) => ({
               ...j,
-              relation: this.scope[i + 1]!.relation,
+              relation: this.scope[i + 1].relation,
               on: this.predicate(j.on, this.scope.slice(0, i + 2)),
             })),
           }
@@ -3156,7 +3139,7 @@ class SelectPreparation {
   }
 
   recordSource(result: SelectAst): SelectAst {
-    const first = result.selection[0]!
+    const first = result.selection[0]
     const source =
       first.kind === 'column'
         ? this.expressionSource(first)
@@ -3240,4 +3223,25 @@ async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
     preparedColumns.get(prepared) ?? resultColumns,
     prepared,
   )
+}
+
+export type { CompiledQuery } from './compiled'
+
+export type {
+  WriteResult,
+  InsertBuilder,
+  InsertConflictBuilder,
+  InsertValuesBuilder,
+  UpdateSetBuilder,
+  UpdateBuilder,
+  DeleteBuilder,
+  SelectBuilder,
+  QueryBuilder,
+}
+
+export {
+  createInsertBuilder,
+  createUpdateBuilder,
+  createDeleteBuilder,
+  createTableBuilder,
 }

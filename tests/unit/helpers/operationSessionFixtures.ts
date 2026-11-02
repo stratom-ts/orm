@@ -11,7 +11,7 @@ import type { ProviderContractFactoryOptions } from '../dialects/operationSessio
  *
  * @returns The callback value after the operation and required cleanup complete.
  */
-export function withDeadline<T>(promise: Promise<T>): Promise<T> {
+function withDeadline<T>(promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('operation timed out')), 500)
     promise.then(
@@ -45,7 +45,7 @@ type ProviderControls = {
  * @returns An exclusive-session provider fixture with deterministic failure and
  *   synchronization controls.
  */
-export function createControllableProvider(
+function createControllableProvider(
   options?: ProviderContractFactoryOptions & {
     queryRows?: (sql: string) => unknown[]
     beforeCancel?: (session: number) => Promise<void>
@@ -104,7 +104,7 @@ export function createControllableProvider(
  *
  * @returns The operation session common runtime fixture used by the contract scenario.
  */
-export function createOperationSessionCommonRuntime(
+function createOperationSessionCommonRuntime(
   options?: Parameters<typeof createControllableProvider>[0],
 ) {
   const controls = createControllableProvider(options)
@@ -132,7 +132,7 @@ export function createOperationSessionCommonRuntime(
  *
  * @returns A connector that requires calls to go through its custom session provider.
  */
-export function customConnector(dialect: Connector['dialect']): Connector {
+function customConnector(dialect: Connector['dialect']): Connector {
   return {
     name: 'custom',
     dialect,
@@ -412,4 +412,11 @@ function createControllableSessionState(): ControllableSessionState {
     identityMutated: false,
     identityReads: 0,
   }
+}
+
+export {
+  withDeadline,
+  createControllableProvider,
+  createOperationSessionCommonRuntime,
+  customConnector,
 }

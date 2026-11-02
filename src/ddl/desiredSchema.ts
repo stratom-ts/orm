@@ -79,8 +79,8 @@ function assertUniqueColumnNames(
   )
 
   for (let index = 1; index < ordered.length; index++) {
-    const previous = ordered[index - 1]!
-    const current = ordered[index]!
+    const previous = ordered[index - 1]
+    const current = ordered[index]
 
     if (previous.identifier.comparisonKey !== current.identifier.comparisonKey) continue
 
@@ -106,7 +106,7 @@ function assertUniqueColumnNames(
  * @param handles - Desired table handles to register.
  * @param identities - Identity module used to resolve and validate relations.
  */
-export function registerDesiredSchema(
+function registerDesiredSchema(
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
   forRelation: (
@@ -184,7 +184,7 @@ function validateLazyReference(
           : `Lazy reference targets ambiguous relation ${identities.format(relation)}`,
     })
 
-  const registered = matches[0]!.getSchema().entries[reference.target.column]
+  const registered = matches[0].getSchema().entries[reference.target.column]
 
   if (registered !== selected)
     throw new MigrationError({
@@ -248,7 +248,7 @@ function validateRegisteredTables(
  *
  * @returns Desired tables with dialect-specific physical storage and resolved references.
  */
-export function lowerDesiredSchema(
+function lowerDesiredSchema(
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
   lowerer: AuthoredDesiredSchemaLowerer,
@@ -453,3 +453,5 @@ function resolveReferenceIdentifier(
 
   return identities.member('column', physicalColumnName(target, reference.target.column))
 }
+
+export { registerDesiredSchema, lowerDesiredSchema }

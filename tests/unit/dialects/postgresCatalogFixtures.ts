@@ -25,7 +25,7 @@ import type {
 import { createCanonicalRelationIdentityModule } from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
-export type PostgresCatalogColumnFixture = {
+type PostgresCatalogColumnFixture = {
   name: string
   dataType: string
   isNullable: boolean
@@ -33,14 +33,14 @@ export type PostgresCatalogColumnFixture = {
   identityGeneration?: 'always' | 'byDefault' | null
 }
 
-export type PostgresCatalogKeyFixture = {
+type PostgresCatalogKeyFixture = {
   name: string
   columns: string[]
   semanticCompleteness?: 'supportedSimple' | 'unsupported'
   isValid?: boolean
 }
 
-export type PostgresCatalogForeignKeyFixture = PostgresCatalogKeyFixture & {
+type PostgresCatalogForeignKeyFixture = PostgresCatalogKeyFixture & {
   referencedSchema: string
   referencedTable: string
   referencedColumns: string[]
@@ -48,11 +48,11 @@ export type PostgresCatalogForeignKeyFixture = PostgresCatalogKeyFixture & {
   onUpdate: ReferentialAction
 }
 
-export type PostgresCatalogIndexFixture = PostgresCatalogKeyFixture & {
+type PostgresCatalogIndexFixture = PostgresCatalogKeyFixture & {
   unique: boolean
 }
 
-export type PostgresCatalogTableFixture = {
+type PostgresCatalogTableFixture = {
   schema: string
   name: string
   columns: PostgresCatalogColumnFixture[]
@@ -68,11 +68,11 @@ export type PostgresCatalogTableFixture = {
   }[]
 }
 
-export type CompletePostgresCatalogFixture = CatalogSnapshot & {
+type CompletePostgresCatalogFixture = CatalogSnapshot & {
   tables: PostgresCatalogTableFixture[]
 }
 
-export type PostgresCatalogSnapshotFixture = {
+type PostgresCatalogSnapshotFixture = {
   namespaceContext: NamespaceContext
   tables: PostgresCatalogTableFixture[]
   namespaces?: string[]
@@ -92,7 +92,7 @@ type SupportedSimpleSemantics = Pick<
  *
  * @returns Catalog primary key evidence for schema reconciliation checks.
  */
-export function postgresCatalogPrimaryKey(semantics: SupportedSimpleSemantics) {
+function postgresCatalogPrimaryKey(semantics: SupportedSimpleSemantics) {
   return (table: string, columns: string[] = ['id']): PostgresCatalogKeyFixture => ({
     name: `${table}_pkey`,
     columns,
@@ -101,7 +101,7 @@ export function postgresCatalogPrimaryKey(semantics: SupportedSimpleSemantics) {
 }
 
 /** Completes fixture catalog evidence before invoking migration planning. */
-export const planPostgresMigration = (
+const planPostgresMigration = (
   schemas: Parameters<typeof planMigrationWithContext>[0],
   catalog: PostgresCatalogSnapshotFixture,
   dialect: Parameters<typeof planMigrationWithContext>[2],
@@ -325,7 +325,7 @@ function buildFixtureColumns(fixture: PostgresCatalogTableFixture) {
  *
  * @returns Complete postgres catalog evidence for schema reconciliation checks.
  */
-export function completePostgresCatalog(
+function completePostgresCatalog(
   input: PostgresCatalogSnapshotFixture,
   request: CatalogRequest,
 ): CompletePostgresCatalogFixture {
@@ -526,3 +526,15 @@ function buildFixtureNamespaces(
     },
   }))
 }
+
+export type {
+  PostgresCatalogColumnFixture,
+  PostgresCatalogKeyFixture,
+  PostgresCatalogForeignKeyFixture,
+  PostgresCatalogIndexFixture,
+  PostgresCatalogTableFixture,
+  CompletePostgresCatalogFixture,
+  PostgresCatalogSnapshotFixture,
+}
+
+export { postgresCatalogPrimaryKey, planPostgresMigration, completePostgresCatalog }

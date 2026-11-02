@@ -1,3 +1,4 @@
+import type { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 
 import { planMigration } from '@/ddl/migrationPlan'
@@ -542,7 +543,7 @@ it.each([
       expect(() =>
         planMigration([], snapshot, sqliteDialect.migration.planning, {
           migrationOwnership: [
-            { kind: 'completeNamespace', namespace: mainRequest.completeNamespaces[0]! },
+            { kind: 'completeNamespace', namespace: mainRequest.completeNamespaces[0] },
           ],
         }),
       ).toThrow(/catalog|unknown|incomplete/i)
@@ -567,7 +568,7 @@ it('should not infer rowid generation or nullability when the DESC primary-key i
       mainRequest,
     )
 
-    const id = tableOf(relationNamed(snapshot, 'target')).columns.items[0]!
+    const id = tableOf(relationNamed(snapshot, 'target')).columns.items[0]
     expect(id.generation.state).toBe('unknown')
     expect(id.nullable.state).toBe('unknown')
   } finally {
@@ -808,7 +809,7 @@ it('should reject primary-key index direction that contradicts INTEGER PRIMARY K
     const relation = relationNamed(snapshot, 'target')
     expect(relation.management).toBe('unmanaged')
     expect(tableOf(relation).primaryKey.state).toBe('unknown')
-    expect(tableOf(relation).columns.items[0]!.generation.state).toBe('absent')
+    expect(tableOf(relation).columns.items[0].generation.state).toBe('absent')
 
     expect(snapshot.diagnostics).toContainEqual(
       expect.objectContaining({
@@ -915,17 +916,17 @@ function assertSqliteCatalogTables(snapshot: CatalogSnapshot) {
  * @param parentTable - Parent relation used to check referenced-key evidence.
  */
 function assertSqliteParentColumns(parentTable: CatalogTable) {
-  expect(parentTable.columns.items[0]!.dataType).toMatchObject({
+  expect(parentTable.columns.items[0].dataType).toMatchObject({
     state: 'present',
     value: { native: 'INTEGER', comparisonKey: 'integer' },
   })
 
-  expect(parentTable.columns.items[0]!.generation).toEqual({
+  expect(parentTable.columns.items[0].generation).toEqual({
     state: 'present',
     value: { kind: 'rowidAlias', autoIncrement: true },
   })
 
-  expect(parentTable.columns.items[1]!.default).toMatchObject({
+  expect(parentTable.columns.items[1].default).toMatchObject({
     state: 'present',
     value: {
       kind: 'literal',
@@ -934,12 +935,12 @@ function assertSqliteParentColumns(parentTable: CatalogTable) {
     },
   })
 
-  expect(parentTable.columns.items[1]!.nullable).toEqual({
+  expect(parentTable.columns.items[1].nullable).toEqual({
     state: 'present',
     value: false,
   })
 
-  expect(parentTable.columns.items[2]!.nullable).toEqual({
+  expect(parentTable.columns.items[2].nullable).toEqual({
     state: 'present',
     value: true,
   })
@@ -952,9 +953,7 @@ function assertSqliteParentColumns(parentTable: CatalogTable) {
  *
  * @returns A catalog executor that validates bindings before node:sqlite execution.
  */
-function createNodeSqliteExecutor(
-  database: import('node:sqlite').DatabaseSync,
-): CatalogExecutor {
+function createNodeSqliteExecutor(database: DatabaseSync): CatalogExecutor {
   return {
     /** Executes fixture SQL with the configured native observations. */
     execute: async ({ sql, params }) =>

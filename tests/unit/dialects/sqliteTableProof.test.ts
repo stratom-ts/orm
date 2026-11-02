@@ -60,7 +60,7 @@ function fixture(): SqliteProofBatchInput {
 
 function provedTable(input: SqliteProofBatchInput) {
   const result = proveSqliteTables(input)
-  const relation = result.relations[0]!
+  const relation = result.relations[0]
   expect(relation.table.state).toBe('present')
 
   if (relation.table.state !== 'present') throw new Error('Expected table facts')
@@ -117,7 +117,7 @@ function registerTableProofGroup2() {
     expect(result.errors.get('t')).toContain('no index_xinfo evidence')
     expect(facts.columns.coverage.state).toBe('complete')
 
-    expect(facts.columns.items[0]!.generation).toMatchObject({
+    expect(facts.columns.items[0].generation).toMatchObject({
       state: 'present',
       value: { kind: 'rowidAlias' },
     })
@@ -158,7 +158,7 @@ function registerTableProofGroup4() {
     expect(badColumns.facts.options).toMatchObject({ coverage: { state: 'complete' } })
 
     const optionsBad = fixture()
-    optionsBad.scopeRows = [{ ...optionsBad.scopeRows[0]!, strict: 1 }]
+    optionsBad.scopeRows = [{ ...optionsBad.scopeRows[0], strict: 1 }]
     optionsBad.mainTables = optionsBad.scopeRows
     const badOptions = provedTable(optionsBad)
     expect(badOptions.result.errors.get('t')).toContain('STRICT')
@@ -218,7 +218,7 @@ function registerTableProofGroup5() {
 
       if (relation.table.state !== 'present') throw new Error('Expected table facts')
 
-      expect(relation.table.value.columns.items[0]!.generation.state).toBe('unsupported')
+      expect(relation.table.value.columns.items[0].generation.state).toBe('unsupported')
     }
   })
 }
@@ -228,7 +228,7 @@ function registerTableProofGroup6() {
     const input = fixture()
     const child = table('child', 2)
     input.scopeRows = [child]
-    input.mainTables = [input.mainTables[0]!, child]
+    input.mainTables = [input.mainTables[0], child]
     input.schemaRows = [
       ...input.schemaRows,
       {
@@ -372,7 +372,7 @@ function registerTableProofGroup9() {
 function registerTableProofGroup10() {
   it('should keep the first reason when independent observations are damaged', () => {
     const input = fixture()
-    input.scopeRows = [{ ...input.scopeRows[0]!, strict: 1 }]
+    input.scopeRows = [{ ...input.scopeRows[0], strict: 1 }]
     input.mainTables = input.scopeRows
 
     input.evidence.indexLists.set('t', [
@@ -464,7 +464,7 @@ function registerTableProofGroup13() {
   it('should canonicalize relation facts after the ordered parent recovery pass', () => {
     const input = fixture()
     const other = table('a')
-    input.scopeRows = [input.scopeRows[0]!, other]
+    input.scopeRows = [input.scopeRows[0], other]
     input.mainTables = input.scopeRows
     input.schemaRows = [
       ...input.schemaRows,
@@ -569,7 +569,7 @@ function registerTableProofGroup16() {
       const input = fixture()
       const child = table('child', 2)
       input.scopeRows = [child]
-      input.mainTables = [input.mainTables[0]!, child]
+      input.mainTables = [input.mainTables[0], child]
       input.schemaRows = [
         ...input.schemaRows,
         {
@@ -675,7 +675,7 @@ function registerTableProofGroup18() {
     expect(forward.errors.get('t')).toContain('non-contiguous index_xinfo seqnos')
     expect(reversed.errors).toEqual(forward.errors)
     expect(reversed.relations).toEqual(forward.relations)
-    const facts = forward.relations[0]!.table
+    const facts = forward.relations[0].table
     expect(facts.state).toBe('present')
 
     if (facts.state !== 'present') throw new Error('Expected table facts')

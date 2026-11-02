@@ -90,7 +90,7 @@ it('should report engine version separately from the >=3.37 requirement', () => 
 
     expect(version).toMatch(/^\d+\.\d+\.\d+$/)
     const [major, minor] = version.split('.').map(Number)
-    expect(major! > 3 || (major === 3 && minor! >= 37)).toBe(true)
+    expect(major > 3 || (major === 3 && minor >= 37)).toBe(true)
   } finally {
     db.close()
   }
@@ -132,7 +132,7 @@ it('should start BEGIN IMMEDIATE before prepare and commit ordered actions', asy
   const provider = createDb0NodeSqliteOperationSessionProvider(connector)
   const session = await provider.open()
   const prepare = vi.fn<() => Promise<MigrationProgram>>(async () => {
-    expect(inTransaction(await connector.getInstance!())).toBe(true)
+    expect(inTransaction(await connector.getInstance())).toBe(true)
     return program()
   })
 
@@ -149,7 +149,7 @@ it('should start BEGIN IMMEDIATE before prepare and commit ordered actions', asy
     ).toHaveLength(1)
 
     expect(prepare).toHaveBeenCalledTimes(1)
-    expect(inTransaction(await connector.getInstance!())).toBe(false)
+    expect(inTransaction(await connector.getInstance())).toBe(false)
   } finally {
     await session.release('discard')
     await provider.close()
@@ -172,7 +172,7 @@ it('should reject forbidden actions before preconditions or DDL and roll back', 
         sourceStepIndexes: [1],
       },
     ],
-    actions: [{ ...program().actions[0]!, transaction: 'forbidden' as const }],
+    actions: [{ ...program().actions[0], transaction: 'forbidden' as const }],
   }
 
   try {

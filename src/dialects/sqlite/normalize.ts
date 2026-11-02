@@ -2,7 +2,7 @@ import { trimSqliteWhitespace } from './defaultExpression'
 import { formatSqliteLiteral } from './validate'
 
 /** Returns SQLite's stable affinity key for a declared type spelling. */
-export function normalizeSqliteDataType(dataType: string): string {
+function normalizeSqliteDataType(dataType: string): string {
   const type = dataType.trim().toUpperCase()
 
   if (type.includes('INT')) return 'integer'
@@ -28,7 +28,7 @@ function stripEnclosingParens(expression: string): string {
   let depth = 0
 
   for (let index = 0; index < expression.length; index++) {
-    const character = expression[index]!
+    const character = expression[index]
 
     if (character === "'") {
       const escaped: boolean = quoted && expression[index + 1] === "'"
@@ -50,7 +50,7 @@ function stripEnclosingParens(expression: string): string {
 }
 
 /** Canonicalizes SQLite defaults for stable catalog comparison. */
-export function normalizeSqliteDefaultExpression(expression: string): string {
+function normalizeSqliteDefaultExpression(expression: string): string {
   let result = trimSqliteWhitespace(expression)
   let previous: string
 
@@ -75,9 +75,7 @@ export function normalizeSqliteDefaultExpression(expression: string): string {
 }
 
 /** Normalizes a primitive default under SQLite's literal rules. */
-export function normalizeSqliteDefaultValue(
-  value: string | number | boolean | null,
-): string {
+function normalizeSqliteDefaultValue(value: string | number | boolean | null): string {
   return normalizeSqliteDefaultExpression(formatSqliteLiteral(value))
 }
 
@@ -86,7 +84,7 @@ function collapseUnquotedWhitespace(expression: string): string {
   let quoted = false
   let result = ''
   for (let index = 0; index < expression.length; index++) {
-    const character = expression[index]!
+    const character = expression[index]
 
     if (character === "'" && quoted && expression[index + 1] === "'") {
       result += "''"
@@ -105,4 +103,10 @@ function collapseUnquotedWhitespace(expression: string): string {
   }
 
   return result
+}
+
+export {
+  normalizeSqliteDataType,
+  normalizeSqliteDefaultExpression,
+  normalizeSqliteDefaultValue,
 }

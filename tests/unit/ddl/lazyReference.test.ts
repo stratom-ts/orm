@@ -118,13 +118,13 @@ it('evaluates a reused declaration once per graph and retains eager target inten
 
   const graph = registerDesiredSchema([Source, Target], identities())
   expect(target).toHaveBeenCalledTimes(1)
-  const references = graph.tables[0]!.columns.filter((c) => c.reference)
+  const references = graph.tables[0].columns.filter((c) => c.reference)
   expect(references.map((c) => c.reference!.metadata)).toEqual([
     getReferenceMetadata(reference(Target, 'id', { onUpdate: 'cascade' })),
     getReferenceMetadata(reference(Target, 'id', { onUpdate: 'cascade' })),
   ])
 
-  expect(Object.isFrozen(references[0]!.reference!.metadata.target.relation)).toBe(true)
+  expect(Object.isFrozen(references[0].reference!.metadata.target.relation)).toBe(true)
   postgresDialect.schema.lowerDesiredSchema(graph)
   expect(target).toHaveBeenCalledTimes(1)
   registerDesiredSchema([Target, Source], identities())
@@ -145,9 +145,7 @@ it('pins target identity across query mapping and later planning graphs', () => 
   const graph = registerDesiredSchema([A, B, Source], identities())
   target = B
 
-  expect(graph.tables[2]!.columns[1]!.reference!.targetRelation.relation.spelling).toBe(
-    'a',
-  )
+  expect(graph.tables[2].columns[1].reference!.targetRelation.relation.spelling).toBe('a')
 
   expect(() =>
     lowerDesiredSchema([A, B, Source], identities(), postgresDialect.schema),
@@ -169,8 +167,8 @@ it('accepts a deferred raw schema with its registered column', () => {
   )
 
   expect(
-    registerDesiredSchema([Source, Target], identities()).tables[0]!.columns[1]!
-      .reference!.metadata.target,
+    registerDesiredSchema([Source, Target], identities()).tables[0].columns[1].reference!
+      .metadata.target,
   ).toEqual({ relation: { relation: 'target' }, column: 'id' })
 })
 
@@ -303,7 +301,7 @@ it('checks local referential actions and preserves local defaults without early 
 
   expect(target).not.toHaveBeenCalled()
   const graph = lowerDesiredSchema([Source, Target], identities(), postgresDialect.schema)
-  expect(graph.tables[0]!.columns[0]).toMatchObject({
+  expect(graph.tables[0].columns[0]).toMatchObject({
     databaseDefault: { sql: "'fallback'" },
     reference: { onDelete: 'set default' },
   })

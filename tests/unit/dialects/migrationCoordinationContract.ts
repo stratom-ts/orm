@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-export type CoordinationContractEvent =
+type CoordinationContractEvent =
   | 'acquire'
   | 'release'
   | 'transaction'
@@ -9,7 +9,7 @@ export type CoordinationContractEvent =
   | 'unclassified'
 
 /** Physical-dialect adapter for exercising exclusion without SQL assumptions. */
-export type CoordinationContractLockManager = Readonly<{
+type CoordinationContractLockManager = Readonly<{
   /**
    * Claims a fixture coordination lock when no competing owner holds it.
    *
@@ -28,7 +28,7 @@ export type CoordinationContractLockManager = Readonly<{
   release(owner: string, key: string): void
 }>
 
-export type CoordinationContractRuntime = {
+type CoordinationContractRuntime = {
   /**
    * Executes the compiled query through its owning session or executor.
    *
@@ -53,7 +53,7 @@ export type CoordinationContractRuntime = {
   waitFor(event: CoordinationContractEvent): Promise<void>
 }
 
-export type CoordinationContractFactory = (options?: {
+type CoordinationContractFactory = (options?: {
   applicationId?: string
   clientId?: string
   lockResults?: boolean[]
@@ -106,7 +106,7 @@ function hasOrderedProtectedWork(events: readonly CoordinationContractEvent[]): 
  * @param name - Dialect name included in the generated test-suite label.
  * @param createRuntime - Factory adapting a physical runtime to semantic controls.
  */
-export function registerMigrationCoordinationContract(
+function registerMigrationCoordinationContract(
   name: string,
   createRuntime: CoordinationContractFactory,
 ): void {
@@ -301,3 +301,12 @@ function registerCoordinationTimeoutScenario(createRuntime: CoordinationContract
     expect(protectedWork(runtime.events())).toBe(false)
   })
 }
+
+export type {
+  CoordinationContractEvent,
+  CoordinationContractLockManager,
+  CoordinationContractRuntime,
+  CoordinationContractFactory,
+}
+
+export { registerMigrationCoordinationContract }

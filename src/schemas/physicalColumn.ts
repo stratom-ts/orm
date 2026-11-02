@@ -1,6 +1,5 @@
 import type { Dialect } from '@/dialects/types'
 import type { TableHandle } from '@/types'
-import type { AnySchema } from '@/types/schema'
 import { SchemaError } from '@/utils/error'
 
 import { getColumnMetadata } from './actions/column'
@@ -12,7 +11,7 @@ export function physicalColumnName(handle: TableHandle, property: string): strin
       message: `Unknown application column ${JSON.stringify(property)} on ${handle.getTableMetadata().name}`,
     })
 
-  const metadata = getColumnMetadata(handle.getSchema().entries[property] as AnySchema)
+  const metadata = getColumnMetadata(handle.getSchema().entries[property])
 
   if (!metadata || !Object.hasOwn(metadata, 'name')) return property
 

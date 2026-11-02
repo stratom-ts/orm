@@ -811,7 +811,7 @@ async function assertCompleteNamespaceCoverage() {
     completeNamespaces: [[{ role: 'schema', spelling: 'public' }]],
   })
 
-  expect(completeNamespace.namespaces.items[0]!.relations.coverage).toEqual({
+  expect(completeNamespace.namespaces.items[0].relations.coverage).toEqual({
     state: 'complete',
   })
 }
@@ -1177,11 +1177,11 @@ function fixtureRelationRows(
     },
   ]
 
-  if (options.returnedRelationName) rows[0]!.name = options.returnedRelationName
+  if (options.returnedRelationName) rows[0].name = options.returnedRelationName
 
   if (options.unrelatedRace) {
     rows.push({
-      ...rows[0]!,
+      ...rows[0],
       object_id: String(1000 + relationQueries),
       name: 'audit_log',
     })
@@ -1397,7 +1397,7 @@ const registerCatalogCases1 = () => {
       request,
     )
 
-    const relation = catalog.namespaces.items[0]!.relations.items[0]!
+    const relation = catalog.namespaces.items[0].relations.items[0]
 
     if (relation.table.state !== 'present') throw new Error('Expected table evidence')
 
@@ -1447,7 +1447,7 @@ const registerCatalogCases2 = () => {
     )
 
     expect(second).toEqual(first)
-    const relation = first.namespaces.items[0]!.relations.items[0]!
+    const relation = first.namespaces.items[0].relations.items[0]
     expect(relation.identity.relation.spelling).toBe('events')
     expect(relation.table.state).toBe('present')
 
@@ -1464,7 +1464,7 @@ const registerCatalogCases2 = () => {
       reason: expect.stringMatching(/not managed/i) as unknown,
     })
 
-    expect(first.namespaces.items[0]!.relations.coverage).toMatchObject({
+    expect(first.namespaces.items[0].relations.coverage).toMatchObject({
       state: 'partial',
       remainder: { state: 'unmanaged' },
     })
@@ -1507,7 +1507,7 @@ const registerCatalogCases3 = () => {
       request,
     )
 
-    expect(view.namespaces.items[0]!.relations.items[0]!.table).toEqual({
+    expect(view.namespaces.items[0].relations.items[0].table).toEqual({
       state: 'absent',
     })
   })

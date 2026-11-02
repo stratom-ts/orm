@@ -205,11 +205,11 @@ it('should preserve built-in logical types for omitted defaults in RETURNING and
       },
     ])
 
-    expect(rows[0]!.stamp).toBeInstanceOf(Date)
-    expect(rows[0]!.day).toBeInstanceOf(Date)
-    expect(rows[0]!.time).toMatch(/^\d{2}:\d{2}:\d{2}$/)
-    expect(rows[0]!.stamp.getTime()).not.toBeNaN()
-    expect(rows[0]!.day.getTime()).not.toBeNaN()
+    expect(rows[0].stamp).toBeInstanceOf(Date)
+    expect(rows[0].day).toBeInstanceOf(Date)
+    expect(rows[0].time).toMatch(/^\d{2}:\d{2}:\d{2}$/)
+    expect(rows[0].stamp.getTime()).not.toBeNaN()
+    expect(rows[0].day.getTime()).not.toBeNaN()
     expect(await db.from(ValidDefaults).execute()).toEqual(rows)
     expect((await db.migrate().dryRun()).actions).toEqual([])
     expect(await db.migrate().plan()).toEqual({ steps: [] })

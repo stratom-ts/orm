@@ -101,7 +101,7 @@ function findPostgresQueryColumnMatches(
 }
 
 /** Creates one coherent PostgreSQL Query resolution for a client registry. */
-export function resolvePostgresQuery(
+function resolvePostgresQuery(
   handles: readonly TableHandle[],
   options?: DialectQueryResolveOptions,
 ): DialectQueryResolution {
@@ -190,3 +190,5 @@ function compileResolvedPostgresQuery(
     },
   }
 }
+
+export { resolvePostgresQuery }

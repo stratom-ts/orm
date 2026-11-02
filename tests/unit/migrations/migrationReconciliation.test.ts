@@ -444,7 +444,7 @@ describe('Migration reconciliation identities and constraint order: matches dott
       namespaceContext: POSTGRES_NAMESPACE_CONTEXT,
       ...emptyCatalogReservations(),
       tables: [
-        catalog.tables[1]!,
+        catalog.tables[1],
         {
           schema: 'a',
           name: 'anchor',
@@ -520,9 +520,9 @@ describe('Migration reconciliation constraint ordering', () => {
     const catalog: CatalogSnapshot = createOrderingCatalog()
     const permuted = structuredClone(catalog)
     permuted.tables.reverse()
-    permuted.tables[0]!.columns.reverse()
-    permuted.tables[0]!.uniqueConstraints!.reverse()
-    permuted.tables[0]!.foreignKeys!.reverse()
+    permuted.tables[0].columns.reverse()
+    permuted.tables[0].uniqueConstraints!.reverse()
+    permuted.tables[0].foreignKeys!.reverse()
 
     expect(planMigration([Memberships, Teams], catalog, postgresDialect)).toEqual({
       steps: [],
@@ -533,7 +533,7 @@ describe('Migration reconciliation constraint ordering', () => {
     })
 
     const reversedKey = structuredClone(catalog)
-    reversedKey.tables[0]!.primaryKey!.columns.reverse()
+    reversedKey.tables[0].primaryKey!.columns.reverse()
 
     expect(() =>
       planMigration([Memberships, Teams], reversedKey, postgresDialect),
@@ -548,7 +548,7 @@ describe('Migration reconciliation diagnostics', () => {
       { name: 'email', dataType: 'text', isNullable: false },
     ])
 
-    catalog.tables[0]!.primaryKey = {
+    catalog.tables[0].primaryKey = {
       name: 'users_pkey',
       columns: ['email'],
       ...SUPPORTED_CATALOG_SEMANTICS,
@@ -567,25 +567,25 @@ describe('Migration reconciliation diagnostics: directly rejects unsupported %s 
     [
       'default',
       (catalog: CatalogSnapshot) => {
-        catalog.tables[0]!.columns[2]!.defaultExpression = "'disabled'"
+        catalog.tables[0].columns[2].defaultExpression = "'disabled'"
       },
     ],
     [
       'identity',
       (catalog: CatalogSnapshot) => {
-        catalog.tables[0]!.columns[0]!.identityGeneration = 'always'
+        catalog.tables[0].columns[0].identityGeneration = 'always'
       },
     ],
     [
       'primary key',
       (catalog: CatalogSnapshot) => {
-        catalog.tables[0]!.primaryKey!.columns = ['email']
+        catalog.tables[0].primaryKey!.columns = ['email']
       },
     ],
     [
       'unique constraint',
       (catalog: CatalogSnapshot) => {
-        catalog.tables[0]!.uniqueConstraints!.push({
+        catalog.tables[0].uniqueConstraints!.push({
           name: 'managed_users_status_key',
           columns: ['status'],
           ...SUPPORTED_CATALOG_SEMANTICS,
@@ -595,13 +595,13 @@ describe('Migration reconciliation diagnostics: directly rejects unsupported %s 
     [
       'foreign key',
       (catalog: CatalogSnapshot) => {
-        catalog.tables[1]!.foreignKeys![0]!.onDelete = 'restrict'
+        catalog.tables[1].foreignKeys![0].onDelete = 'restrict'
       },
     ],
     [
       'index definition',
       (catalog: CatalogSnapshot) => {
-        catalog.tables[0]!.indexes![0]!.columns = ['email']
+        catalog.tables[0].indexes![0].columns = ['email']
       },
     ],
   ] as const)('should directly reject unsupported %s drift', (property, mutate) => {
@@ -616,8 +616,8 @@ describe('Migration reconciliation diagnostics: directly rejects unsupported %s 
 describe('Migration reconciliation diagnostics: selects issues by canonical target before property', () => {
   it('should select issues by canonical target before property', () => {
     const catalog = managedCatalog()
-    catalog.tables[0]!.primaryKey!.columns = ['email']
-    catalog.tables[1]!.foreignKeys![0]!.onDelete = 'restrict'
+    catalog.tables[0].primaryKey!.columns = ['email']
+    catalog.tables[1].foreignKeys![0].onDelete = 'restrict'
 
     const permuted = structuredClone(catalog)
     permuted.tables.reverse()
@@ -640,7 +640,7 @@ describe('Migration reconciliation diagnostics: selects issues by canonical targ
 describe('Migration reconciliation diagnostics: uses fixed property order for issues on the same target', () => {
   it('should use fixed property order for issues on the same target', () => {
     const catalog = managedCatalog()
-    const users = catalog.tables[0]!
+    const users = catalog.tables[0]
     users.primaryKey!.columns = ['email']
     users.uniqueConstraints = []
     users.foreignKeys = [
@@ -693,7 +693,7 @@ describe('Migration reconciliation diagnostics: selects the same column issue ac
     }
 
     const permuted = structuredClone(catalog)
-    permuted.tables[0]!.columns.reverse()
+    permuted.tables[0].columns.reverse()
 
     const first = planningError([Forward], catalog)
     const second = planningError([Reversed], permuted)
@@ -718,8 +718,8 @@ describe('Migration reconciliation invalid inputs and ownership', () => {
       { name: 'email', dataType: 'text', isNullable: false },
     ])
 
-    duplicateCatalog.tables.push(structuredClone(duplicateCatalog.tables[0]!))
-    duplicateCatalog.tables[1]!.columns = duplicateCatalog.tables[1]!.columns.slice(0, 1)
+    duplicateCatalog.tables.push(structuredClone(duplicateCatalog.tables[0]))
+    duplicateCatalog.tables[1].columns = duplicateCatalog.tables[1].columns.slice(0, 1)
     const reversedCatalog = structuredClone(duplicateCatalog)
     reversedCatalog.tables.reverse()
 
@@ -765,10 +765,10 @@ describe('Migration reconciliation invalid inputs and ownership: breaks otherwis
 
   it('should throw instead of exposing constructive steps alongside an issue', () => {
     const catalog = managedCatalog()
-    catalog.tables[0]!.columns = catalog.tables[0]!.columns.filter(
+    catalog.tables[0].columns = catalog.tables[0].columns.filter(
       (column) => column.name !== 'email',
     )
-    catalog.tables[1]!.foreignKeys![0]!.onDelete = 'restrict'
+    catalog.tables[1].foreignKeys![0].onDelete = 'restrict'
 
     expect(() =>
       planMigration([ManagedUsers, ManagedPosts], catalog, postgresDialect),
@@ -791,7 +791,7 @@ describe('Migration reconciliation invalid inputs and ownership: breaks otherwis
 describe('Migration reconciliation invalid inputs and ownership: accepts one physical name reported under several catalog relations', () => {
   it('should accept one physical name reported under several catalog relations', () => {
     const catalog = usersCatalog([{ name: 'id', dataType: 'uuid', isNullable: false }])
-    catalog.tables[0]!.indexes = [
+    catalog.tables[0].indexes = [
       {
         name: 'shared_idx',
         columns: ['id'],
@@ -1325,7 +1325,7 @@ function rejectedIdentifierCatalog(name: string, role: string) {
     createCatalogRequest([Accounts], []),
   )
 
-  const original = snapshot.request.relations[0]!.identity
+  const original = snapshot.request.relations[0].identity
   const rejected = {
     namespace: original.namespace.map((segment) =>
       segment.role === role
@@ -1420,7 +1420,7 @@ it.each(['explicit', 'generated'])(
 
     const dialect = foldingIdentifierDialect(name)
     const catalog = invalidIdentifierCatalog('desired column')
-    catalog.tables[0]!.columns = [
+    catalog.tables[0].columns = [
       { name: 'id', dataType: 'text', isNullable: false },
       { name: 'aaa', dataType: 'text', isNullable: false, defaultExpression: "'old'" },
     ]

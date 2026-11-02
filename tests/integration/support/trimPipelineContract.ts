@@ -7,7 +7,7 @@ import { ValidationError } from '@/utils/error'
 
 const title = pipe(string(), trim(), minLength(1), maxLength(200))
 
-export const TrimmedIssues = defineTable(
+const TrimmedIssues = defineTable(
   'trimmed_issues',
   {
     id: string(),
@@ -19,7 +19,7 @@ export const TrimmedIssues = defineTable(
 )
 
 /** Exercises the consumer title pipeline through each native dialect's public API. */
-export async function assertTrimmedTitleWrites(db: Db<readonly [typeof TrimmedIssues]>) {
+async function assertTrimmedTitleWrites(db: Db<readonly [typeof TrimmedIssues]>) {
   await db.migrate().execute()
   const row = {
     id: 'first',
@@ -89,3 +89,5 @@ async function assertRejectedTitleWrites(db: Db<readonly [typeof TrimmedIssues]>
 
   expect(await db.from(TrimmedIssues).where({ id: 'invalid' }).execute()).toEqual([])
 }
+
+export { TrimmedIssues, assertTrimmedTitleWrites }

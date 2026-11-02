@@ -14,6 +14,12 @@ import type {
   MigrationIndexTarget,
   MigrationNamespaceTarget,
   MigrationPlan,
+  // @ts-expect-error MigrationPreview was replaced by MigrationDryRun.
+  MigrationPreview,
+  // @ts-expect-error MigrationPreviewAction was replaced by MigrationDryRunAction.
+  MigrationPreviewAction,
+  // @ts-expect-error MigrationPreviewStatement was replaced by MigrationDryRunStatement.
+  MigrationPreviewStatement,
   MigrationRelationTarget,
   MigrationStep,
   MigrationTarget,
@@ -95,14 +101,11 @@ describe('public Migration Plan types', () => {
 
     expectTypeOf<MigrateBuilder>().not.toHaveProperty('preview')
 
-    // @ts-expect-error MigrationPreview was replaced by MigrationDryRun.
-    expectTypeOf<import('@/index').MigrationPreview>()
+    expectTypeOf<MigrationPreview>()
 
-    // @ts-expect-error MigrationPreviewAction was replaced by MigrationDryRunAction.
-    expectTypeOf<import('@/index').MigrationPreviewAction>()
+    expectTypeOf<MigrationPreviewAction>()
 
-    // @ts-expect-error MigrationPreviewStatement was replaced by MigrationDryRunStatement.
-    expectTypeOf<import('@/index').MigrationPreviewStatement>()
+    expectTypeOf<MigrationPreviewStatement>()
   })
 
   it('should keep the descriptive plan and step shapes exact', () => {

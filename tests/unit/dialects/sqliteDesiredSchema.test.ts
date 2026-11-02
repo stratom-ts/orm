@@ -360,7 +360,7 @@ const registerDesiredSchemaCases7 = () => {
 const registerDesiredSchemaCases8 = () => {
   it('should lower literals and SQLite defaults without accepting unsafe expressions', () => {
     const Defaults = createDefaultsTable()
-    const table = lowerDesiredSchema([Defaults], identities(), sqliteSchema).tables[0]!
+    const table = lowerDesiredSchema([Defaults], identities(), sqliteSchema).tables[0]
 
     const defaults = Object.fromEntries(
       table.columns.map((column) => [column.identifier.spelling, column.databaseDefault]),
@@ -435,7 +435,7 @@ function registerDesiredSchemaGroup2() {
 
     const tables = lowerDesiredSchema([Transformed], identities(), sqliteSchema).tables
     expect(
-      tables[0]!.columns.find((column) => column.identifier.spelling === 'value'),
+      tables[0].columns.find((column) => column.identifier.spelling === 'value'),
     ).toMatchObject({
       dataType: 'REAL',
       notNull: false,
