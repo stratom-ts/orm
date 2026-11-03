@@ -58,7 +58,7 @@ function inferPostgresFormatType(facts: StorageFacts): SqlDataType | undefined {
  *
  * @param constraints - Min/max length from the schema pipe.
  *
- * @returns `varchar(n)` for maxLength â‰¤ 255, `text` otherwise
+ * @returns `varchar(n)` for maxLength <= 255, `text` otherwise
  */
 function inferPostgresStringType(constraints: StringConstraints): SqlDataType {
   if (constraints.maxLength === undefined) return 'text'

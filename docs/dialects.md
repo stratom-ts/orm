@@ -487,7 +487,7 @@ input string length, UUID format, and numeric bounds do not carry across it.
 
 Built-in mapping rejects numeric or boolean schemas with TEXT affinity, strings with
 numeric affinity, bigint with REAL or TEXT affinity, and unknown or mixed output kinds.
-Composite branch output facts come from internal Valibot extraction; each member's `infer.ts`
+Composite branch output facts come from internal Valibot extraction; each member's `storage.ts`
 selects compatible storage and its `mapping.ts` preserves the result identity. SQLite
 maps compatible number unions through the inferred `INTEGER` or `REAL` logical type
 even when the selected declared type differs. PostgreSQL keeps native temporal
