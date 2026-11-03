@@ -15,12 +15,11 @@ import type { ColumnGeneration, DatabaseDefault } from '@/schemas'
 import type { StorageFacts } from '@/storage/facts'
 import { MigrationError, isErrorTag } from '@/utils/error'
 
-import { inferPostgresColumnTypeFromFacts } from './infer'
-import { assertPostgresScalarStorage } from './mapping'
 import {
   normalizePostgresDataType,
   normalizePostgresDefaultExpression,
 } from './normalize'
+import { selectPostgresColumnStorage } from './storage'
 import {
   assertSafePostgresDataType,
   assertSafePostgresDefaultExpression,
@@ -112,38 +111,6 @@ function lowerGeneration(
   throw new MigrationError({
     message: `Unsupported PostgreSQL dialect generation ${JSON.stringify(generation.generation)}`,
   })
-}
-
-/**
- * Selects and validates a column's PostgreSQL physical type.
- *
- * @param column - Authored desired column.
- * @param facts - Semantic storage facts for the column.
- * @param hasGlobalParameterMapping - Whether the client maps every parameter.
- * @param hasGlobalResultMapping - Whether the client maps every result.
- */
-function physicalType(
-  column: AuthoredDesiredColumn,
-  facts: StorageFacts,
-  hasGlobalParameterMapping: boolean,
-  hasGlobalResultMapping: boolean,
-): string {
-  const metadata = column.metadata
-  const explicit = metadata?.physicalType?.postgresql
-  const hasParameterMapping =
-    hasGlobalParameterMapping || typeof metadata?.mapParam === 'function'
-
-  const hasResultMapping =
-    hasGlobalResultMapping || typeof metadata?.mapResult === 'function'
-
-  const selected = assertSafePostgresDataType(
-    explicit ?? inferPostgresColumnTypeFromFacts(facts),
-  )
-
-  if (explicit !== undefined && (!hasParameterMapping || !hasResultMapping))
-    assertPostgresScalarStorage(selected, facts)
-
-  return selected
 }
 
 /**
@@ -284,13 +251,7 @@ export function lowerPostgresDesiredSchema(
 ): StorageDesiredSchema {
   try {
     return lowerDesiredSchemaGraph(graph, context, {
-      lowerPhysicalType: (column, options) =>
-        physicalType(
-          column,
-          column.facts,
-          options?.hasGlobalParameterMapping ?? false,
-          options?.hasGlobalResultMapping ?? false,
-        ),
+      lowerPhysicalType: selectPostgresColumnStorage,
       lowerReferenceType: (table, column, inheritedType) =>
         validateReferencePhysicalType(table, column, inheritedType),
       lowerColumn: (table, column, dataType) =>

@@ -14,6 +14,15 @@ PostgreSQL and SQLite use facts for physical inference, desired-schema lowering,
 Query mapping supplies resolved target `facts` and local `authoredFacts` for reference columns.
 Physical overrides do not replace this logical evidence.
 
+Each member's private `storage.ts` owns physical inference, explicit selection and
+built-in mapping compatibility. The schema facet, desired-schema lowerer and runtime
+value mapper reuse those decisions. PostgreSQL keeps one format-to-storage table,
+integer-width ordering and serial normalization there. SQLite shares output-family
+selection while keeping physical affinity separate from logical value conversion;
+physical number inference proves bounds that runtime conversion checks on values.
+Migration generation and database-default rules remain in their existing lowerers and
+compatibility modules. The existing direct-lowering validation differences still apply.
+
 The pre-release dialect extension signatures intentionally change:
 
 - `DialectSchema.inferColumnType(facts)` accepts storage facts instead of a native schema.

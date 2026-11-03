@@ -1,17 +1,16 @@
 import { types } from 'node:util'
 
 import type { StorageFacts } from '@/storage/facts'
-import { QueryError, SchemaError } from '@/utils/error'
+import { QueryError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
-import { inferSqliteChoiceType, inferSqliteColumnTypeFromFacts } from './infer'
-import { normalizeSqliteDataType } from './normalize'
 import {
   isSqliteSafeInteger,
   isSqliteSupportedBigInt,
   isSqliteSupportedNumber,
 } from './numeric'
+import { resolveSqliteValueStorage, validateSqliteValueMappingFromFacts } from './storage'
 
 /** Maps or validates values using logical storage evidence. */
 function validateSqliteValueMapping(
@@ -19,64 +18,6 @@ function validateSqliteValueMapping(
   context: DialectValueMappingContext,
 ): void {
   validateSqliteValueMappingFromFacts(dataType, context.facts, context.authoredFacts)
-}
-
-/** Validates built-in mapping from resolved and locally authored storage facts. */
-function validateSqliteValueMappingFromFacts(
-  dataType: string,
-  facts: StorageFacts,
-  authored?: StorageFacts,
-): void {
-  const affinity = normalizeSqliteDataType(dataType)
-  const kind = facts.outputKind
-  const incompatibleAuthoredOutput = authored && authored.outputKind !== kind
-
-  if (facts.composite) inferSqliteColumnTypeFromFacts(facts)
-  if (authored?.composite) inferSqliteColumnTypeFromFacts(authored)
-
-  const supported =
-    kind === 'date' ||
-    kind === 'json' ||
-    (kind === 'string' && (affinity === 'text' || affinity === 'blob')) ||
-    ((kind === 'number' || kind === 'boolean') && affinity !== 'text') ||
-    (kind === 'bigint' &&
-      (affinity === 'integer' || affinity === 'numeric' || affinity === 'blob'))
-
-  if (!supported || facts.outputState === 'unresolved' || incompatibleAuthoredOutput) {
-    throw new SchemaError({
-      message: `SQLite ${kind ?? facts.outputState} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
-    })
-  }
-}
-
-/** Chooses logical conversion independently of SQLite affinity. */
-function mappingTypeFromFacts(
-  dataType: string,
-  facts: StorageFacts,
-  authored?: StorageFacts,
-): string {
-  validateSqliteValueMappingFromFacts(dataType, facts, authored)
-
-  if (facts.composite) return inferSqliteColumnTypeFromFacts(facts)
-
-  switch (facts.outputKind) {
-    case 'string':
-      return 'TEXT'
-    case 'number':
-      if (facts.finiteEvidence === 'choice') return inferSqliteChoiceType(facts)
-
-      return facts.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
-    case 'bigint':
-      return 'BIGINT'
-    case 'boolean':
-      return 'BOOLEAN'
-    case 'date':
-      return 'DATETIME'
-    case 'json':
-      return 'JSON'
-    case undefined:
-      return 'NULL'
-  }
 }
 
 /** Removes type parameters and normalizes a SQLite logical type for value mapping. */
@@ -304,7 +245,7 @@ function mapSqliteParamValueFromFacts(
   if (value === null || value === undefined) return value
 
   const type = facts
-    ? mappingTypeFromFacts(dataType, facts, authored)
+    ? resolveSqliteValueStorage(dataType, facts, authored)
     : declaredType(dataType)
 
   if (BOOLEAN_TYPES.has(type)) return typeof value === 'boolean' ? (value ? 1 : 0) : value
@@ -361,7 +302,7 @@ function mapSqliteResultValueFromFacts(
   if (value === null || value === undefined) return value
 
   const type = facts
-    ? mappingTypeFromFacts(dataType, facts, authored)
+    ? resolveSqliteValueStorage(dataType, facts, authored)
     : declaredType(dataType)
 
   if (BOOLEAN_TYPES.has(type)) {
@@ -380,32 +321,10 @@ function mapSqliteResultValueFromFacts(
   return value
 }
 
-/** Proves native numeric storage without invoking custom mappings. */
-function numericAssignmentType(
-  dataType: string,
-  context: DialectValueMappingContext,
-): 'integer' | 'float' | undefined {
-  const facts = context.authoredFacts ?? context.facts
-  const storage = normalizeSqliteDataType(dataType)
-
-  if (
-    facts.outputKind !== 'number' ||
-    facts.outputState !== 'known' ||
-    !['integer', 'real', 'numeric'].includes(storage)
-  )
-    return undefined
-
-  // INTEGER affinity can still store fractional values without an integer schema.
-  return facts.numberConstraints.isInteger ? 'integer' : 'float'
-}
-
 export {
   validateSqliteValueMapping,
-  validateSqliteValueMappingFromFacts,
-  mappingTypeFromFacts,
   mapSqliteParamValue,
   mapSqliteParamValueFromFacts,
   mapSqliteResultValue,
   mapSqliteResultValueFromFacts,
-  numericAssignmentType,
 }

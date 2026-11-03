@@ -58,13 +58,15 @@ import {
 } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
-import { inferPostgresColumnTypeFromFacts } from '@/dialects/postgres/infer'
 import {
   mapPostgresParamValueFromFacts,
   mapPostgresResultValueFromFacts,
-  validatePostgresValueMappingFromFacts,
 } from '@/dialects/postgres/mapping'
 import { normalizePostgresDefaultExpression } from '@/dialects/postgres/normalize'
+import {
+  inferPostgresColumnTypeFromFacts,
+  validatePostgresValueMappingFromFacts,
+} from '@/dialects/postgres/storage'
 import { SchemaError, postgresDialect } from '@/index'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'

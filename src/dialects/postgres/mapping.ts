@@ -1,159 +1,12 @@
 import type { StorageFacts, StorageStringFormat } from '@/storage/facts'
-import { QueryError, SchemaError } from '@/utils/error'
+import { QueryError } from '@/utils/error'
 
 import type { DialectValueMappingContext } from '../types'
 
-import { inferPostgresColumnTypeFromFacts } from './infer'
-import { extractPostgresBaseType } from './normalize'
-
-const BIGINT_OUTPUT_STORAGE = new Set([
-  'numeric',
-  'decimal',
-  'bigint',
-  'integer',
-  'smallint',
-])
-
-const TEMPORAL_FORMAT_STORAGE: Partial<Record<StorageStringFormat, string>> = {
-  iso_date: 'date',
-  iso_time: 'time',
-  iso_time_second: 'time',
-  iso_date_time: 'timestamp',
-  iso_date_time_second: 'timestamp',
-  iso_timestamp: 'timestamptz',
-}
-
-const NUMBER_OUTPUT_STORAGE = new Set([
-  'smallint',
-  'integer',
-  'bigint',
-  'real',
-  'double precision',
-])
-
-const DATE_OUTPUT_STORAGE = new Set(['date', 'timestamp', 'timestamptz'])
-const TEMPORAL_STORAGE = new Set(['date', 'time', 'timestamp', 'timestamptz'])
-
-const JSON_OUTPUT_STORAGE = new Set(['json', 'jsonb'])
-
-/** Storage that the pg driver's default text parsers return as non-strings. */
-const NON_STRING_STORAGE = new Set([
-  ...NUMBER_OUTPUT_STORAGE,
-  ...JSON_OUTPUT_STORAGE,
-  'oid',
-  'boolean',
-  'bytea',
-  'interval',
-  'point',
-  'circle',
-])
-
-/** Serial pseudo-types store their underlying integer type. */
-const SERIAL_STORAGE: Readonly<Record<string, string>> = {
-  smallserial: 'smallint',
-  serial: 'integer',
-  bigserial: 'bigint',
-}
-
-/** Resolves serial storage for value mapping without changing authored SQL types. */
-function mappingStorage(dataType: string): string {
-  const base = extractPostgresBaseType(dataType)
-  return SERIAL_STORAGE[base] ?? base
-}
-
-/** Checks whether PostgreSQL storage returns values of one analyzed scalar output kind. */
-function canStoreOutputKind(base: string, kind: StorageFacts['outputKind']): boolean {
-  switch (kind) {
-    case 'string':
-      return !NON_STRING_STORAGE.has(base) && !base.endsWith('[]')
-    case 'number':
-      return NUMBER_OUTPUT_STORAGE.has(base)
-    case 'bigint':
-      return BIGINT_OUTPUT_STORAGE.has(base)
-    case 'boolean':
-      return base === 'boolean'
-    case 'date':
-      return DATE_OUTPUT_STORAGE.has(base)
-    case 'json':
-      return JSON_OUTPUT_STORAGE.has(base)
-    case undefined:
-      return false
-  }
-}
-
-/**
- * Rejects scalar storage whose driver values cannot carry the analyzed output kind.
- *
- * Composite outputs are checked separately by their branch-aware validation. `unknown()`
- * and `any()` outputs are accepted because their inferred type admits any driver value.
- *
- * @param dataType - Selected PostgreSQL column type.
- * @param facts - Analysis of the column's logical schema.
- *
- * @throws SchemaError when built-in mapping cannot return the output kind
- */
-function assertPostgresScalarStorage(dataType: string, facts: StorageFacts): void {
-  if (facts.composite) return
-
-  const kind = facts.outputKind
-
-  if (facts.outputState === 'unconstrained') return
-
-  const base = mappingStorage(dataType)
-
-  assertTemporalFormatStorage(base, facts)
-
-  if (canStoreOutputKind(base, kind)) return
-
-  throw new SchemaError({
-    message: `PostgreSQL ${kind ?? 'unknown'} schema with ${JSON.stringify(dataType)} requires explicit parameter and result mappings. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
-  })
-}
-
-/** Rejects proven ISO formats stored in a different native temporal type. */
-function assertTemporalFormatStorage(base: string, facts: StorageFacts): void {
-  if (facts.outputKind !== 'string') return
-  if (!TEMPORAL_STORAGE.has(base)) return
-
-  const formats = facts.stringFormats.filter((format) => TEMPORAL_FORMAT_STORAGE[format])
-
-  if (formats.length && !matchesTemporalFormatStorage(base, formats)) {
-    throw new SchemaError({
-      message: `PostgreSQL ISO output formats ${formats.join(', ')} cannot use ${JSON.stringify(base)} storage without changing their value shape or offset. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
-    })
-  }
-}
-
-/** Checks whether one proven ISO format matches its native PostgreSQL storage. */
-function matchesTemporalFormatStorage(
-  base: string,
-  formats: StorageFacts['stringFormats'],
-): boolean {
-  return formats.length === 1 && TEMPORAL_FORMAT_STORAGE[formats[0]] === base
-}
-
-/** Selects authored reference formats only when native storage can preserve them. */
-function referenceTemporalAnalysis(
-  base: string,
-  authored: StorageFacts | undefined,
-): StorageFacts | undefined {
-  if (!authored) return undefined
-
-  const formats = authored.stringFormats.filter(
-    (format) => TEMPORAL_FORMAT_STORAGE[format],
-  )
-
-  if (!formats.length) return undefined
-  if (base === 'text' || base === 'varchar') return authored
-
-  if (!matchesTemporalFormatStorage(base, formats)) {
-    throw new SchemaError({
-      message: `PostgreSQL reference output formats ${formats.join(', ')} cannot use ${JSON.stringify(base)} storage unambiguously. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
-    })
-  }
-
-  return authored
-}
+import {
+  resolvePostgresValueStorage,
+  validatePostgresValueMappingFromFacts,
+} from './storage'
 
 /** Formats PostgreSQL's textual time at the precision promised by the schema. */
 function isoTimeResult(value: string, withSeconds: boolean): string {
@@ -215,23 +68,18 @@ function isoDateTimeResult(value: string, withSeconds: boolean): string {
 
 /** Applies an ISO format only when its native storage matches the selected type. */
 function mapIsoStringResult(
-  base: string,
   value: string,
-  formats: StorageFacts['stringFormats'],
+  format: StorageStringFormat | undefined,
 ): string | undefined {
-  if (base === 'time' && formats.includes('iso_time')) return isoTimeResult(value, false)
+  if (format === 'iso_time') return isoTimeResult(value, false)
 
-  if (base === 'time' && formats.includes('iso_time_second'))
-    return isoTimeResult(value, true)
+  if (format === 'iso_time_second') return isoTimeResult(value, true)
 
-  if (base === 'timestamp' && formats.includes('iso_date_time'))
-    return isoDateTimeResult(value, false)
+  if (format === 'iso_date_time') return isoDateTimeResult(value, false)
 
-  if (base === 'timestamp' && formats.includes('iso_date_time_second'))
-    return isoDateTimeResult(value, true)
+  if (format === 'iso_date_time_second') return isoDateTimeResult(value, true)
 
-  if (base === 'timestamptz' && formats.includes('iso_timestamp'))
-    return isoTimestampResult(value)
+  if (format === 'iso_timestamp') return isoTimestampResult(value)
 
   return undefined
 }
@@ -254,11 +102,12 @@ function mapTemporalResult(
   base: string,
   value: unknown,
   facts: StorageFacts | undefined,
+  format: StorageStringFormat | undefined,
 ): unknown {
   const kind = facts?.outputKind
 
   if (kind === 'string' && typeof value === 'string') {
-    const iso = mapIsoStringResult(base, value, facts?.stringFormats ?? [])
+    const iso = mapIsoStringResult(value, format)
 
     if (iso !== undefined) return iso
   }
@@ -285,66 +134,6 @@ function validatePostgresValueMapping(
   context: DialectValueMappingContext,
 ): void {
   validatePostgresValueMappingFromFacts(dataType, context.facts, context.authoredFacts)
-}
-
-/** Validates selected storage against resolved and locally authored logical output. */
-function validatePostgresValueMappingFromFacts(
-  dataType: string,
-  target: StorageFacts,
-  authored?: StorageFacts,
-): void {
-  validatePostgresCompositeMapping(dataType, target)
-
-  if (authored) {
-    validatePostgresCompositeMapping(dataType, authored)
-
-    if (authored.outputKind !== target.outputKind) {
-      throw new SchemaError({
-        message:
-          'PostgreSQL reference transformations must preserve the resolved target output kind. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.',
-      })
-    }
-
-    referenceTemporalAnalysis(extractPostgresBaseType(dataType), authored)
-  }
-
-  assertPostgresScalarStorage(dataType, target)
-}
-
-function validatePostgresCompositeMapping(dataType: string, facts: StorageFacts): void {
-  if (!facts.composite) return
-
-  const base = mappingStorage(dataType)
-
-  if (facts.outputKind === 'string' && (base === 'text' || base === 'varchar')) return
-
-  const inferred = extractPostgresBaseType(inferPostgresColumnTypeFromFacts(facts))
-  const kind = facts.outputKind
-  const compatible =
-    kind === 'number'
-      ? isPostgresCompositeNumberStorage(inferred, base)
-      : kind === 'bigint'
-        ? base === 'numeric' ||
-          base === 'decimal' ||
-          (inferred === 'bigint' && base === 'bigint')
-        : kind === 'json'
-          ? base === 'json' || base === 'jsonb'
-          : base === inferred
-
-  if (!compatible)
-    throw new SchemaError({
-      message: `PostgreSQL ${kind ?? 'unknown'} composite with ${JSON.stringify(dataType)} requires explicit parameter and result mappings`,
-    })
-}
-
-function isPostgresCompositeNumberStorage(inferred: string, selected: string): boolean {
-  const widths = ['smallint', 'integer', 'bigint']
-  const minimum = widths.indexOf(inferred)
-
-  if (minimum < 0) return selected === inferred
-  if (selected === 'double precision') return inferred !== 'bigint'
-
-  return widths.indexOf(selected) >= minimum
 }
 
 function numericMappingError(): never {
@@ -451,28 +240,23 @@ function mapPostgresResultValueFromFacts(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  const base = mappingStorage(dataType)
+  const storage = resolvePostgresValueStorage(dataType, target, authored)
 
-  const facts = referenceTemporalAnalysis(base, authored) ?? target
-
-  const kind = facts?.outputKind
-
-  if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base)) return mapBigintResult(value)
-
-  if (kind === 'number' && base === 'bigint') return mapSafeNumberResult(value)
+  if (storage.type === 'bigint') return mapBigintResult(value)
+  if (storage.type === 'safeNumber') return mapSafeNumberResult(value)
 
   if (
-    base === 'date' ||
-    base === 'time' ||
-    base === 'timestamp' ||
-    base === 'timestamptz'
+    storage.type === 'date' ||
+    storage.type === 'time' ||
+    storage.type === 'timestamp' ||
+    storage.type === 'timestamptz'
   )
-    return mapTemporalResult(base, value, facts)
+    return mapTemporalResult(storage.type, value, storage.facts, storage.format)
 
-  if (base === 'json' || base === 'jsonb')
+  if (storage.type === 'json')
     return typeof value === 'string' ? parseJsonResult(value) : value
 
-  if (base === 'uuid') {
+  if (storage.type === 'uuid') {
     return mapUuidValue(value)
   }
 
@@ -535,21 +319,18 @@ function mapPostgresParamValueFromFacts(
 ): unknown {
   if (value === null || value === undefined) return value
 
-  const base = mappingStorage(dataType)
-  const kind = facts?.outputKind
+  const storage = resolvePostgresValueStorage(dataType, facts)
 
-  if (kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base))
-    return mapBigintResult(value).toString()
+  if (storage.type === 'bigint') return mapBigintResult(value).toString()
+  if (storage.type === 'safeNumber') return mapSafeNumberResult(value)
 
-  if (kind === 'number' && base === 'bigint') return mapSafeNumberResult(value)
-
-  if (base === 'timestamp' || base === 'timestamptz') {
+  if (storage.type === 'timestamp' || storage.type === 'timestamptz') {
     if (value instanceof Date) return value.toISOString()
 
     return value
   }
 
-  if (base === 'json' || base === 'jsonb') {
+  if (storage.type === 'json') {
     assertPostgresJsonCompositeParam(value, facts, authored)
 
     if (typeof value !== 'string') return JSON.stringify(value)
@@ -557,7 +338,7 @@ function mapPostgresParamValueFromFacts(
     return value
   }
 
-  if (base === 'uuid') {
+  if (storage.type === 'uuid') {
     return mapUuidValue(value)
   }
 
@@ -586,34 +367,10 @@ function containsNonFiniteNumber(value: unknown, seen = new Set<object>()): bool
   return Object.values(value).some((item) => containsNonFiniteNumber(item, seen))
 }
 
-/** Proves native numeric storage without invoking custom mappings. */
-function numericAssignmentType(
-  dataType: string,
-  context: DialectValueMappingContext,
-): 'integer' | 'float' | undefined {
-  const facts = context.authoredFacts ?? context.facts
-  const storage = mappingStorage(dataType)
-
-  if (
-    facts.outputKind !== 'number' ||
-    facts.outputState !== 'known' ||
-    !['smallint', 'integer', 'bigint', 'real', 'double precision'].includes(storage)
-  )
-    return undefined
-
-  return facts.numberConstraints.isInteger ||
-    ['smallint', 'integer', 'bigint'].includes(storage)
-    ? 'integer'
-    : 'float'
-}
-
 export {
-  assertPostgresScalarStorage,
   validatePostgresValueMapping,
-  validatePostgresValueMappingFromFacts,
   mapPostgresResultValue,
   mapPostgresResultValueFromFacts,
   mapPostgresParamValue,
   mapPostgresParamValueFromFacts,
-  numericAssignmentType,
 }
