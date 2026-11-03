@@ -44,6 +44,8 @@ import { and, cmp, columnName, columnRelation, eb, toQualified } from './express
 import { after, before } from './keyset'
 import type { OrderTerm } from './keyset'
 import type { ValueMapper } from './mapping'
+import type { ProjectionUse } from './projection'
+import { prepareSelectProjection, projectionSource } from './projection'
 import { recordQueryRelation } from './sourceRelation'
 import type { WildcardProjection, projectionShape } from './subquery'
 import { nestedDefinitions, selectDefinitions } from './subquery'
@@ -79,32 +81,6 @@ type InferColumnValue<T> =
  */
 function resolveOn(on: JoinOnInput): PredicateAst {
   return typeof on === 'function' ? on(eb) : on
-}
-
-/**
- * Maps value parameters through the mapper for join predicates.
- *
- * @example
- *   mapJoinsParams([handle], mapper, [{ type: 'inner', table: 'posts', on: ... }])
- *
- * @param handles - Table handles available to the joins.
- * @param mapper - Value mapper for parameter conversion.
- * @param joins - Join AST nodes to map.
- *
- * @returns Mapped join AST nodes, or the original when no mapper or joins
- */
-function mapJoinsParams(
-  query: DialectQueryResolution,
-  handles: readonly TableHandle[],
-  mapper: ValueMapper | undefined,
-  joins: readonly JoinAst[] | undefined,
-): readonly JoinAst[] | undefined {
-  if (!joins || joins.length === 0) return joins
-
-  return joins.map((join) => ({
-    ...join,
-    on: mapPredicateParams(query, handles, mapper, join.on)!,
-  }))
 }
 
 /**
@@ -300,65 +276,6 @@ function mapWriteParams(
 }
 
 /**
- * Recursively maps predicate parameter values through the value mapper.
- *
- * @example
- *   mapPredicateParams([handle], mapper, cmp('name', 'eq', 'Alice'))
- *
- * @param handles - Table handles available to the predicate.
- * @param mapper - Value mapper for parameter conversion.
- * @param pred - Predicate AST node to map.
- *
- * @returns Mapped predicate, or the original when no mapper or predicate
- */
-function mapPredicateParams(
-  query: DialectQueryResolution,
-  handles: readonly TableHandle[],
-  mapper: ValueMapper | undefined,
-  pred: PredicateAst | undefined,
-): PredicateAst | undefined {
-  if (!pred || !mapper) return pred
-
-  switch (pred.kind) {
-    case 'cmp': {
-      // Column-vs-column join/on predicates have no bound params.
-      if (pred.right || pred.value === null) return pred
-
-      const handle = findHandle(query, handles, pred.relation)
-      const column = findColumn(query, handle, pred.column, pred.relation)
-
-      return {
-        ...pred,
-        value: mapper.mapParam(handle, column, pred.value),
-      }
-    }
-    case 'and':
-      return {
-        kind: 'and',
-        preds: pred.preds.map((p) => mapPredicateParams(query, handles, mapper, p)!),
-      }
-    case 'or':
-      return {
-        kind: 'or',
-        preds: pred.preds.map((p) => mapPredicateParams(query, handles, mapper, p)!),
-      }
-    case 'not':
-      return {
-        kind: 'not',
-        pred: mapPredicateParams(query, handles, mapper, pred.pred)!,
-      }
-    case 'exists':
-    case 'inQuery':
-    case 'exprCmp':
-      return pred
-    default: {
-      const _exhaustive: never = pred
-      return _exhaustive
-    }
-  }
-}
-
-/**
  * Formats authored relation intent for diagnostics.
  *
  * @param relation - Authored relation intent.
@@ -442,135 +359,6 @@ function findColumn(
   throw new QueryError({
     message: `query column ${target} is ambiguous in this query`,
   })
-}
-
-type ResultColumn = { handle: TableHandle; column: string; scalar?: boolean }
-
-/**
- * Builds result-column mappings for a selection.
- *
- * @param handles - Table handles available to the selection.
- * @param selection - Selected AST items.
- */
-function resultColumnsForSelection(
-  query: DialectQueryResolution,
-  handles: readonly TableHandle[],
-  selection: readonly SelectItemAst[],
-): Map<string, ResultColumn> {
-  const columns = new Map<string, ResultColumn>()
-  const outputNames = new Set<string>()
-  /** Adds a selected output column while rejecting duplicate output names. */
-  const add = (outputName: string, mapping?: ResultColumn) =>
-    addOutputColumn(outputName, mapping, outputNames, columns)
-
-  /** Adds source mappings for all columns on the selected table handles. */
-  const addHandles = (selectedHandles: readonly TableHandle[]) => {
-    for (const handle of selectedHandles) addAllOutputColumns(handle, add)
-  }
-
-  for (const item of selection) {
-    if (item.kind === 'all') {
-      const selectedHandles = item.relation
-        ? [findHandle(query, handles, item.relation)]
-        : handles
-
-      addHandles(selectedHandles)
-    } else if (item.kind === 'column') {
-      const handle = findHandle(query, handles, item.relation)
-      add(item.alias ?? item.column, {
-        handle,
-        column: findColumn(query, handle, item.column, item.relation),
-      })
-    } else {
-      const expression = item.expr
-
-      const handle =
-        expression.kind === 'column'
-          ? findHandle(query, handles, expression.relation)
-          : undefined
-
-      add(
-        item.alias,
-        handle && expression.kind === 'column'
-          ? {
-              handle,
-              column: findColumn(query, handle, expression.column, expression.relation),
-            }
-          : undefined,
-      )
-    }
-  }
-
-  return columns
-}
-
-/**
- * Maps selected row values using their source-column mappings.
- *
- * @param mapper - Mapper used for result conversion.
- * @param rows - Rows to map.
- * @param columns - Output-to-source column mappings.
- */
-function mapSelectedRows(
-  mapper: ValueMapper,
-  rows: unknown[],
-  columns: ReadonlyMap<string, ResultColumn>,
-): unknown[] {
-  return rows.map((row) => {
-    if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
-
-    return Object.fromEntries(
-      Object.entries(row).map(([key, value]) => {
-        const mapping = columns.get(key)
-        return [
-          key,
-          mapping && !(mapping.scalar && value === null)
-            ? mapper.mapResultValue(baseTable(mapping.handle), mapping.column, value)
-            : value,
-        ]
-      }),
-    )
-  })
-}
-
-/**
- * Compiles and executes a query AST, mapping result rows when a mapper is provided.
- *
- * @example
- *   const rows = await runQuery(dialect, executor, handle, mapper, columns, selectAst)
- *
- * @param query - Resolved query compilation and relation-member lookup operations.
- * @param executor - Database executor.
- * @param handle - Table handle for result mapping.
- * @param mapper - Optional value mapper for result conversion.
- * @param resultColumns - Output-to-source mappings for selected columns.
- * @param ast - Query AST node to execute.
- *
- * @returns Query result rows
- */
-async function runQuery<T>(
-  query: DialectQueryResolution,
-  executor: Executor,
-  handle: TableHandle,
-  mapper: ValueMapper | undefined,
-  resultColumns: ReadonlyMap<string, ResultColumn>,
-  ast: SelectAst | InsertAst | UpdateAst | DeleteAst,
-): Promise<T> {
-  const compiled = query.compile(ast)
-  const rows = restoreResultNames(
-    compiled,
-    await executeQueryOperation(ast, () => executor.execute(compiled)),
-  )
-
-  if (mapper && ast.kind === 'select') {
-    return mapSelectedRows(mapper, rows, resultColumns) as T
-  }
-
-  if (mapper && 'returning' in ast && ast.returning) {
-    return mapper.mapResultRows(handle, rows) as T
-  }
-
-  return rows as T
 }
 
 /**
@@ -1645,26 +1433,28 @@ type SelectState = {
   having?: PredicateAst
 }
 
-/** Builds the select AST and result-column mappings. */
-function buildSelectQuery(
-  options: {
-    handle: TableHandle
-    query: DialectQueryResolution
-    mapper?: ValueMapper
-    state: SelectState
-  },
-  mapResults = true,
-) {
+/**
+ * Builds the authored select AST and registers its client mapping context.
+ *
+ * @example
+ *   const ast = buildSelectQuery(options)
+ *
+ * @param options - Table, resolved query operations, mapper, and immutable select state.
+ *
+ * @returns An authored AST whose projection has not yet been prepared.
+ */
+function buildSelectQuery(options: {
+  handle: TableHandle
+  query: DialectQueryResolution
+  mapper?: ValueMapper
+  state: SelectState
+}) {
   const { handle, query, state } = options
   const info = handle.getTableMetadata()
   recordQueryRelation(info.relation, handle)
   const handles = [handle, ...state.joinedHandles]
   const selection =
     state.selection.length === 0 ? [{ kind: 'all' } as const] : state.selection
-
-  const resultColumns = mapResults
-    ? resultColumnsForSelection(query, handles, selection)
-    : new Map<string, ResultColumn>()
 
   const ast: SelectAst = {
     kind: 'select',
@@ -1680,7 +1470,7 @@ function buildSelectQuery(
   }
 
   authoredSelects.set(ast, { handles, query, mapper: options.mapper })
-  return { ast, resultColumns }
+  return ast
 }
 
 /** Applies select state changes while preserving explicit clearing of optional clauses. */
@@ -1792,13 +1582,14 @@ function createSelectPagination<THandle extends TableHandle>(
  * Creates a select builder from an initial state.
  *
  * @example
- *   const builder = createSelectBuilder({ handle: User, dialect, executor, state: emptySelectState() })
+ *   const builder = createSelectBuilder({ ...options, state: emptySelectState() })
  *
- * @param options - Builder configuration including handle, dialect, executor, mapper, and
- *   state.
+ * @param options - Table, resolved query operations, dialect, executor, mapper, and
+ *   select state.
  *
  * @returns Select builder with chaining methods and execution
  */
+// oxlint-disable-next-line max-lines-per-function -- JSDoc examples increase the line count without adding executable statements.
 function createSelectBuilder<THandle extends TableHandle>(
   options: SelectBuilderOptions<THandle>,
 ): SelectBuilder<THandle, unknown> {
@@ -1807,7 +1598,12 @@ function createSelectBuilder<THandle extends TableHandle>(
   /**
    * Returns a select builder with patched state.
    *
+   * @example
+   *   next({ limit: 10 })
+   *
    * @param patch - State values to replace.
+   *
+   * @returns A fresh builder with the requested state changes.
    */
   const next = (patch: Partial<SelectState>) =>
     createSelectBuilder({
@@ -1819,22 +1615,52 @@ function createSelectBuilder<THandle extends TableHandle>(
       state: patchSelectState(state, patch),
     })
 
-  /** Compiles the current select query. */
+  /**
+   * Compiles a fresh prepared select without executing it.
+   *
+   * @example
+   *   const compiled = compile()
+   *
+   * @returns An immutable SQL and parameter snapshot with output-name metadata.
+   */
   const compile = () =>
     markCompiledQuery(
-      query.compile(prepareStatement(buildSelectQuery(options).ast, options.executor)),
+      query.compile(prepareStatement(buildSelectQuery(options), options.executor)),
     )
 
-  /** Executes the current select query. */
+  /**
+   * Executes the select with output-name restoration and source value mapping.
+   *
+   * @example
+   *   const rows = await execute()
+   *
+   * @returns The selected application rows.
+   */
   const execute = () => executeSelect(options)
 
-  /** Executes the select and returns its first row. */
+  /**
+   * Executes the select and returns its first row when one exists.
+   *
+   * @example
+   *   const first = await executeTakeFirst()
+   *
+   * @returns The first mapped row, or undefined for an empty result.
+   */
   const executeTakeFirst = async () => {
-    const rows = (await execute()) as unknown[]
+    const rows = await execute()
     return rows[0]
   }
 
-  /** Executes the query and requires its first result. */
+  /**
+   * Executes the select and rejects an empty result.
+   *
+   * @example
+   *   const first = await executeTakeFirstOrThrow()
+   *
+   * @returns The first mapped row.
+   *
+   * @throws QueryError when no row exists.
+   */
   const executeTakeFirstOrThrow = () => takeFirstSelectRow(execute)
 
   const builder = {
@@ -1852,7 +1678,7 @@ function createSelectBuilder<THandle extends TableHandle>(
 
   selectDefinitions.set(builder, {
     owner: executor,
-    build: () => buildSelectQuery(options, false).ast,
+    build: () => buildSelectQuery(options),
   })
 
   return builder
@@ -2668,29 +2494,6 @@ function createTablePagination<THandle extends TableHandle>(
 }
 
 /**
- * Registers a unique output column.
- *
- * @param outputName - Output column name.
- * @param mapping - Optional source-column mapping.
- */
-function addOutputColumn(
-  outputName: string,
-  mapping: ResultColumn | undefined,
-  outputNames: Set<string>,
-  columns: Map<string, ResultColumn>,
-) {
-  if (outputNames.has(outputName)) {
-    throw new QueryError({
-      message: `select output column "${outputName}" is ambiguous; alias one of the selected columns`,
-    })
-  }
-
-  outputNames.add(outputName)
-
-  if (mapping) columns.set(outputName, mapping)
-}
-
-/**
  * Adds returning clauses without mutating the current write builder.
  *
  * @param next - Factory for a fresh builder with the supplied state changes.
@@ -2759,20 +2562,6 @@ function createWriteFilters(
     all() {
       return next({ allowAll: true }) as never
     },
-  }
-}
-
-/**
- * Registers every column from a table handle.
- *
- * @param handle - Handle whose columns are registered.
- */
-function addAllOutputColumns(
-  handle: TableHandle,
-  add: (outputName: string, mapping?: ResultColumn) => void,
-) {
-  for (const column of Object.keys(handle.getSchema().entries)) {
-    add(column, { handle, column })
   }
 }
 
@@ -2863,13 +2652,42 @@ const authoredSelects = new WeakMap<
 type PreparedRelation = RelationIdentityInput & { queryAlias?: string }
 type ScopeEntry = { handle: TableHandle; relation: PreparedRelation }
 
+/**
+ * Resolves a complete select under its owning client and enclosing query scopes.
+ *
+ * @example
+ *   const prepared = prepareStatement(buildSelectQuery(options), options.executor)
+ *
+ * @param root - Authored select AST registered with its table and mapping context.
+ * @param owner - Executor identity used to reject subqueries from another client scope.
+ *
+ * @returns A scope-resolved select with shared projection decisions.
+ */
 function prepareStatement(root: SelectAst, owner: object): SelectAst {
   return new StatementPreparation(owner).prepare(root, [])
 }
 
 class StatementPreparation {
   private sequence = 0
+  /**
+   * Starts statement-wide relation aliases for one client scope.
+   *
+   * @example
+   *   const statement = new StatementPreparation(executor)
+   *
+   * @param owner - Executor identity that every nested select must share.
+   */
   constructor(readonly owner: object) {}
+  /**
+   * Assigns a unique SQL occurrence alias and records its source handle.
+   *
+   * @example
+   *   statement.relation(users)
+   *
+   * @param handle - Table occurrence that needs an alias within this statement.
+   *
+   * @returns A relation occurrence with source provenance and a fresh query alias.
+   */
   relation(handle: TableHandle): PreparedRelation {
     const relation = {
       ...handle.getTableMetadata().relation,
@@ -2879,8 +2697,25 @@ class StatementPreparation {
     recordQueryRelation(relation, handle)
     return relation
   }
-  prepare(node: SelectAst, enclosing: readonly (readonly ScopeEntry[])[]): SelectAst {
-    return new SelectPreparation(this, node, enclosing).prepare()
+  /**
+   * Prepares one select with statement-wide aliases and its visible enclosing scopes.
+   *
+   * @example
+   *   statement.prepare(node, [], 'rows')
+   *
+   * @param node - Select AST with application column names.
+   * @param enclosing - Nearest enclosing scope first, used to resolve outer references.
+   * @param use - Rows require unique names, single requires one output, and discarded
+   *   permits duplicates.
+   *
+   * @returns A scope-resolved select with a prepared projection.
+   */
+  prepare(
+    node: SelectAst,
+    enclosing: readonly (readonly ScopeEntry[])[],
+    use: ProjectionUse = 'rows',
+  ): SelectAst {
+    return new SelectPreparation(this, node, enclosing).prepare(use)
   }
 }
 
@@ -2889,6 +2724,17 @@ class SelectPreparation {
   readonly query: DialectQueryResolution
   readonly mapper: ValueMapper | undefined
   readonly scope: readonly ScopeEntry[]
+  /**
+   * Loads authored context and builds the visible relation occurrences for one select.
+   *
+   * @example
+   *   const select = new SelectPreparation(statement, node, enclosing)
+   *
+   * @param statement - Shared owner identity and alias allocator for the complete
+   *   statement.
+   * @param node - Select AST with application column names.
+   * @param enclosing - Enclosing scopes ordered from nearest to farthest.
+   */
   constructor(
     readonly statement: StatementPreparation,
     readonly node: SelectAst,
@@ -2915,6 +2761,18 @@ class SelectPreparation {
       relation: nested ? statement.relation(handle) : handle.getTableMetadata().relation,
     }))
   }
+  /**
+   * Resolves an application column against the relations visible at this query position.
+   *
+   * @example
+   *   select.resolve({ column: 'id' }, select.scope)
+   *
+   * @param ref - Authored column reference to validate.
+   * @param available - Visible relation occurrences, restricted for join predicates when
+   *   needed.
+   *
+   * @returns The matching occurrence and exact application column name.
+   */
   resolve(
     ref: QualifiedColumnAst,
     available: readonly ScopeEntry[] = this.scope,
@@ -2930,6 +2788,17 @@ class SelectPreparation {
       column: findColumn(this.query, handle, ref.column, ref.relation),
     }
   }
+  /**
+   * Binds an application column to its resolved relation occurrence.
+   *
+   * @example
+   *   select.column({ column: 'id' })
+   *
+   * @param ref - Authored column reference to bind.
+   * @param available - Relation occurrences visible at this query position.
+   *
+   * @returns A qualified application column reference for later physical lowering.
+   */
   column(
     ref: QualifiedColumnAst,
     available: readonly ScopeEntry[] = this.scope,
@@ -2937,6 +2806,19 @@ class SelectPreparation {
     const found = this.resolve(ref, available)
     return { column: found.column, relation: found.entry.relation }
   }
+  /**
+   * Resolves a nested builder while enforcing client ownership and projection
+   * requirements.
+   *
+   * @example
+   *   select.inner(placeholder, true, select.scope)
+   *
+   * @param placeholder - Nested AST placeholder associated with a select builder.
+   * @param single - Require one projected value for scalar and IN subqueries.
+   * @param available - Current relations visible to correlations in the nested select.
+   *
+   * @returns A prepared nested select, with invalid ownership or projection rejected.
+   */
   inner(
     placeholder: SelectAst,
     single: boolean,
@@ -2951,18 +2833,22 @@ class SelectPreparation {
     if (definition.owner !== this.statement.owner)
       throw new QueryError({ message: 'Subqueries must share the same client scope' })
 
-    const result = this.statement.prepare(definition.build(), [
-      available,
-      ...this.enclosing,
-    ])
-
-    if (single && result.selection.length !== 1)
-      throw new QueryError({
-        message: 'Scalar and IN subqueries require exactly one projected value',
-      })
-
-    return result
+    return this.statement.prepare(
+      definition.build(),
+      [available, ...this.enclosing],
+      single ? 'single' : 'discarded',
+    )
   }
+  /**
+   * Resolves a correlated column in the nearest matching enclosing scope.
+   *
+   * @example
+   *   select.outer({ column: 'id', relation: usersRelation })
+   *
+   * @param ref - Outer column reference with its authored relation identity.
+   *
+   * @returns A column expression bound to the enclosing relation occurrence.
+   */
   outer(ref: QualifiedColumnAst): SqlExprAst {
     for (const parent of this.enclosing) {
       const matches =
@@ -2982,6 +2868,17 @@ class SelectPreparation {
       message: 'Outer column is not available in an enclosing scope',
     })
   }
+  /**
+   * Resolves expression columns, correlations, and nested scalar queries.
+   *
+   * @example
+   *   select.expression(scalarExpression, select.scope)
+   *
+   * @param expr - Authored expression to bind to query scopes.
+   * @param available - Relations visible to this expression and its nested queries.
+   *
+   * @returns An expression with resolved sources and prepared nested selects.
+   */
   expression(
     expr: SqlExprAst,
     available: readonly ScopeEntry[] = this.scope,
@@ -2997,6 +2894,17 @@ class SelectPreparation {
 
     return expr
   }
+  /**
+   * Resolves expression comparisons and maps a non-NULL literal through its left source.
+   *
+   * @example
+   *   select.comparison(comparisonAst, select.scope)
+   *
+   * @param pred - Expression comparison whose parameter value is still authored.
+   * @param available - Relations visible to both sides of the comparison.
+   *
+   * @returns A resolved comparison with its literal mapped once when a source exists.
+   */
   comparison(
     pred: Extract<PredicateAst, { kind: 'exprCmp' }>,
     available: readonly ScopeEntry[],
@@ -3004,7 +2912,7 @@ class SelectPreparation {
     const left = this.expression(pred.left, available)
     let right =
       pred.right.kind === 'value' ? pred.right : this.expression(pred.right, available)
-    const source = this.expressionSource(left)
+    const source = projectionSource(left, this.query)
 
     if (right.kind === 'value' && right.value !== null && this.mapper && source) {
       right = {
@@ -3015,6 +2923,18 @@ class SelectPreparation {
 
     return { ...pred, left, right }
   }
+  /**
+   * Resolves predicate scopes and maps authored column parameters once.
+   *
+   * @example
+   *   select.predicate(whereAst, select.scope)
+   *
+   * @param pred - Authored predicate, including nested queries and boolean composition.
+   * @param available - Relations visible here, restricted to preceding joins for ON
+   *   predicates.
+   *
+   * @returns A resolved predicate with mapped literals and prepared subqueries.
+   */
   predicate(
     pred: PredicateAst,
     available: readonly ScopeEntry[] = this.scope,
@@ -3056,64 +2976,49 @@ class SelectPreparation {
           }),
     }
   }
-  expressionSource(expr: SqlExprAst): ResultColumn | undefined {
-    if (expr.kind === 'column') {
-      const entry = [this.scope, ...this.enclosing]
-        .flat()
-        .find((e) => e.relation === expr.relation)
-
-      return entry ? { handle: entry.handle, column: expr.column } : undefined
-    }
-
-    if (expr.kind === 'scalar') return preparedSources.get(expr.query)
-
-    return undefined
-  }
-  selectionItem(item: SelectItemAst): SelectItemAst[] {
-    if (item.kind === 'all') {
-      const selected = item.relation
-        ? this.scope.filter(
-            (e) => e.handle === findHandle(this.query, this.handles, item.relation),
-          )
-        : this.scope
-
-      return selected.flatMap((entry) =>
-        Object.keys(entry.handle.getSchema().entries).map((name) => ({
-          kind: 'column' as const,
-          column: name,
-          relation: entry.relation,
-          alias: name,
-        })),
-      )
-    }
-
-    if (item.kind === 'column') return [{ ...item, ...this.column(item) }]
-
-    return [{ ...item, expr: this.expression(item.expr) }]
-  }
-  prepare(): SelectAst {
-    const { node, query, handles, mapper } = this
-
-    if (
-      !hasNested(node) &&
-      this.enclosing.length === 0 &&
-      !handles.some((h) => occurrenceAlias(h.getTableMetadata().relation))
-    ) {
+  /**
+   * Resolves a selected source while leaving wildcard expansion to projection
+   * preparation.
+   *
+   * @example
+   *   select.selectionItem({ kind: 'all' })
+   *
+   * @param item - Authored wildcard, column, or expression selection.
+   *
+   * @returns The item bound to resolved query scopes.
+   */
+  selectionItem(item: SelectItemAst): SelectItemAst {
+    if (item.kind === 'all')
       return {
-        ...node,
-        ...(node.joins
-          ? { joins: mapJoinsParams(query, handles, mapper, node.joins) }
-          : {}),
-        ...(node.where
-          ? { where: mapPredicateParams(query, handles, mapper, node.where) }
-          : {}),
-        ...(node.having
-          ? { having: mapPredicateParams(query, handles, mapper, node.having) }
+        ...item,
+        ...(item.relation
+          ? {
+              relation: this.scope.find(
+                (entry) =>
+                  entry.handle === findHandle(this.query, this.handles, item.relation),
+              )!.relation,
+            }
           : {}),
       }
-    }
 
-    const selection = node.selection.flatMap((item) => this.selectionItem(item))
+    if (item.kind === 'column') return { ...item, ...this.column(item) }
+
+    return { ...item, expr: this.expression(item.expr) }
+  }
+  /**
+   * Resolves the select clauses and prepares one shared output projection.
+   *
+   * @example
+   *   select.prepare('single')
+   *
+   * @param use - Rows require unique names, single requires one output, and discarded
+   *   permits duplicates.
+   *
+   * @returns A resolved select whose projection is shared with compilation and execution.
+   */
+  prepare(use: ProjectionUse): SelectAst {
+    const { node } = this
+    const selection = node.selection.map((item) => this.selectionItem(item))
     const result: SelectAst = {
       ...node,
       relation: this.scope[0].relation,
@@ -3135,46 +3040,20 @@ class SelectPreparation {
       ...(node.groupBy ? { groupBy: node.groupBy.map((c) => this.column(c)) } : {}),
     }
 
-    return this.recordSource(result)
-  }
-
-  recordSource(result: SelectAst): SelectAst {
-    const first = result.selection[0]
-    const source =
-      first.kind === 'column'
-        ? this.expressionSource(first)
-        : first.kind === 'expr'
-          ? this.expressionSource(first.expr)
-          : undefined
-
-    const columns = new Map<string, ResultColumn>()
-    for (const item of result.selection) {
-      const mapping =
-        item.kind === 'column'
-          ? this.expressionSource(item)
-          : item.kind === 'expr'
-            ? this.expressionSource(item.expr)
-            : undefined
-
-      if (mapping && item.kind !== 'all')
-        columns.set(
-          item.alias ?? (item.kind === 'column' ? item.column : ''),
-          item.kind === 'expr' && item.expr.kind === 'scalar'
-            ? { ...mapping, scalar: true }
-            : mapping,
-        )
-    }
-
-    preparedColumns.set(result, columns)
-
-    if (source) preparedSources.set(result, source)
-
-    return result
+    return prepareSelectProjection(result, this.query, use).node
   }
 }
-const preparedColumns = new WeakMap<SelectAst, Map<string, ResultColumn>>()
-const preparedSources = new WeakMap<SelectAst, ResultColumn>()
 
+/**
+ * Detects query-scope expressions without inspecting authored parameter values.
+ *
+ * @example
+ *   hasNested({ kind: 'scalar', query: innerAst }) // true
+ *
+ * @param node - AST fragment to inspect recursively.
+ *
+ * @returns True when the fragment contains a scalar, IN, EXISTS, or outer expression.
+ */
 function hasNested(node: unknown): boolean {
   if (!node || typeof node !== 'object') return false
 
@@ -3192,6 +3071,21 @@ function hasNested(node: unknown): boolean {
   )
 }
 
+/**
+ * Resolves write filters through select scope rules without exposing the temporary
+ * projection.
+ *
+ * @example
+ *   prepareWriteScope(query, users, mapper, executor, whereAst)
+ *
+ * @param query - Resolved relation lookup and dialect compilation operations.
+ * @param handle - Write target whose columns are visible to the filter.
+ * @param mapper - Optional client mapper for authored filter values.
+ * @param owner - Executor identity required by nested selects.
+ * @param where - Authored write predicate, including any nested queries.
+ *
+ * @returns The resolved target relation and mapped write predicate.
+ */
 function prepareWriteScope(
   query: DialectQueryResolution,
   handle: TableHandle,
@@ -3212,17 +3106,28 @@ function prepareWriteScope(
   return { relation: prepared.relation, where: prepared.where! }
 }
 
+/**
+ * Executes a prepared select and restores output names before mapping source values.
+ *
+ * @example
+ *   const rows = await executeSelect(options)
+ *
+ * @param options - Select state, owning executor, query operations, and optional value
+ *   mapper.
+ *
+ * @returns Rows with application output names and mapped values when a mapper exists.
+ */
 async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
-  const { ast, resultColumns } = buildSelectQuery(options)
-  const prepared = prepareStatement(ast, options.executor)
-  return runQuery(
-    options.query,
-    options.executor,
-    options.handle,
-    options.mapper,
-    preparedColumns.get(prepared) ?? resultColumns,
-    prepared,
+  const prepared = prepareStatement(buildSelectQuery(options), options.executor)
+  const compiled = options.query.compile(prepared)
+  const rows = restoreResultNames(
+    compiled,
+    await executeQueryOperation(prepared, () => options.executor.execute(compiled)),
   )
+
+  return options.mapper
+    ? prepareSelectProjection(prepared, options.query).mapRows(options.mapper, rows)
+    : rows
 }
 
 export type { CompiledQuery } from './compiled'

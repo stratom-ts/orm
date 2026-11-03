@@ -1,7 +1,7 @@
 import { date, nullable, number, pipe, string } from 'valibot'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 
-import type { Dialect } from '@/dialects'
+import type { Dialect, SelectAst } from '@/dialects'
 import {
   QueryError,
   alias,
@@ -428,6 +428,82 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
         )
         .compile(),
     ).not.toThrow()
+  })
+
+  it(`${dialect.id} restores nested scalar output names before mapping values`, async () => {
+    const { f, from, Dates, mapResultValue, fallbackResult } =
+      outerMappingFixture(dialect)
+
+    const longName = '\u754c'.repeat(24)
+    const inner = from(Dates).select((b) => [b.as(Dates.at, '')])
+    const middle = from(Posts).select((b) => [b.as(scalar(inner), longName)])
+
+    const selected = from(Posts).select((b) => [
+      b.as(scalar(middle), longName),
+      b.as(scalar(middle), '__stratom_c0'),
+      b.as(scalar(middle), ''),
+    ])
+
+    const compiled = selected.compile()
+    expect(compiled.sql).not.toContain(longName)
+    expect(compiled.sql).toContain('as "__stratom_c1"')
+    expect(compiled.sql).toContain('as "__stratom_c2"')
+
+    expect(compiled.resultProjection).toEqual([
+      { sqlName: '__stratom_c1', outputName: longName },
+      { sqlName: '__stratom_c2', outputName: '' },
+    ])
+
+    f.executor.execute.mockResolvedValueOnce([
+      { __stratom_c1: '2026-01-01', __stratom_c0: null, __stratom_c2: '2026-02-01' },
+    ])
+
+    expect(await selected.execute()).toEqual([
+      {
+        [longName]: new Date('2026-01-01'),
+        __stratom_c0: null,
+        '': new Date('2026-02-01'),
+      },
+    ])
+
+    expect(mapResultValue.mock.calls).toEqual([
+      ['date', '2026-01-01'],
+      ['date', '2026-02-01'],
+    ])
+
+    expect(fallbackResult).not.toHaveBeenCalled()
+  })
+
+  it(`${dialect.id} recomputes projections for reused caller-authored ASTs`, () => {
+    const relation = { relation: 'dynamic_projection' }
+    const First = defineTable(
+      'dynamic_projection',
+      { first: string() },
+      { primaryKey: 'first' },
+    )
+
+    const Second = defineTable(
+      'dynamic_projection',
+      { second: string() },
+      { primaryKey: 'second' },
+    )
+
+    const node: SelectAst = { kind: 'select', relation, selection: [{ kind: 'all' }] }
+    expect(dialect.query.resolve([First]).compile(node).sql).toContain('"first"')
+    expect(dialect.query.resolve([Second]).compile(node).sql).toContain('"second"')
+
+    const repeated: SelectAst = {
+      ...node,
+      selection: [
+        { kind: 'column', column: 'first' },
+        { kind: 'column', column: 'first' },
+      ],
+    }
+
+    const query = dialect.query.resolve([First])
+    const existsNode: SelectAst = { ...node, where: { kind: 'exists', query: repeated } }
+    expect(() => query.compile(existsNode)).not.toThrow()
+    expect(() => query.compile(repeated)).toThrow(/ambiguous/)
   })
 
   it(`${dialect.id} maps resolved outer sources in predicates and reused nested scalar outputs`, async () => {
