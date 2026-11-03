@@ -1,9 +1,16 @@
 import type { StorageFacts } from '@/storage/facts'
 import { SchemaError } from '@/utils/error'
 
-import type { SqlDataType } from '../types'
+import type {
+  AuthoredDesiredColumn,
+  DialectSchema,
+  DialectValueMappingContext,
+  SqlDataType,
+} from '../types'
 
+import { normalizeSqliteDataType } from './normalize'
 import { isSqliteSupportedBigInt, isSqliteSupportedNumber } from './numeric'
+import { assertSafeSqliteDataType } from './validate'
 
 function unsupportedChoiceType(): never {
   throw new SchemaError({
@@ -96,11 +103,25 @@ function inferEffectiveSqliteType(facts: StorageFacts): SqlDataType | undefined 
 
   if (facts.finiteEvidence === 'choice') return inferSqliteChoiceType(facts)
 
+  return selectOutputType(facts, 'storage')
+}
+
+/**
+ * Physical inference proves number bounds; logical mapping retains its numeric
+ * conversion.
+ */
+function selectOutputType(
+  facts: StorageFacts,
+  purpose: 'storage' | 'mapping',
+): SqlDataType | undefined {
   switch (facts.outputKind) {
     case 'string':
       return 'TEXT'
     case 'number':
-      return inferSqliteNumberOutputType(facts)
+      if (purpose === 'storage') return inferSqliteNumberOutputType(facts)
+      if (facts.finiteEvidence === 'choice') return inferSqliteChoiceType(facts)
+
+      return facts.numberConstraints.isInteger ? 'INTEGER' : 'REAL'
     case 'bigint':
       return 'BIGINT'
     case 'boolean':
@@ -193,4 +214,97 @@ function unsupportedCompositeType(type: string): never {
   })
 }
 
-export { inferSqliteChoiceType, inferSqliteColumnTypeFromFacts }
+/** Validates built-in mapping from resolved and locally authored storage facts. */
+function validateSqliteValueMappingFromFacts(
+  dataType: string,
+  facts: StorageFacts,
+  authored?: StorageFacts,
+): void {
+  const affinity = normalizeSqliteDataType(dataType)
+  const kind = facts.outputKind
+  const incompatibleAuthoredOutput = authored && authored.outputKind !== kind
+
+  if (facts.composite) inferSqliteColumnTypeFromFacts(facts)
+  if (authored?.composite) inferSqliteColumnTypeFromFacts(authored)
+
+  const supported =
+    kind === 'date' ||
+    kind === 'json' ||
+    (kind === 'string' && (affinity === 'text' || affinity === 'blob')) ||
+    ((kind === 'number' || kind === 'boolean') && affinity !== 'text') ||
+    (kind === 'bigint' &&
+      (affinity === 'integer' || affinity === 'numeric' || affinity === 'blob'))
+
+  if (!supported || facts.outputState === 'unresolved' || incompatibleAuthoredOutput) {
+    throw new SchemaError({
+      message: `SQLite ${kind ?? facts.outputState} schema with ${JSON.stringify(dataType)} (${affinity} affinity) requires explicit parameter and result mappings`,
+    })
+  }
+}
+
+/** Chooses logical conversion independently of SQLite affinity. */
+function resolveSqliteValueStorage(
+  dataType: string,
+  facts: StorageFacts,
+  authored?: StorageFacts,
+): string {
+  validateSqliteValueMappingFromFacts(dataType, facts, authored)
+
+  if (facts.composite) return inferSqliteColumnTypeFromFacts(facts)
+
+  return selectOutputType(facts, 'mapping') ?? 'NULL'
+}
+
+/** Selects the explicit physical type or infers one from the column schema. */
+function selectSqliteColumnStorage(
+  column: AuthoredDesiredColumn,
+  context?: Parameters<DialectSchema['lowerDesiredSchema']>[1],
+): string {
+  const facts = column.facts
+  const explicit = column.metadata?.physicalType?.sqlite
+  const hasParameterMapping =
+    context?.hasGlobalParameterMapping || typeof column.metadata?.mapParam === 'function'
+
+  const hasResultMapping =
+    context?.hasGlobalResultMapping || typeof column.metadata?.mapResult === 'function'
+
+  if (
+    explicit !== undefined &&
+    facts.inputSingleton &&
+    (facts.outputKind === 'number' || facts.outputKind === 'bigint') &&
+    (!hasParameterMapping || !hasResultMapping)
+  ) {
+    inferSqliteColumnTypeFromFacts(facts)
+  }
+
+  const selected = explicit ?? inferSqliteColumnTypeFromFacts(facts)
+
+  return assertSafeSqliteDataType(selected)
+}
+
+/** Proves native numeric storage without invoking custom mappings. */
+function resolveSqliteNumericAssignment(
+  dataType: string,
+  context: DialectValueMappingContext,
+): 'integer' | 'float' | undefined {
+  const facts = context.authoredFacts ?? context.facts
+  const storage = normalizeSqliteDataType(dataType)
+
+  if (
+    facts.outputKind !== 'number' ||
+    facts.outputState !== 'known' ||
+    !['integer', 'real', 'numeric'].includes(storage)
+  )
+    return undefined
+
+  // INTEGER affinity can still store fractional values without an integer schema.
+  return facts.numberConstraints.isInteger ? 'integer' : 'float'
+}
+
+export {
+  inferSqliteColumnTypeFromFacts,
+  selectSqliteColumnStorage,
+  validateSqliteValueMappingFromFacts,
+  resolveSqliteValueStorage,
+  resolveSqliteNumericAssignment,
+}

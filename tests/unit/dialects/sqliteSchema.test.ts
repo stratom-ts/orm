@@ -53,13 +53,15 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { assertSqliteDefaultCompatibility } from '@/dialects/sqlite/defaultCompatibility'
-import { inferSqliteColumnTypeFromFacts } from '@/dialects/sqlite/infer'
 import {
   mapSqliteParamValueFromFacts,
   mapSqliteResultValueFromFacts,
-  validateSqliteValueMappingFromFacts,
 } from '@/dialects/sqlite/mapping'
 import { sqliteSchema } from '@/dialects/sqlite/schema'
+import {
+  inferSqliteColumnTypeFromFacts,
+  validateSqliteValueMappingFromFacts,
+} from '@/dialects/sqlite/storage'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageFacts } from '@/storage/facts'
 import type { AnySchema } from '@/types/schema'

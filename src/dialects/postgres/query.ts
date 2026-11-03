@@ -2,10 +2,10 @@ import { quoteIdentifier } from './compile'
 import {
   mapPostgresParamValue,
   mapPostgresResultValue,
-  numericAssignmentType,
   validatePostgresValueMapping,
 } from './mapping'
 import { resolvePostgresQuery } from './queryAddressing'
+import { resolvePostgresNumericAssignment } from './storage'
 
 /** PostgreSQL query addressing and value mapping. */
 export const postgresQuery = {
@@ -13,7 +13,7 @@ export const postgresQuery = {
     quoteIdentifier,
     placeholder: (position: number): string => `$${position}`,
   },
-  numericAssignmentType,
+  numericAssignmentType: resolvePostgresNumericAssignment,
   validateValueMapping: validatePostgresValueMapping,
   resolve: resolvePostgresQuery,
   mapResultValue: mapPostgresResultValue,

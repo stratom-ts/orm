@@ -17,8 +17,8 @@ import type { StorageFacts } from '@/storage/facts'
 import { MigrationError } from '@/utils/error'
 
 import { assertSqliteDefaultCompatibility } from './defaultCompatibility'
-import { inferSqliteColumnTypeFromFacts } from './infer'
 import { normalizeSqliteDataType, normalizeSqliteDefaultExpression } from './normalize'
+import { selectSqliteColumnStorage } from './storage'
 import {
   assertSafeSqliteDataType,
   formatSqliteDefaultExpression,
@@ -94,34 +94,6 @@ function lowerDefault(value: DatabaseDefault): LoweredDatabaseDefault {
   }
 
   return { sql, normalized: normalizeSqliteDefaultExpression(sql) }
-}
-
-/** Selects the explicit physical type or infers one from the column schema. */
-function physicalType(
-  column: AuthoredDesiredColumn,
-  facts: StorageFacts,
-  hasGlobalParameterMapping: boolean,
-  hasGlobalResultMapping: boolean,
-): string {
-  const explicit = column.metadata?.physicalType?.sqlite
-  const hasParameterMapping =
-    hasGlobalParameterMapping || typeof column.metadata?.mapParam === 'function'
-
-  const hasResultMapping =
-    hasGlobalResultMapping || typeof column.metadata?.mapResult === 'function'
-
-  if (
-    explicit !== undefined &&
-    facts.inputSingleton &&
-    (facts.outputKind === 'number' || facts.outputKind === 'bigint') &&
-    (!hasParameterMapping || !hasResultMapping)
-  ) {
-    inferSqliteColumnTypeFromFacts(facts)
-  }
-
-  const selected = explicit ?? inferSqliteColumnTypeFromFacts(facts)
-
-  return assertSafeSqliteDataType(selected)
 }
 
 /**
@@ -301,13 +273,7 @@ export function lowerSqliteDesiredSchema(
 ): StorageDesiredSchema {
   return lowerDesiredSchemaGraph(graph, context, {
     validateIdentity: assertMainIdentity,
-    lowerPhysicalType: (column, options) =>
-      physicalType(
-        column,
-        column.facts,
-        options?.hasGlobalParameterMapping ?? false,
-        options?.hasGlobalResultMapping ?? false,
-      ),
+    lowerPhysicalType: selectSqliteColumnStorage,
     lowerReferenceType: (table, column, inheritedType) =>
       validateReferencePhysicalType(table, column, inheritedType),
     lowerColumn: (table, column, dataType, options) =>

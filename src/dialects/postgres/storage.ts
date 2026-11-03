@@ -3,7 +3,17 @@ import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import { isNumber } from '@/utils'
 import { SchemaError } from '@/utils/error'
 
-import type { SqlDataType } from '../types'
+import type {
+  AuthoredDesiredColumn,
+  DialectSchema,
+  DialectValueMappingContext,
+  SqlDataType,
+} from '../types'
+
+import { extractPostgresBaseType } from './normalize'
+import { assertSafePostgresDataType } from './validate'
+
+const INTEGER_STORAGE: readonly string[] = ['smallint', 'integer', 'bigint']
 
 const INT16_MIN = -32768
 const INT16_MAX = 32767
@@ -48,7 +58,7 @@ function inferPostgresFormatType(facts: StorageFacts): SqlDataType | undefined {
  *
  * @param constraints - Min/max length from the schema pipe.
  *
- * @returns `varchar(n)` for maxLength ≤ 255, `text` otherwise
+ * @returns `varchar(n)` for maxLength â‰¤ 255, `text` otherwise
  */
 function inferPostgresStringType(constraints: StringConstraints): SqlDataType {
   if (constraints.maxLength === undefined) return 'text'
@@ -354,7 +364,7 @@ function inferPostgresCompositeNumberType(
   branches: readonly StorageFacts[],
   types: readonly SqlDataType[],
 ): SqlDataType | undefined {
-  const integers = ['smallint', 'integer', 'bigint']
+  const integers = INTEGER_STORAGE
 
   if (types.every((type) => integers.includes(type)))
     return integers[Math.max(...types.map((type) => integers.indexOf(type)))]
@@ -430,4 +440,309 @@ function withBigintFacts(
   return { ...facts, bigintConstraints }
 }
 
-export { inferPostgresColumnTypeFromFacts }
+const BIGINT_OUTPUT_STORAGE = new Set([
+  'numeric',
+  'decimal',
+  'bigint',
+  'integer',
+  'smallint',
+])
+
+const NUMBER_OUTPUT_STORAGE = new Set([
+  'smallint',
+  'integer',
+  'bigint',
+  'real',
+  'double precision',
+])
+
+const DATE_OUTPUT_STORAGE = new Set(['date', 'timestamp', 'timestamptz'])
+const TEMPORAL_STORAGE = new Set(['date', 'time', 'timestamp', 'timestamptz'])
+
+const JSON_OUTPUT_STORAGE = new Set(['json', 'jsonb'])
+
+/** Storage that the pg driver's default text parsers return as non-strings. */
+const NON_STRING_STORAGE = new Set([
+  ...NUMBER_OUTPUT_STORAGE,
+  ...JSON_OUTPUT_STORAGE,
+  'oid',
+  'boolean',
+  'bytea',
+  'interval',
+  'point',
+  'circle',
+])
+
+/** Serial pseudo-types store their underlying integer type. */
+const SERIAL_STORAGE: Readonly<Record<string, string>> = {
+  smallserial: 'smallint',
+  serial: 'integer',
+  bigserial: 'bigint',
+}
+
+/** Resolves serial storage for value mapping without changing authored SQL types. */
+function mappingStorage(dataType: string): string {
+  const base = extractPostgresBaseType(dataType)
+  return SERIAL_STORAGE[base] ?? base
+}
+
+/** Checks whether PostgreSQL storage returns values of one analyzed scalar output kind. */
+function canStoreOutputKind(base: string, kind: StorageFacts['outputKind']): boolean {
+  switch (kind) {
+    case 'string':
+      return !NON_STRING_STORAGE.has(base) && !base.endsWith('[]')
+    case 'number':
+      return NUMBER_OUTPUT_STORAGE.has(base)
+    case 'bigint':
+      return BIGINT_OUTPUT_STORAGE.has(base)
+    case 'boolean':
+      return base === 'boolean'
+    case 'date':
+      return DATE_OUTPUT_STORAGE.has(base)
+    case 'json':
+      return JSON_OUTPUT_STORAGE.has(base)
+    case undefined:
+      return false
+  }
+}
+
+/**
+ * Rejects scalar storage whose driver values cannot carry the analyzed output kind.
+ *
+ * Composite outputs are checked separately by their branch-aware validation. `unknown()`
+ * and `any()` outputs are accepted because their inferred type admits any driver value.
+ *
+ * @param dataType - Selected PostgreSQL column type.
+ * @param facts - Analysis of the column's logical schema.
+ *
+ * @throws SchemaError when built-in mapping cannot return the output kind
+ */
+function assertPostgresScalarStorage(dataType: string, facts: StorageFacts): void {
+  if (facts.composite) return
+
+  const kind = facts.outputKind
+
+  if (facts.outputState === 'unconstrained') return
+
+  const base = mappingStorage(dataType)
+
+  assertTemporalFormatStorage(base, facts)
+
+  if (canStoreOutputKind(base, kind)) return
+
+  throw new SchemaError({
+    message: `PostgreSQL ${kind ?? 'unknown'} schema with ${JSON.stringify(dataType)} requires explicit parameter and result mappings. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
+  })
+}
+
+/** Rejects proven ISO formats stored in a different native temporal type. */
+function assertTemporalFormatStorage(base: string, facts: StorageFacts): void {
+  if (facts.outputKind !== 'string') return
+  if (!TEMPORAL_STORAGE.has(base)) return
+
+  const formats = facts.stringFormats.filter((format) =>
+    TEMPORAL_STORAGE.has(STRING_FORMAT_STORAGE[format]),
+  )
+
+  if (formats.length && !matchesTemporalFormatStorage(base, formats)) {
+    throw new SchemaError({
+      message: `PostgreSQL ISO output formats ${formats.join(', ')} cannot use ${JSON.stringify(base)} storage without changing their value shape or offset. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
+    })
+  }
+}
+
+/** Checks whether one proven ISO format matches its native PostgreSQL storage. */
+function matchesTemporalFormatStorage(
+  base: string,
+  formats: StorageFacts['stringFormats'],
+): boolean {
+  return formats.length === 1 && STRING_FORMAT_STORAGE[formats[0]] === base
+}
+
+/** Selects authored reference formats only when native storage can preserve them. */
+function referenceTemporalAnalysis(
+  base: string,
+  authored: StorageFacts | undefined,
+): StorageFacts | undefined {
+  if (!authored) return undefined
+
+  const formats = authored.stringFormats.filter((format) =>
+    TEMPORAL_STORAGE.has(STRING_FORMAT_STORAGE[format]),
+  )
+
+  if (!formats.length) return undefined
+  if (base === 'text' || base === 'varchar') return authored
+
+  if (!matchesTemporalFormatStorage(base, formats)) {
+    throw new SchemaError({
+      message: `PostgreSQL reference output formats ${formats.join(', ')} cannot use ${JSON.stringify(base)} storage unambiguously. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.`,
+    })
+  }
+
+  return authored
+}
+
+/**
+ * Selects and validates a column's PostgreSQL physical type.
+ *
+ * @param column - Authored desired column.
+ * @param context - Effective client mapping availability; hooks are never executed.
+ */
+function selectPostgresColumnStorage(
+  column: AuthoredDesiredColumn,
+  context?: Parameters<DialectSchema['lowerDesiredSchema']>[1],
+): string {
+  const facts = column.facts
+  const metadata = column.metadata
+  const explicit = metadata?.physicalType?.postgresql
+  const hasParameterMapping =
+    context?.hasGlobalParameterMapping || typeof metadata?.mapParam === 'function'
+
+  const hasResultMapping =
+    context?.hasGlobalResultMapping || typeof metadata?.mapResult === 'function'
+
+  const selected = assertSafePostgresDataType(
+    explicit ?? inferPostgresColumnTypeFromFacts(facts),
+  )
+
+  if (explicit !== undefined && (!hasParameterMapping || !hasResultMapping))
+    assertPostgresScalarStorage(selected, facts)
+
+  return selected
+}
+
+/** Validates selected storage against resolved and locally authored logical output. */
+function validatePostgresValueMappingFromFacts(
+  dataType: string,
+  target: StorageFacts,
+  authored?: StorageFacts,
+): void {
+  validatePostgresCompositeMapping(dataType, target)
+
+  if (authored) {
+    validatePostgresCompositeMapping(dataType, authored)
+
+    if (authored.outputKind !== target.outputKind) {
+      throw new SchemaError({
+        message:
+          'PostgreSQL reference transformations must preserve the resolved target output kind. Provide paired column mapParam/mapResult or client mapParamValue/mapResultValue hooks.',
+      })
+    }
+
+    referenceTemporalAnalysis(extractPostgresBaseType(dataType), authored)
+  }
+
+  assertPostgresScalarStorage(dataType, target)
+}
+
+function validatePostgresCompositeMapping(dataType: string, facts: StorageFacts): void {
+  if (!facts.composite) return
+
+  const base = mappingStorage(dataType)
+
+  if (facts.outputKind === 'string' && (base === 'text' || base === 'varchar')) return
+
+  const inferred = extractPostgresBaseType(inferPostgresColumnTypeFromFacts(facts))
+  const kind = facts.outputKind
+  const compatible =
+    kind === 'number'
+      ? isPostgresCompositeNumberStorage(inferred, base)
+      : kind === 'bigint'
+        ? base === 'numeric' ||
+          base === 'decimal' ||
+          (inferred === 'bigint' && base === 'bigint')
+        : kind === 'json'
+          ? base === 'json' || base === 'jsonb'
+          : base === inferred
+
+  if (!compatible)
+    throw new SchemaError({
+      message: `PostgreSQL ${kind ?? 'unknown'} composite with ${JSON.stringify(dataType)} requires explicit parameter and result mappings`,
+    })
+}
+
+function isPostgresCompositeNumberStorage(inferred: string, selected: string): boolean {
+  const widths = INTEGER_STORAGE
+  const minimum = widths.indexOf(inferred)
+
+  if (minimum < 0) return selected === inferred
+  if (selected === 'double precision') return inferred !== 'bigint'
+
+  return widths.indexOf(selected) >= minimum
+}
+
+/** Proves native numeric storage without invoking custom mappings. */
+function resolvePostgresNumericAssignment(
+  dataType: string,
+  context: DialectValueMappingContext,
+): 'integer' | 'float' | undefined {
+  const facts = context.authoredFacts ?? context.facts
+  const storage = mappingStorage(dataType)
+
+  if (
+    facts.outputKind !== 'number' ||
+    facts.outputState !== 'known' ||
+    !NUMBER_OUTPUT_STORAGE.has(storage)
+  )
+    return undefined
+
+  return facts.numberConstraints.isInteger || INTEGER_STORAGE.includes(storage)
+    ? 'integer'
+    : 'float'
+}
+
+/** Selects built-in conversion without replacing resolved facts with a physical override. */
+function resolvePostgresValueStorage(
+  dataType: string,
+  target?: StorageFacts,
+  authored?: StorageFacts,
+): {
+  type:
+    | 'bigint'
+    | 'safeNumber'
+    | 'date'
+    | 'time'
+    | 'timestamp'
+    | 'timestamptz'
+    | 'json'
+    | 'uuid'
+    | 'identity'
+  facts: StorageFacts | undefined
+  format: StorageStringFormat | undefined
+} {
+  const base = mappingStorage(dataType)
+  const facts = referenceTemporalAnalysis(base, authored) ?? target
+  const kind = facts?.outputKind
+  const format = (Object.keys(STRING_FORMAT_STORAGE) as StorageStringFormat[]).find(
+    (format) =>
+      TEMPORAL_STORAGE.has(base) &&
+      STRING_FORMAT_STORAGE[format] === base &&
+      facts?.stringFormats.includes(format),
+  )
+
+  const type =
+    kind === 'bigint' && BIGINT_OUTPUT_STORAGE.has(base)
+      ? 'bigint'
+      : kind === 'number' && base === 'bigint'
+        ? 'safeNumber'
+        : base === 'date' ||
+            base === 'time' ||
+            base === 'timestamp' ||
+            base === 'timestamptz'
+          ? base
+          : JSON_OUTPUT_STORAGE.has(base)
+            ? 'json'
+            : base === 'uuid'
+              ? 'uuid'
+              : 'identity'
+
+  return { type, facts, format }
+}
+
+export {
+  inferPostgresColumnTypeFromFacts,
+  selectPostgresColumnStorage,
+  validatePostgresValueMappingFromFacts,
+  resolvePostgresValueStorage,
+  resolvePostgresNumericAssignment,
+}

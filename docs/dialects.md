@@ -105,7 +105,7 @@ to a convenient PostgreSQL or text default.
 The internal `src/schemas/valibot` module extracts logical storage facts such as effective
 output kind, constraints, formats, wrapper permissions, transformation uncertainty,
 and composite branches. It does not choose physical storage. The member-owned
-`src/dialects/postgres/infer.ts` and `src/dialects/sqlite/infer.ts` select that storage;
+`src/dialects/postgres/storage.ts` and `src/dialects/sqlite/storage.ts` select that storage;
 the corresponding `mapping.ts` files map query parameters and results while preserving
 the proven JavaScript output. `postgresDialect.schema.inferColumnType()` and
 `sqliteDialect.schema.inferColumnType()` are the direct inference entry points. The
@@ -580,8 +580,8 @@ src/dialects/<member>/
 ├── identity.ts         # <member>Identity
 ├── naming.ts           # <member>Naming
 ├── classifyDriverError.ts # <member>ClassifyDriverError
-├── infer.ts            # logical intent to physical storage
-├── mapping.ts          # parameter/result validation and conversion
+├── storage.ts          # physical selection and built-in mapping compatibility
+├── mapping.ts          # runtime parameter/result conversion
 ├── lowerDesiredSchema.ts # whole desired-graph lowering
 ├── normalize.ts        # type/default comparison forms
 ├── validate.ts         # safe validation and SQL formatting
@@ -671,8 +671,8 @@ These decisions preserve existing contracts while resolving authoring difference
    `tests/unit/helpers/`. Native integration fixtures stay in their integration directory.
 7. **Equivalent private session helpers share verbs.** Use
    `sameOperationSessionIdentity`, `openNativeLease`, and `closeNativeProvider` in both
-   operation-session implementations. Desired-schema lowering keeps matching
-   `physicalType` helpers. Do not add a shared abstraction for engine-specific work.
+   operation-session implementations. Each member owns storage decisions in its
+   `storage.ts`; do not add a shared abstraction for engine-specific work.
 8. **Direct lowering keeps engine-owned storage validation.** PostgreSQL desired-schema
    lowering validates scalar override storage, including proven ISO format/storage
    compatibility and serial normalization. SQLite direct lowering selects physical
