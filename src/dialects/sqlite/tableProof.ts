@@ -302,15 +302,6 @@ function quotedSqlEnd(
   )
 }
 
-/** A quote/comment-aware scanner for unquoted CREATE TABLE SQL token sequences. */
-// oxlint-disable-next-line complexity
-function hasSqlTokens(sql: string, wanted: readonly string[]): boolean {
-  const tokens: string[] = tokenizeSqliteSql(sql)
-  return tokens.some((_, index) =>
-    wanted.every((part, offset) => tokens[index + offset] === part),
-  )
-}
-
 /**
  * Collects unquoted SQL tokens while skipping quoted text and comments.
  *
@@ -949,7 +940,7 @@ function definitionTableOptions(tokens: readonly DefinitionToken[], bodyEnd: num
 
 /** Tests for an unquoted SQL token outside strings and comments. */
 function hasSqlToken(sql: string, wanted: string): boolean {
-  return hasSqlTokens(sql, [wanted])
+  return tokenizeSqliteSql(sql).includes(wanted)
 }
 
 /** Checks reservation-only definitions with the same native SQL scanner as table proof. */
@@ -1309,10 +1300,10 @@ function tableSqlEvidence(
 ) {
   const opaque: OpaqueCatalogObject[] = []
   const createSql = schema?.sql ?? null
-  const constraintName =
-    createSql !== null && hasSqlToken(createSql, 'CONSTRAINT')
-      ? unknown('SQLite does not expose authored constraint names')
-      : absent
+  const tokens = tokenizeSqliteSql(createSql ?? '')
+  const constraintName = tokens.includes('CONSTRAINT')
+    ? unknown('SQLite does not expose authored constraint names')
+    : absent
 
   const managed = constraintName.state !== 'unknown'
 
@@ -1326,7 +1317,7 @@ function tableSqlEvidence(
   }
 
   const clauses = decodeTableSqlClauses(
-    createSql,
+    tokens,
     managed,
     opaque,
     nativeDefinition,
@@ -1339,8 +1330,7 @@ function tableSqlEvidence(
 /**
  * Preserves unsupported table clauses and validates rowid AUTOINCREMENT evidence.
  *
- * @param createSql - Native CREATE TABLE definition used for clause and constraint
- *   checks.
+ * @param tokens - Unquoted tokens from the native CREATE TABLE definition.
  * @param managed - Whether the evidence still supports complete table management.
  * @param opaque - Mutable evidence for native objects outside the supported portable
  *   model.
@@ -1351,18 +1341,19 @@ function tableSqlEvidence(
  * @returns Supported rowid generation facts and retained unsupported native clauses.
  */
 function decodeTableSqlClauses(
-  createSql: string | null,
+  tokens: readonly string[],
   managed: boolean,
   opaque: OpaqueCatalogObject[],
   nativeDefinition: CatalogFact<string>,
   rowidAlias: boolean,
 ) {
   const unsupportedClauses = [
-    hasSqlToken(createSql ?? '', 'COLLATE') && 'COLLATE',
-    hasSqlTokens(createSql ?? '', ['ON', 'CONFLICT']) && 'ON CONFLICT',
-    hasSqlToken(createSql ?? '', 'DEFERRABLE') && 'DEFERRABLE',
-    hasSqlToken(createSql ?? '', 'INITIALLY') && 'INITIALLY',
-    hasSqlToken(createSql ?? '', 'MATCH') && 'MATCH',
+    tokens.includes('COLLATE') && 'COLLATE',
+    tokens.some((token, index) => token === 'ON' && tokens[index + 1] === 'CONFLICT') &&
+      'ON CONFLICT',
+    tokens.includes('DEFERRABLE') && 'DEFERRABLE',
+    tokens.includes('INITIALLY') && 'INITIALLY',
+    tokens.includes('MATCH') && 'MATCH',
   ].filter((clause): clause is string => clause !== false)
 
   if (unsupportedClauses.length > 0) {
@@ -1376,8 +1367,7 @@ function decodeTableSqlClauses(
     })
   }
 
-  const autoIncrement =
-    createSql === null ? false : hasSqlToken(createSql, 'AUTOINCREMENT')
+  const autoIncrement = tokens.includes('AUTOINCREMENT')
 
   if (autoIncrement !== rowidAlias && autoIncrement) {
     managed = false
