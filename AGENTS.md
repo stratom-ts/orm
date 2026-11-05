@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues and specs are tracked in GitHub Issues for `javangriff/stratom`. See `docs/agents/issue-tracker.md`.
+Issues and specs are tracked in GitHub Issues for `stratom-ts/stratom`. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
