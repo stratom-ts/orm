@@ -2,7 +2,7 @@ import type { InferInput, InferOutput } from 'valibot'
 import { number, object, pipe, string, title, toNumber } from 'valibot'
 import { expectTypeOf, it } from 'vitest'
 
-import type { TableHandle, TableSchema } from '@/index'
+import type { ReferenceTarget } from '@/index'
 import { defineTable, reference, table } from '@/index'
 
 it('infers lazy handle and raw-schema keys while preserving local input and output', () => {
@@ -34,17 +34,15 @@ it('infers lazy handle and raw-schema keys while preserving local input and outp
   reference(number(), () => Target, 'id')
 })
 
-type IdSchema = Omit<TableSchema, 'entries'> & {
-  entries: { id: ReturnType<typeof string> }
-}
+const idColumns = { id: string() }
 
-type IdTarget = Pick<TableHandle<IdSchema>, 'getSchema' | 'getTableMetadata'>
+type IdTarget = ReferenceTarget<typeof idColumns>
 
 it('checks narrow target contracts across genuinely circular declarations', () => {
   const A = defineTable(
     'a',
     {
-      id: string(),
+      ...idColumns,
       bId: (() => {
         // @ts-expect-error The circular target contract exposes no missing key.
         reference(string(), (): IdTarget => B, 'missing')
@@ -57,7 +55,7 @@ it('checks narrow target contracts across genuinely circular declarations', () =
   const B = defineTable(
     'b',
     {
-      id: string(),
+      ...idColumns,
       count: number(),
       aId: (() => {
         // @ts-expect-error A circular string key rejects a numeric local schema.
@@ -79,4 +77,44 @@ it('checks narrow target contracts across genuinely circular declarations', () =
   expectTypeOf<
     InferOutput<ReturnType<typeof B.getSchema>['entries']['aId']>
   >().toEqualTypeOf<string>()
+})
+
+it('checks a generic raw-schema target and retains transformed input and output', () => {
+  const columns = { id: pipe(string(), toNumber()) }
+  const raw = pipe(
+    object({ ...columns, count: number() }),
+    title('raw'),
+    table({ name: 'raw', primaryKey: 'id' }),
+  )
+
+  const target = (): ReferenceTarget<typeof columns> => raw
+  const ref = reference(pipe(string(), toNumber()), target, 'id')
+  expectTypeOf<InferInput<typeof ref>>().toEqualTypeOf<string>()
+  expectTypeOf<InferOutput<typeof ref>>().toEqualTypeOf<number>()
+
+  // @ts-expect-error Generic raw-schema targets expose only declared columns.
+  reference(pipe(string(), toNumber()), target, 'missing')
+
+  // @ts-expect-error Additional table columns are not part of this reference contract.
+  reference(number(), target, 'count')
+
+  // @ts-expect-error Matching output does not replace the required string input.
+  reference(number(), target, 'id')
+
+  // @ts-expect-error The local output must match the declared numeric output.
+  reference(string(), target, 'id')
+})
+
+it('rejects callback targets that do not satisfy their declared column schemas', () => {
+  const Missing = defineTable('missing', { name: string() }, { primaryKey: 'name' })
+  const Numeric = defineTable('numeric', { id: number() }, { primaryKey: 'id' })
+
+  expectTypeOf(Missing).not.toMatchTypeOf<IdTarget>()
+  expectTypeOf(Numeric).not.toMatchTypeOf<IdTarget>()
+
+  // @ts-expect-error The callback must return a table exposing the declared id column.
+  reference(string(), (): IdTarget => Missing, 'id')
+
+  // @ts-expect-error The returned id schema must satisfy the declared string schema.
+  reference(string(), (): IdTarget => Numeric, 'id')
 })
