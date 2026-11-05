@@ -77,9 +77,10 @@ function serializeSqliteObservation(value: unknown): string {
 }
 
 function sortSqliteRows<T>(rows: readonly T[]): T[] {
-  return [...rows].sort((left, right) =>
-    compare(serializeSqliteObservation(left), serializeSqliteObservation(right)),
-  )
+  return rows
+    .map((row) => ({ row, key: serializeSqliteObservation(row) }))
+    .sort((left, right) => compare(left.key, right.key))
+    .map(({ row }) => row)
 }
 
 function relationInput(database: string, relation: string) {
