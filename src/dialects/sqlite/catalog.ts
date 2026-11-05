@@ -576,6 +576,10 @@ function validateSchemaRelations(
 ): void {
   /** Resolves a native relation name under the current catalog namespace. */
   const scopeIdentity = (name: string) => identities.resolve(relationInput('main', name))
+  const tablesByIdentity = identities.createRegistry<TableRow>()
+
+  for (const table of mainTables) tablesByIdentity.set(scopeIdentity(table.name), table)
+
   const completeMain = resolvedRequest.completeNamespaces.some((entry) =>
     sameNamespace(entry, identities.resolveNamespace(mainNamespace)),
   )
@@ -600,19 +604,15 @@ function validateSchemaRelations(
         ? schemaRow.name
         : schemaRow.tbl_name
 
-    const observedOwner = mainTables.find(
-      (table) =>
-        scopeIdentity(table.name).relation.comparisonKey ===
-        scopeIdentity(owner).relation.comparisonKey,
-    )
+    const observedOwner = tablesByIdentity.get(scopeIdentity(owner))
 
     if (!observedOwner) {
-      assertSqliteSchemaRelation(schemaRow, mainTables, scopeIdentity)
+      assertSqliteSchemaRelation(schemaRow, observedOwner, scopeIdentity)
       continue
     }
 
     decodeTableObservation(observedOwner.name, errors, () =>
-      assertSqliteSchemaRelation(schemaRow, mainTables, scopeIdentity),
+      assertSqliteSchemaRelation(schemaRow, observedOwner, scopeIdentity),
     )
   }
 }
@@ -1833,7 +1833,7 @@ type SqliteCatalogConsistency = {
 
 function assertSqliteSchemaRelation(
   schemaRow: SchemaRow,
-  mainTables: readonly TableRow[],
+  observedOwner: TableRow | undefined,
   scopeIdentity: (name: string) => CanonicalRelationIdentity,
 ) {
   if (
@@ -1847,24 +1847,13 @@ function assertSqliteSchemaRelation(
 
   if (
     (schemaRow.type === 'table' || schemaRow.type === 'view') &&
-    !mainTables.some(
-      (table) =>
-        scopeIdentity(table.name).relation.comparisonKey ===
-        scopeIdentity(schemaRow.name).relation.comparisonKey,
-    )
+    observedOwner === undefined
   )
     throw new SqliteTableMetadataError(
       `SQLite sqlite_schema relation ${JSON.stringify(schemaRow.name)} is missing from table_list`,
     )
 
-  if (
-    schemaRow.type === 'index' &&
-    !mainTables.some(
-      (table) =>
-        scopeIdentity(table.name).relation.comparisonKey ===
-        scopeIdentity(schemaRow.tbl_name).relation.comparisonKey,
-    )
-  )
+  if (schemaRow.type === 'index' && observedOwner === undefined)
     throw new SqliteTableMetadataError(
       `SQLite sqlite_schema index ${JSON.stringify(schemaRow.name)} references a missing table`,
     )
