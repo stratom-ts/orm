@@ -668,6 +668,38 @@ describe('PostgreSQL lowering dependencies and malformed steps: reports unsuppor
 })
 
 describe('PostgreSQL lowering preconditions and target validation', () => {
+  it('retains every guarded column-drop target and source step under the default policy', () => {
+    const planned = plan()
+    const relation = planned.identities.resolve({ relation: 'users' })
+    const targets = ['email', 'legacy'].map((name) => ({
+      kind: 'column' as const,
+      relation,
+      column: planned.identities.member('column', name),
+    }))
+
+    const drops: PlannedMigration = {
+      ...planned,
+      plan: {
+        steps: targets.map((target) => ({ kind: 'drop_column' as const, target })),
+      },
+    }
+
+    expect(lower(drops).preconditions).toEqual(
+      targets.map((target, index) => ({
+        kind: 'column_has_only_nulls',
+        target,
+        sourceStepIndexes: [index],
+      })),
+    )
+
+    expect(
+      postgresDialect.migration.lower(drops, expectedProfile, { columnDrop: 'dangerous' })
+        .program?.preconditions,
+    ).toEqual([])
+  })
+})
+
+describe('PostgreSQL NOT NULL lowering precondition', () => {
   it('should declare SET NOT NULL as a semantic precondition', () => {
     const planned = plan()
     const relation = planned.identities.resolve({ relation: 'users' })

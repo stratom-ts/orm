@@ -1,4 +1,5 @@
 import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
+import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
@@ -19,6 +20,7 @@ import {
   releaseCoordinationFailures,
   runCancellable,
 } from './coordination'
+import { schemaFromNamespace } from './targets'
 
 const DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS = 30_000
 
@@ -338,6 +340,9 @@ async function executePostgresMigration(
   const options: PostgresMigrationRuntimeOptions = {
     ...input,
     lockTimeoutMs: input.lockTimeoutMs ?? DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS,
+    lockDeadline:
+      performance.now() +
+      (input.lockTimeoutMs ?? DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS),
   }
 
   const cancellation: CancellationState = { cancelled: false }
@@ -493,7 +498,19 @@ async function executeTransaction(
   cancellation: CancellationState,
   cleanupFailures: MigrationCleanupFailure[],
 ): Promise<void> {
+  const provisional = await prepareMigrationProgram(
+    state,
+    options,
+    cancellation,
+    cleanupFailures,
+  )
+
+  if (!provisional) return
+
   await beginMigrationTransaction(options, cancellation, state, cleanupFailures)
+
+  if (!state.primary)
+    await lockGuardedRelations(provisional, state, options, cancellation, cleanupFailures)
 
   const program = await prepareMigrationProgram(
     state,
@@ -501,6 +518,26 @@ async function executeTransaction(
     cancellation,
     cleanupFailures,
   )
+
+  if (program && !state.primary) {
+    const locked = guardedRelations(provisional)
+
+    const unlocked = guardedRelations(program).find(
+      (relation) => !locked.some((item) => compareRelations(item, relation) === 0),
+    )
+
+    if (unlocked)
+      state.primary = {
+        cause: new MigrationError({
+          message:
+            'Authoritative column-drop guard names a relation outside the provisional lock set; retry migration',
+          stage: 'precondition',
+          outcome: 'unchanged',
+          retryable: true,
+        }),
+        stage: 'precondition',
+      }
+  }
 
   if (program && !state.primary)
     state.primary = await executePreconditions(
@@ -514,6 +551,146 @@ async function executeTransaction(
     await executeProgramActions(program, state, options, cancellation, cleanupFailures)
 
   await completeMigrationTransaction(state, options, cancellation, cleanupFailures)
+}
+
+/** Canonical relation order uses structured namespace roles and identifiers. */
+function compareRelations(
+  left: CanonicalRelationIdentity,
+  right: CanonicalRelationIdentity,
+): number {
+  const leftParts = left.namespace.flatMap((segment) => [
+    segment.role,
+    segment.identifier.comparisonKey,
+  ])
+
+  const rightParts = right.namespace.flatMap((segment) => [
+    segment.role,
+    segment.identifier.comparisonKey,
+  ])
+
+  leftParts.push(left.relation.comparisonKey)
+  rightParts.push(right.relation.comparisonKey)
+
+  for (let index = 0; index < leftParts.length; index++) {
+    const a = leftParts[index]
+    const b = rightParts[index]
+
+    if (a !== b) return a < b ? -1 : 1
+  }
+
+  return leftParts.length === rightParts.length ? 0 : -1
+}
+
+function guardedRelations(program: MigrationProgram): CanonicalRelationIdentity[] {
+  const relations = program.preconditions.flatMap((condition) =>
+    condition.kind === 'column_has_only_nulls' ? [condition.target.relation] : [],
+  )
+
+  return relations
+    .sort(compareRelations)
+    .filter(
+      (relation, index, ordered) =>
+        index === 0 || compareRelations(relation, ordered[index - 1]) !== 0,
+    )
+}
+
+/** Acquires relation locks before the first snapshot-establishing statement. */
+async function lockGuardedRelations(
+  program: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: MigrationCleanupFailure[],
+): Promise<void> {
+  for (const relation of guardedRelations(program)) {
+    try {
+      await lockGuardedRelation(relation, options, cancellation)
+    } catch (cause) {
+      state.primary = { cause, stage: cancellationStage(cause, 'lock') }
+      retainCancellationFailures(cleanupFailures, cause)
+      return
+    }
+  }
+
+  if (guardedRelations(program).length > 0) {
+    try {
+      await runCancellable({
+        runtime: options,
+        state: cancellation,
+        stage: 'lock',
+        operation: () =>
+          options.executor.run(
+            { sql: "set local lock_timeout = '0'", params: [] },
+            { source: 'lifecycle' },
+          ),
+      })
+
+      await runCancellable({
+        runtime: options,
+        state: cancellation,
+        stage: 'precondition',
+        operation: () =>
+          options.executor.run(
+            { sql: 'set local row_security = off', params: [] },
+            { source: 'lifecycle' },
+          ),
+      })
+    } catch (cause) {
+      state.primary = { cause, stage: cancellationStage(cause, 'precondition') }
+      retainCancellationFailures(cleanupFailures, cause)
+    }
+  }
+}
+
+/** Acquires one validated relation lock within the shared migration deadline. */
+async function lockGuardedRelation(
+  relation: CanonicalRelationIdentity,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+): Promise<void> {
+  const remaining = Math.max(
+    0,
+    Math.ceil((options.lockDeadline ?? performance.now()) - performance.now()),
+  )
+
+  if (options.lockTimeoutMs !== 0 && remaining === 0)
+    throw new PostgresMigrationLockTimeoutError(
+      'Timed out acquiring migration relation locks',
+      'lock',
+      [],
+    )
+
+  if (options.lockTimeoutMs !== 0)
+    await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'lock',
+      operation: () =>
+        options.executor.run(
+          { sql: `set local lock_timeout = '${remaining}ms'`, params: [] },
+          { source: 'lifecycle' },
+        ),
+    })
+
+  const schema = schemaFromNamespace(relation.namespace)
+  const quote = (name: string) => `"${name.replaceAll('"', '""')}"`
+  await runCancellable({
+    runtime: options,
+    state: cancellation,
+    stage: 'lock',
+    timeoutMs:
+      options.lockTimeoutMs === 0
+        ? POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS
+        : remaining,
+    operation: () =>
+      options.executor.run(
+        {
+          sql: `lock table ${quote(schema)}.${quote(relation.relation.spelling)} in access exclusive mode${options.lockTimeoutMs === 0 ? ' nowait' : ''}`,
+          params: [],
+        },
+        { source: 'lifecycle' },
+      ),
+  })
 }
 
 /**
@@ -650,7 +827,7 @@ async function prepareMigrationProgram(
     }
   }
 
-  return program
+  return state.primary ? undefined : program
 }
 
 /**

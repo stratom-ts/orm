@@ -1,3 +1,4 @@
+import { string } from 'valibot'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { MigrationDryRunAction } from '@/ddl/migrate'
@@ -8,6 +9,7 @@ import type {
   MigrationRuntimeOptions,
 } from '@/ddl/migrationProgram'
 import { postgresDialect } from '@/dialects/postgres'
+import { defineTable } from '@/index'
 import type { Executor } from '@/query'
 
 import { completePostgresCatalog } from '../dialects/postgresCatalogFixtures'
@@ -208,6 +210,7 @@ describe('dialect-neutral migration adapter contract', () => {
         profile: expect.objectContaining({ identityAdapter: 'postgresql' }) as unknown,
       }),
       expect.objectContaining({ identityAdapter: 'postgresql' }),
+      { columnDrop: 'guarded' },
     )
   })
 })
@@ -239,6 +242,7 @@ describe('dialect-neutral migration adapter contract: keeps executing Semantic P
         }) as unknown,
       }),
       expect.objectContaining({ identityAdapter: 'not-postgresql' }),
+      { columnDrop: 'guarded' },
     )
   })
 })
@@ -268,6 +272,7 @@ describe('dialect-neutral migration adapter contract: validates the Semantic Pro
         }) as unknown,
       }),
       expect.objectContaining({ identityAdapter: 'not-postgresql' }),
+      { columnDrop: 'guarded' },
     )
 
     expect(member.execute).not.toHaveBeenCalled()
@@ -321,6 +326,211 @@ describe('dialect-neutral migration program preview and issues', () => {
     sourceStepIndexes.push(99)
     expect(preview.actions[0].sourceStepIndexes).toEqual([1, 3])
   })
+})
+
+function memberWithCompleteColumnDropCatalog() {
+  const member = createMigrationMember()
+  member.introspectCatalog.mockImplementation(async (_executor, request) =>
+    completePostgresCatalog(
+      {
+        namespaceContext,
+        tables: [
+          {
+            schema: 'public',
+            name: 'users',
+            primaryKey: { name: 'users_pkey', columns: ['id'] },
+            columns: [
+              { name: 'id', dataType: 'text', isNullable: false },
+              { name: 'email', dataType: 'text', isNullable: true },
+            ],
+          },
+        ],
+        nameReservations: [],
+        constraintNameReservations: [],
+      },
+      request,
+    ),
+  )
+
+  return member
+}
+
+function registerRealGuardedDropCase() {
+  it('lowers a real guarded column drop in preview and execution', async () => {
+    const Users = defineTable('users', { id: string() }, { primaryKey: 'id' })
+    const member = memberWithCompleteColumnDropCatalog()
+
+    const builder = createMigrateBuilder({
+      schemas: [Users],
+      migration: member.migration,
+      migrationOwnership: [{ kind: 'relation', relation: Users, shape: 'complete' }],
+      runOperation: createOperationRunner().runOperation,
+    })
+
+    const plan = await builder.plan()
+    expect(plan.steps.map((step) => step.kind)).toContain('drop_column')
+    const preview = await builder.dryRun()
+    expect(preview.preconditions).toMatchObject([{ kind: 'column_has_only_nulls' }])
+    await builder.execute()
+    const executed = await member.execute.mock.calls[0][0].prepare()
+    expect(executed.preconditions).toEqual(preview.preconditions)
+
+    expect(
+      executed.actions.map((action) =>
+        action.statements.map((statement) => statement.sql),
+      ),
+    ).toEqual(
+      preview.actions.map((action) =>
+        action.statements.map((statement) => statement.sql),
+      ),
+    )
+
+    builder.allow('dangerouslyDropColumn')
+    expect(await builder.plan()).toEqual(plan)
+    expect((await builder.dryRun()).preconditions).toEqual([])
+    await builder.execute()
+    expect((await member.execute.mock.calls[1][0].prepare()).preconditions).toEqual([])
+  })
+}
+
+const target = {
+  kind: 'column' as const,
+  relation: {
+    namespace: [
+      {
+        role: 'database' as const,
+        identifier: { spelling: 'test', comparisonKey: 'test' },
+      },
+      {
+        role: 'schema' as const,
+        identifier: { spelling: 'public', comparisonKey: 'public' },
+      },
+    ],
+    relation: { spelling: 'users', comparisonKey: 'users' },
+  },
+  column: { spelling: 'email', comparisonKey: 'email' },
+}
+
+function memberWithGuard() {
+  const member = createMigrationMember()
+  const programs: MigrationProgram[] = []
+  member.lower.mockImplementation((_planned, _expected, policy) => {
+    const program: MigrationProgram = {
+      atomicity: 'plan-atomic',
+      preconditions:
+        policy?.columnDrop !== 'dangerous'
+          ? [
+              {
+                kind: 'column_has_only_nulls',
+                target: structuredClone(target),
+                sourceStepIndexes: [2],
+              },
+            ]
+          : [],
+      actions: [
+        {
+          sourceStepIndexes: [2],
+          transaction: 'required',
+          statements: [
+            { sql: 'alter table users drop column email', params: ['secret'] },
+          ],
+        },
+      ],
+    }
+
+    programs.push(program)
+    return { program }
+  })
+
+  return { member, programs }
+}
+
+function registerPolicyPreviewCase() {
+  it('keeps the semantic plan equal while preview and execution lower the selected policy', async () => {
+    const { member, programs } = memberWithGuard()
+    const builder = createMigrateBuilder({
+      schemas: [],
+      migration: member.migration,
+      runOperation: createOperationRunner().runOperation,
+    })
+
+    const plan = await builder.plan()
+    const guarded = await builder.dryRun()
+    await builder.execute()
+    expect(programs.at(-1)?.preconditions).toEqual(guarded.preconditions)
+
+    expect(guarded.preconditions).toEqual([
+      { kind: 'column_has_only_nulls', target, sourceStepIndexes: [2] },
+    ])
+
+    expect(guarded.actions[0].statements[0].params).toEqual(['[REDACTED]'])
+
+    const guard = programs[0].preconditions[0]
+    const indexes = guard.sourceStepIndexes as number[]
+    indexes.push(99)
+
+    if (guard.kind !== 'column_has_only_nulls') throw new Error('expected guard')
+
+    Object.assign(guard.target.column, { spelling: 'changed' })
+
+    expect(guarded.preconditions[0]).toEqual({
+      kind: 'column_has_only_nulls',
+      target,
+      sourceStepIndexes: [2],
+    })
+
+    builder.allow('dangerouslyDropColumn')
+    expect(await builder.plan()).toEqual(plan)
+    const dangerous = await builder.dryRun()
+    await builder.execute()
+    expect(dangerous.preconditions).toEqual([])
+    expect(programs.at(-1)?.preconditions).toEqual([])
+    expect(dangerous.actions).toEqual(guarded.actions)
+  })
+}
+
+function registerPolicyCaptureCases() {
+  it.each(['execute', 'dryRun'] as const)(
+    'captures policy when %s starts',
+    async (operation) => {
+      const { member } = memberWithGuard()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+
+      let entered!: () => void
+      const started = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+
+      const runner = createOperationRunner()
+      const builder = createMigrateBuilder({
+        schemas: [],
+        migration: member.migration,
+        runOperation: async (work) => {
+          entered()
+          await gate
+          return runner.runOperation(work)
+        },
+      })
+
+      const first = builder[operation]()
+      await started
+      builder.allow('dangerouslyDropColumn')
+      release()
+      await first
+      expect(member.lower.mock.calls[0][2]).toEqual({ columnDrop: 'guarded' })
+      await builder[operation]()
+      expect(member.lower.mock.calls[1][2]).toEqual({ columnDrop: 'dangerous' })
+    },
+  )
+}
+
+describe('column-drop policy at the public migration builder', () => {
+  registerRealGuardedDropCase()
+  registerPolicyPreviewCase()
+  registerPolicyCaptureCases()
 })
 
 describe('dialect-neutral migration program preview and issues: returns zero lowered actions during dry run', () => {
@@ -400,5 +610,6 @@ function assertMigrationPreview(
       profile: expect.objectContaining({ identityAdapter: 'postgresql' }) as unknown,
     }),
     expect.objectContaining({ identityAdapter: 'postgresql' }),
+    { columnDrop: 'guarded' },
   )
 }

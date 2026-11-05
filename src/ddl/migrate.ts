@@ -1,4 +1,8 @@
-import type { DialectMigrationAdapter, MigrationProgram } from '@/ddl/migrationProgram'
+import type {
+  DialectMigrationAdapter,
+  MigrationLoweringPolicy,
+  MigrationProgram,
+} from '@/ddl/migrationProgram'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import { enrichMigrationError } from '@/migrations/migrationDiagnostics'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
@@ -18,7 +22,7 @@ import type {
 import { planMigration } from './migrationPlan'
 
 /** Destructive migrate operations that require explicit execution permission. */
-type MigrationAllow = 'dropColumn' | 'dropTable' | 'dropIndex'
+type MigrationAllow = 'dangerouslyDropColumn' | 'dropTable' | 'dropIndex'
 
 /** Optional cancellation and finite coordination deadline for migration execution. */
 type MigrationExecuteOptions = Readonly<{
@@ -166,7 +170,7 @@ function lockTimeout(options: MigrationExecuteOptions | undefined): number | und
 function allowForStep(step: MigrationStep): MigrationAllow | undefined {
   switch (step.kind) {
     case 'drop_column':
-      return 'dropColumn'
+      return undefined
     case 'drop_table':
       return 'dropTable'
     case 'drop_index':
@@ -190,8 +194,9 @@ function lowerPlan(
   planned: Parameters<DialectMigrationAdapter['lower']>[0],
   expected: Parameters<DialectMigrationAdapter['lower']>[1],
   mode: 'preview' | 'execution' = 'execution',
+  policy: MigrationLoweringPolicy = { columnDrop: 'guarded' },
 ): MigrationProgram {
-  const lowering = attemptSync(() => migration.lower(planned, expected))
+  const lowering = attemptSync(() => migration.lower(planned, expected, policy))
 
   if (!lowering.ok) throw phaseError(lowering.error, 'lowering', mode)
 
@@ -222,13 +227,29 @@ function dryRunProgram(program: MigrationProgram): MigrationDryRun {
     preconditions: program.preconditions.map((precondition) => ({
       ...precondition,
       sourceStepIndexes: [...precondition.sourceStepIndexes],
-      relation: {
-        namespace: precondition.relation.namespace.map((segment) => ({
-          ...segment,
-          identifier: { ...segment.identifier },
-        })),
-        relation: { ...precondition.relation.relation },
-      },
+      ...(precondition.kind === 'column_has_no_nulls'
+        ? {
+            relation: {
+              namespace: precondition.relation.namespace.map((segment) => ({
+                ...segment,
+                identifier: { ...segment.identifier },
+              })),
+              relation: { ...precondition.relation.relation },
+            },
+          }
+        : {
+            target: {
+              ...precondition.target,
+              relation: {
+                namespace: precondition.target.relation.namespace.map((segment) => ({
+                  ...segment,
+                  identifier: { ...segment.identifier },
+                })),
+                relation: { ...precondition.target.relation.relation },
+              },
+              column: { ...precondition.target.column },
+            },
+          }),
     })),
     actions: program.actions.map((action) => ({
       sourceStepIndexes: [...action.sourceStepIndexes],
@@ -317,7 +338,9 @@ async function prepareMigration(
     }
   }
 
-  return lowerPlan(planningOptions.migration, planned, expected)
+  return lowerPlan(planningOptions.migration, planned, expected, 'execution', {
+    columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
+  })
 }
 
 type MigrateBuilderOptions = {
@@ -358,7 +381,7 @@ type MigrateBuilderOptions = {
  *
  * @example
  *   const migrate = createMigrateBuilder({ schemas, migration, runOperation })
- *   await migrate.allow('dropColumn').execute()
+ *   await migrate.allow('dangerouslyDropColumn').execute()
  *
  * @param options - Migration schemas, selected member, operation runner, and policy.
  *
@@ -381,12 +404,15 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
       for (const op of ops) allowed.add(op)
       return builder
     },
-    ...createMigrationPreview({
-      ...planningOptions,
-      runOperation,
-      applicationId,
-      assertCanExecute,
-    }),
+    ...createMigrationPreview(
+      {
+        ...planningOptions,
+        runOperation,
+        applicationId,
+        assertCanExecute,
+      },
+      allowed,
+    ),
 
     /**
      * Plans and executes the migration through the selected dialect.
@@ -396,7 +422,7 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
     execute: (executeOptions) =>
       executeMigration(
         { ...planningOptions, runOperation, applicationId, assertCanExecute },
-        allowed,
+        new Set(allowed),
         executeOptions,
       ),
   }
@@ -445,19 +471,8 @@ async function executeMigration(
           /** Builds, validates, and lowers the plan inside the execution snapshot. */
           prepare: () => prepareMigration(executor, planningOptions, allowed),
           /** Checks the same desired schema against the final authoritative catalog. */
-          validate: async () => {
-            const { planned, expected } = await observeMigrationPlan(
-              executor,
-              planningOptions,
-            )
-
-            const final = lowerPlan(migration, planned, expected)
-
-            if (planned.plan.steps.length || final.actions.length)
-              throw new MigrationError({
-                message: 'Migration did not converge to the desired schema',
-              })
-          },
+          validate: () =>
+            validateMigrationConvergence(executor, planningOptions, allowed),
         }),
       )
 
@@ -469,6 +484,23 @@ async function executeMigration(
   } catch (cause) {
     throwExecutionCleanup(cause, runtime.success)
   }
+}
+
+/** Checks the desired schema against the final authoritative catalog. */
+async function validateMigrationConvergence(
+  executor: Executor,
+  planningOptions: Parameters<typeof observeMigrationPlan>[1],
+  allowed: ReadonlySet<MigrationAllow>,
+): Promise<void> {
+  const { planned, expected } = await observeMigrationPlan(executor, planningOptions)
+  const final = lowerPlan(planningOptions.migration, planned, expected, 'execution', {
+    columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
+  })
+
+  if (planned.plan.steps.length || final.actions.length)
+    throw new MigrationError({
+      message: 'Migration did not converge to the desired schema',
+    })
 }
 
 /**
@@ -536,6 +568,7 @@ function assertMigrationPermission(assertCanExecute: (() => void) | undefined): 
  */
 function createMigrationPreview(
   options: MigrateBuilderOptions,
+  allowed: ReadonlySet<MigrationAllow>,
 ): Pick<MigrateBuilder, 'plan' | 'dryRun'> {
   const { migration, runOperation } = options
   const planningOptions = options
@@ -553,6 +586,10 @@ function createMigrationPreview(
 
     /** Builds and lowers the plan without executing physical actions. */
     async dryRun() {
+      const policy: MigrationLoweringPolicy = {
+        columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
+      }
+
       return runMigrationPreview(() =>
         runOperation(async (executor) => {
           const { planned, expected } = await observeMigrationPlan(
@@ -561,7 +598,7 @@ function createMigrationPreview(
             'preview',
           )
 
-          return dryRunProgram(lowerPlan(migration, planned, expected, 'preview'))
+          return dryRunProgram(lowerPlan(migration, planned, expected, 'preview', policy))
         }),
       )
     },

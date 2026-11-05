@@ -15,6 +15,50 @@ const executionFacts = {
     `Execution failed${actionIndex === undefined ? '' : ` during action ${actionIndex + 1}`}`,
 }
 
+it('preserves guarded-drop diagnostics through phase, execution, cleanup and JSON', () => {
+  const target = {
+    kind: 'column' as const,
+    relation: {
+      namespace: [
+        {
+          role: 'database' as const,
+          identifier: { spelling: 'main', comparisonKey: 'main' },
+        },
+      ],
+      relation: { spelling: 'events', comparisonKey: 'events' },
+    },
+    column: { spelling: 'payload', comparisonKey: 'payload' },
+  }
+
+  const preconditionFailure = { target, reason: 'contains_non_null_values' as const }
+
+  const original = new MigrationError({
+    message: 'data present',
+    stage: 'precondition',
+    preconditionFailure,
+    sourceStepIndexes: [2],
+  })
+
+  const enriched = enrichMigrationError(original, {
+    cleanupFailures: [{ stage: 'rollback', cause: new Error('rollback failed') }],
+  })
+
+  const executed = migrationExecutionError(enriched, {
+    ...executionFacts,
+    stage: 'precondition',
+    outcome: 'unchanged',
+  })
+
+  expect(executed.preconditionFailure).toEqual(preconditionFailure)
+  expect(executed.sourceStepIndexes).toEqual([2])
+  expect(executed.cleanupFailures?.map((failure) => failure.stage)).toEqual(['rollback'])
+
+  expect(JSON.parse(JSON.stringify(executed))).toMatchObject({
+    preconditionFailure,
+    sourceStepIndexes: [2],
+  })
+})
+
 it.each([0, 2])(
   'should keep an absent primary cause absent and action index %i through phase enrichment',
   (actionIndex) => {

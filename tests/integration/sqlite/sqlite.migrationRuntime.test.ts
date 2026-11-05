@@ -213,3 +213,253 @@ it('should roll back attempted DDL and retain action provenance', async () => {
     await provider.close()
   }
 })
+
+function mixedGuardedProgram(): MigrationProgram {
+  const identity = {
+    namespace: [
+      {
+        role: 'database' as const,
+        identifier: { spelling: 'main', comparisonKey: 'main' },
+      },
+    ],
+    relation: { spelling: 'records', comparisonKey: 'records' },
+  }
+
+  return {
+    atomicity: 'plan-atomic',
+    preconditions: ['safe', 'unsafe'].map((name, index) => ({
+      kind: 'column_has_only_nulls' as const,
+      target: {
+        kind: 'column' as const,
+        relation: identity,
+        column: { spelling: name, comparisonKey: name },
+      },
+      sourceStepIndexes: [index],
+    })),
+    actions: [
+      {
+        sourceStepIndexes: [0],
+        transaction: 'required',
+        statements: [{ sql: 'alter table records drop column safe', params: [] }],
+      },
+      {
+        sourceStepIndexes: [1],
+        transaction: 'required',
+        statements: [
+          {
+            sql: 'create table replacement(id integer primary key, added text)',
+            params: [],
+          },
+        ],
+      },
+      {
+        sourceStepIndexes: [2],
+        transaction: 'required',
+        statements: [{ sql: 'alter table records add column added text', params: [] }],
+      },
+    ],
+  }
+}
+
+function recordsSnapshot(owner: DatabaseSync) {
+  return {
+    schema: owner
+      .prepare("select name,sql from sqlite_schema where type='table' order by name")
+      .all(),
+    rows: owner.prepare('select * from records').all(),
+  }
+}
+
+it('checks every guard before a mixed rebuild program changes the schema', async () => {
+  const path = filePath()
+  const owner = new DatabaseSync(path)
+  const provider = createDb0NodeSqliteOperationSessionProvider(
+    nodeSqliteConnector({ path }),
+  )
+
+  const session = await provider.open()
+  const ddl: string[] = []
+  const observed: Executor = {
+    execute: (query) => session.query(query),
+    run: async (query) => {
+      if (/^(?:create|alter|drop)\s/i.test(query.sql)) ddl.push(query.sql)
+
+      return session.run(query)
+    },
+  }
+
+  try {
+    owner.exec(
+      "create table records(id integer primary key, safe text, unsafe text); insert into records values(1,null,'kept')",
+    )
+
+    const before = recordsSnapshot(owner)
+    const failure = await executeSqliteMigration({
+      executor: observed,
+      databaseIdentity: session.identity.database,
+      discard: () => undefined,
+      cancel: () => session.cancel(),
+      prepare: async () => mixedGuardedProgram(),
+    }).catch((cause: unknown) => cause)
+
+    expect(failure).toMatchObject({
+      stage: 'precondition',
+      outcome: 'unchanged',
+      preconditionFailure: { reason: 'contains_non_null_values' },
+    })
+
+    expect(ddl).toEqual([])
+
+    expect(recordsSnapshot(owner)).toEqual(before)
+  } finally {
+    await session.release('discard')
+    await provider.close()
+    owner.close()
+  }
+})
+
+function guardedRebuildProgram(): MigrationProgram {
+  const identity = {
+    namespace: [
+      {
+        role: 'database' as const,
+        identifier: { spelling: 'main', comparisonKey: 'main' },
+      },
+    ],
+    relation: { spelling: 'records', comparisonKey: 'records' },
+  }
+
+  return {
+    atomicity: 'plan-atomic',
+    preconditions: [
+      {
+        kind: 'column_has_only_nulls',
+        target: {
+          kind: 'column',
+          relation: identity,
+          column: { spelling: 'removed', comparisonKey: 'removed' },
+        },
+        sourceStepIndexes: [0],
+      },
+    ],
+    actions: [
+      {
+        sourceStepIndexes: [0],
+        transaction: 'required',
+        statements: [
+          { sql: 'create table replacement(id integer primary key)', params: [] },
+          { sql: 'insert into replacement select id from records', params: [] },
+          { sql: 'drop table records', params: [] },
+          { sql: 'alter table replacement rename to records', params: [] },
+        ],
+      },
+    ],
+  }
+}
+
+function executePausedGuard(
+  session: OperationSession,
+  migrationProgram: MigrationProgram,
+  checked: () => void,
+  gate: Promise<void>,
+) {
+  return executeSqliteMigration({
+    executor: {
+      execute: async (query) => {
+        const rows = await session.query(query)
+
+        if (query.sql.startsWith('select exists(')) {
+          checked()
+          await gate
+        }
+
+        return rows
+      },
+      run: (query) => session.run(query),
+    },
+    databaseIdentity: session.identity.database,
+    discard: () => undefined,
+    cancel: () => session.cancel(),
+    prepare: async () => migrationProgram,
+  })
+}
+
+async function assertWriterBlockedDuringGuard(
+  owner: DatabaseSync,
+  guardChecked: Promise<void>,
+  migration: Promise<unknown>,
+  release: () => void,
+) {
+  try {
+    await Promise.race([
+      guardChecked,
+      migration.then(
+        () => {
+          throw new Error('migration completed before guard hook')
+        },
+        (cause: unknown) => {
+          throw cause
+        },
+      ),
+    ])
+
+    owner.exec('pragma busy_timeout=0')
+
+    expect(() => owner.exec("update records set removed='too late'")).toThrow(
+      /locked|busy/i,
+    )
+  } finally {
+    release()
+    await migration.catch(() => undefined)
+  }
+}
+
+it('keeps an independent writer out after checking a guarded rebuild', async () => {
+  const path = filePath()
+  const owner = new DatabaseSync(path)
+  const provider = createDb0NodeSqliteOperationSessionProvider(
+    nodeSqliteConnector({ path }),
+  )
+
+  const session = await provider.open()
+  let checked!: () => void
+  const guardChecked = new Promise<void>((resolve) => {
+    checked = resolve
+  })
+
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  const migrationProgram = guardedRebuildProgram()
+
+  try {
+    owner.exec(
+      'create table records(id integer primary key, removed text); insert into records values(1,null)',
+    )
+
+    owner.exec("update records set removed='committed first'")
+
+    await expect(
+      runtime(session, { prepare: async () => migrationProgram }).execute(),
+    ).rejects.toMatchObject({
+      stage: 'precondition',
+      preconditionFailure: { reason: 'contains_non_null_values' },
+    })
+
+    owner.exec('update records set removed=null')
+
+    const migration = executePausedGuard(session, migrationProgram, checked, gate)
+
+    await assertWriterBlockedDuringGuard(owner, guardChecked, migration, release)
+
+    await expect(migration).resolves.toEqual({ outcome: 'applied' })
+    expect(owner.prepare('select id from records').all()).toEqual([{ id: 1 }])
+  } finally {
+    release()
+    await session.release('discard')
+    await provider.close()
+    owner.close()
+  }
+})

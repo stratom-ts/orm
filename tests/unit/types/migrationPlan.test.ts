@@ -122,6 +122,12 @@ describe('public Migration Plan types', () => {
 
 describe('public Migration Plan types: keeps the preview grouped and non-executable', () => {
   it('should keep the preview grouped and non-executable', () => {
+    // @ts-expect-error The old unconditional column-drop permission is removed.
+    const legacyPermission: Parameters<MigrateBuilder['allow']>[number] = 'dropColumn'
+    expectTypeOf(legacyPermission).toEqualTypeOf<
+      Parameters<MigrateBuilder['allow']>[number]
+    >()
+
     expectTypeOf<MigrationDryRunStatement>().toEqualTypeOf<
       Readonly<{ sql: string; params: readonly '[REDACTED]'[] }>
     >()
@@ -143,7 +149,10 @@ describe('public Migration Plan types: keeps the preview grouped and non-executa
     >()
 
     expectTypeOf<
-      MigrationDryRun['preconditions'][number]['relation']
+      Extract<
+        MigrationDryRun['preconditions'][number],
+        { kind: 'column_has_no_nulls' }
+      >['relation']
     >().toEqualTypeOf<CanonicalRelationIdentity>()
 
     expectTypeOf<MigrationDryRunStatement>().not.toHaveProperty('assertSession')

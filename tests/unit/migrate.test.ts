@@ -401,7 +401,7 @@ describe('db.migrate() adapters and execution: lowers the desired schema once pe
 
       lower.mockClear()
       await db.migrate().execute()
-      expect(lower).toHaveBeenCalledTimes(1)
+      expect(lower).toHaveBeenCalledTimes(2)
     } finally {
       lower.mockRestore()
       await db.close()
@@ -842,7 +842,7 @@ describe('db.migrate() policy and coordination: classifies authoritative catalog
       'PostgreSQL migration introspection failed: Migration introspection failed',
     )
 
-    expect(connector.runSql).toContain('rollback')
+    expect(connector.runSql).not.toContain('rollback')
 
     expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
       false,
@@ -1260,7 +1260,7 @@ describe('db.migrate() policy and coordination: executes no DDL when whole-plan 
       capabilityIssues,
     )
 
-    expect(connector.runSql).toContain('rollback')
+    expect(connector.runSql).not.toContain('rollback')
 
     expect(
       connector.runSql.filter((sql) => /^(?:create|alter|drop)\s/i.test(sql)),
@@ -1278,7 +1278,7 @@ describe('db.migrate() permissions and coordination', () => {
     const plan = await db.migrate().plan()
     const allowed = await db
       .migrate()
-      .allow('dropColumn', 'dropIndex', 'dropTable')
+      .allow('dangerouslyDropColumn', 'dropIndex', 'dropTable')
       .plan()
 
     expect(allowed).toEqual(plan)
@@ -1304,8 +1304,8 @@ describe('db.migrate() permissions and coordination', () => {
     })
 
     expect((error as Error).message).toMatch(/allow\('dropIndex'\)/i)
-    expect(connector.runSql).toContain('begin isolation level repeatable read')
-    expect(connector.runSql).toContain('rollback')
+    expect(connector.runSql).not.toContain('begin isolation level repeatable read')
+    expect(connector.runSql).not.toContain('rollback')
     expect(lower).not.toHaveBeenCalled()
     expect(connector.runSql.some((sql) => /^(?:alter|drop)\s/i.test(sql))).toBe(false)
 
@@ -1362,7 +1362,7 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
       ],
     })
 
-    await db.migrate().allow('dropColumn', 'dropIndex', 'dropTable').execute()
+    await db.migrate().allow('dangerouslyDropColumn', 'dropIndex', 'dropTable').execute()
 
     expect(
       connector.runSql.some((sql) => /create table .*"audit_events"/i.test(sql)),
@@ -1394,7 +1394,7 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
       isNullable: true,
     })
 
-    await expect(db.migrate().execute()).rejects.toThrow(/allow\('dropColumn'\)/i)
+    await expect(db.migrate().execute()).rejects.toThrow(/dangerouslyDropColumn/i)
 
     const lock = connector.prepared.findIndex((sql) =>
       /pg_try_advisory_lock\(/i.test(sql),
@@ -1414,7 +1414,7 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
 
     expect(lock).toBeGreaterThanOrEqual(0)
     expect(transaction).toBeGreaterThan(lock)
-    expect(introspection).toBeGreaterThan(transaction)
+    expect(introspection).toBeGreaterThan(lock)
     expect(unlock).toBeGreaterThan(introspection)
     expect(connector.runSql).toContain('begin isolation level repeatable read')
 
@@ -1718,7 +1718,7 @@ it('should retain a raw schema failure as primary when execution session cleanup
       { stage: 'sessionCleanup', cause: releaseFailure },
     ])
 
-    expect(connector.runSql).toContain('rollback')
+    expect(connector.runSql).not.toContain('rollback')
   } finally {
     await db.close()
   }

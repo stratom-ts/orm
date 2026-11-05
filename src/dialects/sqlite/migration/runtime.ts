@@ -255,6 +255,9 @@ async function assertPrecondition(
   options: MigrationRuntimeOptions,
   precondition: MigrationPrecondition,
 ): Promise<void> {
+  if (precondition.kind === 'column_has_only_nulls')
+    return assertColumnDropPrecondition(options, precondition)
+
   const segment = precondition.relation.namespace[0]
   const table = precondition.relation.relation.spelling
 
@@ -295,6 +298,81 @@ async function assertPrecondition(
   if (count > 0)
     throw new MigrationError({
       message: `Column ${quoteSqliteIdentifier(precondition.column)} contains NULL values`,
+      stage: 'precondition',
+      outcome: 'unchanged',
+      retryable: false,
+      sourceStepIndexes: precondition.sourceStepIndexes,
+    })
+}
+
+/** Verifies a guarded column drop against the authoritative data snapshot. */
+async function assertColumnDropPrecondition(
+  options: MigrationRuntimeOptions,
+  precondition: Extract<MigrationPrecondition, { kind: 'column_has_only_nulls' }>,
+): Promise<void> {
+  const { target } = precondition
+  const relation = target.relation
+  assertSqliteGuardTarget(precondition)
+
+  const failure = (
+    reason: 'contains_non_null_values' | 'verification_failed',
+    cause?: unknown,
+  ) =>
+    new MigrationError({
+      message: `Cannot drop column "main".${quoteSqliteIdentifier(relation.relation.spelling)}.${quoteSqliteIdentifier(target.column.spelling)}: ${reason === 'contains_non_null_values' ? 'column contains non-NULL values' : 'could not verify column data'}; use allow('dangerouslyDropColumn') to override the data guard`,
+      ...(cause === undefined ? {} : { cause }),
+      stage: 'precondition' as const,
+      outcome: 'unchanged' as const,
+      retryable: false,
+      preconditionFailure: { target, reason },
+      sourceStepIndexes: precondition.sourceStepIndexes,
+    })
+
+  let rows
+  try {
+    rows = await options.executor.execute(
+      {
+        sql: `select exists(select 1 from "main".${quoteSqliteIdentifier(relation.relation.spelling)} where ${quoteSqliteIdentifier(target.column.spelling)} is not null) as has_data`,
+        params: [],
+      },
+      { source: 'catalog' },
+    )
+  } catch (cause) {
+    if (isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'DriverError'))
+      throw failure('verification_failed', cause)
+
+    throw cause
+  }
+
+  if (
+    rows.length !== 1 ||
+    ![0, 1].includes((rows[0] as { has_data?: number } | undefined)?.has_data ?? -1)
+  )
+    throw failure('verification_failed')
+
+  if ((rows[0] as { has_data: number }).has_data === 1)
+    throw failure('contains_non_null_values')
+}
+
+/** Rejects a forged or non-main SQLite guard target. */
+function assertSqliteGuardTarget(
+  precondition: Extract<MigrationPrecondition, { kind: 'column_has_only_nulls' }>,
+): void {
+  const { target } = precondition
+  const relation = target.relation
+  const segment = relation.namespace[0]
+
+  if (
+    relation.namespace.length !== 1 ||
+    segment.role !== 'database' ||
+    segment.identifier.comparisonKey !== 'main' ||
+    asciiFoldSqliteIdentifier(segment.identifier.spelling) !== 'main' ||
+    relation.relation.comparisonKey !==
+      asciiFoldSqliteIdentifier(relation.relation.spelling) ||
+    target.column.comparisonKey !== asciiFoldSqliteIdentifier(target.column.spelling)
+  )
+    throw new MigrationError({
+      message: 'Invalid SQLite column-drop precondition target',
       stage: 'precondition',
       outcome: 'unchanged',
       retryable: false,

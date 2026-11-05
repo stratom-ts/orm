@@ -154,6 +154,7 @@ async function planned(
   executor: Executor,
   schemas: readonly TableHandle[] = [Parent, Owner],
   ownership: readonly MigrationOwnershipDeclaration[] = additive,
+  columnDrop: 'guarded' | 'dangerous' = 'guarded',
 ) {
   const snapshot = await sqliteDialect.catalog.introspectCatalog(
     executor,
@@ -164,7 +165,9 @@ async function planned(
     migrationOwnership: ownership,
   })
 
-  const result = sqliteDialect.migration.lower(migration, migration.profile)
+  const result = sqliteDialect.migration.lower(migration, migration.profile, {
+    columnDrop,
+  })
 
   if (result.issues)
     throw new Error(result.issues.map((issue) => issue.message).join('\n'))
@@ -177,13 +180,15 @@ async function execute(
   executor: Executor,
   schemas: readonly TableHandle[] = [Parent, Owner],
   ownership: readonly MigrationOwnershipDeclaration[] = additive,
+  columnDrop: 'guarded' | 'dangerous' = 'guarded',
 ) {
   return sqliteDialect.migration.execute({
     executor,
     databaseIdentity: ':memory:',
     discard: () => undefined,
     cancel: async () => undefined,
-    prepare: async () => (await planned(executor, schemas, ownership)).program,
+    prepare: async () =>
+      (await planned(executor, schemas, ownership, columnDrop)).program,
     validate: async () => {
       expect((await planned(executor, schemas, ownership)).migration.plan.steps).toEqual(
         [],
@@ -1216,7 +1221,7 @@ it('should permit owned drops with complete incoming dependency evidence and con
       'drop_table',
     ])
 
-    await execute(test.executor, [Keep], completeMain)
+    await execute(test.executor, [Keep], completeMain, 'dangerous')
 
     expect(test.native.prepare('select * from keep').all()).toEqual([
       { id: 1, label: 'kept' },
@@ -1229,6 +1234,68 @@ it('should permit owned drops with complete incoming dependency evidence and con
     await test.close()
   }
 })
+
+it.each([
+  ['direct', 'removed TEXT', ''],
+  ['rebuild', 'removed TEXT unique', ''],
+])('guards %s column drops and preserves retained data', async (_mode, column, extra) => {
+  const Keep = defineTable(
+    'guarded_keep',
+    { id: pipe(number(), integer()), label: string() },
+    { primaryKey: 'id' },
+  )
+
+  const test = await fixture(
+    `create table guarded_keep(id INTEGER primary key, label TEXT not null, ${column}); insert into guarded_keep values(1,'kept',NULL)${extra}`,
+  )
+
+  try {
+    await execute(test.executor, [Keep], completeMain)
+
+    expect(test.native.prepare('select * from guarded_keep').all()).toEqual([
+      { id: 1, label: 'kept' },
+    ])
+  } finally {
+    await test.close()
+  }
+})
+
+it.each([
+  ['value', 'TEXT'],
+  ['', 'TEXT'],
+  [0, 'INTEGER'],
+] as const)(
+  'blocks a populated SQLite column value %j before DDL',
+  async (value, type) => {
+    const Keep = defineTable(
+      'guarded_keep',
+      { id: pipe(number(), integer()), label: string() },
+      { primaryKey: 'id' },
+    )
+
+    const test = await fixture(
+      `create table guarded_keep(id INTEGER primary key, label TEXT not null, removed ${type}); insert into guarded_keep values(1,'kept',NULL)`,
+    )
+
+    try {
+      test.native.prepare('update guarded_keep set removed = ?').run(value)
+      const error = await execute(test.executor, [Keep], completeMain).catch(
+        (cause: unknown) => cause,
+      )
+
+      expect(error).toMatchObject({
+        stage: 'precondition',
+        preconditionFailure: { reason: 'contains_non_null_values' },
+      })
+
+      expect(test.native.prepare('select removed from guarded_keep').get()).toEqual({
+        removed: value,
+      })
+    } finally {
+      await test.close()
+    }
+  },
+)
 
 it('should preserve hidden rowids and storage values for a proven INTEGER to NUMERIC affinity change', async () => {
   const Records = defineTable(
@@ -1652,7 +1719,7 @@ it('should preflight FINAL FK dependencies when dropping a referencing column an
   )
 
   try {
-    await execute(test.executor, [Keep], completeMain)
+    await execute(test.executor, [Keep], completeMain, 'dangerous')
     expect(test.native.prepare('select * from child').all()).toEqual([{ id: 2 }])
 
     expect(
