@@ -19,19 +19,13 @@ import { isTableMetadata } from './table'
 import type { ReferenceMetadata, ReferentialAction } from './types'
 
 /** Minimal table-handle shape accepted by `reference()` (avoids circular imports). */
-type ReferenceTargetHandle = {
+type ReferenceTargetHandle<TEntries extends ObjectEntries = ObjectEntries> = {
   /**
    * Returns the table's original Valibot schema for validation and metadata lookup.
    *
    * @returns The table's original Valibot schema for validation and metadata lookup.
    */
-  getSchema(): SchemaWithPipe<
-    readonly [
-      ObjectSchema<ObjectEntries, undefined>,
-      TitleAction<unknown, string>,
-      MetadataAction<unknown, Record<string, unknown>>,
-    ]
-  >
+  getSchema(): ReferenceTargetSchema<TEntries>
   /**
    * Returns the relation, primary-key, index, and ownership metadata attached to the
    * table.
@@ -44,15 +38,22 @@ type ReferenceTargetHandle = {
   }
 }
 
-type ReferenceTargetSchema = SchemaWithPipe<
-  readonly [
-    ObjectSchema<ObjectEntries, undefined>,
-    TitleAction<unknown, string>,
-    MetadataAction<unknown, Record<string, unknown>>,
-  ]
->
+/** Narrows column entries while allowing validation issues from additional columns. */
+type ReferenceTargetSchema<TEntries extends ObjectEntries = ObjectEntries> = Omit<
+  SchemaWithPipe<
+    readonly [
+      ObjectSchema<ObjectEntries, undefined>,
+      TitleAction<unknown, string>,
+      MetadataAction<unknown, Record<string, unknown>>,
+    ]
+  >,
+  'entries'
+> & { entries: TEntries }
 
-type ReferenceTarget = ReferenceTargetSchema | ReferenceTargetHandle
+/** Table handle or raw schema exposing the declared column schemas for a reference. */
+type ReferenceTarget<TEntries extends ObjectEntries = ObjectEntries> =
+  | ReferenceTargetSchema<TEntries>
+  | ReferenceTargetHandle<TEntries>
 
 type ReferenceOptions = {
   onDelete?: ReferentialAction

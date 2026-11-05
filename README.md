@@ -623,19 +623,22 @@ For circular declarations, pass a local Valibot schema and a deferred target:
 ```typescript
 import type { ReferenceTarget } from 'stratom'
 
+const idColumns = { id: string() }
+type IdTarget = ReferenceTarget<typeof idColumns>
+
 const Person = defineTable(
   'people',
   {
-    id: string(),
-    teamId: nullable(reference(string(), (): ReferenceTarget => Team, 'id')),
+    ...idColumns,
+    teamId: nullable(reference(string(), (): IdTarget => Team, 'id')),
   },
   { primaryKey: 'id' },
 )
 const Team = defineTable(
   'teams',
   {
-    id: string(),
-    ownerId: reference(string(), (): ReferenceTarget => Person, 'id'),
+    ...idColumns,
+    ownerId: reference(string(), (): IdTarget => Person, 'id'),
   },
   { primaryKey: 'id' },
 )
@@ -653,25 +656,15 @@ Missing, ambiguous, non-key, or incompatible targets also fail during lowering.
 The local schema does not inherit the target's Valibot validators.
 
 TypeScript needs an explicit callback return type for mutually circular
-initializers. `ReferenceTarget` works when the local schema defines the value
-contract. When the callback has a concrete return type, its column keys and
-input/output types also constrain the reference.
+initializers. `ReferenceTarget<typeof idColumns>` supplies a contract independently
+of those initializers. It accepts a table handle or raw table schema, permits only
+`id`, and rejects a numeric local schema for that string key. The returned target
+must expose the declared column schemas. Additional target columns retain their
+full inferred types and do not need to appear in the reference contract.
 
-For checked keys in a circular declaration, define a narrow contract independently
-of the table initializers. Use `(): IdTarget => Team` and `(): IdTarget => Person`
-in the example above:
-
-```typescript
-import type { TableHandle, TableSchema } from 'stratom'
-
-type IdSchema = Omit<TableSchema, 'entries'> & {
-  entries: { id: ReturnType<typeof string> }
-}
-type IdTarget = Pick<TableHandle<IdSchema>, 'getSchema' | 'getTableMetadata'>
-```
-
-This contract permits only `id` and rejects a numeric local schema for that
-string key. The tables retain the full inferred types of their other columns.
+Omitting the type argument leaves `ReferenceTarget` broad and does not check column
+names. Without a circular dependency, use an inferred callback such as
+`reference(string(), () => Person, 'id')`.
 
 The target must be a single-column primary key or independently unique through
 `unique: true` or a one-column unique index. A member of a composite primary key
