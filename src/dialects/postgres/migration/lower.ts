@@ -202,6 +202,18 @@ function lowerPostgresMigrationPlan(
   expectedProfile: MigrationSemanticProfile,
   policy: MigrationLoweringPolicy = { columnDrop: 'guarded' },
 ): MigrationLoweringResult {
+  if (policy.concurrentIndexes)
+    return {
+      issues: [
+        {
+          code: 'invalid_target',
+          message:
+            'Concurrent index execution is not supported by this migration runtime',
+          sourceStepIndexes: [],
+        },
+      ],
+    }
+
   const issues = profileIssues(planned, expectedProfile)
 
   if (issues.length > 0) {

@@ -138,7 +138,11 @@ function createRuntimeFixtureRunner(
     migrationProgram = options.noWork
       ? postgresMigrationProgram({ actions: [] })
       : postgresMigrationProgram(),
-    runtimeOptions: { signal?: AbortSignal; lockTimeoutMs?: number } = {},
+    runtimeOptions: {
+      signal?: AbortSignal
+      lockTimeoutMs?: number
+      statementTimeoutMs?: number
+    } = {},
   ) =>
     executePostgresMigration({
       executor,
@@ -147,6 +151,9 @@ function createRuntimeFixtureRunner(
         ? {}
         : { applicationId: options.applicationId }),
       lockTimeoutMs: runtimeOptions.lockTimeoutMs ?? 1000,
+      ...(runtimeOptions.statementTimeoutMs === undefined
+        ? {}
+        : { statementTimeoutMs: runtimeOptions.statementTimeoutMs }),
       ...(runtimeOptions.signal === undefined ? {} : { signal: runtimeOptions.signal }),
       discard,
       cancel,

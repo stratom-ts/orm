@@ -515,6 +515,8 @@ async function executeTransaction(
   if (!state.primary)
     await lockGuardedRelations(provisional, state, options, cancellation, cleanupFailures)
 
+  await configureStatementTimeout(state, options, cancellation, cleanupFailures)
+
   const program = await prepareMigrationProgram(
     state,
     options,
@@ -539,6 +541,34 @@ async function executeTransaction(
     await validateMigrationResult(state, options, cancellation, cleanupFailures)
 
   await completeMigrationTransaction(state, options, cancellation, cleanupFailures)
+}
+
+async function configureStatementTimeout(
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: MigrationCleanupFailure[],
+): Promise<void> {
+  if (state.primary || options.statementTimeoutMs === undefined) return
+
+  try {
+    await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'transaction',
+      operation: () =>
+        options.executor.run(
+          {
+            sql: "select set_config('statement_timeout', $1, true)",
+            params: [`${options.statementTimeoutMs}ms`],
+          },
+          { source: 'lifecycle' },
+        ),
+    })
+  } catch (cause) {
+    state.primary = { cause, stage: cancellationStage(cause, 'transaction') }
+    retainCancellationFailures(cleanupFailures, cause)
+  }
 }
 
 function assertLockedTargets(

@@ -831,6 +831,43 @@ function registerMigrationRuntimeGroup1() {
 
 function registerMigrationRuntimeGroup2() {
   describe('PostgreSQL migration runtime', () => {
+    it.each([0, 3_600_000])(
+      'should bind statement timeout %s locally after guarded relation locks',
+      async (statementTimeoutMs) => {
+        const runtime = harness({ guardRows: [{ has_data: false }] })
+        await expect(runtime.execute(guarded, { statementTimeoutMs })).resolves.toEqual({
+          outcome: 'applied',
+        })
+
+        const setting = runtime.queries.find((query) =>
+          query.sql.includes("set_config('statement_timeout'"),
+        )
+
+        expect(setting).toEqual({
+          sql: "select set_config('statement_timeout', $1, true)",
+          params: [`${statementTimeoutMs}ms`],
+        })
+
+        const lock = runtime.calls.findIndex((sql) => sql.startsWith('lock table'))
+        expect(lock).toBeGreaterThanOrEqual(0)
+
+        expect(
+          runtime.calls.indexOf("select set_config('statement_timeout', $1, true)"),
+        ).toBeGreaterThan(lock)
+
+        expect(runtime.calls).toContain('commit')
+      },
+    )
+
+    it('should preserve the configured statement timeout when omitted', async () => {
+      const runtime = harness()
+      await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
+
+      expect(
+        runtime.queries.some((query) => query.sql.includes('statement_timeout')),
+      ).toBe(false)
+    })
+
     registerMigrationRuntimeCases2()
   })
 }

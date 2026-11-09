@@ -61,6 +61,8 @@ export type MigrationPrecondition =
 
 /** Policy for lowering destructive column drops. */
 export type MigrationLoweringPolicy = Readonly<{
+  concurrentIndexes?: boolean
+  repairInvalidIndexTargets?: readonly Extract<MigrationTarget, { kind: 'index' }>[]
   columnDrop: 'guarded' | 'dangerous'
   dangerousColumnDropTargets?: readonly Extract<MigrationTarget, { kind: 'column' }>[]
 }>
@@ -151,6 +153,8 @@ export type MigrationRuntimeOptions = Readonly<{
   signal?: AbortSignal
   /** Optional coordination deadline; the selected member owns its physical default. */
   lockTimeoutMs?: number
+  statementTimeoutMs?: number
+  allowPartialApplication?: boolean
 
   /** Marks the physical operation session for disposal. */
   discard(): void
