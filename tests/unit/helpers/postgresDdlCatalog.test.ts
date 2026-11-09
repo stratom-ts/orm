@@ -50,3 +50,38 @@ it('reports a renamed column through local members and inbound foreign keys', ()
     ),
   ).toEqual(['id', 'full "name"', 'author'])
 })
+
+it('reports unique and foreign-key constraints added by DDL', () => {
+  const tables: Tables = [
+    { schema: 'app', name: 'users', columns: [text('id'), text('email')] },
+    { schema: 'app', name: 'posts', columns: [text('author')] },
+  ]
+
+  for (const sql of [
+    'alter table "app"."users" add constraint "users_email_key" unique ("email")',
+    'alter table "app"."posts" add constraint "posts_author_fkey" foreign key ("author") references "app"."users" ("email") on delete cascade',
+  ])
+    applyPostgresFixtureDdl(sql, tables)
+
+  expect(
+    postgresFixtureCatalogRows('select con.contype as constraint_type', tables),
+  ).toMatchObject([
+    {
+      table_name: 'users',
+      constraint_name: 'users_email_key',
+      constraint_type: 'u',
+      columns: ['email'],
+    },
+    {
+      table_name: 'posts',
+      constraint_name: 'posts_author_fkey',
+      constraint_type: 'f',
+      columns: ['author'],
+      referenced_schema: 'app',
+      referenced_table: 'users',
+      referenced_columns: ['email'],
+      on_delete: 'cascade',
+      on_update: 'no action',
+    },
+  ])
+})

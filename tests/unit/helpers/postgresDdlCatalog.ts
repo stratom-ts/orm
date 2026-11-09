@@ -186,29 +186,77 @@ function postgresFixtureCatalogRows(
 
   if (/-- catalog:column/i.test(sql)) return columnRows(tables)
 
-  if (/con.contype as constraint_type/i.test(sql))
-    return tables.flatMap((table) =>
-      table.primaryKey
-        ? [
-            {
-              schema: table.schema,
-              table_name: table.name,
-              constraint_name: `${table.name}_pkey`,
-              constraint_type: 'p',
-              columns: table.primaryKey,
-              is_valid: true,
-              is_deferrable: false,
-              initially_deferred: false,
-              backing_index_is_valid: true,
-              has_supported_backing_index_semantics: true,
-              backing_index_nulls_not_distinct: false,
-              native_definition: `primary key (${table.primaryKey.join(', ')})`,
-            },
-          ]
-        : [],
-    )
+  if (/con.contype as constraint_type/i.test(sql)) return constraintRows(tables)
 
   return undefined
+}
+
+/** Projects primary, unique, and foreign-key constraints for the controlled provider. */
+function constraintRows(tables: FixtureTable[]) {
+  return tables.flatMap((table) => [
+    ...(table.primaryKey
+      ? [
+          keyConstraintRow(
+            table,
+            `${table.name}_pkey`,
+            'p',
+            table.primaryKey,
+            `primary key (${table.primaryKey.join(', ')})`,
+          ),
+        ]
+      : []),
+    ...(table.uniqueConstraints ?? []).map((constraint) =>
+      keyConstraintRow(
+        table,
+        constraint.name,
+        'u',
+        constraint.columns,
+        `unique (${constraint.columns.join(', ')})`,
+      ),
+    ),
+    ...(table.foreignKeys ?? []).map((constraint) => ({
+      schema: table.schema,
+      table_name: table.name,
+      constraint_name: constraint.name,
+      constraint_type: 'f',
+      columns: constraint.columns,
+      referenced_schema: constraint.referencedSchema ?? 'public',
+      referenced_table: constraint.referencedTable,
+      referenced_columns: constraint.referencedColumns,
+      on_delete: constraint.onDelete ?? 'no action',
+      on_update: constraint.onUpdate ?? 'no action',
+      is_valid: true,
+      is_deferrable: false,
+      initially_deferred: false,
+      match_type: 's',
+      has_column_specific_delete_action: false,
+      native_definition: `foreign key (${constraint.columns.join(', ')}) references ${constraint.referencedTable}`,
+    })),
+  ])
+}
+
+/** Projects one primary or unique key constraint row. */
+function keyConstraintRow(
+  table: FixtureTable,
+  name: string,
+  type: 'p' | 'u',
+  columns: string[],
+  definition: string,
+) {
+  return {
+    schema: table.schema,
+    table_name: table.name,
+    constraint_name: name,
+    constraint_type: type,
+    columns,
+    is_valid: true,
+    is_deferrable: false,
+    initially_deferred: false,
+    backing_index_is_valid: true,
+    has_supported_backing_index_semantics: true,
+    backing_index_nulls_not_distinct: false,
+    native_definition: definition,
+  }
 }
 
 /** Projects ordinary table inventory for the controlled provider. */
