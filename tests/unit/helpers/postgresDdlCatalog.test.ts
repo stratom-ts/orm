@@ -85,3 +85,29 @@ it('reports unique and foreign-key constraints added by DDL', () => {
     },
   ])
 })
+
+it('reports inline unique constraints declared by create table', () => {
+  const tables: Tables = []
+
+  applyPostgresFixtureDdl(
+    `create table "app"."users" ("id" text not null, "email" text constraint "users_email_uq" unique, "handle" text not null unique default 'x', "note" text default 'unique')`,
+    tables,
+  )
+
+  expect(
+    postgresFixtureCatalogRows('select con.contype as constraint_type', tables),
+  ).toMatchObject([
+    {
+      table_name: 'users',
+      constraint_name: 'users_email_uq',
+      constraint_type: 'u',
+      columns: ['email'],
+    },
+    {
+      table_name: 'users',
+      constraint_name: 'users_handle_key',
+      constraint_type: 'u',
+      columns: ['handle'],
+    },
+  ])
+})

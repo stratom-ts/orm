@@ -32,23 +32,7 @@ function applyPostgresFixtureDdl(sql: string, tables: FixtureTable[]): void {
   const create = new RegExp(`^create table ${qualified} \\((.*)\\)$`, 'i').exec(sql)
 
   if (create) {
-    const [, schema, name, body] = create
-    const columns = [
-      ...body.matchAll(/(?:^|, )"((?:[^"]|"")+)" ([a-z]+(?:\([\d, ]+\))?)([^,]*)/gi),
-    ].map((match) => ({
-      name: match[1].replaceAll('""', '"'),
-      dataType: match[2],
-      isNullable: !/not null/i.test(match[3]),
-      defaultExpression: /default (.*)/i.exec(match[3])?.[1] ?? null,
-    }))
-
-    const primary = /primary key \(([^)]+)\)/i.exec(body)
-    tables.push({
-      schema: schema.replaceAll('""', '"'),
-      name: name.replaceAll('""', '"'),
-      columns,
-      ...(primary ? { primaryKey: names(primary[1]) } : {}),
-    })
+    tables.push(parseCreateTable(create[1], create[2], create[3]))
 
     return
   }
@@ -88,6 +72,50 @@ function applyPostgresFixtureDdl(sql: string, tables: FixtureTable[]): void {
   if (dropIndex)
     for (const table of tables)
       table.indexes = table.indexes?.filter((index) => index.name !== dropIndex[2])
+}
+
+/** Reads the columns, primary key, and inline unique constraints of a create table. */
+function parseCreateTable(schema: string, name: string, body: string): FixtureTable {
+  const definitions = [
+    ...body.matchAll(/(?:^|, )"((?:[^"]|"")+)" ([a-z]+(?:\([\d, ]+\))?)([^,]*)/gi),
+  ]
+
+  const columns = definitions.map((match) => ({
+    name: unquote(match[1]),
+    dataType: match[2],
+    isNullable: !/not null/i.test(match[3]),
+    defaultExpression: /default (.*)/i.exec(match[3])?.[1] ?? null,
+  }))
+
+  const tableName = unquote(name)
+
+  const uniqueConstraints = definitions.flatMap((match) =>
+    inlineUniqueConstraint(tableName, match),
+  )
+
+  const primary = /primary key \(([^)]+)\)/i.exec(body)
+
+  return {
+    schema: unquote(schema),
+    name: tableName,
+    columns,
+    ...(primary ? { primaryKey: names(primary[1]) } : {}),
+    ...(uniqueConstraints.length ? { uniqueConstraints } : {}),
+  }
+}
+
+/** Reads a column's inline unique clause, naming it as PostgreSQL does when unnamed. */
+function inlineUniqueConstraint(table: string, definition: RegExpMatchArray) {
+  const attributes = definition[3].split(/ (?:default|references) /i)[0]
+  const named = new RegExp(`constraint ${identifier} unique\\b`, 'i').exec(attributes)
+
+  if (!named && !/\bunique\b/i.test(attributes)) return []
+
+  const column = unquote(definition[1])
+
+  return [
+    { name: named ? unquote(named[1]) : `${table}_${column}_key`, columns: [column] },
+  ]
 }
 
 /** Applies fixture column and constraint changes. */
