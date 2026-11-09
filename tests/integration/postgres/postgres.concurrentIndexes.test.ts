@@ -37,6 +37,12 @@ const Unique = defineTable(
   },
 )
 
+const GeneratedUnique = defineTable(
+  'concurrent_records',
+  { id: string(), payload: string() },
+  { primaryKey: 'id', indexes: [{ columns: ['payload'], unique: true }] },
+)
+
 const New = defineTable(
   'a_new_records',
   { id: string() },
@@ -78,8 +84,8 @@ async function waitForBuild(admin: Client, schema: string): Promise<void> {
   for (let attempt = 0; attempt < 1000; attempt++) {
     await admin.query('select pg_stat_clear_snapshot()')
     const result = await admin.query(
-      'select 1 from pg_stat_progress_create_index p join pg_class c on c.oid = p.relid join pg_namespace n on n.oid = c.relnamespace where n.nspname = $1',
-      [schema],
+      'select 1 from pg_stat_progress_create_index p join pg_class c on c.oid = p.relid join pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and c.relname = $2 and p.command = $3',
+      [schema, 'concurrent_records', 'CREATE INDEX CONCURRENTLY'],
     )
 
     if (result.rowCount) return
@@ -239,6 +245,68 @@ function registerWriteCases() {
         await expect(createDatabase([Indexed]).migrate().plan()).resolves.toEqual({
           steps: [],
         })
+      },
+    )
+  })
+}
+
+function registerGeneratedRepairCases() {
+  it('should repair an invalid legacy-named index for a generated desired index', async () => {
+    await withConcurrentDatabase(
+      [Base],
+      async ({ db, admin, schema, createDatabase }) => {
+        await db.migrate().execute()
+
+        await admin.query(
+          `insert into ${quoteIdentifier(schema)}.concurrent_records values ('a', 'same'), ('b', 'same')`,
+        )
+
+        await expect(
+          createDatabase([Unique])
+            .migrate()
+            .concurrentIndexes()
+            .allowPartialApplication()
+            .execute(),
+        ).rejects.toMatchObject({
+          outcome: 'partial',
+          recovery: { observedValidity: 'invalid' },
+        })
+
+        const migration = createDatabase([GeneratedUnique])
+          .migrate()
+          .concurrentIndexes()
+          .allowPartialApplication()
+
+        const preview = await migration.dryRun()
+        const cleanup = preview.actions.find((action) => action.repair === 'drop')
+
+        if (cleanup?.target?.kind !== 'index') throw new Error('Expected repair target')
+
+        const replacement = preview.actions.find((action) => action.repair === 'create')
+
+        if (replacement?.target?.kind !== 'index')
+          throw new Error('Expected create target')
+
+        expect(replacement.target.index.spelling).not.toBe(cleanup.target.index.spelling)
+
+        await expect(
+          migration.allowFor(replacement.target, 'repairInvalidIndex').execute(),
+        ).rejects.toMatchObject({ stage: 'permission', outcome: 'unchanged' })
+
+        await admin.query(
+          `delete from ${quoteIdentifier(schema)}.concurrent_records where id = 'b'`,
+        )
+
+        await migration.allowFor(cleanup.target, 'repairInvalidIndex').execute()
+        await expect(migration.plan()).resolves.toEqual({ steps: [] })
+        const indexes = await admin.query<{ name: string; valid: boolean }>(
+          'select c.relname as name, i.indisvalid and i.indisready as valid from pg_index i join pg_class c on c.oid = i.indexrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and not i.indisprimary',
+          [schema],
+        )
+
+        expect(indexes.rows).toEqual([
+          { name: replacement.target.index.spelling, valid: true },
+        ])
       },
     )
   })
@@ -672,6 +740,7 @@ function registerDependencyCases() {
 describe('PostgreSQL concurrent index integration', () => {
   registerCreationCases()
   registerRepairCases()
+  registerGeneratedRepairCases()
   registerWriteCases()
   registerInterruptionCases()
   registerAcknowledgmentCases()

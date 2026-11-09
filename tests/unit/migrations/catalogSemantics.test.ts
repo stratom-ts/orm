@@ -382,3 +382,21 @@ it('should reject ambiguous invalid semantic matches', () => {
     /ambiguous index semantic match/i,
   )
 })
+
+it('should reserve the generated replacement name before planning invalid-index cleanup', () => {
+  const catalog = indexedCatalog({ isValid: false })
+  const step = planMigration([IndexedEvents], catalog, postgresDialect).steps[0]
+
+  if (step.kind !== 'create_index') throw new Error('Expected index creation intent')
+
+  expect(step.target.index.spelling).not.toBe('legacy_payload_idx')
+
+  catalog.nameReservations.push({
+    schema: 'public',
+    name: step.target.index.spelling,
+  })
+
+  expect(() => planMigration([IndexedEvents], catalog, postgresDialect)).toThrow(
+    /physical name collision/i,
+  )
+})

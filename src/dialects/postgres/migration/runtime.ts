@@ -1231,7 +1231,14 @@ async function prepareMixedGroup(
   if (state.primary) return
 
   const group = transactionalPrefix(provisional, phase.actionIndexes.length)
-  await lockGuardedRelations(group, state, options, cancellation, cleanup)
+  await lockGuardedRelations(
+    group,
+    state,
+    { ...options, lockDeadline: performance.now() + options.lockTimeoutMs },
+    cancellation,
+    cleanup,
+  )
+
   const authoritative = await prepareMigrationProgram(
     state,
     options,

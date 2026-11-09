@@ -1010,6 +1010,7 @@ describe('PostgreSQL migration runtime', () => {
   registerConcurrentOutcomeCases()
   registerConcurrentDefectCases()
   registerMixedOutcomeCases()
+  registerMixedLockCases()
 })
 
 it('should reject an authoritative rename target outside the provisional lock set before DDL', async () => {
@@ -1311,4 +1312,52 @@ function registerMixedOutcomeCases() {
 
     expect(runtime.calls).not.toContain('create table events (id integer)')
   })
+}
+
+function registerMixedLockCases() {
+  it.each([0, 1000])(
+    'should give a later guarded phase its own %s ms lock budget after a long concurrent action',
+    async (lockTimeoutMs) => {
+      let now = 0
+      const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+      const runtime = harness({ guardRows: [{ has_data: false }] })
+      const tail = program({
+        preconditions: guarded.preconditions,
+        actions: [
+          {
+            transaction: 'required',
+            sourceStepIndexes: [3],
+            statements: [{ sql: 'alter table events drop column payload', params: [] }],
+          },
+        ],
+      })
+
+      const mixed = program({
+        atomicity: 'non-atomic',
+        preconditions: tail.preconditions,
+        actions: [concurrentAction, ...tail.actions],
+      })
+
+      runtime.prepare.mockImplementation(async () => {
+        if (!runtime.calls.includes(concurrentAction.statements[0].sql)) return mixed
+
+        now = 60_000
+        return tail
+      })
+
+      try {
+        await expect(
+          runtime.execute(mixed, { ...consent, lockTimeoutMs }),
+        ).resolves.toMatchObject({ outcome: 'applied' })
+
+        expect(runtime.calls).toContain(
+          `lock table "public"."events" in access exclusive mode${lockTimeoutMs === 0 ? ' nowait' : ''}`,
+        )
+
+        expect(runtime.calls).toContain('alter table events drop column payload')
+      } finally {
+        clock.mockRestore()
+      }
+    },
+  )
 }

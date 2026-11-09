@@ -42,8 +42,11 @@ unknown, conflicting, opaque, unrelated or ambiguous evidence remains guarded. E
 explicit/generated name rules still determine matching.
 
 Physical recovery lowers that creation intent to concurrent DROP followed by CREATE,
-with one canonical target and original semantic provenance. Only
-`allowFor(exactIndexTarget, 'repairInvalidIndex')` grants recovery cleanup. Global repair
+with original semantic provenance. The observed cleanup target is retained as private
+planning evidence. The creation target uses the desired name, so generated declarations
+can replace legacy-named invalid indexes without changing intent after the drop. Reserve
+the replacement name before cleanup. Only
+`allowFor(exactCleanupTarget, 'repairInvalidIndex')` grants recovery cleanup. Global repair
 grants are rejected by types and runtime validation. Ordinary drops keep their existing
 `dropIndex` permissions and `sync` policy behavior.
 
@@ -60,7 +63,9 @@ evidence remain intact through envelopes and JSON.
 
 `statementTimeoutMs` is finite and nonnegative; zero disables it and omission preserves
 the configured value. It applies only to concurrent actions and is saved/restored on
-the pinned session. `lockTimeoutMs` retains its existing meaning. AbortSignal cancels
+the pinned session. Coordination acquisition and each transactional phase's guarded
+relation locks have separate `lockTimeoutMs` budgets. Relations within a phase share
+one deadline; concurrent execution does not spend a later phase's budget. AbortSignal cancels
 the run. Uncertain command, transaction or setting state requires session disposal.
 
 ## Consequences

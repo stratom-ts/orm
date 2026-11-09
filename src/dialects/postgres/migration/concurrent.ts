@@ -1,9 +1,14 @@
-import type { MigrationStep, PlannedMigration } from '@/ddl/migrationPlan'
+import type {
+  MigrationIndexTarget,
+  MigrationStep,
+  PlannedMigration,
+} from '@/ddl/migrationPlan'
 import type {
   MigrationAction,
   MigrationCapabilityIssue,
   MigrationLoweringPolicy,
 } from '@/ddl/migrationProgram'
+import { migrationTargetsEqual } from '@/ddl/migrationProgram'
 import type { CatalogIndex, CatalogRelation, CatalogTable } from '@/dialects/catalog'
 
 import type { ActionDraft } from './orderActions'
@@ -52,7 +57,7 @@ function concurrentActions(
 
   if (step.kind !== 'create_index' && step.kind !== 'drop_index') return [ordinary]
 
-  const { relation, table, observed } = indexEvidence(step, planned)
+  const { relation, table, observed, repairTarget } = indexEvidence(step, planned)
 
   const invalid =
     observed?.validity.state === 'present' && observed.validity.value === 'invalid'
@@ -88,7 +93,7 @@ function concurrentActions(
 
   if (!invalid || step.kind !== 'create_index') return [action]
 
-  return repairActions(action, ast.schema, ast.table, step.target.index.spelling)
+  return repairActions(action, ast.schema, ast.table, repairTarget ?? step.target)
 }
 
 function indexEvidence(
@@ -100,12 +105,17 @@ function indexEvidence(
     .find((entry) => planned.identities.equals(entry.identity, step.target.relation))
 
   const table = relation?.table.state === 'present' ? relation.table.value : undefined
+  const repairTarget = planned.indexRepairs?.find((repair) =>
+    migrationTargetsEqual(repair.target, step.target),
+  )?.from
+
   const observed = table?.indexes.items.find(
     (entry) =>
-      entry.name.state === 'present' && entry.name.value === step.target.index.spelling,
+      entry.name.state === 'present' &&
+      entry.name.value === (repairTarget ?? step.target).index.spelling,
   )
 
-  return { relation, table, observed }
+  return { relation, table, observed, repairTarget }
 }
 
 function supportsConcurrentTarget(
@@ -127,18 +137,19 @@ function repairActions(
   action: MigrationAction,
   schema: string,
   table: string,
-  index: string,
+  target: MigrationIndexTarget,
 ): MigrationAction[] {
   return [
     {
       ...action,
+      target,
       repair: 'drop',
       statements: [
         compilePostgresDdl({
           kind: 'drop_index',
           schema,
           table,
-          index,
+          index: target.index.spelling,
           concurrently: true,
         }),
       ],

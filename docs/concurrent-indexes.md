@@ -37,7 +37,9 @@ A `required` phase is one transaction with a commit boundary. A `forbidden` phas
 one action outside a transaction. Each action retains its original
 `sourceStepIndexes`; concurrent actions also retain their structured `target`.
 Repairs expose separate `repair: 'drop'` and `repair: 'create'` actions with the same
-target and source step. Bound parameters remain redacted. SQL literals remain verbatim.
+source step. The drop target identifies the observed invalid index. The create target
+uses the desired index name, which can differ when a generated declaration matched a
+legacy name. Bound parameters remain redacted. SQL literals remain verbatim.
 
 Physical ordering respects dependencies, including referenced unique indexes and
 indexes that must be removed before columns. Ready transactional actions precede
@@ -81,15 +83,14 @@ failures survive diagnostic envelopes and JSON.
 
 Inspect the catalog and fix the underlying cause first. PostgreSQL can leave an invalid
 index after a failed concurrent build. A failed unique build can continue enforcing
-uniqueness. Use the desired index target from a freshly observed plan or recovery
-evidence to authorize a deliberate repair:
+uniqueness. Inspect recovery evidence and a fresh preview to identify the invalid
+index. Authorize the preview's repair drop target for cleanup:
 
 ```typescript
-const plan = await migration.plan()
-const step = plan.steps.find((candidate) => candidate.kind === 'create_index')
-if (step) {
-  migration.allowFor(step.target, 'repairInvalidIndex')
-  await migration.dryRun()
+const preview = await migration.dryRun()
+const cleanup = preview.actions.find((action) => action.repair === 'drop')
+if (cleanup?.target?.kind === 'index') {
+  migration.allowFor(cleanup.target, 'repairInvalidIndex')
   await migration.execute()
 }
 ```
@@ -99,7 +100,9 @@ match. Invalid objects do not satisfy desired state. Authored names retain their
 meaning; generated names use supported semantic matching. Unknown validity, unrelated
 invalid indexes, conflicting definitions and ambiguous matches remain guarded. Planning
 never depends on repair grants. Physical recovery uses concurrent DROP followed by
-CREATE and requires the exact index grant before any writes. Global repair permission,
+CREATE and requires a grant for the observed cleanup target before any writes. The
+replacement name is reserved before cleanup. A grant for a different generated create
+target does not authorize dropping the invalid index. Global repair permission,
 global or target `dropIndex`, and `policy('sync')` do not authorize recovery cleanup.
 Valid matching indexes are reused on subsequent invocations.
 
@@ -112,7 +115,9 @@ Success requires final convergence with valid matching indexes.
 concurrent statement; zero disables the statement timeout. Omission preserves the
 session's configured setting. The runtime saves and restores the previous session
 setting with parameterized SQL. It does not change settings for ordinary atomic work.
-`lockTimeoutMs` retains its coordination and guarded relation-lock deadline meaning.
+`lockTimeoutMs` bounds coordination acquisition and each transactional phase's guarded
+relation-lock acquisition. All guarded relations in a phase share its deadline.
+Concurrent statement execution does not consume a later phase's lock-wait budget.
 `AbortSignal` cancels the whole run, not just one phase.
 
 After timeout or cancellation, inspect possible index residue. Cancellation drains

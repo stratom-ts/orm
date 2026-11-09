@@ -563,7 +563,7 @@ async function preparePermittedMigration(
 
   for (const action of program.actions) {
     if (
-      action.repair &&
+      action.repair === 'drop' &&
       !grants.some(
         (grant) =>
           grant.operations.has('repairInvalidIndex') &&
