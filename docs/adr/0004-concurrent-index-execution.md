@@ -50,9 +50,12 @@ the replacement name before cleanup. Only
 grants are rejected by types and runtime validation. Ordinary drops keep their existing
 `dropIndex` permissions and `sync` policy behavior.
 
-Stop at the first failure. Never replay a saved program, retry, repair automatically, or
-compensate for committed phases. Every invocation observes and plans anew. Reuse valid
-matching indexes. Success requires final desired-state convergence and valid indexes.
+Stop at the first failure. The runtime never retries or repairs automatically, replays
+a saved program, or compensates for committed phases. Callers may retry failures marked
+`retryable: true`, including known PostgreSQL lock-stage `55P03` conflicts, through a
+fresh `execute()` invocation. Every invocation observes the current catalog and plans
+anew. Unknown outcomes require inspection before another invocation. Reuse valid matching
+indexes. Success requires final desired-state convergence and valid indexes.
 
 Errors retain acknowledged committed actions, acknowledged rolled-back actions,
 uncertain outcomes, the failed action's provenance and structured recovery evidence.

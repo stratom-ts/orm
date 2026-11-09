@@ -1028,10 +1028,13 @@ expand it. SQLite remains `main`-only and conservatively rejects unresolved
 dependencies, including any view or trigger in `main`.
 
 Each public invocation snapshots its intent. Planning and preview perform no DDL.
-Execution reobserves on its pinned session, verifies names and data guards, and uses
-one transaction. SQLite can rebuild after native rename while copying renamed values.
+Execution reobserves on its pinned session and verifies names and data guards.
+The default atomic path uses one transaction. SQLite can rebuild after native rename
+while copying renamed values.
 PostgreSQL locks rename targets before the authoritative snapshot. Both dialects
-validate convergence before commit. Unknown commit outcomes never trigger replay.
+validate convergence before commit on the atomic path. Opt-in concurrent PostgreSQL
+execution uses the phases described below; earlier phases can remain committed after
+failure. Unknown commit outcomes never trigger replay.
 
 A Migration Plan describes portable semantic intent. Every step names one structured
 target built from canonical relation identity, so namespaces, relations, columns, and
@@ -1072,8 +1075,8 @@ query the data, acquire execution locks, or certify that a column is empty.
 `allow('dangerouslyDropColumn')` removes every column data guard. Use
 `allowFor(columnTarget, 'dangerouslyDropColumn')` to remove the guard for one exact
 column. Either form removes only the column data guard; ownership,
-dependencies, dialect capabilities, and atomic execution still apply. A migration
-rechecks guards under its execution locks before any schema-changing DDL.
+dependencies, dialect capabilities, and the selected execution policy still apply.
+A migration rechecks guards under its execution locks before any schema-changing DDL.
 Default column guards may scan tables and hold locks that block application reads or
 writes. Previews require runtime condition checks; their SQL cannot be run as an
 unconditional standalone migration script.
