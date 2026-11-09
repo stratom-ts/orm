@@ -64,10 +64,11 @@ type ProviderMigrationSupport =
 function validateProviderMigrationSupport(
   migration: unknown,
 ): asserts migration is ProviderMigrationSupport {
-  if (typeof migration !== 'object' || migration === null)
+  if (typeof migration !== 'object' || migration === null) {
     throw new Error(
       'Controlled operation-session contract needs explicit migration participation',
     )
+  }
 
   const support = migration as {
     state?: unknown
@@ -76,18 +77,20 @@ function validateProviderMigrationSupport(
   }
 
   if (support.state === 'unsupported') {
-    if (typeof support.reason !== 'string' || support.reason.trim().length === 0)
+    if (typeof support.reason !== 'string' || support.reason.trim().length === 0) {
       throw new Error(
         'Controlled operation-session migration needs a non-empty unsupported reason',
       )
+    }
 
     return
   }
 
-  if (support.state !== 'supported')
+  if (support.state !== 'supported') {
     throw new Error(
       'Controlled operation-session contract needs explicit migration participation',
     )
+  }
 
   const input = support.input
 
@@ -96,10 +99,11 @@ function validateProviderMigrationSupport(
     typeof input.connector !== 'function' ||
     typeof input.appliedSchemas !== 'function' ||
     typeof input.planningFailureSchemas !== 'function'
-  )
+  ) {
     throw new Error(
       'Supported controlled operation-session migration needs connector, appliedSchemas, and planningFailureSchemas',
     )
+  }
 }
 
 /**

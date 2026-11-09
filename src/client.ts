@@ -133,9 +133,8 @@ function scheduleTransactionScope<T>(
     await previous
 
     try {
-      if (!scope.active) {
+      if (!scope.active)
         throw new QueryError({ message: 'Transaction client is no longer active' })
-      }
 
       if (scope.context.poisoned) throw transactionPoisonedError()
 
@@ -452,7 +451,7 @@ async function runNestedTransactionCallback<T>(
   await drainTransactionScope(nestedScope)
   nestedScope.active = false
 
-  if (callbackFailed)
+  if (callbackFailed) {
     await rollbackNestedTransaction(
       transactionScope,
       dialectId,
@@ -461,6 +460,7 @@ async function runNestedTransactionCallback<T>(
       callbackError,
       tracing,
     )
+  }
 
   if (transactionScope.context.poisoned) throw transactionPoisonedError()
 
@@ -716,9 +716,7 @@ function createDatabaseLifecycle(coordinator: OperationCoordinator) {
 
   /** Asserts that the root database client remains open. */
   const ensureOpen = () => {
-    if (closed) {
-      throw new QueryError({ message: 'Database has been closed' })
-    }
+    if (closed) throw new QueryError({ message: 'Database has been closed' })
   }
 
   const rootExecutor = createRootExecutor(coordinator, ensureOpen)
@@ -844,9 +842,8 @@ function assertClientOpen(
   transactionScope: TransactionScope | undefined,
 ): void {
   if (transactionScope) {
-    if (!transactionScope.active) {
+    if (!transactionScope.active)
       throw new QueryError({ message: 'Transaction client is no longer active' })
-    }
   } else {
     ensureOpen()
   }
@@ -1019,13 +1016,11 @@ function resolveTransactionOptions(options: unknown): TransactionOptions | undef
 
     const behavior = 'behavior' in options ? options.behavior : undefined
 
-    if (isolationLevel === 'serializable' && behavior === undefined) {
+    if (isolationLevel === 'serializable' && behavior === undefined)
       return { isolationLevel: 'serializable' }
-    }
 
-    if (behavior === 'immediate' && isolationLevel === undefined) {
+    if (behavior === 'immediate' && isolationLevel === undefined)
       return { behavior: 'immediate' }
-    }
   }
 
   throw new QueryError({

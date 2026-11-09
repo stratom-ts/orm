@@ -21,9 +21,8 @@ function actionMetadata(value: unknown): MetadataRecord | undefined {
     !('metadata' in value) ||
     typeof value.metadata !== 'object' ||
     value.metadata === null
-  ) {
+  )
     return undefined
-  }
 
   return value.metadata as MetadataRecord
 }
@@ -66,9 +65,8 @@ export function findSchemaMetadata<T extends MetadataRecord>(
     if (
       kind === 'column' &&
       actions.some((action) => actionMetadata(action)?.kind === 'reference')
-    ) {
+    )
       return undefined
-    }
 
     const first = traversable.pipe[0]
     const nested =
@@ -79,9 +77,7 @@ export function findSchemaMetadata<T extends MetadataRecord>(
     if (nested) return nested
   }
 
-  if (traversable.wrapped) {
-    return findSchemaMetadata<T>(traversable.wrapped, kind)
-  }
+  if (traversable.wrapped) return findSchemaMetadata<T>(traversable.wrapped, kind)
 
   return undefined
 }

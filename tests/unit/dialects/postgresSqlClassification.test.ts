@@ -184,9 +184,8 @@ const registerSqlClassificationCases4 = () => {
       '((select 1))',
       'with value as (select 1) select * from value',
       'insert into test default values returning id',
-    ]) {
+    ])
       await client.query({ text: sql, values: [] })
-    }
 
     await client.query({ text: 'update test set value = 1', values: [] })
 

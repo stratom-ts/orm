@@ -275,9 +275,8 @@ function runtimeExportReference(statement: ts.ExportDeclaration): string[] {
     ts.isNamedExports(clause) &&
     clause.elements.length > 0 &&
     clause.elements.every((element) => element.isTypeOnly)
-  ) {
+  )
     return []
-  }
 
   const module = moduleSpecifier(statement)?.text
   return module ? [module] : []
@@ -485,10 +484,11 @@ function assertOperationSessionProvider(
   if (providerName !== expectedProvider)
     throw new Error(`${code}Operations must use ${expectedProvider}`)
 
-  if (binding?.imported !== providerName || binding.module !== './operationSession')
+  if (binding?.imported !== providerName || binding.module !== './operationSession') {
     throw new Error(
       `${code}Operations session provider must be an unaliased import from ./operationSession`,
     )
+  }
 }
 
 /** Derives one member's allowed public index surface from its documented declarations. */
@@ -783,9 +783,8 @@ function concreteDialectReference(node: ts.Node): string | undefined {
     ts.isStringLiteral(node.arguments[0]) &&
     (isConcreteDialectImport(node.arguments[0].text) ||
       isDialectBarrel(node.arguments[0].text))
-  ) {
+  )
     return node.arguments[0].text
-  }
 
   return undefined
 }
@@ -805,9 +804,8 @@ function rootIdentifier(node: ts.Expression): string | undefined {
     ts.isPropertyAccessExpression(node) ||
     ts.isElementAccessExpression(node) ||
     ts.isCallExpression(node)
-  ) {
+  )
     return rootIdentifier(node.expression)
-  }
 
   return undefined
 }
@@ -830,9 +828,8 @@ function db0ExecutionReference(node: ts.Node): string | undefined {
     node.arguments.length === 1 &&
     ts.isStringLiteral(node.arguments[0]) &&
     isDb0ModuleSpecifier(node.arguments[0].text)
-  ) {
+  )
     return node.arguments[0].text
-  }
 
   const access = ts.isPropertyAccessExpression(node)
     ? node
@@ -848,9 +845,7 @@ function db0ExecutionReference(node: ts.Node): string | undefined {
 
   const root = rootIdentifier(access.expression)
 
-  if (root && /database|statement|prepared/i.test(root)) {
-    return `${root}.${method}`
-  }
+  if (root && /database|statement|prepared/i.test(root)) return `${root}.${method}`
 
   return undefined
 }
@@ -904,9 +899,8 @@ function containsConnectorDialect(node: ts.Node): boolean {
       candidate.name.text === 'dialect' &&
       (candidate.expression.getText().endsWith('.connector') ||
         candidate.expression.getText() === 'connector')
-    ) {
+    )
       found = true
-    }
 
     candidate.forEachChild(visit)
   }
@@ -935,9 +929,8 @@ function containsDialectPolicySelector(node: ts.Node): boolean {
       ts.isPropertyAccessExpression(candidate) &&
       candidate.name.text === 'id' &&
       candidate.expression.getText().endsWith('dialect')
-    ) {
+    )
       found = true
-    }
 
     candidate.forEachChild(visit)
   }
@@ -1006,9 +999,8 @@ function isCanonicalMemberArray(node: ts.Expression): boolean {
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
     node.expression.text === 'memberKeys'
-  ) {
+  )
     return true
-  }
 
   return containsProperty(node, 'comparisonKey')
 }
@@ -1030,9 +1022,8 @@ function rawArrayComparisonLeak(
     !ts.isIdentifier(node.expression) ||
     node.expression.text !== 'arraysEqual' ||
     !node.arguments.some((argument) => !isCanonicalMemberArray(argument))
-  ) {
+  )
     return undefined
-  }
 
   return `${location(source, node)} compares raw member arrays`
 }
@@ -1051,9 +1042,8 @@ function rawCollectionKeyLeak(source: ts.SourceFile, node: ts.Node): string | un
     !ts.isPropertyAccessExpression(node.expression) ||
     !['get', 'has', 'set', 'add'].includes(node.expression.name.text) ||
     !memberCollectionName(node.expression.expression)
-  ) {
+  )
     return undefined
-  }
 
   const argument = node.arguments.at(0)
 
@@ -1061,9 +1051,8 @@ function rawCollectionKeyLeak(source: ts.SourceFile, node: ts.Node): string | un
     !argument ||
     !containsProperty(argument, 'name') ||
     containsProperty(argument, 'comparisonKey')
-  ) {
+  )
     return undefined
-  }
 
   return `${location(source, node)} keys a member collection by raw name`
 }
@@ -1092,9 +1081,8 @@ function rawCollectionConstructionLeak(
         containsProperty(argument, 'name') &&
         !containsProperty(argument, 'comparisonKey'),
     )
-  ) {
+  )
     return undefined
-  }
 
   return `${location(source, node)} constructs a member collection from raw names`
 }
@@ -1117,9 +1105,8 @@ function rawOrderingLeak(source: ts.SourceFile, node: ts.Node): string | undefin
       (argument) =>
         ts.isPropertyAccessExpression(argument) && argument.name.text === 'name',
     )
-  ) {
+  )
     return undefined
-  }
 
   return `${location(source, node)} orders members by raw names`
 }
@@ -1166,10 +1153,11 @@ function callRoot(expression: ts.Expression): string | undefined {
     ts.isCallExpression(expression) ||
     ts.isPropertyAccessExpression(expression) ||
     ts.isTaggedTemplateExpression(expression)
-  )
+  ) {
     return callRoot(
       ts.isTaggedTemplateExpression(expression) ? expression.tag : expression.expression,
     )
+  }
 
   return undefined
 }
@@ -1347,11 +1335,13 @@ describe('dialect member naming: rule 2', () => {
       )
 
       const unitNames = new Set(unitFiles.map((file) => file.split(/[\\/]/).at(-1)!))
-      for (const file of unitFiles)
+
+      for (const file of unitFiles) {
         expect(
           memberSuiteViolations(parse(file), code, file.split(/[\\/]/).at(-1)!),
           relative(ROOT, file),
         ).toEqual([])
+      }
 
       for (const file of nativeFiles) {
         const filename = file.split(/[\\/]/).at(-1)!
@@ -1779,9 +1769,7 @@ describe('dialect extension locality architecture: keeps physical SQL constructi
             ts.isTemplateExpression(node.initializer) ||
             ts.isNoSubstitutionTemplateLiteral(node.initializer))
 
-        if (literalSql || sqlProperty) {
-          return [location(source, node)]
-        }
+        if (literalSql || sqlProperty) return [location(source, node)]
 
         return []
       })
@@ -1854,9 +1842,8 @@ describe('dialect semantic locality: keeps physical DDL addressing out of generi
           propertyName(node.name) === 'role' &&
           ts.isStringLiteralLike(node.initializer) &&
           node.initializer.text === 'schema'
-        ) {
+        )
           return [location(source, node)]
-        }
 
         return []
       })
@@ -1870,9 +1857,8 @@ describe('dialect semantic locality: keeps physical DDL addressing out of generi
         /^(?:CreateTable|CreateSchema|CreateIndex|AlterTable|AddForeignKey|AddUniqueConstraint|AlterColumn|SetNotNull|Drop)/.test(
           node.name.text,
         )
-      ) {
+      )
         return [`${location(sharedTypes, node)} declares ${node.name.text}`]
-      }
 
       return []
     })
@@ -2130,7 +2116,6 @@ function inspectDialectPolicy(
           ? node.expression
           : node.condition,
     )
-  ) {
+  )
     branches.push(location(source, node))
-  }
 }

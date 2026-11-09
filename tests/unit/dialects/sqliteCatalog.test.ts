@@ -521,32 +521,35 @@ type FixtureOptions = {
 function fixtureSchemaRows(options: FixtureOptions) {
   let schema = createSqliteConstraintRows(options)
 
-  if (options.triggerNameCollision)
+  if (options.triggerNameCollision) {
     schema.push({
       type: 'trigger',
       name: 'parent',
       tbl_name: 'parent',
       sql: 'CREATE TRIGGER parent AFTER INSERT ON parent BEGIN SELECT 1; END',
     })
+  }
 
-  if (options.viewTrigger)
+  if (options.viewTrigger) {
     schema.push({
       type: 'trigger',
       name: 'view_trigger',
       tbl_name: 'v',
       sql: 'CREATE TRIGGER view_trigger INSTEAD OF INSERT ON v BEGIN SELECT 1; END',
     })
+  }
 
   if (options.withoutOpaqueDependencies)
     schema = schema.filter((entry) => entry.type !== 'view' && entry.type !== 'trigger')
 
-  if (options.crossTableTrigger)
+  if (options.crossTableTrigger) {
     schema.push({
       type: 'trigger',
       name: 'cross_table_trigger',
       tbl_name: 'parent',
       sql: 'CREATE TRIGGER cross_table_trigger AFTER UPDATE ON parent BEGIN UPDATE child SET pa = new.id; END',
     })
+  }
 
   applySqliteSchemaClauses(options, schema)
 
@@ -566,27 +569,32 @@ function fixtureSchemaRows(options: FixtureOptions) {
 function createSqliteConstraintRows(options: FixtureOptions) {
   const schema = structuredClone(fixtureSchemaRowsSchema)
 
-  if (options.namedConstraint)
+  if (options.namedConstraint) {
     schema[0].sql =
       "CREATE TABLE parent(id INTEGER, v VARCHAR(12) DEFAULT 'safe', b BLOB DEFAULT TRUE, r DOUBLE, d DECIMAL(10,2) DEFAULT (lower('x')), CONSTRAINT named_pk PRIMARY KEY(id), CONSTRAINT named_u UNIQUE(v), UNIQUE(b))"
+  }
 
-  if (options.namedConstraint)
+  if (options.namedConstraint) {
     schema[1].sql =
       'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, CONSTRAINT named_fk FOREIGN KEY(pa,pb) REFERENCES parent(id,v) ON UPDATE CASCADE ON DELETE SET NULL)'
+  }
 
-  if (options.simpleForeignKey)
+  if (options.simpleForeignKey) {
     schema[1].sql =
       'CREATE TABLE child(id INTEGER PRIMARY KEY, pa INTEGER, pb INTEGER, FOREIGN KEY(pa) REFERENCES parent(id) ON UPDATE CASCADE ON DELETE SET NULL)'
+  }
 
   if (options.matchClause) schema[1].sql = `${schema[1].sql!.slice(0, -1)} MATCH FULL)`
 
-  if (options.richUniqueIndex)
+  if (options.richUniqueIndex) {
     schema.find((entry) => entry.name === 'simple')!.sql =
       'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT, UNIQUE(value DESC))'
+  }
 
-  if (options.opaqueDefault)
+  if (options.opaqueDefault) {
     schema.find((entry) => entry.name === 'simple')!.sql =
       'CREATE TABLE simple(id INTEGER PRIMARY KEY, value TEXT DEFAULT (random()))'
+  }
 
   if (options.checkConstraint)
     schema[0].sql = `${schema[0].sql!.slice(0, -1)}, CHECK (b IS NULL OR b = 1))`
@@ -609,13 +617,15 @@ function applySqliteSchemaClauses(
     | { type: string; name: string; tbl_name: string; sql: null }
   )[],
 ) {
-  if (options.richerClause === 'collate')
+  if (options.richerClause === 'collate') {
     schema.find((entry) => entry.name === 'simple')!.sql =
       'CREATE TABLE simple(id INTEGER COLLATE NOCASE PRIMARY KEY)'
+  }
 
-  if (options.richerClause === 'conflict')
+  if (options.richerClause === 'conflict') {
     schema.find((entry) => entry.name === 'simple')!.sql =
       'CREATE TABLE simple(id INTEGER PRIMARY KEY ON CONFLICT REPLACE)'
+  }
 
   if (options.richerClause === 'deferrable')
     schema[1].sql = `${schema[1].sql!.slice(0, -1)} DEFERRABLE)`
@@ -628,21 +638,23 @@ function applySqliteSchemaClauses(
       "CREATE TABLE simple(id INTEGER PRIMARY KEY DEFAULT 'COLLATE ON CONFLICT DEFERRABLE INITIALLY') /* COLLATE ON CONFLICT DEFERRABLE INITIALLY */"
   }
 
-  if (options.quotedName !== undefined)
+  if (options.quotedName !== undefined) {
     schema.push({
       type: 'table',
       name: options.quotedName,
       tbl_name: options.quotedName,
       sql: `CREATE TABLE "${options.quotedName.replaceAll('"', '""')}" ("value" TEXT)`,
     })
+  }
 
-  if (options.quotedName !== undefined && options.quotedIndexName !== undefined)
+  if (options.quotedName !== undefined && options.quotedIndexName !== undefined) {
     schema.push({
       type: 'index',
       name: options.quotedIndexName,
       tbl_name: options.quotedName,
       sql: `CREATE INDEX "${options.quotedIndexName.replaceAll('"', '""')}" ON "${options.quotedName.replaceAll('"', '""')}" ("value")`,
     })
+  }
 }
 
 /**
@@ -656,7 +668,7 @@ function applySqliteSchemaClauses(
 function fixtureColumnRows(options: FixtureOptions): Record<string, unknown[]> {
   const xinfo: Record<string, unknown[]> = structuredClone(fixtureColumnRowsXinfo)
 
-  if (options.quotedName !== undefined)
+  if (options.quotedName !== undefined) {
     xinfo[options.quotedName] = [
       {
         cid: 0,
@@ -668,8 +680,9 @@ function fixtureColumnRows(options: FixtureOptions): Record<string, unknown[]> {
         hidden: 0,
       },
     ]
+  }
 
-  if (options.opaqueDefault || options.richUniqueIndex)
+  if (options.opaqueDefault || options.richUniqueIndex) {
     xinfo.simple.push({
       cid: 1,
       name: 'value',
@@ -679,6 +692,7 @@ function fixtureColumnRows(options: FixtureOptions): Record<string, unknown[]> {
       pk: 0,
       hidden: 0,
     })
+  }
 
   if (options.scannerDecoys) {
     const simpleColumn = xinfo.simple[0] as Record<string, unknown>
@@ -721,7 +735,7 @@ function fixtureTableRows(options: FixtureOptions) {
   if (options.withoutOpaqueDependencies)
     tables = tables.filter((table) => table.type !== 'view')
 
-  if (options.quotedName !== undefined)
+  if (options.quotedName !== undefined) {
     tables.push({
       schema: 'main',
       name: options.quotedName,
@@ -730,6 +744,7 @@ function fixtureTableRows(options: FixtureOptions) {
       wr: 0,
       strict: 0,
     })
+  }
 
   return tables
 }
@@ -818,12 +833,13 @@ function malformedMemberRows(
   query: Parameters<CatalogExecutor['execute']>[0],
   options: FixtureOptions,
 ): unknown[] {
-  if (options.malformed === 'xinfo-missing-name' && query.sql.includes('table_xinfo'))
+  if (options.malformed === 'xinfo-missing-name' && query.sql.includes('table_xinfo')) {
     rows = rows.map((row) => {
       const { name: _name, ...rest } = row as Record<string, unknown>
 
       return rest
     })
+  }
 
   if (options.malformed === 'fk-wrong-target' && query.sql.includes('foreign_key_list'))
     rows = rows.map((row) => ({ ...(row as Record<string, unknown>), to: 42 }))
@@ -835,46 +851,52 @@ function malformedMemberRows(
     rows = rows.map((row) => ({ ...(row as Record<string, unknown>), ncol: 99 }))
 
   if (query.sql.includes('table_xinfo') && query.params[0] === 'parent')
-    rows = rows.map((row) => {
-      const column = row as Record<string, unknown>
-
-      if (column.name !== 'v') return row
-
-      if (options.malformed === 'native-column-type') return { ...column, type: 'TEXT' }
-
-      if (options.malformed === 'native-column-not-null')
-        return { ...column, column_notnull: 1 }
-
-      if (options.malformed === 'native-column-default')
-        return { ...column, dflt_value: "'changed'" }
-
-      return row
-    })
+    rows = rows.map((row) => malformedNativeColumn(row, options))
 
   if (
     options.malformed === 'native-column-generated' &&
     query.sql.includes('table_xinfo') &&
     query.params[0] === 'generated_t'
-  )
+  ) {
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'derived'
         ? { ...(row as Record<string, unknown>), hidden: 3 }
         : row,
     )
+  }
 
-  if (options.malformed === 'fk-duplicate' && query.sql.includes('foreign_key_list'))
+  if (options.malformed === 'fk-duplicate' && query.sql.includes('foreign_key_list')) {
     rows = [
       ...rows,
       ...(rows as Record<string, unknown>[]).map((row) => ({ ...row, seq: 0 })),
     ]
+  }
 
-  if (options.malformed === 'fk-source' && query.sql.includes('foreign_key_list'))
+  if (options.malformed === 'fk-source' && query.sql.includes('foreign_key_list')) {
     rows = rows.map((row) => ({
       ...(row as Record<string, unknown>),
       from: 'missing_source',
     }))
+  }
 
   return rows
+}
+
+/** Injects malformed native column facts for catalog validation tests. */
+function malformedNativeColumn(row: unknown, options: FixtureOptions): unknown {
+  const column = row as Record<string, unknown>
+
+  if (column.name !== 'v') return row
+
+  if (options.malformed === 'native-column-type') return { ...column, type: 'TEXT' }
+
+  if (options.malformed === 'native-column-not-null')
+    return { ...column, column_notnull: 1 }
+
+  if (options.malformed === 'native-column-default')
+    return { ...column, dflt_value: "'changed'" }
+
+  return row
 }
 
 /**
@@ -899,19 +921,24 @@ function malformedFixtureRows(
 
   rows = malformedSchemaRows(options, query, rows)
 
-  if (options.malformed === 'table-case-duplicate' && query.sql.includes('table_list'))
+  if (options.malformed === 'table-case-duplicate' && query.sql.includes('table_list')) {
     rows = [
       ...rows,
       { schema: 'MAIN', name: 'PARENT', type: 'table', ncol: 5, wr: 0, strict: 0 },
     ]
+  }
 
-  if (options.malformed === 'table-unlisted-database' && query.sql.includes('table_list'))
+  if (
+    options.malformed === 'table-unlisted-database' &&
+    query.sql.includes('table_list')
+  ) {
     rows = [
       ...rows,
       { schema: 'ghost', name: 'outside', type: 'table', ncol: 1, wr: 0, strict: 0 },
     ]
+  }
 
-  if (query.sql.includes('table_list'))
+  if (query.sql.includes('table_list')) {
     rows = rows.map((row) => {
       const table = row as Record<string, unknown>
 
@@ -932,6 +959,7 @@ function malformedFixtureRows(
 
       return row
     })
+  }
 
   if (options.malformed === 'database-wrong-type' && query.sql.includes('database_list'))
     rows = rows.map((row) => ({ ...(row as Record<string, unknown>), name: 42 }))
@@ -959,7 +987,7 @@ function malformedSchemaRows(
   if (
     options.malformed === 'schema-case-duplicate' &&
     query.sql.includes('sqlite_schema')
-  )
+  ) {
     rows = [
       ...rows,
       {
@@ -969,31 +997,38 @@ function malformedSchemaRows(
         sql: 'CREATE TABLE PARENT(id INTEGER)',
       },
     ]
+  }
 
-  if (options.malformed === 'schema-unknown-type' && query.sql.includes('sqlite_schema'))
+  if (
+    options.malformed === 'schema-unknown-type' &&
+    query.sql.includes('sqlite_schema')
+  ) {
     rows = rows.map((row, index) =>
       index === 0 ? { ...(row as Record<string, unknown>), type: 'mystery' } : row,
     )
+  }
 
   if (
     options.malformed === 'schema-relation-name-mismatch' &&
     query.sql.includes('sqlite_schema')
-  )
+  ) {
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'parent'
         ? { ...(row as Record<string, unknown>), tbl_name: 'other' }
         : row,
     )
+  }
 
   if (
     options.malformed === 'schema-view-type-mismatch' &&
     query.sql.includes('sqlite_schema')
-  )
+  ) {
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'v'
         ? { ...(row as Record<string, unknown>), type: 'table' }
         : row,
     )
+  }
 
   return rows
 }
@@ -1034,12 +1069,13 @@ function malformedIndexDetails(
     options.malformed === 'index-xinfo-expression' &&
     query.sql.includes('index_xinfo') &&
     p[0] === 'parent_n'
-  )
+  ) {
     rows = rows.map((row) => ({
       ...(row as Record<string, unknown>),
       cid: -2,
       name: 'not-null-for-expression',
     }))
+  }
 
   if (
     options.malformed === 'index-xinfo-auxiliary' &&
@@ -1075,16 +1111,17 @@ function malformedIndexInventory(
     options.malformed === 'missing-index-schema' &&
     query.sql.includes('index_list') &&
     p[0] === 'parent'
-  )
+  ) {
     rows = [
       ...rows,
       { seq: 7, name: 'missing_schema_idx', unique: 0, origin: 'c', partial: 0 },
     ]
+  }
 
   if (
     options.malformed === 'schema-index-missing-list' &&
     query.sql.includes('sqlite_schema')
-  )
+  ) {
     rows = [
       ...rows,
       {
@@ -1094,6 +1131,7 @@ function malformedIndexInventory(
         sql: 'CREATE INDEX missing_list_idx ON parent(v)',
       },
     ]
+  }
 
   return rows
 }
@@ -1114,33 +1152,37 @@ function malformedIndexRows(
   query: Parameters<CatalogExecutor['execute']>[0],
   options: FixtureOptions,
 ): unknown[] {
-  if (options.malformed === 'index-invalid-origin' && query.sql.includes('index_list'))
+  if (options.malformed === 'index-invalid-origin' && query.sql.includes('index_list')) {
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'parent_n'
         ? { ...(row as Record<string, unknown>), origin: 'unknown' }
         : row,
     )
+  }
 
-  if (options.malformed === 'index-invalid-flags' && query.sql.includes('index_list'))
+  if (options.malformed === 'index-invalid-flags' && query.sql.includes('index_list')) {
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'u_auto'
         ? { ...(row as Record<string, unknown>), unique: 0 }
         : row,
     )
+  }
 
-  if (options.malformed === 'index-wrong-shape' && query.sql.includes('index_list'))
+  if (options.malformed === 'index-wrong-shape' && query.sql.includes('index_list')) {
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'parent_n'
         ? { ...(row as Record<string, unknown>), unique: 'true' }
         : row,
     )
+  }
 
-  if (options.malformed === 'native-index-partial' && query.sql.includes('index_list'))
+  if (options.malformed === 'native-index-partial' && query.sql.includes('index_list')) {
     rows = rows.map((row) =>
       (row as Record<string, unknown>).name === 'rich_partial'
         ? { ...(row as Record<string, unknown>), partial: 0 }
         : row,
     )
+  }
 
   return malformedIndexDetails(rows, query, options)
 }
@@ -1203,10 +1245,11 @@ function relationNamed(snapshot: CatalogSnapshot, name: string): CatalogRelation
 function tableOf(relation: CatalogRelation): CatalogTable {
   expect(relation.table.state).toBe('present')
 
-  if (relation.table.state !== 'present')
+  if (relation.table.state !== 'present') {
     throw new Error(
       `Missing SQLite table evidence for ${relation.identity.relation.spelling}`,
     )
+  }
 
   return relation.table.value
 }
@@ -1590,7 +1633,7 @@ async function executeSqliteFixture(
   const p = query.params
   let rows: unknown[] = readSqliteFixtureRows(query, options, tables, schema, xinfo, p)
 
-  if (options.simpleForeignKey && query.sql.includes('foreign_key_list'))
+  if (options.simpleForeignKey && query.sql.includes('foreign_key_list')) {
     rows =
       p[0] === 'child'
         ? [
@@ -1606,6 +1649,7 @@ async function executeSqliteFixture(
             },
           ]
         : []
+  }
 
   const key = query.sql + JSON.stringify(query.params)
   const count = (calls.get(key) ?? 0) + 1
@@ -1615,13 +1659,14 @@ async function executeSqliteFixture(
 
   rows = malformedIndexRows(rows, query, options)
 
-  if (options.race && count > 1 && query.sql.includes(options.race))
+  if (options.race && count > 1 && query.sql.includes(options.race)) {
     rows = [
       ...rows,
       ...(rows[0]
         ? [{ ...(rows[0] as Record<string, unknown>), name: 'race_added' }]
         : []),
     ]
+  }
 
   rows = malformedFixtureRows(rows, query, options)
 
@@ -2813,7 +2858,7 @@ const registerCatalogCases42 = () => {
         execute: async (query) => {
           const rows = await fixture.execute(query)
 
-          if (query.sql.includes('sqlite_schema'))
+          if (query.sql.includes('sqlite_schema')) {
             return rows.map((row) =>
               (row as { name?: string }).name === 'child'
                 ? {
@@ -2822,8 +2867,9 @@ const registerCatalogCases42 = () => {
                   }
                 : row,
             )
+          }
 
-          if (query.sql.includes('foreign_key_list') && query.params[0] === 'child')
+          if (query.sql.includes('foreign_key_list') && query.params[0] === 'child') {
             return [
               {
                 id: 0,
@@ -2836,6 +2882,7 @@ const registerCatalogCases42 = () => {
                 match: 'NONE',
               },
             ]
+          }
 
           return rows
         },
@@ -2972,13 +3019,14 @@ const registerCatalogCases45 = () => {
       },
       { completeNamespaces: [[{ role: 'database' as const, spelling: 'aux' }]] },
       { registrationDefault: [{ role: 'database' as const, spelling: 'aux' }] },
-    ])
+    ]) {
       await expect(
         sqliteCatalog.introspectCatalog(fixtureExecutor({ version: '3.36.0' }), {
           ...request,
           ...variant,
         }),
       ).rejects.toMatchObject({ _tag: 'InvariantError' })
+    }
   })
 }
 

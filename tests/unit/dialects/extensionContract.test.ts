@@ -994,9 +994,7 @@ registerDialectContractMember('minimal non-PostgreSQL', extensionContractCapabil
                   if (event === 'session.run') return ['run' as const]
                   if (event === 'session.cancel') return ['cancel' as const]
 
-                  if (event === 'session.release:reuse') {
-                    return ['release:reuse' as const]
-                  }
+                  if (event === 'session.release:reuse') return ['release:reuse' as const]
 
                   if (event === 'sessionProvider.close') return ['close' as const]
 

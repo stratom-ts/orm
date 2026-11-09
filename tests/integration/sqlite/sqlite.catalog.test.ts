@@ -65,10 +65,11 @@ function relationNamed(snapshot: CatalogSnapshot, name: string): CatalogRelation
 function tableOf(relation: CatalogRelation): CatalogTable {
   expect(relation.table.state).toBe('present')
 
-  if (relation.table.state !== 'present')
+  if (relation.table.state !== 'present') {
     throw new Error(
       `Missing SQLite table evidence for ${relation.identity.relation.spelling}`,
     )
+  }
 
   return relation.table.value
 }
@@ -307,12 +308,13 @@ function mutatedDeclaredTypeExecutor(
     execute: async (query) => {
       let rows = await native.execute(query)
 
-      if (query.sql.includes('pragma_table_xinfo') && query.params[0] === 'target')
+      if (query.sql.includes('pragma_table_xinfo') && query.params[0] === 'target') {
         rows = rows.map((row) =>
           (row as { name?: string }).name === 'value'
             ? { ...(row as Record<string, unknown>), type: observedType }
             : row,
         )
+      }
 
       return reverse ? [...rows].reverse() : rows
     },
@@ -423,12 +425,13 @@ function omittedConstraintExecutor(
 
       let rows = await native.execute(query)
 
-      if (omittedQuery === 'index_list' && query.sql.includes('sqlite_schema'))
+      if (omittedQuery === 'index_list' && query.sql.includes('sqlite_schema')) {
         rows = rows.filter(
           (row) =>
             (row as { type?: string; tbl_name?: string }).type !== 'index' ||
             (row as { tbl_name?: string }).tbl_name !== name,
         )
+      }
 
       return reverse ? [...rows].reverse() : rows
     },
@@ -760,10 +763,11 @@ it('should reject a missing collated UNIQUE index despite a same-column BINARY i
         execute: async (query) => {
           const rows = await native.execute(query)
 
-          if (query.sql.includes('index_list') && query.params[0] === 'target')
+          if (query.sql.includes('index_list') && query.params[0] === 'target') {
             return rows
               .filter((row) => (row as { name: string }).name !== omitted)
               .map((row, seq) => ({ ...(row as Record<string, unknown>), seq }))
+          }
 
           if (query.sql.includes('sqlite_schema'))
             return rows.filter((row) => (row as { name?: string }).name !== omitted)
@@ -839,11 +843,12 @@ it.each(['target', 'action'] as const)(
           execute: async (query) => {
             const rows = await native.execute(query)
 
-            if (query.sql.includes('foreign_key_list') && query.params[0] === 'child')
+            if (query.sql.includes('foreign_key_list') && query.params[0] === 'child') {
               return rows.map((row) => ({
                 ...(row as Record<string, unknown>),
                 ...(changed === 'target' ? { to: 'id' } : { on_delete: 'RESTRICT' }),
               }))
+            }
 
             return rows
           },

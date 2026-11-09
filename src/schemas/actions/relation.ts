@@ -22,22 +22,19 @@ const NAMESPACE_ROLES = new Set<NamespaceRole>(['catalog', 'database', 'schema']
  * supported roles are deliberately left to the selected identity member.
  */
 function validateRelationInput(input: RelationIdentityInput): void {
-  if (typeof input.relation !== 'string' || input.relation.length === 0) {
+  if (typeof input.relation !== 'string' || input.relation.length === 0)
     throw new SchemaError({ message: 'table relation must be a non-empty string' })
-  }
 
   if (input.namespace === undefined) return
 
-  if (!Array.isArray(input.namespace)) {
+  if (!Array.isArray(input.namespace))
     throw new SchemaError({ message: 'table namespace must be an array' })
-  }
 
   const roles = new Set<NamespaceRole>()
 
   for (const value of input.namespace as readonly unknown[]) {
-    if (typeof value !== 'object' || value === null) {
+    if (typeof value !== 'object' || value === null)
       throw new SchemaError({ message: 'table namespace segments must be objects' })
-    }
 
     const segment = value as NamespaceIdentifierInput
     const role = (value as { role: unknown }).role
@@ -48,9 +45,8 @@ function validateRelationInput(input: RelationIdentityInput): void {
       })
     }
 
-    if (roles.has(segment.role)) {
+    if (roles.has(segment.role))
       throw new SchemaError({ message: `duplicate namespace role ${segment.role}` })
-    }
 
     if (typeof segment.spelling !== 'string' || segment.spelling.length === 0) {
       throw new SchemaError({

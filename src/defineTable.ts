@@ -123,9 +123,7 @@ function validatePrimaryKey(
  * @throws SchemaError - When an index has no columns or references an unknown column
  */
 function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
-  if (!metadata.indexes) {
-    return
-  }
+  if (!metadata.indexes) return
 
   const names = new Set<string>()
   const definitions = new Set<string>()
@@ -134,9 +132,7 @@ function validateIndexes(metadata: TableMetadata, columnNames: string[]): void {
     const index = raw
     const columns = (index as { columns?: readonly string[] }).columns
 
-    if (index.name !== undefined) {
-      assertNonEmptyString(index.name, 'index name')
-    }
+    if (index.name !== undefined) assertNonEmptyString(index.name, 'index name')
 
     if (!columns || columns.length === 0) {
       throw new SchemaError({
@@ -252,9 +248,7 @@ function validateColumnOptions(
  * @throws SchemaError - When the reference target relation or column is invalid
  */
 function validateColumnReference(columnName: string, ref: ReferenceMetadata): void {
-  if (!ref) {
-    return
-  }
+  if (!ref) return
 
   const target = ref.target as unknown
 
@@ -595,9 +589,7 @@ function defineTable<
  * @returns `true` if `value` is a table handle from `defineTable`
  */
 function isTableHandle(value: unknown): value is TableHandle {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
+  if (typeof value !== 'object' || value === null) return false
 
   const registeredMethods = definedTableHandles.get(value)
 

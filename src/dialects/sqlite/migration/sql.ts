@@ -28,19 +28,21 @@ function quoteSqliteIdentifier(value: string): string {
 
 /** Verifies a structured identifier rather than accepting a forged comparison key. */
 function assertIdentifier(identifier: CanonicalIdentifier): void {
-  if (!hasValidIdentifierSpelling(identifier.spelling))
+  if (!hasValidIdentifierSpelling(identifier.spelling)) {
     throw new SqliteMigrationCapabilityError(
       'invalid_target',
       'SQLite migration target contains an invalid identifier',
     )
+  }
 
   sqliteNaming.validate(identifier.spelling, 'SQLite migration identifier')
 
-  if (asciiFoldSqliteIdentifier(identifier.spelling) !== identifier.comparisonKey)
+  if (asciiFoldSqliteIdentifier(identifier.spelling) !== identifier.comparisonKey) {
     throw new SqliteMigrationCapabilityError(
       'invalid_target',
       'Invalid SQLite canonical identifier',
     )
+  }
 }
 
 /** Recognizes authored-name failures rejected by physical name validation. */
@@ -70,11 +72,12 @@ function assertMain(identity: CanonicalRelationIdentity): void {
     identity.namespace.length !== 1 ||
     segment.role !== 'database' ||
     segment.identifier.comparisonKey !== 'main'
-  )
+  ) {
     throw new SqliteMigrationCapabilityError(
       'invalid_target',
       'SQLite migration targets must use database:main',
     )
+  }
 
   assertIdentifier(segment.identifier)
   assertIdentifier(identity.relation)

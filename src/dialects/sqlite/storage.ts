@@ -54,21 +54,23 @@ function inferSqliteLiteralType(literal: unknown): SqlDataType {
   if (typeof literal === 'string') return 'TEXT'
 
   if (typeof literal === 'number') {
-    if (!isSqliteSupportedNumber(literal))
+    if (!isSqliteSupportedNumber(literal)) {
       throw new SchemaError({
         message:
           'cannot infer a SQLite column type for a non-finite or unsafe integer literal',
       })
+    }
 
     return Number.isInteger(literal) ? 'INTEGER' : 'REAL'
   }
 
   if (typeof literal === 'bigint') {
-    if (!isSqliteSupportedBigInt(literal))
+    if (!isSqliteSupportedBigInt(literal)) {
       throw new SchemaError({
         message:
           'cannot infer a SQLite column type for a bigint literal outside the signed 64-bit integer range',
       })
+    }
 
     return 'BIGINT'
   }
@@ -143,10 +145,11 @@ function inferSqliteNumberOutputType(facts: StorageFacts): SqlDataType {
   if (
     (minValue !== undefined && !Number.isFinite(minValue)) ||
     (maxValue !== undefined && !Number.isFinite(maxValue))
-  )
+  ) {
     throw new SchemaError({
       message: 'cannot infer a SQLite column type for non-finite number bounds',
     })
+  }
 
   return 'REAL'
 }
@@ -156,11 +159,12 @@ function inferSqliteCompositeType(facts: StorageFacts): SqlDataType {
   const branches = composite.branches.filter((branch) => !branch.nullOnly)
   const kind = facts.outputKind
 
-  if (kind === 'json' && facts.jsonOutputCompatible !== true)
+  if (kind === 'json' && facts.jsonOutputCompatible !== true) {
     throw new SchemaError({
       message:
         'SQLite JSON composite output is not preserved by JSON serialization; provide column({ physicalType: { sqlite: ... } }) and paired parameter and result mappings',
     })
+  }
 
   if (
     !branches.length ||
@@ -273,9 +277,8 @@ function selectSqliteColumnStorage(
     facts.inputSingleton &&
     (facts.outputKind === 'number' || facts.outputKind === 'bigint') &&
     (!hasParameterMapping || !hasResultMapping)
-  ) {
+  )
     inferSqliteColumnTypeFromFacts(facts)
-  }
 
   const selected = explicit ?? inferSqliteColumnTypeFromFacts(facts)
 

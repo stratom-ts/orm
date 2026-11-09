@@ -45,10 +45,11 @@ function inferPostgresFormatType(facts: StorageFacts): SqlDataType | undefined {
     ...new Set(facts.stringFormats.map((format) => STRING_FORMAT_STORAGE[format])),
   ].sort()
 
-  if (targets.length > 1)
+  if (targets.length > 1) {
     throw new SchemaError({
       message: `conflicting PostgreSQL string formats select ${targets.join(', ')}. Use one format or column({ physicalType: { postgresql: ... } })`,
     })
+  }
 
   return targets[0]
 }
@@ -79,13 +80,11 @@ function inferPostgresNumberType(constraints: NumberConstraints): SqlDataType {
 
   const { minValue: min, maxValue: max } = constraints
 
-  if ((isNumber(min) && min < INT32_MIN) || (isNumber(max) && max > INT32_MAX)) {
+  if ((isNumber(min) && min < INT32_MIN) || (isNumber(max) && max > INT32_MAX))
     return 'bigint'
-  }
 
-  if (isNumber(min) && min >= INT16_MIN && isNumber(max) && max <= INT16_MAX) {
+  if (isNumber(min) && min >= INT16_MIN && isNumber(max) && max <= INT16_MAX)
     return 'smallint'
-  }
 
   return 'integer'
 }
@@ -104,10 +103,11 @@ function inferPostgresLiteralType(literal: unknown) {
     if (
       !Number.isFinite(literal) ||
       (Number.isInteger(literal) && !Number.isSafeInteger(literal))
-    )
+    ) {
       throw new SchemaError({
         message: 'cannot infer PostgreSQL storage for an unsafe number literal',
       })
+    }
 
     if (!Number.isInteger(literal)) return 'double precision'
 
@@ -241,11 +241,12 @@ function inferPostgresCompositeType(facts: StorageFacts): SqlDataType {
   const branches = composite.branches.filter((branch) => !branch.nullOnly)
   const kind = facts.outputKind
 
-  if (kind === 'json' && facts.jsonOutputCompatible !== true)
+  if (kind === 'json' && facts.jsonOutputCompatible !== true) {
     throw new SchemaError({
       message:
         'PostgreSQL JSON composite output is not preserved by JSON serialization; provide column({ physicalType: { postgresql: ... } }) and paired parameter and result mappings',
     })
+  }
 
   if (
     !branches.length ||
@@ -344,11 +345,12 @@ function isSafePostgresNumberBranch(branch: StorageFacts): boolean {
     return members.length > 0 && members.every(isSafePostgresNumberBranch)
   }
 
-  if (branch.finiteEvidence === 'singleton')
+  if (branch.finiteEvidence === 'singleton') {
     return (
       typeof branch.singletonValue === 'number' &&
       Number.isSafeInteger(branch.singletonValue)
     )
+  }
 
   return (
     branch.finiteEvidence === 'choice' &&
@@ -399,17 +401,19 @@ function inferPostgresNumberOutputType(constraints: NumberConstraints): SqlDataT
 function withNumberFacts(facts: StorageFacts, outer: NumberConstraints): StorageFacts {
   const numberConstraints = { ...facts.numberConstraints }
 
-  if (outer.minValue !== undefined)
+  if (outer.minValue !== undefined) {
     numberConstraints.minValue = Math.max(
       numberConstraints.minValue ?? -Infinity,
       outer.minValue,
     )
+  }
 
-  if (outer.maxValue !== undefined)
+  if (outer.maxValue !== undefined) {
     numberConstraints.maxValue = Math.min(
       numberConstraints.maxValue ?? Infinity,
       outer.maxValue,
     )
+  }
 
   if (outer.isInteger) numberConstraints.isInteger = true
   if (outer.isSafeInteger) numberConstraints.isSafeInteger = true
@@ -655,10 +659,11 @@ function validatePostgresCompositeMapping(dataType: string, facts: StorageFacts)
           ? base === 'json' || base === 'jsonb'
           : base === inferred
 
-  if (!compatible)
+  if (!compatible) {
     throw new SchemaError({
       message: `PostgreSQL ${kind ?? 'unknown'} composite with ${JSON.stringify(dataType)} requires explicit parameter and result mappings`,
     })
+  }
 }
 
 function isPostgresCompositeNumberStorage(inferred: string, selected: string): boolean {

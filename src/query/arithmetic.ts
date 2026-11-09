@@ -34,13 +34,11 @@ function add<T extends number | null>(
     candidate === null ||
     !('column' in candidate) ||
     typeof candidate.column !== 'string'
-  ) {
+  )
     throw new QueryError({ message: 'add requires a numeric column reference' })
-  }
 
-  if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+  if (typeof delta !== 'number' || !Number.isFinite(delta))
     throw new QueryError({ message: 'add requires a finite number delta' })
-  }
 
   const token = Object.freeze({ [ADD]: undefined as unknown as T, column, delta })
   additions.add(token)
@@ -96,9 +94,8 @@ function prepareUpdatePatch(
     const sourceType = mapper.numericAssignmentType(handle, source)
     const targetType = mapper.numericAssignmentType(handle, target)
 
-    if (sourceFacts.nullable && !targetFacts.nullable) {
+    if (sourceFacts.nullable && !targetFacts.nullable)
       throw new QueryError({ message: 'nullable addition requires a nullable target' })
-    }
 
     if (
       targetType === 'integer' &&

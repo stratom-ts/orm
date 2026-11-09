@@ -236,12 +236,13 @@ function parseDefault(
 > {
   const value = trimSqliteWhitespace(raw)
 
-  if (isSqliteDefaultLiteral(value))
+  if (isSqliteDefaultLiteral(value)) {
     return present({
       kind: 'literal',
       native: raw,
       comparisonKey: present(normalizeSqliteDefaultExpression(value)),
     })
+  }
 
   try {
     const expression = assertSafeSqliteDefaultExpression(value)
@@ -400,10 +401,11 @@ type NativeDefinitionEvidence = NativeConstraintEvidence & {
 function definitionBlockCommentEnd(sql: string, index: number): number {
   const end = sql.indexOf('*/', index + 2)
 
-  if (end < 0)
+  if (end < 0) {
     throw new SqliteTableMetadataError(
       'Malformed SQLite schema SQL: unterminated block comment',
     )
+  }
 
   return end + 2
 }
@@ -805,10 +807,11 @@ function definitionForeignKey(
   const source = definitionColumns(segment, index + 2)
   const end = definitionSegments(segment, index + 2).end
 
-  if (!definitionWord(segment[end + 1], 'REFERENCES'))
+  if (!definitionWord(segment[end + 1], 'REFERENCES')) {
     throw new SqliteTableMetadataError(
       'SQLite native foreign key has no REFERENCES clause',
     )
+  }
 
   return { key: nativeForeignKey(segment, source, end + 1), end }
 }
@@ -868,13 +871,10 @@ function nativeDefinitionEvidence(sql: string): NativeDefinitionEvidence {
   if (tableKeyword < 0)
     throw new SqliteTableMetadataError('SQLite native definition has no TABLE clause')
 
-  const kind = tokens
-    .slice(0, tableKeyword)
-    .some((token) => definitionWord(token, 'VIRTUAL'))
-    ? 'virtual'
-    : 'table'
+  const virtual = tokens.slice(0, tableKeyword).some((t) => definitionWord(t, 'VIRTUAL'))
+  const kind = virtual ? 'virtual' : 'table'
 
-  if (kind === 'virtual')
+  if (kind === 'virtual') {
     return {
       kind,
       strict: false,
@@ -884,6 +884,7 @@ function nativeDefinitionEvidence(sql: string): NativeDefinitionEvidence {
       keys: [],
       foreignKeys: [],
     }
+  }
 
   const body = tokens.findIndex((token) => token.kind === 'symbol' && token.value === '(')
 
@@ -912,10 +913,11 @@ function nativeDefinitionEvidence(sql: string): NativeDefinitionEvidence {
   for (const segment of definition.segments) {
     const part = decodeDefinitionSegment(segment, collations)
 
-    if (part.primaryKey && result.primaryKey)
+    if (part.primaryKey && result.primaryKey) {
       throw new SqliteTableMetadataError(
         'SQLite native definition has multiple primary keys',
       )
+    }
 
     result.primaryKey ??= part.primaryKey
     result.keys.push(...part.keys)
@@ -1069,17 +1071,19 @@ function decodeCatalogColumns(
   const seenColumnNames = new Set<string>()
   const decodedColumns: CatalogColumn[] = []
   for (const column of columns) {
-    if (seenCids.has(column.cid))
+    if (seenCids.has(column.cid)) {
       throw new SqliteTableMetadataError(
         `Duplicate SQLite table_xinfo cid for ${JSON.stringify(row.name)}`,
       )
+    }
 
     const columnKey = identities.member('column', column.name).comparisonKey
 
-    if (seenColumnNames.has(columnKey))
+    if (seenColumnNames.has(columnKey)) {
       throw new SqliteTableMetadataError(
         `Duplicate SQLite table_xinfo column for ${JSON.stringify(row.name)}`,
       )
+    }
 
     seenCids.add(column.cid)
     seenColumnNames.add(columnKey)
@@ -1110,15 +1114,17 @@ function orderSqliteColumns(observedColumns: readonly XInfoRow[], row: TableRow)
     (left, right) => left.cid - right.cid || compare(left.name, right.name),
   )
 
-  if (columns.length !== row.ncol)
+  if (columns.length !== row.ncol) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} table_list ncol does not match table_xinfo`,
     )
+  }
 
-  if (columns.some((column, index) => column.cid !== index))
+  if (columns.some((column, index) => column.cid !== index)) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} table_xinfo cids must be contiguous`,
     )
+  }
 
   return columns
 }
@@ -1168,13 +1174,14 @@ function appendSqliteColumnEvidence(
     })
   }
 
-  if ((row.type === 'virtual' || row.type === 'shadow') && column.hidden !== 0)
+  if ((row.type === 'virtual' || row.type === 'shadow') && column.hidden !== 0) {
     opaque.push({
       kind: 'other',
       name: present(column.name),
       nativeDefinition,
       reason: `SQLite ${row.type} hidden/generated column (hidden=${column.hidden}) is preserved as opaque evidence`,
     })
+  }
 
   decodedColumns.push({
     name: column.name,
@@ -1227,10 +1234,11 @@ function validateAuxiliaryEntries(info: IndexInfoRow[], index: IndexListRow): vo
       auxiliary.cid === -2 ||
       (auxiliary.cid === -1 && auxiliary.name !== null) ||
       (auxiliary.cid >= 0 && auxiliary.name === null)
-    )
+    ) {
       throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has malformed auxiliary index_xinfo row`,
       )
+    }
   }
 }
 
@@ -1255,20 +1263,23 @@ function decodeIndexColumns(
   let simple = index.partial === 0
 
   for (const entry of keyEntries) {
-    if (entry.cid === -1)
+    if (entry.cid === -1) {
       throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has a rowid auxiliary marked as a key term`,
       )
+    }
 
-    if (entry.cid === -2 && entry.name !== null)
+    if (entry.cid === -2 && entry.name !== null) {
       throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has a malformed expression term`,
       )
+    }
 
-    if (entry.cid < -2)
+    if (entry.cid < -2) {
       throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has an invalid column id`,
       )
+    }
 
     if (entry.cid < 0 || entry.name === null) {
       simple = false
@@ -1277,10 +1288,11 @@ function decodeIndexColumns(
 
     const referencedColumn = columns.find((column) => column.cid === entry.cid)
 
-    if (referencedColumn === undefined || referencedColumn.name !== entry.name)
+    if (referencedColumn === undefined || referencedColumn.name !== entry.name) {
       throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} references a missing or mismatched column`,
       )
+    }
 
     columnsForIndex.push(entry.name)
 
@@ -1391,32 +1403,36 @@ function validateTableIndexes(
 ): IndexListRow | undefined {
   const indexSeqs = indexes.map((index) => index.seq).sort((a, b) => a - b)
 
-  if (indexSeqs.some((seq, position) => seq !== position))
+  if (indexSeqs.some((seq, position) => seq !== position)) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has non-contiguous index_list sequences`,
     )
+  }
 
   if (
     new Set(indexes.map((index) => identities.member('index', index.name).comparisonKey))
       .size !== indexes.length
-  )
+  ) {
     throw new SqliteTableMetadataError(
       `Duplicate SQLite index_list name on ${JSON.stringify(row.name)}`,
     )
+  }
 
   const pkIndexes = indexes.filter((index) => index.origin === 'pk')
 
-  if (pkIndexes.length > 1)
+  if (pkIndexes.length > 1) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has multiple primary-key indexes`,
     )
+  }
 
   const pkIndex = pkIndexes.at(0)
 
-  if (pkIndex && (pkIndex.unique !== 1 || pkIndex.partial !== 0))
+  if (pkIndex && (pkIndex.unique !== 1 || pkIndex.partial !== 0)) {
     throw new SqliteTableMetadataError(
       `SQLite primary-key index on ${JSON.stringify(row.name)} has invalid flags`,
     )
+  }
 
   return pkIndex
 }
@@ -1620,11 +1636,9 @@ function uniqueKeyEvidence(
     if (
       keyColumns.length === keyInfo.length &&
       keyInfo.every((entry) => entry.desc === 0 && entry.coll === 'BINARY')
-    ) {
+    )
       simpleUniqueKeys.push(keyColumns)
-    } else {
-      matchingRichUniqueKey = true
-    }
+    else matchingRichUniqueKey = true
   }
 
   return { simpleUniqueKeys, matchingRichUniqueKey }
@@ -1803,10 +1817,11 @@ function decodeCatalogIndex(
     )?.sql ?? null
 
   if (index.origin === 'c') {
-    if (indexSql === null)
+    if (indexSql === null) {
       throw new SqliteTableMetadataError(
         `SQLite user index ${JSON.stringify(index.name)} is missing sqlite_schema definition`,
       )
+    }
 
     const { columnsForIndex, simple } = decodeIndexColumns(keyEntries, index, columns)
     verifyNativeIndexAgainstTable(index, indexSql, simple, createSql, native)
@@ -1845,10 +1860,11 @@ function verifyNativeIndexAgainstTable(
   tableSql: string | null,
   native: NativeProof,
 ): void {
-  if (tableSql === null)
+  if (tableSql === null) {
     throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} is missing native table definition`,
     )
+  }
 
   const nativeColumns = native(tableSql).columns
   const columnCollations = new Map(
@@ -1874,28 +1890,31 @@ function verifyNativeIndexSemantics(
     (token, position) => position > on && token.kind === 'symbol' && token.value === '(',
   )
 
-  if (on < 0 || open < 0)
+  if (on < 0 || open < 0) {
     throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} has malformed native definition`,
     )
+  }
 
   const terms = definitionSegments(tokens, open)
   const end = terms.end
   const partial = tokens.slice(end + 1).some((token) => definitionWord(token, 'WHERE'))
 
-  if (partial !== (index.partial === 1))
+  if (partial !== (index.partial === 1)) {
     throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} has inconsistent native partial-index evidence`,
     )
+  }
 
   const simple =
     !partial &&
     terms.segments.every((term) => definitionIndexTermIsSimple(term, columnCollations))
 
-  if (simple !== observedSimple)
+  if (simple !== observedSimple) {
     throw new SqliteTableMetadataError(
       `SQLite user index ${JSON.stringify(index.name)} has inconsistent native index-semantics evidence`,
     )
+  }
 }
 
 /** Recognizes one ascending column term whose effective native collation is BINARY. */
@@ -1949,19 +1968,21 @@ function definitionIndexTermIsSimple(
 function validateIndexSequence(info: IndexInfoRow[], index: IndexListRow) {
   const seqnos = info.map((entry) => entry.seqno).sort((a, b) => a - b)
 
-  if (seqnos.some((seqno, position) => seqno !== position))
+  if (seqnos.some((seqno, position) => seqno !== position)) {
     throw new SqliteTableMetadataError(
       `SQLite index ${JSON.stringify(index.name)} has non-contiguous index_xinfo seqnos`,
     )
+  }
 
   const keyEntries = info
     .filter((entry) => entry.key === 1)
     .sort((a, b) => a.seqno - b.seqno)
 
-  if (keyEntries.some((entry, position) => entry.seqno !== position))
+  if (keyEntries.some((entry, position) => entry.seqno !== position)) {
     throw new SqliteTableMetadataError(
       `SQLite index ${JSON.stringify(index.name)} has non-contiguous key index_xinfo seqnos`,
     )
+  }
 
   validateAuxiliaryEntries(info, index)
   return keyEntries
@@ -2094,19 +2115,21 @@ function decodeForeignKeySource(
 ) {
   group.sort((a, b) => a.seq - b.seq)
 
-  if (group.some((entry, position) => entry.seq !== position))
+  if (group.some((entry, position) => entry.seq !== position)) {
     throw new SqliteTableMetadataError(
       `SQLite foreign-key group on ${JSON.stringify(row.name)} has non-contiguous sequence`,
     )
+  }
 
   const first = group[0]
   const onDelete = action(first.on_delete, 'foreign_key_list', 0)
   const onUpdate = action(first.on_update, 'foreign_key_list', 0)
 
-  if (!foreignGroupIsConsistent(group, first))
+  if (!foreignGroupIsConsistent(group, first)) {
     throw new SqliteTableMetadataError(
       `SQLite foreign-key group on ${JSON.stringify(row.name)} is inconsistent`,
     )
+  }
 
   const sourceColumns = group.map((entry) => {
     const source = columns.find(
@@ -2115,10 +2138,11 @@ function decodeForeignKeySource(
         identities.member('column', entry.from).comparisonKey,
     )
 
-    if (source === undefined)
+    if (source === undefined) {
       throw new SqliteTableMetadataError(
         `SQLite foreign key on ${JSON.stringify(row.name)} references a missing source column`,
       )
+    }
 
     return source.name
   })
@@ -2225,10 +2249,11 @@ function verifyNativeConstraintEvidence(
   columns: XInfoRow[],
   parseNative: NativeProof,
 ): void {
-  if (sql === null)
+  if (sql === null) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has no native constraint evidence`,
     )
+  }
 
   const native = parseNative(sql)
   verifyNativeColumns(row, native, columns)
@@ -2284,9 +2309,11 @@ function nativeTypeParts(type: string): NativeTypePart[] {
       continue
     }
 
-    if (/[A-Za-z0-9_$\u0080-\uFFFF]/.test(character)) word += character
-    else if (/\s/.test(character)) flush()
-    else {
+    if (/[A-Za-z0-9_$\u0080-\uFFFF]/.test(character)) {
+      word += character
+    } else if (/\s/.test(character)) {
+      flush()
+    } else {
       flush()
       parts.push({ kind: 'symbol', value: character })
     }
@@ -2335,9 +2362,7 @@ function verifyNativeColumns(
   native: NativeDefinitionEvidence,
   columns: readonly XInfoRow[],
 ): void {
-  const primary = new Set(
-    (native.primaryKey?.columns ?? []).map(asciiFoldSqliteIdentifier),
-  )
+  const primary = new Set(native.primaryKey?.columns.map(asciiFoldSqliteIdentifier))
 
   if (
     native.columns.length !== columns.length ||
@@ -2346,28 +2371,31 @@ function verifyNativeColumns(
         asciiFoldSqliteIdentifier(column.name) !==
         asciiFoldSqliteIdentifier(columns[index]?.name ?? ''),
     )
-  )
+  ) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native column evidence`,
     )
+  }
 
   for (const [index, column] of native.columns.entries()) {
     const observed = columns[index]
     const columnLabel = `SQLite table ${JSON.stringify(row.name)} column ${JSON.stringify(observed.name)}`
 
-    if (!nativeTypeMatches(column.type, observed.type))
+    if (!nativeTypeMatches(column.type, observed.type)) {
       throw new SqliteTableMetadataError(
         `${columnLabel} has inconsistent native declared-type evidence`,
       )
+    }
 
     const notNull =
       column.notNull ||
       (native.withoutRowid && primary.has(asciiFoldSqliteIdentifier(column.name)))
 
-    if (notNull !== (observed.notnull === 1))
+    if (notNull !== (observed.notnull === 1)) {
       throw new SqliteTableMetadataError(
         `${columnLabel} has inconsistent native NOT NULL evidence`,
       )
+    }
 
     const nativeDefault =
       column.default === null ? null : nativeDefaultSignature(column.default)
@@ -2375,15 +2403,17 @@ function verifyNativeColumns(
     const observedDefault =
       observed.dflt_value === null ? null : nativeDefaultSignature(observed.dflt_value)
 
-    if (nativeDefault !== observedDefault)
+    if (nativeDefault !== observedDefault) {
       throw new SqliteTableMetadataError(
         `${columnLabel} has inconsistent native default evidence`,
       )
+    }
 
-    if (column.hidden !== observed.hidden)
+    if (column.hidden !== observed.hidden) {
       throw new SqliteTableMetadataError(
         `${columnLabel} has inconsistent native generated-column evidence`,
       )
+    }
   }
 }
 
@@ -2445,10 +2475,11 @@ function verifyNativePrimaryKey(
           native.primaryKey.columns,
           pkColumns.map((column) => column.name),
         )
-  )
+  ) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native primary-key evidence`,
     )
+  }
 
   const rowidAlias =
     row.wr === 0 &&
@@ -2460,15 +2491,17 @@ function verifyNativePrimaryKey(
     (index) => index.origin === 'pk',
   )
 
-  if (pkColumns.length > 0 && !rowidAlias && !pkIndex)
+  if (pkColumns.length > 0 && !rowidAlias && !pkIndex) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} is missing primary-key index evidence`,
     )
+  }
 
-  if (rowidAlias && pkIndex)
+  if (rowidAlias && pkIndex) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has contradictory rowid index evidence`,
     )
+  }
 
   return rowidAlias
 }
@@ -2483,9 +2516,7 @@ function verifyNativeKeyIndexes(
   for (const clause of native.keys) {
     if (clause.origin === 'pk' && rowidAlias) continue
 
-    const shared = groups.find((group) =>
-      sameNativeKeyIdentity(group.terms, clause.terms),
-    )
+    const shared = groups.find((key) => sameNativeKeyIdentity(key.terms, clause.terms))
 
     if (shared) shared.origin = clause.origin === 'pk' ? 'pk' : shared.origin
     else groups.push({ ...clause })
@@ -2526,10 +2557,11 @@ function verifyNativeKeyIndexes(
     indexes.splice(match, 1)
   }
 
-  if (indexes.length > 0)
+  if (indexes.length > 0) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native constraint index evidence`,
     )
+  }
 }
 
 function verifyNativeForeignKeys(
@@ -2570,18 +2602,20 @@ function verifyNativeForeignKeys(
           asciiFoldSqliteIdentifier(observed.onUpdate),
     )
 
-    if (index < 0)
+    if (index < 0) {
       throw new SqliteTableMetadataError(
         `SQLite table ${JSON.stringify(row.name)} is missing foreign-key evidence`,
       )
+    }
 
     remaining.splice(index, 1)
   }
 
-  if (remaining.length > 0)
+  if (remaining.length > 0) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native foreign-key evidence`,
     )
+  }
 }
 
 /**
@@ -2612,10 +2646,11 @@ function decodeTableIndexes(input: SqliteIndexDecoding) {
   for (const index of indexes) {
     const members = indexInfos.get(`${row.name}\0${index.name}`)
 
-    if (!members)
+    if (!members) {
       throw new SqliteTableMetadataError(
         `SQLite index ${JSON.stringify(index.name)} has no index_xinfo evidence`,
       )
+    }
 
     const decoded = decodeCatalogIndex(
       index,
@@ -2662,10 +2697,11 @@ function decodeTableForeignKeys(input: TableForeignKeyDecoding) {
   const grouped = new Map<number, ForeignKeyRow[]>()
   const observed = foreignKeys.get(row.name)
 
-  if (!observed)
+  if (!observed) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has no foreign_key_list evidence`,
     )
+  }
 
   for (const fk of observed) {
     const group = grouped.get(fk.id) ?? []
@@ -2762,10 +2798,11 @@ function validateOwnerIndexes(
   )
 
   for (const entry of indexes) {
-    if (entry.origin === 'u' && (entry.unique !== 1 || entry.partial !== 0))
+    if (entry.origin === 'u' && (entry.unique !== 1 || entry.partial !== 0)) {
       throw new SqliteTableMetadataError(
         `SQLite UNIQUE index ${JSON.stringify(entry.name)} has invalid flags`,
       )
+    }
 
     if (entry.origin !== 'c') continue
 
@@ -2778,10 +2815,11 @@ function validateOwnerIndexes(
           scopeIdentity(owner.name).relation.comparisonKey,
     )
 
-    if (matches.length !== 1 || matches[0].sql === null)
+    if (matches.length !== 1 || matches[0].sql === null) {
       throw new SqliteTableMetadataError(
         `SQLite user index ${JSON.stringify(entry.name)} has missing or mismatched sqlite_schema evidence`,
       )
+    }
   }
 
   for (const schema of schemaRows.filter(
@@ -2789,11 +2827,13 @@ function validateOwnerIndexes(
       entry.type === 'index' &&
       scopeIdentity(entry.tbl_name).relation.comparisonKey ===
         scopeIdentity(owner.name).relation.comparisonKey,
-  ))
-    if (!listed.has(identities.member('index', schema.name).comparisonKey))
+  )) {
+    if (!listed.has(identities.member('index', schema.name).comparisonKey)) {
       throw new SqliteTableMetadataError(
         `SQLite sqlite_schema index ${JSON.stringify(schema.name)} is missing from index_list`,
       )
+    }
+  }
 }
 
 type SqliteProofBatchInput = {
@@ -2878,7 +2918,7 @@ function proveRelation(
   const { mainTables, schemaRows, evidence, identities } = input
   const invalid = errors.get(row.name)
 
-  if (invalid)
+  if (invalid) {
     return unknownSqliteRelation(
       row,
       schemaRows,
@@ -2887,6 +2927,7 @@ function proveRelation(
       invalid,
       decisions,
     )
+  }
 
   try {
     return buildCatalogRelation(
@@ -2988,28 +3029,32 @@ function verifyNativeTableEvidence(
   sql: string | null,
   parseNative: NativeProof,
 ): void {
-  if (sql === null)
+  if (sql === null) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has no native table evidence`,
     )
+  }
 
   const native = parseNative(sql)
   const observedKind = row.type === 'virtual' ? 'virtual' : 'table'
 
-  if (native.kind !== observedKind)
+  if (native.kind !== observedKind) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native table-kind evidence`,
     )
+  }
 
-  if (native.strict !== (row.strict === 1))
+  if (native.strict !== (row.strict === 1)) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native STRICT evidence`,
     )
+  }
 
-  if (native.withoutRowid !== (row.wr === 1))
+  if (native.withoutRowid !== (row.wr === 1)) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has inconsistent native WITHOUT ROWID evidence`,
     )
+  }
 }
 
 /** Preserves a proven relation identity and definition without granting management. */
@@ -3209,10 +3254,11 @@ function decodeTablePrimaryKey(
   const { indexLists, indexInfos } = evidence
   const pks = columns.filter((column) => column.pk > 0).sort((a, b) => a.pk - b.pk)
 
-  if (pks.some((column, index) => column.pk !== index + 1))
+  if (pks.some((column, index) => column.pk !== index + 1)) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has non-contiguous primary-key ordinals`,
     )
+  }
 
   const indexes = indexLists.get(row.name)!
   const pkIndex = validateTableIndexes(row, indexes, identities)
@@ -3317,17 +3363,19 @@ function decodeTableStructure(input: SqliteTableStructure) {
 
   let managed = input.managed
 
-  if (!evidence.xinfo.has(row.name))
+  if (!evidence.xinfo.has(row.name)) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has no table_xinfo evidence`,
     )
+  }
 
   const columnEvidence = decisions.columns(nativeDefinition)
 
-  if (!evidence.indexLists.has(row.name))
+  if (!evidence.indexLists.has(row.name)) {
     throw new SqliteTableMetadataError(
       `SQLite table ${JSON.stringify(row.name)} has no index_list evidence`,
     )
+  }
 
   const { columns } = columnEvidence
   const decodedColumns = [...columnEvidence.decodedColumns]

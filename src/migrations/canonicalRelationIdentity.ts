@@ -185,13 +185,11 @@ function compareCodeUnits(left: string, right: string): number {
  * @param description - Identifier description used in errors.
  */
 function assertIdentifier(spelling: string, description: string): void {
-  if (spelling.length === 0) {
+  if (spelling.length === 0)
     throw new SchemaError({ message: `${description} must not be empty` })
-  }
 
-  if (spelling.includes('\0')) {
+  if (spelling.includes('\0'))
     throw new SchemaError({ message: `${description} must not contain NUL` })
-  }
 
   for (let index = 0; index < spelling.length; index++) {
     const codeUnit = spelling.charCodeAt(index)

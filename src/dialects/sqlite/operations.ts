@@ -9,9 +9,8 @@ export function compileSqliteOperationCommand(command: OperationCommand): Compil
     command.kind === 'begin' &&
     command.behavior === 'immediate' &&
     command.isolationLevel === undefined
-  ) {
+  )
     return { sql: 'begin immediate', params: [] }
-  }
 
   return compileCommonOperationCommand(command)
 }

@@ -341,9 +341,8 @@ function enqueueSessionOperation<T>(
   }
 
   const result = state.queue.then(() => {
-    if (state.cancelled) {
+    if (state.cancelled)
       throw new QueryError({ message: 'Operation session has been cancelled' })
-    }
 
     return operation()
   })
@@ -397,9 +396,8 @@ async function cancelNativeSession(
   client: NativePostgresClient,
   state: NativeSessionState,
 ): Promise<void> {
-  if (state.released) {
+  if (state.released)
     throw new QueryError({ message: 'Operation session has been released' })
-  }
 
   state.cancelled = true
   state.activeController?.abort()
@@ -622,9 +620,8 @@ async function openNativeLease(
   dispose: () => Promise<void>,
   dialectId: string,
 ): Promise<OperationSession> {
-  if (state.closed) {
+  if (state.closed)
     throw new QueryError({ message: 'Operation session provider has been closed' })
-  }
 
   if (state.leased) {
     throw new QueryError({

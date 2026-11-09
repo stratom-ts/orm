@@ -207,9 +207,8 @@ async function openControllableSession(
       releaseControllableSession(disposition, sessionState, state, id, options),
   }
 
-  if (options?.invalidInitialSession === 'capability') {
+  if (options?.invalidInitialSession === 'capability')
     Object.assign(session as unknown as { cancel?: unknown }, { cancel: undefined })
-  }
 
   return session
 }
@@ -257,9 +256,7 @@ function callControllableSession<T>(
     try {
       await options?.beforeCall?.(id, sql)
 
-      if (options?.mutationFailure?.session === id) {
-        throw options.mutationFailure.value
-      }
+      if (options?.mutationFailure?.session === id) throw options.mutationFailure.value
 
       if (options?.failSession === id) throw new Error(`session ${id} failed`)
 
@@ -320,9 +317,8 @@ function readControllableIdentity(
   if (
     options?.identityReadFailure?.session === id &&
     options.identityReadFailure.read === sessionState.identityReads
-  ) {
+  )
     throw options.identityReadFailure.value
-  }
 
   return identity
 }
@@ -367,9 +363,7 @@ async function releaseControllableSession(
   state.events.push(`release-started:${id}:${disposition}`)
   await options?.beforeRelease?.(id)
 
-  if (options?.releaseFailure?.session === id) {
-    throw options.releaseFailure.value
-  }
+  if (options?.releaseFailure?.session === id) throw options.releaseFailure.value
 
   state.events.push(`release-finished:${id}:${disposition}`)
 }

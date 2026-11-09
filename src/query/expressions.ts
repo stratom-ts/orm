@@ -54,9 +54,7 @@ function colRef<C extends ColumnRef | string>(
     : unknown)
 
 function colRef(column: ColumnRef | string): ColumnExprAst {
-  if (typeof column === 'string') {
-    return { kind: 'column', column }
-  }
+  if (typeof column === 'string') return { kind: 'column', column }
 
   return {
     kind: 'column',
@@ -272,9 +270,8 @@ function lte<L extends ColumnRef | string | ScalarExpression | OuterExpression, 
  * @returns AND predicate AST node
  */
 function and(...preds: PredicateAst[]): PredicateAst {
-  if (preds.length === 0) {
+  if (preds.length === 0)
     throw new QueryError({ message: 'and() requires at least one predicate' })
-  }
 
   if (preds.length === 1) return preds[0]
 
@@ -292,9 +289,8 @@ function and(...preds: PredicateAst[]): PredicateAst {
  * @returns OR predicate AST node
  */
 function or(...preds: PredicateAst[]): PredicateAst {
-  if (preds.length === 0) {
+  if (preds.length === 0)
     throw new QueryError({ message: 'or() requires at least one predicate' })
-  }
 
   if (preds.length === 1) return preds[0]
 

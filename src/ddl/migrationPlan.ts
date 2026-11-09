@@ -355,13 +355,15 @@ class RankedNames {
         : restore('relation', resolved.relation),
     }
 
-    for (const entry of rejected)
+    for (const entry of rejected) {
       this.record(
         identity,
         '',
         `${entry.role} ${JSON.stringify(entry.spelling)}`,
         entry.cause,
       )
+    }
+
     return identity
   }
 
@@ -490,9 +492,8 @@ function validateCanonicalNamespaceNames(
   namespace: CanonicalRelationIdentity['namespace'],
   naming: DialectNaming,
 ): void {
-  for (const segment of namespace) {
+  for (const segment of namespace)
     naming.validate(segment.identifier.spelling, `${segment.role} identifier`)
-  }
 }
 
 /**
@@ -771,9 +772,8 @@ function defaultMismatch(
 
   const expected = desired.databaseDefault?.normalized ?? null
 
-  if (live.defaultExpression !== expected) {
+  if (live.defaultExpression !== expected)
     return `Unsupported default change for ${target}`
-  }
 }
 
 /**
@@ -793,9 +793,8 @@ function identityMismatch(
 
   const expected = desired.generated ?? (desired.autoIncrement ? 'byDefault' : null)
 
-  if (live.identityGeneration !== expected) {
+  if (live.identityGeneration !== expected)
     return `Unsupported identity change for ${target}`
-  }
 }
 
 type CanonicalForeignKey = {
@@ -1542,9 +1541,8 @@ function reserveCatalogIndexes(
   physicalNames: ReturnType<DialectNaming['createRegistry']>,
   representedCatalogNames: Set<string>,
 ): void {
-  for (const index of indexes) {
+  for (const index of indexes)
     representedCatalogNames.add(namespaceNameKey(identity.namespace, index.name))
-  }
 
   for (const index of uniqueCatalogIndexes(indexes, identity, identities)) {
     physicalNames.reserve({
@@ -1819,9 +1817,8 @@ function validateDesiredNames(
     const metadata = handle.getTableMetadata()
     validateCanonicalRelationNames(identities.resolve(metadata.relation), naming)
 
-    for (const value of Object.values(handle.getSchema().entries)) {
+    for (const value of Object.values(handle.getSchema().entries))
       validateReferenceName(value)
-    }
   }
 }
 
@@ -1945,9 +1942,8 @@ function appendDroppedColumns(
   )
 
   for (const liveColumn of live.columns) {
-    if (desiredNames.has(identities.member('column', liveColumn.name).comparisonKey)) {
+    if (desiredNames.has(identities.member('column', liveColumn.name).comparisonKey))
       continue
-    }
 
     steps.push({
       kind: 'drop_column',
@@ -2038,9 +2034,8 @@ function appendDroppedTables({
 
     if (registered.has(identity)) continue
 
-    if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace)) {
+    if (!ownership.isAbsent(identity) && !ownership.ownsNamespace(identity.namespace))
       continue
-    }
 
     if (live.opaqueObjects.length > 0) {
       issues.push({
@@ -2165,9 +2160,8 @@ function appendCreatedConstraintsAndIndexes(input: CreatedConstraintPlanning) {
     deferredForeignKeys,
   } = input
 
-  for (const column of desired.columns.filter((column) => column.unique)) {
+  for (const column of desired.columns.filter((column) => column.unique))
     reserveUniqueConstraint(identity, column.identifier.spelling)
-  }
 
   for (const index of indexes) {
     physicalNames.reserve({
@@ -2355,9 +2349,8 @@ function validateDesiredIndexes(
   }
 
   for (const index of indexes) {
-    if (index.origin === 'explicit') {
+    if (index.origin === 'explicit')
       naming.validate(index.name.spelling, 'explicit index name')
-    }
   }
 }
 
@@ -2368,9 +2361,7 @@ function appendOwnedNamespaces(
   steps: MigrationStep[],
 ): void {
   for (const namespace of ownership.completeNamespaces) {
-    if (ensuredNamespaces.some((existing) => sameNamespace(existing, namespace))) {
-      continue
-    }
+    if (ensuredNamespaces.some((existing) => sameNamespace(existing, namespace))) continue
 
     steps.push({ kind: 'ensure_namespace', target: { kind: 'namespace', namespace } })
     ensuredNamespaces.push(namespace)
@@ -2435,9 +2426,8 @@ function reservePhysicalCatalogNames(
       representedCatalogNames.has(
         namespaceNameKey(reservation.namespace, reservation.name),
       )
-    ) {
+    )
       continue
-    }
 
     if (reservation.namespace.length === 0) {
       throw new MigrationError({
@@ -2772,11 +2762,12 @@ function assertPlanningIssues(
     .sort((left, right) => comparePlanningIssues(left, right, identities))
     .at(0)
 
-  if (issue)
+  if (issue) {
     throw new MigrationError({
       message: issue.message,
       ...(issue.cause === undefined ? {} : { cause: issue.cause }),
     })
+  }
 }
 
 /**
@@ -3225,9 +3216,8 @@ function validateCatalogNames(
       table.primaryKey,
       ...table.uniqueConstraints,
       ...table.foreignKeys,
-    ]) {
+    ])
       key?.columns.forEach((column) => scoped.member('column', column))
-    }
   }
 }
 
@@ -3623,9 +3613,8 @@ function createPlanningReservations(
   const registered = identities.createRegistry<TableHandle>()
   const physicalNames = naming.createRegistry()
 
-  for (const identity of [...ownership.explicitRelations, ...ownership.absentRelations]) {
+  for (const identity of [...ownership.explicitRelations, ...ownership.absentRelations])
     validateCanonicalRelationNames(identity, names.namingFor(identity))
-  }
 
   for (const namespace of ownership.completeNamespaces) {
     const identity = { namespace, relation: { spelling: '', comparisonKey: '' } }

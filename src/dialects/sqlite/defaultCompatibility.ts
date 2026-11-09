@@ -32,9 +32,8 @@ function storedLiteral(
   if (affinity !== 'real' && /^[+-]?\d+$/.test(text)) {
     const integer = BigInt(text)
 
-    if (integer >= -(2n ** 63n) && integer < 2n ** 63n) {
+    if (integer >= -(2n ** 63n) && integer < 2n ** 63n)
       return Number.isSafeInteger(Number(integer)) ? Number(integer) : integer
-    }
   }
 
   const numeric = Number(primitive)
@@ -45,9 +44,8 @@ function storedLiteral(
     Number.isInteger(numeric) &&
     numeric > -(2 ** 63) &&
     numeric < 2 ** 63
-  ) {
+  )
     return Number.isSafeInteger(numeric) ? numeric : BigInt(numeric)
-  }
 
   return numeric
 }

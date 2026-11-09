@@ -269,10 +269,11 @@ function registerTableProofGroup7() {
     (state) => {
       const input = fixture()
 
-      if (state === 'damaged')
+      if (state === 'damaged') {
         input.evidence.indexLists.set('t', [
           { seq: 1, name: 'bad', origin: 'u', unique: 1, partial: 0 },
         ])
+      }
 
       const before = structuredClone({ ...input, identities: undefined })
       const result = proveSqliteTables(input)
@@ -292,10 +293,11 @@ function registerTableProofGroup8() {
       const input = fixture()
       input.identities = new Proxy(identities, {
         get(target, key) {
-          if (key === 'member')
+          if (key === 'member') {
             return () => {
               throw defect
             }
+          }
 
           return Reflect.get(target, key) as unknown
         },

@@ -647,9 +647,8 @@ describe('Migration Plan determinism and semantic profiles', () => {
     }
 
     for (const registered of [handles, [...handles].reverse(), rotate(handles)]) {
-      for (const candidate of catalogs) {
+      for (const candidate of catalogs)
         expect(planMigration(registered, candidate, postgresDialect)).toEqual(expected)
-      }
     }
 
     expect(catalog).toEqual(originalCatalog)

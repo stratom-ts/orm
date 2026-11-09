@@ -1784,18 +1784,16 @@ function prepareMockQuery(
   if (normalized.includes('con.contype as constraint_type'))
     return constraintCatalogStatement(liveTables)
 
-  if (normalized.includes('c.relname as object_name')) {
+  if (normalized.includes('c.relname as object_name'))
     return createMockStatement(catalogReservationRows(liveTables, options))
-  }
 
   if (normalized.includes('from pg_index i')) return indexCatalogStatement(liveTables)
 
   if (normalized === 'show lock_timeout')
     return createMockStatement([{ lock_timeout: '0' }])
 
-  if (normalized.includes('count(*)') && normalized.includes(' is null')) {
+  if (normalized.includes('count(*)') && normalized.includes(' is null'))
     return createMockStatement([{ count: options?.nullCount ?? 0 }])
-  }
 
   if (/^(?:create|alter|drop)\s/.test(normalized)) {
     runSql.push(sql)

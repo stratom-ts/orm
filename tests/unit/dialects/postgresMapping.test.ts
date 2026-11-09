@@ -580,10 +580,11 @@ function registerMappingGroup12() {
       ).toBe(42)
     }
 
-    for (const type of ['smallserial', 'smallint', 'serial', 'integer'])
+    for (const type of ['smallserial', 'smallint', 'serial', 'integer']) {
       expect(() =>
         validatePostgresValueMapping(type, { facts: extractStorageFacts(schema) }),
       ).toThrow(SchemaError)
+    }
   })
 }
 

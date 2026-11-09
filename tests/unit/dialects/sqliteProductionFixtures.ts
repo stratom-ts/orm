@@ -251,7 +251,7 @@ function lifecycleRows(sql: string, migrated: boolean): unknown[] {
   if (sql.includes('sqlite_version()')) return [{ version: '3.50.0' }]
   if (sql.includes('pragma_database_list')) return [{ seq: 0, name: 'main', file: '' }]
 
-  if (sql.includes('pragma_table_list'))
+  if (sql.includes('pragma_table_list')) {
     return [
       {
         schema: 'main',
@@ -262,8 +262,9 @@ function lifecycleRows(sql: string, migrated: boolean): unknown[] {
         strict: 0,
       },
     ]
+  }
 
-  if (sql.includes('sqlite_schema'))
+  if (sql.includes('sqlite_schema')) {
     return [
       {
         type: 'table',
@@ -272,6 +273,7 @@ function lifecycleRows(sql: string, migrated: boolean): unknown[] {
         sql: `CREATE TABLE lifecycle_records (id INTEGER PRIMARY KEY NOT NULL, label TEXT NOT NULL${migrated ? ', note TEXT' : ''})`,
       },
     ]
+  }
 
   if (sql.includes('pragma_table_xinfo'))
     return migrated ? lifecycleColumns : lifecycleColumns.slice(0, 2)

@@ -493,9 +493,8 @@ function validateDialectContractMember<
       facet
     ]
 
-    if (typeof capability !== 'object' || capability === null) {
+    if (typeof capability !== 'object' || capability === null)
       throw new Error(`Dialect contract capability declaration omits ${facet}`)
-    }
 
     const candidate = capability as {
       state?: unknown
@@ -503,20 +502,17 @@ function validateDialectContractMember<
       reason?: unknown
     }
 
-    if (candidate.state !== 'supported' && candidate.state !== 'unsupported') {
+    if (candidate.state !== 'supported' && candidate.state !== 'unsupported')
       throw new Error(`Dialect contract capability ${facet} has an invalid state`)
-    }
 
-    if (typeof candidate.shard !== 'string' || candidate.shard.trim().length === 0) {
+    if (typeof candidate.shard !== 'string' || candidate.shard.trim().length === 0)
       throw new Error(`Dialect contract capability ${facet} needs a non-empty shard`)
-    }
 
     if (
       candidate.state === 'unsupported' &&
       (typeof candidate.reason !== 'string' || candidate.reason.trim().length === 0)
-    ) {
+    )
       throw new Error(`Dialect contract capability ${facet} needs a non-empty reason`)
-    }
   }
 }
 
@@ -530,13 +526,11 @@ function validateDialectContractShard(
     const owned = capabilities[facet].shard === shard
     const input = (inputs as Partial<Record<DialectMemberFacet, unknown>>)[facet]
 
-    if (owned && input === undefined) {
+    if (owned && input === undefined)
       throw new Error(`Dialect contract shard ${shard} omits its ${facet} input`)
-    }
 
-    if (!owned && input !== undefined) {
+    if (!owned && input !== undefined)
       throw new Error(`Dialect contract shard ${shard} does not own ${facet}`)
-    }
 
     if (
       owned &&
@@ -544,9 +538,8 @@ function validateDialectContractShard(
       input !== null &&
       'state' in input &&
       input.state !== capabilities[facet].state
-    ) {
+    )
       throw new Error(`Dialect contract shard ${shard} disagrees about ${facet}`)
-    }
   }
 
   validateOperationSessionMigrationInput(asRecord(inputs)?.operationSession)
@@ -622,9 +615,8 @@ function validateUnsupportedQueryScenario(
     typeof support.expectedMessage !== 'string' ||
     support.expectedMessage.trim().length === 0 ||
     !input?.node
-  ) {
+  )
     throw new Error(`Unsupported query scenario ${scenarioId} needs a rejection input`)
-  }
 }
 
 /** Validates nested provider migration participation before any suite registers. */
@@ -667,10 +659,11 @@ function validateMigrationContractInput(value: unknown): void {
   if (
     unsupported?.state !== 'supported' ||
     typeof unsupportedInput?.createCase !== 'function'
-  )
+  ) {
     throw new Error(
       'Migration unsupportedLowering declaration has an invalid state or createCase factory',
     )
+  }
 }
 
 /**
@@ -1166,14 +1159,14 @@ function registerDialectContractShard(
 }
 
 export type {
-  DialectContractMemberCapabilities,
-  QueryCompilerScenarios,
   CatalogContractInput,
+  DialectContractMemberCapabilities,
   MigrationContractCase,
+  QueryCompilerScenarios,
 }
 
 export {
-  runOperationSessionCommonContract,
   registerDialectContractMember,
   runCatalogContract,
+  runOperationSessionCommonContract,
 }

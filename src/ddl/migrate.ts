@@ -142,7 +142,7 @@ function phaseError(
     })
   }
 
-  if (isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'DriverError'))
+  if (isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'DriverError')) {
     return new MigrationError({
       message: `Migration ${stage} failed${isErrorTag(cause, 'QueryError') ? `: ${cause.message}` : ''}`,
       cause,
@@ -150,6 +150,7 @@ function phaseError(
       outcome: 'unchanged',
       retryable: false,
     })
+  }
 
   if (cause.stage !== undefined) return cause
 
@@ -211,11 +212,12 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
 }
 
 function snapshotTarget(target: MigrationTarget): MigrationTarget {
-  if (target.kind === 'namespace')
+  if (target.kind === 'namespace') {
     return {
       kind: 'namespace',
       namespace: target.namespace.map((s) => ({ ...s, identifier: { ...s.identifier } })),
     }
+  }
 
   const relation = {
     namespace: target.relation.namespace.map((s) => ({
@@ -240,10 +242,11 @@ function validateTargetGrant(target: MigrationTarget, operation: MigrationAllow)
         ? 'index'
         : 'column'
 
-  if (target.kind !== expectedKind)
+  if (target.kind !== expectedKind) {
     throw new SchemaError({
       message: `Migration permission '${operation}' requires a ${expectedKind} target`,
     })
+  }
 }
 
 function assertProfileAllows(
@@ -263,13 +266,14 @@ function assertProfileAllows(
 
   const blocked = steps.find((step) => !allowed.has(step.kind))
 
-  if (blocked)
+  if (blocked) {
     throw new MigrationError({
       message: `Migration profile 'expand-only' does not permit '${blocked.kind}'`,
       stage: 'permission',
       outcome: 'unchanged',
       retryable: false,
     })
+  }
 }
 
 function loweringPolicy(
@@ -688,10 +692,11 @@ async function validateMigrationConvergence(
     loweringPolicy(allowed, grants),
   )
 
-  if (planned.plan.steps.length || final.actions.length)
+  if (planned.plan.steps.length || final.actions.length) {
     throw new MigrationError({
       message: 'Migration did not converge to the desired schema',
     })
+  }
 }
 
 /**

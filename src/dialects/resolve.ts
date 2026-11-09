@@ -42,13 +42,11 @@ function insertDialect(registry: Map<string, Dialect>, dialect: Dialect): void {
     dialect.id.length === 0 ||
     dialect.id.trim() !== dialect.id ||
     dialect.id.includes('\0')
-  ) {
+  )
     throw new SchemaError({ message: 'dialect id must be a non-empty identifier' })
-  }
 
-  if (registry.has(dialect.id)) {
+  if (registry.has(dialect.id))
     throw new SchemaError({ message: `dialect "${dialect.id}" is already registered` })
-  }
 
   registry.set(dialect.id, dialect)
 }

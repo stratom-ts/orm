@@ -16,15 +16,17 @@ function isoTimeResult(value: string, withSeconds: boolean): string {
 
   const [, minute, second, fraction] = match
 
-  if (fraction && /[1-9]/.test(fraction))
+  if (fraction && /[1-9]/.test(fraction)) {
     throw new QueryError({
       message: 'PostgreSQL time has finer precision than the schema output',
     })
+  }
 
-  if (!withSeconds && second !== '00')
+  if (!withSeconds && second !== '00') {
     throw new QueryError({
       message: 'PostgreSQL time has finer precision than the schema output',
     })
+  }
 
   return withSeconds ? `${minute}:${second}` : minute
 }
@@ -160,9 +162,8 @@ function mapSafeNumberResult(value: unknown): number {
       : numericMappingError()
   }
 
-  if (typeof value === 'number') {
+  if (typeof value === 'number')
     return Number.isSafeInteger(value) ? value : numericMappingError()
-  }
 
   if (typeof value === 'string' && /^-?\d+(?:\.0+)?$/.test(value)) {
     const number = Number(value)
@@ -188,9 +189,8 @@ function mapUuidValue(value: unknown): unknown {
     typeof value === 'number' ||
     typeof value === 'bigint' ||
     typeof value === 'boolean'
-  ) {
+  )
     return String(value)
-  }
 
   return value
 }
@@ -256,9 +256,7 @@ function mapPostgresResultValueFromFacts(
   if (storage.type === 'json')
     return typeof value === 'string' ? parseJsonResult(value) : value
 
-  if (storage.type === 'uuid') {
-    return mapUuidValue(value)
-  }
+  if (storage.type === 'uuid') return mapUuidValue(value)
 
   return value
 }
@@ -338,9 +336,7 @@ function mapPostgresParamValueFromFacts(
     return value
   }
 
-  if (storage.type === 'uuid') {
-    return mapUuidValue(value)
-  }
+  if (storage.type === 'uuid') return mapUuidValue(value)
 
   return value
 }

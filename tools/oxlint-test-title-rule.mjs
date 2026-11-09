@@ -63,16 +63,14 @@ function vitestBinding(sourceCode, node) {
  * @returns {boolean} Whether the callee registers a Vitest test.
  */
 function isTestCallee(sourceCode, node) {
-  if (node.type === 'Identifier') {
+  if (node.type === 'Identifier')
     return ['it', 'test'].includes(vitestBinding(sourceCode, node))
-  }
 
   if (node.type === 'MemberExpression') {
     const name = memberName(node)
 
-    if (node.object.type === 'Identifier' && (name === 'it' || name === 'test')) {
+    if (node.object.type === 'Identifier' && (name === 'it' || name === 'test'))
       return vitestBinding(sourceCode, node.object) === '*'
-    }
 
     return (
       typeof name === 'string' &&

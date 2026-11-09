@@ -27,7 +27,7 @@ function controlledProviderQueryRows(sql: string, created: boolean): unknown[] {
   if (sql.includes('sqlite_version()')) return [{ version: '3.50.0' }]
   if (sql.includes('pragma_database_list')) return [{ seq: 0, name: 'main', file: '' }]
 
-  if (sql.includes('pragma_table_list'))
+  if (sql.includes('pragma_table_list')) {
     return created
       ? [
           {
@@ -40,8 +40,9 @@ function controlledProviderQueryRows(sql: string, created: boolean): unknown[] {
           },
         ]
       : []
+  }
 
-  if (sql.includes('sqlite_schema'))
+  if (sql.includes('sqlite_schema')) {
     return created
       ? [
           {
@@ -52,8 +53,9 @@ function controlledProviderQueryRows(sql: string, created: boolean): unknown[] {
           },
         ]
       : []
+  }
 
-  if (sql.includes('pragma_table_xinfo'))
+  if (sql.includes('pragma_table_xinfo')) {
     return [
       {
         cid: 0,
@@ -65,6 +67,7 @@ function controlledProviderQueryRows(sql: string, created: boolean): unknown[] {
         hidden: 0,
       },
     ]
+  }
 
   return []
 }

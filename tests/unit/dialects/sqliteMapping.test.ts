@@ -299,10 +299,11 @@ function registerMappingGroup1() {
         expect(mapSqliteResultValue(type, null, context)).toBeNull()
       }
 
-      for (const type of rejected)
+      for (const type of rejected) {
         expect(() =>
           validateSqliteValueMapping(type, { facts: extractStorageFacts(schema) }),
         ).toThrow(SchemaError)
+      }
     },
   )
 }
@@ -311,10 +312,11 @@ function registerMappingGroup2() {
   it.each([unknown(), any()])(
     'should reject SM7 unclassified output for every affinity',
     (schema) => {
-      for (const type of ['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB'])
+      for (const type of ['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB']) {
         expect(() =>
           validateSqliteValueMapping(type, { facts: extractStorageFacts(schema) }),
         ).toThrow(SchemaError)
+      }
     },
   )
 }

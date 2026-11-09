@@ -193,10 +193,11 @@ it('should reject missing, ambiguous and incompatible registrations deterministi
   for (const handles of [
     [Source, Target, Duplicate],
     [Duplicate, Target, Source],
-  ])
+  ]) {
     expect(() =>
       lowerDesiredSchema(handles, identities(), postgresDialect.schema),
     ).toThrow(/ambiguous/)
+  }
 
   expect(() =>
     lowerDesiredSchema([source(number()), Target], identities(), postgresDialect.schema),

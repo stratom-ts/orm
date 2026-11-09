@@ -223,9 +223,8 @@ function renameStepToAst(
 function identifierIssues(identifier: CanonicalIdentifier, label: string): string[] {
   const issues: string[] = []
 
-  if (identifier.comparisonKey !== identifier.spelling) {
+  if (identifier.comparisonKey !== identifier.spelling)
     issues.push(`${label} is not canonical under PostgreSQL identifier rules`)
-  }
 
   try {
     postgresNaming.validate(identifier.spelling, label)
@@ -252,24 +251,19 @@ function namespaceIssues(
 ): string[] {
   const issues: string[] = []
 
-  if (namespace.length !== 2) {
+  if (namespace.length !== 2)
     issues.push(`${label} must contain exactly database and schema segments`)
-  }
 
   const database = namespace.at(0)
   const schema = namespace.at(1)
 
-  if (database?.role !== 'database') {
+  if (database?.role !== 'database')
     issues.push(`${label} segment 0 must have role 'database'`)
-  }
 
-  if (schema?.role !== 'schema') {
-    issues.push(`${label} segment 1 must have role 'schema'`)
-  }
+  if (schema?.role !== 'schema') issues.push(`${label} segment 1 must have role 'schema'`)
 
-  for (const [index, segment] of namespace.entries()) {
+  for (const [index, segment] of namespace.entries())
     issues.push(...identifierIssues(segment.identifier, `${label} segment ${index}`))
-  }
 
   if (!expectedDatabase) {
     issues.push('Executing PostgreSQL profile has no canonical database segment')
@@ -308,15 +302,13 @@ function stepTargetIssues(
     ...namespaceIssues(namespace, expectedDatabase, 'Migration target namespace'),
   )
 
-  if (step.target.kind !== 'namespace') {
+  if (step.target.kind !== 'namespace')
     issues.push(...identifierIssues(step.target.relation.relation, 'Migration relation'))
-  }
 
-  if (step.target.kind === 'column') {
+  if (step.target.kind === 'column')
     issues.push(...identifierIssues(step.target.column, 'Migration column'))
-  } else if (step.target.kind === 'index') {
+  else if (step.target.kind === 'index')
     issues.push(...identifierIssues(step.target.index, 'Migration index'))
-  }
 
   if (step.kind === 'add_foreign_key') {
     issues.push(
@@ -338,9 +330,8 @@ function stepTargetIssues(
   }
 
   if (step.kind === 'create_index') {
-    for (const column of step.columns) {
+    for (const column of step.columns)
       issues.push(...identifierIssues(column, 'Indexed column'))
-    }
   }
 
   return issues

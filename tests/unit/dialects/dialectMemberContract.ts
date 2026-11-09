@@ -172,9 +172,8 @@ function assertLifecycleCleanup(runtime: DialectLifecycleContractRuntime) {
   expect(runtime.foreignPolicyLeak()).toBe(false)
   expect(runtime.disposed()).toBe(true)
 
-  for (const method of runtime.directConnectorMethods) {
+  for (const method of runtime.directConnectorMethods)
     expect(method).not.toHaveBeenCalled()
-  }
 }
 
 /**
@@ -209,9 +208,8 @@ async function assertLifecycleMigration(
       ? runtime.migration.reportedOutcome
       : undefined
 
-  if (reportedOutcome) {
+  if (reportedOutcome)
     expect(reportedOutcome.observed).toEqual([reportedOutcome.expected])
-  }
 
   expect(await runtime.postMigrationState()).toEqual(
     runtime.migration.expectedPostMigrationState,

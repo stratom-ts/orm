@@ -212,18 +212,13 @@ async function executeMockNativeQuery(
     }
   }
 
-  if (
-    text === POSTGRES_OPERATION_ROLLBACK_SQL ||
-    text === POSTGRES_OPERATION_UNLOCK_SQL
-  ) {
+  if (text === POSTGRES_OPERATION_ROLLBACK_SQL || text === POSTGRES_OPERATION_UNLOCK_SQL)
     return { rows: [] }
-  }
 
   const bound = prepareMockNativeStatement(text, params, prepare)
 
-  if (/^(?:select|with|show)\b|\breturning\b/i.test(normalizeQueryStart(text))) {
+  if (/^(?:select|with|show)\b|\breturning\b/i.test(normalizeQueryStart(text)))
     return { rows: await bound.all() }
-  }
 
   await bound.run()
   return { rows: [] }

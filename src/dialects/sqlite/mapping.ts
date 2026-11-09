@@ -37,9 +37,8 @@ function mappingError(dataType: string, message: string): never {
 
 /** Rejects numbers outside JavaScript's safe integer range. */
 function safeInteger(dataType: string, value: number): number {
-  if (!isSqliteSafeInteger(value)) {
+  if (!isSqliteSafeInteger(value))
     return mappingError(dataType, 'values must be safe integers')
-  }
 
   return value
 }
@@ -63,9 +62,8 @@ function numberFromBigInt(dataType: string, value: bigint): number {
 
 /** Rejects bigints outside SQLite's signed 64-bit integer range. */
 function sqliteBigint(dataType: string, value: bigint): bigint {
-  if (!isSqliteSupportedBigInt(value)) {
+  if (!isSqliteSupportedBigInt(value))
     return mappingError(dataType, 'values must be within the signed 64-bit integer range')
-  }
 
   return value
 }
@@ -81,9 +79,8 @@ function sqliteBigint(dataType: string, value: bigint): bigint {
 function bigintValue(dataType: string, value: unknown): bigint | undefined {
   if (typeof value === 'bigint') return sqliteBigint(dataType, value)
 
-  if (typeof value === 'number') {
+  if (typeof value === 'number')
     return sqliteBigint(dataType, BigInt(safeInteger(dataType, value)))
-  }
 
   if (typeof value === 'string' && /^-?\d+$/.test(value)) {
     let parsed: bigint
@@ -107,9 +104,8 @@ const DATE_TYPES = new Set(['DATETIME', 'DATE'])
 function mapDateParamValue(dataType: string, value: unknown): unknown {
   if (!(value instanceof Date)) return value
 
-  if (Number.isNaN(value.getTime())) {
+  if (Number.isNaN(value.getTime()))
     return mappingError(dataType, 'Date values must be valid')
-  }
 
   return value.toISOString()
 }
@@ -252,11 +248,12 @@ function mapSqliteParamValueFromFacts(
   if (DATE_TYPES.has(type)) return mapDateParamValue(dataType, value)
 
   if (type === 'JSON') {
-    if ((facts?.composite || authored?.composite) && containsNonFiniteNumber(value))
+    if ((facts?.composite || authored?.composite) && containsNonFiniteNumber(value)) {
       throw new QueryError({
         message:
           'SQLite JSON composite cannot serialize a non-finite number without changing it to null',
       })
+    }
 
     return mapJsonParamValue(value)
   }

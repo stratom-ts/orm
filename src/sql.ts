@@ -52,9 +52,8 @@ function assertTemplate(
     !Object.hasOwn(value, 'raw') ||
     value.length !== count + 1 ||
     value.some((part) => typeof part !== 'string')
-  ) {
+  )
     throw new QueryError({ message: 'Use sql as a tagged template' })
-  }
 }
 
 /** Creates an eager tag using the same executor as the surrounding client scope. */

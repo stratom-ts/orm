@@ -62,29 +62,32 @@ function checkProfile(
   if (
     expected.identityAdapter !== sqliteIdentity.id ||
     planned.profile.identityAdapter !== expected.identityAdapter
-  )
+  ) {
     throw new SqliteMigrationCapabilityError(
       'profile_mismatch',
       'SQLite identity adapter does not match the executing Semantic Profile',
     )
+  }
 
   if (
     namespaceKey(planned, planned.profile.namespaceContext.writableDefault) !==
     namespaceKey(planned, expected.namespaceContext.writableDefault)
-  )
+  ) {
     throw new SqliteMigrationCapabilityError(
       'profile_mismatch',
       'SQLite writable namespace context does not match the executing session',
     )
+  }
 
   if (
     namespaceKey(planned, planned.profile.registrationDefault) !==
     namespaceKey(planned, expected.registrationDefault)
-  )
+  ) {
     throw new SqliteMigrationCapabilityError(
       'profile_mismatch',
       'SQLite registration default does not match the executing configuration',
     )
+  }
 
   try {
     assertMain(planned.identities.resolve({ relation: 'profile_probe' }))
@@ -99,11 +102,12 @@ function checkProfile(
   if (
     planned.catalogSnapshot.source.dialect !== 'sqlite' ||
     !(major > 3 || (major === 3 && minor >= 37))
-  )
+  ) {
     throw new SqliteMigrationCapabilityError(
       'profile_mismatch',
       'SQLite migrations require authoritative SQLite >=3.37 catalog evidence',
     )
+  }
 }
 
 /** Validates every structured target and payload identifier before grouping table actions. */
@@ -117,11 +121,12 @@ function checkStep(step: MigrationStep): void {
           ? 'index'
           : 'column'
 
-  if (step.target.kind !== kind)
+  if (step.target.kind !== kind) {
     throw new SqliteMigrationCapabilityError(
       'invalid_target',
       'SQLite step has an incompatible structured Migration Target',
     )
+  }
 
   if (step.kind === 'add_column' || step.kind === 'alter_column_type')
     capabilityCheck(() => assertSafeSqliteDataType(step.dataType), 'invalid_target')
@@ -142,11 +147,12 @@ function checkStep(step: MigrationStep): void {
   if (step.kind === 'rename_column') {
     assertIdentifier(step.from)
 
-    if (step.from.comparisonKey === step.target.column.comparisonKey)
+    if (step.from.comparisonKey === step.target.column.comparisonKey) {
       throw new SqliteMigrationCapabilityError(
         'invalid_target',
         'Rename identifiers must be distinct',
       )
+    }
   }
 
   if (step.target.kind === 'index') assertIdentifier(step.target.index)
@@ -263,11 +269,12 @@ function directDrop(
 function createAction(planned: PlannedMigration, group: TableGroup): MigrationAction {
   const desired = planned.desiredTables.get(group.identity)
 
-  if (!desired)
+  if (!desired) {
     throw new SqliteMigrationCapabilityError(
       'missing_desired_table',
       'SQLite CREATE TABLE lacks a registered desired table',
     )
+  }
 
   const definition = desiredDefinition(desired)
   const name = group.identity.relation.spelling
@@ -275,11 +282,12 @@ function createAction(planned: PlannedMigration, group: TableGroup): MigrationAc
   const indexes = group.steps
     .filter(({ step }) => step.kind === 'create_index')
     .map(({ step }) => {
-      if (step.kind !== 'create_index')
+      if (step.kind !== 'create_index') {
         throw new SqliteMigrationCapabilityError(
           'invalid_target',
           'Invalid SQLite index step',
         )
+      }
 
       return compileCreateIndex(name, {
         name: step.target.index.spelling,
@@ -300,37 +308,41 @@ function directAction(planned: PlannedMigration, group: TableGroup): MigrationAc
   const definition = finalDefinition(planned, group)
   const name = group.identity.relation.spelling
   const statements = group.steps.map(({ step }) => {
-    if (step.kind === 'drop_column')
+    if (step.kind === 'drop_column') {
       return statement(
         `alter table ${address(name)} drop column ${quoteSqliteIdentifier(step.target.column.spelling)}`,
       )
+    }
 
     if (step.kind === 'drop_index')
       return statement(`drop index ${address(step.target.index.spelling)}`)
 
-    if (step.kind === 'create_index')
+    if (step.kind === 'create_index') {
       return compileCreateIndex(name, {
         name: step.target.index.spelling,
         columns: step.columns.map((column) => column.spelling),
         unique: step.unique,
       })
+    }
 
-    if (step.kind !== 'add_column')
+    if (step.kind !== 'add_column') {
       throw new SqliteMigrationCapabilityError(
         'invalid_target',
         'Invalid SQLite direct operation',
       )
+    }
 
     const column = definition.columns.find(
       (candidate) =>
         asciiFoldSqliteIdentifier(candidate.name) === step.target.column.comparisonKey,
     )
 
-    if (!column)
+    if (!column) {
       throw new SqliteMigrationCapabilityError(
         'compile_failure',
         'Missing final SQLite column',
       )
+    }
 
     return statement(
       `alter table ${address(name)} add column ${compileColumnDefinition(column)}`,
@@ -400,11 +412,12 @@ function checkDestructiveDependencies(
             droppedColumns.includes(asciiFoldSqliteIdentifier(column)),
           ),
       )
-    )
+    ) {
       throw new SqliteMigrationCapabilityError(
         'compile_failure',
         'SQLite destructive drop has a retained incoming foreign-key dependency',
       )
+    }
   }
 }
 
@@ -417,11 +430,12 @@ function requireDependencyEvidence(planned: PlannedMigration): void {
   if (
     namespace?.relations.coverage.state !== 'complete' ||
     namespace.relations.items.some((relation) => relation.management !== 'managed')
-  )
+  ) {
     throw new SqliteMigrationCapabilityError(
       'compile_failure',
       'SQLite destructive drops require complete main namespace dependency evidence',
     )
+  }
 }
 
 /** Reads final incoming FKs after applying this plan's source-table changes. */
@@ -484,11 +498,12 @@ function checkUniqueIndexDrops(planned: PlannedMigration, group: TableGroup): vo
         lost.some((index) => sameColumns(index.columns, key.referencedColumns)),
       ),
     )
-  )
+  ) {
     throw new SqliteMigrationCapabilityError(
       'compile_failure',
       'SQLite unique-index drop has a retained incoming foreign-key dependency',
     )
+  }
 }
 
 /** Compares key column membership under SQLite identifier semantics. */
@@ -536,7 +551,7 @@ function dependsOn(
 
   if (dropping !== otherDropping) return dropping
 
-  if (dropping)
+  if (dropping) {
     return (
       planned.planningCatalog.tables
         .find((table) => planned.identities.equals(table.identity, other.identity))
@@ -544,6 +559,7 @@ function dependsOn(
           planned.identities.equals(key.referencedRelation, group.identity),
         ) ?? false
     )
+  }
 
   return (
     planned.desiredTables
@@ -568,9 +584,8 @@ function lowerSqliteMigrationPlan(
 
   issues.push(...rowidIssues(planned))
 
-  for (const [index, step] of planned.plan.steps.entries()) {
+  for (const [index, step] of planned.plan.steps.entries())
     issues.push(...stepIssues(planned, step, index))
-  }
 
   if (issues.length) return { issues }
 
@@ -600,13 +615,14 @@ function lowerSqliteMigrationPlan(
     )
   }
 
-  if (issues.length)
+  if (issues.length) {
     return {
       issues: issues.sort(
         (left, right) =>
           (left.sourceStepIndexes[0] ?? -1) - (right.sourceStepIndexes[0] ?? -1),
       ),
     }
+  }
 
   preconditions.push(
     ...guardedDropPreconditions(
@@ -731,11 +747,12 @@ function rowidIssues(planned: PlannedMigration): MigrationCapabilityIssue[] {
       if (
         expected.length !== observed.length ||
         expected.some((column, index) => !sameName(column.name, observed[index].name))
-      )
+      ) {
         throw new SqliteMigrationCapabilityError(
           'compile_failure',
           'Unsupported SQLite rowid alias conversion',
         )
+      }
 
       return []
     } catch (cause) {
@@ -755,7 +772,10 @@ function stepIssues(
   try {
     checkStep(step)
 
-    if (step.kind === 'create_table' && !planned.desiredTables.has(step.target.relation))
+    if (
+      step.kind === 'create_table' &&
+      !planned.desiredTables.has(step.target.relation)
+    ) {
       return [
         {
           code: 'missing_desired_table',
@@ -763,6 +783,7 @@ function stepIssues(
           sourceStepIndexes: [index],
         },
       ]
+    }
 
     return []
   } catch (cause) {

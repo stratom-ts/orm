@@ -78,9 +78,8 @@ function compare(left: string, right: string): number {
 
 /** Validates the shape of one native catalog query row. */
 function rowAt(value: unknown, query: string, index: number): Row {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
     throw new InvariantError(`Malformed SQLite ${query} row ${index}: expected an object`)
-  }
 
   return value as Row
 }
@@ -393,10 +392,11 @@ function decodeXInfoRows(rows: unknown[], table: string): XInfoRow[] {
     const row = rowAt(value, `table_xinfo(${table})`, index)
     const hidden = integerAt(row, 'hidden', 'table_xinfo', index)
 
-    if (hidden > 3)
+    if (hidden > 3) {
       throw new InvariantError(
         `Malformed SQLite table_xinfo row ${index}: invalid hidden value`,
       )
+    }
 
     return {
       cid: integerAt(row, 'cid', 'table_xinfo', index),
@@ -654,11 +654,12 @@ function validateSchemaRows(
 
     const expectedSchemaType = tableRow.type === 'view' ? 'view' : 'table'
 
-    if (schemaRow.type !== expectedSchemaType)
+    if (schemaRow.type !== expectedSchemaType) {
       errors.set(
         tableRow.name,
         `SQLite table_list relation ${JSON.stringify(tableRow.name)} type ${JSON.stringify(tableRow.type)} disagrees with sqlite_schema type ${JSON.stringify(schemaRow.type)}`,
       )
+    }
   }
 }
 
@@ -676,20 +677,22 @@ function assertUniqueSchemaNames(schemaRows: readonly SchemaRow[]) {
       row.type !== 'index' &&
       row.type !== 'view' &&
       row.type !== 'trigger'
-    )
+    ) {
       throw new InvariantError(
         `Malformed SQLite sqlite_schema row: invalid type ${JSON.stringify(row.type)}`,
       )
+    }
 
     const collisionDomain =
       row.type === 'trigger' ? 'trigger' : row.type === 'index' ? 'index' : 'relation'
 
     const key = `${collisionDomain}:${asciiFoldSqliteIdentifier(row.name)}`
 
-    if (schemaNames.has(key))
+    if (schemaNames.has(key)) {
       throw new InvariantError(
         `Duplicate SQLite sqlite_schema ${collisionDomain} name ${JSON.stringify(row.name)}`,
       )
+    }
 
     schemaNames.add(key)
   }
@@ -715,11 +718,12 @@ function collectNameReservations(
     (entry) => entry.type === 'table' && !entry.name.startsWith('sqlite_'),
   )) {
     const indexes = reservationIndexLists.get(row.name) ?? []
-    for (const index of indexes)
+    for (const index of indexes) {
       names.push({
         namespace: identities.resolveNamespace(mainNamespace),
         name: index.name,
       })
+    }
   }
 
   const uniqueNames = normalizeNameReservations(names)
@@ -754,10 +758,11 @@ function normalizeNameReservations(names: CatalogNameReservation[]) {
     const key = asciiFoldSqliteIdentifier(entry.name)
     const previous = seenNameSpellings.get(key)
 
-    if (previous !== undefined && previous !== entry.name)
+    if (previous !== undefined && previous !== entry.name) {
       throw new InvariantError(
         `Conflicting SQLite catalog reservations ${JSON.stringify(previous)} and ${JSON.stringify(entry.name)}`,
       )
+    }
 
     seenNameSpellings.set(key, entry.name)
   }
@@ -835,24 +840,31 @@ async function readCatalogContext(executor: CatalogExecutor, request: CatalogReq
       identities.resolveNamespace(request.registrationDefault),
       identities.resolveNamespace(mainNamespace),
     )
-  )
+  ) {
     throw new InvariantError(
       'SQLite catalog cannot manage an attached registration default',
     )
+  }
 
   const resolvedRequest = resolveRequest(request, identities)
   for (const identity of resolvedRequest.relations
     .map((entry) => entry.identity)
-    .concat(resolvedRequest.absentRelations))
-    if (!isMain(identity))
+    .concat(resolvedRequest.absentRelations)) {
+    if (!isMain(identity)) {
       throw new InvariantError(
         `SQLite catalog cannot manage attached database relation ${identities.format(identity)}`,
       )
-  for (const namespace of resolvedRequest.completeNamespaces)
-    if (!sameNamespace(namespace, identities.resolveNamespace(mainNamespace)))
+    }
+  }
+
+  for (const namespace of resolvedRequest.completeNamespaces) {
+    if (!sameNamespace(namespace, identities.resolveNamespace(mainNamespace))) {
       throw new InvariantError(
         'SQLite catalog cannot manage an attached database namespace',
       )
+    }
+  }
+
   return {
     ...readSqliteVersionEvidence(versionRows),
     namespaceContext,
@@ -893,17 +905,19 @@ function decodeSqliteVersion(versionRows: unknown[]) {
   const version = stringAt(versionRow, 'version', 'sqlite_version', 0)
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version)
 
-  if (!match)
+  if (!match) {
     throw new InvariantError(
       'Malformed SQLite sqlite_version row 0: "version" must be semantic numeric version',
     )
+  }
 
   const actualVersion = [Number(match[1]), Number(match[2]), Number(match[3])]
 
-  if (actualVersion.some((part) => !Number.isSafeInteger(part)))
+  if (actualVersion.some((part) => !Number.isSafeInteger(part))) {
     throw new InvariantError(
       'Malformed SQLite sqlite_version row 0: version components must be safe integers',
     )
+  }
 
   return { actualVersion, version }
 }
@@ -939,11 +953,12 @@ async function readDatabaseContext(executor: CatalogExecutor) {
     message: `SQLite attached database ${JSON.stringify(entry.name)} is observed but its schema dependencies are not managed`,
   }))
 
-  if (temporaryDatabase)
+  if (temporaryDatabase) {
     diagnostics.push({
       code: 'catalog.sqlite.temporary',
       message: 'SQLite temporary schema is observed but its dependencies are not managed',
     })
+  }
 
   return { databases, databaseAliases, temporaryDatabase, attached, diagnostics }
 }
@@ -974,10 +989,11 @@ function decodeSqliteDatabases(dbRows: unknown[]) {
   )
     throw new InvariantError('SQLite database_list aliases must be unique')
 
-  if (databases.filter((entry) => entry.name === 'main').length !== 1)
+  if (databases.filter((entry) => entry.name === 'main').length !== 1) {
     throw new InvariantError(
       'SQLite database_list must contain exactly one main database',
     )
+  }
 
   return databases
 }
@@ -1201,12 +1217,14 @@ async function assertSqliteInventoryUnchanged(
 
   const finalSchema = decodeSchemaRows(await executor.execute(queries.schema))
   assertSame('sqlite_schema', schemaRows, finalSchema)
-  for (const [table, observed] of reservationIndexLists)
+
+  for (const [table, observed] of reservationIndexLists) {
     assertSame(
       `reservation index_list(${table})`,
       observed,
       decodeIndexListRows(await executor.execute(queries.indexes(table)), table),
     )
+  }
 }
 
 /**
@@ -1252,7 +1270,8 @@ async function assertSqliteTableEvidenceUnchanged(
     assertSame(`table_xinfo(${row.name})`, xinfo.get(row.name), finalX)
     assertSame(`index_list(${row.name})`, indexLists.get(row.name), finalI)
     assertSame(`foreign_key_list(${row.name})`, foreignKeys.get(row.name), finalF)
-    for (const index of finalI)
+
+    for (const index of finalI) {
       assertSame(
         `index_xinfo(${row.name},${index.name})`,
         indexInfos.get(`${row.name}\0${index.name}`),
@@ -1262,6 +1281,7 @@ async function assertSqliteTableEvidenceUnchanged(
           index.name,
         ),
       )
+    }
   }
 }
 
@@ -1332,15 +1352,17 @@ function validateTableList(
     const internalSchemaTable =
       row.name === 'sqlite_schema' || row.name === 'sqlite_temp_schema'
 
-    if (!databaseAliases.has(schemaKey) && !internalSchemaTable)
+    if (!databaseAliases.has(schemaKey) && !internalSchemaTable) {
       throw new InvariantError(
         `SQLite table_list row ${JSON.stringify(row.name)} references an unlisted database alias ${JSON.stringify(row.schema)}`,
       )
+    }
 
-    if (relationKeys.has(identity.relation.comparisonKey))
+    if (relationKeys.has(identity.relation.comparisonKey)) {
       throw new InvariantError(
         `Duplicate SQLite table_list relation ${JSON.stringify(row.schema)}.${JSON.stringify(row.name)}`,
       )
+    }
 
     relationKeys.add(identity.relation.comparisonKey)
     tableListIdentities.set(schemaKey, relationKeys)
@@ -1692,17 +1714,19 @@ function appendDependencyDiagnostics(
   temporaryDatabase: boolean,
   tableRows: TableRow[],
 ) {
-  if (viewObjects.length > 0)
+  if (viewObjects.length > 0) {
     diagnostics.push({
       code: 'catalog.sqlite.view-dependency',
       message: 'SQLite view dependencies are not resolved and may affect ordinary tables',
     })
+  }
 
-  if (triggerObjects.length > 0)
+  if (triggerObjects.length > 0) {
     diagnostics.push({
       code: 'catalog.sqlite.trigger-dependency',
       message: 'SQLite trigger dependencies are not resolved and may affect other tables',
     })
+  }
 
   const hasExternalNamespace =
     attached.length > 0 ||
@@ -1715,11 +1739,13 @@ function appendDependencyDiagnostics(
 
   for (const row of tableRows.filter(
     (entry) => entry.schema !== 'main' && !entry.name.startsWith('sqlite_'),
-  ))
+  )) {
     diagnostics.push({
       code: 'catalog.sqlite.unmanaged-relation',
       message: `SQLite ${asciiFoldSqliteIdentifier(row.schema) === 'temp' ? 'temporary' : 'attached'} relation ${JSON.stringify(row.name)} is observed but its schema dependencies are not managed`,
     })
+  }
+
   return hasExternalNamespace
 }
 
@@ -1880,23 +1906,26 @@ function assertSqliteSchemaRelation(
     (schemaRow.type === 'table' || schemaRow.type === 'view') &&
     scopeIdentity(schemaRow.name).relation.comparisonKey !==
       scopeIdentity(schemaRow.tbl_name).relation.comparisonKey
-  )
+  ) {
     throw new SqliteTableMetadataError(
       `SQLite sqlite_schema ${schemaRow.type} row ${JSON.stringify(schemaRow.name)} has mismatched tbl_name ${JSON.stringify(schemaRow.tbl_name)}`,
     )
+  }
 
   if (
     (schemaRow.type === 'table' || schemaRow.type === 'view') &&
     observedOwner === undefined
-  )
+  ) {
     throw new SqliteTableMetadataError(
       `SQLite sqlite_schema relation ${JSON.stringify(schemaRow.name)} is missing from table_list`,
     )
+  }
 
-  if (schemaRow.type === 'index' && observedOwner === undefined)
+  if (schemaRow.type === 'index' && observedOwner === undefined) {
     throw new SqliteTableMetadataError(
       `SQLite sqlite_schema index ${JSON.stringify(schemaRow.name)} references a missing table`,
     )
+  }
 }
 
 /**
@@ -1908,10 +1937,11 @@ function assertSameCatalogObservation(
   first: unknown,
   second: unknown,
 ): void {
-  if (stable(first) !== stable(second))
+  if (stable(first) !== stable(second)) {
     throw new InvariantError(
       `SQLite catalog changed during introspection: ${label} observations differ`,
     )
+  }
 }
 
 /**

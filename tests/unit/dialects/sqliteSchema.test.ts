@@ -336,9 +336,7 @@ const registerSchemaCases20 = () => {
         pipe(number(), toString(), format),
       ]
 
-      for (const schema of schemas) {
-        expect(inferColumnType(schema)).toBe('TEXT')
-      }
+      for (const schema of schemas) expect(inferColumnType(schema)).toBe('TEXT')
     },
   )
 

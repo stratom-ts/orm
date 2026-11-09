@@ -20,10 +20,11 @@ function containsReservedTypeWord(value: string): boolean {
 function assertSafeSqliteDataType(dataType: string): string {
   const value = trimSqliteWhitespace(dataType)
 
-  if (!value)
+  if (!value) {
     throw new SqliteValidationError({
       message: 'column data type must be a non-empty string',
     })
+  }
 
   if (/[;"'\\]|--|\/\*|\*\//.test(value)) {
     throw new SqliteValidationError({
@@ -80,9 +81,8 @@ function formatSqliteLiteral(value: string | number | boolean | null): string {
   if (typeof value === 'boolean') return value ? '1' : '0'
 
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) {
+    if (!Number.isFinite(value))
       throw new SqliteValidationError({ message: 'column default number must be finite' })
-    }
 
     return String(value)
   }

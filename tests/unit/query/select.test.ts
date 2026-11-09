@@ -572,9 +572,8 @@ describe('select session identity and mapping: uses one non-public PostgreSQL se
       currentSchema,
       /** Supplies native result rows for the value-mapping scenario. */
       rowsBySql(sql) {
-        if (sql.includes('current_database() as database')) {
+        if (sql.includes('current_database() as database'))
           return [{ database: 'test', schema: currentSchema, version: '160000' }]
-        }
 
         if (sql.includes('from "items" as "items"')) {
           crudPhysicalRelations.push(`${currentSchema}.items`)

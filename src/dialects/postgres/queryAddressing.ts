@@ -30,17 +30,15 @@ function postgresRelationSessionRequirement(
     left.database !== undefined &&
     right.database !== undefined &&
     left.database !== right.database
-  ) {
+  )
     return undefined
-  }
 
   if (
     left.schema !== undefined &&
     right.schema !== undefined &&
     left.schema !== right.schema
-  ) {
+  )
     return undefined
-  }
 
   return {
     ...(left.database === undefined && right.database !== undefined
@@ -128,9 +126,8 @@ function resolvePostgresQuery(
         if (
           candidates === undefined &&
           (requirement.database !== undefined || requirement.schema !== undefined)
-        ) {
+        )
           requirements.set(JSON.stringify(requirement), requirement)
-        }
 
         return handle
       })

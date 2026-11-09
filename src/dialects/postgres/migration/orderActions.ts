@@ -115,15 +115,13 @@ function followsIndexedColumn(
   other: ActionDraft,
   planned: PlannedMigration,
 ): boolean {
-  if (current.step.kind !== 'create_index' || other.step.kind !== 'add_column') {
+  if (current.step.kind !== 'create_index' || other.step.kind !== 'add_column')
     return false
-  }
 
   if (
     !planned.identities.equals(current.step.target.relation, other.step.target.relation)
-  ) {
+  )
     return false
-  }
 
   const addedColumn = other.step.target.column.comparisonKey
   return current.step.columns.some((column) => column.comparisonKey === addedColumn)
@@ -146,9 +144,8 @@ function followsForeignKeyColumn(
   other: ActionDraft,
   planned: PlannedMigration,
 ): boolean {
-  if (current.step.kind !== 'add_foreign_key' || other.step.kind !== 'add_column') {
+  if (current.step.kind !== 'add_foreign_key' || other.step.kind !== 'add_column')
     return false
-  }
 
   const identities = planned.identities
   const addedColumn = other.step.target.column
@@ -180,15 +177,13 @@ function followsDroppedIndex(
   other: ActionDraft,
   planned: PlannedMigration,
 ): boolean {
-  if (current.step.kind !== 'drop_column' || other.step.kind !== 'drop_index') {
+  if (current.step.kind !== 'drop_column' || other.step.kind !== 'drop_index')
     return false
-  }
 
   const identities = planned.identities
 
-  if (!identities.equals(current.step.target.relation, other.step.target.relation)) {
+  if (!identities.equals(current.step.target.relation, other.step.target.relation))
     return false
-  }
 
   const relation = current.step.target.relation
   const column = current.step.target.column.spelling
@@ -221,9 +216,7 @@ function followsReferencingTable(
   other: ActionDraft,
   planned: PlannedMigration,
 ): boolean {
-  if (current.step.kind !== 'drop_table' || other.step.kind !== 'drop_table') {
-    return false
-  }
+  if (current.step.kind !== 'drop_table' || other.step.kind !== 'drop_table') return false
 
   const identities = planned.identities
   const parentRelation = current.step.target.relation
@@ -266,15 +259,13 @@ function actionDependencies(
 
   /** Records an action prerequisite when the candidate action must run first. */
   function addDependency(action: number, candidate: number, draft: ActionDraft): void {
-    if (action !== candidate && actionDependsOn(drafts[action], draft, planned)) {
+    if (action !== candidate && actionDependsOn(drafts[action], draft, planned))
       dependencies[action].add(candidate)
-    }
   }
 
   for (let action = 0; action < drafts.length; action++) {
-    for (const [candidate, draft] of drafts.entries()) {
+    for (const [candidate, draft] of drafts.entries())
       addDependency(action, candidate, draft)
-    }
   }
 
   return dependencies
@@ -307,9 +298,7 @@ function topologicalOrder(
     const next = available.shift()!
     ordered.push(drafts[next])
 
-    for (const [index, edges] of remaining.entries()) {
-      makeAvailable(edges, index, next)
-    }
+    for (const [index, edges] of remaining.entries()) makeAvailable(edges, index, next)
   }
 
   return ordered
@@ -349,9 +338,8 @@ function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
     collectDependencyCycle(node, dependencies, stack, onStack, cycles)
   }
 
-  for (let node = 0; node < dependencies.length; node++) {
+  for (let node = 0; node < dependencies.length; node++)
     if (indexes[node] === undefined) visit(node)
-  }
 
   return cycles
 }
@@ -419,9 +407,8 @@ function collectDependencyCycle(
     component.push(member)
   } while (member !== node)
 
-  if (component.length > 1 || (component.length === 1 && dependencies[node].has(node))) {
+  if (component.length > 1 || (component.length === 1 && dependencies[node].has(node)))
     cycles.push(component)
-  }
 }
 
 export type { ActionDraft }

@@ -298,9 +298,8 @@ class OperationCoordinator {
       )
     }
 
-    if (this.closing) {
+    if (this.closing)
       return Promise.reject(new QueryError({ message: 'Database has been closed' }))
-    }
 
     const previous = this.tail
     const parent = activeOperation.getStore()

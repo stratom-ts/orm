@@ -6,10 +6,11 @@ import { getColumnMetadata } from './actions/column'
 
 /** Resolves storage spelling without treating physical names as application aliases. */
 export function physicalColumnName(handle: TableHandle, property: string): string {
-  if (!Object.hasOwn(handle.getSchema().entries, property))
+  if (!Object.hasOwn(handle.getSchema().entries, property)) {
     throw new SchemaError({
       message: `Unknown application column ${JSON.stringify(property)} on ${handle.getTableMetadata().name}`,
     })
+  }
 
   const metadata = getColumnMetadata(handle.getSchema().entries[property])
 
@@ -19,10 +20,11 @@ export function physicalColumnName(handle: TableHandle, property: string): strin
     typeof metadata.name !== 'string' ||
     metadata.name.length === 0 ||
     metadata.name.includes('\0')
-  )
+  ) {
     throw new SchemaError({
       message: `Invalid physical name ${typeof metadata.name === 'string' ? JSON.stringify(metadata.name) : typeof metadata.name} for application column ${JSON.stringify(property)} on ${handle.getTableMetadata().name}`,
     })
+  }
 
   return metadata.name
 }

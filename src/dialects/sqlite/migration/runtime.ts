@@ -96,13 +96,14 @@ function assertNotAborted(
   options: MigrationRuntimeOptions,
   stage: MigrationExecutionStage,
 ): void {
-  if (options.signal?.aborted)
+  if (options.signal?.aborted) {
     throw new MigrationError({
       message: 'SQLite migration was aborted',
       stage,
       outcome: 'unchanged',
       retryable: true,
     })
+  }
 }
 
 /** Waits briefly for a competing writer, or returns promptly on abort. */
@@ -147,9 +148,8 @@ async function readBusyTimeout(options: MigrationRuntimeOptions): Promise<number
 
   const value = (rows[0] as { timeout?: unknown } | undefined)?.timeout
 
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
     throw new InvariantError('SQLite did not report a valid busy_timeout')
-  }
 
   return value
 }
@@ -229,13 +229,14 @@ async function acquire(options: MigrationRuntimeOptions, state: State): Promise<
 
 /** Rejects programs whose actions cannot run in the writer transaction. */
 function validateProgram(program: MigrationProgram): void {
-  if (program.atomicity !== 'plan-atomic')
+  if (program.atomicity !== 'plan-atomic') {
     throw new MigrationError({
       message: 'SQLite migration requires plan-atomic programs',
       stage: 'lowering',
       outcome: 'unchanged',
       retryable: false,
     })
+  }
 
   for (const action of program.actions) {
     if (action.transaction !== 'required' && action.transaction !== 'allowed') {
@@ -298,7 +299,7 @@ async function assertPrecondition(
   if (count < 0 || !Number.isSafeInteger(Number(count)))
     throw new InvariantError('SQLite returned an invalid NULL count')
 
-  if (count > 0)
+  if (count > 0) {
     throw new MigrationError({
       message: `Column ${quoteSqliteIdentifier(precondition.column)} contains NULL values`,
       stage: 'precondition',
@@ -306,6 +307,7 @@ async function assertPrecondition(
       retryable: false,
       sourceStepIndexes: precondition.sourceStepIndexes,
     })
+  }
 }
 
 /** Verifies both physical names before any action can write. */
@@ -328,7 +330,7 @@ async function assertRenamePrecondition(
   if (
     !names.includes(asciiFoldSqliteIdentifier(precondition.from)) ||
     names.includes(precondition.target.column.comparisonKey)
-  )
+  ) {
     throw new MigrationError({
       message: 'Column rename source/destination precondition failed',
       stage: 'precondition',
@@ -336,6 +338,7 @@ async function assertRenamePrecondition(
       retryable: true,
       sourceStepIndexes: precondition.sourceStepIndexes,
     })
+  }
 }
 
 /** Verifies a guarded column drop against the authoritative data snapshot. */
@@ -403,7 +406,7 @@ function assertSqliteGuardTarget(
     relation.relation.comparisonKey !==
       asciiFoldSqliteIdentifier(relation.relation.spelling) ||
     target.column.comparisonKey !== asciiFoldSqliteIdentifier(target.column.spelling)
-  )
+  ) {
     throw new MigrationError({
       message: 'Invalid SQLite column-drop precondition target',
       stage: 'precondition',
@@ -411,6 +414,7 @@ function assertSqliteGuardTarget(
       retryable: false,
       sourceStepIndexes: precondition.sourceStepIndexes,
     })
+  }
 }
 
 /** Runs all statements of one physical action in order. */

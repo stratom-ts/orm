@@ -34,9 +34,7 @@ function isInsertOptional(schema: AnySchema): boolean {
 
   const generation = meta.generation
 
-  if (generation?.kind === 'identity' && generation.mode === 'byDefault') {
-    return true
-  }
+  if (generation?.kind === 'identity' && generation.mode === 'byDefault') return true
 
   if (meta.databaseDefault !== undefined) return true
 
@@ -224,19 +222,19 @@ function validateInsertRow(handle: TableHandle, row: unknown): Record<string, un
   assertInsertableKeys(handle, row, entries, allowed)
   const result = safeParse(schema, row)
 
-  if (!result.success)
+  if (!result.success) {
     throw new ValidationError({
       table: handle.getTableMetadata().name,
       operation: 'insert',
       issues: result.issues,
     })
+  }
 
   // Keep only provided keys; omitted defaults remain SQL DEFAULT.
   const cleaned: Record<string, unknown> = {}
   for (const key of Object.keys(row)) {
-    if (key in (result.output as object)) {
+    if (key in (result.output as object))
       cleaned[key] = (result.output as Record<string, unknown>)[key]
-    }
   }
 
   // Include parsed defaults from optional schemas that produced values.
@@ -282,11 +280,8 @@ function includeParsedDefaults(
   },
   cleaned: Record<string, unknown>,
 ) {
-  for (const [key, value] of Object.entries(result.output as object)) {
-    if (value !== undefined && !(key in cleaned)) {
-      cleaned[key] = value
-    }
-  }
+  for (const [key, value] of Object.entries(result.output as object))
+    if (value !== undefined && !(key in cleaned)) cleaned[key] = value
 
   return cleaned
 }
@@ -327,18 +322,18 @@ function validateUpdatePatchWithStructuredValues(
 
   // Omit structured fields themselves so optional defaults cannot run their transforms.
   const literalEntries = { ...schema.entries }
-  for (const key of Object.keys(authoredPatch)) {
+  for (const key of Object.keys(authoredPatch))
     if (isStructuredValue(authoredPatch[key])) delete literalEntries[key]
-  }
 
   const result = safeParse(object(literalEntries), literalPatch)
 
-  if (!result.success)
+  if (!result.success) {
     throw new ValidationError({
       table: handle.getTableMetadata().name,
       operation: 'update',
       issues: result.issues,
     })
+  }
 
   const allowed = new Set(Object.keys(schema.entries))
   assertUpdatableKeys(handle, patch, allowed)

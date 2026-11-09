@@ -450,9 +450,8 @@ function mapParam(
 
   if (map?.mapParamValue) return map.mapParamValue(dataType, value)
 
-  if (dialect.query.mapParamValue) {
+  if (dialect.query.mapParamValue)
     return dialect.query.mapParamValue(dataType, value, contexts.get(handle)?.[column])
-  }
 
   return value
 }
@@ -491,9 +490,8 @@ function mapResultValue(
 
   if (map?.mapResultValue) return map.mapResultValue(dataType, value)
 
-  if (dialect.query.mapResultValue) {
+  if (dialect.query.mapResultValue)
     return dialect.query.mapResultValue(dataType, value, contexts.get(handle)?.[column])
-  }
 
   return value
 }
@@ -543,9 +541,8 @@ function cachedColumnTypes(
     const customResult =
       typeof meta?.mapResult === 'function' || typeof map?.mapResultValue === 'function'
 
-    if (!customParam || !customResult) {
+    if (!customParam || !customResult)
       dialect.query.validateValueMapping?.(dt.dataType, dt.context)
-    }
 
     types[name] = dt.dataType
     logical[name] = dt.context
@@ -594,9 +591,7 @@ function mapRows(
   ) => Record<string, unknown>,
 ): unknown[] {
   return rows.map((row) => {
-    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-      return row
-    }
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
 
     return mapResultRow(handle, row as Record<string, unknown>)
   })

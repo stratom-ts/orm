@@ -70,9 +70,8 @@ const POSTGRES_ALLOWED_BASE_TYPES = new Set([
 export function assertSafePostgresDataType(dataType: string): string {
   const trimmed = dataType.trim()
 
-  if (!trimmed) {
+  if (!trimmed)
     throw new SchemaError({ message: 'column data type must be a non-empty string' })
-  }
 
   if (/[;"\\]|--|\/\*|\*\//.test(trimmed)) {
     throw new SchemaError({
@@ -99,9 +98,7 @@ export function assertSafePostgresDataType(dataType: string): string {
     })
   }
 
-  if (match[2]) {
-    return `${base}(${match[2].replace(/\s+/g, '')})`
-  }
+  if (match[2]) return `${base}(${match[2].replace(/\s+/g, '')})`
 
   return base
 }
@@ -119,9 +116,8 @@ export function formatPostgresLiteral(value: string | number | boolean | null): 
   if (typeof value === 'boolean') return value ? 'true' : 'false'
 
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) {
+    if (!Number.isFinite(value))
       throw new SchemaError({ message: 'column default number must be finite' })
-    }
 
     return String(value)
   }

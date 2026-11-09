@@ -57,9 +57,8 @@ function sameNamespaceInput(
   const selected = resolve(left)
   const other = resolve(right)
 
-  if (selected == null || other == null) {
+  if (selected == null || other == null)
     return selected === undefined && other === undefined
-  }
 
   return (
     selected.length === other.length &&
@@ -110,9 +109,8 @@ function profileIssues(
       expected.namespaceContext.writableDefault,
       planned.identities,
     )
-  ) {
+  )
     add('Writable namespace context does not match the executing session')
-  }
 
   if (
     !sameNamespaceInput(
@@ -120,9 +118,8 @@ function profileIssues(
       expected.registrationDefault,
       planned.identities,
     )
-  ) {
+  )
     add('Registration default does not match the executing configuration')
-  }
 
   return issues
 }
@@ -152,9 +149,8 @@ function expectedDatabaseIdentifier(
 
     const database = namespace.at(0)
 
-    if (namespace.length === 2 && database?.role === 'database') {
+    if (namespace.length === 2 && database?.role === 'database')
       return database.identifier
-    }
   } catch (cause) {
     if (!isErrorTag(cause, 'SchemaError')) throw cause
     // Profile and target validation report malformed context.

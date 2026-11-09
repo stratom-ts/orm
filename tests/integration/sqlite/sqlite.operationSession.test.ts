@@ -362,10 +362,11 @@ async function closeBaseline(
   active: OperationSession | undefined,
   primary: unknown,
 ): Promise<void> {
-  if (active)
+  if (active) {
     await active.release('discard').catch((cause: unknown) => {
       primary ??= cause
     })
+  }
 
   await provider.close().catch((cause: unknown) => {
     primary ??= cause

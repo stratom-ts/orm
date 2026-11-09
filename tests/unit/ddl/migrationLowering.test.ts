@@ -194,10 +194,11 @@ it.each([
   const stack = defect.stack
   const identities = new Proxy(planned.identities, {
     get(target, key, receiver): unknown {
-      if (key === 'resolveNamespace')
+      if (key === 'resolveNamespace') {
         return () => {
           throw defect
         }
+      }
 
       return Reflect.get(target, key, receiver) as unknown
     },

@@ -259,11 +259,8 @@ class PostgresSqlScanner {
       this.#markExecutable()
       const closing = this.sql.indexOf(delimiter, this.#index + delimiter.length)
 
-      if (closing === -1) {
-        this.#malformed = true
-      } else {
-        this.#index = closing + delimiter.length
-      }
+      if (closing === -1) this.#malformed = true
+      else this.#index = closing + delimiter.length
 
       return true
     }
@@ -295,9 +292,8 @@ class PostgresSqlScanner {
   #readWord(): void {
     const start = this.#index++
 
-    while (this.#index < this.sql.length && isWordPart(this.sql[this.#index])) {
+    while (this.#index < this.sql.length && isWordPart(this.sql[this.#index]))
       this.#index++
-    }
 
     const word = this.sql.slice(start, this.#index).toLowerCase()
     this.#statement.executable = true
@@ -313,9 +309,7 @@ class PostgresSqlScanner {
   #readSymbol(character: string): void {
     this.#statement.executable = true
 
-    if (character === '(' && this.#pendingAdvisoryCall) {
-      this.#statement.advisory = true
-    }
+    if (character === '(' && this.#pendingAdvisoryCall) this.#statement.advisory = true
 
     this.#pendingAdvisoryCall = false
     this.#index++

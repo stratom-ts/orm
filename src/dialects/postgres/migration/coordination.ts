@@ -107,9 +107,8 @@ function lockAttemptTimeoutMessage(
   if (
     lockTimeoutMs !== 0 &&
     deadlineRemaining <= POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS
-  ) {
+  )
     return `Timed out acquiring the migration advisory lock after ${lockTimeoutMs}ms`
-  }
 
   return `Timed out waiting ${POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS}ms for a migration lock attempt response`
 }
@@ -491,13 +490,11 @@ async function coordinationAttemptTimeout(
       ? POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS
       : Math.min(POSTGRES_MIGRATION_SESSION_CALL_TIMEOUT_MS, deadlineRemaining)
 
-  if (!firstAttempt && performance.now() >= deadline) {
+  if (!firstAttempt && performance.now() >= deadline)
     await stopCancelled(options, state, 'lock', true, acquired)
-  }
 
-  if (options.signal?.aborted) {
+  if (options.signal?.aborted)
     await stopCancelled(options, state, 'lock', false, acquired)
-  }
 
   return { timeout, deadlineRemaining }
 }
@@ -522,25 +519,20 @@ async function awaitCoordinationRetry(
   }>[],
   deadline: number,
 ) {
-  if (options.lockTimeoutMs === 0) {
+  if (options.lockTimeoutMs === 0)
     await stopCancelled(options, state, 'lock', true, acquired)
-  }
 
-  if (options.signal?.aborted) {
+  if (options.signal?.aborted)
     await stopCancelled(options, state, 'lock', false, acquired)
-  }
 
   const waitRemaining = deadline - performance.now()
 
-  if (waitRemaining <= 0) {
-    await stopCancelled(options, state, 'lock', true, acquired)
-  }
+  if (waitRemaining <= 0) await stopCancelled(options, state, 'lock', true, acquired)
 
   const wait = waitForLockPoll(options.signal, waitRemaining)
 
-  if ((await wait) === 'aborted') {
+  if ((await wait) === 'aborted')
     await stopCancelled(options, state, 'lock', false, acquired)
-  }
 }
 
 /**
@@ -624,9 +616,8 @@ async function acquireCoordination(
   const acquired: PostgresAdvisoryLockIdentity[] = []
   const deadline = options.lockDeadline ?? performance.now() + options.lockTimeoutMs
 
-  for (const identity of identities) {
+  for (const identity of identities)
     await acquireCoordinationLock(options, state, identity, acquired, deadline)
-  }
 
   return acquired
 }
@@ -738,7 +729,7 @@ async function assertPrecondition(
     if (
       !names.includes(precondition.from) ||
       names.includes(precondition.target.column.spelling)
-    )
+    ) {
       throw new MigrationError({
         message: 'Column rename source/destination precondition failed',
         stage: 'precondition',
@@ -746,6 +737,7 @@ async function assertPrecondition(
         retryable: true,
         sourceStepIndexes: precondition.sourceStepIndexes,
       })
+    }
 
     return
   }

@@ -209,9 +209,8 @@ describe('scoped transaction cleanup failures', () => {
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
-        if (/^rollback to savepoint/i.test(sql)) {
+        if (/^rollback to savepoint/i.test(sql))
           throw new Error('savepoint rollback cleanup failed')
-        }
       },
     })
 
@@ -250,9 +249,8 @@ describe('scoped transaction cleanup failures: poisons failed savepoint release 
     const controls = createControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
-        if (/^release savepoint sp_1$/i.test(sql)) {
+        if (/^release savepoint sp_1$/i.test(sql))
           throw new Error('savepoint release cleanup failed')
-        }
       },
     })
 

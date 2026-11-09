@@ -51,9 +51,8 @@ function outputAliases(names: readonly string[], discard = false): OutputName[] 
       outputName.includes('\0') ||
       new TextDecoder().decode(encoded) !== outputName
     ) {
-      do {
-        sqlName = `__stratom_c${sequence++}`
-      } while (reserved.has(sqlName))
+      do sqlName = `__stratom_c${sequence++}`
+      while (reserved.has(sqlName))
 
       reserved.add(sqlName)
     }
@@ -169,10 +168,11 @@ class SelectProjection {
   constructor(node: SelectAst, query: DialectQueryResolution, use: ProjectionUse) {
     const selection = expandSelection(node, query)
 
-    if (use === 'single' && selection.length !== 1)
+    if (use === 'single' && selection.length !== 1) {
       throw new QueryError({
         message: 'Scalar and IN subqueries require exactly one projected value',
       })
+    }
 
     this.node = { ...node, selection }
     this.outputs = outputAliases(

@@ -232,9 +232,7 @@ function compareCodeUnits(left: string, right: string): number {
  * @param value - Observation to serialize.
  */
 function stableObservation(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableObservation).join(',')}]`
-  }
+  if (Array.isArray(value)) return `[${value.map(stableObservation).join(',')}]`
 
   if (typeof value === 'object' && value !== null) {
     return `{${Object.entries(value)
@@ -393,9 +391,8 @@ function jsonStringArray(value: string): string[] | undefined {
     if (
       Array.isArray(parsed) &&
       parsed.every((item): item is string => typeof item === 'string')
-    ) {
+    )
       return parsed
-    }
   } catch {
     // The caller reports the canonical query and row location.
   }
@@ -446,9 +443,8 @@ function postgresStringArray(value: string): string[] | undefined {
     parts.every(
       (item, index) => item.length > 0 && (quotedParts[index] || item !== 'NULL'),
     )
-  ) {
+  )
     return parts
-  }
 
   return undefined
 }
@@ -467,9 +463,8 @@ function stringArrayAt(row: Row, key: string, query: string, index: number): str
   if (
     Array.isArray(value) &&
     value.every((item): item is string => typeof item === 'string')
-  ) {
+  )
     return [...value]
-  }
 
   if (typeof value === 'string') {
     const trimmed = value.trim()
@@ -641,9 +636,8 @@ const POSTGRES_CATALOG_TYPE_ALIASES = new Map([
  * @param index - Row index for diagnostics.
  */
 function formatPostgresCatalogDataType(row: Row, query: string, index: number): string {
-  if (typeof row.formatted_type === 'string' && row.formatted_type.length > 0) {
+  if (typeof row.formatted_type === 'string' && row.formatted_type.length > 0)
     return row.formatted_type
-  }
 
   const dataType = stringAt(row, 'data_type', query, index).toLowerCase()
   const udt = stringAt(row, 'udt_name', query, index).toLowerCase()
@@ -651,13 +645,11 @@ function formatPostgresCatalogDataType(row: Row, query: string, index: number): 
   const precision = toNumberOrNull(row.numeric_precision)
   const scale = toNumberOrNull(row.numeric_scale)
 
-  if (['character varying', 'varchar'].includes(dataType) || udt === 'varchar') {
+  if (['character varying', 'varchar'].includes(dataType) || udt === 'varchar')
     return maxLen !== null ? `varchar(${maxLen})` : 'varchar'
-  }
 
-  if (['character', 'char'].includes(dataType) || udt === 'bpchar') {
+  if (['character', 'char'].includes(dataType) || udt === 'bpchar')
     return maxLen !== null ? `char(${maxLen})` : 'char'
-  }
 
   if (dataType === 'numeric' || dataType === 'decimal') {
     if (precision !== null && scale !== null) return `numeric(${precision},${scale})`
@@ -693,9 +685,8 @@ function referentialAction(
     value === 'cascade' ||
     value === 'set null' ||
     value === 'set default'
-  ) {
+  )
     return value
-  }
 
   throw new InvariantError(`Malformed PostgreSQL ${query} row ${index}: invalid action`)
 }
@@ -1286,12 +1277,13 @@ async function verifyCatalogObservations(input: CatalogObservationVerification) 
     ],
   ]
 
-  for (const [name, initial, query, filter] of checks)
+  for (const [name, initial, query, filter] of checks) {
     assertObservationUnchanged(
       name,
       filter(initial, name),
       filter(await executor.execute(query), name),
     )
+  }
 }
 
 /** Builds ordered namespaces and relations from decoded catalog evidence. */
@@ -1365,9 +1357,8 @@ function decodeCatalogNamespaces(
 
     if (!scopeNamespaces.some((namespace) => sameNamespace(namespace, identity))) continue
 
-    if (namespaces.some((namespace) => sameNamespace(namespace.identity, identity))) {
+    if (namespaces.some((namespace) => sameNamespace(namespace.identity, identity)))
       throw new InvariantError('Duplicate PostgreSQL namespace row')
-    }
 
     namespaces.push({
       identity,
@@ -1423,9 +1414,7 @@ function buildCatalogRelations(
 
     let table: CatalogTable | undefined
 
-    if (entry.table) {
-      table = orderedCatalogTable(entry.table)
-    }
+    if (entry.table) table = orderedCatalogTable(entry.table)
 
     relationEntries.push({
       ...entry.relation,
@@ -1530,11 +1519,12 @@ async function introspectPostgresCatalog(
 
   const diagnostics: CatalogDiagnostic[] = []
 
-  if (versionNumber < 120000)
+  if (versionNumber < 120000) {
     return versionLimitedCatalog(
       { version, versionNumber, namespaceContext, identities, resolvedRequest },
       diagnostics,
     )
+  }
 
   const rows = await readCatalogEvidence(
     executor,
@@ -1650,10 +1640,11 @@ function renameDependencyInput(value: unknown, index: number) {
   const row = rowAt(value, 'rename dependency', index)
   const schema = stringAt(row, 'schema', 'rename dependency', index)
 
-  if (schema.startsWith('pg_') || schema === 'information_schema')
+  if (schema.startsWith('pg_') || schema === 'information_schema') {
     throw new MigrationError({
       message: 'Unsupported PostgreSQL inbound dependency namespace',
     })
+  }
 
   return relationInput(schema, stringAt(row, 'name', 'rename dependency', index))
 }

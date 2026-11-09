@@ -292,13 +292,11 @@ function validatePhysicalName(
   description: string,
   profile: PhysicalNamingProfile,
 ): void {
-  if (name.length === 0) {
+  if (name.length === 0)
     throw new SchemaError({ message: `${description} must not be empty` })
-  }
 
-  if (name.includes('\0')) {
+  if (name.includes('\0'))
     throw new SchemaError({ message: `${description} must not contain NUL` })
-  }
 
   for (let index = 0; index < name.length; index++) {
     const codeUnit = name.charCodeAt(index)

@@ -45,17 +45,19 @@ function withNumberConstraints(
 ): StorageFacts {
   const numberConstraints = { ...analysis.numberConstraints }
 
-  if (outer.minValue !== undefined)
+  if (outer.minValue !== undefined) {
     numberConstraints.minValue = Math.max(
       numberConstraints.minValue ?? -Infinity,
       outer.minValue,
     )
+  }
 
-  if (outer.maxValue !== undefined)
+  if (outer.maxValue !== undefined) {
     numberConstraints.maxValue = Math.min(
       numberConstraints.maxValue ?? Infinity,
       outer.maxValue,
     )
+  }
 
   if (outer.isInteger) numberConstraints.isInteger = true
   if (outer.isSafeInteger) numberConstraints.isSafeInteger = true
@@ -169,13 +171,11 @@ function outputKind(schema: AnySchema): StorageOutputKind | undefined {
 
   if (direct) return direct
 
-  if (schema.type === 'literal') {
+  if (schema.type === 'literal')
     return primitiveOutputKind((schema as AnySchema & { literal?: unknown }).literal)
-  }
 
-  if (schema.type === 'enum' || schema.type === 'picklist') {
+  if (schema.type === 'enum' || schema.type === 'picklist')
     return homogeneousOutputKind((schema as AnySchema & { options?: unknown[] }).options)
-  }
 
   return undefined
 }
@@ -186,12 +186,13 @@ function isOutputUndefinedPossible(schema: AnySchema, nullOnly: boolean): boolea
   if (schema.type === 'literal')
     return (schema as AnySchema & { literal?: unknown }).literal === undefined
 
-  if (schema.type === 'enum' || schema.type === 'picklist')
+  if (schema.type === 'enum' || schema.type === 'picklist') {
     return (
       (schema as AnySchema & { options?: readonly unknown[] }).options?.includes(
         undefined,
       ) ?? false
     )
+  }
 
   return outputKind(schema) === undefined
 }
@@ -309,7 +310,9 @@ function applyNumberClamp(
   if (!Number.isInteger(requirement)) {
     delete constraints.isInteger
     delete constraints.isSafeInteger
-  } else if (!Number.isSafeInteger(requirement)) delete constraints.isSafeInteger
+  } else if (!Number.isSafeInteger(requirement)) {
+    delete constraints.isSafeInteger
+  }
 
   clearFiniteEvidence(result)
   result.numberConstraints = constraints
@@ -448,19 +451,21 @@ function narrowFiniteValues(
   const bigint = analysis.bigintConstraints
 
   return values.filter((value) => {
-    if (analysis.outputKind === 'number' && typeof value === 'number')
+    if (analysis.outputKind === 'number' && typeof value === 'number') {
       return (
         (minValue === undefined || value >= minValue) &&
         (maxValue === undefined || value <= maxValue) &&
         (!isInteger || Number.isInteger(value)) &&
         (!isSafeInteger || Number.isSafeInteger(value))
       )
+    }
 
-    if (analysis.outputKind === 'bigint' && typeof value === 'bigint')
+    if (analysis.outputKind === 'bigint' && typeof value === 'bigint') {
       return (
         (bigint.minValue === undefined || value >= bigint.minValue) &&
         (bigint.maxValue === undefined || value <= bigint.maxValue)
       )
+    }
 
     return true
   })
@@ -630,33 +635,36 @@ function applyLengthAction(result: RecursiveAnalysis, action: PipeAction): void 
 
   const length = action.requirement
 
-  if (action.type !== 'max_length')
+  if (action.type !== 'max_length') {
     result.stringConstraints.minLength = Math.max(
       result.stringConstraints.minLength ?? 0,
       length,
     )
+  }
 
-  if (action.type !== 'min_length')
+  if (action.type !== 'min_length') {
     result.stringConstraints.maxLength = Math.min(
       result.stringConstraints.maxLength ?? Infinity,
       length,
     )
+  }
 }
 
 function applyValueAction(result: RecursiveAnalysis, action: PipeAction): void {
   const requirement = action.requirement
 
   if (result.outputKind === 'number' && typeof requirement === 'number') {
-    if (action.type === 'min_value')
+    if (action.type === 'min_value') {
       result.numberConstraints.minValue = Math.max(
         result.numberConstraints.minValue ?? -Infinity,
         requirement,
       )
-    else
+    } else {
       result.numberConstraints.maxValue = Math.min(
         result.numberConstraints.maxValue ?? Infinity,
         requirement,
       )
+    }
   }
 
   if (result.outputKind === 'bigint' && typeof requirement === 'bigint') {
@@ -790,19 +798,21 @@ function leafEvidence(
   StorageFacts,
   'finiteEvidence' | 'singletonValue' | 'finiteSourceValues' | 'jsonShape'
 > {
-  if (schema.type === 'literal')
+  if (schema.type === 'literal') {
     return {
       finiteEvidence: 'singleton',
       singletonValue: (schema as AnySchema & { literal?: unknown }).literal,
     }
+  }
 
-  if (schema.type === 'enum' || schema.type === 'picklist')
+  if (schema.type === 'enum' || schema.type === 'picklist') {
     return {
       finiteEvidence: 'choice',
       finiteSourceValues: [
         ...((schema as AnySchema & { options?: readonly unknown[] }).options ?? []),
       ],
     }
+  }
 
   return {
     jsonShape:
@@ -1018,12 +1028,13 @@ function isJsonShapeSchema(schema: AnySchema, seen: Set<AnySchema>): boolean {
     value?: AnySchema
   }
 
-  if (schema.type === 'object' || schema.type === 'strict_object')
+  if (schema.type === 'object' || schema.type === 'strict_object') {
     return Object.values(shaped.entries ?? {}).every((entry) =>
       isJsonSchemaOutputCompatible(entry, 'object', new Set(seen)),
     )
+  }
 
-  if (schema.type === 'object_with_rest')
+  if (schema.type === 'object_with_rest') {
     return (
       Object.values(shaped.entries ?? {}).every((entry) =>
         isJsonSchemaOutputCompatible(entry, 'object', new Set(seen)),
@@ -1031,21 +1042,24 @@ function isJsonShapeSchema(schema: AnySchema, seen: Set<AnySchema>): boolean {
       !!shaped.rest &&
       isJsonSchemaOutputCompatible(shaped.rest, 'object', new Set(seen))
     )
+  }
 
   if (schema.type === 'record')
     return isJsonRecordShapeSchema(shaped.key, shaped.value, seen)
 
-  if (schema.type === 'array')
+  if (schema.type === 'array') {
     return (
       !!shaped.item && isJsonSchemaOutputCompatible(shaped.item, 'array', new Set(seen))
     )
+  }
 
-  if (schema.type === 'tuple' || schema.type === 'strict_tuple')
+  if (schema.type === 'tuple' || schema.type === 'strict_tuple') {
     return (shaped.items ?? []).every((item) =>
       isJsonSchemaOutputCompatible(item, 'array', new Set(seen)),
     )
+  }
 
-  if (schema.type === 'tuple_with_rest')
+  if (schema.type === 'tuple_with_rest') {
     return (
       (shaped.items ?? []).every((item) =>
         isJsonSchemaOutputCompatible(item, 'array', new Set(seen)),
@@ -1053,6 +1067,7 @@ function isJsonShapeSchema(schema: AnySchema, seen: Set<AnySchema>): boolean {
       !!shaped.rest &&
       isJsonSchemaOutputCompatible(shaped.rest, 'array', new Set(seen))
     )
+  }
 
   return false
 }
@@ -1095,11 +1110,12 @@ function analyzeNode(schema: AnySchema): RecursiveAnalysis {
     const result = { ...analyzeNode(wrapped) }
     applyWrapperSemantics(result, schema.type, traversable.default !== undefined)
 
-    if (traversable.default !== undefined)
+    if (traversable.default !== undefined) {
       result.schemaDefault =
         typeof traversable.default === 'function'
           ? { kind: 'factory' }
           : { kind: 'value', value: traversable.default }
+    }
 
     return result
   }

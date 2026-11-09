@@ -19,9 +19,8 @@ function normalizeSqliteDataType(dataType: string): string {
 
 /** Removes balanced outer parentheses from a SQLite default expression. */
 function stripEnclosingParens(expression: string): string {
-  if (expression.length < 2 || expression[0] !== '(' || expression.at(-1) !== ')') {
+  if (expression.length < 2 || expression[0] !== '(' || expression.at(-1) !== ')')
     return expression
-  }
 
   let quoted = false
   let depth = 0

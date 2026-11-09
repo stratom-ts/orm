@@ -30,9 +30,8 @@ describe('keyset input validation', () => {
         { column: Entries.id, direction: 'up', nulls: 'last' },
         { column: Entries.id, direction: 'asc', nulls: 'middle' },
         null,
-      ]) {
+      ])
         expect(() => helper([term] as unknown as OrderTerm[], [1])).toThrow(QueryError)
-      }
     },
   )
 })

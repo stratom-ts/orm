@@ -33,9 +33,8 @@ function quoteIdentifier(identifier: string): string {
 
 /** Rejects values that cannot serve as SQL identifiers. */
 function assertIdentifier(value: unknown, description: string): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== 'string' || value.length === 0)
     throw new InvariantError(`${description} must be a non-empty string`)
-  }
 }
 
 type PostgresQueryRelation = {
@@ -151,9 +150,8 @@ function resolvePostgresQueryRelation(
 
   if (namespace.length === 0) return { table: candidate.relation }
 
-  if (namespace.length === 1) {
+  if (namespace.length === 1)
     return { schema: namespace[0].spelling, table: candidate.relation }
-  }
 
   return {
     database: namespace[0].spelling,
@@ -220,9 +218,8 @@ function createRelationContext(
 
   const counts = new Map<string, number>()
 
-  for (const candidate of candidates) {
+  for (const candidate of candidates)
     counts.set(candidate, (counts.get(candidate) ?? 0) + 1)
-  }
 
   return resolved.map((relation, index) => {
     const candidate = candidates[index]
@@ -338,9 +335,8 @@ function compileReturning(returning: ReturningAst | undefined): string {
   if (returning.kind === 'projection')
     return ` returning ${returning.columns.map(({ column, alias }) => (alias === column ? quoteIdentifier(column) : `${quoteIdentifier(column)} as ${quoteIdentifier(alias)}`)).join(', ')}`
 
-  if (!Array.isArray(returning.columns) || returning.columns.length === 0) {
+  if (!Array.isArray(returning.columns) || returning.columns.length === 0)
     throw new InvariantError('returning columns must not be empty')
-  }
 
   return ` returning ${(returning.columns as readonly string[]).map((c) => quoteIdentifier(c)).join(', ')}`
 }
@@ -564,9 +560,8 @@ function compileOrderBy(
   const parts = orderBy.map((o) => {
     const nulls: unknown = o.nulls
 
-    if (nulls !== undefined && nulls !== 'first' && nulls !== 'last') {
+    if (nulls !== undefined && nulls !== 'first' && nulls !== 'last')
       throw new InvariantError('null placement must be first or last')
-    }
 
     return `${qualifyColumn(o.column, relations, o.relation, resolveRelation)} ${o.direction === 'desc' ? 'desc' : 'asc'}${o.nulls === undefined ? '' : ` nulls ${o.nulls}`}`
   })
@@ -632,9 +627,8 @@ function compileSelect(
   const tableAlias = quoteIdentifier(relations[0].alias)
   const selection = (node as Partial<SelectAst>).selection
 
-  if (!Array.isArray(selection) || selection.length === 0) {
+  if (!Array.isArray(selection) || selection.length === 0)
     throw new InvariantError('select items must not be empty')
-  }
 
   const selectionSql = (selection as readonly SelectItemAst[])
     .map((item) => compileSelectItem(item, params, relations, resolveRelation))
@@ -643,9 +637,8 @@ function compileSelect(
   let sql = `select ${selectionSql} from ${tableSql} as ${tableAlias}`
 
   if (node.joins) {
-    for (const [index, join] of node.joins.entries()) {
+    for (const [index, join] of node.joins.entries())
       sql += compileJoin(join, relations[index + 1], params, relations, resolveRelation)
-    }
   }
 
   sql += compileWhereClause(node.where, params, relations, resolveRelation)
@@ -674,13 +667,11 @@ function compileSelectTail(
   resolveRelation: PostgresQueryRelationResolver,
   params: unknown[],
 ) {
-  if (node.groupBy && node.groupBy.length > 0) {
+  if (node.groupBy && node.groupBy.length > 0)
     sql += ` group by ${node.groupBy.map((c) => compileQualifiedColumn(c, relations, resolveRelation)).join(', ')}`
-  }
 
-  if (node.having) {
+  if (node.having)
     sql += ` having ${compilePredicate(node.having, params, relations, resolveRelation)}`
-  }
 
   sql += compileOrderBy(node.orderBy, relations, resolveRelation)
 
@@ -712,9 +703,8 @@ function compileInsert(
     !Array.isArray(node.columns) ||
     !Array.isArray(node.values) ||
     node.values.length === 0
-  ) {
+  )
     throw new InvariantError('insert requires at least one values row')
-  }
 
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const values: InsertAst['values'] = node.values
@@ -766,9 +756,8 @@ function compileInsertConflict(
 ): string {
   if (!conflict) return ''
 
-  if (!Array.isArray(conflict.target) || conflict.target.length === 0) {
+  if (!Array.isArray(conflict.target) || conflict.target.length === 0)
     throw new InvariantError('insert conflict target must not be empty')
-  }
 
   const target = conflict.target
     .map((column) => {
@@ -777,27 +766,21 @@ function compileInsertConflict(
     })
     .join(', ')
 
-  if (new Set(conflict.target).size !== conflict.target.length) {
+  if (new Set(conflict.target).size !== conflict.target.length)
     throw new InvariantError('insert conflict target contains duplicate columns')
-  }
 
   const action = (conflict as { readonly action?: unknown }).action
 
-  if (typeof action !== 'object' || action === null || !('kind' in action)) {
+  if (typeof action !== 'object' || action === null || !('kind' in action))
     throw new InvariantError('insert conflict requires an action')
-  }
 
-  if (action.kind === 'doNothing') {
-    return ` on conflict (${target}) do nothing`
-  }
+  if (action.kind === 'doNothing') return ` on conflict (${target}) do nothing`
 
-  if (action.kind !== 'doUpdate' || !('set' in action) || !Array.isArray(action.set)) {
+  if (action.kind !== 'doUpdate' || !('set' in action) || !Array.isArray(action.set))
     throw new InvariantError('unsupported insert conflict action')
-  }
 
-  if (action.set.length === 0) {
+  if (action.set.length === 0)
     throw new InvariantError('insert conflict update requires at least one SET column')
-  }
 
   const set = action.set
     .map((assignment) => compileInsertConflictAssignment(assignment, params))
@@ -808,18 +791,16 @@ function compileInsertConflict(
 
 /** Compiles one validated PostgreSQL conflict update assignment. */
 function compileInsertConflictAssignment(input: unknown, params: unknown[]): string {
-  if (typeof input !== 'object' || input === null) {
+  if (typeof input !== 'object' || input === null)
     throw new InvariantError('insert conflict update assignment is invalid')
-  }
 
   const assignment = input as { readonly column?: unknown; readonly value?: unknown }
   assertIdentifier(assignment.column, 'insert conflict update column')
 
   const value = assignment.value
 
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== 'object' || value === null)
     throw new InvariantError('insert conflict update value is invalid')
-  }
 
   const structuredValue = value as {
     readonly kind?: unknown
@@ -832,9 +813,8 @@ function compileInsertConflictAssignment(input: unknown, params: unknown[]): str
     return `${quoteIdentifier(assignment.column)} = excluded.${quoteIdentifier(structuredValue.column)}`
   }
 
-  if (structuredValue.kind !== 'value') {
+  if (structuredValue.kind !== 'value')
     throw new InvariantError('unsupported insert conflict update value')
-  }
 
   params.push(structuredValue.value)
   return `${quoteIdentifier(assignment.column)} = $${params.length}`
@@ -858,9 +838,8 @@ function compileUpdate(
   const tableAlias = quoteIdentifier(relations[0].alias)
   const params: unknown[] = []
 
-  if (!Array.isArray(node.set) || node.set.length === 0) {
+  if (!Array.isArray(node.set) || node.set.length === 0)
     throw new InvariantError('update requires at least one SET column')
-  }
 
   const setSql = (node.set as UpdateAst['set'])
     .map((item) => {
@@ -905,9 +884,8 @@ function queryExpressionRelations(expression: SqlExprAst): RelationIdentityInput
   if (expression.kind === 'outer') return []
   if (expression.kind === 'now') return []
 
-  if (expression.kind === 'column') {
+  if (expression.kind === 'column')
     return expression.relation === undefined ? [] : [expression.relation]
-  }
 
   if (expression.kind === 'count_all') return []
 
@@ -929,19 +907,19 @@ function queryPredicateRelations(
   if (predicate.kind === 'exists' || predicate.kind === 'inQuery')
     return predicate.kind === 'inQuery' ? queryExpressionRelations(predicate.left) : []
 
-  if (predicate.kind === 'exprCmp')
+  if (predicate.kind === 'exprCmp') {
     return [
       ...queryExpressionRelations(predicate.left),
       ...(predicate.right.kind === 'value'
         ? []
         : queryExpressionRelations(predicate.right)),
     ]
+  }
 
   if (predicate.kind === 'not') return queryPredicateRelations(predicate.pred)
 
-  if (predicate.kind === 'and' || predicate.kind === 'or') {
+  if (predicate.kind === 'and' || predicate.kind === 'or')
     return predicate.preds.flatMap(queryPredicateRelations)
-  }
 
   return [
     ...(predicate.relation === undefined ? [] : [predicate.relation]),
@@ -961,9 +939,8 @@ function selectRelationReferences(node: SelectAst): RelationIdentityInput[] {
     ...node.selection.flatMap((item) => {
       if (item.kind === 'all') return item.relation === undefined ? [] : [item.relation]
 
-      if (item.kind === 'column') {
+      if (item.kind === 'column')
         return item.relation === undefined ? [] : [item.relation]
-      }
 
       return queryExpressionRelations(item.expr)
     }),
@@ -997,17 +974,15 @@ function relationSessionRequirement(
     physical.database !== undefined &&
     reference.database !== undefined &&
     physical.database !== reference.database
-  ) {
+  )
     return undefined
-  }
 
   if (
     physical.schema !== undefined &&
     reference.schema !== undefined &&
     physical.schema !== reference.schema
-  ) {
+  )
     return undefined
-  }
 
   return {
     ...(physical.database === undefined && reference.database !== undefined
@@ -1136,9 +1111,8 @@ function collectSessionRequirements(
     if (
       requirement &&
       (requirement.database !== undefined || requirement.schema !== undefined)
-    ) {
+    )
       requirements.set(JSON.stringify(requirement), requirement)
-    }
   }
 
   return requirements
@@ -1215,9 +1189,8 @@ function compileComparison(
   const left = qualifyColumn(pred.column, relations, pred.relation, resolveRelation)
   const op = comparisonSql(pred.op)
 
-  if (pred.right) {
+  if (pred.right)
     return `${left} ${op} ${compileQualifiedColumn(pred.right, relations, resolveRelation)}`
-  }
 
   if (pred.value !== null) {
     params.push(pred.value)
@@ -1314,10 +1287,11 @@ function compileSingleSubquery(
   resolveRelation: PostgresQueryRelationResolver,
   params: unknown[],
 ): string {
-  if (node.selection.length !== 1)
+  if (node.selection.length !== 1) {
     throw new QueryError({
       message: 'Scalar and IN subqueries require exactly one projected value',
     })
+  }
 
   return compileSelect(node, resolveRelation, params).sql
 }

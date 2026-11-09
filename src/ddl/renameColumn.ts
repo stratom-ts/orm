@@ -190,9 +190,8 @@ class RenameProjection {
         fail('dependency evidence omits rename target')
     }
 
-    for (const relation of dependencies.items) {
+    for (const relation of dependencies.items)
       this.assertRelationDependencies(relation, steps)
-    }
   }
 
   assertRelationDependencies(relation: CatalogRelation, steps: RenameStep[]): void {

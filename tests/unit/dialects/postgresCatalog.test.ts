@@ -930,9 +930,8 @@ function normalizationFixtureExecutor(executedSql: string[]): Executor {
     async execute({ sql }) {
       executedSql.push(sql)
 
-      if (sql.includes('current_database()')) {
+      if (sql.includes('current_database()'))
         return [{ database: 'test', schema: 'public', version: '160000' }]
-      }
 
       if (sql.includes('-- catalog:namespace')) {
         return [
@@ -941,15 +940,13 @@ function normalizationFixtureExecutor(executedSql: string[]): Executor {
         ]
       }
 
-      if (sql.includes('as relation_kind')) {
+      if (sql.includes('as relation_kind'))
         return structuredClone(normalizationFixtureExecutorData)
-      }
 
       if (sql.includes('-- catalog:column')) return normalizationColumnRows()
 
-      if (sql.includes('from pg_index i')) {
+      if (sql.includes('from pg_index i'))
         return structuredClone(normalizationFixtureExecutorData2)
-      }
 
       if (sql.includes('from pg_constraint con')) return normalizationConstraintRows()
 
@@ -981,9 +978,8 @@ function createDottedCatalogExecutor(): Executor {
   return {
     /** Executes fixture SQL with the configured native observations. */
     async execute({ sql }) {
-      if (sql.includes('current_database()')) {
+      if (sql.includes('current_database()'))
         return [{ database: 'test', schema: 'public', version: '160000' }]
-      }
 
       if (sql.includes('-- catalog:namespace')) {
         return [
@@ -1293,9 +1289,8 @@ async function executePostgresFixture(
 
   if (connection) return connection
 
-  if (sql.includes('-- catalog:namespace')) {
+  if (sql.includes('-- catalog:namespace'))
     return options.missingNamespace ? [] : [{ schema: 'public', owner: 'app' }]
-  }
 
   if (sql.includes('as relation_kind')) {
     queryState.relationQueries++
@@ -1659,13 +1654,11 @@ const registerCatalogCases12 = () => {
     const executor: Executor = {
       /** Executes fixture SQL with the configured native observations. */
       async execute({ sql }) {
-        if (sql.includes('current_database()')) {
+        if (sql.includes('current_database()'))
           return [{ database: 'test', schema: 'public', version: '160000' }]
-        }
 
-        if (sql.includes('-- catalog:namespace')) {
+        if (sql.includes('-- catalog:namespace'))
           return [{ schema: 'public', owner: 'app' }]
-        }
 
         if (sql.includes('as relation_kind')) {
           return structuredClone(

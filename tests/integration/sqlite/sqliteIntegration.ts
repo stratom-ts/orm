@@ -119,9 +119,8 @@ function unwrapSqliteCallback<TResult>(
     throw settlement.reason
   }
 
-  if (cleanupErrors.length > 0) {
+  if (cleanupErrors.length > 0)
     throw new AggregateError(cleanupErrors, 'SQLite test cleanup failed')
-  }
 
   return settlement.value
 }

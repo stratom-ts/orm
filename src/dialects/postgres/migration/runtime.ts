@@ -124,9 +124,8 @@ function retainCancellationFailures(
   failures: MigrationCleanupFailure[],
   cause: unknown,
 ): void {
-  if (cause instanceof PostgresMigrationCancellationError) {
+  if (cause instanceof PostgresMigrationCancellationError)
     failures.push(...cause.cleanupFailures)
-  }
 }
 
 /**
@@ -358,9 +357,8 @@ async function executePostgresMigration(
       acquiredLocks.length > 0 &&
       !cancellation.cancelled &&
       !cancellation.sessionUncertain
-    ) {
+    )
       return releaseConfirmedLocks(options, cancellation, acquiredLocks, cleanupFailures)
-    }
   }
 
   try {
@@ -524,13 +522,14 @@ async function executeTransaction(
 
   if (program && !state.primary) assertLockedTargets(program, provisional, state)
 
-  if (program && !state.primary)
+  if (program && !state.primary) {
     state.primary = await executePreconditions(
       program,
       options,
       cancellation,
       cleanupFailures,
     )
+  }
 
   if (program)
     await executeProgramActions(program, state, options, cancellation, cleanupFailures)
@@ -552,7 +551,7 @@ function assertLockedTargets(
     (relation) => !locked.some((item) => compareRelations(item, relation) === 0),
   )
 
-  if (unlocked)
+  if (unlocked) {
     state.primary = {
       cause: new MigrationError({
         message:
@@ -563,6 +562,7 @@ function assertLockedTargets(
       }),
       stage: 'precondition',
     }
+  }
 }
 
 /** Runs final validation before committing, retaining failure and cleanup evidence. */
@@ -648,9 +648,8 @@ async function lockGuardedRelations(
     if (options.lockTimeoutMs !== 0)
       priorLockTimeout = await readLockTimeout(options, cancellation)
 
-    for (const relation of relations) {
+    for (const relation of relations)
       await lockGuardedRelation(relation, options, cancellation)
-    }
   } catch (cause) {
     state.primary = { cause, stage: cancellationStage(cause, 'lock') }
     retainCancellationFailures(cleanupFailures, cause)
@@ -738,14 +737,15 @@ async function lockGuardedRelation(
     Math.ceil((options.lockDeadline ?? performance.now()) - performance.now()),
   )
 
-  if (options.lockTimeoutMs !== 0 && remaining === 0)
+  if (options.lockTimeoutMs !== 0 && remaining === 0) {
     throw new PostgresMigrationLockTimeoutError(
       'Timed out acquiring migration relation locks',
       'lock',
       [],
     )
+  }
 
-  if (options.lockTimeoutMs !== 0)
+  if (options.lockTimeoutMs !== 0) {
     await runCancellable({
       runtime: options,
       state: cancellation,
@@ -756,6 +756,7 @@ async function lockGuardedRelation(
           { source: 'lifecycle' },
         ),
     })
+  }
 
   const schema = schemaFromNamespace(relation.namespace)
   const quote = (name: string) => `"${name.replaceAll('"', '""')}"`

@@ -100,9 +100,8 @@ function newTestSchema(): string {
  * @returns The connected administrative PostgreSQL client owned by the harness.
  */
 async function createAdminClient(): Promise<Client> {
-  if (!postgresUrl) {
+  if (!postgresUrl)
     throw new Error('POSTGRESQL_URL is required for PostgreSQL integration tests')
-  }
 
   const client = new Client({ connectionString: postgresUrl })
   await client.connect()
@@ -203,9 +202,8 @@ async function withPostgresDatabase<
   callback: (context: PostgresDatabaseContext<TSchemas>) => Promise<TResult>,
   options: PostgresDatabaseOptions = {},
 ): Promise<TResult> {
-  if (!postgresUrl) {
+  if (!postgresUrl)
     throw new Error('POSTGRESQL_URL is required for PostgreSQL integration tests')
-  }
 
   const schema = newTestSchema()
   const alternateSchema = newTestSchema()
@@ -302,9 +300,8 @@ function unwrapPostgresCallback<TResult>(
     throw callbackSettlement.reason
   }
 
-  if (cleanupErrors.length > 0) {
+  if (cleanupErrors.length > 0)
     throw new AggregateError(cleanupErrors, 'PostgreSQL test cleanup failed')
-  }
 
   return callbackSettlement.value
 }

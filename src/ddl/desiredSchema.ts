@@ -138,20 +138,19 @@ function registerDesiredSchema(
 
   const referencedColumns = tables.flatMap((table) =>
     [...table.columns]
-      .sort((left, right) =>
-        left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-      )
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
       .map((column) => ({ table, column })),
   )
 
   for (const { table, column } of referencedColumns) {
-    if (column.reference)
+    if (column.reference) {
       assertDesiredReference(
         table,
         column,
         registry.get(column.reference.targetRelation),
         identities,
       )
+    }
   }
 
   return Object.freeze({
@@ -176,20 +175,22 @@ function validateLazyReference(
     identities.equals(identities.resolve(handle.getTableMetadata().relation), relation),
   )
 
-  if (matches.length !== 1)
+  if (matches.length !== 1) {
     throw new MigrationError({
       message:
         matches.length === 0
           ? `Lazy reference targets unregistered relation ${identities.format(relation)}`
           : `Lazy reference targets ambiguous relation ${identities.format(relation)}`,
     })
+  }
 
   const registered = matches[0].getSchema().entries[reference.target.column]
 
-  if (registered !== selected)
+  if (registered !== selected) {
     throw new MigrationError({
       message: 'Lazy reference target column differs from the registered declaration',
     })
+  }
 
   const sourceFacts = extractStorageFacts(source)
   const targetFacts = extractStorageFacts(selected)
@@ -197,10 +198,11 @@ function validateLazyReference(
   if (
     sourceFacts.outputKind === undefined ||
     sourceFacts.outputKind !== targetFacts.outputKind
-  )
+  ) {
     throw new MigrationError({
       message: 'Lazy reference has incompatible local and target column types',
     })
+  }
 }
 
 /**
@@ -441,15 +443,17 @@ function resolveReferenceIdentifier(
     identities.equals(identities.resolve(handle.getTableMetadata().relation), relation),
   )
 
-  if (!target)
+  if (!target) {
     throw new MigrationError({
       message: `Reference targets unregistered relation ${identities.format(relation)}`,
     })
+  }
 
-  if (!Object.hasOwn(target.getSchema().entries, reference.target.column))
+  if (!Object.hasOwn(target.getSchema().entries, reference.target.column)) {
     throw new MigrationError({
       message: `Reference targets missing application column ${JSON.stringify(reference.target.column)}`,
     })
+  }
 
   return identities.member('column', physicalColumnName(target, reference.target.column))
 }

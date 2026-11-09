@@ -38,7 +38,7 @@ export function withOperationCleanupFailure(error: unknown, failure: unknown): u
 
   const primary = operationPrimaryFailure(error)
 
-  if (isErrorTag(primary, 'DriverError'))
+  if (isErrorTag(primary, 'DriverError')) {
     return new DriverError({
       message: primary.message,
       dialect: primary.dialect,
@@ -52,14 +52,16 @@ export function withOperationCleanupFailure(error: unknown, failure: unknown): u
       columns: primary.columns,
       cleanupFailures,
     })
+  }
 
   if (isErrorTag(primary, 'QueryError'))
     return new QueryError({ message: primary.message, cause: primary, cleanupFailures })
 
-  if (isErrorTag(primary, 'MigrationError'))
+  if (isErrorTag(primary, 'MigrationError')) {
     return enrichMigrationError(primary, {
       cleanupFailures: [{ stage: 'sessionCleanup', cause: failure }],
     })
+  }
 
   return new OperationCleanupError({
     message: 'Operation failed and session cleanup also failed',

@@ -34,23 +34,15 @@ function getActualLastToken(sourceCode, node) {
  *   classification.
  */
 function isIifeStatement(node) {
-  if (node.type !== 'ExpressionStatement') {
-    return false
-  }
+  if (node.type !== 'ExpressionStatement') return false
 
   let { expression } = node
 
-  if (expression.type === 'ChainExpression') {
-    expression = expression.expression
-  }
+  if (expression.type === 'ChainExpression') expression = expression.expression
 
-  if (expression.type === 'UnaryExpression') {
-    expression = expression.argument
-  }
+  if (expression.type === 'UnaryExpression') expression = expression.argument
 
-  if (expression.type === 'ChainExpression') {
-    expression = expression.expression
-  }
+  if (expression.type === 'ChainExpression') expression = expression.expression
 
   return (
     expression.type === 'CallExpression' &&
@@ -71,13 +63,9 @@ function isIifeStatement(node) {
  *   classification.
  */
 function isBlockLikeStatement(sourceCode, node) {
-  if (node.type === 'DoWhileStatement' && node.body.type === 'BlockStatement') {
-    return true
-  }
+  if (node.type === 'DoWhileStatement' && node.body.type === 'BlockStatement') return true
 
-  if (isIifeStatement(node)) {
-    return true
-  }
+  if (isIifeStatement(node)) return true
 
   let lastToken = getActualLastToken(sourceCode, node)
 
@@ -87,9 +75,7 @@ function isBlockLikeStatement(sourceCode, node) {
     )
   }
 
-  if (lastToken.value !== '}') {
-    return false
-  }
+  if (lastToken.value !== '}') return false
 
   const owner = sourceCode.getNodeByRangeIndex(lastToken.range[0])
   return owner?.type === 'BlockStatement' || owner?.type === 'SwitchStatement'
@@ -104,17 +90,12 @@ function isBlockLikeStatement(sourceCode, node) {
  *   classification.
  */
 function isCallExpression(expression) {
-  if (expression.type === 'CallExpression') {
-    return true
-  }
+  if (expression.type === 'CallExpression') return true
 
-  if (expression.type === 'AwaitExpression') {
-    return isCallExpression(expression.argument)
-  }
+  if (expression.type === 'AwaitExpression') return isCallExpression(expression.argument)
 
-  if (expression.type === 'ChainExpression') {
+  if (expression.type === 'ChainExpression')
     return isCallExpression(expression.expression)
-  }
 
   return false
 }
@@ -140,17 +121,11 @@ function isMultilineCallStatement(node) {
  * @returns {number} The number of calls in the expression chain.
  */
 function callChainDepth(expression) {
-  if (expression.type === 'ChainExpression') {
-    return callChainDepth(expression.expression)
-  }
+  if (expression.type === 'ChainExpression') return callChainDepth(expression.expression)
 
-  if (expression.type === 'CallExpression') {
-    return 1 + callChainDepth(expression.callee)
-  }
+  if (expression.type === 'CallExpression') return 1 + callChainDepth(expression.callee)
 
-  if (expression.type === 'MemberExpression') {
-    return callChainDepth(expression.object)
-  }
+  if (expression.type === 'MemberExpression') return callChainDepth(expression.object)
 
   return 0
 }
@@ -274,9 +249,8 @@ function addBindingNames(pattern, names) {
   }
 
   if (pattern.type === 'ArrayPattern') {
-    for (const element of pattern.elements.filter((element) => element !== null)) {
+    for (const element of pattern.elements.filter((element) => element !== null))
       addBindingNames(element, names)
-    }
 
     return
   }
@@ -302,17 +276,13 @@ function addBindingNames(pattern, names) {
  *   classification.
  */
 function containsBindingReference(value, names) {
-  if (value === null || typeof value !== 'object') {
-    return false
-  }
+  if (value === null || typeof value !== 'object') return false
 
-  if (Array.isArray(value)) {
+  if (Array.isArray(value))
     return value.some((item) => containsBindingReference(item, names))
-  }
 
-  if ('type' in value && value.type === 'Identifier' && 'name' in value) {
+  if ('type' in value && value.type === 'Identifier' && 'name' in value)
     return typeof value.name === 'string' && names.has(value.name)
-  }
 
   return Object.entries(value).some(
     ([key, child]) =>
@@ -335,18 +305,13 @@ function containsBindingReference(value, names) {
  *   classification.
  */
 function declarationFeedsBlock(previousNode, node) {
-  if (previousNode.type !== 'VariableDeclaration') {
-    return false
-  }
+  if (previousNode.type !== 'VariableDeclaration') return false
 
-  if (previousNode.loc.start.line !== previousNode.loc.end.line) {
-    return false
-  }
+  if (previousNode.loc.start.line !== previousNode.loc.end.line) return false
 
   const names = new Set(/** @type {string[]} */ ([]))
-  for (const declaration of previousNode.declarations) {
+  for (const declaration of previousNode.declarations)
     addBindingNames(declaration.id, names)
-  }
 
   return containsBindingReference(node, names)
 }
@@ -368,9 +333,8 @@ function declarationFeedsNode(sourceCode, previousNode, node) {
   if (
     previousNode.type !== 'VariableDeclaration' ||
     (previousNode.kind !== 'const' && previousNode.kind !== 'let')
-  ) {
+  )
     return false
-  }
 
   return sourceCode
     .getDeclaredVariables(previousNode)
@@ -405,21 +369,16 @@ function requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment
     isSingleLineIfStatement(previousNode) &&
     isSingleLineIfStatement(node)
 
-  if (consecutiveSingleLineIfs) {
-    return false
-  }
+  if (consecutiveSingleLineIfs) return false
 
   if (
     isPaddedMultilineStatement(sourceCode, previousNode) ||
     isMultilineConstDeclaration(previousNode) ||
     previousNode.type === 'IfStatement'
-  ) {
+  )
     return true
-  }
 
-  if (node.type === 'IfStatement') {
-    return true
-  }
+  if (node.type === 'IfStatement') return true
 
   const nodeIsMultilineBlock = isMultilineBlockStatement(sourceCode, node),
     nodeIsMultilineCall = isMultilineCallStatement(node),
@@ -449,9 +408,7 @@ function getTrailingAnchor(sourceCode, node) {
   let anchor = getActualLastToken(sourceCode, node)
 
   for (const comment of sourceCode.getCommentsAfter(node)) {
-    if (comment.loc.start.line !== anchor.loc.end.line) {
-      break
-    }
+    if (comment.loc.start.line !== anchor.loc.end.line) break
 
     anchor = comment
   }
@@ -483,9 +440,7 @@ function getAttachedLeadingComment(sourceCode, previousNode, node) {
   for (let index = comments.length - 1; index >= 0; index -= 1) {
     const comment = comments[index]
 
-    if (nextLine - comment.loc.end.line > 1) {
-      break
-    }
+    if (nextLine - comment.loc.end.line > 1) break
 
     firstAttached = comment
     nextLine = comment.loc.start.line
@@ -561,9 +516,8 @@ function checkStatementList(context, statements) {
       node = statements[index],
       leadingComment = getAttachedLeadingComment(sourceCode, previousNode, node)
 
-    if (!requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment)) {
+    if (!requiresBlankLineBetween(sourceCode, previousNode, node, leadingComment))
       continue
-    }
 
     const { anchor, target } = getStatementBoundary(
       sourceCode,
@@ -575,13 +529,9 @@ function checkStatementList(context, statements) {
     const between = source.slice(anchor.range[1], target.range[0])
 
     // A detached comment between the statements is its own visual group. Leave it alone.
-    if (!/^\s*$/u.test(between)) {
-      continue
-    }
+    if (!/^\s*$/u.test(between)) continue
 
-    if (target.loc.start.line - anchor.loc.end.line === 2) {
-      continue
-    }
+    if (target.loc.start.line - anchor.loc.end.line === 2) continue
 
     context.report({
       /** Produces source replacements that enforce the required statement separation. */

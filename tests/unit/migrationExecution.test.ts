@@ -377,9 +377,7 @@ describe('public migration coordination failures: discards after migration lock 
     const controls = createPostgresControllableProvider({
       /** Runs the configured synchronization or failure control before a fixture SQL call. */
       beforeCall: async (_session, sql) => {
-        if (/pg_try_advisory_lock\(/i.test(sql)) {
-          throw lockCause
-        }
+        if (/pg_try_advisory_lock\(/i.test(sql)) throw lockCause
       },
     })
 

@@ -97,15 +97,13 @@ function postgresSessionQueryRows(
   sql: string,
   options: PostgresControllableProviderOptions | undefined,
 ): unknown[] {
-  if (/current_database\(\)/i.test(sql)) {
+  if (/current_database\(\)/i.test(sql))
     return [{ database: 'coordinator_test', schema: 'public', version: '160000' }]
-  }
 
   if (/-- catalog:namespace/i.test(sql)) return [{ schema: 'public', owner: 'app' }]
 
-  if (/pg_advisory_unlock\(/i.test(sql)) {
+  if (/pg_advisory_unlock\(/i.test(sql))
     return [{ unlocked: options?.unlockResult ?? true }]
-  }
 
   if (/pg_try_advisory_lock\(/i.test(sql)) return [{ locked: true }]
 
@@ -220,9 +218,8 @@ async function executeNativeFixtureQuery(
   const values = typeof query === 'string' ? [] : query.values
   state.queryCalls.push({ text, values })
 
-  if (text === POSTGRES_OPERATION_IDENTITY_SQL) {
+  if (text === POSTGRES_OPERATION_IDENTITY_SQL)
     return fixtureNativeIdentity(state, options, processID)
-  }
 
   if (
     text === POSTGRES_OPERATION_ROLLBACK_SQL ||
@@ -274,9 +271,8 @@ function fixtureNativeIdentity(
 ) {
   state.identityReads++
 
-  if (state.identityReads === options?.identityFailureAt) {
+  if (state.identityReads === options?.identityFailureAt)
     throw new Error('identity evidence unavailable')
-  }
 
   return {
     rows: [

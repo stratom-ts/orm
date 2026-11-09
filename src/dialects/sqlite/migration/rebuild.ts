@@ -36,10 +36,11 @@ function applyColumn(definition: SqliteTableDefinition, step: MigrationStep): vo
   const name = step.target.column.spelling
   const column = definition.columns.find((candidate) => sameName(candidate.name, name))
 
-  if (!column)
+  if (!column) {
     throw capabilityError(
       `SQLite column ${quoteSqliteIdentifier(name)} has no observed definition`,
     )
+  }
 
   if (step.kind === 'alter_column_type') changeType(column, step.dataType)
   if (step.kind === 'set_not_null') column.notNull = true
@@ -53,7 +54,7 @@ function applyColumn(definition: SqliteTableDefinition, step: MigrationStep): vo
 
   if (step.kind === 'add_unique_constraint') definition.unique.push([name])
 
-  if (step.kind === 'add_foreign_key')
+  if (step.kind === 'add_foreign_key') {
     definition.foreignKeys.push({
       columns: [name],
       relation: step.references.relation,
@@ -61,6 +62,7 @@ function applyColumn(definition: SqliteTableDefinition, step: MigrationStep): vo
       onDelete: step.references.onDelete ?? 'no action',
       onUpdate: step.references.onUpdate ?? 'no action',
     })
+  }
 
   if (step.kind === 'drop_column') removeColumn(definition, name)
 }
@@ -77,10 +79,11 @@ function changeType(column: SqliteColumnDefinition, desired: string): void {
       to === 'blob' ||
       [from, to].every((type) => ['integer', 'numeric'].includes(type))
     )
-  )
+  ) {
     throw capabilityError(
       `Unproven lossless SQLite conversion from ${column.dataType} to ${desired}`,
     )
+  }
 
   column.dataType = assertSafeSqliteDataType(desired)
 }
@@ -96,10 +99,11 @@ function removeColumn(definition: SqliteTableDefinition, name: string): void {
   if (
     touches(definition.primaryKey) ||
     definition.indexes.some((index) => touches(index.columns))
-  )
+  ) {
     throw capabilityError(
       `SQLite dropped column ${quoteSqliteIdentifier(name)} has a retained key/index dependency`,
     )
+  }
 
   definition.columns = definition.columns.filter((column) => !sameName(column.name, name))
   definition.unique = definition.unique.filter((key) => !touches(key))
@@ -122,14 +126,17 @@ function finalDefinition(
   }
 
   for (const { step } of group.steps) {
-    if (step.kind === 'add_column') addColumn(definition, step, desired)
-    else if (step.kind === 'create_index') {
+    if (step.kind === 'add_column') {
+      addColumn(definition, step, desired)
+    } else if (step.kind === 'create_index') {
       definition.indexes.push({
         name: step.target.index.spelling,
         columns: step.columns.map((column) => column.spelling),
         unique: step.unique,
       })
-    } else applyColumn(definition, step)
+    } else {
+      applyColumn(definition, step)
+    }
   }
 
   return definition

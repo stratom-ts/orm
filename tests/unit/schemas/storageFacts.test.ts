@@ -225,11 +225,12 @@ it('should distinguish JSON shapes and outputs that lose identity through JSON',
 })
 
 it('should separate unconstrained output from unresolved transformations and known conversions', () => {
-  for (const schema of [unknown(), any()])
+  for (const schema of [unknown(), any()]) {
     expect(extractStorageFacts(schema)).toMatchObject({
       outputKind: undefined,
       outputState: 'unconstrained',
     })
+  }
 
   expect(
     extractStorageFacts(

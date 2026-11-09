@@ -26,9 +26,8 @@ function requireDatabaseNamespace(
   namespace: readonly NamespaceIdentifierInput[],
   description: string,
 ): void {
-  if (namespace.length !== 1 || namespace[0]?.role !== 'database') {
+  if (namespace.length !== 1 || namespace[0]?.role !== 'database')
     throw new InvariantError(`${description} must have ordered roles database`)
-  }
 }
 
 /** Canonical SQLite database-alias and relation identity semantics. */

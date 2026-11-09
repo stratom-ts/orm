@@ -105,13 +105,10 @@ function validateDialectIntegrationCapabilities(
       capabilities as Partial<Record<IntegrationCapabilityName, IntegrationCapability>>
     )[name]
 
-    if (!capability) {
-      throw new Error(`Integration capability declaration omits ${name}`)
-    }
+    if (!capability) throw new Error(`Integration capability declaration omits ${name}`)
 
-    if (capability.state === 'unsupported' && capability.reason.trim().length === 0) {
+    if (capability.state === 'unsupported' && capability.reason.trim().length === 0)
       throw new Error(`Integration capability ${name} needs a non-empty reason`)
-    }
   }
 }
 

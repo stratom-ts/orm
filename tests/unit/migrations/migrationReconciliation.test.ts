@@ -1131,9 +1131,8 @@ describe('ranked identifier failures', () => {
       [Accounts, Zeta],
       [Zeta, Accounts],
     ]) {
-      for (const tables of [catalog.tables, [...catalog.tables].reverse()]) {
+      for (const tables of [catalog.tables, [...catalog.tables].reverse()])
         expect(planningError(desired, { ...catalog, tables }).message).toBe(expected)
-      }
     }
   })
 })

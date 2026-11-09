@@ -49,12 +49,14 @@ function applyPostgresFixtureDdl(sql: string, tables: FixtureTable[]): void {
       (table) => table.schema === index[3] && table.name === index[4],
     )
 
-    if (table)
-      (table.indexes ??= []).push({
+    if (table) {
+      const indexes = (table.indexes ??= [])
+      indexes.push({
         name: index[2],
         columns: names(index[5]),
         unique: !!index[1],
       })
+    }
   }
 
   const dropTable = new RegExp(`^drop table ${qualified}`, 'i').exec(sql)
@@ -69,9 +71,10 @@ function applyPostgresFixtureDdl(sql: string, tables: FixtureTable[]): void {
 
   const dropIndex = new RegExp(`^drop index ${qualified}`, 'i').exec(sql)
 
-  if (dropIndex)
+  if (dropIndex) {
     for (const table of tables)
       table.indexes = table.indexes?.filter((index) => index.name !== dropIndex[2])
+  }
 }
 
 /** Reads the columns, primary key, and inline unique constraints of a create table. */
@@ -131,19 +134,22 @@ function applyAlter(sql: string, tables: FixtureTable[]): void {
 
     const unique = /^add constraint "([^"]+)" unique \(([^)]+)\)/i.exec(alter[3])
 
-    if (unique)
-      (table.uniqueConstraints ??= []).push({
+    if (unique) {
+      const constraints = (table.uniqueConstraints ??= [])
+      constraints.push({
         name: unique[1],
         columns: names(unique[2]),
       })
+    }
 
     const foreign = new RegExp(
       `^add constraint ${identifier} foreign key \\(([^)]+)\\) references ${qualified} \\(([^)]+)\\)(.*)$`,
       'i',
     ).exec(alter[3])
 
-    if (foreign)
-      (table.foreignKeys ??= []).push({
+    if (foreign) {
+      const keys = (table.foreignKeys ??= [])
+      keys.push({
         name: foreign[1],
         columns: names(foreign[2]),
         referencedSchema: foreign[3],
@@ -158,6 +164,7 @@ function applyAlter(sql: string, tables: FixtureTable[]): void {
             .exec(foreign[6])?.[1]
             ?.toLowerCase() ?? 'no action',
       })
+    }
 
     const drop = /^drop column "([^"]+)"/i.exec(alter[3])
 
@@ -191,12 +198,13 @@ function renameColumn(
   ])
     member.columns = rename(member.columns)
 
-  for (const key of tables.flatMap((other) => other.foreignKeys ?? []))
+  for (const key of tables.flatMap((other) => other.foreignKeys ?? [])) {
     if (
       (key.referencedSchema ?? 'public') === table.schema &&
       key.referencedTable === table.name
     )
       key.referencedColumns = rename(key.referencedColumns)
+  }
 }
 
 /** Returns catalog rows for tables created by controlled session tests. */
@@ -204,11 +212,12 @@ function postgresFixtureCatalogRows(
   sql: string,
   tables: FixtureTable[],
 ): unknown[] | undefined {
-  if (/-- catalog:namespace/i.test(sql) && tables.length)
+  if (/-- catalog:namespace/i.test(sql) && tables.length) {
     return [...new Set(tables.map((table) => table.schema))].map((schema) => ({
       schema,
       owner: 'app',
     }))
+  }
 
   if (/as relation_kind/i.test(sql)) return relationRows(tables)
 

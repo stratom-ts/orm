@@ -16,7 +16,6 @@ export function assertNonEmptyString(
   value: unknown,
   label: string,
 ): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== 'string' || value.length === 0)
     throw new SchemaError({ message: `${label} must be a non-empty string` })
-  }
 }

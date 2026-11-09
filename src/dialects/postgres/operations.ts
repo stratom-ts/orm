@@ -14,9 +14,8 @@ export function compilePostgresOperationCommand(
     command.kind === 'begin' &&
     command.isolationLevel === 'serializable' &&
     command.behavior === undefined
-  ) {
+  )
     return { sql: 'begin isolation level serializable', params: [] }
-  }
 
   return compileCommonOperationCommand(command)
 }

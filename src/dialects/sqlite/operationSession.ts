@@ -118,7 +118,7 @@ function rollbackNative(database: NativeDatabase, dialectId: string): void {
       !('code' in cause) ||
       cause.code !== 'ERR_SQLITE_ERROR' ||
       cause.message !== 'cannot rollback - no transaction is active'
-    )
+    ) {
       throw driverError(
         cause,
         dialectId,
@@ -126,6 +126,7 @@ function rollbackNative(database: NativeDatabase, dialectId: string): void {
         sqliteClassifyDriverError,
         'transaction rollback',
       )
+    }
   }
 
   assertCleanTransaction(database, dialectId)
@@ -165,9 +166,8 @@ function readIdentity(
     | { file?: unknown }
     | undefined
 
-  if (typeof main?.file !== 'string') {
+  if (typeof main?.file !== 'string')
     throw new QueryError({ message: 'SQLite did not identify its main database' })
-  }
 
   let physicalSession = nativeSessionIds.get(database)
 
@@ -283,15 +283,13 @@ async function verifyNative(
     (await connector.getInstance()) !== database ||
     owner.native !== database ||
     nativeOwners.get(database) !== owner
-  ) {
+  )
     throw new QueryError({ message: 'SQLite native session changed during operation' })
-  }
 
   nativeDatabase(database, dialectId, probeOperation)
 
-  if (!sameOperationSessionIdentity(readIdentity(database, dialectId), identity)) {
+  if (!sameOperationSessionIdentity(readIdentity(database, dialectId), identity))
     throw new QueryError({ message: 'SQLite session identity changed during operation' })
-  }
 }
 
 /** Disposes db0 resources and retains a failed call for close retry. */
@@ -567,10 +565,11 @@ async function claimNativeDatabase(
 
   const existingOwner = nativeOwners.get(database)
 
-  if (existingOwner && existingOwner !== owner)
+  if (existingOwner && existingOwner !== owner) {
     throw new QueryError({
       message: 'SQLite native session is owned by another connector',
     })
+  }
 
   if (owner.native && owner.native !== database)
     throw new QueryError({ message: 'SQLite native session changed during operation' })
@@ -592,10 +591,11 @@ async function openNativeLease(
 
   if (provider.closed) throw new QueryError({ message: 'SQLite provider is closed' })
 
-  if (owner.poisoned)
+  if (owner.poisoned) {
     throw new QueryError({
       message: 'SQLite provider requires successful close after failed disposal',
     })
+  }
 
   if (owner.leased) throw new QueryError({ message: 'SQLite session is already leased' })
 
@@ -687,11 +687,12 @@ export function createDb0NodeSqliteOperationSessionProvider(
     connector.dialect !== 'sqlite' ||
     typeof connector.getInstance !== 'function' ||
     typeof connector.dispose !== 'function'
-  )
+  ) {
     throw new QueryError({
       message:
         'Automatic SQLite operation sessions require db0 node-sqlite; provide an explicit operationSessionProvider for other connectors',
     })
+  }
 
   let owner = connectorStates.get(connector)
 

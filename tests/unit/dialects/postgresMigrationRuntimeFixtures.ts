@@ -31,9 +31,8 @@ function postgresMigrationProgram(
 function advisoryLockKey(params: readonly unknown[]): string {
   const [classId, lockId] = params
 
-  if (typeof classId !== 'number' || typeof lockId !== 'number') {
+  if (typeof classId !== 'number' || typeof lockId !== 'number')
     throw new TypeError('PostgreSQL advisory lock parameters must be numbers')
-  }
 
   return `${classId}:${lockId}`
 }
@@ -239,9 +238,8 @@ async function acquireFixtureLock(
 ) {
   if (options.lockGate !== undefined) await options.lockGate
 
-  if (options.lockDelayMs !== undefined) {
+  if (options.lockDelayMs !== undefined)
     await new Promise((resolve) => setTimeout(resolve, options.lockDelayMs))
-  }
 
   const configured = options.lockResults?.shift()
   const result =
@@ -385,9 +383,8 @@ async function waitForCoordinationEvent(
   events: () => (CoordinationContractEvent | undefined)[],
   event: CoordinationContractEvent,
 ): Promise<void> {
-  while (!events().includes(event)) {
+  while (!events().includes(event))
     await new Promise<void>((resolve) => setImmediate(resolve))
-  }
 }
 
 export { postgresMigrationProgram, createPostgresMigrationRuntime }

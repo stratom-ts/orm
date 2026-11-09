@@ -488,9 +488,8 @@ const registerMigrationRuntimeCases12 = () => {
     const controller = new AbortController()
     const pending = runtime.execute(program(), { signal: controller.signal })
 
-    while (!runtime.calls.some((sql) => /pg_advisory_unlock/i.test(sql))) {
+    while (!runtime.calls.some((sql) => /pg_advisory_unlock/i.test(sql)))
       await Promise.resolve()
-    }
 
     controller.abort()
     const error = await pending.catch((cause: unknown) => cause)

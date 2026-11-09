@@ -83,9 +83,7 @@ function lowerDesiredSchemaGraph<Context>(
 ): StorageDesiredSchema {
   const resolvedTypes = new Map<AuthoredDesiredColumn, string>()
 
-  for (const table of graph.tables) {
-    registerTable(table, resolvedTypes, context, hooks)
-  }
+  for (const table of graph.tables) registerTable(table, resolvedTypes, context, hooks)
 
   resolveReferenceTypes(graph, resolvedTypes, hooks)
 
@@ -120,9 +118,8 @@ function registerTable<Context>(
   }
 
   for (const column of orderedColumns(table)) {
-    if (column.reference === undefined) {
+    if (column.reference === undefined)
       resolvedTypes.set(column, hooks.lowerPhysicalType(column, context))
-    }
   }
 }
 

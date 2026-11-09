@@ -31,9 +31,8 @@ export const POSTGRES_IDENTITY_POLICY: CanonicalRelationIdentityPolicy = {
       )
     }
 
-    if (selected.length === 1 && selected[0]?.role === 'schema') {
+    if (selected.length === 1 && selected[0]?.role === 'schema')
       return [writableDefault[0], selected[0]]
-    }
 
     if (
       selected.length !== 2 ||

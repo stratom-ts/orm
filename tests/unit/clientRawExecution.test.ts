@@ -402,9 +402,8 @@ it('should start SQL immediately and leave fragments inert', async () => {
     expect(controls.calls.map(({ sql }) => sql)).toEqual(['select $1'])
     await pending
 
-    for (const parts of [[], [''], ['a\0b']]) {
+    for (const parts of [[], [''], ['a\0b']])
       expect(() => db.sql.id(...parts)).toThrow(QueryError)
-    }
   } finally {
     await db.close()
   }

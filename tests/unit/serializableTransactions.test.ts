@@ -52,9 +52,8 @@ it('should reject invalid options before running user work and leave the client 
     { behavior: 'immediate', isolationLevel: 'serializable' },
     { behavior: undefined, isolationLevel: undefined },
     { isolationLevel: 'serializable', mode: 'immediate' },
-  ]) {
+  ])
     await expect(db.transaction(callback, options as never)).rejects.toThrow(QueryError)
-  }
 
   expect(callback).not.toHaveBeenCalled()
   expect(connector.prepared).toEqual([])

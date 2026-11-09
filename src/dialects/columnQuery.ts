@@ -86,10 +86,11 @@ class ColumnQuery {
 
     if (!handle) return ref
 
-    if (!Object.hasOwn(handle.getSchema().entries, ref.column))
+    if (!Object.hasOwn(handle.getSchema().entries, ref.column)) {
       throw new QueryError({
         message: `Unknown application column ${JSON.stringify(ref.column)}`,
       })
+    }
 
     return { ...ref, column: physicalColumnName(handle, ref.column) }
   }
@@ -137,14 +138,15 @@ class ColumnQuery {
     if (pred.kind === 'exists')
       return { ...pred, query: this.statement(pred.query, undefined, true) as SelectAst }
 
-    if (pred.kind === 'inQuery')
+    if (pred.kind === 'inQuery') {
       return {
         ...pred,
         left: this.expression(pred.left, relation),
         query: this.statement(pred.query) as SelectAst,
       }
+    }
 
-    if (pred.kind === 'exprCmp')
+    if (pred.kind === 'exprCmp') {
       return {
         ...pred,
         left: this.expression(pred.left, relation),
@@ -153,6 +155,7 @@ class ColumnQuery {
             ? pred.right
             : this.expression(pred.right, relation),
       }
+    }
 
     return {
       ...this.column(pred, relation),

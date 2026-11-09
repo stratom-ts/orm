@@ -49,8 +49,9 @@ export const sqliteNaming = {
 export function validateSqliteObjectName(name: string, role: 'table' | 'index'): void {
   sqliteNaming.validate(name, `SQLite ${role} name`)
 
-  if (asciiFoldSqliteIdentifier(name).startsWith('sqlite_'))
+  if (asciiFoldSqliteIdentifier(name).startsWith('sqlite_')) {
     throw new SqliteReservedObjectNameError({
       message: `SQLite ${role} name ${JSON.stringify(name)} uses reserved prefix "sqlite_"`,
     })
+  }
 }

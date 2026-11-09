@@ -36,10 +36,11 @@ function resolveTarget(target: () => ReferenceTarget, column: string) {
 
   const authoredRelation: unknown = table.relation
 
-  if (typeof authoredRelation !== 'object' || authoredRelation === null)
+  if (typeof authoredRelation !== 'object' || authoredRelation === null) {
     throw new SchemaError({
       message: 'Lazy reference target is missing relation metadata',
     })
+  }
 
   const entries: unknown = schema.entries
 
@@ -47,10 +48,11 @@ function resolveTarget(target: () => ReferenceTarget, column: string) {
     typeof entries !== 'object' ||
     entries === null ||
     !Object.hasOwn(schema.entries, column)
-  )
+  ) {
     throw new SchemaError({
       message: `Lazy reference targets missing application column ${JSON.stringify(column)}`,
     })
+  }
 
   return { relation: authoredRelation as ReferenceMetadata['target']['relation'], schema }
 }
@@ -81,10 +83,11 @@ function createLazyReferenceMetadata(
 
       Object.freeze(snapshot)
 
-      if (pinned && !sameRelationInput(pinned.relation, snapshot))
+      if (pinned && !sameRelationInput(pinned.relation, snapshot)) {
         throw new SchemaError({
           message: 'Lazy reference target identity changed after resolution',
         })
+      }
 
       pinned ??= Object.freeze({ relation: snapshot, column })
       return Object.freeze({

@@ -34,9 +34,8 @@ function findSqliteQueryColumnMatches(
   handle: TableHandle,
   column: string,
 ): readonly string[] {
-  if (typeof column !== 'string') {
+  if (typeof column !== 'string')
     throw new QueryError({ message: 'SQLite application column must be a string' })
-  }
 
   return Object.keys(handle.getSchema().entries).filter(
     (candidate) => candidate === column,

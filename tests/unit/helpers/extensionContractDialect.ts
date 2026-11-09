@@ -231,9 +231,8 @@ function compileContractQuery(
   registered: readonly TableHandle[],
   registrationDefault?: readonly NamespaceIdentifierInput[],
 ): { sql: string; params: readonly unknown[] } {
-  if (node.kind !== 'select') {
+  if (node.kind !== 'select')
     throw new InvariantError('Extension contract compiler only supports select queries')
-  }
 
   validateContractSelectClauses(node)
 
@@ -244,9 +243,8 @@ function compileContractQuery(
     registrationDefault,
   )
 
-  if (relationMatches.length !== 1) {
+  if (relationMatches.length !== 1)
     throw new InvariantError('Extension contract compiler requires one resolved relation')
-  }
 
   const handle = relationMatches[0]
   const selection = compileContractSelection(
@@ -751,9 +749,8 @@ function sameNamespaceInput(
   const selected = resolve(left)
   const expected = resolve(right)
 
-  if (selected == null || expected == null) {
+  if (selected == null || expected == null)
     return selected === undefined && expected === undefined
-  }
 
   return sameNamespace(selected, expected)
 }
@@ -784,13 +781,11 @@ function profileIssues(
   const add = (message: string) =>
     issues.push({ code: 'profile_mismatch', message, sourceStepIndexes: [] })
 
-  if (planned.identityAdapter !== expected.identityAdapter) {
+  if (planned.identityAdapter !== expected.identityAdapter)
     add('Contract fixture identity adapter does not match the executing profile')
-  }
 
-  if (expected.identityAdapter !== identity.id) {
+  if (expected.identityAdapter !== identity.id)
     add('Executing identity adapter does not select the contract fixture')
-  }
 
   if (
     !sameNamespaceInput(
@@ -799,9 +794,8 @@ function profileIssues(
       planned.namespaceContext.writableDefault,
       expected.namespaceContext.writableDefault,
     )
-  ) {
+  )
     add('Contract fixture writable namespace context does not match')
-  }
 
   if (
     !sameNamespaceInput(
@@ -810,9 +804,8 @@ function profileIssues(
       planned.registrationDefault,
       expected.registrationDefault,
     )
-  ) {
+  )
     add('Contract fixture registration default does not match')
-  }
 
   return issues
 }
@@ -1098,13 +1091,11 @@ function decodeExtensionNamespaces(
 
     const namespace = identities.resolveNamespace(row.namespace)
 
-    if (!requestedNamespaces.some((requested) => sameNamespace(requested, namespace))) {
+    if (!requestedNamespaces.some((requested) => sameNamespace(requested, namespace)))
       continue
-    }
 
-    if (namespaces.some((candidate) => sameNamespace(candidate.identity, namespace))) {
+    if (namespaces.some((candidate) => sameNamespace(candidate.identity, namespace)))
       throw new InvariantError('Duplicate extension contract namespace row')
-    }
 
     namespaces.push({
       identity: namespace,
@@ -1292,9 +1283,8 @@ async function executeExtensionMigration(
   const program = await options.prepare()
   calls.events.push('migration.prepared')
 
-  for (const action of program.actions) {
+  for (const action of program.actions)
     for (const statement of action.statements) await options.executor.run(statement)
-  }
 
   const outcome = program.actions.length === 0 ? 'unchanged' : 'applied'
   calls.migrationOutcomes.push(outcome)

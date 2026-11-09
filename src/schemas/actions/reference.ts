@@ -156,9 +156,8 @@ function reference(
     ? tableInfo?.relation
     : tableMeta?.relation
 
-  if (targetRelation === undefined) {
+  if (targetRelation === undefined)
     throw new SchemaError({ message: 'reference target is missing relation metadata' })
-  }
 
   if (!Object.hasOwn(schema.entries, key)) {
     throw new SchemaError({

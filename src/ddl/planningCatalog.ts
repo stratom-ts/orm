@@ -439,13 +439,14 @@ function projectPlanningRelations(
         ? namespace.relations.items
         : requireComplete(namespace.relations, namespaceTarget)
 
-    for (const relation of relations)
+    for (const relation of relations) {
       appendPlanningRelation(
         relation,
         tables,
         forRelation(relation.identity),
         desiredTables,
       )
+    }
   }
 
   return tables

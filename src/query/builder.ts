@@ -133,15 +133,12 @@ function normalizeWhere(input: WhereInput): PredicateAst {
     return cmp(column, op, value)
   }
 
-  if (isPredicateAst(input)) {
-    return input
-  }
+  if (isPredicateAst(input)) return input
 
   const entries = Object.entries(input)
 
-  if (entries.length === 0) {
+  if (entries.length === 0)
     throw new QueryError({ message: 'where({}) requires at least one key' })
-  }
 
   const preds = entries.map(([column, value]) => cmp(column, 'eq', value))
   return preds.length === 1 ? preds[0] : and(...preds)
@@ -172,9 +169,8 @@ function mergeWhere(
  * @param columns - Columns requested by a returning clause.
  */
 function resolveReturningColumns(columns: readonly (ColumnRef | string)[]): string[] {
-  if (columns.length === 0) {
+  if (columns.length === 0)
     throw new QueryError({ message: 'returning(...) requires at least one column' })
-  }
 
   return columns.map((c) => columnName(c))
 }
@@ -217,13 +213,9 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
   if (typeof input === 'function') {
     const items = input(eb)
     selection = items.map((item): SelectItemAst => {
-      if (typeof item === 'string') {
-        return { kind: 'column', column: item }
-      }
+      if (typeof item === 'string') return { kind: 'column', column: item }
 
-      if ('kind' in item) {
-        return item
-      }
+      if ('kind' in item) return item
 
       if ('expr' in item && 'alias' in item) {
         return {
@@ -239,9 +231,8 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
     selection = input.map((c) => selectionColumn(c))
   }
 
-  if (selection.length === 0) {
+  if (selection.length === 0)
     throw new QueryError({ message: 'select(...) requires at least one item' })
-  }
 
   return selection
 }
@@ -446,9 +437,7 @@ async function executeQueryOperation<T>(
 function takeFirstOrThrow<T>(rows: T[], message: string): T {
   const row = rows[0]
 
-  if (row === undefined) {
-    throw new QueryError({ message })
-  }
+  if (row === undefined) throw new QueryError({ message })
 
   return row
 }
@@ -741,9 +730,7 @@ function resolveConflictUpdate<THandle extends TableHandle>(
   const insertable = new Set(Object.keys(buildInsertSchema(handle).entries))
 
   return Object.entries(cleaned).map(([column, value]) => {
-    if (!isExcludedRef(value)) {
-      return { column, value: { kind: 'value' as const, value } }
-    }
+    if (!isExcludedRef(value)) return { column, value: { kind: 'value' as const, value } }
 
     const source = value.column.column
     const ownedReference =
@@ -2284,11 +2271,9 @@ function createSelectFilters<THandle extends TableHandle>(
       if (args.length === 1) {
         const arg = args[0]
 
-        if (typeof arg === 'function') {
+        if (typeof arg === 'function')
           pred = (arg as (builder: ExpressionBuilder) => PredicateAst)(eb)
-        } else {
-          pred = normalizeWhere(arg as WhereInput)
-        }
+        else pred = normalizeWhere(arg as WhereInput)
       } else {
         pred = cmp(args[0] as ColumnRef | string, args[1] as ComparisonOp, args[2])
       }
@@ -2549,9 +2534,7 @@ function createWriteFilters(
      * @param args - Supported where arguments.
      */
     where(...args: unknown[]) {
-      if (args.length === 1) {
-        return withWhere(args[0] as WhereInput) as never
-      }
+      if (args.length === 1) return withWhere(args[0] as WhereInput) as never
 
       return withWhere(
         cmp(args[0] as ColumnRef | string, args[1] as ComparisonOp, args[2]),
@@ -2942,12 +2925,13 @@ class SelectPreparation {
     if (pred.kind === 'exists')
       return { kind: 'exists', query: this.inner(pred.query, false, available) }
 
-    if (pred.kind === 'inQuery')
+    if (pred.kind === 'inQuery') {
       return {
         kind: 'inQuery',
         left: this.expression(pred.left, available),
         query: this.inner(pred.query, true, available),
       }
+    }
 
     if (pred.kind === 'exprCmp') return this.comparison(pred, available)
 
@@ -2988,7 +2972,7 @@ class SelectPreparation {
    * @returns The item bound to resolved query scopes.
    */
   selectionItem(item: SelectItemAst): SelectItemAst {
-    if (item.kind === 'all')
+    if (item.kind === 'all') {
       return {
         ...item,
         ...(item.relation
@@ -3000,6 +2984,7 @@ class SelectPreparation {
             }
           : {}),
       }
+    }
 
     if (item.kind === 'column') return { ...item, ...this.column(item) }
 

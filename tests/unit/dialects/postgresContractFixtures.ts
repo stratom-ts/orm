@@ -1099,9 +1099,7 @@ function prepareLifecycleStatement(
             : [],
   )
 
-  if (!/^create table "contract_schema"\."lifecycle_records"/i.test(sql)) {
-    return statement
-  }
+  if (!/^create table "contract_schema"\."lifecycle_records"/i.test(sql)) return statement
 
   return {
     ...statement,
