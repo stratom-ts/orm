@@ -217,6 +217,24 @@ class MigrationError extends TaggedError('MigrationError')<{
   outcome?: MigrationExecutionOutcome
   retryable?: boolean
   actionIndex?: number
+  completedActions?: readonly Readonly<{
+    actionIndex: number
+    sourceStepIndexes: readonly number[]
+    target?: MigrationTarget
+  }>[]
+  rolledBackActions?: readonly Readonly<{
+    actionIndex: number
+    sourceStepIndexes: readonly number[]
+    target?: MigrationTarget
+  }>[]
+  recovery?: Readonly<{
+    target: Extract<MigrationTarget, { kind: 'index' }>
+    operation: 'create' | 'drop'
+    status: 'possibleResidue' | 'unknown'
+    observedValidity?: 'valid' | 'invalid' | 'absent'
+    requires: 'inspectAndReplan'
+    repairPermission: 'repairInvalidIndex'
+  }>
   sourceStepIndexes?: readonly number[]
   capabilityIssues?: readonly MigrationCapabilityIssue[]
   cleanupFailures?: readonly MigrationCleanupFailure[]

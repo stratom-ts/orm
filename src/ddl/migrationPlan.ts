@@ -1666,7 +1666,11 @@ function registerCatalogIndexes(input: CatalogIndexRegistration) {
 
     indexes.set(key, liveIndex)
 
-    if (shape === 'complete' && !hasSupportedCatalogSemantics(liveIndex)) {
+    if (
+      shape === 'complete' &&
+      !hasSupportedCatalogSemantics(liveIndex) &&
+      !isRepairableIndex(liveIndex)
+    ) {
       unsupportedNames.add(key)
 
       issues.push({
@@ -1732,6 +1736,27 @@ function reconcileIndexes({
   )
 }
 
+/** Unmatched invalid objects remain guarded; names alone never prove ownership. */
+function rejectUnclaimedInvalidIndexes(
+  live: CatalogTable,
+  claimed: Set<string>,
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  issues: PlanningIssue[],
+): void {
+  for (const index of live.indexes) {
+    const key = identities.member('index', index.name).comparisonKey
+
+    if (isRepairableIndex(index) && !claimed.has(key))
+      issues.push({
+        identity,
+        target: key,
+        property: 'unsupported_catalog_semantics',
+        message: `Unmatched invalid index ${identities.format(identity, { role: 'index', spelling: index.name })} requires inspection`,
+      })
+  }
+}
+
 /**
  * Drops unclaimed indexes only when complete ownership permits their removal.
  *
@@ -1757,6 +1782,8 @@ function reconcileUnclaimedIndexes(
   relationStepStart: number,
   issues: PlanningIssue[],
 ) {
+  rejectUnclaimedInvalidIndexes(live, claimedLiveIndexNames, identities, identity, issues)
+
   if (shape === 'complete') {
     const unclaimedIndexes = live.indexes.filter(
       (liveIndex) =>
@@ -2978,6 +3005,26 @@ function reconcileDesiredIndex(input: DesiredIndexReconciliation): void {
   claimedLiveIndexNames.add(currentKey)
 
   collectIndexDefinitionIssues({ ...input, current, currentKey })
+
+  if (
+    isRepairableIndex(current) &&
+    current.unique === index.unique &&
+    arraysEqual(
+      memberKeys('column', current.columns, identities),
+      index.columns.map((column) => column.comparisonKey),
+    )
+  )
+    steps.push({
+      kind: 'create_index',
+      target: indexTarget(identity, current.name, identities),
+      columns: index.columns,
+      unique: index.unique,
+    })
+}
+
+/** An invalid index needs supported, known semantics before planning can propose recovery. */
+function isRepairableIndex(index: CatalogIndex): boolean {
+  return index.semanticCompleteness === 'supportedSimple' && index.isInvalid === true
 }
 
 /**
@@ -2998,6 +3045,7 @@ function collectIndexDefinitionIssues(input: IndexDefinitionValidation) {
 
   if (
     !hasSupportedCatalogSemantics(current) &&
+    !isRepairableIndex(current) &&
     !unsupportedLiveIndexNames.has(currentKey)
   ) {
     unsupportedLiveIndexNames.add(currentKey)
@@ -3014,7 +3062,7 @@ function collectIndexDefinitionIssues(input: IndexDefinitionValidation) {
   }
 
   if (
-    hasSupportedCatalogSemantics(current) &&
+    (hasSupportedCatalogSemantics(current) || isRepairableIndex(current)) &&
     (current.unique !== index.unique ||
       !arraysEqual(
         memberKeys('column', current.columns, identities),

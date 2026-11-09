@@ -1946,3 +1946,22 @@ it.each([false, true])(
     }
   },
 )
+
+it('should reject concurrent mode on SQLite even for an empty program while semantic planning is unchanged', async () => {
+  await withSqliteDatabase([], async ({ db, native }) => {
+    const attempts = trackNativeMutations(native)
+    const migration = db.migrate().concurrentIndexes().allowPartialApplication()
+    await expect(migration.plan()).resolves.toEqual({ steps: [] })
+
+    await expect(migration.dryRun()).rejects.toThrow(
+      'SQLite does not support concurrent index execution',
+    )
+
+    await expect(migration.execute()).rejects.toMatchObject({
+      stage: 'lowering',
+      outcome: 'unchanged',
+    })
+
+    expect(attempts).toEqual([])
+  })
+})

@@ -6,6 +6,8 @@ import {
 } from '@/migrations/migrationDiagnostics'
 import { MigrationError } from '@/utils/error'
 
+import { indexTarget } from '../helpers/planTargets'
+
 const executionFacts = {
   stage: 'ddl' as const,
   outcome: 'rolledBack' as const,
@@ -353,4 +355,53 @@ it('should retain expected migration diagnostics from another package copy', asy
   expect(result.sourceStepIndexes).toEqual([3])
   expect(result.capabilityIssues).toBe(foreign.capabilityIssues)
   expect(result.retryable).toBe(true)
+})
+
+it('should preserve concurrent recovery and acknowledged progress through enrichment and JSON', () => {
+  const target = indexTarget('public', 'events', 'events_payload_idx')
+  const cause = Object.freeze(new Error('lost command acknowledgment'))
+  const original = new MigrationError({
+    message: 'unknown',
+    cause,
+    defect: true,
+    outcome: 'unknown',
+    completedActions: [{ actionIndex: 0, sourceStepIndexes: [2], target }],
+    rolledBackActions: [],
+    recovery: {
+      target,
+      operation: 'create',
+      status: 'unknown',
+      requires: 'inspectAndReplan',
+      repairPermission: 'repairInvalidIndex',
+    },
+  })
+
+  const enriched = enrichMigrationError(original, {
+    cleanupFailures: [{ stage: 'unlock', cause: new Error('unlock failed') }],
+  })
+
+  const result = migrationExecutionError(enriched, {
+    ...executionFacts,
+    outcome: 'unknown',
+    retryable: true,
+  })
+
+  expect(result.cause).toBe(cause)
+  expect(result.cause).toHaveProperty('stack', cause.stack)
+
+  expect(result).toMatchObject({
+    outcome: 'unknown',
+    defect: true,
+    retryable: false,
+    completedActions: original.completedActions,
+    recovery: original.recovery,
+  })
+
+  const serialized: unknown = JSON.parse(JSON.stringify(result))
+  expect(serialized).toMatchObject({
+    completedActions: original.completedActions,
+    recovery: original.recovery,
+    cause: { stack: cause.stack },
+    cleanupFailures: [{ stage: 'unlock' }],
+  })
 })

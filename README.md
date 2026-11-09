@@ -1078,6 +1078,32 @@ Default column guards may scan tables and hold locks that block application read
 writes. Previews require runtime condition checks; their SQL cannot be run as an
 unconditional standalone migration script.
 
+### Concurrent PostgreSQL indexes
+
+```typescript
+const migration = db.migrate().concurrentIndexes().allowPartialApplication()
+await migration.dryRun()
+await migration.execute({ statementTimeoutMs: 3_600_000 })
+```
+
+This execution policy uses concurrent creation and removal for supported standalone
+indexes on existing PostgreSQL tables, including unique indexes. New-table indexes
+remain with their table's creation transaction. Unique constraints remain transactional.
+The semantic Migration Plan and schema metadata do not change with this policy.
+
+Any transaction-forbidden action requires `allowPartialApplication()` before writes,
+even if it is the only action. Earlier phases can remain committed after failure.
+Selecting consent alone keeps ordinary migrations atomic. Ordinary index removal still
+requires `dropIndex` permission. Invalid-index recovery needs
+`migration.allowFor(indexTarget, 'repairInvalidIndex')`; neither `dropIndex` nor
+`policy('sync')` grants recovery permission. Global repair grants are rejected.
+
+Preview includes transaction boundaries, repair steps, structured targets and provenance.
+Execution stops at the first failure. Inspect its committed progress and recovery
+evidence, then invoke migration again to observe and plan from the current catalog.
+See [concurrent index execution and recovery](docs/concurrent-indexes.md) for timeout,
+session, capability, and failure contracts.
+
 ### Errors
 
 | Origin                        | Tags                                                             | Who acts                                                                  |

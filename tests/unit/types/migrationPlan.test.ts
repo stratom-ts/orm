@@ -139,6 +139,8 @@ describe('public Migration Plan types: keeps the preview grouped and non-executa
 
     expectTypeOf<MigrationDryRunAction>().toEqualTypeOf<
       Readonly<{
+        target?: MigrationTarget
+        repair?: 'drop' | 'create'
         sourceStepIndexes: readonly number[]
         transaction: 'required' | 'allowed' | 'forbidden'
         statements: readonly MigrationDryRunStatement[]

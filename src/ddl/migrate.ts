@@ -2,6 +2,7 @@ import type {
   DialectMigrationAdapter,
   MigrationLoweringPolicy,
   MigrationProgram,
+  MigrationRuntimeSuccess,
 } from '@/ddl/migrationProgram'
 import { migrationTargetsEqual } from '@/ddl/migrationProgram'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
@@ -40,7 +41,7 @@ type TargetGrant = Readonly<{
   operations: ReadonlySet<MigrationTargetAllow>
 }>
 
-/** Optional cancellation and finite coordination deadline for migration execution. */
+/** Cancellation, coordination deadline, and optional concurrent statement timeout. */
 type MigrationExecuteOptions = Readonly<{
   signal?: AbortSignal
   lockTimeoutMs?: number
@@ -60,6 +61,8 @@ type MigrationDryRunStatement = Readonly<{
 
 /** Non-executable physical action projected from dialect whole-plan lowering. */
 type MigrationDryRunAction = Readonly<{
+  target?: MigrationTarget
+  repair?: 'drop' | 'create'
   sourceStepIndexes: readonly number[]
   transaction: 'required' | 'allowed' | 'forbidden'
   statements: readonly MigrationDryRunStatement[]
@@ -67,6 +70,7 @@ type MigrationDryRunAction = Readonly<{
 
 /** Ordered, non-executable physical preview of a complete Migration Plan. */
 type MigrationDryRun = Readonly<{
+  phases?: MigrationProgram['phases']
   atomicity: 'plan-atomic' | 'statement-atomic' | 'non-atomic'
   preconditions: MigrationProgram['preconditions']
   actions: readonly MigrationDryRunAction[]
@@ -339,13 +343,8 @@ function loweringPolicy(
     )
     .map((grant) => grant.target as Extract<MigrationTarget, { kind: 'column' }>)
 
-  const repairTargets = grants
-    .filter((grant) => grant.operations.has('repairInvalidIndex'))
-    .map((grant) => grant.target as Extract<MigrationTarget, { kind: 'index' }>)
-
   return {
     ...(options.concurrentIndexes ? { concurrentIndexes: true } : {}),
-    ...(repairTargets.length ? { repairInvalidIndexTargets: repairTargets } : {}),
     columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
     ...(dangerousTargets.length ? { dangerousColumnDropTargets: dangerousTargets } : {}),
   }
@@ -387,6 +386,14 @@ function lowerPlan(
 function dryRunProgram(program: MigrationProgram): MigrationDryRun {
   return {
     atomicity: program.atomicity,
+    ...(program.phases
+      ? {
+          phases: program.phases.map((phase) => ({
+            ...phase,
+            actionIndexes: [...phase.actionIndexes],
+          })),
+        }
+      : {}),
     preconditions: program.preconditions.map((precondition) => ({
       ...precondition,
       sourceStepIndexes: [...precondition.sourceStepIndexes],
@@ -415,6 +422,8 @@ function dryRunProgram(program: MigrationProgram): MigrationDryRun {
           }),
     })),
     actions: program.actions.map((action) => ({
+      ...(action.target ? { target: snapshotTarget(action.target) } : {}),
+      ...(action.repair ? { repair: action.repair } : {}),
       sourceStepIndexes: [...action.sourceStepIndexes],
       transaction: action.transaction,
       statements: action.statements.map((statement) => ({
@@ -551,6 +560,26 @@ async function preparePermittedMigration(
     grants,
     profile,
   )
+
+  for (const action of program.actions) {
+    if (
+      action.repair &&
+      !grants.some(
+        (grant) =>
+          grant.operations.has('repairInvalidIndex') &&
+          action.target !== undefined &&
+          migrationTargetsEqual(grant.target, action.target),
+      )
+    )
+      throw new MigrationError({
+        message:
+          "Invalid index recovery requires allowFor(exactIndexTarget, 'repairInvalidIndex')",
+        stage: 'permission',
+        outcome: 'unchanged',
+        retryable: false,
+        sourceStepIndexes: action.sourceStepIndexes,
+      })
+  }
 
   if (
     program.actions.some((action) => action.transaction === 'forbidden') &&
@@ -737,7 +766,7 @@ async function executeMigration(
   assertMigrationPermission(assertCanExecute)
 
   const runtime = {
-    success: undefined as { outcome: 'applied' | 'unchanged' } | undefined,
+    success: undefined as MigrationRuntimeSuccess | undefined,
   }
 
   try {
@@ -826,7 +855,7 @@ async function validateMigrationConvergence(
  */
 function throwExecutionCleanup(
   cause: unknown,
-  success: { outcome: 'applied' | 'unchanged' } | undefined,
+  success: MigrationRuntimeSuccess | undefined,
 ): never {
   if (isErrorTag(cause, 'MigrationError')) throw cause
 
@@ -847,6 +876,7 @@ function throwExecutionCleanup(
       ...(isDefect(cause) ? { defect: true as const } : {}),
       stage: 'sessionCleanup',
       outcome: success.outcome,
+      ...(success.completedActions ? { completedActions: success.completedActions } : {}),
       retryable: false,
       cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
     })

@@ -2,6 +2,7 @@ import type { CatalogIntrospector } from '@/dialects/catalog'
 import type { CompiledQuery } from '@/dialects/types'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import type { Executor } from '@/query'
+import type { MigrationError } from '@/utils/error'
 
 import type {
   MigrationPlanningContext,
@@ -59,10 +60,9 @@ export type MigrationPrecondition =
       sourceStepIndexes: readonly number[]
     }>
 
-/** Policy for lowering destructive column drops. */
+/** Run-level physical policy, separate from semantic schema intent. */
 export type MigrationLoweringPolicy = Readonly<{
   concurrentIndexes?: boolean
-  repairInvalidIndexTargets?: readonly Extract<MigrationTarget, { kind: 'index' }>[]
   columnDrop: 'guarded' | 'dangerous'
   dangerousColumnDropTargets?: readonly Extract<MigrationTarget, { kind: 'column' }>[]
 }>
@@ -113,17 +113,42 @@ export function isDangerousColumnDrop(
 
 /** One executable physical action with canonical semantic provenance. */
 export type MigrationAction = Readonly<{
+  target?: MigrationTarget
+  repair?: 'drop' | 'create'
   sourceStepIndexes: readonly number[]
   transaction: MigrationActionTransaction
   statements: readonly [CompiledQuery, ...CompiledQuery[]]
 }>
 
 /** Fully compiled, dialect-owned executable representation of a Migration Plan. */
+export type MigrationPhase = Readonly<{
+  transaction: 'required' | 'forbidden'
+  actionIndexes: readonly number[]
+}>
+
 export type MigrationProgram = Readonly<{
+  phases?: readonly MigrationPhase[]
   atomicity: MigrationAtomicity
   preconditions: readonly MigrationPrecondition[]
   actions: readonly MigrationAction[]
 }>
+
+/** Groups adjacent transactional actions without moving actions across dependencies. */
+export function migrationProgramPhases(
+  actions: readonly MigrationAction[],
+): MigrationPhase[] {
+  const phases: { transaction: 'required' | 'forbidden'; actionIndexes: number[] }[] = []
+  for (const [index, action] of actions.entries()) {
+    const transaction = action.transaction === 'forbidden' ? 'forbidden' : 'required'
+    const previous = phases.at(-1)
+
+    if (transaction === 'required' && previous?.transaction === 'required')
+      previous.actionIndexes.push(index)
+    else phases.push({ transaction, actionIndexes: [index] })
+  }
+
+  return phases
+}
 
 /** Known reason a complete plan cannot be lowered by a dialect. */
 export type MigrationCapabilityCode =
@@ -163,18 +188,19 @@ export type MigrationRuntimeOptions = Readonly<{
   cancel(): Promise<void>
 
   /**
-   * Read-only, repeatable preparation; PostgreSQL calls this before and inside its
-   * transaction.
+   * Read-only, repeatable preparation; PostgreSQL calls this before writes and at
+   * physical phase boundaries, including authoritative transactional snapshots.
    */
   prepare(): Promise<MigrationProgram>
 
-  /** Verifies desired-state convergence inside the transaction before commit. */
+  /** Verifies final convergence, before atomic commit or after mixed committed phases. */
   validate?(): Promise<void>
 }>
 
 /** Effect acknowledged by a dialect migration runtime after successful cleanup. */
 export type MigrationRuntimeSuccess = Readonly<{
   outcome: 'applied' | 'unchanged'
+  completedActions?: MigrationError['completedActions']
 }>
 
 /**

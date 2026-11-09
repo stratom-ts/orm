@@ -6,7 +6,7 @@ import type {
   MigrationLoweringResult,
   MigrationPrecondition,
 } from '@/ddl/migrationProgram'
-import { isDangerousColumnDrop } from '@/ddl/migrationProgram'
+import { isDangerousColumnDrop, migrationProgramPhases } from '@/ddl/migrationProgram'
 import { originalColumnName } from '@/ddl/renameColumn'
 import type {
   CanonicalIdentifier,
@@ -18,6 +18,7 @@ import { attemptSync, isErrorTag } from '@/utils/error'
 
 import { postgresIdentity } from '../identity'
 
+import { concurrentActions, isConcurrentIndex } from './concurrent'
 import type { ActionDraft } from './orderActions'
 import { orderActions } from './orderActions'
 import { compilePostgresDdl } from './sql'
@@ -202,18 +203,6 @@ function lowerPostgresMigrationPlan(
   expectedProfile: MigrationSemanticProfile,
   policy: MigrationLoweringPolicy = { columnDrop: 'guarded' },
 ): MigrationLoweringResult {
-  if (policy.concurrentIndexes)
-    return {
-      issues: [
-        {
-          code: 'invalid_target',
-          message:
-            'Concurrent index execution is not supported by this migration runtime',
-          sourceStepIndexes: [],
-        },
-      ],
-    }
-
   const issues = profileIssues(planned, expectedProfile)
 
   if (issues.length > 0) {
@@ -227,21 +216,27 @@ function lowerPostgresMigrationPlan(
 
   compileMigrationSteps(planned, expectedDatabase, issues, drafts, preconditions, policy)
 
-  const ordered = orderActions(drafts, planned)
+  const ordered = orderActions(drafts, planned, (draft) =>
+    isConcurrentIndex(draft, planned, policy),
+  )
+
   issues.push(...ordered.issues)
   issues.sort(compareCapabilityIssues)
 
   if (issues.length > 0) return { issues }
 
-  const actions: MigrationAction[] = ordered.ordered.map((draft) => ({
-    sourceStepIndexes: [draft.sourceStepIndex],
-    transaction: 'required',
-    statements: [draft.statement],
-  }))
+  const actions: MigrationAction[] = ordered.ordered.flatMap((draft) =>
+    concurrentActions(draft, planned, policy, issues),
+  )
+
+  if (issues.length) return { issues: issues.sort(compareCapabilityIssues) }
+
+  const mixed = actions.some((action) => action.transaction === 'forbidden')
 
   return {
     program: {
-      atomicity: 'plan-atomic',
+      atomicity: mixed ? 'non-atomic' : 'plan-atomic',
+      ...(mixed ? { phases: migrationProgramPhases(actions) } : {}),
       preconditions,
       actions,
     },

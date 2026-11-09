@@ -157,7 +157,7 @@ const additiveOwnership = [
 ]
 
 describe('catalog semantic adoption', () => {
-  it('should fail closed for partial and invalid indexes', () => {
+  it('should reject unsupported semantics and plan creation for known invalid matches', () => {
     expect(() =>
       planMigration(
         [IndexedEvents],
@@ -169,16 +169,13 @@ describe('catalog semantic adoption', () => {
       ),
     ).toThrow(/unsupported index catalog semantics/i)
 
-    expect(() =>
+    expect(
       planMigration(
         [IndexedEvents],
-        indexedCatalog({
-          semanticCompleteness: 'supportedSimple',
-          isValid: false,
-        }),
+        indexedCatalog({ semanticCompleteness: 'supportedSimple', isValid: false }),
         postgresDialect,
-      ),
-    ).toThrow(/unsupported index catalog semantics/i)
+      ).steps,
+    ).toEqual([expect.objectContaining({ kind: 'create_index' })])
   })
 })
 
@@ -340,4 +337,48 @@ describe('catalog semantic adoption: reserves check and exclusion constraint nam
       }),
     ).toThrow(/physical name collision/i)
   })
+})
+
+it('should keep unrelated invalid indexes guarded instead of inferring ownership from a name', () => {
+  expect(() =>
+    planMigration(
+      [IndexedEvents],
+      indexedCatalog({ isValid: false, columns: ['id'] }),
+      postgresDialect,
+    ),
+  ).toThrow(/unmatched invalid index/i)
+})
+
+it('should reject conflicting definitions even when an authored index name matches invalid storage', () => {
+  const Explicit = defineTable(
+    'indexed_events',
+    {
+      id: pipe(string(), column({ physicalType: { postgresql: 'uuid' } })),
+      payload: string(),
+    },
+    { primaryKey: 'id', indexes: [{ name: 'legacy_payload_idx', columns: ['payload'] }] },
+  )
+
+  expect(() =>
+    planMigration(
+      [Explicit],
+      indexedCatalog({ isValid: false, columns: ['id'] }),
+      postgresDialect,
+    ),
+  ).toThrow(/index definition change/i)
+})
+
+it('should reject ambiguous invalid semantic matches', () => {
+  const catalog = indexedCatalog({ isValid: false })
+  catalog.tables[0].indexes?.push({
+    name: 'second_invalid',
+    columns: ['payload'],
+    unique: false,
+    ...supportedSimple,
+    isValid: false,
+  })
+
+  expect(() => planMigration([IndexedEvents], catalog, postgresDialect)).toThrow(
+    /ambiguous index semantic match/i,
+  )
 })

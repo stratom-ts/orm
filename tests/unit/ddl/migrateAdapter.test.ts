@@ -715,9 +715,16 @@ describe('migration execution policy contracts', () => {
 
     await expect(builder.plan()).resolves.toEqual({ steps: [] })
 
-    await expect(builder.dryRun()).rejects.toMatchObject({
-      stage: 'lowering',
-      outcome: 'unchanged',
+    await expect(builder.dryRun()).resolves.toMatchObject({
+      atomicity: 'plan-atomic',
+      actions: [],
+    })
+
+    expect(member.lower.mock.calls[0][2]).toEqual({ columnDrop: 'guarded' })
+
+    expect(member.lower.mock.calls[1][2]).toEqual({
+      columnDrop: 'guarded',
+      concurrentIndexes: true,
     })
   })
 })

@@ -148,11 +148,12 @@ function compileCreateIndex(node: {
   name: string
   columns: readonly string[]
   unique: boolean
+  concurrently?: boolean
 }): string {
   const tableSql = qualifyPostgresTable(node.schema, node.table)
   const unique = node.unique ? 'unique ' : ''
   const cols = node.columns.map((c) => quoteIdentifier(c)).join(', ')
-  return `create ${unique}index ${quoteIdentifier(node.name)} on ${tableSql} (${cols})`
+  return `create ${unique}index ${node.concurrently ? 'concurrently ' : ''}${quoteIdentifier(node.name)} on ${tableSql} (${cols})`
 }
 
 /**
@@ -266,7 +267,7 @@ function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
     }
     case 'drop_index': {
       return {
-        sql: `drop index ${quoteIdentifier(node.schema)}.${quoteIdentifier(node.index)}`,
+        sql: `drop index ${node.concurrently ? 'concurrently ' : ''}${quoteIdentifier(node.schema)}.${quoteIdentifier(node.index)}`,
         params: [],
       }
     }

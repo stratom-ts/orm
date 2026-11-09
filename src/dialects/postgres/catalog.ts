@@ -135,7 +135,7 @@ const POSTGRES_INDEX_CATALOG_SQL = `
       where n.nspname not in ('pg_catalog', 'information_schema')
         and n.nspname = any($1::text[])
         and tbl.relkind in ('r', 'p') and not i.indisprimary
-        and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
+        and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid and con.conrelid = i.indrelid and con.contype in ('p', 'u', 'x'))
       order by n.nspname, tbl.relname, idx.relname
     `
 

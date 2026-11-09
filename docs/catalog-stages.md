@@ -53,6 +53,17 @@ Malformed returned PostgreSQL context or catalog rows are `InvariantError` defec
 Executor failures keep their original error path. In particular, a failed query is not
 recast as unavailable catalog capability evidence.
 
+### Invalid index recovery evidence
+
+Index validity and semantic fidelity remain separate facts. Planning records explicitly
+invalid supported indexes separately from unknown validity. An unambiguous desired
+match produces creation intent without satisfying desired state, independent of physical
+policy or grants. The original snapshot remains private lowering evidence for a possible
+repair. Opaque, conflicting, unrelated or ambiguous indexes stay guarded. PostgreSQL
+lowering checks ordinary table kind, persistence, standalone origin and supported index
+semantics before permitting concurrent operations. See
+[ADR 0004](adr/0004-concurrent-index-execution.md).
+
 ## SQLite
 
 The entry point is private `introspectSqliteCatalog()` in

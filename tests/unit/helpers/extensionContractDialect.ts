@@ -833,7 +833,6 @@ function createExtensionContractDialect(
   const naming = createNaming(calls)
   const catalog = createCatalog(calls, identity)
   const schema = createExtensionSchemaFacet(calls)
-  const query = createContractQueryFacet(calls)
 
   return {
     id: EXTENSION_CONTRACT_DIALECT_ID,
@@ -841,7 +840,7 @@ function createExtensionContractDialect(
     identity,
     naming,
     schema,
-    query,
+    query: createContractQueryFacet(calls),
     catalog,
     operations: {
       /** Creates the connector's provider for exclusive native operation sessions. */
@@ -863,8 +862,15 @@ function createExtensionContractDialect(
       planning: { identity, naming, schema },
       catalog,
       /** Lowers for the current fixture scenario. */
-      lower: (planned, expectedProfile) =>
-        lowerExtensionMigration(planned, expectedProfile, calls, identity, options),
+      lower: (planned, expectedProfile, policy) =>
+        lowerExtensionMigration(
+          planned,
+          expectedProfile,
+          calls,
+          identity,
+          options,
+          policy,
+        ),
       /** Executes fixture SQL with the configured native observations. */
       execute: (options) => executeExtensionMigration(options, calls),
     },
@@ -1247,7 +1253,19 @@ function lowerExtensionMigration(
     }): CanonicalRelationIdentityModule
   },
   options: Readonly<{ migration?: 'supported' | 'unsupported' }> | undefined,
+  policy: Parameters<Dialect['migration']['lower']>[2],
 ): ReturnType<Dialect['migration']['lower']> {
+  if (policy?.concurrentIndexes)
+    return {
+      issues: [
+        {
+          code: 'invalid_target',
+          message: 'The extension fixture does not support concurrent index execution',
+          sourceStepIndexes: [],
+        },
+      ],
+    }
+
   calls.events.push('migration.lower')
   const mismatches = profileIssues(identity, planned.profile, expectedProfile)
 
