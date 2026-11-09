@@ -328,9 +328,8 @@ function dependencyCycles(dependencies: readonly Set<number>[]): number[][] {
       if (indexes[dependency] === undefined) {
         visit(dependency)
         lowLinks[node] = Math.min(lowLinks[node], lowLinks[dependency])
-      } else if (onStack.has(dependency)) {
+      } else if (onStack.has(dependency))
         lowLinks[node] = Math.min(lowLinks[node], indexes[dependency])
-      }
     }
 
     if (lowLinks[node] !== indexes[node]) return

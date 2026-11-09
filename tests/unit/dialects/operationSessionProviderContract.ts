@@ -771,9 +771,9 @@ function registerOperationSessionProviderContract(
     registerIdentityFailureScenarios(createProvider)
     registerReleaseScenarios(createProvider)
 
-    if (migration.state === 'supported') {
+    if (migration.state === 'supported')
       registerMigrationScenarios(createProvider, migration.input)
-    } else {
+    else {
       it('should declare unsupported provider migration participation with a reason', () => {
         expect(migration.reason.trim().length).toBeGreaterThan(0)
       })

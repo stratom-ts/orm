@@ -25,9 +25,7 @@ export function contextualOperationError(cause: unknown, message: string): unkno
       cause,
       ...(cause.cleanupFailures ? { cleanupFailures: cause.cleanupFailures } : {}),
     })
-  } else {
-    return cause
-  }
+  } else return cause
 
   return contextual
 }

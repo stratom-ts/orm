@@ -22,7 +22,7 @@
     "stratom/whitespace": "error",
     "array-callback-return": "error",
     "complexity": ["error", 20],
-    "curly": ["error", "multi-or-nest", "consistent"],
+    "curly": ["error", "multi-or-nest"],
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "max-depth": ["error", 2],
     "max-lines-per-function": ["error", { "max": 50, "skipBlankLines": true }],

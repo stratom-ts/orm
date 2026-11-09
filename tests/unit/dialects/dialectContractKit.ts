@@ -814,9 +814,9 @@ function registerQuery(name: string, contract: QueryContract | UnsupportedContra
     return
   }
 
-  if (contract.core.state === 'unsupported') {
+  if (contract.core.state === 'unsupported')
     registerUnsupported(name, 'query', contract.core)
-  } else {
+  else {
     const input = contract.core.input
     it(`should agree across lookup and compilation for ${name} Dialect contract [query]`, () => {
       const resolved = input.dialect.query.resolve(input.handles, {
@@ -855,9 +855,9 @@ function registerValueMappingScenario(
   }>,
   name: string,
 ) {
-  if (contract.valueMapping.state === 'unsupported') {
+  if (contract.valueMapping.state === 'unsupported')
     registerUnsupported(name, 'query/value-mapping', contract.valueMapping)
-  } else {
+  else {
     const input = contract.valueMapping.input
 
     if (input.scenarios.length === 0)
@@ -1029,18 +1029,18 @@ function registerOperationSession(
     return
   }
 
-  if (contract.common.state === 'unsupported') {
+  if (contract.common.state === 'unsupported')
     registerUnsupported(name, 'operation-session/common', contract.common)
-  } else {
+  else {
     const common = contract.common.input
     it(`should provide a semantic session lifecycle for ${name} Dialect contract [operation-session]`, async () => {
       await runOperationSessionCommonContract(common.createRuntime())
     })
   }
 
-  if (contract.controlled.state === 'unsupported') {
+  if (contract.controlled.state === 'unsupported')
     registerUnsupported(name, 'operation-session/controlled', contract.controlled)
-  } else {
+  else {
     registerOperationSessionProviderContract(
       name,
       contract.controlled.input.createProvider,
@@ -1159,14 +1159,14 @@ function registerDialectContractShard(
 }
 
 export type {
-  CatalogContractInput,
   DialectContractMemberCapabilities,
-  MigrationContractCase,
   QueryCompilerScenarios,
+  CatalogContractInput,
+  MigrationContractCase,
 }
 
 export {
+  runOperationSessionCommonContract,
   registerDialectContractMember,
   runCatalogContract,
-  runOperationSessionCommonContract,
 }

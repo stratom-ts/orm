@@ -227,9 +227,7 @@ function normalizeSelection(input: SelectSelectionInput): SelectItemAst[] {
 
       return selectionColumn(item)
     })
-  } else {
-    selection = input.map((c) => selectionColumn(c))
-  }
+  } else selection = input.map((c) => selectionColumn(c))
 
   if (selection.length === 0)
     throw new QueryError({ message: 'select(...) requires at least one item' })
@@ -2274,9 +2272,7 @@ function createSelectFilters<THandle extends TableHandle>(
         if (typeof arg === 'function')
           pred = (arg as (builder: ExpressionBuilder) => PredicateAst)(eb)
         else pred = normalizeWhere(arg as WhereInput)
-      } else {
-        pred = cmp(args[0] as ColumnRef | string, args[1] as ComparisonOp, args[2])
-      }
+      } else pred = cmp(args[0] as ColumnRef | string, args[1] as ComparisonOp, args[2])
 
       return next({ where: mergeWhere(state.where, pred) }) as never
     },

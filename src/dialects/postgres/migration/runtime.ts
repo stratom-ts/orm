@@ -798,9 +798,9 @@ async function completeMigrationTransaction(
     cause: unknown
   }>[],
 ) {
-  if (!state.primary) {
+  if (!state.primary)
     await commitMigrationTransaction(options, cancellation, state, cleanupFailures)
-  } else if (state.transactionOpen && !cancellation.cancelled) {
+  else if (state.transactionOpen && !cancellation.cancelled) {
     try {
       await runCancellable({
         runtime: options,

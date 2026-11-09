@@ -419,9 +419,8 @@ function postgresStringArray(value: string): string[] | undefined {
     if (escaped) {
       part += character
       escaped = false
-    } else if (character === '\\') {
-      escaped = true
-    } else if (character === '"') {
+    } else if (character === '\\') escaped = true
+    else if (character === '"') {
       quoted = !quoted
       partWasQuoted = true
     } else if (character === ',' && !quoted) {
@@ -429,9 +428,7 @@ function postgresStringArray(value: string): string[] | undefined {
       parts.push(partWasQuoted ? part : part.trim())
       part = ''
       partWasQuoted = false
-    } else {
-      part += character
-    }
+    } else part += character
   }
 
   if (quoted || escaped) return undefined
@@ -972,13 +969,11 @@ function appendDecodedConstraint(
     )
   }
 
-  if (type === 'p') {
-    target.table.primaryKey = present(key)
-  } else if (type === 'u') {
-    target.table.uniqueConstraints.push(key)
-  } else if (type === 'f') {
+  if (type === 'p') target.table.primaryKey = present(key)
+  else if (type === 'u') target.table.uniqueConstraints.push(key)
+  else if (type === 'f')
     target.table.foreignKeys.push(decodePostgresForeignKey(row, index, identities, key))
-  } else {
+  else {
     target.table.opaqueObjects.push({
       kind: 'constraint',
       name: present(name),

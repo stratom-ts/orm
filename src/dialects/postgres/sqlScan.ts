@@ -120,28 +120,18 @@ class PostgresSqlScanner {
       const character = this.sql[this.#index]
       const next = this.sql[this.#index + 1]
 
-      if (character === '\0') {
-        this.#malformed = true
-      } else if (/\s/.test(character)) {
-        this.#index++
-      } else if (character === ';') {
+      if (character === '\0') this.#malformed = true
+      else if (/\s/.test(character)) this.#index++
+      else if (character === ';') {
         this.#finishStatement()
         this.#index++
-      } else if (character === '-' && next === '-') {
-        this.#readLineComment()
-      } else if (character === '/' && next === '*') {
-        this.#readBlockComment()
-      } else if (character === "'") {
-        this.#readString()
-      } else if (character === '"') {
-        this.#readQuotedIdentifier()
-      } else if (character === '$' && this.#readDollarToken()) {
-        continue
-      } else if (isWordStart(character)) {
-        this.#readWord()
-      } else {
-        this.#readSymbol(character)
-      }
+      } else if (character === '-' && next === '-') this.#readLineComment()
+      else if (character === '/' && next === '*') this.#readBlockComment()
+      else if (character === "'") this.#readString()
+      else if (character === '"') this.#readQuotedIdentifier()
+      else if (character === '$' && this.#readDollarToken()) continue
+      else if (isWordStart(character)) this.#readWord()
+      else this.#readSymbol(character)
     }
 
     this.#finishStatement()
@@ -181,9 +171,7 @@ class PostgresSqlScanner {
       } else if (this.sql[this.#index] === '*' && this.sql[this.#index + 1] === '/') {
         depth--
         this.#index += 2
-      } else {
-        this.#index++
-      }
+      } else this.#index++
     }
 
     if (depth > 0) this.#malformed = true
@@ -201,9 +189,9 @@ class PostgresSqlScanner {
     let closed = false
 
     while (this.#index < this.sql.length) {
-      if (this.sql[this.#index] === "'" && this.sql[this.#index + 1] === "'") {
+      if (this.sql[this.#index] === "'" && this.sql[this.#index + 1] === "'")
         this.#index += 2
-      } else if (this.sql[this.#index] === "'") {
+      else if (this.sql[this.#index] === "'") {
         this.#index++
         closed = true
         break
@@ -211,11 +199,9 @@ class PostgresSqlScanner {
         escapeString &&
         this.sql[this.#index] === '\\' &&
         this.#index + 1 < this.sql.length
-      ) {
+      )
         this.#index += 2
-      } else {
-        this.#index++
-      }
+      else this.#index++
     }
 
     if (!closed) this.#malformed = true

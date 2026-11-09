@@ -126,17 +126,14 @@ function finalDefinition(
   }
 
   for (const { step } of group.steps) {
-    if (step.kind === 'add_column') {
-      addColumn(definition, step, desired)
-    } else if (step.kind === 'create_index') {
+    if (step.kind === 'add_column') addColumn(definition, step, desired)
+    else if (step.kind === 'create_index') {
       definition.indexes.push({
         name: step.target.index.spelling,
         columns: step.columns.map((column) => column.spelling),
         unique: step.unique,
       })
-    } else {
-      applyColumn(definition, step)
-    }
+    } else applyColumn(definition, step)
   }
 
   return definition

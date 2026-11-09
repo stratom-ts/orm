@@ -142,9 +142,8 @@ export function assertSafePostgresDefaultExpression(expression: string): string 
       const escaped: boolean = quoted && value[index + 1] === "'"
       index += escaped ? 1 : 0
       quoted = escaped ? quoted : !quoted
-    } else if (!quoted && character === '(') {
-      parentheses++
-    } else if (!quoted && character === ')') {
+    } else if (!quoted && character === '(') parentheses++
+    else if (!quoted && character === ')') {
       unsafe = parentheses === 0
       parentheses = Math.max(0, parentheses - 1)
     }

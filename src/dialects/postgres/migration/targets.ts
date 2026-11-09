@@ -265,9 +265,9 @@ function namespaceIssues(
   for (const [index, segment] of namespace.entries())
     issues.push(...identifierIssues(segment.identifier, `${label} segment ${index}`))
 
-  if (!expectedDatabase) {
+  if (!expectedDatabase)
     issues.push('Executing PostgreSQL profile has no canonical database segment')
-  } else if (
+  else if (
     database?.role === 'database' &&
     database.identifier.comparisonKey !== expectedDatabase.comparisonKey
   ) {

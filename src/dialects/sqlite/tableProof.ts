@@ -424,14 +424,13 @@ function definitionTokens(sql: string): DefinitionToken[] {
   while (index < sql.length) {
     const char = sql[index]
 
-    if (/\s/.test(char)) {
-      index++
-    } else if (char === '-' && sql[index + 1] === '-') {
+    if (/\s/.test(char)) index++
+    else if (char === '-' && sql[index + 1] === '-') {
       const end = sql.indexOf('\n', index + 2)
       index = end < 0 ? sql.length : end + 1
-    } else if (char === '/' && sql[index + 1] === '*') {
+    } else if (char === '/' && sql[index + 1] === '*')
       index = definitionBlockCommentEnd(sql, index)
-    } else if (char === "'" || char === '"' || char === '`' || char === '[') {
+    else if (char === "'" || char === '"' || char === '`' || char === '[') {
       const close = char === '[' ? ']' : char
       const end = quotedSqlEnd(
         sql,
@@ -2309,11 +2308,9 @@ function nativeTypeParts(type: string): NativeTypePart[] {
       continue
     }
 
-    if (/[A-Za-z0-9_$\u0080-\uFFFF]/.test(character)) {
-      word += character
-    } else if (/\s/.test(character)) {
-      flush()
-    } else {
+    if (/[A-Za-z0-9_$\u0080-\uFFFF]/.test(character)) word += character
+    else if (/\s/.test(character)) flush()
+    else {
       flush()
       parts.push({ kind: 'symbol', value: character })
     }

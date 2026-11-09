@@ -187,9 +187,8 @@ async function assertLifecycleMigration(
   runtime: DialectLifecycleContractRuntime,
   database: Db,
 ) {
-  if (runtime.migration.state === 'supported') {
-    await database.migrate().execute()
-  } else {
+  if (runtime.migration.state === 'supported') await database.migrate().execute()
+  else {
     const error = await database
       .migrate()
       .execute()

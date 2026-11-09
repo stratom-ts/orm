@@ -844,9 +844,7 @@ function assertClientOpen(
   if (transactionScope) {
     if (!transactionScope.active)
       throw new QueryError({ message: 'Transaction client is no longer active' })
-  } else {
-    ensureOpen()
-  }
+  } else ensureOpen()
 }
 
 /**

@@ -3491,9 +3491,7 @@ function findDesiredIndex(input: DesiredIndexReconciliation) {
     current = semanticMatches.at(0)
 
     if (!current) current = liveIndexes.get(index.name.comparisonKey)
-  } else {
-    current = liveIndexes.get(index.name.comparisonKey)
-  }
+  } else current = liveIndexes.get(index.name.comparisonKey)
 
   return { ambiguous: false as const, current }
 }

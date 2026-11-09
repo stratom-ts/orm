@@ -178,9 +178,8 @@ function readIdentity(
 
   let identity: string
 
-  if (main.file) {
-    identity = `file:${realpathSync.native(main.file)}`
-  } else {
+  if (main.file) identity = `file:${realpathSync.native(main.file)}`
+  else {
     let memoryId = memoryDatabaseIds.get(database)
 
     if (!memoryId) {

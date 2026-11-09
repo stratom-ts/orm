@@ -310,9 +310,7 @@ function applyNumberClamp(
   if (!Number.isInteger(requirement)) {
     delete constraints.isInteger
     delete constraints.isSafeInteger
-  } else if (!Number.isSafeInteger(requirement)) {
-    delete constraints.isSafeInteger
-  }
+  } else if (!Number.isSafeInteger(requirement)) delete constraints.isSafeInteger
 
   clearFiniteEvidence(result)
   result.numberConstraints = constraints

@@ -308,9 +308,7 @@ async function discardActiveQuery(client: NativePostgresClient): Promise<void> {
     if (client.end) {
       // This hard-discard teardown is not a PostgreSQL backend cancel request.
       await client.end().catch(() => undefined)
-    } else {
-      client.connection?.stream?.destroy()
-    }
+    } else client.connection?.stream?.destroy()
   }
 }
 
