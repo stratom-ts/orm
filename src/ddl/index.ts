@@ -3,6 +3,7 @@ export {
   createMigrateBuilder,
   type MigrateBuilder,
   type MigrationAllow,
+  type MigrationPolicyProfile,
   type MigrationExecuteOptions,
   type MigrationDryRun,
   type MigrationDryRunAction,

@@ -37,7 +37,68 @@ export type MigrationPrecondition =
     }>
 
 /** Policy for lowering destructive column drops. */
-export type MigrationLoweringPolicy = Readonly<{ columnDrop: 'guarded' | 'dangerous' }>
+export type MigrationLoweringPolicy = Readonly<{
+  columnDrop: 'guarded' | 'dangerous'
+  dangerousColumnDropTargets?: readonly Extract<MigrationTarget, { kind: 'column' }>[]
+}>
+
+/** Compares canonical targets without using their authored display spellings. */
+export function migrationTargetsEqual(
+  left: MigrationTarget,
+  right: MigrationTarget,
+): boolean {
+  if (left.kind !== right.kind) return false
+
+  const leftRelation = left.kind === 'namespace' ? undefined : left.relation
+  const rightRelation = right.kind === 'namespace' ? undefined : right.relation
+
+  if (left.kind === 'namespace' && right.kind === 'namespace')
+    return (
+      left.namespace.length === right.namespace.length &&
+      left.namespace.every(
+        (segment, index) =>
+          segment.role === right.namespace[index].role &&
+          segment.identifier.comparisonKey ===
+            right.namespace[index].identifier.comparisonKey,
+      )
+    )
+
+  if (
+    !leftRelation ||
+    !rightRelation ||
+    leftRelation.namespace.length !== rightRelation.namespace.length ||
+    !leftRelation.namespace.every(
+      (segment, index) =>
+        segment.role === rightRelation.namespace[index].role &&
+        segment.identifier.comparisonKey ===
+          rightRelation.namespace[index].identifier.comparisonKey,
+    ) ||
+    leftRelation.relation.comparisonKey !== rightRelation.relation.comparisonKey
+  )
+    return false
+
+  if (left.kind === 'column' && right.kind === 'column')
+    return left.column.comparisonKey === right.column.comparisonKey
+
+  if (left.kind === 'index' && right.kind === 'index')
+    return left.index.comparisonKey === right.index.comparisonKey
+
+  return left.kind === 'relation' && right.kind === 'relation'
+}
+
+/** Checks whether one canonical column target has an explicit dangerous grant. */
+export function isDangerousColumnDrop(
+  policy: MigrationLoweringPolicy,
+  target: Extract<MigrationTarget, { kind: 'column' }>,
+): boolean {
+  if (policy.columnDrop === 'dangerous') return true
+
+  return (
+    policy.dangerousColumnDropTargets?.some((candidate) =>
+      migrationTargetsEqual(candidate, target),
+    ) ?? false
+  )
+}
 
 /** One executable physical action with canonical semantic provenance. */
 export type MigrationAction = Readonly<{

@@ -896,6 +896,79 @@ const LegalPhysicalTypes = defineTable(
   { primaryKey: 'id' },
 )
 
+it('should keep dangerous column grants scoped to one SQLite relation', async () => {
+  const First = defineTable(
+    'first',
+    { id: pipe(number(), integer()) },
+    { primaryKey: 'id' },
+  )
+
+  const Second = defineTable(
+    'second',
+    { id: pipe(number(), integer()) },
+    { primaryKey: 'id' },
+  )
+
+  await withSqliteDatabase(
+    [First, Second],
+    async ({ db, native }) => {
+      await db.migrate().execute()
+      native.exec('alter table first add column retired text')
+      native.exec('alter table second add column retired text')
+      native.exec("insert into first (id, retired) values (1, 'kept')")
+      native.exec("insert into second (id, retired) values (1, 'guarded')")
+
+      const migration = db.migrate()
+      const plan = await migration.plan()
+      const firstDrop = plan.steps.find(
+        (step) =>
+          step.kind === 'drop_column' &&
+          step.target.relation.relation.spelling === 'first',
+      )
+
+      expect(firstDrop?.kind).toBe('drop_column')
+
+      if (firstDrop?.kind !== 'drop_column')
+        throw new Error('expected the first column drop')
+
+      const preview = await migration
+        .allowFor(firstDrop.target, 'dangerouslyDropColumn')
+        .dryRun()
+
+      expect(preview.preconditions).toHaveLength(1)
+
+      expect(preview.preconditions[0]).toMatchObject({
+        kind: 'column_has_only_nulls',
+        target: { relation: { relation: { spelling: 'second' } } },
+      })
+
+      await expect(
+        migration.allowFor(firstDrop.target, 'dangerouslyDropColumn').execute(),
+      ).rejects.toMatchObject({ stage: 'precondition', outcome: 'unchanged' })
+
+      expectRetiredColumns(native, true)
+
+      native.exec('update second set retired = null')
+      await migration.allowFor(firstDrop.target, 'dangerouslyDropColumn').execute()
+
+      expectRetiredColumns(native, false)
+    },
+    { migrationOwnership: completeMain },
+  )
+})
+
+/** Checks whether both relations still contain the guarded migration column. */
+function expectRetiredColumns(native: DatabaseSync, present: boolean): void {
+  for (const relation of ['first', 'second']) {
+    const names = native
+      .prepare(`pragma table_info(${relation})`)
+      .all()
+      .map((row) => row.name)
+
+    expect(names.includes('retired')).toBe(present)
+  }
+}
+
 it('should preserve legal multiword and parameterized SQLite types through execution', async () => {
   await withSqliteDatabase([LegalPhysicalTypes], async ({ db, native }) => {
     await db.migrate().execute()

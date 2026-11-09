@@ -1326,8 +1326,131 @@ describe('db.migrate() permissions and coordination', () => {
 
     await db.close()
   })
+})
 
-  it('should reject missing destructive permission in the authoritative transaction before DDL', async () => {
+describe('db.migrate() exact target permissions', () => {
+  it('should authorize one planned target without changing the plan', async () => {
+    const connector = createMockConnector({ tables: destructiveCatalog() })
+    const db = createDatabase({ connector, schemas: [Users] })
+    const migration = db.migrate()
+    const plan = await migration.plan()
+    const dropIndex = plan.steps.find((step) => step.kind === 'drop_index')
+    const dropColumn = plan.steps.find((step) => step.kind === 'drop_column')
+    expect(dropIndex?.kind).toBe('drop_index')
+
+    if (dropIndex?.kind !== 'drop_index') throw new Error('expected an index drop')
+    if (dropColumn?.kind !== 'drop_column') throw new Error('expected a column drop')
+
+    const scoped = migration
+      .allowFor(dropIndex.target, 'dropIndex')
+      .allowFor(dropColumn.target, 'dangerouslyDropColumn')
+
+    expect(await scoped.plan()).toEqual(plan)
+    await scoped.execute()
+    expect(connector.runSql.some((sql) => /^drop index/i.test(sql))).toBe(true)
+
+    await db.close()
+  })
+
+  it('should reject a target grant whose target kind does not match the operation', async () => {
+    const db = createDatabase({
+      connector: createMockConnector({ tables: destructiveCatalog() }),
+      schemas: [Users],
+    })
+
+    const plan = await db.migrate().plan()
+    const index = plan.steps.find((step) => step.kind === 'drop_index')
+    expect(index?.kind).toBe('drop_index')
+
+    if (index?.kind !== 'drop_index') throw new Error('expected an index target')
+
+    expect(() => db.migrate().allowFor(index.target, 'dropTable')).toThrow(
+      /requires a relation target/,
+    )
+
+    await db.close()
+  })
+})
+
+describe('db.migrate() exact target permissions: rejects a different canonical relation', () => {
+  it('should not authorize an index drop from a grant for another relation', async () => {
+    const connector = createMockConnector({ tables: destructiveCatalog() })
+    const db = createDatabase({ connector, schemas: [Users] })
+    const migration = db.migrate()
+    const plan = await migration.plan()
+    const dropIndex = plan.steps.find((step) => step.kind === 'drop_index')
+    const dropColumn = plan.steps.find((step) => step.kind === 'drop_column')
+
+    if (dropIndex?.kind !== 'drop_index') throw new Error('expected an index drop')
+    if (dropColumn?.kind !== 'drop_column') throw new Error('expected a column drop')
+
+    const target = {
+      ...dropIndex.target,
+      relation: {
+        ...dropIndex.target.relation,
+        relation: { spelling: 'other', comparisonKey: 'other' },
+      },
+    }
+
+    const error = await migration
+      .allowFor(target, 'dropIndex')
+      .allowFor(dropColumn.target, 'dangerouslyDropColumn')
+      .execute()
+      .catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({ stage: 'permission', outcome: 'unchanged' })
+    expect((error as Error).message).toMatch(/requires allow\('dropIndex'\)/i)
+
+    expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+
+    await db.close()
+  })
+})
+
+describe('db.migrate() exact target permissions: rejects a different canonical namespace', () => {
+  it('should not authorize an index drop from a grant for another namespace', async () => {
+    const connector = createMockConnector({ tables: destructiveCatalog() })
+    const db = createDatabase({ connector, schemas: [Users] })
+    const migration = db.migrate()
+    const plan = await migration.plan()
+    const dropIndex = plan.steps.find((step) => step.kind === 'drop_index')
+    const dropColumn = plan.steps.find((step) => step.kind === 'drop_column')
+
+    if (dropIndex?.kind !== 'drop_index') throw new Error('expected an index drop')
+    if (dropColumn?.kind !== 'drop_column') throw new Error('expected a column drop')
+
+    const namespace = dropIndex.target.relation.namespace.map((segment) =>
+      segment.role === 'schema'
+        ? { ...segment, identifier: { spelling: 'other', comparisonKey: 'other' } }
+        : segment,
+    )
+
+    const target = {
+      ...dropIndex.target,
+      relation: { ...dropIndex.target.relation, namespace },
+    }
+
+    const error = await migration
+      .allowFor(target, 'dropIndex')
+      .allowFor(dropColumn.target, 'dangerouslyDropColumn')
+      .execute()
+      .catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({ stage: 'permission', outcome: 'unchanged' })
+    expect((error as Error).message).toMatch(/requires allow\('dropIndex'\)/i)
+
+    expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+
+    await db.close()
+  })
+})
+
+describe('db.migrate() permissions and coordination', () => {
+  it('should reject missing drop permissions by default before lowering or DDL', async () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
     const db = createDatabase({ connector, schemas: [Users] })
     const lower = vi.spyOn(postgresDialect.migration, 'lower')
@@ -1349,6 +1472,49 @@ describe('db.migrate() permissions and coordination', () => {
     expect(lower).not.toHaveBeenCalled()
     expect(connector.runSql.some((sql) => /^(?:alter|drop)\s/i.test(sql))).toBe(false)
 
+    await db.close()
+  })
+
+  it('should let sync drop indexes with an explicit dangerous column override', async () => {
+    const connector = createMockConnector({ tables: destructiveCatalog() })
+    const db = createDatabase({ connector, schemas: [Users] })
+    const migration = db.migrate().policy('sync').allow('dangerouslyDropColumn')
+
+    await migration.execute()
+
+    expect(connector.runSql.some((sql) => /^drop index/i.test(sql))).toBe(true)
+    expect(connector.runSql.some((sql) => /drop column/i.test(sql))).toBe(true)
+
+    await db.close()
+  })
+
+  it('should reject destructive steps under expand-only even when every kind is allowed', async () => {
+    const connector = createMockConnector({ tables: destructiveCatalog() })
+    const db = createDatabase({ connector, schemas: [Users] })
+    const error = await db
+      .migrate()
+      .policy('expand-only')
+      .allow('dangerouslyDropColumn', 'dropIndex', 'dropTable')
+      .execute()
+      .catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({ stage: 'permission', outcome: 'unchanged' })
+
+    expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+
+    await db.close()
+  })
+})
+
+describe('db.migrate() expand-only additive execution', () => {
+  it('should execute an additive migration against an empty catalog under expand-only', async () => {
+    const connector = createMockConnector()
+    const db = createDatabase({ connector, schemas: [Users] })
+
+    await expect(db.migrate().policy('expand-only').execute()).resolves.toBeUndefined()
+    expect(connector.runSql.some((sql) => /^create table/i.test(sql))).toBe(true)
     await db.close()
   })
 })
