@@ -316,6 +316,7 @@ type MigrationRuntimeFixtureOptions = {
   nullCount?: number
   guardRows?: { has_data?: unknown }[]
   guardFailure?: unknown
+  lockTimeoutRows?: unknown[]
   lockResults?: (boolean | Error)[]
   lockGate?: Promise<void>
   lockDelayMs?: number
@@ -361,6 +362,9 @@ async function executeRuntimeFixture(
   if (/pg_try_advisory_lock/i.test(query.sql)) return acquire(query)
   if (/pg_advisory_unlock/i.test(query.sql)) return release(query)
   if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
+
+  if (/^show lock_timeout$/i.test(query.sql))
+    return options.lockTimeoutRows ?? [{ lock_timeout: '0' }]
 
   if (/select exists\(/i.test(query.sql)) {
     if (options.guardFailure) throw options.guardFailure

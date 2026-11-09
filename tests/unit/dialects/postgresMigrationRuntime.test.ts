@@ -39,6 +39,7 @@ const guarded = program({
 
 function registerGuardedColumnDropCases() {
   registerGuardObservationCases()
+  registerGuardLockTimeoutCases()
   registerGuardFailureCases()
 }
 
@@ -68,6 +69,59 @@ function registerGuardObservationCases() {
     const check = runtime.calls.findIndex((sql) => sql.startsWith('select exists('))
     expect(lock).toBeGreaterThanOrEqual(0)
     expect(check).toBeGreaterThan(lock)
+  })
+}
+
+function registerGuardLockTimeoutCases() {
+  it('restores the prior lock timeout after locking and before the guard check', async () => {
+    const runtime = harness({
+      guardRows: [{ has_data: false }],
+      lockTimeoutRows: [{ lock_timeout: '1min' }],
+    })
+
+    await expect(runtime.execute(guarded)).resolves.toEqual({ outcome: 'applied' })
+
+    const read = runtime.calls.indexOf('show lock_timeout')
+    const lock = runtime.calls.findIndex((sql) => sql.startsWith('lock table'))
+    const restore = runtime.calls.indexOf("set local lock_timeout = '1min'")
+    const check = runtime.calls.findIndex((sql) => sql.startsWith('select exists('))
+    const begin = runtime.calls.indexOf('begin isolation level repeatable read')
+
+    expect(read).toBeGreaterThan(begin)
+    expect(lock).toBeGreaterThan(read)
+    expect(restore).toBeGreaterThan(lock)
+    expect(check).toBeGreaterThan(restore)
+    expect(runtime.calls).not.toContain("set local lock_timeout = '0'")
+  })
+
+  it.each([[[]], [[{ lock_timeout: 0 }]]])(
+    'rejects an unreadable lock timeout before locking',
+    async (lockTimeoutRows) => {
+      const runtime = harness({ lockTimeoutRows })
+      const error = await runtime.execute(guarded).catch((cause: unknown) => cause)
+
+      expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged' })
+
+      expect(runtime.calls.some((sql) => /^lock table|^create table/i.test(sql))).toBe(
+        false,
+      )
+
+      expect(runtime.calls).toContain('rollback')
+    },
+  )
+
+  it('leaves the lock timeout untouched when relation locks use NOWAIT', async () => {
+    const runtime = harness({ guardRows: [{ has_data: false }] })
+
+    await expect(runtime.execute(guarded, { lockTimeoutMs: 0 })).resolves.toEqual({
+      outcome: 'applied',
+    })
+
+    expect(runtime.calls.some((sql) => /lock_timeout/i.test(sql))).toBe(false)
+
+    expect(runtime.calls).toContain(
+      'lock table "public"."events" in access exclusive mode nowait',
+    )
   })
 }
 

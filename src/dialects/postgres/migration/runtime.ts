@@ -3,7 +3,7 @@ import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationId
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { MigrationError, isErrorTag } from '@/utils/error'
+import { InvariantError, MigrationError, isErrorTag } from '@/utils/error'
 
 import type {
   CancellationState,
@@ -605,44 +605,93 @@ async function lockGuardedRelations(
   cancellation: CancellationState,
   cleanupFailures: MigrationCleanupFailure[],
 ): Promise<void> {
-  for (const relation of guardedRelations(program)) {
-    try {
+  const relations = guardedRelations(program)
+
+  if (relations.length === 0) return
+
+  let priorLockTimeout: string | undefined
+
+  try {
+    if (options.lockTimeoutMs !== 0)
+      priorLockTimeout = await readLockTimeout(options, cancellation)
+
+    for (const relation of relations) {
       await lockGuardedRelation(relation, options, cancellation)
-    } catch (cause) {
-      state.primary = { cause, stage: cancellationStage(cause, 'lock') }
-      retainCancellationFailures(cleanupFailures, cause)
-      return
     }
+  } catch (cause) {
+    state.primary = { cause, stage: cancellationStage(cause, 'lock') }
+    retainCancellationFailures(cleanupFailures, cause)
+    return
   }
 
-  if (guardedRelations(program).length > 0) {
-    try {
-      await runCancellable({
-        runtime: options,
-        state: cancellation,
-        stage: 'lock',
-        operation: () =>
-          options.executor.run(
-            { sql: "set local lock_timeout = '0'", params: [] },
-            { source: 'lifecycle' },
-          ),
-      })
+  try {
+    if (priorLockTimeout !== undefined)
+      await restoreLockTimeout(priorLockTimeout, options, cancellation)
 
-      await runCancellable({
-        runtime: options,
-        state: cancellation,
-        stage: 'precondition',
-        operation: () =>
-          options.executor.run(
-            { sql: 'set local row_security = off', params: [] },
-            { source: 'lifecycle' },
-          ),
-      })
-    } catch (cause) {
-      state.primary = { cause, stage: cancellationStage(cause, 'precondition') }
-      retainCancellationFailures(cleanupFailures, cause)
-    }
+    await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'precondition',
+      operation: () =>
+        options.executor.run(
+          { sql: 'set local row_security = off', params: [] },
+          { source: 'lifecycle' },
+        ),
+    })
+  } catch (cause) {
+    state.primary = { cause, stage: cancellationStage(cause, 'precondition') }
+    retainCancellationFailures(cleanupFailures, cause)
   }
+}
+
+/**
+ * Reads the effective lock timeout without establishing the transaction snapshot.
+ *
+ * `show` is a utility statement, so unlike `select current_setting(...)` it does not take
+ * the repeatable-read snapshot that must follow the relation locks.
+ */
+async function readLockTimeout(
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+): Promise<string> {
+  const [row] = await runCancellable({
+    runtime: options,
+    state: cancellation,
+    stage: 'lock',
+    operation: () =>
+      options.executor.execute(
+        { sql: 'show lock_timeout', params: [] },
+        { source: 'lifecycle' },
+      ),
+  })
+
+  const value = (row as { lock_timeout?: unknown } | undefined)?.lock_timeout
+
+  if (typeof value !== 'string')
+    throw new InvariantError('PostgreSQL did not report the migration lock timeout')
+
+  return value
+}
+
+/** Returns the transaction to the lock timeout in effect before relation locking. */
+async function restoreLockTimeout(
+  lockTimeout: string,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+): Promise<void> {
+  await runCancellable({
+    runtime: options,
+    state: cancellation,
+    stage: 'lock',
+    operation: () =>
+      options.executor.run(
+        {
+          sql: `set local lock_timeout = '${lockTimeout.replaceAll("'", "''")}'`,
+          params: [],
+        },
+        { source: 'lifecycle' },
+      ),
+  })
 }
 
 /** Acquires one validated relation lock within the shared migration deadline. */

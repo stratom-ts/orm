@@ -1507,6 +1507,9 @@ function prepareMockQuery(
 
   if (normalized.includes('from pg_index i')) return indexCatalogStatement(liveTables)
 
+  if (normalized === 'show lock_timeout')
+    return createMockStatement([{ lock_timeout: '0' }])
+
   if (normalized.includes('count(*)') && normalized.includes(' is null')) {
     return createMockStatement([{ count: options?.nullCount ?? 0 }])
   }
