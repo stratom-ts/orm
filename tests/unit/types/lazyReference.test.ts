@@ -5,7 +5,7 @@ import { expectTypeOf, it } from 'vitest'
 import type { ReferenceTarget } from '@/index'
 import { defineTable, reference, table } from '@/index'
 
-it('infers lazy handle and raw-schema keys while preserving local input and output', () => {
+it('should infer lazy handle and raw-schema keys while preserving local input and output', () => {
   const Target = defineTable(
     'target',
     { id: pipe(string(), toNumber()) },
@@ -38,7 +38,7 @@ const idColumns = { id: string() }
 
 type IdTarget = ReferenceTarget<typeof idColumns>
 
-it('checks narrow target contracts across genuinely circular declarations', () => {
+it('should check narrow target contracts across genuinely circular declarations', () => {
   const A = defineTable(
     'a',
     {
@@ -79,7 +79,7 @@ it('checks narrow target contracts across genuinely circular declarations', () =
   >().toEqualTypeOf<string>()
 })
 
-it('checks a generic raw-schema target and retains transformed input and output', () => {
+it('should check a generic raw-schema target and retain transformed input and output', () => {
   const columns = { id: pipe(string(), toNumber()) }
   const raw = pipe(
     object({ ...columns, count: number() }),
@@ -105,7 +105,7 @@ it('checks a generic raw-schema target and retains transformed input and output'
   reference(string(), target, 'id')
 })
 
-it('rejects callback targets that do not satisfy their declared column schemas', () => {
+it('should reject callback targets that do not satisfy their declared column schemas', () => {
   const Missing = defineTable('missing', { name: string() }, { primaryKey: 'name' })
   const Numeric = defineTable('numeric', { id: number() }, { primaryKey: 'id' })
 

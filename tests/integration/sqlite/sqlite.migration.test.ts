@@ -1238,34 +1238,37 @@ it('should permit owned drops with complete incoming dependency evidence and con
 it.each([
   ['direct', 'removed TEXT', ''],
   ['rebuild', 'removed TEXT unique', ''],
-])('guards %s column drops and preserves retained data', async (_mode, column, extra) => {
-  const Keep = defineTable(
-    'guarded_keep',
-    { id: pipe(number(), integer()), label: string() },
-    { primaryKey: 'id' },
-  )
+])(
+  'should guard %s column drops and preserve retained data',
+  async (_mode, column, extra) => {
+    const Keep = defineTable(
+      'guarded_keep',
+      { id: pipe(number(), integer()), label: string() },
+      { primaryKey: 'id' },
+    )
 
-  const test = await fixture(
-    `create table guarded_keep(id INTEGER primary key, label TEXT not null, ${column}); insert into guarded_keep values(1,'kept',NULL)${extra}`,
-  )
+    const test = await fixture(
+      `create table guarded_keep(id INTEGER primary key, label TEXT not null, ${column}); insert into guarded_keep values(1,'kept',NULL)${extra}`,
+    )
 
-  try {
-    await execute(test.executor, [Keep], completeMain)
+    try {
+      await execute(test.executor, [Keep], completeMain)
 
-    expect(test.native.prepare('select * from guarded_keep').all()).toEqual([
-      { id: 1, label: 'kept' },
-    ])
-  } finally {
-    await test.close()
-  }
-})
+      expect(test.native.prepare('select * from guarded_keep').all()).toEqual([
+        { id: 1, label: 'kept' },
+      ])
+    } finally {
+      await test.close()
+    }
+  },
+)
 
 it.each([
   ['value', 'TEXT'],
   ['', 'TEXT'],
   [0, 'INTEGER'],
 ] as const)(
-  'blocks a populated SQLite column value %j before DDL',
+  'should block a populated SQLite column value %j before DDL',
   async (value, type) => {
     const Keep = defineTable(
       'guarded_keep',

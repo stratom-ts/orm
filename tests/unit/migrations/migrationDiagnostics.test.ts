@@ -15,7 +15,7 @@ const executionFacts = {
     `Execution failed${actionIndex === undefined ? '' : ` during action ${actionIndex + 1}`}`,
 }
 
-it('preserves guarded-drop diagnostics through phase, execution, cleanup and JSON', () => {
+it('should preserve guarded-drop diagnostics through phase, execution, cleanup and JSON', () => {
   const target = {
     kind: 'column' as const,
     relation: {

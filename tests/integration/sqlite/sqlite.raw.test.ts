@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
-it('executes bound reads, returning writes, and writes without rows on native SQLite', async () => {
+it('should execute bound reads, returning writes, and writes without rows on native SQLite', async () => {
   await withSqliteDatabase([], async ({ db }) => {
     await db.sql`create table raw_values (id integer primary key, value text)`
 
@@ -29,7 +29,7 @@ it('executes bound reads, returning writes, and writes without rows on native SQ
   })
 })
 
-it('rolls back a raw SQLite write after the transaction callback fails', async () => {
+it('should roll back a raw SQLite write after the transaction callback fails', async () => {
   await withSqliteDatabase([], async ({ db }) => {
     await db.sql`create table raw_values (value text)`
     const failure = new Error('rollback raw write')
@@ -49,7 +49,7 @@ it('rolls back a raw SQLite write after the transaction callback fails', async (
   })
 })
 
-it('keeps dynamic identifiers and fragment values separate on the native driver', async () => {
+it('should keep dynamic identifiers and fragment values separate on the native driver', async () => {
   await withSqliteDatabase([], async ({ db }) => {
     const relation = db.sql.id('main', 'odd.table"; drop table users; --')
     const column = db.sql.id('v"alue')

@@ -34,7 +34,7 @@ function expectMigrationSources(events: readonly QueryEvent[]): void {
   expect(events.every((e) => e.outcome === 'success')).toBe(true)
 }
 
-it('observes native migration stages and application execution without bootstrap SQL', async () => {
+it('should observe native migration stages and application execution without bootstrap SQL', async () => {
   const Item = defineTable(
     'observed_items',
     { id: pipe(string(), column({ physicalType: { sqlite: 'text' } })) },
@@ -86,7 +86,7 @@ it('observes native migration stages and application execution without bootstrap
 })
 
 it.each(['throw', 'reject'])(
-  'uses Node subscriber failure semantics in a subprocess: %s',
+  'should use Node subscriber failure semantics in a subprocess: %s',
   (kind) => {
     const script = `
     import { tracingChannel } from 'node:diagnostics_channel'

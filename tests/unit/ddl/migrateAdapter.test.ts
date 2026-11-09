@@ -356,7 +356,7 @@ function memberWithCompleteColumnDropCatalog() {
 }
 
 function registerRealGuardedDropCase() {
-  it('lowers a real guarded column drop in preview and execution', async () => {
+  it('should lower a real guarded column drop in preview and execution', async () => {
     const Users = defineTable('users', { id: string() }, { primaryKey: 'id' })
     const member = memberWithCompleteColumnDropCatalog()
 
@@ -446,7 +446,7 @@ function memberWithGuard() {
 }
 
 function registerPolicyPreviewCase() {
-  it('keeps the semantic plan equal while preview and execution lower the selected policy', async () => {
+  it('should keep the semantic plan equal while preview and execution lower the selected policy', async () => {
     const { member, programs } = memberWithGuard()
     const builder = createMigrateBuilder({
       schemas: [],
@@ -491,7 +491,7 @@ function registerPolicyPreviewCase() {
 
 function registerPolicyCaptureCases() {
   it.each(['execute', 'dryRun'] as const)(
-    'captures policy when %s starts',
+    'should capture policy when %s starts',
     async (operation) => {
       const { member } = memberWithGuard()
       let release!: () => void

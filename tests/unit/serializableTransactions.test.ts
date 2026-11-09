@@ -15,7 +15,7 @@ import {
   customConnector,
 } from './helpers/operationSessionFixtures'
 
-it('establishes serialization before the callback and inherits it through savepoints', async () => {
+it('should establish serialization before the callback and inherit it through savepoints', async () => {
   const connector = createMockPostgresConnector()
   const db = createDatabase({ connector, schemas: [] })
   const result = await db.transaction(
@@ -40,7 +40,7 @@ it('establishes serialization before the callback and inherits it through savepo
   await db.close()
 })
 
-it('rejects invalid options before running user work and leaves the client usable', async () => {
+it('should reject invalid options before running user work and leave the client usable', async () => {
   const connector = createMockPostgresConnector()
   const db = createDatabase({ connector, schemas: [] })
   const callback = vi.fn<() => Promise<number>>(async () => 0)
@@ -63,7 +63,7 @@ it('rejects invalid options before running user work and leaves the client usabl
   await db.close()
 })
 
-it('compiles supported dialect contracts and refuses an unsupported capability', () => {
+it('should compile supported dialect contracts and refuse an unsupported capability', () => {
   const command = { kind: 'begin', isolationLevel: 'serializable' } as const
   expect(postgresDialect.operations.compile(command)).toEqual({
     sql: 'begin isolation level serializable',
@@ -99,7 +99,7 @@ it('compiles supported dialect contracts and refuses an unsupported capability',
   }
 })
 
-it('exports the accepted option and rejects unsupported isolation levels at the type boundary', () => {
+it('should export the accepted option and reject unsupported isolation levels at the type boundary', () => {
   expectTypeOf<TransactionOptions>().toEqualTypeOf<
     | Readonly<{ isolationLevel: 'serializable'; behavior?: never }>
     | Readonly<{ behavior: 'immediate'; isolationLevel?: never }>
@@ -129,7 +129,7 @@ it.each([
   },
   { dialect: 'sqlite', options: { behavior: 'immediate' }, begin: 'begin immediate' },
 ] as const)(
-  'copies $dialect options before a queued transaction can observe caller mutation',
+  'should copy $dialect options before a queued transaction can observe caller mutation',
   async ({ dialect, options, begin }) => {
     const controls = createControllableProvider()
     const db = createDatabase({
@@ -171,7 +171,7 @@ it.each([
   { dialect: 'postgresql', options: { behavior: 'immediate' } },
   { dialect: 'sqlite', options: { isolationLevel: 'serializable' } },
 ] as const)(
-  'rejects unsupported intent on $dialect before entering the callback',
+  'should reject unsupported intent on $dialect before entering the callback',
   async ({ dialect, options }) => {
     const controls = createControllableProvider()
     const db = createDatabase({
@@ -188,7 +188,7 @@ it.each([
   },
 )
 
-it('does not enter a callback after a failed begin and releases the session for the next attempt', async () => {
+it('should release the session without entering the callback after a failed begin', async () => {
   let fail = true
   const connector = createMockPostgresConnector({
     onPrepare(sql) {
@@ -224,7 +224,7 @@ it.each([
     begin: 'begin immediate',
   },
 ] as const)(
-  'accepts an explicitly undefined opposing option on $dialect',
+  'should accept an explicitly undefined opposing option on $dialect',
   async ({ dialect, options, begin }) => {
     const controls = createControllableProvider()
     const db = createDatabase({

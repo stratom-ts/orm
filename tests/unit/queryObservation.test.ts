@@ -45,7 +45,7 @@ function controlled(
   return { db, original, controls, events }
 }
 
-it('observes raw, builder SELECT and DML exactly once with redacted ordered bindings', async () => {
+it('should observe raw, builder SELECT and DML exactly once with redacted ordered bindings', async () => {
   const { db, events, controls } = controlled()
   try {
     const compiled = db.from(Item).where(Item.id, 'eq', 'secret').compile()
@@ -73,7 +73,7 @@ it('observes raw, builder SELECT and DML exactly once with redacted ordered bind
   }
 })
 
-it('snapshots included bindings without mutating the original array', async () => {
+it('should snapshot included bindings without mutating the original array', async () => {
   const { db, events } = controlled({ queryParameters: 'include' })
   try {
     const compiled = db.sql.fragment`select ${'first'}, ${2}`
@@ -88,7 +88,7 @@ it('snapshots included bindings without mutating the original array', async () =
   }
 })
 
-it('attributes transaction and savepoint control and ping to lifecycle', async () => {
+it('should attribute transaction and savepoint control and ping to lifecycle', async () => {
   const { db, events } = controlled()
   try {
     await db.transaction(async (trx) => {
@@ -124,7 +124,7 @@ it('attributes transaction and savepoint control and ping to lifecycle', async (
 })
 
 it.each([new Error('defect'), 'primitive', Object.freeze({ code: '23505' })])(
-  'retains the original boundary failure in error events: %s',
+  'should retain the original boundary failure in error events: %s',
   async (failure) => {
     const { db, events } = controlled(
       {},
@@ -146,7 +146,7 @@ it.each([new Error('defect'), 'primitive', Object.freeze({ code: '23505' })])(
   },
 )
 
-it('does not observe guard or closed-client rejections', async () => {
+it('should not observe guard or closed-client rejections', async () => {
   const { db, events } = controlled()
   try {
     const query = markCompiledQuery({
@@ -166,7 +166,7 @@ it('does not observe guard or closed-client rejections', async () => {
   expect(events).toEqual([])
 })
 
-it('excludes coordinator queue wait from duration', async () => {
+it('should exclude coordinator queue wait from duration', async () => {
   const entered = deferred()
   const finish = deferred()
   const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
@@ -198,7 +198,7 @@ it('excludes coordinator queue wait from duration', async () => {
 })
 
 it.each([false, true])(
-  'observes migration catalog, locks, lifecycle and DDL with failure=%s',
+  'should observe migration catalog, locks, lifecycle and DDL with failure=%s',
   async (fail) => {
     const failure = new Error('DDL rejected')
     const controls = createPostgresControllableProvider({
@@ -251,7 +251,7 @@ it.each([false, true])(
   },
 )
 
-it('reports cancellation rejection at the physical lock boundary', async () => {
+it('should report cancellation rejection at the physical lock boundary', async () => {
   const started = deferred()
   let rejectPending!: (cause: unknown) => void
   const pending = new Promise<void>((_resolve, reject) => {
@@ -297,7 +297,7 @@ it('reports cancellation rejection at the physical lock boundary', async () => {
   }
 })
 
-it('does not emit SQL events for migration aborted before execution', async () => {
+it('should not emit SQL events for migration aborted before execution', async () => {
   const { db, events } = controlled()
   try {
     const controller = new AbortController()
@@ -314,7 +314,7 @@ it('does not emit SQL events for migration aborted before execution', async () =
 })
 
 it.each(['plan', 'dryRun'] as const)(
-  'attributes %s catalog SQL without observing compilation as DDL',
+  'should attribute %s catalog SQL without observing compilation as DDL',
   async (method) => {
     const events: QueryEvent[] = []
     const controls = createPostgresControllableProvider()
@@ -342,7 +342,7 @@ it.each(['plan', 'dryRun'] as const)(
   },
 )
 
-it('isolates lazy and interleaved calls across original, wrappers and unrelated clients', async () => {
+it('should isolate lazy and interleaved calls across original, wrappers and unrelated clients', async () => {
   const { db, original, events } = controlled()
   const included = withTracing(original, { queryParameters: 'include' })
   const otherControls = createControllableProvider()
@@ -375,7 +375,7 @@ it('isolates lazy and interleaved calls across original, wrappers and unrelated 
 })
 
 it.each([false, true])(
-  'publishes one ordered lifecycle without result rows, failure=%s',
+  'should publish one ordered lifecycle without result rows, failure=%s',
   async (fail) => {
     const failure = new Error('physical failure')
     const { db, events } = controlled(
@@ -432,7 +432,7 @@ it.each([false, true])(
   },
 )
 
-it('keeps root and ancestor guards and scoped lifetime', async () => {
+it('should keep root and ancestor guards and scoped lifetime', async () => {
   const { db, original, events } = controlled()
   let expired: typeof db | undefined
   try {
@@ -457,7 +457,7 @@ it('keeps root and ancestor guards and scoped lifetime', async () => {
   }
 })
 
-it('drains traced queries and session release before closing the shared provider', async () => {
+it('should drain traced queries and session release before closing the shared provider', async () => {
   const entered = deferred()
   const finishQuery = deferred()
   const releasing = deferred()
@@ -513,7 +513,7 @@ it('drains traced queries and session release before closing the shared provider
   }
 })
 
-it('can trace an existing transaction view without enabling its original view', async () => {
+it('should trace an existing transaction view without enabling its original view', async () => {
   const { original, events } = controlled()
   try {
     await original.transaction(async (trx) => {
@@ -541,7 +541,7 @@ it('can trace an existing transaction view without enabling its original view', 
   }
 })
 
-it('does not trace calls initiated through the original by a subscriber', async () => {
+it('should not trace calls initiated through the original by a subscriber', async () => {
   const { db, original, events } = controlled()
   let attempted: Promise<void> | undefined
   const channel = tracingChannel(QUERY_CHANNEL)
@@ -563,7 +563,7 @@ it('does not trace calls initiated through the original by a subscriber', async 
   }
 })
 
-it('returns the original client when tracing channels are unavailable', async () => {
+it('should return the original client when tracing channels are unavailable', async () => {
   const { original } = controlled()
   const lookup = vi.spyOn(process, 'getBuiltinModule').mockReturnValue(undefined)
   try {
@@ -574,7 +574,7 @@ it('returns the original client when tracing channels are unavailable', async ()
   }
 })
 
-it('does no parameter snapshot or timing work without subscribers', async () => {
+it('should do no parameter snapshot or timing work without subscribers', async () => {
   const controls = createControllableProvider()
   const original = createDatabase({
     connector: customConnector('postgresql'),
@@ -599,7 +599,7 @@ it('does no parameter snapshot or timing work without subscribers', async () => 
   }
 })
 
-it('does no tracing work through the original client with active subscribers', async () => {
+it('should do no tracing work through the original client with active subscribers', async () => {
   const { original, events } = controlled()
   const params = ['secret']
   const snapshot = vi.spyOn(params, 'map')
@@ -617,7 +617,7 @@ it('does no tracing work through the original client with active subscribers', a
   }
 })
 
-it('excludes synchronous lifecycle subscriber work from physical duration', async () => {
+it('should exclude synchronous lifecycle subscriber work from physical duration', async () => {
   const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
   const { db, events } = controlled()
   const channel = tracingChannel(QUERY_CHANNEL)

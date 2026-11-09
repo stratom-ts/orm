@@ -25,7 +25,7 @@ function controlled(options?: Parameters<typeof createControllableProvider>[0]) 
   return { db, controls }
 }
 
-it('preserves fixed SQL, ordered bound values, native row order, and empty rows without tables', async () => {
+it('should preserve fixed SQL, ordered bound values, native row order, and empty rows without tables', async () => {
   const sql = 'select $1 as value, $2 as other'
   const params = ["'; drop table users; --", null]
   const rows = [{ value: 'second' }, { value: 'first' }]
@@ -66,7 +66,7 @@ it('preserves fixed SQL, ordered bound values, native row order, and empty rows 
 })
 
 it.each(['column', 'client'] as const)(
-  'does not repeat %s parameter mapping or decode builder results',
+  'should not repeat %s parameter mapping or decode builder results',
   async (kind) => {
     const mapParam = vi.fn<(value: unknown) => string>(
       (value) => `stored:${String(value)}`,
@@ -119,7 +119,7 @@ it.each(['column', 'client'] as const)(
 )
 
 it.each(['root', 'transaction'] as const)(
-  'runs %s session guards before SQL and preserves guard failures',
+  'should run %s session guards before SQL and preserve guard failures',
   async (scope) => {
     const { db, controls } = controlled()
     const failure = new QueryError({ message: 'wrong session' })
@@ -169,7 +169,7 @@ it.each(['root', 'transaction'] as const)(
   },
 )
 
-it('retains a real builder database guard on the compiled object', async () => {
+it('should retain a real builder database guard on the compiled object', async () => {
   const Value = defineTable(
     'raw_values',
     { id: string() },
@@ -193,7 +193,7 @@ it('retains a real builder database guard on the compiled object', async () => {
   }
 })
 
-it('lets callers validate results and exposes validation failures outside execution', async () => {
+it('should let callers validate results and expose validation failures outside execution', async () => {
   const { db } = controlled({ queryRows: () => [{ value: 1 }] })
   try {
     const rows = await db.sql`select 1 as value`
@@ -206,7 +206,7 @@ it('lets callers validate results and exposes validation failures outside execut
   }
 })
 
-it('executes root calls FIFO and drains accepted work before closing', async () => {
+it('should execute root calls FIFO and drain accepted work before closing', async () => {
   const started = deferred()
   const finish = deferred()
   const { db, controls } = controlled({
@@ -237,7 +237,7 @@ it('executes root calls FIFO and drains accepted work before closing', async () 
   await expect(db.sql`closed`).rejects.toThrow(QueryError)
 })
 
-it('reuses one transaction session and enforces nested and expired scope ownership', async () => {
+it('should reuse one transaction session and enforce nested and expired scope ownership', async () => {
   const { db, controls } = controlled()
   let expired!: Db
   try {
@@ -276,7 +276,7 @@ it('reuses one transaction session and enforces nested and expired scope ownersh
   }
 })
 
-it('preserves native driver error classification and cause', async () => {
+it('should preserve native driver error classification and cause', async () => {
   const failure = Object.assign(new Error('duplicate'), {
     code: '23505',
     constraint: 'users_pkey',
@@ -304,7 +304,7 @@ it('preserves native driver error classification and cause', async () => {
 })
 
 it.each([new Error('provider defect'), { defect: 'unexpected object' }])(
-  'preserves unexpected provider failure identity: %s',
+  'should preserve unexpected provider failure identity: %s',
   async (failure) => {
     const stack = Object.getOwnPropertyDescriptor(failure, 'stack')
     const { db } = controlled({
@@ -323,7 +323,7 @@ it.each([new Error('provider defect'), { defect: 'unexpected object' }])(
   },
 )
 
-it('binds nested fragments in final order and quotes identifier parts independently', async () => {
+it('should bind nested fragments in final order and quote identifier parts independently', async () => {
   const { db } = controlled()
   try {
     const injected = "'; drop table users; --"
@@ -344,7 +344,7 @@ it('binds nested fragments in final order and quotes identifier parts independen
   }
 })
 
-it('rejects unmarked objects, copied queries, and mutation after compilation', async () => {
+it('should reject unmarked objects, copied queries, and mutation after compilation', async () => {
   const { db, controls } = controlled()
   try {
     // @ts-expect-error Plain SQL objects are not executable queries.
@@ -385,7 +385,7 @@ it('rejects unmarked objects, copied queries, and mutation after compilation', a
   }
 })
 
-it('starts SQL immediately and leaves fragments inert', async () => {
+it('should start SQL immediately and leave fragments inert', async () => {
   const started = deferred()
   const { db, controls } = controlled({
     beforeCall: async () => {
@@ -410,7 +410,7 @@ it('starts SQL immediately and leaves fragments inert', async () => {
   }
 })
 
-it('accepts compiled select, insert, update, and delete builders', async () => {
+it('should accept compiled select, insert, update, and delete builders', async () => {
   const Value = defineTable('raw_values', { id: string() }, { primaryKey: 'id' })
   const db = createDatabase({
     connector: createMockPostgresConnector(),

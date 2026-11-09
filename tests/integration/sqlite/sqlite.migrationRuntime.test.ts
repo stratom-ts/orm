@@ -270,7 +270,7 @@ function recordsSnapshot(owner: DatabaseSync) {
   }
 }
 
-it('checks every guard before a mixed rebuild program changes the schema', async () => {
+it('should check every guard before a mixed rebuild program changes the schema', async () => {
   const path = filePath()
   const owner = new DatabaseSync(path)
   const provider = createDb0NodeSqliteOperationSessionProvider(
@@ -414,7 +414,7 @@ async function assertWriterBlockedDuringGuard(
   }
 }
 
-it('keeps an independent writer out after checking a guarded rebuild', async () => {
+it('should keep an independent writer out after checking a guarded rebuild', async () => {
   const path = filePath()
   const owner = new DatabaseSync(path)
   const provider = createDb0NodeSqliteOperationSessionProvider(

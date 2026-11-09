@@ -20,7 +20,7 @@ import { withSqliteDatabase } from './sqliteIntegration'
 
 const intent = { behavior: 'immediate' } as const
 
-it('rolls back failed history, releases ownership and preserves scoped mapping', async () => {
+it('should roll back failed history, release ownership and preserve scoped mapping', async () => {
   await withSqliteDatabase(
     tables,
     async ({ db, filePath }) => {
@@ -39,7 +39,7 @@ it('rolls back failed history, releases ownership and preserves scoped mapping',
   )
 })
 
-it('does not update data or fire an UPDATE trigger for an unchanged save', async () => {
+it('should not update data or fire an UPDATE trigger for an unchanged save', async () => {
   await withSqliteDatabase(tables, async ({ db, nativeSql }) => {
     await seed(db)
 
@@ -56,7 +56,7 @@ it('does not update data or fire an UPDATE trigger for an unchanged save', async
   })
 })
 
-it('acquires write ownership before authorization reads and chains a competing client after release', async () => {
+it('should acquire write ownership before authorization reads and chain a competing client after release', async () => {
   await withSqliteDatabase(
     tables,
     async ({ db, filePath }) => {

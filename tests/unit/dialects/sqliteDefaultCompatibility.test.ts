@@ -37,7 +37,7 @@ function registerDefaultCompatibilityGroup1() {
     }
   })
 
-  it('keeps the base array default policy for a transformed pipeline', () => {
+  it('should keep the base array default policy for a transformed pipeline', () => {
     const schema = pipe(array(string()) as AnySchema, object({}) as AnySchema)
     expect(() =>
       assertSqliteDefaultCompatibility(

@@ -642,7 +642,7 @@ function facts(overrides: Partial<StorageFacts>): StorageFacts {
   }
 }
 
-it('distinguishes singleton safety from finite-choice safety', () => {
+it('should distinguish singleton safety from finite-choice safety', () => {
   expect(
     inferSqliteColumnTypeFromFacts(
       facts({ finiteEvidence: 'singleton', singletonValue: 1.5, finiteValues: [1.5] }),
@@ -675,7 +675,7 @@ it('distinguishes singleton safety from finite-choice safety', () => {
   ).toThrow('choice output')
 })
 
-it('keeps bigint limits and composite numeric selection', () => {
+it('should keep bigint limits and composite numeric selection', () => {
   expect(() =>
     inferSqliteColumnTypeFromFacts(
       facts({
@@ -706,7 +706,7 @@ it('keeps bigint limits and composite numeric selection', () => {
   ).toThrow(SchemaError)
 })
 
-it('maps logical values while keeping resolved and authored facts separate', () => {
+it('should map logical values while keeping resolved and authored facts separate', () => {
   const resolved = facts({ outputKind: 'boolean' })
   expect(mapSqliteParamValueFromFacts('INTEGER', true, resolved)).toBe(1)
   expect(mapSqliteResultValueFromFacts('INTEGER', 0, resolved)).toBe(false)
@@ -728,7 +728,7 @@ it('maps logical values while keeping resolved and authored facts separate', () 
   ).toThrow(QueryError)
 })
 
-it('uses default JSON shape evidence without read validation', () => {
+it('should use default JSON shape evidence without read validation', () => {
   const array = facts({
     outputKind: 'json',
     jsonShape: 'object',

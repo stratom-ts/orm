@@ -95,7 +95,7 @@ function storageFacts(overrides: Partial<StorageFacts>): StorageFacts {
 }
 
 function registerFiniteFactInference() {
-  it('infers singleton and narrowed choice widths from facts alone', () => {
+  it('should infer singleton and narrowed choice widths from facts alone', () => {
     const singleton = storageFacts({
       outputKind: 'number',
       finiteEvidence: 'singleton',
@@ -125,7 +125,7 @@ function registerFiniteFactInference() {
 }
 
 function registerCompositeFactInference() {
-  it('promotes proven safe integers and rejects unproven composite widths', () => {
+  it('should promote proven safe integers and reject unproven composite widths', () => {
     const safe = storageFacts({
       outputKind: 'number',
       finiteEvidence: 'choice',
@@ -160,7 +160,7 @@ function registerCompositeFactInference() {
 }
 
 function registerStorageFactMapping() {
-  it('distinguishes unconstrained output from unresolved transformations', () => {
+  it('should distinguish unconstrained output from unresolved transformations', () => {
     expect(() =>
       validatePostgresValueMappingFromFacts(
         'jsonb',
@@ -180,7 +180,7 @@ function registerStorageFactMapping() {
     ).toThrow(SchemaError)
   })
 
-  it('keeps resolved reference output and authored temporal constraints', () => {
+  it('should keep resolved reference output and authored temporal constraints', () => {
     const target = storageFacts({ outputKind: 'date', outputState: 'known' })
     const authored = storageFacts({
       outputKind: 'date',

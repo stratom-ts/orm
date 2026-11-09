@@ -668,7 +668,7 @@ describe('PostgreSQL lowering dependencies and malformed steps: reports unsuppor
 })
 
 describe('PostgreSQL lowering preconditions and target validation', () => {
-  it('retains every guarded column-drop target and source step under the default policy', () => {
+  it('should retain every guarded column-drop target and source step under the default policy', () => {
     const planned = plan()
     const relation = planned.identities.resolve({ relation: 'users' })
     const targets = ['email', 'legacy'].map((name) => ({

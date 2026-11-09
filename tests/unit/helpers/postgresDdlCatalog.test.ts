@@ -6,7 +6,7 @@ type Tables = Parameters<typeof applyPostgresFixtureDdl>[1]
 
 const text = (name: string) => ({ name, dataType: 'text', isNullable: true })
 
-it('reports a renamed column through local members and inbound foreign keys', () => {
+it('should report a renamed column through local members and inbound foreign keys', () => {
   const tables: Tables = [
     {
       schema: 'app',
@@ -51,7 +51,7 @@ it('reports a renamed column through local members and inbound foreign keys', ()
   ).toEqual(['id', 'full "name"', 'author'])
 })
 
-it('reports unique and foreign-key constraints added by DDL', () => {
+it('should report unique and foreign-key constraints added by DDL', () => {
   const tables: Tables = [
     { schema: 'app', name: 'users', columns: [text('id'), text('email')] },
     { schema: 'app', name: 'posts', columns: [text('author')] },
@@ -86,7 +86,7 @@ it('reports unique and foreign-key constraints added by DDL', () => {
   ])
 })
 
-it('reports inline unique constraints declared by create table', () => {
+it('should report inline unique constraints declared by create table', () => {
   const tables: Tables = []
 
   applyPostgresFixtureDdl(

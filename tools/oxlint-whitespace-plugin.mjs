@@ -647,7 +647,4 @@ const padMultilineBlocks = {
   },
 }
 
-export default {
-  meta: { name: 'stratom' },
-  rules: { whitespace: padMultilineBlocks },
-}
+export default padMultilineBlocks

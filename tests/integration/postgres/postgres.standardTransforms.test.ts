@@ -10,7 +10,7 @@ import { withPostgresDatabase } from './postgresIntegration'
 
 beforeAll(waitForPostgres)
 
-it('infers storage and maps standard Valibot transforms through PostgreSQL CRUD', async () => {
+it('should infer storage and map standard Valibot transforms through PostgreSQL CRUD', async () => {
   await withPostgresDatabase([StandardTransforms] as const, async ({ db }) => {
     await assertStandardTransformCrud(db, 'postgres')
   })

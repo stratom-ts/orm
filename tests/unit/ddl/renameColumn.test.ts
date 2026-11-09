@@ -63,7 +63,7 @@ function plan(renames: readonly MigrationColumnRename[], snapshot = catalog()) {
   return planMigration([User], snapshot, postgresDialect, { renames })
 }
 
-it('projects without modifying original evidence and uses a structured destination target', () => {
+it('should project without modifying original evidence and use a structured destination target', () => {
   const original = catalog()
   const before = structuredClone(original)
   const planned = plan([intent], original)
@@ -81,7 +81,7 @@ it('projects without modifying original evidence and uses a structured destinati
   })
 })
 
-it('deduplicates identical mappings and canonically orders independent intent sets', () => {
+it('should deduplicate identical mappings and canonically order independent intent sets', () => {
   const second = { table: User, from: 'oldSecond', to: 'second' }
   const original = catalog(['id', 'displayName', 'oldSecond'])
   expect(plan([second, intent, intent], original).plan).toEqual(
@@ -117,18 +117,18 @@ it.each([
   ],
   ['empty identifier', [{ ...intent, from: '' }]],
   ['NUL identifier', [{ ...intent, from: 'bad\0name' }]],
-] as const)('rejects %s mappings', (_reason, renames) => {
+] as const)('should reject %s mappings', (_reason, renames) => {
   expect(() => plan(renames)).toThrow(/./)
 })
 
 it.each([
   ['id', 'displayName', 'fullName', 'second'],
   ['id', 'second'],
-])('rejects conflicting observed names %j', (...names) => {
+])('should reject conflicting observed names %j', (...names) => {
   expect(() => plan([intent], catalog(names))).toThrow('exactly one')
 })
 
-it('requires complete dependency coverage and target evidence', () => {
+it('should require complete dependency coverage and target evidence', () => {
   expect(() => plan([intent], { ...catalog(), renameDependencies: undefined })).toThrow(
     'complete dependency',
   )
@@ -141,7 +141,7 @@ it('requires complete dependency coverage and target evidence', () => {
   ).toThrow('omits rename target')
 })
 
-it('rejects unavailable inbound table evidence instead of assuming no dependency', () => {
+it('should reject unavailable inbound table evidence instead of assuming no dependency', () => {
   const original = catalog()
   const target = original.renameDependencies!.items[0]
   const hidden = {
@@ -165,7 +165,7 @@ it('rejects unavailable inbound table evidence instead of assuming no dependency
   ).toThrow('missing dependency table evidence')
 })
 
-it('treats an observed destination as satisfied while still planning residual drift', () => {
+it('should treat an observed destination as satisfied while still planning residual drift', () => {
   const Required = defineTable(
     'users',
     { id: string(), fullName: string(), second: nullable(string()) },
@@ -182,7 +182,7 @@ it('treats an observed destination as satisfied while still planning residual dr
   ])
 })
 
-it('uses physical destination names rather than application property names', () => {
+it('should use physical destination names rather than application property names', () => {
   const Physical = defineTable(
     'users',
     {
@@ -209,7 +209,7 @@ it('uses physical destination names rather than application property names', () 
   ])
 })
 
-it('produces equal plans under registration and independent intent permutations', () => {
+it('should produce equal plans under registration and independent intent permutations', () => {
   const Other = defineTable(
     'other',
     { id: string(), fullName: nullable(string()) },

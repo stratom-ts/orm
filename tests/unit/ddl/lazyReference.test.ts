@@ -67,7 +67,7 @@ function circular(reverse: boolean) {
 }
 
 it.each([false, true])(
-  'lowers mutually circular declarations in either order (reverse=%s)',
+  'should lower mutually circular declarations in either order (reverse=%s)',
   (reverse) => {
     const [A, B] = circular(reverse)
     const first = lowerDesiredSchema([A, B], identities(), postgresDialect.schema)
@@ -92,7 +92,7 @@ it.each([false, true])(
   },
 )
 
-it('does not evaluate callbacks during declaration, metadata inspection, or validation', () => {
+it('should not evaluate callbacks during declaration, metadata inspection, or validation', () => {
   const target = vi.fn<() => ReferenceTarget>(() =>
     defineTable('unused', { id: string() }, { primaryKey: 'id' }),
   )
@@ -106,7 +106,7 @@ it('does not evaluate callbacks during declaration, metadata inspection, or vali
   expect(target).not.toHaveBeenCalled()
 })
 
-it('evaluates a reused declaration once per graph and retains eager target intent', () => {
+it('should evaluate a reused declaration once per graph and retain eager target intent', () => {
   const Target = defineTable('target', { id: string() }, { primaryKey: 'id' })
   const target = vi.fn<() => typeof Target>(() => Target)
   const lazy = reference(string(), target, 'id', { onUpdate: 'cascade' })
@@ -131,7 +131,7 @@ it('evaluates a reused declaration once per graph and retains eager target inten
   expect(target).toHaveBeenCalledTimes(2)
 })
 
-it('pins target identity across query mapping and later planning graphs', () => {
+it('should pin target identity across query mapping and later planning graphs', () => {
   const A = defineTable('a', { id: string() }, { primaryKey: 'id' })
   const B = defineTable('b', { id: string() }, { primaryKey: 'id' })
   let target: TableHandle = A
@@ -152,7 +152,7 @@ it('pins target identity across query mapping and later planning graphs', () => 
   ).toThrow(/identity changed/)
 })
 
-it('accepts a deferred raw schema with its registered column', () => {
+it('should accept a deferred raw schema with its registered column', () => {
   const raw = pipe(
     object({ id: string() }),
     title('target'),
@@ -172,7 +172,7 @@ it('accepts a deferred raw schema with its registered column', () => {
   ).toEqual({ relation: { relation: 'target' }, column: 'id' })
 })
 
-it('rejects missing, ambiguous and incompatible registrations deterministically', () => {
+it('should reject missing, ambiguous and incompatible registrations deterministically', () => {
   const Target = defineTable('target', { id: string() }, { primaryKey: 'id' })
   const Duplicate = defineTable('target', { id: string() }, { primaryKey: 'id' })
   const source = (schema: ReturnType<typeof string> | ReturnType<typeof number>) =>
@@ -203,7 +203,7 @@ it('rejects missing, ambiguous and incompatible registrations deterministically'
   ).toThrow(/incompatible/)
 })
 
-it('rejects absent callbacks, missing keys and different same-identity declarations during graph lowering', () => {
+it('should reject absent callbacks, missing keys and different same-identity declarations during graph lowering', () => {
   const Target = defineTable('target', { id: string() }, { primaryKey: 'id' })
   let selected: TableHandle | undefined
   const Source = defineTable(
@@ -229,7 +229,7 @@ it('rejects absent callbacks, missing keys and different same-identity declarati
   ).toThrow(/differs from the registered/)
 })
 
-it('preserves callback defects by identity', () => {
+it('should preserve callback defects by identity', () => {
   const defect = new Error('callback defect')
   const Source = defineTable(
     'source',
@@ -260,7 +260,7 @@ it('preserves callback defects by identity', () => {
   expect(failure).toBe(defect)
 })
 
-it('checks local referential actions and preserves local defaults without early resolution', () => {
+it('should check local referential actions and preserve local defaults without early resolution', () => {
   const Target = defineTable('target', { id: string() }, { primaryKey: 'id' })
   const target = vi.fn<() => typeof Target>(() => Target)
   expect(() =>
@@ -307,7 +307,7 @@ it('checks local referential actions and preserves local defaults without early 
   })
 })
 
-it('uses the nearest reference when eager and lazy declarations are nested', () => {
+it('should use the nearest reference when eager and lazy declarations are nested', () => {
   const Target = defineTable('target', { id: string() }, { primaryKey: 'id' })
   const Other = defineTable('other', { id: string() }, { primaryKey: 'id' })
   const Intermediate = defineTable(

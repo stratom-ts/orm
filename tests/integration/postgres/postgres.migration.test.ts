@@ -182,7 +182,7 @@ const QuotedGuardBefore = defineTable(
 const QuotedGuardAfter = defineTable('odd"guard', { id: string() }, { primaryKey: 'id' })
 
 describe('PostgreSQL guarded NULL-only column drops', () => {
-  it('drops a column containing only NULL values', async () => {
+  it('should drop a column containing only NULL values', async () => {
     await withPostgresDatabase(
       [GuardedBefore],
       async ({ db, admin, schema, createDatabase }) => {
@@ -211,7 +211,7 @@ describe('PostgreSQL guarded NULL-only column drops', () => {
     )
   })
 
-  it('drops the guarded column of an empty table', async () => {
+  it('should drop the guarded column of an empty table', async () => {
     await withPostgresDatabase([GuardedBefore], async ({ db, createDatabase }) => {
       await db.migrate().execute()
       const destructive = createDatabase([GuardedAfter], {
@@ -226,7 +226,7 @@ describe('PostgreSQL guarded NULL-only column drops', () => {
   })
 })
 
-it('guards a quoted physical column containing false', async () => {
+it('should guard a quoted physical column containing false', async () => {
   await withPostgresDatabase(
     [QuotedGuardBefore],
     async ({ db, admin, schema, createDatabase }) => {
@@ -266,7 +266,7 @@ it('guards a quoted physical column containing false', async () => {
 })
 
 describe('PostgreSQL populated column drops', () => {
-  it('blocks an empty string before DDL and permits the explicit override', async () => {
+  it('should block an empty string before DDL and permit the explicit override', async () => {
     await withPostgresDatabase(
       [GuardedBefore],
       async ({ db, admin, schema, createDatabase }) => {
@@ -316,7 +316,7 @@ async function mixedTableSnapshot(admin: Client, schema: string) {
   }
 }
 
-it('rejects a whole mixed plan before any PostgreSQL DDL', async () => {
+it('should reject a whole mixed plan before any PostgreSQL DDL', async () => {
   await withPostgresDatabase(
     [MixedBefore],
     async ({ db, admin, schema, createDatabase }) => {
@@ -381,7 +381,7 @@ async function waitForBlockedRelationLock(admin: Client, table: string): Promise
 }
 
 function registerWaitingWriterCase() {
-  it('sees a writer commit made while the relation lock waits', async () => {
+  it('should see a writer commit made while the relation lock waits', async () => {
     await withPostgresDatabase(
       [GuardedBefore],
       async ({ db, admin, schema, createDatabase }) => {
@@ -505,7 +505,7 @@ async function observeBlockedWrite(
 }
 
 function registerBlockedWriterCase() {
-  it('blocks a writer after the relation lock is acquired and through the guard', async () => {
+  it('should block a writer after the relation lock is acquired and through the guard', async () => {
     await withPostgresDatabase(
       [GuardedBefore],
       async ({ db, admin, schema, createDatabase }) => {
@@ -564,7 +564,7 @@ describe('PostgreSQL guarded column-drop locking', () => {
   registerWaitingWriterCase()
   registerBlockedWriterCase()
 
-  it('reports a NOWAIT relation conflict as retryable without changing the schema', async () => {
+  it('should report a NOWAIT relation conflict as retryable without changing the schema', async () => {
     await withPostgresDatabase(
       [GuardedBefore],
       async ({ db, admin, schema, createDatabase }) => {

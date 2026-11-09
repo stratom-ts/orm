@@ -13,7 +13,7 @@ const User = defineTable(
   { primaryKey: 'id', indexes: [{ columns: ['fullName', 'id'] }] },
 )
 
-it('preserves native values and historical indexes and converges without retained intent', async () => {
+it('should preserve native values and historical indexes and converge without retained intent', async () => {
   await withPostgresDatabase([User], async ({ db, admin, schema }) => {
     const table = `${quoteIdentifier(schema)}."rename_users"`
     await admin.query(
@@ -61,7 +61,7 @@ it('preserves native values and historical indexes and converges without retaine
   })
 })
 
-it('checks residual NOT NULL against the original physical address', async () => {
+it('should check residual NOT NULL against the original physical address', async () => {
   const Required = defineTable(
     'rename_users',
     { id: string(), fullName: string() },
@@ -90,7 +90,7 @@ it('checks residual NOT NULL against the original physical address', async () =>
   })
 })
 
-it('rolls back the native rename when final validation fails', async () => {
+it('should roll back the native rename when final validation fails', async () => {
   let renamed = false
   await withPostgresDatabase(
     [User],
@@ -125,7 +125,7 @@ it('rolls back the native rename when final validation fails', async () => {
   )
 })
 
-it('preserves renamed primary keys, inbound foreign keys, and self references outside desired registration', async () => {
+it('should preserve renamed primary keys, inbound foreign keys, and self references outside desired registration', async () => {
   const Parent = defineTable('parent', { fullName: string() }, { primaryKey: 'fullName' })
   await withPostgresDatabase(
     [Parent],
@@ -159,7 +159,7 @@ it('preserves renamed primary keys, inbound foreign keys, and self references ou
   )
 })
 
-it('locks rename targets before authoritative observation and respects lock deadlines', async () => {
+it('should lock rename targets before authoritative observation and respect lock deadlines', async () => {
   const calls: string[] = []
   await withPostgresDatabase(
     [User],
@@ -216,7 +216,7 @@ it('locks rename targets before authoritative observation and respects lock dead
   )
 })
 
-it('rejects opaque views and inheritance dependencies before writes', async () => {
+it('should reject opaque views and inheritance dependencies before writes', async () => {
   await withPostgresDatabase([User], async ({ db, admin, schema }) => {
     const table = `${quoteIdentifier(schema)}."rename_users"`
     await admin.query(
@@ -248,7 +248,7 @@ it('rejects opaque views and inheritance dependencies before writes', async () =
 })
 
 it.each(['commit', 'unlock'] as const)(
-  'preserves native outcomes when %s acknowledgment fails after a rename',
+  'should preserve native outcomes when %s acknowledgment fails after a rename',
   async (failure) => {
     const cause = new Error(`forced ${failure} acknowledgment failure`)
     let renames = 0
@@ -294,7 +294,7 @@ it.each(['commit', 'unlock'] as const)(
   },
 )
 
-it('allows unrelated views while rejecting inherited inbound sources', async () => {
+it('should allow unrelated views while rejecting inherited inbound sources', async () => {
   const Parent = defineTable('parent', { fullName: string() }, { primaryKey: 'fullName' })
   await withPostgresDatabase([Parent], async ({ db, admin, schema }) => {
     const parent = `${quoteIdentifier(schema)}.parent`
@@ -325,7 +325,7 @@ it('allows unrelated views while rejecting inherited inbound sources', async () 
   })
 })
 
-it('preserves unique keys, local foreign-key names, and authored indexes across repeat runs', async () => {
+it('should preserve unique keys, local foreign-key names, and authored indexes across repeat runs', async () => {
   const Owner = defineTable('owners', { id: string() }, { primaryKey: 'id' })
   const Member = defineTable(
     'members',
@@ -378,7 +378,7 @@ it('preserves unique keys, local foreign-key names, and authored indexes across 
   })
 })
 
-it('retains the DDL failure and rollback cleanup evidence after native rename', async () => {
+it('should retain the DDL failure and rollback cleanup evidence after native rename', async () => {
   const Required = defineTable(
     'rename_users',
     { id: string(), fullName: string() },

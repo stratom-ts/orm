@@ -1010,7 +1010,7 @@ function registerMappingGroup25() {
   it.each<[string, AnySchema, string[], unknown, unknown, unknown, unknown]>(
     registerMappingGroup25Data,
   )(
-    'PostgreSQL should validate and map %s independently for every storage alias',
+    'should validate and map %s independently for every storage alias in PostgreSQL',
     (_id, schema, types, input, parameter, driver, output) => {
       for (const type of types) {
         const context = { facts: extractStorageFacts(schema) }

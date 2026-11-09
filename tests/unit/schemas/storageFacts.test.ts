@@ -49,7 +49,7 @@ import { column } from '@/schemas'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { AnySchema } from '@/types/schema'
 
-it('describes primitive families and their independent storage constraints', () => {
+it('should describe primitive families and their independent storage constraints', () => {
   expect(
     extractStorageFacts(pipe(string(), minLength(2), maxLength(12), uuid())),
   ).toMatchObject({
@@ -84,7 +84,7 @@ it('describes primitive families and their independent storage constraints', () 
   expect(extractStorageFacts(date()).outputKind).toBe('date')
 })
 
-it('retains singleton versus choice evidence after later validation', () => {
+it('should retain singleton versus choice evidence after later validation', () => {
   expect(extractStorageFacts(pipe(literal(2) as AnySchema, number()))).toMatchObject({
     finiteEvidence: 'singleton',
     singletonValue: 2,
@@ -138,7 +138,7 @@ it('retains singleton versus choice evidence after later validation', () => {
   })
 })
 
-it('retains base JSON shape for default compatibility independently of output shape', () => {
+it('should retain base JSON shape for default compatibility independently of output shape', () => {
   expect(extractStorageFacts(array(string()))).toMatchObject({
     jsonShape: 'array',
     defaultJsonShape: 'array',
@@ -150,7 +150,7 @@ it('retains base JSON shape for default compatibility independently of output sh
   })
 })
 
-it('projects alternatives recursively without losing branch-specific bounds', () => {
+it('should project alternatives recursively without losing branch-specific bounds', () => {
   const facts = extractStorageFacts(
     union([literal(3), pipe(number(), minValue(10)), nullSchema()]),
   )
@@ -187,7 +187,7 @@ it('projects alternatives recursively without losing branch-specific bounds', ()
   })
 })
 
-it('distinguishes JSON shapes and outputs that lose identity through JSON', () => {
+it('should distinguish JSON shapes and outputs that lose identity through JSON', () => {
   expect(extractStorageFacts(object({ id: string() }))).toMatchObject({
     jsonShape: 'object',
     jsonOutputCompatible: true,
@@ -224,7 +224,7 @@ it('distinguishes JSON shapes and outputs that lose identity through JSON', () =
   ).toMatchObject({ jsonShape: 'array', outputState: 'known' })
 })
 
-it('separates unconstrained output from unresolved transformations and known conversions', () => {
+it('should separate unconstrained output from unresolved transformations and known conversions', () => {
   for (const schema of [unknown(), any()])
     expect(extractStorageFacts(schema)).toMatchObject({
       outputKind: undefined,
@@ -264,7 +264,7 @@ it('separates unconstrained output from unresolved transformations and known con
   })
 })
 
-it('keeps SQL nullability, undefined output, and insert omission distinct', () => {
+it('should keep SQL nullability, undefined output, and insert omission distinct', () => {
   expect(extractStorageFacts(nullable(string()))).toMatchObject({
     nullable: true,
     allowsUndefined: false,
@@ -310,7 +310,7 @@ it('keeps SQL nullability, undefined output, and insert omission distinct', () =
   })
 })
 
-it('describes absent, null, value and factory defaults without executing user code', () => {
+it('should describe absent, null, value and factory defaults without executing user code', () => {
   const defaultFactory = vi.fn<() => string>(() => 'default')
   const fallbackFactory = vi.fn<() => string>(() => 'fallback')
   const transformation = vi.fn<(value: string) => string>((value) => value)
@@ -345,7 +345,7 @@ it('describes absent, null, value and factory defaults without executing user co
   expect(mapping).not.toHaveBeenCalled()
 })
 
-it('recognizes trim output and applies constraints after normalization', () => {
+it('should recognize trim output and apply constraints after normalization', () => {
   expect(
     extractStorageFacts(pipe(string(), trim(), minLength(1), maxLength(200))),
   ).toMatchObject({
@@ -371,7 +371,7 @@ it('recognizes trim output and applies constraints after normalization', () => {
   ).toEqual({ minLength: 1 })
 })
 
-it('discards finite and format facts that trimming can change', () => {
+it('should discard finite and format facts that trimming can change', () => {
   for (const schema of [
     pipe(literal<string>(' padded '), trim()),
     pipe(picklist([' a ', ' b '] as string[]), trim()),
@@ -388,7 +388,7 @@ it('discards finite and format facts that trimming can change', () => {
   }
 })
 
-it('preserves wrappers and defaults surrounding trimmed titles', () => {
+it('should preserve wrappers and defaults surrounding trimmed titles', () => {
   const title = pipe(string(), trim(), minLength(1), maxLength(200))
   expect(extractStorageFacts(nullable(title))).toMatchObject({
     outputKind: 'string',
@@ -418,7 +418,7 @@ it('preserves wrappers and defaults surrounding trimmed titles', () => {
   })
 })
 
-it('recognizes string normalization output and retains only safe length facts', () => {
+it('should recognize string normalization output and retain only safe length facts', () => {
   for (const action of [trimStart(), trimEnd()]) {
     expect(extractStorageFacts(pipe(string(), maxLength(20), action))).toMatchObject({
       outputKind: 'string',
@@ -438,7 +438,7 @@ it('recognizes string normalization output and retains only safe length facts', 
   }
 })
 
-it('tracks numeric clamp bounds without stale finite or integer evidence', () => {
+it('should track numeric clamp bounds without stale finite or integer evidence', () => {
   expect(
     extractStorageFacts(
       pipe(number(), integer(), minValue(-10), maxValue(50), toMinValue(0)),
@@ -493,7 +493,7 @@ it('tracks numeric clamp bounds without stale finite or integer evidence', () =>
   }
 })
 
-it('tracks bigint clamps and conversion output', () => {
+it('should track bigint clamps and conversion output', () => {
   expect(
     extractStorageFacts(pipe(bigint(), minValue(-20n), maxValue(20n), toMinValue(0n))),
   ).toMatchObject({

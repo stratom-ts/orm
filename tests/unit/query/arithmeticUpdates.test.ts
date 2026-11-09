@@ -43,7 +43,7 @@ const Counters = defineTable(
 const makeDb = () =>
   createDatabase({ connector: createMockPostgresConnector(), schemas: [Counters] })
 
-it('binds mixed assignments before predicates and preserves immutable builders', async () => {
+it('should bind mixed assignments before predicates and preserve immutable builders', async () => {
   const db = makeDb()
   try {
     const builder = db
@@ -72,7 +72,7 @@ it('binds mixed assignments before predicates and preserves immutable builders',
   }
 })
 
-it('rejects invalid finite operands at the public boundary', () => {
+it('should reject invalid finite operands at the public boundary', () => {
   for (const value of [
     NaN,
     Infinity,
@@ -87,7 +87,7 @@ it('rejects invalid finite operands at the public boundary', () => {
   }
 })
 
-it('rejects incompatible sources and targets synchronously', async () => {
+it('should reject incompatible sources and targets synchronously', async () => {
   const db = makeDb()
   const Other = defineTable(
     'count"ers',
@@ -127,7 +127,7 @@ it('rejects incompatible sources and targets synchronously', async () => {
   }
 })
 
-it('keeps writable keys and literal schema validation', async () => {
+it('should keep writable keys and literal schema validation', async () => {
   const db = makeDb()
   try {
     // @ts-expect-error readonly target
@@ -152,7 +152,7 @@ it('keeps writable keys and literal schema validation', async () => {
   }
 })
 
-it('rejects participating custom mappings without calling them', async () => {
+it('should reject participating custom mappings without calling them', async () => {
   let calls = 0
   const T = defineTable(
     'mapped',
@@ -181,7 +181,7 @@ it('rejects participating custom mappings without calling them', async () => {
 })
 
 it.each(['parameter', 'result'] as const)(
-  'rejects client %s overrides without invoking them',
+  'should reject client %s overrides without invoking them',
   async (direction) => {
     let calls = 0
     const hook = (value: unknown) => {
@@ -212,7 +212,7 @@ it.each(['parameter', 'result'] as const)(
   },
 )
 
-it('allows unrelated column hooks and does not parse computed refinements or transforms', async () => {
+it('should allow unrelated column hooks and not parse computed refinements or transforms', async () => {
   let transformed = 0
   const T = defineTable(
     'transformed',
@@ -251,7 +251,7 @@ it('allows unrelated column hooks and does not parse computed refinements or tra
   }
 })
 
-it('rejects encoded numeric storage even with paired identity hooks', async () => {
+it('should reject encoded numeric storage even with paired identity hooks', async () => {
   const T = defineTable(
     'encoded',
     {
@@ -276,7 +276,7 @@ it('rejects encoded numeric storage even with paired identity hooks', async () =
   }
 })
 
-it('does not run optional default transforms for computed assignments', async () => {
+it('should not run optional default transforms for computed assignments', async () => {
   let transformed = 0
   const T = defineTable(
     'default_transform',

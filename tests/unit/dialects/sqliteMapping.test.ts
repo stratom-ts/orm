@@ -288,7 +288,7 @@ function registerMappingGroup1() {
   it.each<[string, AnySchema, string[], string[], unknown, unknown, unknown, unknown]>(
     registerMappingGroup1Data,
   )(
-    'SQLite should validate parameters and results for %s',
+    'should validate parameters and results for %s in SQLite',
     (_id, schema, accepted, rejected, input, parameter, driver, output) => {
       for (const type of accepted) {
         const context = { facts: extractStorageFacts(schema) }

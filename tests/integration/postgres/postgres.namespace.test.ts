@@ -335,7 +335,7 @@ async function assertPhysicalIndexes(admin: Client, schema: string) {
   ])
 }
 
-it('keeps qualified outer occurrence guards separate from an unqualified inner namesake', async () => {
+it('should keep qualified outer occurrence guards separate from an unqualified inner namesake', async () => {
   await withPostgresDatabase(
     [OmittedItems],
     async ({ db, alternateSchema, connector }) => {

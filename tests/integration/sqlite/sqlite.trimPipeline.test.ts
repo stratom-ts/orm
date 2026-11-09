@@ -4,7 +4,7 @@ import { TrimmedIssues, assertTrimmedTitleWrites } from '../support/trimPipeline
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
-it('infers string storage and normalizes trimmed titles in SQLite', async () => {
+it('should infer string storage and normalize trimmed titles in SQLite', async () => {
   await withSqliteDatabase([TrimmedIssues] as const, async ({ db, native }) => {
     await assertTrimmedTitleWrites(db)
 
