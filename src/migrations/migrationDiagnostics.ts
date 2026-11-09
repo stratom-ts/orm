@@ -64,8 +64,16 @@ function enrichMigrationError(
     ...actionIndex,
     ...sourceStepIndexes,
     ...capabilityIssues,
+    ...preconditionDetails(error),
     ...cleanupFailures,
   })
+}
+
+/** Preserves optional guard diagnostics without exceeding reconstruction complexity. */
+function preconditionDetails(error: MigrationError) {
+  return error.preconditionFailure === undefined
+    ? {}
+    : { preconditionFailure: error.preconditionFailure }
 }
 
 type ExecutionFacts = Readonly<{
@@ -101,6 +109,9 @@ function retainedExecutionDiagnostics(
       ...(actionIndex !== undefined ? { actionIndex } : {}),
       ...(sourceStepIndexes !== undefined ? { sourceStepIndexes } : {}),
       ...(capabilityIssues !== undefined ? { capabilityIssues } : {}),
+      ...(structured?.preconditionFailure !== undefined
+        ? { preconditionFailure: structured.preconditionFailure }
+        : {}),
       ...(optionalCleanupFailures !== undefined
         ? { cleanupFailures: optionalCleanupFailures }
         : {}),

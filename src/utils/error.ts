@@ -1,6 +1,7 @@
 import type { BaseIssue } from 'valibot'
 import { getDotPath } from 'valibot'
 
+import type { MigrationTarget } from '@/ddl/migrationPlan'
 import type { MigrationCapabilityIssue } from '@/ddl/migrationProgram'
 import type { Equals } from '@/types/equals'
 
@@ -219,6 +220,10 @@ class MigrationError extends TaggedError('MigrationError')<{
   sourceStepIndexes?: readonly number[]
   capabilityIssues?: readonly MigrationCapabilityIssue[]
   cleanupFailures?: readonly MigrationCleanupFailure[]
+  preconditionFailure?: Readonly<{
+    target: Extract<MigrationTarget, { kind: 'column' }>
+    reason: 'contains_non_null_values' | 'verification_failed'
+  }>
 }> {}
 
 /** Observable stage at which migration execution stopped. */

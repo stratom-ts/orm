@@ -6,6 +6,7 @@ import type {
 import type {
   MigrationAction,
   MigrationCapabilityIssue,
+  MigrationLoweringPolicy,
   MigrationLoweringResult,
   MigrationPrecondition,
 } from '@/ddl/migrationProgram'
@@ -544,6 +545,7 @@ function dependsOn(
 function lowerSqliteMigrationPlan(
   planned: PlannedMigration,
   expected: MigrationSemanticProfile,
+  policy: MigrationLoweringPolicy = { columnDrop: 'guarded' },
 ): MigrationLoweringResult {
   const issues = profileIssues(planned, expected)
 
@@ -588,7 +590,25 @@ function lowerSqliteMigrationPlan(
       ),
     }
 
+  if (policy.columnDrop === 'guarded')
+    preconditions.push(...guardedDropPreconditions(planned))
+
   return { program: { atomicity: 'plan-atomic', actions, preconditions } }
+}
+
+/** Preserves original semantic provenance for every guarded drop. */
+function guardedDropPreconditions(planned: PlannedMigration): MigrationPrecondition[] {
+  return planned.plan.steps.flatMap((step, index) =>
+    step.kind === 'drop_column'
+      ? [
+          {
+            kind: 'column_has_only_nulls',
+            target: step.target,
+            sourceStepIndexes: [index],
+          } as const,
+        ]
+      : [],
+  )
 }
 
 /** Rejects implicit rowid-alias changes even when affinity comparison produces no steps. */

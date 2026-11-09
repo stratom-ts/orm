@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import type { Client, QueryResult } from 'pg'
-import { nullable, pipe, string, uuid } from 'valibot'
+import { Client } from 'pg'
+import type { QueryResult } from 'pg'
+import { boolean, nullable, pipe, string, uuid } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { column, defineTable, reference } from '@/index'
@@ -143,6 +144,461 @@ describe('PostgreSQL inferred UUID migration', () => {
 
       await expect(db.migrate().plan()).resolves.toEqual({ steps: [] })
     })
+  })
+})
+
+const GuardedBefore = defineTable(
+  'guarded_drop',
+  { id: string(), removed: nullable(string()) },
+  { primaryKey: 'id' },
+)
+
+const GuardedAfter = defineTable('guarded_drop', { id: string() }, { primaryKey: 'id' })
+
+const MixedBefore = defineTable(
+  'mixed_guarded_drop',
+  { id: string(), safe: nullable(string()), unsafe: nullable(string()) },
+  { primaryKey: 'id' },
+)
+
+const MixedAfter = defineTable(
+  'mixed_guarded_drop',
+  {
+    id: string(),
+    added: pipe(
+      string(),
+      column({ databaseDefault: { kind: 'literal', value: 'added' } }),
+    ),
+  },
+  { primaryKey: 'id' },
+)
+
+const QuotedGuardBefore = defineTable(
+  'odd"guard',
+  { id: string(), removed: nullable(pipe(boolean(), column({ name: 'odd"column' }))) },
+  { primaryKey: 'id' },
+)
+
+const QuotedGuardAfter = defineTable('odd"guard', { id: string() }, { primaryKey: 'id' })
+
+describe('PostgreSQL guarded NULL-only column drops', () => {
+  it('drops a column containing only NULL values', async () => {
+    await withPostgresDatabase(
+      [GuardedBefore],
+      async ({ db, admin, schema, createDatabase }) => {
+        await db.migrate().execute()
+
+        await admin.query(
+          `insert into ${quoteIdentifier(schema)}."guarded_drop" (id, removed) values ($1, NULL)`,
+          ['row'],
+        )
+
+        const destructive = createDatabase([GuardedAfter], {
+          migrationOwnership: [
+            { kind: 'relation', relation: GuardedAfter, shape: 'complete' },
+          ],
+        })
+
+        expect(
+          (await destructive.migrate().dryRun()).preconditions.map(
+            (condition) => condition.kind,
+          ),
+        ).toContain('column_has_only_nulls')
+
+        await destructive.migrate().execute()
+        await expect(destructive.migrate().plan()).resolves.toEqual({ steps: [] })
+      },
+    )
+  })
+
+  it('drops the guarded column of an empty table', async () => {
+    await withPostgresDatabase([GuardedBefore], async ({ db, createDatabase }) => {
+      await db.migrate().execute()
+      const destructive = createDatabase([GuardedAfter], {
+        migrationOwnership: [
+          { kind: 'relation', relation: GuardedAfter, shape: 'complete' },
+        ],
+      })
+
+      await destructive.migrate().execute()
+      expect(await destructive.migrate().plan()).toEqual({ steps: [] })
+    })
+  })
+})
+
+it('guards a quoted physical column containing false', async () => {
+  await withPostgresDatabase(
+    [QuotedGuardBefore],
+    async ({ db, admin, schema, createDatabase }) => {
+      await db.migrate().execute()
+      const table = `${quoteIdentifier(schema)}."odd""guard"`
+      await admin.query(`insert into ${table} (id,"odd""column") values ($1,false)`, [
+        'row',
+      ])
+
+      const destructive = createDatabase([QuotedGuardAfter], {
+        migrationOwnership: [
+          { kind: 'relation', relation: QuotedGuardAfter, shape: 'complete' },
+        ],
+      })
+
+      const error = await destructive
+        .migrate()
+        .execute()
+        .catch((cause: unknown) => cause)
+
+      expect(error).toMatchObject({
+        stage: 'precondition',
+        preconditionFailure: {
+          target: {
+            relation: { relation: { spelling: 'odd"guard' } },
+            column: { spelling: 'odd"column' },
+          },
+          reason: 'contains_non_null_values',
+        },
+      })
+
+      expect((await admin.query(`select "odd""column" from ${table}`)).rows).toEqual([
+        { 'odd"column': false },
+      ])
+    },
+  )
+})
+
+describe('PostgreSQL populated column drops', () => {
+  it('blocks an empty string before DDL and permits the explicit override', async () => {
+    await withPostgresDatabase(
+      [GuardedBefore],
+      async ({ db, admin, schema, createDatabase }) => {
+        await db.migrate().execute()
+
+        await admin.query(
+          `insert into ${quoteIdentifier(schema)}."guarded_drop" (id, removed) values ($1, $2)`,
+          ['row', ''],
+        )
+
+        const destructive = createDatabase([GuardedAfter], {
+          migrationOwnership: [
+            { kind: 'relation', relation: GuardedAfter, shape: 'complete' },
+          ],
+        })
+
+        await expect(destructive.migrate().execute()).rejects.toMatchObject({
+          stage: 'precondition',
+          preconditionFailure: { reason: 'contains_non_null_values' },
+        })
+
+        expect(
+          (
+            await admin.query(
+              `select removed from ${quoteIdentifier(schema)}."guarded_drop"`,
+            )
+          ).rows,
+        ).toEqual([{ removed: '' }])
+
+        await destructive.migrate().allow('dangerouslyDropColumn').execute()
+        await expect(destructive.migrate().plan()).resolves.toEqual({ steps: [] })
+      },
+    )
+  })
+})
+
+async function mixedTableSnapshot(admin: Client, schema: string) {
+  const table = `${quoteIdentifier(schema)}."mixed_guarded_drop"`
+  return {
+    columns: (
+      await admin.query(
+        'select column_name from information_schema.columns where table_schema=$1 and table_name=$2 order by ordinal_position',
+        [schema, 'mixed_guarded_drop'],
+      )
+    ).rows,
+    values: (await admin.query(`select * from ${table}`)).rows,
+  }
+}
+
+it('rejects a whole mixed plan before any PostgreSQL DDL', async () => {
+  await withPostgresDatabase(
+    [MixedBefore],
+    async ({ db, admin, schema, createDatabase }) => {
+      await db.migrate().execute()
+      const table = `${quoteIdentifier(schema)}."mixed_guarded_drop"`
+      await admin.query(`insert into ${table} (id,safe,unsafe) values ($1,NULL,$2)`, [
+        'row',
+        'kept',
+      ])
+
+      const statements: string[] = []
+      const destructive = createDatabase([MixedAfter], {
+        migrationOwnership: [
+          { kind: 'relation', relation: MixedAfter, shape: 'complete' },
+        ],
+        hooks: {
+          before: ({ sql }) => {
+            if (/^(?:create|alter|drop)\s/i.test(sql)) statements.push(sql)
+          },
+        },
+      })
+
+      const before = await mixedTableSnapshot(admin, schema)
+      const error = await destructive
+        .migrate()
+        .execute()
+        .catch((cause: unknown) => cause)
+
+      expect(error).toMatchObject({
+        stage: 'precondition',
+        outcome: 'unchanged',
+        preconditionFailure: { reason: 'contains_non_null_values' },
+      })
+
+      expect(statements).toEqual([])
+
+      expect(await mixedTableSnapshot(admin, schema)).toEqual(before)
+    },
+  )
+})
+
+/** Waits until the migration requests a relation lock blocked by the writer. */
+async function waitForBlockedRelationLock(admin: Client, table: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const result = await admin.query<{ waiting: boolean }>(
+          `select exists (
+            select 1 from pg_locks
+            where locktype = 'relation' and relation = $1::regclass
+              and mode = 'AccessExclusiveLock' and not granted
+              and pg_backend_pid() = any(pg_blocking_pids(pid))
+          ) as waiting`,
+          [table],
+        )
+
+        return result.rows[0].waiting
+      },
+      { timeout: 5_000 },
+    )
+    .toBe(true)
+}
+
+function registerWaitingWriterCase() {
+  it('sees a writer commit made while the relation lock waits', async () => {
+    await withPostgresDatabase(
+      [GuardedBefore],
+      async ({ db, admin, schema, createDatabase }) => {
+        await db.migrate().execute()
+        const table = `${quoteIdentifier(schema)}."guarded_drop"`
+
+        await admin.query(`insert into ${table} (id, removed) values ($1, NULL)`, ['row'])
+
+        const destructive = createDatabase([GuardedAfter], {
+          migrationOwnership: [
+            { kind: 'relation', relation: GuardedAfter, shape: 'complete' },
+          ],
+        })
+
+        await admin.query('begin')
+
+        let migration: Promise<unknown> | undefined
+
+        try {
+          await admin.query(`update ${table} set removed = $1 where id = $2`, [
+            'committed while waiting',
+            'row',
+          ])
+
+          migration = destructive
+            .migrate()
+            .execute()
+            .catch((cause: unknown) => cause)
+
+          await waitForBlockedRelationLock(admin, table)
+          await admin.query('commit')
+
+          expect(await migration).toMatchObject({
+            stage: 'precondition',
+            preconditionFailure: { reason: 'contains_non_null_values' },
+          })
+
+          expect((await admin.query(`select removed from ${table}`)).rows).toEqual([
+            { removed: 'committed while waiting' },
+          ])
+        } finally {
+          await admin.query('rollback')
+          await migration
+        }
+      },
+    )
+  })
+}
+
+function createPostgresLockGate(
+  createDatabase: PostgresDatabaseContext<[typeof GuardedBefore]>['createDatabase'],
+) {
+  let locked!: () => void
+  const afterLock = new Promise<void>((resolve) => {
+    locked = resolve
+  })
+
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  const destructive = createDatabase([GuardedAfter], {
+    migrationOwnership: [{ kind: 'relation', relation: GuardedAfter, shape: 'complete' }],
+    hooks: {
+      after: async ({ sql }) => {
+        if (/^lock table /i.test(sql)) {
+          locked()
+          await gate
+        }
+      },
+    },
+  })
+
+  return { destructive, afterLock, release }
+}
+
+async function observeBlockedWrite(
+  writer: Client,
+  admin: Client,
+  table: string,
+  afterLock: Promise<void>,
+  migration: Promise<void>,
+  onWrite: (write: Promise<unknown>) => void,
+) {
+  const pid = (await writer.query<{ pid: number }>('select pg_backend_pid() as pid'))
+    .rows[0].pid
+
+  await Promise.race([
+    afterLock,
+    migration.then(
+      () => {
+        throw new Error('migration completed before relation-lock hook')
+      },
+      (cause: unknown) => {
+        throw cause
+      },
+    ),
+  ])
+
+  const write = writer
+    .query(`update ${table} set removed=$1 where id=$2`, ['too late', 'row'])
+    .then(
+      (result) => result,
+      (error: unknown) => error,
+    )
+
+  onWrite(write)
+
+  let blockers: number[] = []
+  for (let attempt = 0; attempt < 100 && blockers.length === 0; attempt++) {
+    blockers = (
+      await admin.query<{ blockers: number[] }>(
+        'select pg_blocking_pids($1) as blockers',
+        [pid],
+      )
+    ).rows[0].blockers
+  }
+
+  expect(blockers.length).toBeGreaterThan(0)
+}
+
+function registerBlockedWriterCase() {
+  it('blocks a writer after the relation lock is acquired and through the guard', async () => {
+    await withPostgresDatabase(
+      [GuardedBefore],
+      async ({ db, admin, schema, createDatabase }) => {
+        await db.migrate().execute()
+        const table = `${quoteIdentifier(schema)}."guarded_drop"`
+        await admin.query(`insert into ${table} (id,removed) values ($1,NULL)`, ['row'])
+        const { destructive, afterLock, release } = createPostgresLockGate(createDatabase)
+
+        const connectionString = process.env.POSTGRESQL_URL
+
+        if (!connectionString) throw new Error('PostgreSQL integration URL missing')
+
+        const writer = new Client({ connectionString })
+        await writer.connect()
+        let migration: Promise<void> | undefined
+        let write: Promise<unknown> | undefined
+        let migrationFailure: unknown
+        let writerResult: unknown
+        try {
+          migration = destructive.migrate().execute()
+
+          await observeBlockedWrite(
+            writer,
+            admin,
+            table,
+            afterLock,
+            migration,
+            (pending) => {
+              write = pending
+            },
+          )
+        } finally {
+          release()
+
+          if (migration)
+            migrationFailure = await migration.catch((cause: unknown) => cause)
+
+          if (write) writerResult = await write
+
+          await writer.end()
+        }
+
+        expect(migrationFailure).toBeUndefined()
+        expect(writerResult).toMatchObject({ code: '42703' })
+        expect(await destructive.migrate().plan()).toEqual({ steps: [] })
+
+        expect((await admin.query(`select id from ${table}`)).rows).toEqual([
+          { id: 'row' },
+        ])
+      },
+    )
+  })
+}
+
+describe('PostgreSQL guarded column-drop locking', () => {
+  registerWaitingWriterCase()
+  registerBlockedWriterCase()
+
+  it('reports a NOWAIT relation conflict as retryable without changing the schema', async () => {
+    await withPostgresDatabase(
+      [GuardedBefore],
+      async ({ db, admin, schema, createDatabase }) => {
+        await db.migrate().execute()
+        const table = `${quoteIdentifier(schema)}."guarded_drop"`
+        const destructive = createDatabase([GuardedAfter], {
+          migrationOwnership: [
+            { kind: 'relation', relation: GuardedAfter, shape: 'complete' },
+          ],
+        })
+
+        await admin.query('begin')
+
+        try {
+          await admin.query(`lock table ${table} in row exclusive mode`)
+
+          await expect(
+            destructive.migrate().execute({ lockTimeoutMs: 0 }),
+          ).rejects.toMatchObject({
+            stage: 'lock',
+            outcome: 'unchanged',
+            retryable: true,
+            cause: { _tag: 'DriverError', code: '55P03' },
+          })
+
+          await admin.query(`select removed from ${table}`)
+        } finally {
+          await admin.query('rollback')
+        }
+
+        await destructive.migrate().execute({ lockTimeoutMs: 0 })
+        expect(await destructive.migrate().plan()).toEqual({ steps: [] })
+      },
+    )
   })
 })
 

@@ -2,6 +2,7 @@ import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migration
 import type {
   MigrationAction,
   MigrationCapabilityIssue,
+  MigrationLoweringPolicy,
   MigrationLoweringResult,
   MigrationPrecondition,
 } from '@/ddl/migrationProgram'
@@ -197,6 +198,7 @@ function compareCapabilityIssues(
 function lowerPostgresMigrationPlan(
   planned: PlannedMigration,
   expectedProfile: MigrationSemanticProfile,
+  policy: MigrationLoweringPolicy = { columnDrop: 'guarded' },
 ): MigrationLoweringResult {
   const issues = profileIssues(planned, expectedProfile)
 
@@ -209,7 +211,7 @@ function lowerPostgresMigrationPlan(
   const preconditions: MigrationPrecondition[] = []
   const expectedDatabase = expectedDatabaseIdentifier(planned, expectedProfile)
 
-  compileMigrationSteps(planned, expectedDatabase, issues, drafts, preconditions)
+  compileMigrationSteps(planned, expectedDatabase, issues, drafts, preconditions, policy)
 
   const ordered = orderActions(drafts, planned)
   issues.push(...ordered.issues)
@@ -239,10 +241,11 @@ function compileMigrationSteps(
   issues: MigrationCapabilityIssue[],
   drafts: ActionDraft[],
   preconditions: MigrationPrecondition[],
+  policy: MigrationLoweringPolicy,
 ) {
   for (const [sourceStepIndex, step] of planned.plan.steps.entries()) {
     compileMigrationStep(
-      { planned, expectedDatabase, issues, drafts, preconditions },
+      { planned, expectedDatabase, issues, drafts, preconditions, policy },
       step,
       sourceStepIndex,
     )
@@ -263,12 +266,8 @@ type MigrationStepCompilation = {
     sourceStepIndexes: readonly number[]
   }>[]
   drafts: ActionDraft[]
-  preconditions: Readonly<{
-    kind: 'column_has_no_nulls'
-    relation: CanonicalRelationIdentity
-    column: string
-    sourceStepIndexes: readonly number[]
-  }>[]
+  preconditions: MigrationPrecondition[]
+  policy: MigrationLoweringPolicy
 }
 
 /**
@@ -320,6 +319,14 @@ function compileMigrationStep(
       kind: 'column_has_no_nulls',
       relation: step.target.relation,
       column: step.target.column.spelling,
+      sourceStepIndexes: [sourceStepIndex],
+    })
+  }
+
+  if (step.kind === 'drop_column' && input.policy.columnDrop === 'guarded') {
+    preconditions.push({
+      kind: 'column_has_only_nulls',
+      target: step.target,
       sourceStepIndexes: [sourceStepIndex],
     })
   }

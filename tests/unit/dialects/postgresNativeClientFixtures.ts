@@ -221,7 +221,7 @@ async function executeMockNativeQuery(
 
   const bound = prepareMockNativeStatement(text, params, prepare)
 
-  if (/^(?:select|with)\b|\breturning\b/i.test(normalizeQueryStart(text))) {
+  if (/^(?:select|with|show)\b|\breturning\b/i.test(normalizeQueryStart(text))) {
     return { rows: await bound.all() }
   }
 

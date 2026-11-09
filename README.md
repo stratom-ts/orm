@@ -960,14 +960,16 @@ fail explicitly. This API does not detect edits based on stale form data.
 
 ## Migrations
 
-Migrations diff your registered handles against the live database. Destructive
-steps are refused unless explicitly allowed.
+Migrations diff your registered handles against the live database. Table and index
+drops require explicit permission. Column drops run by default only when every row
+has SQL `NULL` in the dropped column. Values such as `false`, `0`, and `''` count as
+data and block the drop.
 
 ```typescript
 const plan = await db.migrate().plan()
 const preview = await db.migrate().dryRun()
 await db.migrate().execute()
-await db.migrate().allow('dropColumn', 'dropTable', 'dropIndex').execute()
+await db.migrate().allow('dangerouslyDropColumn', 'dropTable', 'dropIndex').execute()
 ```
 
 A Migration Plan describes portable semantic intent. Every step names one structured
@@ -1003,7 +1005,15 @@ statements, including actions coalesced from multiple steps. Every bound paramet
 shown as `[REDACTED]`, with one marker per value; parameter values are never included.
 SQL text is emitted verbatim, so literal values authored directly into SQL are not
 redacted. `dryRun()` performs the same profile validation and whole-plan lowering as
-execution, but it does not apply destructive execution permissions or run DDL.
+execution, but it does not apply table or index execution permissions or run DDL.
+The preview lists column data preconditions and their source steps, but it does not
+query the data, acquire execution locks, or certify that a column is empty.
+`allow('dangerouslyDropColumn')` removes only the column data guard; ownership,
+dependencies, dialect capabilities, and atomic execution still apply. A migration
+rechecks guards under its execution locks before any schema-changing DDL.
+Default column guards may scan tables and hold locks that block application reads or
+writes. Previews require runtime condition checks; their SQL cannot be run as an
+unconditional standalone migration script.
 
 ### Errors
 

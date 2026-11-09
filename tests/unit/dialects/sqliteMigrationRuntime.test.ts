@@ -5,7 +5,7 @@ import { executeSqliteMigration } from '@/dialects/sqlite/migration/runtime'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
 import type { Executor } from '@/query'
 import type { SchemaError } from '@/utils/error'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, QueryError } from '@/utils/error'
 
 const statement = { sql: 'create table records (id integer)', params: [] }
 
@@ -37,6 +37,8 @@ type FixtureOptions = {
   rollbackFailure?: boolean
   busy?: boolean | 'numeric'
   nullCount?: number
+  guardRows?: unknown[]
+  guardFailure?: unknown
   prepareFailure?: MigrationError | SchemaError
   integrityFailure?: boolean
   validationFailure?: Error
@@ -50,12 +52,8 @@ function busyError(numeric: boolean): Error {
   )
 }
 
-/** Drives the production runtime with controlled native command acknowledgements. */
-function fixture(options: FixtureOptions = {}) {
-  const calls: string[] = []
-  const discard = vi.fn<() => void>()
-  const prepare = vi.fn<() => Promise<MigrationProgram>>(async () => program())
-  const executor: Executor = {
+function fixtureExecutor(options: FixtureOptions, calls: string[]): Executor {
+  return {
     /** Returns the busy policy and authoritative NULL count. */
     async execute(query) {
       calls.push(query.sql)
@@ -66,6 +64,12 @@ function fixture(options: FixtureOptions = {}) {
 
       if (query.sql === 'pragma main.integrity_check')
         return [{ integrity_check: options.integrityFailure ? 'corrupt' : 'ok' }]
+
+      if (query.sql.startsWith('select exists(')) {
+        if (options.guardFailure) throw options.guardFailure
+
+        return options.guardRows ?? [{ has_data: 0 }]
+      }
 
       return [{ count: options.nullCount ?? 0 }]
     },
@@ -89,6 +93,14 @@ function fixture(options: FixtureOptions = {}) {
         throw new Error('restore failed')
     },
   }
+}
+
+/** Drives the production runtime with controlled native command acknowledgements. */
+function fixture(options: FixtureOptions = {}) {
+  const calls: string[] = []
+  const discard = vi.fn<() => void>()
+  const prepare = vi.fn<() => Promise<MigrationProgram>>(async () => program())
+  const executor = fixtureExecutor(options, calls)
 
   const execute = (migrationProgram = program(), lockTimeoutMs = 0) =>
     executeSqliteMigration({
@@ -534,6 +546,100 @@ function registerMigrationRuntimeGroup17() {
   })
 }
 
+const guardedTarget = {
+  kind: 'column' as const,
+  relation: quotedPrecondition.relation,
+  column: { spelling: 'odd"column', comparisonKey: 'odd"column' },
+}
+
+function guardedProgram(): MigrationProgram {
+  return {
+    ...program(),
+    preconditions: [
+      { kind: 'column_has_only_nulls', target: guardedTarget, sourceStepIndexes: [5] },
+    ],
+  }
+}
+
+function registerGuardedDropCases() {
+  registerInvalidGuardObservations()
+  registerValidGuardObservation()
+  registerGuardFailures()
+}
+
+function registerInvalidGuardObservations() {
+  it.each([
+    [[], 'verification_failed'],
+    [[{ has_data: 0 }, { has_data: 0 }], 'verification_failed'],
+    [[{}], 'verification_failed'],
+    [[{ has_data: false }], 'verification_failed'],
+    [[{ has_data: 2 }], 'verification_failed'],
+    [[{ has_data: 1 }], 'contains_non_null_values'],
+  ])(
+    'rejects an unsafe or invalid guard observation before DDL',
+    async (rows, reason) => {
+      const test = fixture({ guardRows: rows })
+      const error = await test.execute(guardedProgram()).catch((cause: unknown) => cause)
+
+      expect(error).toMatchObject({
+        stage: 'precondition',
+        outcome: 'unchanged',
+        preconditionFailure: { target: guardedTarget, reason },
+        sourceStepIndexes: [5],
+      })
+
+      expect(test.calls).toContain(
+        'select exists(select 1 from "main"."odd""table" where "odd""column" is not null) as has_data',
+      )
+
+      expect(test.calls).not.toContain(statement.sql)
+    },
+  )
+}
+
+function registerValidGuardObservation() {
+  it('accepts numeric zero and runs DDL after the guard', async () => {
+    const test = fixture({ guardRows: [{ has_data: 0 }] })
+    await expect(test.execute(guardedProgram())).resolves.toEqual({ outcome: 'applied' })
+
+    expect(test.calls.indexOf(statement.sql)).toBeGreaterThan(
+      test.calls.findIndex((sql) => sql.startsWith('select exists(')),
+    )
+  })
+}
+
+function registerGuardFailures() {
+  it('retains a recognized query failure and the primary guard after cleanup failures', async () => {
+    const cause = new QueryError({ message: 'read failed' })
+    const test = fixture({ guardFailure: cause, rollbackFailure: true, fail: 'restore' })
+    const error = await test
+      .execute(guardedProgram())
+      .catch((failure: unknown) => failure)
+
+    expect(error).toMatchObject({
+      stage: 'precondition',
+      preconditionFailure: { target: guardedTarget, reason: 'verification_failed' },
+      sourceStepIndexes: [5],
+      cleanupFailures: [{ stage: 'rollback' }],
+    })
+
+    expect((error as MigrationError).cause).toBe(cause)
+    expect(test.calls).not.toContain(statement.sql)
+  })
+
+  it('retains an unexpected verification defect as a defect', async () => {
+    const cause = new TypeError('fixture defect')
+    const test = fixture({ guardFailure: cause })
+    const error = await test
+      .execute(guardedProgram())
+      .catch((failure: unknown) => failure)
+
+    expect(error).toMatchObject({ stage: 'precondition', defect: true })
+    expect((error as MigrationError).cause).toBe(cause)
+    expect(test.calls).not.toContain(statement.sql)
+  })
+}
+
 describe('SQLite migration runtime', () => {
   registerMigrationRuntimeGroup1()
   registerMigrationRuntimeGroup2()
@@ -552,4 +658,5 @@ describe('SQLite migration runtime', () => {
   registerMigrationRuntimeGroup15()
   registerMigrationRuntimeGroup16()
   registerMigrationRuntimeGroup17()
+  registerGuardedDropCases()
 })

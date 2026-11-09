@@ -10,7 +10,13 @@ import {
 } from '@/migrations/coordinationScope'
 import type { MigrationCoordinationLockIdentity } from '@/migrations/coordinationScope'
 import type { MigrationCleanupFailure, MigrationExecutionStage } from '@/utils/error'
-import { InvariantError, TaggedError, attempt } from '@/utils/error'
+import {
+  InvariantError,
+  MigrationError,
+  TaggedError,
+  attempt,
+  isErrorTag,
+} from '@/utils/error'
 
 import { schemaFromNamespace } from './targets'
 
@@ -20,7 +26,7 @@ const POSTGRES_MIGRATION_ADVISORY_LOCK_ID = 0x6f72_6d00 // 'orm\0'
 
 /** PostgreSQL runtime input after the member has resolved coordination defaults. */
 type PostgresMigrationRuntimeOptions = MigrationRuntimeOptions &
-  Readonly<{ lockTimeoutMs: number }>
+  Readonly<{ lockTimeoutMs: number; lockDeadline?: number }>
 
 class PostgresMigrationCancellationError extends TaggedError(
   'PostgresMigrationCancellationError',
@@ -616,7 +622,7 @@ async function acquireCoordination(
   )
 
   const acquired: PostgresAdvisoryLockIdentity[] = []
-  const deadline = performance.now() + options.lockTimeoutMs
+  const deadline = options.lockDeadline ?? performance.now() + options.lockTimeoutMs
 
   for (const identity of identities) {
     await acquireCoordinationLock(options, state, identity, acquired, deadline)
@@ -713,6 +719,9 @@ async function assertPrecondition(
   options: PostgresMigrationRuntimeOptions,
   precondition: MigrationPrecondition,
 ): Promise<void> {
+  if (precondition.kind === 'column_has_only_nulls')
+    return assertColumnDropPrecondition(options, precondition)
+
   const schema = schemaFromNamespace(precondition.relation.namespace)
   const relation = `${quoteIdentifier(schema)}.${quoteIdentifier(precondition.relation.relation.spelling)}`
   const [row] = await options.executor.execute(
@@ -730,6 +739,54 @@ async function assertPrecondition(
       `Cannot set column '${schema}.${precondition.relation.relation.spelling}.${precondition.column}' as NOT NULL - column has NULL values`,
     )
   }
+}
+
+/** Verifies a guarded column drop against the authoritative data snapshot. */
+async function assertColumnDropPrecondition(
+  options: PostgresMigrationRuntimeOptions,
+  precondition: Extract<MigrationPrecondition, { kind: 'column_has_only_nulls' }>,
+): Promise<void> {
+  const { target } = precondition
+  const schema = schemaFromNamespace(target.relation.namespace)
+  const relation = `${quoteIdentifier(schema)}.${quoteIdentifier(target.relation.relation.spelling)}`
+  const failure = (
+    reason: 'contains_non_null_values' | 'verification_failed',
+    cause?: unknown,
+  ) =>
+    new MigrationError({
+      message: `Cannot drop column ${relation}.${quoteIdentifier(target.column.spelling)}: ${reason === 'contains_non_null_values' ? 'column contains non-NULL values' : 'could not verify column data'}; use allow('dangerouslyDropColumn') to override the data guard`,
+      ...(cause === undefined ? {} : { cause }),
+      stage: 'precondition' as const,
+      outcome: 'unchanged' as const,
+      retryable: false,
+      preconditionFailure: { target, reason },
+      sourceStepIndexes: precondition.sourceStepIndexes,
+    })
+
+  let rows
+  try {
+    rows = await options.executor.execute(
+      {
+        sql: `select exists(select 1 from ${relation} where ${quoteIdentifier(target.column.spelling)} is not null) as has_data`,
+        params: [],
+      },
+      { source: 'catalog' },
+    )
+  } catch (cause) {
+    if (isErrorTag(cause, 'QueryError') || isErrorTag(cause, 'DriverError'))
+      throw failure('verification_failed', cause)
+
+    throw cause
+  }
+
+  if (
+    rows.length !== 1 ||
+    typeof (rows[0] as { has_data?: unknown } | undefined)?.has_data !== 'boolean'
+  )
+    throw failure('verification_failed')
+
+  if ((rows[0] as { has_data: boolean }).has_data)
+    throw failure('contains_non_null_values')
 }
 
 /**

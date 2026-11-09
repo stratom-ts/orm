@@ -6,6 +6,7 @@ import type { Executor } from '@/query'
 import type {
   MigrationPlanningContext,
   MigrationSemanticProfile,
+  MigrationTarget,
   PlannedMigration,
 } from './migrationPlan'
 
@@ -16,12 +17,21 @@ export type MigrationAtomicity = 'plan-atomic' | 'statement-atomic' | 'non-atomi
 export type MigrationActionTransaction = 'required' | 'allowed' | 'forbidden'
 
 /** Semantic assertion that must hold in the authoritative execution snapshot. */
-export type MigrationPrecondition = Readonly<{
-  kind: 'column_has_no_nulls'
-  relation: CanonicalRelationIdentity
-  column: string
-  sourceStepIndexes: readonly number[]
-}>
+export type MigrationPrecondition =
+  | Readonly<{
+      kind: 'column_has_no_nulls'
+      relation: CanonicalRelationIdentity
+      column: string
+      sourceStepIndexes: readonly number[]
+    }>
+  | Readonly<{
+      kind: 'column_has_only_nulls'
+      target: Extract<MigrationTarget, { kind: 'column' }>
+      sourceStepIndexes: readonly number[]
+    }>
+
+/** Policy for lowering destructive column drops. */
+export type MigrationLoweringPolicy = Readonly<{ columnDrop: 'guarded' | 'dangerous' }>
 
 /** One executable physical action with canonical semantic provenance. */
 export type MigrationAction = Readonly<{
@@ -72,7 +82,10 @@ export type MigrationRuntimeOptions = Readonly<{
   /** Cancels work currently running on the physical operation session. */
   cancel(): Promise<void>
 
-  /** Builds and lowers the plan inside the authoritative execution snapshot. */
+  /**
+   * Read-only, repeatable preparation; PostgreSQL calls this before and inside its
+   * transaction.
+   */
   prepare(): Promise<MigrationProgram>
 
   /** Verifies desired-state convergence inside the transaction before commit. */
@@ -100,10 +113,12 @@ export type DialectMigrationAdapter = Readonly<{
    *
    * @param planned - Planned migration and its canonical registrations.
    * @param expectedProfile - Semantic profile resolved by the executing session.
+   * @param policy - Lowering policy; defaults to guarded column drops.
    */
   lower(
     planned: PlannedMigration,
     expectedProfile: MigrationSemanticProfile,
+    policy?: MigrationLoweringPolicy,
   ): MigrationLoweringResult
 
   /**

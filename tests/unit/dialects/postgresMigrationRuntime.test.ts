@@ -6,7 +6,7 @@ import {
   migrationLockAcquisitionOrder,
 } from '@/migrations/coordinationScope'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
-import { MigrationError } from '@/utils/error'
+import { MigrationError, QueryError } from '@/utils/error'
 
 import {
   createPostgresMigrationRuntime as harness,
@@ -25,6 +25,136 @@ const relation = {
     },
   ],
   relation: { spelling: 'events', comparisonKey: 'events' },
+}
+
+const target = {
+  kind: 'column' as const,
+  relation,
+  column: { spelling: 'payload', comparisonKey: 'payload' },
+}
+
+const guarded = program({
+  preconditions: [{ kind: 'column_has_only_nulls', target, sourceStepIndexes: [3] }],
+})
+
+function registerGuardedColumnDropCases() {
+  registerGuardObservationCases()
+  registerGuardLockTimeoutCases()
+  registerGuardFailureCases()
+}
+
+function registerGuardObservationCases() {
+  it.each([
+    [{ has_data: true }, 'contains_non_null_values'],
+    [{ has_data: 1 }, 'verification_failed'],
+    [{}, 'verification_failed'],
+  ])('blocks an unsafe or malformed result before DDL', async (row, reason) => {
+    const runtime = harness({ guardRows: [row] })
+    const error = await runtime.execute(guarded).catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      stage: 'precondition',
+      preconditionFailure: { target, reason },
+      sourceStepIndexes: [3],
+    })
+
+    expect(runtime.calls).not.toContain('create table events (id integer)')
+    expect(runtime.calls).toContain('rollback')
+  })
+
+  it('locks the relation before checking and executes when the result is false', async () => {
+    const runtime = harness({ guardRows: [{ has_data: false }] })
+    await expect(runtime.execute(guarded)).resolves.toEqual({ outcome: 'applied' })
+    const lock = runtime.calls.findIndex((sql) => sql.startsWith('lock table'))
+    const check = runtime.calls.findIndex((sql) => sql.startsWith('select exists('))
+    expect(lock).toBeGreaterThanOrEqual(0)
+    expect(check).toBeGreaterThan(lock)
+  })
+}
+
+function registerGuardLockTimeoutCases() {
+  it('restores the prior lock timeout after locking and before the guard check', async () => {
+    const runtime = harness({
+      guardRows: [{ has_data: false }],
+      lockTimeoutRows: [{ lock_timeout: '1min' }],
+    })
+
+    await expect(runtime.execute(guarded)).resolves.toEqual({ outcome: 'applied' })
+
+    const read = runtime.calls.indexOf('show lock_timeout')
+    const lock = runtime.calls.findIndex((sql) => sql.startsWith('lock table'))
+    const restore = runtime.calls.indexOf("set local lock_timeout = '1min'")
+    const check = runtime.calls.findIndex((sql) => sql.startsWith('select exists('))
+    const begin = runtime.calls.indexOf('begin isolation level repeatable read')
+
+    expect(read).toBeGreaterThan(begin)
+    expect(lock).toBeGreaterThan(read)
+    expect(restore).toBeGreaterThan(lock)
+    expect(check).toBeGreaterThan(restore)
+    expect(runtime.calls).not.toContain("set local lock_timeout = '0'")
+  })
+
+  it.each([[[]], [[{ lock_timeout: 0 }]]])(
+    'rejects an unreadable lock timeout before locking',
+    async (lockTimeoutRows) => {
+      const runtime = harness({ lockTimeoutRows })
+      const error = await runtime.execute(guarded).catch((cause: unknown) => cause)
+
+      expect(error).toMatchObject({ stage: 'lock', outcome: 'unchanged' })
+
+      expect(runtime.calls.some((sql) => /^lock table|^create table/i.test(sql))).toBe(
+        false,
+      )
+
+      expect(runtime.calls).toContain('rollback')
+    },
+  )
+
+  it('leaves the lock timeout untouched when relation locks use NOWAIT', async () => {
+    const runtime = harness({ guardRows: [{ has_data: false }] })
+
+    await expect(runtime.execute(guarded, { lockTimeoutMs: 0 })).resolves.toEqual({
+      outcome: 'applied',
+    })
+
+    expect(runtime.calls.some((sql) => /lock_timeout/i.test(sql))).toBe(false)
+
+    expect(runtime.calls).toContain(
+      'lock table "public"."events" in access exclusive mode nowait',
+    )
+  })
+}
+
+function registerGuardFailureCases() {
+  it('retains a recognized guard query failure without attempting DDL', async () => {
+    const cause = new QueryError({ message: 'guard read failed' })
+    const runtime = harness({ guardFailure: cause })
+    const error = await runtime.execute(guarded).catch((failure: unknown) => failure)
+    expect(error).toMatchObject({
+      stage: 'precondition',
+      outcome: 'unchanged',
+      preconditionFailure: { target, reason: 'verification_failed' },
+      sourceStepIndexes: [3],
+    })
+
+    expect((error as MigrationError).cause).toBe(cause)
+    expect(runtime.calls).not.toContain('create table events (id integer)')
+  })
+
+  it('rejects an authoritative guard on a relation absent from the provisional lock set', async () => {
+    const runtime = harness()
+    runtime.prepare.mockResolvedValueOnce(program({ actions: [], preconditions: [] }))
+    runtime.prepare.mockResolvedValueOnce(guarded)
+
+    const error = await runtime.execute().catch((cause: unknown) => cause)
+    expect(error).toMatchObject({ stage: 'precondition', outcome: 'unchanged' })
+
+    expect(runtime.calls.some((sql) => /^lock table|^create table/i.test(sql))).toBe(
+      false,
+    )
+
+    expect(runtime.calls).toContain('rollback')
+  })
 }
 
 const registerMigrationRuntimeCases2 = () => {
@@ -109,7 +239,7 @@ const registerMigrationRuntimeCases3 = () => {
         false,
       )
 
-      expect(runtime.calls).toContain('rollback')
+      expect(runtime.calls).not.toContain('rollback')
     },
   )
 }
@@ -694,7 +824,6 @@ function registerMigrationRuntimeGroup1() {
     expect((error as MigrationError).defect).toBeUndefined()
 
     expect((error as MigrationError).cleanupFailures?.map(({ stage }) => stage)).toEqual([
-      'rollback',
       'unlock',
     ])
   })
@@ -831,6 +960,7 @@ function registerMigrationRuntimeGroup20() {
 }
 
 describe('PostgreSQL migration runtime', () => {
+  registerGuardedColumnDropCases()
   registerMigrationRuntimeGroup1()
   registerMigrationRuntimeGroup2()
   registerMigrationRuntimeGroup3()
