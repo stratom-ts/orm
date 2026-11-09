@@ -1,6 +1,7 @@
 import type {
   MigrationSemanticProfile,
   MigrationStep,
+  MigrationTarget,
   PlannedMigration,
 } from '@/ddl/migrationPlan'
 import type {
@@ -11,6 +12,7 @@ import type {
   MigrationPrecondition,
   MigrationProgram,
 } from '@/ddl/migrationProgram'
+import { isDangerousColumnDrop } from '@/ddl/migrationProgram'
 import { originalColumnName } from '@/ddl/renameColumn'
 import { attemptSync } from '@/utils/error'
 
@@ -606,8 +608,12 @@ function lowerSqliteMigrationPlan(
       ),
     }
 
-  if (policy.columnDrop === 'guarded')
-    preconditions.push(...guardedDropPreconditions(planned))
+  preconditions.push(
+    ...guardedDropPreconditions(
+      planned,
+      (target) => !isDangerousColumnDrop(policy, target),
+    ),
+  )
 
   return { program: buildSqliteProgram(planned, actions, renameActions, preconditions) }
 }
@@ -676,9 +682,12 @@ function appendRenameActions(
 }
 
 /** Preserves original semantic provenance for every guarded drop. */
-function guardedDropPreconditions(planned: PlannedMigration): MigrationPrecondition[] {
+function guardedDropPreconditions(
+  planned: PlannedMigration,
+  shouldGuard: (target: Extract<MigrationTarget, { kind: 'column' }>) => boolean,
+): MigrationPrecondition[] {
   return planned.plan.steps.flatMap((step, index) =>
-    step.kind === 'drop_column'
+    step.kind === 'drop_column' && shouldGuard(step.target)
       ? [
           {
             kind: 'column_has_only_nulls',

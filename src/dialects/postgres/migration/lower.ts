@@ -6,6 +6,7 @@ import type {
   MigrationLoweringResult,
   MigrationPrecondition,
 } from '@/ddl/migrationProgram'
+import { isDangerousColumnDrop } from '@/ddl/migrationProgram'
 import { originalColumnName } from '@/ddl/renameColumn'
 import type {
   CanonicalIdentifier,
@@ -348,7 +349,7 @@ function appendStepPreconditions(
     })
   }
 
-  if (step.kind === 'drop_column' && policy.columnDrop === 'guarded') {
+  if (step.kind === 'drop_column' && !isDangerousColumnDrop(policy, step.target)) {
     preconditions.push({
       kind: 'column_has_only_nulls',
       target: step.target,

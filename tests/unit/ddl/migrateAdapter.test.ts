@@ -393,6 +393,85 @@ function registerRealGuardedDropCase() {
   })
 }
 
+function registerTargetScopedDropCase() {
+  it('should snapshot an exact dangerous column grant and keeps expand-only plan independent', async () => {
+    const Users = defineTable('users', { id: string() }, { primaryKey: 'id' })
+    const member = memberWithCompleteColumnDropCatalog()
+    const targetBuilder = createMigrateBuilder({
+      schemas: [Users],
+      migration: member.migration,
+      migrationOwnership: [{ kind: 'relation', relation: Users, shape: 'complete' }],
+      runOperation: createOperationRunner().runOperation,
+    })
+
+    const targetPlan = await targetBuilder.plan()
+    const drop = targetPlan.steps.find((step) => step.kind === 'drop_column')
+    expect(drop?.kind).toBe('drop_column')
+
+    if (drop?.kind !== 'drop_column') throw new Error('expected a column drop')
+
+    const grantTarget = structuredClone(drop.target)
+    targetBuilder.allowFor(grantTarget, 'dangerouslyDropColumn')
+    Object.assign(grantTarget.column, { comparisonKey: 'mutated-after-grant' })
+    expect(await targetBuilder.plan()).toEqual(targetPlan)
+    expect((await targetBuilder.dryRun()).preconditions).toEqual([])
+    await targetBuilder.execute()
+    expect((await member.execute.mock.calls[0][0].prepare()).preconditions).toEqual([])
+
+    const expandOnly = createMigrateBuilder({
+      schemas: [Users],
+      migration: member.migration,
+      migrationOwnership: [{ kind: 'relation', relation: Users, shape: 'complete' }],
+      runOperation: createOperationRunner().runOperation,
+    }).policy('expand-only')
+
+    await expect(expandOnly.dryRun()).rejects.toMatchObject({
+      stage: 'permission',
+      outcome: 'unchanged',
+    })
+
+    expect(await expandOnly.plan()).toEqual(targetPlan)
+  })
+}
+
+function registerPolicyProfileCaptureCase() {
+  it('should capture the selected policy profile when preview starts', async () => {
+    const Users = defineTable('users', { id: string() }, { primaryKey: 'id' })
+    const member = memberWithCompleteColumnDropCatalog()
+    const runner = createOperationRunner()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+
+    const migration = createMigrateBuilder({
+      schemas: [Users],
+      migration: member.migration,
+      migrationOwnership: [{ kind: 'relation', relation: Users, shape: 'complete' }],
+      runOperation: async (work) => {
+        entered()
+        await gate
+        return runner.runOperation(work)
+      },
+    }).policy('expand-only')
+
+    const preview = migration.dryRun()
+    await started
+    migration.policy('sync')
+    release()
+
+    await expect(preview).rejects.toMatchObject({
+      stage: 'permission',
+      outcome: 'unchanged',
+    })
+  })
+}
+
 const target = {
   kind: 'column' as const,
   relation: {
@@ -529,6 +608,8 @@ function registerPolicyCaptureCases() {
 
 describe('column-drop policy at the public migration builder', () => {
   registerRealGuardedDropCase()
+  registerTargetScopedDropCase()
+  registerPolicyProfileCaptureCase()
   registerPolicyPreviewCase()
   registerPolicyCaptureCases()
 })

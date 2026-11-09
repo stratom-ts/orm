@@ -4,7 +4,15 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MigrationSemanticProfile, PlannedMigration } from '@/ddl/migrationPlan'
 import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationLoweringResult, MigrationProgram } from '@/ddl/migrationProgram'
-import { InvariantError, column, defineTable, postgresDialect, reference } from '@/index'
+import { sqliteIdentity } from '@/dialects/sqlite/identity'
+import {
+  InvariantError,
+  column,
+  defineTable,
+  postgresDialect,
+  reference,
+  sqliteDialect,
+} from '@/index'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 
@@ -668,7 +676,7 @@ describe('PostgreSQL lowering dependencies and malformed steps: reports unsuppor
 })
 
 describe('PostgreSQL lowering preconditions and target validation', () => {
-  it('should retain every guarded column-drop target and source step under the default policy', () => {
+  it('should guard only column drops without an exact dangerous grant and retain source steps', () => {
     const planned = plan()
     const relation = planned.identities.resolve({ relation: 'users' })
     const targets = ['email', 'legacy'].map((name) => ({
@@ -692,10 +700,186 @@ describe('PostgreSQL lowering preconditions and target validation', () => {
       })),
     )
 
-    expect(
-      postgresDialect.migration.lower(drops, expectedProfile, { columnDrop: 'dangerous' })
-        .program?.preconditions,
-    ).toEqual([])
+    const selective = postgresDialect.migration.lower(drops, expectedProfile, {
+      columnDrop: 'guarded',
+      dangerousColumnDropTargets: [targets[0]],
+    })
+
+    expect(selective.program?.preconditions).toEqual([
+      {
+        kind: 'column_has_only_nulls',
+        target: targets[1],
+        sourceStepIndexes: [1],
+      },
+    ])
+  })
+})
+
+function createSqliteSelectiveDropFixture() {
+  const namespaceContext = {
+    writableDefault: [{ role: 'database' as const, spelling: 'main' }],
+  }
+
+  const identities = sqliteIdentity.create({ context: namespaceContext })
+  const relation = identities.resolve({ relation: 'users' })
+
+  const first = {
+    kind: 'column' as const,
+    relation,
+    column: identities.member('column', 'legacy'),
+  }
+
+  const second = {
+    kind: 'column' as const,
+    relation,
+    column: identities.member('column', 'obsolete'),
+  }
+
+  const observedColumns = createSqliteObservedColumns()
+  const table = createSqliteObservedTable(observedColumns)
+  const catalogRelation = createSqliteCatalogRelation(relation, table)
+  const namespace = relation.namespace
+
+  const planned = {
+    ...plan(),
+    identities,
+    profile: { identityAdapter: 'sqlite', namespaceContext },
+    plan: {
+      steps: [
+        { kind: 'drop_column' as const, target: first },
+        { kind: 'drop_column' as const, target: second },
+      ],
+    },
+    desiredTables: new Map(),
+    catalogSnapshot: createSqliteCatalogSnapshot(namespace, catalogRelation),
+    planningCatalog: createSqlitePlanningCatalog(relation, namespace, observedColumns),
+  } as unknown as PlannedMigration
+
+  return { planned, first, second }
+}
+
+function createSqlitePlanningCatalog(
+  relation: CanonicalRelationIdentity,
+  namespace: CanonicalRelationIdentity['namespace'],
+  columns: ReturnType<typeof createSqliteObservedColumns>,
+) {
+  return {
+    tables: [
+      {
+        identity: relation,
+        columns: columns.map(({ name }) => ({
+          name,
+          dataType: 'TEXT',
+          isNullable: false,
+        })),
+        indexes: [],
+        primaryKey: null,
+        uniqueConstraints: [],
+        foreignKeys: [],
+        opaqueObjects: [],
+      },
+    ],
+    namespaces: [namespace],
+    nameReservations: [],
+    constraintNameReservations: [],
+  }
+}
+
+function createSqliteObservedColumns() {
+  return ['id', 'legacy', 'obsolete'].map((name, position) => ({
+    name,
+    position,
+    dataType: {
+      state: 'present' as const,
+      value: {
+        native: 'TEXT',
+        comparisonKey: 'text',
+        family: 'text',
+        parameters: [],
+        userDefined: { state: 'absent' as const },
+      },
+    },
+    nullable: { state: 'present' as const, value: false },
+    default: { state: 'absent' as const },
+    generation: { state: 'absent' as const },
+    nativeDefinition: { state: 'absent' as const },
+  }))
+}
+
+function createSqliteObservedTable(
+  columns: ReturnType<typeof createSqliteObservedColumns>,
+) {
+  const complete = { items: [], coverage: { state: 'complete' as const } }
+
+  return {
+    columns: { items: columns, coverage: { state: 'complete' as const } },
+    primaryKey: { state: 'absent' as const },
+    uniqueConstraints: complete,
+    foreignKeys: complete,
+    indexes: complete,
+    options: complete,
+    opaqueObjects: complete,
+  }
+}
+
+function createSqliteCatalogRelation(
+  relation: CanonicalRelationIdentity,
+  table: ReturnType<typeof createSqliteObservedTable>,
+) {
+  return {
+    identity: relation,
+    kind: 'table' as const,
+    persistence: 'permanent' as const,
+    owner: { state: 'absent' as const },
+    management: 'managed' as const,
+    nativeDefinition: {
+      state: 'present' as const,
+      value: 'CREATE TABLE users (id TEXT, legacy TEXT, obsolete TEXT)',
+    },
+    table: { state: 'present' as const, value: table },
+  }
+}
+
+function createSqliteCatalogSnapshot(
+  namespace: CanonicalRelationIdentity['namespace'],
+  relation: ReturnType<typeof createSqliteCatalogRelation>,
+) {
+  const complete = { items: [], coverage: { state: 'complete' as const } }
+
+  return {
+    source: { dialect: 'sqlite', version: '3.40.0' },
+    request: {},
+    capabilities: {},
+    namespaceContext: {
+      writableDefault: [{ role: 'database' as const, spelling: 'main' }],
+    },
+    namespaces: {
+      items: [
+        {
+          identity: namespace,
+          owner: { state: 'absent' as const },
+          relations: { items: [relation], coverage: { state: 'complete' as const } },
+        },
+      ],
+      coverage: { state: 'complete' as const },
+    },
+    nameReservations: complete,
+    constraintNameReservations: complete,
+    diagnostics: [],
+  }
+}
+
+describe('SQLite lowering preconditions and target validation', () => {
+  it('should guard only column drops without an exact dangerous grant and retain source steps', () => {
+    const { planned, first, second } = createSqliteSelectiveDropFixture()
+    const result = sqliteDialect.migration.lower(planned, planned.profile, {
+      columnDrop: 'guarded',
+      dangerousColumnDropTargets: [first],
+    })
+
+    expect(result.program?.preconditions).toEqual([
+      { kind: 'column_has_only_nulls', target: second, sourceStepIndexes: [1] },
+    ])
   })
 })
 

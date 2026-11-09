@@ -78,6 +78,7 @@ export type {
   MigrationNamespaceTarget,
   MigrationPlan,
   MigrationPlanningContext,
+  MigrationPolicyProfile,
   MigrationDryRun,
   MigrationDryRunAction,
   MigrationDryRunStatement,

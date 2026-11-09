@@ -3,6 +3,7 @@ import type {
   MigrationLoweringPolicy,
   MigrationProgram,
 } from '@/ddl/migrationProgram'
+import { migrationTargetsEqual } from '@/ddl/migrationProgram'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
 import { enrichMigrationError } from '@/migrations/migrationDiagnostics'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
@@ -12,18 +13,31 @@ import type { Executor } from '@/query'
 import { withQuerySource } from '@/query/executor'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
-import { MigrationError, attempt, attemptSync, isErrorTag } from '@/utils/error'
+import {
+  MigrationError,
+  SchemaError,
+  attempt,
+  attemptSync,
+  isErrorTag,
+} from '@/utils/error'
 
 import type {
   MigrationPlan,
   MigrationSemanticProfile,
   MigrationStep,
+  MigrationTarget,
 } from './migrationPlan'
 import { planMigration } from './migrationPlan'
 import type { MigrationColumnRename } from './renameColumn'
 
 /** Destructive migrate operations that require explicit execution permission. */
 type MigrationAllow = 'dangerouslyDropColumn' | 'dropTable' | 'dropIndex'
+type MigrationPolicyProfile = 'expand-only' | 'sync'
+
+type TargetGrant = Readonly<{
+  target: MigrationTarget
+  operations: ReadonlySet<MigrationAllow>
+}>
 
 /** Optional cancellation and finite coordination deadline for migration execution. */
 type MigrationExecuteOptions = Readonly<{
@@ -61,6 +75,10 @@ type MigrateBuilder = {
    * @param ops - Destructive operations to permit.
    */
   allow(...ops: MigrationAllow[]): MigrateBuilder
+  /** Grants destructive operations for one exact canonical Migration Target. */
+  allowFor(target: MigrationTarget, ...ops: MigrationAllow[]): MigrateBuilder
+  /** Selects the named execution policy; the last selected profile applies. */
+  policy(profile: MigrationPolicyProfile): MigrateBuilder
 
   /**
    * Builds a semantic Migration Plan without lowering or executing it.
@@ -189,6 +207,85 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
     case 'drop_not_null':
     case 'create_index':
       return undefined
+  }
+}
+
+function snapshotTarget(target: MigrationTarget): MigrationTarget {
+  if (target.kind === 'namespace')
+    return {
+      kind: 'namespace',
+      namespace: target.namespace.map((s) => ({ ...s, identifier: { ...s.identifier } })),
+    }
+
+  const relation = {
+    namespace: target.relation.namespace.map((s) => ({
+      ...s,
+      identifier: { ...s.identifier },
+    })),
+    relation: { ...target.relation.relation },
+  }
+
+  if (target.kind === 'relation') return { kind: 'relation', relation }
+
+  return target.kind === 'column'
+    ? { kind: 'column', relation, column: { ...target.column } }
+    : { kind: 'index', relation, index: { ...target.index } }
+}
+
+function validateTargetGrant(target: MigrationTarget, operation: MigrationAllow): void {
+  const expectedKind =
+    operation === 'dropTable'
+      ? 'relation'
+      : operation === 'dropIndex'
+        ? 'index'
+        : 'column'
+
+  if (target.kind !== expectedKind)
+    throw new SchemaError({
+      message: `Migration permission '${operation}' requires a ${expectedKind} target`,
+    })
+}
+
+function assertProfileAllows(
+  profile: MigrationPolicyProfile | undefined,
+  steps: readonly MigrationStep[],
+): void {
+  if (profile !== 'expand-only') return
+
+  const allowed = new Set([
+    'ensure_namespace',
+    'create_table',
+    'add_column',
+    'create_index',
+    'add_foreign_key',
+    'add_unique_constraint',
+  ])
+
+  const blocked = steps.find((step) => !allowed.has(step.kind))
+
+  if (blocked)
+    throw new MigrationError({
+      message: `Migration profile 'expand-only' does not permit '${blocked.kind}'`,
+      stage: 'permission',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+}
+
+function loweringPolicy(
+  allowed: ReadonlySet<MigrationAllow>,
+  grants: readonly TargetGrant[],
+): MigrationLoweringPolicy {
+  const dangerousTargets = grants
+    .filter(
+      (grant) =>
+        grant.operations.has('dangerouslyDropColumn') && grant.target.kind === 'column',
+    )
+    .map((grant) => grant.target as Extract<MigrationTarget, { kind: 'column' }>)
+
+  return {
+    columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
+    ...(dangerousTargets.length ? { dangerousColumnDropTargets: dangerousTargets } : {}),
   }
 }
 
@@ -330,13 +427,28 @@ async function prepareMigration(
   executor: Executor,
   planningOptions: Parameters<typeof observeMigrationPlan>[1],
   allowed: ReadonlySet<MigrationAllow>,
+  grants: readonly TargetGrant[],
+  profile: MigrationPolicyProfile | undefined,
 ) {
   const { planned, expected } = await observeMigrationPlan(executor, planningOptions)
+  assertProfileAllows(profile, planned.plan.steps)
 
   for (const step of planned.plan.steps) {
     const permission = allowForStep(step)
 
-    if (permission && !allowed.has(permission)) {
+    if (
+      permission &&
+      !allowed.has(permission) &&
+      !(
+        profile === 'sync' &&
+        (permission === 'dropTable' || permission === 'dropIndex')
+      ) &&
+      !grants.some(
+        (grant) =>
+          grant.operations.has(permission) &&
+          migrationTargetsEqual(grant.target, step.target),
+      )
+    ) {
       throw new MigrationError({
         message: `Destructive migration step '${step.kind}' requires allow('${permission}')`,
         stage: 'permission',
@@ -346,9 +458,13 @@ async function prepareMigration(
     }
   }
 
-  return lowerPlan(planningOptions.migration, planned, expected, 'execution', {
-    columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
-  })
+  return lowerPlan(
+    planningOptions.migration,
+    planned,
+    expected,
+    'execution',
+    loweringPolicy(allowed, grants),
+  )
 }
 
 type MigrateBuilderOptions = {
@@ -397,6 +513,7 @@ type MigrateBuilderOptions = {
  * @returns A migration builder separating generic planning and permissions from dialect
  *   execution.
  */
+// oxlint-disable-next-line max-lines-per-function -- The public methods capture execution snapshots.
 function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
   const { migration, runOperation, applicationId, assertCanExecute } = options
   const { schemas, defaultNamespace, migrationOwnership, renames } = options
@@ -409,6 +526,8 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
   }
 
   const allowed = new Set<MigrationAllow>()
+  const grants: TargetGrant[] = []
+  let profile: MigrationPolicyProfile | undefined
 
   const intents: MigrationColumnRename[] = []
   const snapshot = () => ({
@@ -419,6 +538,12 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
     renames: intents.map((intent) => ({ ...intent })),
   })
 
+  const grantSnapshot = () =>
+    grants.map((grant) => ({
+      target: snapshotTarget(grant.target),
+      operations: new Set(grant.operations),
+    }))
+
   const builder: MigrateBuilder = {
     renameColumn(intent) {
       intents.push({ table: intent.table, from: intent.from, to: intent.to })
@@ -428,10 +553,37 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
       for (const op of ops) allowed.add(op)
       return builder
     },
-    plan: () => createMigrationPreview(snapshot(), new Set(allowed)).plan(),
-    dryRun: () => createMigrationPreview(snapshot(), new Set(allowed)).dryRun(),
+    allowFor(target, ...ops) {
+      for (const op of ops) validateTargetGrant(target, op)
+      grants.push({ target: snapshotTarget(target), operations: new Set(ops) })
+      return builder
+    },
+    policy(value) {
+      profile = value
+      return builder
+    },
+    plan: () =>
+      createMigrationPreview(
+        snapshot(),
+        new Set(allowed),
+        grantSnapshot(),
+        profile,
+      ).plan(),
+    dryRun: () =>
+      createMigrationPreview(
+        snapshot(),
+        new Set(allowed),
+        grantSnapshot(),
+        profile,
+      ).dryRun(),
     execute: (executeOptions) =>
-      executeMigration(snapshot(), new Set(allowed), executeOptions),
+      executeMigration(
+        snapshot(),
+        new Set(allowed),
+        grantSnapshot(),
+        profile,
+        executeOptions,
+      ),
   }
 
   return builder
@@ -449,6 +601,8 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
 async function executeMigration(
   options: MigrateBuilderOptions,
   allowed: Set<MigrationAllow>,
+  grants: readonly TargetGrant[],
+  profile: MigrationPolicyProfile | undefined,
   executeOptions: Parameters<MigrateBuilder['execute']>[0],
 ): Promise<void> {
   const { migration, runOperation, applicationId, assertCanExecute } = options
@@ -483,9 +637,11 @@ async function executeMigration(
             ? {}
             : { signal: executeOptions.signal }),
           /** Builds, validates, and lowers the plan inside the execution snapshot. */
-          prepare: () => prepareMigration(executor, planningOptions, allowed),
+          prepare: () =>
+            prepareMigration(executor, planningOptions, allowed, grants, profile),
           /** Checks the same desired schema against the final authoritative catalog. */
-          validate: () => validateMigrationResult(executor, planningOptions, allowed),
+          validate: () =>
+            validateMigrationResult(executor, planningOptions, allowed, grants),
         }),
       )
 
@@ -504,9 +660,10 @@ async function validateMigrationResult(
   executor: Executor,
   planningOptions: Parameters<typeof observeMigrationPlan>[1],
   allowed: ReadonlySet<MigrationAllow>,
+  grants: readonly TargetGrant[],
 ): Promise<void> {
   try {
-    await validateMigrationConvergence(executor, planningOptions, allowed)
+    await validateMigrationConvergence(executor, planningOptions, allowed, grants)
   } catch (cause) {
     if (isErrorTag(cause, 'MigrationError'))
       throw enrichMigrationError(cause, { stage: 'validation' })
@@ -520,11 +677,16 @@ async function validateMigrationConvergence(
   executor: Executor,
   planningOptions: Parameters<typeof observeMigrationPlan>[1],
   allowed: ReadonlySet<MigrationAllow>,
+  grants: readonly TargetGrant[],
 ): Promise<void> {
   const { planned, expected } = await observeMigrationPlan(executor, planningOptions)
-  const final = lowerPlan(planningOptions.migration, planned, expected, 'execution', {
-    columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
-  })
+  const final = lowerPlan(
+    planningOptions.migration,
+    planned,
+    expected,
+    'execution',
+    loweringPolicy(allowed, grants),
+  )
 
   if (planned.plan.steps.length || final.actions.length)
     throw new MigrationError({
@@ -598,6 +760,8 @@ function assertMigrationPermission(assertCanExecute: (() => void) | undefined): 
 function createMigrationPreview(
   options: MigrateBuilderOptions,
   allowed: ReadonlySet<MigrationAllow>,
+  grants: readonly TargetGrant[],
+  profile: MigrationPolicyProfile | undefined,
 ): Pick<MigrateBuilder, 'plan' | 'dryRun'> {
   const { migration, runOperation } = options
   const planningOptions = options
@@ -615,9 +779,7 @@ function createMigrationPreview(
 
     /** Builds and lowers the plan without executing physical actions. */
     async dryRun() {
-      const policy: MigrationLoweringPolicy = {
-        columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
-      }
+      const policy = loweringPolicy(allowed, grants)
 
       return runMigrationPreview(() =>
         runOperation(async (executor) => {
@@ -626,6 +788,8 @@ function createMigrationPreview(
             planningOptions,
             'preview',
           )
+
+          assertProfileAllows(profile, planned.plan.steps)
 
           return dryRunProgram(lowerPlan(migration, planned, expected, 'preview', policy))
         }),
@@ -703,6 +867,7 @@ function isDefect(cause: unknown): boolean {
 
 export type {
   MigrationAllow,
+  MigrationPolicyProfile,
   MigrationExecuteOptions,
   MigrationDryRunStatement,
   MigrationDryRunAction,

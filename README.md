@@ -972,6 +972,27 @@ await db.migrate().execute()
 await db.migrate().allow('dangerouslyDropColumn', 'dropTable', 'dropIndex').execute()
 ```
 
+Use a Migration Plan to grant permission to one exact target. A relation grant does not
+cover another relation with the same name in a different namespace, and member grants
+match canonical comparison keys rather than dotted display names. `allowFor` does not
+change migration ownership; the target must still be owned by the migration.
+
+```typescript
+const migration = db.migrate()
+const plan = await migration.plan()
+const tableDrop = plan.steps.find((step) => step.kind === 'drop_table')
+if (tableDrop?.kind === 'drop_table') {
+  await migration.allowFor(tableDrop.target, 'dropTable').execute()
+}
+```
+
+`policy('expand-only')` permits only namespace/table creation, column additions,
+index creation, and foreign-key or unique-constraint additions. It blocks rename, drop,
+type, and nullability changes during both preview and execution. `policy('sync')` allows
+the full reconciliation plan, including table and index drops; column
+drops keep their data guard. The last selected profile applies. Profiles do not change
+ownership. `plan()` remains canonical and identical regardless of grants or profiles.
+
 Declare a physical column rename explicitly to preserve stored values:
 
 ```typescript
@@ -1048,7 +1069,9 @@ redacted. `dryRun()` performs the same profile validation and whole-plan lowerin
 execution, but it does not apply table or index execution permissions or run DDL.
 The preview lists column data preconditions and their source steps, but it does not
 query the data, acquire execution locks, or certify that a column is empty.
-`allow('dangerouslyDropColumn')` removes only the column data guard; ownership,
+`allow('dangerouslyDropColumn')` removes every column data guard. Use
+`allowFor(columnTarget, 'dangerouslyDropColumn')` to remove the guard for one exact
+column. Either form removes only the column data guard; ownership,
 dependencies, dialect capabilities, and atomic execution still apply. A migration
 rechecks guards under its execution locks before any schema-changing DDL.
 Default column guards may scan tables and hold locks that block application reads or

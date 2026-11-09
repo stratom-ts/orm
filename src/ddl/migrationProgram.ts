@@ -10,6 +10,29 @@ import type {
   PlannedMigration,
 } from './migrationPlan'
 
+/** Requires a matching segment at every namespace position, including sparse slots. */
+function namespacesEqual(
+  left: CanonicalRelationIdentity['namespace'],
+  right: CanonicalRelationIdentity['namespace'],
+): boolean {
+  if (left.length !== right.length) return false
+
+  for (let index = 0; index < left.length; index++) {
+    const leftSegment = left.at(index)
+    const rightSegment = right.at(index)
+
+    if (
+      !leftSegment ||
+      !rightSegment ||
+      leftSegment.role !== rightSegment.role ||
+      leftSegment.identifier.comparisonKey !== rightSegment.identifier.comparisonKey
+    )
+      return false
+  }
+
+  return true
+}
+
 /** Transaction guarantee provided by a complete lowered migration program. */
 export type MigrationAtomicity = 'plan-atomic' | 'statement-atomic' | 'non-atomic'
 
@@ -37,7 +60,54 @@ export type MigrationPrecondition =
     }>
 
 /** Policy for lowering destructive column drops. */
-export type MigrationLoweringPolicy = Readonly<{ columnDrop: 'guarded' | 'dangerous' }>
+export type MigrationLoweringPolicy = Readonly<{
+  columnDrop: 'guarded' | 'dangerous'
+  dangerousColumnDropTargets?: readonly Extract<MigrationTarget, { kind: 'column' }>[]
+}>
+
+/** Compares canonical targets without using their authored display spellings. */
+export function migrationTargetsEqual(
+  left: MigrationTarget,
+  right: MigrationTarget,
+): boolean {
+  if (left.kind !== right.kind) return false
+
+  const leftRelation = left.kind === 'namespace' ? undefined : left.relation
+  const rightRelation = right.kind === 'namespace' ? undefined : right.relation
+
+  if (left.kind === 'namespace' && right.kind === 'namespace')
+    return namespacesEqual(left.namespace, right.namespace)
+
+  if (
+    !leftRelation ||
+    !rightRelation ||
+    !namespacesEqual(leftRelation.namespace, rightRelation.namespace) ||
+    leftRelation.relation.comparisonKey !== rightRelation.relation.comparisonKey
+  )
+    return false
+
+  if (left.kind === 'column' && right.kind === 'column')
+    return left.column.comparisonKey === right.column.comparisonKey
+
+  if (left.kind === 'index' && right.kind === 'index')
+    return left.index.comparisonKey === right.index.comparisonKey
+
+  return left.kind === 'relation' && right.kind === 'relation'
+}
+
+/** Checks whether one canonical column target has an explicit dangerous grant. */
+export function isDangerousColumnDrop(
+  policy: MigrationLoweringPolicy,
+  target: Extract<MigrationTarget, { kind: 'column' }>,
+): boolean {
+  if (policy.columnDrop === 'dangerous') return true
+
+  return (
+    policy.dangerousColumnDropTargets?.some((candidate) =>
+      migrationTargetsEqual(candidate, target),
+    ) ?? false
+  )
+}
 
 /** One executable physical action with canonical semantic provenance. */
 export type MigrationAction = Readonly<{
