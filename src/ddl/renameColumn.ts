@@ -209,7 +209,8 @@ class RenameProjection {
       fail('unsupported relation behavior')
 
     if (relation.table.state !== 'present') {
-      if (local) fail('missing dependency table evidence')
+      if (local || !['view', 'materializedView'].includes(relation.kind))
+        fail('missing dependency table evidence')
 
       return
     }

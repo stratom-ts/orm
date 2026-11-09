@@ -141,6 +141,30 @@ it('requires complete dependency coverage and target evidence', () => {
   ).toThrow('omits rename target')
 })
 
+it('rejects unavailable inbound table evidence instead of assuming no dependency', () => {
+  const original = catalog()
+  const target = original.renameDependencies!.items[0]
+  const hidden = {
+    ...target,
+    identity: {
+      ...target.identity,
+      relation: { spelling: 'hidden', comparisonKey: 'hidden' },
+    },
+    table: {
+      state: 'unavailable' as const,
+      cause: 'permission' as const,
+      reason: 'restricted',
+    },
+  }
+
+  expect(() =>
+    plan([intent], {
+      ...original,
+      renameDependencies: { coverage: { state: 'complete' }, items: [target, hidden] },
+    }),
+  ).toThrow('missing dependency table evidence')
+})
+
 it('treats an observed destination as satisfied while still planning residual drift', () => {
   const Required = defineTable(
     'users',
