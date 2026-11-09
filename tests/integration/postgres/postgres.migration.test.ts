@@ -358,6 +358,28 @@ it('rejects a whole mixed plan before any PostgreSQL DDL', async () => {
   )
 })
 
+/** Waits until the migration requests a relation lock blocked by the writer. */
+async function waitForBlockedRelationLock(admin: Client, table: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const result = await admin.query<{ waiting: boolean }>(
+          `select exists (
+            select 1 from pg_locks
+            where locktype = 'relation' and relation = $1::regclass
+              and mode = 'AccessExclusiveLock' and not granted
+              and pg_backend_pid() = any(pg_blocking_pids(pid))
+          ) as waiting`,
+          [table],
+        )
+
+        return result.rows[0].waiting
+      },
+      { timeout: 5_000 },
+    )
+    .toBe(true)
+}
+
 function registerWaitingWriterCase() {
   it('sees a writer commit made while the relation lock waits', async () => {
     await withPostgresDatabase(
@@ -368,23 +390,15 @@ function registerWaitingWriterCase() {
 
         await admin.query(`insert into ${table} (id, removed) values ($1, NULL)`, ['row'])
 
-        let lockAttempted!: () => void
-        const lockAttempt = new Promise<void>((resolve) => {
-          lockAttempted = resolve
-        })
-
         const destructive = createDatabase([GuardedAfter], {
           migrationOwnership: [
             { kind: 'relation', relation: GuardedAfter, shape: 'complete' },
           ],
-          hooks: {
-            before: ({ sql }) => {
-              if (/^lock table /i.test(sql)) lockAttempted()
-            },
-          },
         })
 
         await admin.query('begin')
+
+        let migration: Promise<unknown> | undefined
 
         try {
           await admin.query(`update ${table} set removed = $1 where id = $2`, [
@@ -392,11 +406,15 @@ function registerWaitingWriterCase() {
             'row',
           ])
 
-          const migration = destructive.migrate().execute()
-          await lockAttempt
+          migration = destructive
+            .migrate()
+            .execute()
+            .catch((cause: unknown) => cause)
+
+          await waitForBlockedRelationLock(admin, table)
           await admin.query('commit')
 
-          await expect(migration).rejects.toMatchObject({
+          expect(await migration).toMatchObject({
             stage: 'precondition',
             preconditionFailure: { reason: 'contains_non_null_values' },
           })
@@ -406,6 +424,7 @@ function registerWaitingWriterCase() {
           ])
         } finally {
           await admin.query('rollback')
+          await migration
         }
       },
     )
@@ -544,6 +563,43 @@ function registerBlockedWriterCase() {
 describe('PostgreSQL guarded column-drop locking', () => {
   registerWaitingWriterCase()
   registerBlockedWriterCase()
+
+  it('reports a NOWAIT relation conflict as retryable without changing the schema', async () => {
+    await withPostgresDatabase(
+      [GuardedBefore],
+      async ({ db, admin, schema, createDatabase }) => {
+        await db.migrate().execute()
+        const table = `${quoteIdentifier(schema)}."guarded_drop"`
+        const destructive = createDatabase([GuardedAfter], {
+          migrationOwnership: [
+            { kind: 'relation', relation: GuardedAfter, shape: 'complete' },
+          ],
+        })
+
+        await admin.query('begin')
+
+        try {
+          await admin.query(`lock table ${table} in row exclusive mode`)
+
+          await expect(
+            destructive.migrate().execute({ lockTimeoutMs: 0 }),
+          ).rejects.toMatchObject({
+            stage: 'lock',
+            outcome: 'unchanged',
+            retryable: true,
+            cause: { _tag: 'DriverError', code: '55P03' },
+          })
+
+          await admin.query(`select removed from ${table}`)
+        } finally {
+          await admin.query('rollback')
+        }
+
+        await destructive.migrate().execute({ lockTimeoutMs: 0 })
+        expect(await destructive.migrate().plan()).toEqual({ steps: [] })
+      },
+    )
+  })
 })
 
 describe('PostgreSQL migration runtime integration', () => {

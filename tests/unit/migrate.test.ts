@@ -1400,12 +1400,12 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
       /pg_try_advisory_lock\(/i.test(sql),
     )
 
-    const introspection = connector.prepared.findIndex((sql) =>
-      /c\.relkind as relation_kind/i.test(sql),
-    )
-
     const transaction = connector.prepared.findIndex((sql) =>
       /^begin isolation level repeatable read$/i.test(sql),
+    )
+
+    const introspection = connector.prepared.findIndex(
+      (sql, index) => index > transaction && /c\.relkind as relation_kind/i.test(sql),
     )
 
     const unlock = connector.prepared.findIndex((sql) =>
@@ -1414,7 +1414,7 @@ describe('db.migrate() permissions and coordination: executes the complete plan 
 
     expect(lock).toBeGreaterThanOrEqual(0)
     expect(transaction).toBeGreaterThan(lock)
-    expect(introspection).toBeGreaterThan(lock)
+    expect(introspection).toBeGreaterThan(transaction)
     expect(unlock).toBeGreaterThan(introspection)
     expect(connector.runSql).toContain('begin isolation level repeatable read')
 

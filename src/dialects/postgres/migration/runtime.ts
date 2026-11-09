@@ -419,7 +419,10 @@ function migrationExecutionOutcome(
       outcome,
       retryable:
         outcome !== 'unknown' &&
-        primary.cause instanceof PostgresMigrationCancellationError,
+        (primary.cause instanceof PostgresMigrationCancellationError ||
+          (primary.stage === 'lock' &&
+            isErrorTag(primary.cause, 'DriverError') &&
+            primary.cause.code === '55P03')),
       cleanupFailures,
     })
   }
