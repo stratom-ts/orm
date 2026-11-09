@@ -1093,7 +1093,7 @@ function createMembershipsCatalog(): CatalogSnapshot['tables'][number] {
 }
 
 describe('ranked identifier failures', () => {
-  it('selects an earlier reconciliation issue in either desired and catalog order', () => {
+  it('should select an earlier reconciliation issue in either desired and catalog order', () => {
     const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
     const Zeta = defineTable('zeta', { id: string() }, { primaryKey: 'id' })
     const catalog: CatalogSnapshot = {
@@ -1242,7 +1242,7 @@ it.each([
   ['catalog index', 'index'],
   ['generated index', 'index'],
   ['generated constraint', 'primary key'],
-])('ranks %s failures and retains the owning relation and role', (source, role) => {
+])('should rank %s failures and retain the owning relation and role', (source, role) => {
   const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
   const bad = source.startsWith('catalog')
     ? defineTable('zeta', { id: string() }, { primaryKey: 'id' })
@@ -1276,7 +1276,7 @@ it.each([
 })
 
 it.each([new Error('identifier defect'), Object.freeze({ defect: true }), 'defect'])(
-  'preserves unexpected naming failures by identity: %s',
+  'should preserve unexpected naming failures by identity: %s',
   (defect) => {
     const Zeta = defineTable('zeta', { id: string() }, { primaryKey: 'id' })
     const dialect = {
@@ -1297,7 +1297,7 @@ it.each([new Error('identifier defect'), Object.freeze({ defect: true }), 'defec
   },
 )
 
-it('ranks identifier validation before default drift for the same canonical column', () => {
+it('should rank identifier validation before default drift for the same canonical column', () => {
   const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
   const dialect = {
     ...postgresDialect,
@@ -1355,7 +1355,7 @@ it.each([
   ['relation', 'zeta\0bad'],
   ['relation', 'zeta\ud800'],
   ['schema', 'zeta\0bad'],
-])('ranks an unaddressable desired %s %j', (role, name) => {
+])('should rank an unaddressable desired %s %j', (role, name) => {
   const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
   const Invalid = defineTable(
     role === 'relation' ? name : 'zeta',
@@ -1388,7 +1388,7 @@ it.each([
   )
 })
 
-it('ranks identifiers reachable through namespace ownership', () => {
+it('should rank identifiers reachable through namespace ownership', () => {
   const Accounts = defineTable('accounts', { id: string() }, { primaryKey: 'id' })
   const name = 'zeta\0bad'
   expect(() =>
@@ -1406,7 +1406,7 @@ it('ranks identifiers reachable through namespace ownership', () => {
 })
 
 it.each(['explicit', 'generated'])(
-  'uses canonical member order for %s index name failures',
+  'should use canonical member order for %s index name failures',
   (origin) => {
     const name = 'Z'.repeat(64)
     const Accounts = defineTable(

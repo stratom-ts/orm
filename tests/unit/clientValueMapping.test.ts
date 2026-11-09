@@ -1094,7 +1094,7 @@ it.each(['native family', 'ambiguous precision', 'Date output'])(
 )
 
 it.each([postgresDialect, sqliteDialect])(
-  'identifies the relation and column in $id inference failures',
+  'should identify the relation and column in $id inference failures',
   (dialect) => {
     const Issues = defineTable(
       'issues',
@@ -1114,7 +1114,7 @@ it.each([postgresDialect, sqliteDialect])(
   },
 )
 
-it('preserves unexpected inference defects by identity', async () => {
+it('should preserve unexpected inference defects by identity', async () => {
   const defect = new Error('inference defect')
   const Issues = defineTable('issues', { id: string() }, { primaryKey: 'id' })
   const dialect = {

@@ -1326,7 +1326,7 @@ function createMismatchedQueryRecords(dialect: Dialect) {
   )
 }
 
-it('maps extension application properties to physical columns without fallback lookup', async () => {
+it('should map extension application properties to physical columns without fallback lookup', async () => {
   const calls = createExtensionContractCalls()
   const dialect = createExtensionContractDialect(calls)
   unregister = registerDialectForTest(dialect)

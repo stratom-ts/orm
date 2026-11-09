@@ -7,7 +7,7 @@ import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
 
 beforeAll(waitForPostgres)
 
-it('infers string storage and normalizes trimmed titles in PostgreSQL', async () => {
+it('should infer string storage and normalize trimmed titles in PostgreSQL', async () => {
   await withPostgresDatabase([TrimmedIssues] as const, async ({ db, admin, schema }) => {
     await assertTrimmedTitleWrites(db)
 

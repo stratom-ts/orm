@@ -122,35 +122,38 @@ function registerStorageCases(
 ) {
   const { dialect } = profile
 
-  it.each(cases)('$name in query construction, mapping and desired lowering', (item) => {
-    const Records = defineTable(
-      'storage_records',
-      {
-        value: pipe(item.schema, column({ physicalType: item.physicalType })),
-      },
-      { primaryKey: 'value' },
-    )
+  it.each(cases)(
+    'should apply $name in query construction, mapping and desired lowering',
+    (item) => {
+      const Records = defineTable(
+        'storage_records',
+        {
+          value: pipe(item.schema, column({ physicalType: item.physicalType })),
+        },
+        { primaryKey: 'value' },
+      )
 
-    const graph = registerDesiredSchema([Records], identities)
-    const lowered = dialect.schema.lowerDesiredSchema(graph)
-    const mapper = createValueMapper(dialect, undefined, [Records])
-    const db = createDatabase({
-      connector: profile.connector(),
-      operationSessionProvider: createControllableProvider().provider,
-      schemas: [Records],
-    })
+      const graph = registerDesiredSchema([Records], identities)
+      const lowered = dialect.schema.lowerDesiredSchema(graph)
+      const mapper = createValueMapper(dialect, undefined, [Records])
+      const db = createDatabase({
+        connector: profile.connector(),
+        operationSessionProvider: createControllableProvider().provider,
+        schemas: [Records],
+      })
 
-    expect(lowered.tables[0]?.columns[0]?.dataType).toBe(item.type[profile.key])
-    expect(mapper.columnTypes(Records)).toEqual({ value: item.type[profile.key] })
+      expect(lowered.tables[0]?.columns[0]?.dataType).toBe(item.type[profile.key])
+      expect(mapper.columnTypes(Records)).toEqual({ value: item.type[profile.key] })
 
-    expect(db.insert(Records).values({ value: item.value }).compile().params).toEqual([
-      item.stored[profile.key],
-    ])
+      expect(db.insert(Records).values({ value: item.value }).compile().params).toEqual([
+        item.stored[profile.key],
+      ])
 
-    expect(mapper.mapResultValue(Records, 'value', item.stored[profile.key])).toEqual(
-      item.value,
-    )
-  })
+      expect(mapper.mapResultValue(Records, 'value', item.stored[profile.key])).toEqual(
+        item.value,
+      )
+    },
+  )
 }
 
 function registerUnpairedHooks(
@@ -165,7 +168,7 @@ function registerUnpairedHooks(
     'column result',
     'client parameter',
     'client result',
-  ])('keeps built-in checks with %s custom mapping', (direction) => {
+  ])('should keep built-in checks with %s custom mapping', (direction) => {
     const hook = vi.fn<(value: unknown) => unknown>((value) => value)
     const Records = defineTable(
       'incompatible_records',
@@ -213,7 +216,7 @@ function registerPairedHooks(
 ) {
   const { dialect } = profile
 
-  it('uses effective paired hooks across column and client scopes without evaluating schema code', () => {
+  it('should use effective paired hooks across column and client scopes without evaluating schema code', () => {
     const defaultFactory = vi.fn<() => string>(() => 'default')
     const transformation = vi.fn<(value: string) => string>((value) => value)
     const columnParam = vi.fn<() => string>(() => 'column parameter')
@@ -264,7 +267,7 @@ function registerReferenceStorage(
 ) {
   const { dialect } = profile
 
-  it('inherits reference storage while preserving the locally authored temporal output', () => {
+  it('should inherit reference storage while preserving the locally authored temporal output', () => {
     const Parent = defineTable(
       'storage_parent',
       { value: string() },

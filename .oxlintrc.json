@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["import", "typescript", "jsdoc"],
-  "jsPlugins": ["./tools/oxlint-whitespace-plugin.mjs"],
+  "jsPlugins": ["./tools/index.ts"],
   "categories": {
     "correctness": "error",
     "nursery": "error"

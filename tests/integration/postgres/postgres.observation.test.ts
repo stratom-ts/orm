@@ -7,7 +7,7 @@ import { QUERY_CHANNEL, column, defineTable, withTracing } from '@/index'
 
 import { withPostgresDatabase } from './postgresIntegration'
 
-it('observes native migration stages and application execution without bootstrap SQL', async () => {
+it('should observe native migration stages and application execution without bootstrap SQL', async () => {
   const Item = defineTable(
     'observed_items',
     { id: pipe(string(), column({ physicalType: { postgresql: 'text' } })) },

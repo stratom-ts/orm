@@ -79,12 +79,12 @@ const dialectCases = [
 ] as const
 
 describe('automatic connector transaction diagnostics', () => {
-  it('explains the D1 transaction limit before accessing a binding', () => {
+  it('should explain the D1 transaction limit before accessing a binding', () => {
     assertTransactionDiagnostic(cloudflareD1({ bindingName: 'UNAVAILABLE_TEST_BINDING' }))
   })
 
   it.each(dialectCases)(
-    'honors false capability overrides for $dialect custom connectors',
+    'should honor false capability overrides for $dialect custom connectors',
     ({ dialect }) => {
       const connector = customConnector(dialect)
       connector.capabilityOverrides = { transactions: false }
@@ -93,7 +93,7 @@ describe('automatic connector transaction diagnostics', () => {
   )
 
   it.each(dialectCases)(
-    'honors false capability overrides for $supportedName',
+    'should honor false capability overrides for $supportedName',
     ({ dialect, supportedName }) => {
       const connector: Connector = {
         ...customConnector(dialect),
@@ -110,7 +110,7 @@ describe('automatic connector transaction diagnostics', () => {
 
 describe('automatic connector support checks', () => {
   it.each(dialectCases)(
-    'retains the exact-provider rejection for transaction-capable $dialect connectors',
+    'should retain the exact-provider rejection for transaction-capable $dialect connectors',
     ({ dialect, genericMessage }) => {
       const connector = customConnector(dialect)
       connector.capabilityOverrides = { transactions: true }
@@ -121,7 +121,7 @@ describe('automatic connector support checks', () => {
 
 describe('explicit session provider capability independence', () => {
   it.each(dialectCases)(
-    'uses an explicit provider despite disabled $dialect connector transactions',
+    'should use an explicit provider despite disabled $dialect connector transactions',
     async ({ dialect }) => {
       const connector = customConnector(dialect)
       connector.capabilityOverrides = { transactions: false }

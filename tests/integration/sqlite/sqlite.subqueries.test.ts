@@ -11,7 +11,7 @@ const Values = defineTable(
   { primaryKey: 'id' },
 )
 
-it('uses ordered first-row cardinality and native IN NULL semantics', async () => {
+it('should use ordered first-row cardinality and native IN NULL semantics', async () => {
   await withSqliteDatabase([Values], async ({ db }) => {
     await db.migrate().execute()
 

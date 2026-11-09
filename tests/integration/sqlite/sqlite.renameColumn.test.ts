@@ -14,7 +14,7 @@ const User = defineTable(
 
 const seed = `create table rename_users(id TEXT primary key not null, displayName TEXT); insert into rename_users values ('1','ordinary'), ('2','\u4f60\u597d\ud83d\ude80'), ('3',null); create index historical_name on rename_users(displayName,id)`
 
-it('produces equal plans for equivalent SQLite intent spellings in either order', async () => {
+it('should produce equal plans for equivalent SQLite intent spellings in either order', async () => {
   await withSqliteDatabase([User], async ({ db, native }) => {
     native.exec(seed)
     const lower = { table: User, from: 'displayName', to: 'fullName' }
@@ -33,7 +33,7 @@ it('produces equal plans for equivalent SQLite intent spellings in either order'
   })
 })
 
-it('reports missing table SQL as a lowering capability issue with rename provenance', async () => {
+it('should report missing table SQL as a lowering capability issue with rename provenance', async () => {
   await withSqliteDatabase([User], async ({ db, native }) => {
     native.exec(seed)
     const original = sqliteDialect.migration.lower
@@ -84,7 +84,7 @@ it('reports missing table SQL as a lowering capability issue with rename provena
   })
 })
 
-it('preserves native values and historical composite indexes, previews read-only, and converges with and without intent', async () => {
+it('should preserve native values and historical composite indexes, preview read-only, and converge with and without intent', async () => {
   await withSqliteDatabase([User], async ({ db, native }) => {
     native.exec(seed)
 
@@ -139,7 +139,7 @@ it('preserves native values and historical composite indexes, previews read-only
   })
 })
 
-it('creates fresh desired storage without replaying obsolete intent', async () => {
+it('should create fresh desired storage without replaying obsolete intent', async () => {
   await withSqliteDatabase([User], async ({ db }) => {
     const migration = db
       .migrate()
@@ -155,7 +155,7 @@ it('creates fresh desired storage without replaying obsolete intent', async () =
 })
 
 it.each(['both', 'neither'] as const)(
-  'rejects %s names before DDL and retains values',
+  'should reject %s names before DDL and retain values',
   async (kind) => {
     await withSqliteDatabase([User], async ({ db, native }) => {
       native.exec(
@@ -176,7 +176,7 @@ it.each(['both', 'neither'] as const)(
   },
 )
 
-it('checks NOT NULL at the original address and copies renamed values through a rebuild', async () => {
+it('should check NOT NULL at the original address and copy renamed values through a rebuild', async () => {
   const Required = defineTable(
     'rename_users',
     { id: string(), fullName: string() },
@@ -227,7 +227,7 @@ it('checks NOT NULL at the original address and copies renamed values through a 
   })
 })
 
-it('rolls back a native rename when later DDL fails', async () => {
+it('should roll back a native rename when later DDL fails', async () => {
   const Required = defineTable(
     'rename_users',
     { id: string(), fullName: string() },
@@ -260,7 +260,7 @@ it('rolls back a native rename when later DDL fails', async () => {
   })
 })
 
-it('preserves renamed primary keys and inbound/self foreign keys outside ownership', async () => {
+it('should preserve renamed primary keys and inbound/self foreign keys outside ownership', async () => {
   const Parent = defineTable('parent', { fullName: string() }, { primaryKey: 'fullName' })
   await withSqliteDatabase(
     [Parent],
@@ -296,7 +296,7 @@ it('preserves renamed primary keys and inbound/self foreign keys outside ownersh
   )
 })
 
-it('rejects opaque dependencies and unsupported residual work before renaming', async () => {
+it('should reject opaque dependencies and unsupported residual work before renaming', async () => {
   await withSqliteDatabase([User], async ({ db, native }) => {
     native.exec(
       seed + '; create trigger opaque after update on rename_users begin select 1; end',
@@ -315,7 +315,7 @@ it('rejects opaque dependencies and unsupported residual work before renaming', 
   })
 })
 
-it('snapshots each public invocation and copies caller intent', async () => {
+it('should snapshot each public invocation and copy caller intent', async () => {
   await withSqliteDatabase([User], async ({ db, native }) => {
     native.exec(seed)
     const intent = { table: User, from: 'displayName', to: 'fullName' }
@@ -333,7 +333,7 @@ it('snapshots each public invocation and copies caller intent', async () => {
   })
 })
 
-it('keeps residual destructive data guards after rename planning', async () => {
+it('should keep residual destructive data guards after rename planning', async () => {
   await withSqliteDatabase(
     [User],
     async ({ db, native }) => {
@@ -359,7 +359,7 @@ it('keeps residual destructive data guards after rename planning', async () => {
   )
 })
 
-it('rejects SQLite case-only identifiers before native rename', async () => {
+it('should reject SQLite case-only identifiers before native rename', async () => {
   await withSqliteDatabase([User], async ({ db, native }) => {
     native.exec(seed)
 
@@ -374,7 +374,7 @@ it('rejects SQLite case-only identifiers before native rename', async () => {
   })
 })
 
-it('rejects unsupported later alterations before native rename', async () => {
+it('should reject unsupported later alterations before native rename', async () => {
   const Numeric = defineTable(
     'rename_users',
     { id: string(), fullName: nullable(number()) },
@@ -399,7 +399,7 @@ it('rejects unsupported later alterations before native rename', async () => {
   })
 })
 
-it('cancels without replay and preserves values through a fresh session', async () => {
+it('should cancel without replay and preserve values through a fresh session', async () => {
   await withSqliteDatabase(
     [User],
     async ({ db, native, filePath }) => {
@@ -428,7 +428,7 @@ it('cancels without replay and preserves values through a fresh session', async 
   )
 })
 
-it('preserves unique keys, local foreign keys, and authored index names without retained intent', async () => {
+it('should preserve unique keys, local foreign keys, and authored index names without retained intent', async () => {
   const Owner = defineTable('owners', { id: string() }, { primaryKey: 'id' })
   const Member = defineTable(
     'members',

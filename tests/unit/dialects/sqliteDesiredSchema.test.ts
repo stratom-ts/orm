@@ -217,7 +217,7 @@ const registerDesiredSchemaCases4 = () => {
   })
 }
 
-it('checks transformed literal numeric output with an explicit physical type', () => {
+it('should check transformed literal numeric output with an explicit physical type', () => {
   const Records = defineTable(
     'literal_records',
     {

@@ -15,13 +15,13 @@ import { withPostgresDatabase } from './postgresIntegration'
 
 const intent = { isolationLevel: 'serializable' } as const
 
-it('rolls back failed history, releases ownership and preserves scoped mapping', async () => {
+it('should roll back failed history, release ownership and preserve scoped mapping', async () => {
   await withPostgresDatabase(tables, async ({ db, createDatabase }) => {
     await assertWorkflow(db, createDatabase(tables), intent)
   })
 })
 
-it('does not update data or fire an UPDATE trigger for an unchanged save', async () => {
+it('should not update data or fire an UPDATE trigger for an unchanged save', async () => {
   await withPostgresDatabase(tables, async ({ db, schema }) => {
     await seed(db)
     await db.sql`create function ${db.sql.id(schema, 'reject_edit_update')}() returns trigger language plpgsql as 'begin raise exception ''unexpected update''; end'`
@@ -36,7 +36,7 @@ it('does not update data or fire an UPDATE trigger for an unchanged save', async
   })
 })
 
-it('rejects an overlapping stale edit and a new transaction chains from the committed predecessor', async () => {
+it('should reject an overlapping stale edit and a new transaction chains from the committed predecessor', async () => {
   await withPostgresDatabase(tables, async ({ db, createDatabase }) => {
     await seed(db)
     const firstRead = deferred()

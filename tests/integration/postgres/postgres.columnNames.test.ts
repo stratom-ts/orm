@@ -13,7 +13,7 @@ import {
 
 import { withPostgresDatabase } from './postgresIntegration'
 
-it('maps application names across PostgreSQL queries, constraints and application renames', async () => {
+it('should map application names across PostgreSQL queries, constraints and application renames', async () => {
   await withPostgresDatabase(schemas, async ({ db, createDatabase, schema }) => {
     await exerciseColumnNames(db, [schema])
     await assertApplicationRename(createDatabase(renamedSchemas))

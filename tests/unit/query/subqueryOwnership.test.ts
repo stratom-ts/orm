@@ -9,7 +9,7 @@ import {
 } from '../helpers/operationSessionFixtures'
 
 const Records = defineTable('scope_subquery', { id: number() }, { primaryKey: 'id' })
-it('rejects root, parent and sibling scope mixtures before SQL and preserves expired scope checks', async () => {
+it('should reject root, parent and sibling scope mixtures before SQL and preserve expired scope checks', async () => {
   const controls = createControllableProvider()
   const db = createDatabase({
     connector: customConnector('postgresql'),

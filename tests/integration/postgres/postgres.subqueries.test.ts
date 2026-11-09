@@ -6,7 +6,7 @@ import { alias, defineTable, scalar } from '@/index'
 import { withPostgresDatabase } from './postgresIntegration'
 
 const Values = defineTable('subquery_values', { id: number() }, { primaryKey: 'id' })
-it('preserves PostgreSQL rejection of multiple scalar rows', async () => {
+it('should preserve PostgreSQL rejection of multiple scalar rows', async () => {
   await withPostgresDatabase([Values], async ({ db }) => {
     await db.migrate().execute()
 

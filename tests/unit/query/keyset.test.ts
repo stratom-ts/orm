@@ -17,24 +17,27 @@ const Entries = defineTable(
 const order = [{ column: Entries.id, direction: 'asc', nulls: 'last' }] as const
 
 describe('keyset input validation', () => {
-  it.each([after, before])('rejects invalid cursor shape and descriptors', (helper) => {
-    expect(() => helper([], [])).toThrow(QueryError)
-    expect(() => helper(order, [])).toThrow(QueryError)
-    expect(() => helper(order, [1, 2])).toThrow(QueryError)
-    expect(() => helper(order, [undefined])).toThrow(QueryError)
+  it.each([after, before])(
+    'should reject invalid cursor shape and descriptors',
+    (helper) => {
+      expect(() => helper([], [])).toThrow(QueryError)
+      expect(() => helper(order, [])).toThrow(QueryError)
+      expect(() => helper(order, [1, 2])).toThrow(QueryError)
+      expect(() => helper(order, [undefined])).toThrow(QueryError)
 
-    for (const term of [
-      { column: '', direction: 'asc', nulls: 'last' },
-      { column: Entries.id, direction: 'up', nulls: 'last' },
-      { column: Entries.id, direction: 'asc', nulls: 'middle' },
-      null,
-    ]) {
-      expect(() => helper([term] as unknown as OrderTerm[], [1])).toThrow(QueryError)
-    }
-  })
+      for (const term of [
+        { column: '', direction: 'asc', nulls: 'last' },
+        { column: Entries.id, direction: 'up', nulls: 'last' },
+        { column: Entries.id, direction: 'asc', nulls: 'middle' },
+        null,
+      ]) {
+        expect(() => helper([term] as unknown as OrderTerm[], [1])).toThrow(QueryError)
+      }
+    },
+  )
 })
 
-it('compiles explicit null placement without changing omitted defaults', async () => {
+it('should compile explicit null placement without changing omitted defaults', async () => {
   const db = createDatabase({
     connector: createMockPostgresConnector(),
     schemas: [Entries],
@@ -62,7 +65,7 @@ it('compiles explicit null placement without changing omitted defaults', async (
 })
 
 it.each([compilePostgresQuery, compileSqliteQuery])(
-  'compiles null placement in each dialect',
+  'should compile null placement in each dialect',
   (compile) => {
     const query = compile({
       kind: 'select',
@@ -80,7 +83,7 @@ it.each([compilePostgresQuery, compileSqliteQuery])(
   },
 )
 
-it('adds root cursor boundaries without changing the original builder', async () => {
+it('should add root cursor boundaries without changing the original builder', async () => {
   const db = createDatabase({
     connector: createMockPostgresConnector(),
     schemas: [Entries],
@@ -103,7 +106,7 @@ it('adds root cursor boundaries without changing the original builder', async ()
   }
 })
 
-it('combines boundaries with filters while retaining selected output and immutable branches', async () => {
+it('should combine boundaries with filters while retaining selected output and immutable branches', async () => {
   const db = createDatabase({
     connector: createMockPostgresConnector(),
     schemas: [Entries],
@@ -131,7 +134,7 @@ it('combines boundaries with filters while retaining selected output and immutab
   }
 })
 
-it('validates cursor boundaries on root and selected builders', async () => {
+it('should validate cursor boundaries on root and selected builders', async () => {
   const db = createDatabase({
     connector: createMockPostgresConnector(),
     schemas: [Entries],

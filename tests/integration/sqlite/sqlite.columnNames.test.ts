@@ -15,7 +15,7 @@ import {
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
-it('maps application names across SQLite queries, constraints and application renames', async () => {
+it('should map application names across SQLite queries, constraints and application renames', async () => {
   await withSqliteDatabase(schemas, async ({ db, connector, native }) => {
     // Node 22.5 does not enable foreign-key enforcement by default.
     native.exec('pragma foreign_keys = on')

@@ -35,7 +35,7 @@ class ClassQuery implements DialectQuery {
   }
 }
 
-it('preserves prototype query methods and instance binding in extension dialects', () => {
+it('should preserve prototype query methods and instance binding in extension dialects', () => {
   const { migration, ...facets } = postgresDialect
   const dialect = defineDialect({
     ...facets,

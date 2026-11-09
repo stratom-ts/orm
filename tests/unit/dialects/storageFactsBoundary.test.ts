@@ -41,7 +41,7 @@ function booleanFacts(): StorageFacts {
 }
 
 it.each(profiles)(
-  '$dialect.id makes equivalent inference and mapping decisions from facts alone',
+  'should make equivalent inference and mapping decisions from facts alone for $dialect.id',
   ({ dialect, dataType, stored }) => {
     const facts = booleanFacts()
     const equivalent = structuredClone(facts)
@@ -65,7 +65,7 @@ it.each(profiles)(
 )
 
 it.each(profiles)(
-  '$dialect.id lowers equivalent fact-only desired graphs identically',
+  'should lower equivalent fact-only desired graphs identically for $dialect.id',
   ({ dialect, dataType, namespace }) => {
     const identities = dialect.identity.create({
       context: { writableDefault: namespace },
@@ -108,7 +108,7 @@ it.each(profiles)(
 )
 
 it.each(profiles)(
-  '$dialect.id validates locally authored reference facts independently of resolved facts',
+  'should validate locally authored reference facts independently of resolved facts for $dialect.id',
   ({ dialect, dataType }) => {
     const facts = booleanFacts()
     const authoredFacts: StorageFacts = { ...booleanFacts(), outputKind: 'string' }

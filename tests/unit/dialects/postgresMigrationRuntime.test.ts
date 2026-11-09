@@ -48,7 +48,7 @@ function registerGuardObservationCases() {
     [{ has_data: true }, 'contains_non_null_values'],
     [{ has_data: 1 }, 'verification_failed'],
     [{}, 'verification_failed'],
-  ])('blocks an unsafe or malformed result before DDL', async (row, reason) => {
+  ])('should block an unsafe or malformed result before DDL', async (row, reason) => {
     const runtime = harness({ guardRows: [row] })
     const error = await runtime.execute(guarded).catch((cause: unknown) => cause)
 
@@ -62,7 +62,7 @@ function registerGuardObservationCases() {
     expect(runtime.calls).toContain('rollback')
   })
 
-  it('locks the relation before checking and executes when the result is false', async () => {
+  it('should lock the relation before checking and execute when the result is false', async () => {
     const runtime = harness({ guardRows: [{ has_data: false }] })
     await expect(runtime.execute(guarded)).resolves.toEqual({ outcome: 'applied' })
     const lock = runtime.calls.findIndex((sql) => sql.startsWith('lock table'))
@@ -73,7 +73,7 @@ function registerGuardObservationCases() {
 }
 
 function registerGuardLockTimeoutCases() {
-  it('restores the prior lock timeout after locking and before the guard check', async () => {
+  it('should restore the prior lock timeout after locking and before the guard check', async () => {
     const runtime = harness({
       guardRows: [{ has_data: false }],
       lockTimeoutRows: [{ lock_timeout: '1min' }],
@@ -95,7 +95,7 @@ function registerGuardLockTimeoutCases() {
   })
 
   it.each([[[]], [[{ lock_timeout: 0 }]]])(
-    'rejects an unreadable lock timeout before locking',
+    'should reject an unreadable lock timeout before locking',
     async (lockTimeoutRows) => {
       const runtime = harness({ lockTimeoutRows })
       const error = await runtime.execute(guarded).catch((cause: unknown) => cause)
@@ -110,7 +110,7 @@ function registerGuardLockTimeoutCases() {
     },
   )
 
-  it('leaves the lock timeout untouched when relation locks use NOWAIT', async () => {
+  it('should leave the lock timeout untouched when relation locks use NOWAIT', async () => {
     const runtime = harness({ guardRows: [{ has_data: false }] })
 
     await expect(runtime.execute(guarded, { lockTimeoutMs: 0 })).resolves.toEqual({
@@ -126,7 +126,7 @@ function registerGuardLockTimeoutCases() {
 }
 
 function registerGuardFailureCases() {
-  it('retains a recognized guard query failure without attempting DDL', async () => {
+  it('should retain a recognized guard query failure without attempting DDL', async () => {
     const cause = new QueryError({ message: 'guard read failed' })
     const runtime = harness({ guardFailure: cause })
     const error = await runtime.execute(guarded).catch((failure: unknown) => failure)
@@ -141,7 +141,7 @@ function registerGuardFailureCases() {
     expect(runtime.calls).not.toContain('create table events (id integer)')
   })
 
-  it('rejects an authoritative guard on a relation absent from the provisional lock set', async () => {
+  it('should reject an authoritative guard on a relation absent from the provisional lock set', async () => {
     const runtime = harness()
     runtime.prepare.mockResolvedValueOnce(program({ actions: [], preconditions: [] }))
     runtime.prepare.mockResolvedValueOnce(guarded)
@@ -983,7 +983,7 @@ describe('PostgreSQL migration runtime', () => {
   registerMigrationRuntimeGroup20()
 })
 
-it('rejects an authoritative rename target outside the provisional lock set before DDL', async () => {
+it('should reject an authoritative rename target outside the provisional lock set before DDL', async () => {
   const runtime = harness()
   const first = {
     kind: 'column_rename' as const,

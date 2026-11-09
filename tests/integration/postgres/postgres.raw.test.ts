@@ -5,7 +5,7 @@ import { withPostgresDatabase } from './postgresIntegration'
 
 beforeAll(waitForPostgres)
 
-it('executes bound reads, returning writes, and writes without rows on native PostgreSQL', async () => {
+it('should execute bound reads, returning writes, and writes without rows on native PostgreSQL', async () => {
   await withPostgresDatabase([], async ({ db, schema }) => {
     const relation = db.sql.id(schema, 'raw_values')
     await db.sql`create table ${relation} (id integer primary key, value text)`
@@ -33,7 +33,7 @@ it('executes bound reads, returning writes, and writes without rows on native Po
   })
 })
 
-it('rolls back a raw PostgreSQL write after the transaction callback fails', async () => {
+it('should roll back a raw PostgreSQL write after the transaction callback fails', async () => {
   await withPostgresDatabase([], async ({ db, schema }) => {
     const relation = db.sql.id(schema, 'raw_values')
     await db.sql`create table ${relation} (value text)`
@@ -54,7 +54,7 @@ it('rolls back a raw PostgreSQL write after the transaction callback fails', asy
   })
 })
 
-it('keeps dynamic identifiers and fragment values separate on the native driver', async () => {
+it('should keep dynamic identifiers and fragment values separate on the native driver', async () => {
   await withPostgresDatabase([], async ({ db, schema }) => {
     const relation = db.sql.id(schema, 'odd.table"; drop table users; --')
     const column = db.sql.id('v"alue')

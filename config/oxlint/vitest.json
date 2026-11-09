@@ -2,6 +2,7 @@
   "$schema": "../../node_modules/oxlint/configuration_schema.json",
   "plugins": ["vitest"],
   "rules": {
+    "stratom/test-title-should": "error",
     "vitest/no-focused-tests": "error",
     "vitest/no-disabled-tests": "error",
     "vitest/valid-expect": ["error", { "maxArgs": 2 }],

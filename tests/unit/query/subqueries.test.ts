@@ -47,7 +47,7 @@ function fixture(dialect: Dialect) {
 
 for (const dialect of [postgresDialect, sqliteDialect]) {
   describe(`${dialect.id} subqueries`, () => {
-    it('compiles correlated scalar, IN and EXISTS with ordered bindings and no execution', () => {
+    it('should compile correlated scalar, IN and EXISTS with ordered bindings and no execution', () => {
       const { from, executor } = fixture(dialect)
 
       const titles = from(Posts)
@@ -85,7 +85,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
   })
 
   describe(`${dialect.id} subquery validation`, () => {
-    it('validates expanded projections and explicit scope lookup', () => {
+    it('should validate expanded projections and explicit scope lookup', () => {
       const { from } = fixture(dialect)
       const columns = [Posts.id, Posts.userId]
       const invalid = from(Posts).select(columns)
@@ -138,7 +138,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
   })
 
   describe(`${dialect.id} subquery scopes`, () => {
-    it('supports aliases and multiple enclosing scopes without shadowing', () => {
+    it('should support aliases and multiple enclosing scopes without shadowing', () => {
       const { from } = fixture(dialect)
       const employee = alias(Users, 'employee')
       const manager = alias(Users, 'manager')
@@ -163,7 +163,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
       ).toThrow(/Duplicate/)
     })
 
-    it('supports scalar comparisons on either side and boolean composition', () => {
+    it('should support scalar comparisons on either side and boolean composition', () => {
       const { from } = fixture(dialect)
       const id = scalar(from(Posts).select([Posts.id]).where(eq(Posts.title, 'x')))
 
@@ -181,7 +181,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
       expect(compiled.params).toEqual(['x', 3, 'x', 'x', 'x'])
     })
 
-    it('rejects snapshots and different owners', () => {
+    it('should reject snapshots and different owners', () => {
       const { from } = fixture(dialect)
       const other = fixture(dialect)
       expect(() =>
@@ -198,7 +198,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
 
 for (const dialect of [postgresDialect, sqliteDialect]) {
   describe(`${dialect.id} nested mapping`, () => {
-    it('maps each reused predicate once and maps nested scalar results once while preserving NULL', async () => {
+    it('should map each reused predicate once and map nested scalar results once while preserving NULL', async () => {
       const f = fixture(dialect)
       const mapParamValue = vi.fn<(type: string, value: unknown) => unknown>(
         (_, value) => `mapped:${String(value)}`,
@@ -254,7 +254,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
   })
 
   describe(`${dialect.id} subquery clause bindings`, () => {
-    it('orders bindings across projections, JOIN ON, WHERE, HAVING and pagination', () => {
+    it('should order bindings across projections, JOIN ON, WHERE, HAVING and pagination', () => {
       const { from } = fixture(dialect)
       const employee = alias(Users, 'employee')
       const manager = alias(Users, 'manager')
@@ -353,7 +353,7 @@ function guardedQueries() {
   return { outer, second }
 }
 
-it('retains inner-only PostgreSQL guards in immutable snapshots', () => {
+it('should retain inner-only PostgreSQL guards in immutable snapshots', () => {
   const { outer, second } = guardedQueries()
   const compiled = outer.compile()
   expect(() => compiled.assertSession?.({ database: 'wrong' })).toThrow(/required/)
@@ -369,7 +369,7 @@ it('retains inner-only PostgreSQL guards in immutable snapshots', () => {
   expect(() => compiled.assertSession?.({ database: 'other' })).toThrow(/required/)
 })
 
-it('infers aliases, scalar values and joined column nullability', () => {
+it('should infer aliases, scalar values and joined column nullability', () => {
   const { from } = fixture(postgresDialect)
 
   const named = from(Users).select((b) => [
@@ -388,7 +388,7 @@ it('infers aliases, scalar values and joined column nullability', () => {
   expectTypeOf<Joined>().toEqualTypeOf<{ title: string | null }>()
 })
 
-it('validates dynamic projection counts without collapsing duplicate output names', () => {
+it('should validate dynamic projection counts without collapsing duplicate output names', () => {
   const { from } = fixture(postgresDialect)
   const columns: (typeof Posts.id | typeof Posts.userId)[] = [Posts.id]
   const dynamic = from(Posts).select(columns)
@@ -413,7 +413,7 @@ it('validates dynamic projection counts without collapsing duplicate output name
 })
 
 for (const dialect of [postgresDialect, sqliteDialect]) {
-  it(`${dialect.id} allows duplicate outputs and joined wildcards in EXISTS`, () => {
+  it(`should allow duplicate outputs and joined wildcards in EXISTS for ${dialect.id}`, () => {
     const { from } = fixture(dialect)
     expect(() =>
       from(Users)
@@ -430,7 +430,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     ).not.toThrow()
   })
 
-  it(`${dialect.id} restores nested scalar output names before mapping values`, async () => {
+  it(`should restore nested scalar output names before mapping values for ${dialect.id}`, async () => {
     const { f, from, Dates, mapResultValue, fallbackResult } =
       outerMappingFixture(dialect)
 
@@ -474,7 +474,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(fallbackResult).not.toHaveBeenCalled()
   })
 
-  it(`${dialect.id} recomputes projections for reused caller-authored ASTs`, () => {
+  it(`should recompute projections for reused caller-authored ASTs for ${dialect.id}`, () => {
     const relation = { relation: 'dynamic_projection' }
     const First = defineTable(
       'dynamic_projection',
@@ -506,7 +506,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(() => query.compile(repeated)).toThrow(/ambiguous/)
   })
 
-  it(`${dialect.id} maps resolved outer sources in predicates and reused nested scalar outputs`, async () => {
+  it(`should map resolved outer sources in predicates and reused nested scalar outputs for ${dialect.id}`, async () => {
     const {
       f,
       from,
@@ -545,7 +545,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
   })
 }
 
-it('infers raw ref expressions and rejects mixed scalar unions on either side', () => {
+it('should infer raw ref expressions and reject mixed scalar unions on either side', () => {
   const { from } = fixture(postgresDialect)
   const titles = from(Posts).select((b) => [b.ref(Posts.title)])
   type Row = Awaited<ReturnType<typeof titles.execute>>[number]
@@ -569,7 +569,7 @@ it('infers raw ref expressions and rejects mixed scalar unions on either side', 
   eq(Math.random() > 0.5 ? scalar(titles) : Users.id, 1)
 })
 
-it('does not infer inner session requirements from a resolved outer occurrence', () => {
+it('should not infer inner session requirements from a resolved outer occurrence', () => {
   const TenantUsers = defineTable(
     'same_users',
     { id: number() },

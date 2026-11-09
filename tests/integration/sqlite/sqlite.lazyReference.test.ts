@@ -6,7 +6,7 @@ import { defineTable, eq, reference } from '@/index'
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
-it('migrates and queries mutually circular lazy references with enforced foreign keys', async () => {
+it('should migrate and query mutually circular lazy references with enforced foreign keys', async () => {
   const A = defineTable(
     'a',
     {

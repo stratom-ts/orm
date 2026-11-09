@@ -17,7 +17,7 @@ import { validateColumnNames } from '@/schemas/physicalColumn'
 import { createMockPostgresConnector } from '../dialects/postgresNativeClientFixtures'
 
 for (const dialect of [postgresDialect, sqliteDialect]) {
-  it(`${dialect.id}: rejects invalid physical metadata before session acquisition`, () => {
+  it(`should reject invalid physical metadata before session acquisition for ${dialect.id}`, () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular
 
@@ -42,7 +42,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(connector.prepared).toEqual([])
   })
 
-  it(`${dialect.id}: separates exact application lookup from physical comparison`, () => {
+  it(`should separate exact application lookup from physical comparison for ${dialect.id}`, () => {
     const Records = defineTable(
       'case_names',
       {
@@ -87,7 +87,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(() => reference(distinct, 'first' as 'fullName')).toThrow(/not defined/)
   })
 
-  it(`${dialect.id}: maps explicit aliases from their selected source exactly once`, async () => {
+  it(`should map explicit aliases from their selected source exactly once for ${dialect.id}`, async () => {
     const source = vi.fn<(value: unknown) => unknown>(
       (value) => `source:${String(value)}`,
     )
@@ -141,7 +141,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(fallback).not.toHaveBeenCalled()
   })
 
-  it(`${dialect.id}: restores long same-prefix outputs without an optional mapper`, async () => {
+  it(`should restore long same-prefix outputs without an optional mapper for ${dialect.id}`, async () => {
     const key = '\u754c'.repeat(24)
     const first = `${key}1`
     const second = `${key}2`
@@ -169,7 +169,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(Object.isFrozen(compiled.resultProjection?.[0])).toBe(true)
   })
 
-  it(`${dialect.id}: restores unusual outputs without internal alias collisions`, async () => {
+  it(`should restore unusual outputs without internal alias collisions for ${dialect.id}`, async () => {
     const property = 'bad\0property'
     const alias = '\ud800'
     const Records = defineTable(
@@ -206,7 +206,7 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
   })
 }
 
-it('counts PostgreSQL physical identifiers in bytes but allows long application properties', () => {
+it('should count PostgreSQL physical identifiers in bytes but allow long application properties', () => {
   const key = '\u754c'.repeat(24)
   const mapped = defineTable(
     'long',

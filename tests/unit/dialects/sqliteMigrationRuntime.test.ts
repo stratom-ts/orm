@@ -576,7 +576,7 @@ function registerInvalidGuardObservations() {
     [[{ has_data: 2 }], 'verification_failed'],
     [[{ has_data: 1 }], 'contains_non_null_values'],
   ])(
-    'rejects an unsafe or invalid guard observation before DDL',
+    'should reject an unsafe or invalid guard observation before DDL',
     async (rows, reason) => {
       const test = fixture({ guardRows: rows })
       const error = await test.execute(guardedProgram()).catch((cause: unknown) => cause)
@@ -598,7 +598,7 @@ function registerInvalidGuardObservations() {
 }
 
 function registerValidGuardObservation() {
-  it('accepts numeric zero and runs DDL after the guard', async () => {
+  it('should accept numeric zero and run DDL after the guard', async () => {
     const test = fixture({ guardRows: [{ has_data: 0 }] })
     await expect(test.execute(guardedProgram())).resolves.toEqual({ outcome: 'applied' })
 
@@ -609,7 +609,7 @@ function registerValidGuardObservation() {
 }
 
 function registerGuardFailures() {
-  it('retains a recognized query failure and the primary guard after cleanup failures', async () => {
+  it('should retain a recognized query failure and the primary guard after cleanup failures', async () => {
     const cause = new QueryError({ message: 'read failed' })
     const test = fixture({ guardFailure: cause, rollbackFailure: true, fail: 'restore' })
     const error = await test
@@ -627,7 +627,7 @@ function registerGuardFailures() {
     expect(test.calls).not.toContain(statement.sql)
   })
 
-  it('retains an unexpected verification defect as a defect', async () => {
+  it('should retain an unexpected verification defect as a defect', async () => {
     const cause = new TypeError('fixture defect')
     const test = fixture({ guardFailure: cause })
     const error = await test

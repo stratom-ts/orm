@@ -17,7 +17,7 @@ import {
 
 import { withSqliteDatabase } from './sqliteIntegration'
 
-it('composes numeric assignments and rolls back the complete allocation transaction', async () => {
+it('should compose numeric assignments and roll back the complete allocation transaction', async () => {
   await withSqliteDatabase(
     tables,
     async ({ db, filePath }) => {
@@ -36,7 +36,7 @@ it('composes numeric assignments and rolls back the complete allocation transact
   )
 })
 
-it('does not treat INTEGER affinity as proof that a numeric source is integral', async () => {
+it('should not treat INTEGER affinity as proof that a numeric source is integral', async () => {
   const Values = defineTable(
     'numeric_affinity',
     {
@@ -65,7 +65,7 @@ it('does not treat INTEGER affinity as proof that a numeric source is integral',
   })
 })
 
-it('allocates unique numbers through overlapping independent worker clients', async () => {
+it('should allocate unique numbers through overlapping independent worker clients', async () => {
   await withSqliteDatabase(
     tables,
     async ({ db, filePath }) => {

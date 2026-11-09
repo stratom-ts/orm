@@ -14,13 +14,13 @@ import {
 
 import { withPostgresDatabase } from './postgresIntegration'
 
-it('composes numeric assignments and rolls back the complete allocation transaction', async () => {
+it('should compose numeric assignments and roll back the complete allocation transaction', async () => {
   await withPostgresDatabase(tables, async ({ db, createDatabase }) => {
     await expect(basicAndRollback(db, createDatabase(tables))).resolves.toBeUndefined()
   })
 })
 
-it('allocates unique numbers while an independent client waits on the same project lock', async () => {
+it('should allocate unique numbers while an independent client waits on the same project lock', async () => {
   await withPostgresDatabase(tables, async ({ db, createDatabase, admin, schema }) => {
     await seed(db)
     let release!: () => void
