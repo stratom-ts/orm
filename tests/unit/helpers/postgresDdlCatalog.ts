@@ -23,8 +23,9 @@ type FixtureTable = {
 
 const identifier = '"((?:[^"]|"")+)"'
 const qualified = `${identifier}\\.${identifier}`
+const unquote = (name: string) => name.replaceAll('""', '"')
 const names = (text: string) =>
-  [...text.matchAll(/"((?:[^"]|"")+)"/g)].map((match) => match[1].replaceAll('""', '"'))
+  [...text.matchAll(/"((?:[^"]|"")+)"/g)].map((match) => unquote(match[1]))
 
 /** Applies the DDL subset used by controlled migration fixtures to observed state. */
 function applyPostgresFixtureDdl(sql: string, tables: FixtureTable[]): void {
@@ -133,7 +134,41 @@ function applyAlter(sql: string, tables: FixtureTable[]): void {
     const drop = /^drop column "([^"]+)"/i.exec(alter[3])
 
     if (drop) table.columns = table.columns.filter((column) => column.name !== drop[1])
+
+    const rename = new RegExp(`^rename column ${identifier} to ${identifier}$`, 'i').exec(
+      alter[3],
+    )
+
+    if (rename) renameColumn(tables, table, unquote(rename[1]), unquote(rename[2]))
   }
+}
+
+/** Moves a column name through local members and inbound foreign-key references. */
+function renameColumn(
+  tables: FixtureTable[],
+  table: FixtureTable,
+  from: string,
+  to: string,
+): void {
+  const rename = (columns: string[]) => columns.map((name) => (name === from ? to : name))
+
+  for (const column of table.columns) if (column.name === from) column.name = to
+
+  if (table.primaryKey) table.primaryKey = rename(table.primaryKey)
+
+  for (const member of [
+    ...(table.uniqueConstraints ?? []),
+    ...(table.indexes ?? []),
+    ...(table.foreignKeys ?? []),
+  ])
+    member.columns = rename(member.columns)
+
+  for (const key of tables.flatMap((other) => other.foreignKeys ?? []))
+    if (
+      (key.referencedSchema ?? 'public') === table.schema &&
+      key.referencedTable === table.name
+    )
+      key.referencedColumns = rename(key.referencedColumns)
 }
 
 /** Returns catalog rows for tables created by controlled session tests. */
