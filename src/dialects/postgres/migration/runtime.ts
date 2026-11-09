@@ -467,8 +467,6 @@ async function executeProgramActions(
     const action = program.actions[actionIndex]
 
     try {
-      await applyRenameDeadline(program, action, options, cancellation)
-
       state.ddlStarted = true
       await executeActionStatements(action, options, cancellation)
     } catch (cause) {
@@ -484,55 +482,6 @@ async function executeProgramActions(
       break
     }
   }
-}
-
-function isRenameAction(
-  program: MigrationProgram,
-  action: MigrationProgram['actions'][number],
-): boolean {
-  return program.preconditions.some(
-    (condition) =>
-      condition.kind === 'column_rename' &&
-      condition.sourceStepIndexes.some((index) =>
-        action.sourceStepIndexes.includes(index),
-      ),
-  )
-}
-
-/** Carries the remaining coordination deadline into native rename lock waits. */
-async function applyRenameDeadline(
-  program: MigrationProgram,
-  action: MigrationProgram['actions'][number],
-  options: PostgresMigrationRuntimeOptions,
-  cancellation: CancellationState,
-): Promise<void> {
-  if (!isRenameAction(program, action)) return
-
-  const remaining =
-    options.lockTimeoutMs === 0
-      ? 1
-      : Math.max(
-          0,
-          Math.ceil((options.lockDeadline ?? performance.now()) - performance.now()),
-        )
-
-  if (remaining === 0)
-    throw new PostgresMigrationLockTimeoutError(
-      'Timed out before column rename',
-      'ddl',
-      [],
-    )
-
-  await runCancellable({
-    runtime: options,
-    state: cancellation,
-    stage: 'ddl',
-    operation: () =>
-      options.executor.run(
-        { sql: `set local lock_timeout = '${remaining}ms'`, params: [] },
-        { source: 'lifecycle' },
-      ),
-  })
 }
 
 /**
