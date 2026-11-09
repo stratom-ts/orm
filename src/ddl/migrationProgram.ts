@@ -10,6 +10,29 @@ import type {
   PlannedMigration,
 } from './migrationPlan'
 
+/** Requires a matching segment at every namespace position, including sparse slots. */
+function namespacesEqual(
+  left: CanonicalRelationIdentity['namespace'],
+  right: CanonicalRelationIdentity['namespace'],
+): boolean {
+  if (left.length !== right.length) return false
+
+  for (let index = 0; index < left.length; index++) {
+    const leftSegment = left.at(index)
+    const rightSegment = right.at(index)
+
+    if (
+      !leftSegment ||
+      !rightSegment ||
+      leftSegment.role !== rightSegment.role ||
+      leftSegment.identifier.comparisonKey !== rightSegment.identifier.comparisonKey
+    )
+      return false
+  }
+
+  return true
+}
+
 /** Transaction guarantee provided by a complete lowered migration program. */
 export type MigrationAtomicity = 'plan-atomic' | 'statement-atomic' | 'non-atomic'
 
@@ -53,26 +76,12 @@ export function migrationTargetsEqual(
   const rightRelation = right.kind === 'namespace' ? undefined : right.relation
 
   if (left.kind === 'namespace' && right.kind === 'namespace')
-    return (
-      left.namespace.length === right.namespace.length &&
-      left.namespace.every(
-        (segment, index) =>
-          segment.role === right.namespace[index].role &&
-          segment.identifier.comparisonKey ===
-            right.namespace[index].identifier.comparisonKey,
-      )
-    )
+    return namespacesEqual(left.namespace, right.namespace)
 
   if (
     !leftRelation ||
     !rightRelation ||
-    leftRelation.namespace.length !== rightRelation.namespace.length ||
-    !leftRelation.namespace.every(
-      (segment, index) =>
-        segment.role === rightRelation.namespace[index].role &&
-        segment.identifier.comparisonKey ===
-          rightRelation.namespace[index].identifier.comparisonKey,
-    ) ||
+    !namespacesEqual(leftRelation.namespace, rightRelation.namespace) ||
     leftRelation.relation.comparisonKey !== rightRelation.relation.comparisonKey
   )
     return false

@@ -1449,6 +1449,46 @@ describe('db.migrate() exact target permissions: rejects a different canonical n
   })
 })
 
+describe('db.migrate() exact target permissions: rejects a sparse canonical namespace', () => {
+  it('should not authorize an index drop from a grant with a missing schema segment', async () => {
+    const connector = createMockConnector({ tables: destructiveCatalog() })
+    const db = createDatabase({ connector, schemas: [Users] })
+    const migration = db.migrate()
+    const plan = await migration.plan()
+    const dropIndex = plan.steps.find((step) => step.kind === 'drop_index')
+    const dropColumn = plan.steps.find((step) => step.kind === 'drop_column')
+
+    if (dropIndex?.kind !== 'drop_index') throw new Error('expected an index drop')
+    if (dropColumn?.kind !== 'drop_column') throw new Error('expected a column drop')
+
+    const namespace = [...dropIndex.target.relation.namespace]
+    Reflect.deleteProperty(
+      namespace,
+      namespace.findIndex((segment) => segment.role === 'schema'),
+    )
+
+    const target = {
+      ...dropIndex.target,
+      relation: { ...dropIndex.target.relation, namespace },
+    }
+
+    const error = await migration
+      .allowFor(target, 'dropIndex')
+      .allowFor(dropColumn.target, 'dangerouslyDropColumn')
+      .execute()
+      .catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({ stage: 'permission', outcome: 'unchanged' })
+    expect((error as Error).message).toMatch(/requires allow\('dropIndex'\)/i)
+
+    expect(connector.runSql.some((sql) => /^(?:create|alter|drop)\s/i.test(sql))).toBe(
+      false,
+    )
+
+    await db.close()
+  })
+})
+
 describe('db.migrate() permissions and coordination', () => {
   it('should reject missing drop permissions by default before lowering or DDL', async () => {
     const connector = createMockConnector({ tables: destructiveCatalog() })
