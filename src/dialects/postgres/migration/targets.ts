@@ -168,6 +168,8 @@ function stepToAst(
     }
     case 'create_table':
       return createTableStepToAst(step, planned)
+    case 'rename_column':
+      return renameStepToAst(step)
     case 'add_column':
       return addColumnStepToAst(step)
     case 'alter_column_type':
@@ -198,6 +200,17 @@ function stepToAst(
         ...relationFields(step.target.relation),
         index: step.target.index.spelling,
       }
+  }
+}
+
+function renameStepToAst(
+  step: Extract<MigrationStep, { kind: 'rename_column' }>,
+): PostgresDdlAst {
+  return {
+    kind: 'rename_column',
+    ...relationFields(step.target.relation),
+    from: step.from.spelling,
+    column: step.target.column.spelling,
   }
 }
 
@@ -315,6 +328,13 @@ function stepTargetIssues(
       ...identifierIssues(step.references.relation.relation, 'Referenced relation'),
       ...identifierIssues(step.references.column, 'Referenced column'),
     )
+  }
+
+  if (step.kind === 'rename_column') {
+    issues.push(...identifierIssues(step.from, 'Rename source column'))
+
+    if (step.from.comparisonKey === step.target.column.comparisonKey)
+      issues.push('Rename identifiers must be distinct')
   }
 
   if (step.kind === 'create_index') {

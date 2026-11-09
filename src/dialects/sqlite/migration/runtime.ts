@@ -258,6 +258,9 @@ async function assertPrecondition(
   if (precondition.kind === 'column_has_only_nulls')
     return assertColumnDropPrecondition(options, precondition)
 
+  if (precondition.kind === 'column_rename')
+    return assertRenamePrecondition(options, precondition)
+
   const segment = precondition.relation.namespace[0]
   const table = precondition.relation.relation.spelling
 
@@ -301,6 +304,36 @@ async function assertPrecondition(
       stage: 'precondition',
       outcome: 'unchanged',
       retryable: false,
+      sourceStepIndexes: precondition.sourceStepIndexes,
+    })
+}
+
+/** Verifies both physical names before any action can write. */
+async function assertRenamePrecondition(
+  options: MigrationRuntimeOptions,
+  precondition: Extract<MigrationPrecondition, { kind: 'column_rename' }>,
+): Promise<void> {
+  const rows = await options.executor.execute(
+    {
+      sql: "select name from pragma_table_info(?, 'main')",
+      params: [precondition.target.relation.relation.spelling],
+    },
+    { source: 'catalog' },
+  )
+
+  const names = rows.map((row) =>
+    asciiFoldSqliteIdentifier((row as { name: string }).name),
+  )
+
+  if (
+    !names.includes(asciiFoldSqliteIdentifier(precondition.from)) ||
+    names.includes(precondition.target.column.comparisonKey)
+  )
+    throw new MigrationError({
+      message: 'Column rename source/destination precondition failed',
+      stage: 'precondition',
+      outcome: 'unchanged',
+      retryable: true,
       sourceStepIndexes: precondition.sourceStepIndexes,
     })
 }

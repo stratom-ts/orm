@@ -42,6 +42,8 @@ import type {
   PlanningCatalog,
 } from './planningCatalog'
 import { catalogForPlanning } from './planningCatalog'
+import { projectColumnRenames } from './renameColumn'
+import type { MigrationColumnRename } from './renameColumn'
 
 /** Relation namespace addressed by a portable namespace step. */
 type MigrationNamespaceTarget = Readonly<{
@@ -86,6 +88,11 @@ type MigrationColumnReference = Readonly<{
 
 /** Portable semantic desired-state Migration Plan step. */
 type MigrationStep =
+  | Readonly<{
+      kind: 'rename_column'
+      target: MigrationColumnTarget
+      from: CanonicalIdentifier
+    }>
   | Readonly<{
       kind: 'ensure_namespace'
       target: MigrationNamespaceTarget
@@ -218,6 +225,7 @@ type PlanningIssue = {
 const MIGRATION_PHASE: Record<MigrationStep['kind'], number> = {
   ensure_namespace: 0,
   create_table: 1,
+  rename_column: 1.5,
   add_column: 2,
   alter_column_type: 3,
   drop_not_null: 4,
@@ -1556,6 +1564,7 @@ type PlannedMigration = {
   desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>
   planningCatalog: PlanningCatalog
   /** Full observed facts retained for dialect lowering and preservation checks. */
+  originalCatalogSnapshot?: CatalogSnapshot
   catalogSnapshot: CatalogSnapshot
 }
 
@@ -2895,16 +2904,26 @@ function planMigration(
   options: {
     registrationDefault?: readonly NamespaceIdentifierInput[]
     migrationOwnership?: readonly MigrationOwnershipDeclaration[]
+    renames?: readonly MigrationColumnRename[]
   } = {},
 ): PlannedMigration {
   try {
-    return buildMigrationPlan(
+    const projected = projectColumnRenames(schemas, catalog, planning, options)
+    const planned = buildMigrationPlan(
       schemas,
-      catalog,
+      projected.catalog,
       planning,
       options.registrationDefault,
       options.migrationOwnership ?? [],
     )
+
+    return {
+      ...planned,
+      originalCatalogSnapshot: catalog,
+      plan: {
+        steps: [...projected.steps, ...planned.plan.steps].sort(compareMigrationSteps),
+      },
+    }
   } catch (cause) {
     if (
       isErrorTag(cause, 'MigrationError') ||

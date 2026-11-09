@@ -7,6 +7,10 @@ import {
 } from '@/dialects/postgres/operationSession'
 
 import { createControllableProvider } from '../helpers/operationSessionFixtures'
+import {
+  applyPostgresFixtureDdl,
+  postgresFixtureCatalogRows,
+} from '../helpers/postgresDdlCatalog'
 
 /**
  * Creates a PostgreSQL connector fixture with observable leases, calls, cancellation, and
@@ -77,9 +81,15 @@ type PostgresControllableProviderOptions = Omit<
 function createPostgresControllableProvider(
   options?: PostgresControllableProviderOptions,
 ) {
+  const tables: Parameters<typeof applyPostgresFixtureDdl>[1] = []
   return createControllableProvider({
     ...options,
-    queryRows: (sql) => postgresSessionQueryRows(sql, options),
+    beforeCall: async (session, sql) => {
+      await options?.beforeCall?.(session, sql)
+      applyPostgresFixtureDdl(sql, tables)
+    },
+    queryRows: (sql) =>
+      postgresFixtureCatalogRows(sql, tables) ?? postgresSessionQueryRows(sql, options),
   })
 }
 

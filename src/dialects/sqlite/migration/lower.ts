@@ -9,7 +9,9 @@ import type {
   MigrationLoweringPolicy,
   MigrationLoweringResult,
   MigrationPrecondition,
+  MigrationProgram,
 } from '@/ddl/migrationProgram'
+import { originalColumnName } from '@/ddl/renameColumn'
 import { attemptSync } from '@/utils/error'
 
 import { asciiFoldSqliteIdentifier, sqliteIdentity } from '../identity'
@@ -134,6 +136,17 @@ function checkStep(step: MigrationStep): void {
   assertMain(step.target.relation)
 
   if (step.target.kind === 'column') assertIdentifier(step.target.column)
+
+  if (step.kind === 'rename_column') {
+    assertIdentifier(step.from)
+
+    if (step.from.comparisonKey === step.target.column.comparisonKey)
+      throw new SqliteMigrationCapabilityError(
+        'invalid_target',
+        'Rename identifiers must be distinct',
+      )
+  }
+
   if (step.target.kind === 'index') assertIdentifier(step.target.index)
   if (step.kind === 'create_index') step.columns.forEach(assertIdentifier)
 
@@ -148,7 +161,7 @@ function tableGroups(planned: PlannedMigration): TableGroup[] {
   const groups = planned.identities.createRegistry<TableGroup>()
   const ordered: TableGroup[] = []
   for (const [index, step] of planned.plan.steps.entries()) {
-    if (step.target.kind === 'namespace') continue
+    if (step.target.kind === 'namespace' || step.kind === 'rename_column') continue
 
     const identity = step.target.relation
     let group = groups.get(identity)
@@ -563,6 +576,9 @@ function lowerSqliteMigrationPlan(
   const names = replacementNames(planned, groups)
   const actions: MigrationAction[] = []
   const preconditions: MigrationPrecondition[] = []
+  const renameActions: MigrationAction[] = []
+  appendRenameActions(planned, renameActions, preconditions, issues)
+
   for (const group of orderGroups(planned, groups)) {
     const result = attemptSync(() => lowerGroup(planned, group, names.get(group)!))
 
@@ -593,7 +609,70 @@ function lowerSqliteMigrationPlan(
   if (policy.columnDrop === 'guarded')
     preconditions.push(...guardedDropPreconditions(planned))
 
-  return { program: { atomicity: 'plan-atomic', actions, preconditions } }
+  return { program: buildSqliteProgram(planned, actions, renameActions, preconditions) }
+}
+
+function buildSqliteProgram(
+  planned: PlannedMigration,
+  actions: MigrationAction[],
+  renameActions: MigrationAction[],
+  preconditions: MigrationPrecondition[],
+): MigrationProgram {
+  const creations = actions.filter((action) =>
+    action.sourceStepIndexes.some(
+      (index) => planned.plan.steps[index].kind === 'create_table',
+    ),
+  )
+
+  const residual = actions.filter((action) => !creations.includes(action))
+  return {
+    atomicity: 'plan-atomic',
+    actions: [...creations, ...renameActions, ...residual],
+    preconditions: preconditions.map((condition) =>
+      condition.kind === 'column_has_no_nulls'
+        ? {
+            ...condition,
+            column: originalColumnName(planned, condition.relation, condition.column),
+          }
+        : condition,
+    ),
+  }
+}
+
+/** Native renames precede every residual action, including projected-address rebuilds. */
+function appendRenameActions(
+  planned: PlannedMigration,
+  renameActions: MigrationAction[],
+  preconditions: MigrationPrecondition[],
+  issues: MigrationCapabilityIssue[],
+): void {
+  for (const [index, step] of planned.plan.steps.entries()) {
+    if (step.kind !== 'rename_column') continue
+
+    const observed = attemptSync(() => observedTable(planned, step.target.relation))
+
+    if (!observed.ok) {
+      issues.push(renameCapabilityIssue(observed.error, index))
+      continue
+    }
+
+    preconditions.push({
+      kind: 'column_rename',
+      target: step.target,
+      from: step.from.spelling,
+      sourceStepIndexes: [index],
+    })
+
+    renameActions.push({
+      sourceStepIndexes: [index],
+      transaction: 'required',
+      statements: [
+        statement(
+          `alter table ${address(step.target.relation.relation.spelling)} rename column ${quoteSqliteIdentifier(step.from.spelling)} to ${quoteSqliteIdentifier(step.target.column.spelling)}`,
+        ),
+      ],
+    })
+  }
 }
 
 /** Preserves original semantic provenance for every guarded drop. */
@@ -612,6 +691,12 @@ function guardedDropPreconditions(planned: PlannedMigration): MigrationPrecondit
 }
 
 /** Rejects implicit rowid-alias changes even when affinity comparison produces no steps. */
+function renameCapabilityIssue(cause: unknown, index: number): MigrationCapabilityIssue {
+  if (!(cause instanceof SqliteMigrationCapabilityError)) throw cause
+
+  return issue(cause, [index])
+}
+
 function rowidIssues(planned: PlannedMigration): MigrationCapabilityIssue[] {
   return planned.planningCatalog.tables.flatMap(({ identity }) => {
     const desired = planned.desiredTables.get(identity)

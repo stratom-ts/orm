@@ -34,6 +34,7 @@ import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
 
 import { createNativePostgresClient } from './dialects/postgresNativeClientFixtures'
 import { columnTarget, namespaceTarget, relationTarget } from './helpers/planTargets'
+import { applyPostgresFixtureDdl } from './helpers/postgresDdlCatalog'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -401,7 +402,7 @@ describe('db.migrate() adapters and execution: lowers the desired schema once pe
 
       lower.mockClear()
       await db.migrate().execute()
-      expect(lower).toHaveBeenCalledTimes(2)
+      expect(lower).toHaveBeenCalledTimes(3)
     } finally {
       lower.mockRestore()
       await db.close()
@@ -1520,7 +1521,15 @@ function prepareMockQuery(
       ? new Error(`executor rejected: ${normalized}`)
       : undefined
 
-    return createMockStatement([], error)
+    const statement = createMockStatement([], error)
+    const run = statement.run.bind(statement)
+    statement.run = async (...args) => {
+      const result = await run(...args)
+      applyPostgresFixtureDdl(sql, liveTables)
+      return result
+    }
+
+    return statement
   }
 
   return createMockStatement()

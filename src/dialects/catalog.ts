@@ -40,6 +40,8 @@ export type CatalogCapability =
   | Extract<CatalogNoEvidence, { state: 'unsupported' | 'unavailable' }>
 
 export type CatalogRequest = Readonly<{
+  /** Requests separate complete dependency evidence without granting ownership. */
+  observeRenameDependencies?: boolean
   relations: readonly Readonly<{
     relation: RelationIdentityInput
     shape: MigrationRelationShape
@@ -179,6 +181,8 @@ export type CatalogConstraintNameReservation = Readonly<{
 }>
 
 export type CatalogSnapshot = Readonly<{
+  /** Complete observation scope used only to prove rename safety. */
+  renameDependencies?: CatalogSet<CatalogRelation>
   source: Readonly<{ dialect: string; version: string }>
   request: ResolvedCatalogRequest
   capabilities: Readonly<{

@@ -972,6 +972,44 @@ await db.migrate().execute()
 await db.migrate().allow('dangerouslyDropColumn', 'dropTable', 'dropIndex').execute()
 ```
 
+Declare a physical column rename explicitly to preserve stored values:
+
+```typescript
+const migration = db.migrate().renameColumn({
+  table: User,
+  from: 'displayName',
+  to: 'fullName',
+})
+await migration.execute({ lockTimeoutMs: 5_000 })
+await migration.execute() // Already satisfied. No second rename.
+```
+
+The registered desired table must contain `fullName` and must no longer contain
+`displayName`. Both names are physical identifiers, including any `column({ name })`
+overrides. Identical mappings deduplicate. Independent mappings have canonical order.
+Overlapping mappings, chains, cycles, swaps, and equal comparison keys fail planning.
+SQLite rejects case-only renames. PostgreSQL preserves distinct quoted names.
+
+An existing table must have exactly one of the names. Source-only storage produces a
+native rename. Destination-only storage satisfies the intent and still reconciles
+residual drift. Both names or neither name reject the whole plan. Fresh databases
+create the desired table without a rename. Structural satisfaction does not prove
+historical lineage. Remove obsolete intent before reusing its old physical name.
+
+Rename itself requires no destructive permission. Residual drops retain their guards
+and permissions. Supported primary and unique keys, simple indexes, and foreign keys
+retain their semantics and historical names. Authored index names keep their exact
+meaning. Unknown dependencies, expressions, views, triggers, inheritance, partitioned
+tables, and unsupported storage features reject before DDL. Dependency observation
+includes inbound foreign keys outside migration ownership and does not expand it.
+SQLite remains `main`-only and conservatively rejects unresolved dependencies.
+
+Each public invocation snapshots its intent. Planning and preview perform no DDL.
+Execution reobserves on its pinned session, verifies names and data guards, and uses
+one transaction. SQLite can rebuild after native rename while copying renamed values.
+PostgreSQL locks rename targets before the authoritative snapshot. Both dialects
+validate convergence before commit. Unknown commit outcomes never trigger replay.
+
 A Migration Plan describes portable semantic intent. Every step names one structured
 target built from canonical relation identity, so namespaces, relations, columns, and
 indexes stay unambiguous across dialects:
@@ -995,7 +1033,7 @@ indexes stay unambiguous across dialects:
 }
 ```
 
-Steps are ordered by semantic phase (`ensure_namespace`, relations, columns, types and
+Steps are ordered by semantic phase (`ensure_namespace`, relations, renames, columns, types and
 nullability, indexes, constraints, then destructive cleanup) and then by structured
 target order. Execution order and SQL are separate concerns the dialect owns.
 

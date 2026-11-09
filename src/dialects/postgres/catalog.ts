@@ -1551,10 +1551,144 @@ async function introspectPostgresCatalog(
       { resolvedRequest, identities },
     )
 
-  return createPostgresSnapshot(
+  const snapshot = createPostgresSnapshot(
     { version, namespaceContext, resolvedRequest },
     { namespaces, nameReservations, constraintReservations },
     diagnostics,
+  )
+
+  return request.observeRenameDependencies
+    ? observePostgresRenameDependencies(executor, snapshot, identities)
+    : snapshot
+}
+
+/** Observes all inbound sources without broadening migration ownership. */
+async function observePostgresRenameDependencies(
+  executor: CatalogExecutor,
+  snapshot: CatalogSnapshot,
+  identities: CanonicalRelationIdentityModule,
+): Promise<CatalogSnapshot> {
+  const inboundQuery = renameInboundQuery(snapshot)
+  const inbound = await executor.execute(inboundQuery)
+  const sources = inbound.map((row, index) => renameDependencyInput(row, index))
+  const targets = renameObservedTargets(snapshot)
+
+  const dependency = await introspectPostgresCatalog(executor, {
+    relations: [...targets, ...sources].map((relation) => ({
+      relation,
+      shape: 'additive',
+    })),
+    absentRelations: [],
+    completeNamespaces: [],
+  })
+
+  const unsafeIdentities = await unsafeRenameRelations(executor, identities)
+
+  assertObservationUnchanged(
+    'rename inbound dependencies',
+    inbound,
+    await executor.execute(inboundQuery),
+  )
+
+  return {
+    ...snapshot,
+    renameDependencies: {
+      items: dependency.namespaces.items
+        .flatMap((namespace) => namespace.relations.items)
+        .map((relation) =>
+          unsafeIdentities.some((identity) =>
+            identities.equals(identity, relation.identity),
+          )
+            ? { ...relation, management: 'unmanaged' as const }
+            : relation,
+        ),
+      coverage:
+        dependency.namespaces.coverage.state === 'complete'
+          ? complete
+          : {
+              state: 'unknown',
+              reason: 'Incomplete PostgreSQL rename dependency coverage',
+            },
+    },
+  }
+}
+
+function renameObservedTargets(snapshot: CatalogSnapshot) {
+  return snapshot.request.relations.map(({ identity }) => ({
+    namespace: identity.namespace.map((segment) => ({
+      role: segment.role,
+      spelling: segment.identifier.spelling,
+    })),
+    relation: identity.relation.spelling,
+  }))
+}
+
+/** One native inventory statement covers inbound constraints from every namespace. */
+function renameInboundQuery(snapshot: CatalogSnapshot) {
+  const targets = snapshot.request.relations.map(({ identity }) => ({
+    schema: identity.namespace.find((segment) => segment.role === 'schema')!.identifier
+      .spelling,
+    name: identity.relation.spelling,
+  }))
+
+  return {
+    sql: `select con.oid::text as constraint_id, c.oid::text as relation_id,
+       n.nspname as schema, c.relname as name
+      from pg_constraint con join pg_class c on c.oid = con.conrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_class target on target.oid = con.confrelid
+      join pg_namespace target_ns on target_ns.oid = target.relnamespace
+      where con.contype = 'f' and exists (
+        select 1 from jsonb_to_recordset($1::jsonb) as requested(schema text, name text)
+        where requested.schema = target_ns.nspname and requested.name = target.relname)
+      order by n.nspname, c.relname, con.oid`,
+    params: [JSON.stringify(targets)],
+  }
+}
+
+function renameDependencyInput(value: unknown, index: number) {
+  const row = rowAt(value, 'rename dependency', index)
+  const schema = stringAt(row, 'schema', 'rename dependency', index)
+
+  if (schema.startsWith('pg_') || schema === 'information_schema')
+    throw new MigrationError({
+      message: 'Unsupported PostgreSQL inbound dependency namespace',
+    })
+
+  return relationInput(schema, stringAt(row, 'name', 'rename dependency', index))
+}
+
+/** Tracks native view dependencies and inheritance whose behavior is not supported. */
+async function unsafeRenameRelations(
+  executor: CatalogExecutor,
+  identities: CanonicalRelationIdentityModule,
+): Promise<CanonicalRelationIdentity[]> {
+  const unsafe = await executor.execute({
+    sql: `select n.nspname as schema, c.relname as name
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where exists (select 1 from pg_inherits i where i.inhrelid = c.oid or i.inhparent = c.oid)
+        or exists (select 1 from pg_depend d join pg_rewrite r on r.oid = d.objid
+          where d.refobjid = c.oid and d.classid = 'pg_rewrite'::regclass and r.ev_class <> c.oid)`,
+    params: [],
+  })
+
+  return unsafe.map((row, index) =>
+    identities.resolve(
+      relationInput(
+        stringAt(
+          rowAt(row, 'rename dependency', index),
+          'schema',
+          'rename dependency',
+          index,
+        ),
+        stringAt(
+          rowAt(row, 'rename dependency', index),
+          'name',
+          'rename dependency',
+          index,
+        ),
+      ),
+    ),
   )
 }
 

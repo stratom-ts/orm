@@ -55,6 +55,11 @@ type ExpectedReference = Readonly<{
 }>
 
 type ExpectedMigrationStep =
+  | Readonly<{
+      kind: 'rename_column'
+      target: MigrationColumnTarget
+      from: CanonicalIdentifier
+    }>
   | Readonly<{ kind: 'ensure_namespace'; target: ExpectedNamespaceTarget }>
   | Readonly<{ kind: 'create_table'; target: ExpectedRelationTarget }>
   | Readonly<{

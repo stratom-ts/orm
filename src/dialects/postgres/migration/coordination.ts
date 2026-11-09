@@ -722,6 +722,34 @@ async function assertPrecondition(
   if (precondition.kind === 'column_has_only_nulls')
     return assertColumnDropPrecondition(options, precondition)
 
+  if (precondition.kind === 'column_rename') {
+    const schema = schemaFromNamespace(precondition.target.relation.namespace)
+    const relation = `${quoteIdentifier(schema)}.${quoteIdentifier(precondition.target.relation.relation.spelling)}`
+    const rows = await options.executor.execute(
+      {
+        sql: 'select attname as name from pg_attribute where attrelid = $1::regclass and attnum > 0 and not attisdropped',
+        params: [relation],
+      },
+      { source: 'catalog' },
+    )
+
+    const names = rows.map((row) => (row as { name: string }).name)
+
+    if (
+      !names.includes(precondition.from) ||
+      names.includes(precondition.target.column.spelling)
+    )
+      throw new MigrationError({
+        message: 'Column rename source/destination precondition failed',
+        stage: 'precondition',
+        outcome: 'unchanged',
+        retryable: true,
+        sourceStepIndexes: precondition.sourceStepIndexes,
+      })
+
+    return
+  }
+
   const schema = schemaFromNamespace(precondition.relation.namespace)
   const relation = `${quoteIdentifier(schema)}.${quoteIdentifier(precondition.relation.relation.spelling)}`
   const [row] = await options.executor.execute(
