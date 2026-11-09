@@ -898,3 +898,29 @@ bound is separate from each member's physical identifier validation.
 The extension contract fixture exercises a mapped property through filtering, selection,
 physical compilation, and result mapping. It uses the same compilation boundary without
 PostgreSQL fallback or compatibility adapters.
+
+### Column rename extension contract
+
+`MigrationStep` includes `rename_column`, with a destination `column` target and a
+canonical source identifier `from` on the same relation. Lowerers must support native
+rename or reject the complete plan. Add/drop is never a substitute. The public
+`MigrationColumnRename` input carries physical strings and a registered table handle.
+
+A `CatalogRequest` with `observeRenameDependencies` requests separate complete
+`CatalogSnapshot.renameDependencies` evidence. It does not change requested migration
+ownership. Observe inbound foreign keys outside normal requested tables. Do not mark
+coverage complete when privileges, engine versions, or opaque objects prevent proof.
+The planner retains `originalCatalogSnapshot` separately from projected
+`catalogSnapshot`. SQL strings and dependent names remain original evidence.
+
+`column_rename` preconditions carry the structured destination target, physical source
+string, and source-step indexes. Runtimes check source presence and destination
+absence before actions. Residual data guards address original physical columns.
+Lowering orders native rename before residual actions. Rebuilds copy projected
+addresses. Every action retains semantic provenance and transaction requirements.
+
+Execute on one pinned session. Acquire required locks before the authoritative
+snapshot and reprepare the complete program. Validate rename postconditions and
+desired-state convergence before commit. Reject unsupported later work before any
+earlier rename. Preserve unknown commit outcomes, original defects, and ordered
+cleanup failures. Native value-preservation tests are required for each member.

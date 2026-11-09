@@ -82,3 +82,9 @@ the new column; complete ownership makes the old column a drop candidate, and ad
 ownership retains it. Existing destructive-operation permissions still apply. Stratom
 does not infer a physical rename or copy stored values. Structured Migration Targets,
 canonical relation identity, and Semantic Profile checks continue to apply.
+
+Use `db.migrate().renameColumn({ table: User, from: 'displayName', to: 'fullName' })`
+when changing actual storage. This explicit intent uses physical names and native
+rename statements. It preserves supported data and dependencies. Without intent,
+reconciliation retains the add/drop behavior described above. See the public
+[migration contract](../README.md#migrations) for conflicts and supported limits.

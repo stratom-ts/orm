@@ -13,6 +13,11 @@ import type {
 import { column, defineTable, postgresDialect } from '@/index'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 
+import {
+  applyPostgresFixtureDdl,
+  postgresFixtureCatalogRows,
+} from '../helpers/postgresDdlCatalog'
+
 import type { MigrationContractCase, QueryCompilerScenarios } from './dialectContractKit'
 import type { DialectLifecycleContractRuntime } from './dialectMemberContract'
 import {
@@ -616,12 +621,13 @@ function createPostgresLifecycleRuntime(): DialectLifecycleContractRuntime {
   }
 
   const operationCommands: OperationCommand[] = []
+  const tables: Parameters<typeof applyPostgresFixtureDdl>[1] = []
   const connector = createMockPostgresConnector({
     database: 'contract_database',
     currentSchema: 'contract_schema',
     /** Dispatches prepared fixture SQL and records lifecycle commands. */
     onPrepare: (sql) =>
-      prepareLifecycleStatement(sql, state, connector, operationCommands),
+      prepareObservedLifecycleStatement(sql, state, connector, operationCommands, tables),
   })
 
   return {
@@ -1119,6 +1125,31 @@ function createPostgresLifecycleExpectation() {
   return {
     queryRows: [{ id: 'lifecycle-1', label: 'connector-selected' }],
     queryParam: 'connector-selected',
+  }
+}
+
+/** Keeps the lifecycle fixture catalog consistent with successful DDL. */
+function prepareObservedLifecycleStatement(
+  sql: string,
+  state: PostgresLifecycleFixtureState,
+  connector: ReturnType<typeof createMockPostgresConnector>,
+  operationCommands: OperationCommand[],
+  tables: Parameters<typeof applyPostgresFixtureDdl>[1],
+) {
+  const rows = postgresFixtureCatalogRows(sql, tables)
+
+  if (rows) return createMockStatement(rows)
+
+  const statement = prepareLifecycleStatement(sql, state, connector, operationCommands)
+
+  const run = statement.run.bind(statement)
+  return {
+    ...statement,
+    run: async () => {
+      const result = await run()
+      applyPostgresFixtureDdl(sql, tables)
+      return result
+    },
   }
 }
 

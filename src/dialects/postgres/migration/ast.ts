@@ -29,6 +29,11 @@ type PostgresRelationAst = { readonly table: string; readonly schema: string }
 
 type PostgresDdlAst =
   | (PostgresRelationAst & {
+      readonly kind: 'rename_column'
+      readonly from: string
+      readonly column: string
+    })
+  | (PostgresRelationAst & {
       readonly kind: 'create_index'
       readonly name: string
       readonly columns: readonly string[]

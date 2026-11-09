@@ -522,25 +522,7 @@ async function executeTransaction(
     cleanupFailures,
   )
 
-  if (program && !state.primary) {
-    const locked = guardedRelations(provisional)
-
-    const unlocked = guardedRelations(program).find(
-      (relation) => !locked.some((item) => compareRelations(item, relation) === 0),
-    )
-
-    if (unlocked)
-      state.primary = {
-        cause: new MigrationError({
-          message:
-            'Authoritative column-drop guard names a relation outside the provisional lock set; retry migration',
-          stage: 'precondition',
-          outcome: 'unchanged',
-          retryable: true,
-        }),
-        stage: 'precondition',
-      }
-  }
+  if (program && !state.primary) assertLockedTargets(program, provisional, state)
 
   if (program && !state.primary)
     state.primary = await executePreconditions(
@@ -553,7 +535,56 @@ async function executeTransaction(
   if (program)
     await executeProgramActions(program, state, options, cancellation, cleanupFailures)
 
+  if (program && !state.primary)
+    await validateMigrationResult(state, options, cancellation, cleanupFailures)
+
   await completeMigrationTransaction(state, options, cancellation, cleanupFailures)
+}
+
+function assertLockedTargets(
+  program: MigrationProgram,
+  provisional: MigrationProgram,
+  state: MigrationTransactionState,
+): void {
+  const locked = guardedRelations(provisional)
+
+  const unlocked = guardedRelations(program).find(
+    (relation) => !locked.some((item) => compareRelations(item, relation) === 0),
+  )
+
+  if (unlocked)
+    state.primary = {
+      cause: new MigrationError({
+        message:
+          'Authoritative migration target names a relation outside the provisional lock set; retry migration',
+        stage: 'precondition',
+        outcome: 'unchanged',
+        retryable: true,
+      }),
+      stage: 'precondition',
+    }
+}
+
+/** Runs final validation before committing, retaining failure and cleanup evidence. */
+async function validateMigrationResult(
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanupFailures: MigrationCleanupFailure[],
+): Promise<void> {
+  try {
+    await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'validation',
+      operation: async () => {
+        await options.validate?.()
+      },
+    })
+  } catch (cause) {
+    state.primary = { cause, stage: cancellationStage(cause, 'validation') }
+    retainCancellationFailures(cleanupFailures, cause)
+  }
 }
 
 /** Canonical relation order uses structured namespace roles and identifiers. */
@@ -586,7 +617,9 @@ function compareRelations(
 
 function guardedRelations(program: MigrationProgram): CanonicalRelationIdentity[] {
   const relations = program.preconditions.flatMap((condition) =>
-    condition.kind === 'column_has_only_nulls' ? [condition.target.relation] : [],
+    condition.kind === 'column_has_only_nulls' || condition.kind === 'column_rename'
+      ? [condition.target.relation]
+      : [],
   )
 
   return relations

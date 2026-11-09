@@ -19,6 +19,12 @@ export type MigrationActionTransaction = 'required' | 'allowed' | 'forbidden'
 /** Semantic assertion that must hold in the authoritative execution snapshot. */
 export type MigrationPrecondition =
   | Readonly<{
+      kind: 'column_rename'
+      target: Extract<MigrationTarget, { kind: 'column' }>
+      from: string
+      sourceStepIndexes: readonly number[]
+    }>
+  | Readonly<{
       kind: 'column_has_no_nulls'
       relation: CanonicalRelationIdentity
       column: string

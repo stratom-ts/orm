@@ -20,6 +20,7 @@ import type {
   MigrationStep,
 } from './migrationPlan'
 import { planMigration } from './migrationPlan'
+import type { MigrationColumnRename } from './renameColumn'
 
 /** Destructive migrate operations that require explicit execution permission. */
 type MigrationAllow = 'dangerouslyDropColumn' | 'dropTable' | 'dropIndex'
@@ -52,6 +53,8 @@ type MigrationDryRun = Readonly<{
 }>
 
 type MigrateBuilder = {
+  /** Declares an explicit mapping between physical column identifiers. */
+  renameColumn(intent: MigrationColumnRename): MigrateBuilder
   /**
    * Grants execution permission for destructive migration operations.
    *
@@ -177,6 +180,7 @@ function allowForStep(step: MigrationStep): MigrationAllow | undefined {
       return 'dropIndex'
     case 'ensure_namespace':
     case 'create_table':
+    case 'rename_column':
     case 'add_column':
     case 'alter_column_type':
     case 'add_foreign_key':
@@ -271,7 +275,7 @@ async function observeMigrationPlan(
   executor: Executor,
   options: Pick<
     Parameters<typeof createMigrateBuilder>[0],
-    'schemas' | 'migration' | 'migrationOwnership' | 'defaultNamespace'
+    'schemas' | 'migration' | 'migrationOwnership' | 'defaultNamespace' | 'renames'
   >,
   mode: 'preview' | 'execution' = 'execution',
 ) {
@@ -279,7 +283,10 @@ async function observeMigrationPlan(
   let request
 
   try {
-    request = createCatalogRequest(schemas, migrationOwnership ?? [], defaultNamespace)
+    request = {
+      ...createCatalogRequest(schemas, migrationOwnership ?? [], defaultNamespace),
+      ...(options.renames?.length ? { observeRenameDependencies: true } : {}),
+    }
   } catch (cause) {
     throw phaseError(cause, 'planning', mode)
   }
@@ -299,6 +306,7 @@ async function observeMigrationPlan(
 
   try {
     planned = planMigration(schemas, catalog, migration.planning, {
+      renames: options.renames,
       ...(defaultNamespace === undefined
         ? {}
         : { registrationDefault: defaultNamespace }),
@@ -344,6 +352,7 @@ async function prepareMigration(
 }
 
 type MigrateBuilderOptions = {
+  renames?: readonly MigrationColumnRename[]
   schemas: readonly TableHandle[]
   migration: DialectMigrationAdapter
   /**
@@ -390,41 +399,39 @@ type MigrateBuilderOptions = {
  */
 function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
   const { migration, runOperation, applicationId, assertCanExecute } = options
-  const { schemas, defaultNamespace, migrationOwnership } = options
-  const planningOptions = { schemas, migration, defaultNamespace, migrationOwnership }
+  const { schemas, defaultNamespace, migrationOwnership, renames } = options
+  const planningOptions = {
+    schemas,
+    migration,
+    defaultNamespace,
+    migrationOwnership,
+    renames,
+  }
+
   const allowed = new Set<MigrationAllow>()
 
+  const intents: MigrationColumnRename[] = []
+  const snapshot = () => ({
+    ...planningOptions,
+    runOperation,
+    applicationId,
+    assertCanExecute,
+    renames: intents.map((intent) => ({ ...intent })),
+  })
+
   const builder: MigrateBuilder = {
-    /**
-     * Grants execution permission for destructive migration operations.
-     *
-     * @param ops - Destructive operations to permit.
-     */
+    renameColumn(intent) {
+      intents.push({ table: intent.table, from: intent.from, to: intent.to })
+      return builder
+    },
     allow(...ops) {
       for (const op of ops) allowed.add(op)
       return builder
     },
-    ...createMigrationPreview(
-      {
-        ...planningOptions,
-        runOperation,
-        applicationId,
-        assertCanExecute,
-      },
-      allowed,
-    ),
-
-    /**
-     * Plans and executes the migration through the selected dialect.
-     *
-     * @param executeOptions - Optional cancellation signal and lock deadline.
-     */
+    plan: () => createMigrationPreview(snapshot(), new Set(allowed)).plan(),
+    dryRun: () => createMigrationPreview(snapshot(), new Set(allowed)).dryRun(),
     execute: (executeOptions) =>
-      executeMigration(
-        { ...planningOptions, runOperation, applicationId, assertCanExecute },
-        new Set(allowed),
-        executeOptions,
-      ),
+      executeMigration(snapshot(), new Set(allowed), executeOptions),
   }
 
   return builder
@@ -445,8 +452,15 @@ async function executeMigration(
   executeOptions: Parameters<MigrateBuilder['execute']>[0],
 ): Promise<void> {
   const { migration, runOperation, applicationId, assertCanExecute } = options
-  const { schemas, defaultNamespace, migrationOwnership } = options
-  const planningOptions = { schemas, migration, defaultNamespace, migrationOwnership }
+  const { schemas, defaultNamespace, migrationOwnership, renames } = options
+  const planningOptions = {
+    schemas,
+    migration,
+    defaultNamespace,
+    migrationOwnership,
+    renames,
+  }
+
   const lockTimeoutMs = lockTimeout(executeOptions)
 
   assertMigrationPermission(assertCanExecute)
@@ -471,8 +485,7 @@ async function executeMigration(
           /** Builds, validates, and lowers the plan inside the execution snapshot. */
           prepare: () => prepareMigration(executor, planningOptions, allowed),
           /** Checks the same desired schema against the final authoritative catalog. */
-          validate: () =>
-            validateMigrationConvergence(executor, planningOptions, allowed),
+          validate: () => validateMigrationResult(executor, planningOptions, allowed),
         }),
       )
 
@@ -483,6 +496,22 @@ async function executeMigration(
     })
   } catch (cause) {
     throwExecutionCleanup(cause, runtime.success)
+  }
+}
+
+/** Reports final observation and reconciliation failures at the validation stage. */
+async function validateMigrationResult(
+  executor: Executor,
+  planningOptions: Parameters<typeof observeMigrationPlan>[1],
+  allowed: ReadonlySet<MigrationAllow>,
+): Promise<void> {
+  try {
+    await validateMigrationConvergence(executor, planningOptions, allowed)
+  } catch (cause) {
+    if (isErrorTag(cause, 'MigrationError'))
+      throw enrichMigrationError(cause, { stage: 'validation' })
+
+    throw cause
   }
 }
 

@@ -34,6 +34,7 @@ import { getOperationReleaseCleanupFailures } from '@/operations/coordinator'
 
 import { createNativePostgresClient } from './dialects/postgresNativeClientFixtures'
 import { columnTarget, namespaceTarget, relationTarget } from './helpers/planTargets'
+import { applyPostgresFixtureDdl } from './helpers/postgresDdlCatalog'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -196,10 +197,16 @@ function createMockConnector(options?: {
   const prepared: string[] = []
   const runSql: string[] = []
   const liveTables = structuredClone(options?.tables ?? [])
+  const checkpoints: LiveTable[][] = []
 
   /** Prepares the fixture statement for the supplied SQL. */
   const prepare = (sql: string) =>
-    prepareMockQuery(sql, prepared, runSql, liveTables, options)
+    trackFixtureTransaction(
+      sql,
+      prepareMockQuery(sql, prepared, runSql, liveTables, options),
+      liveTables,
+      checkpoints,
+    )
 
   const nativeClient = createNativePostgresClient(prepare)
   const connector = {
@@ -401,7 +408,7 @@ describe('db.migrate() adapters and execution: lowers the desired schema once pe
 
       lower.mockClear()
       await db.migrate().execute()
-      expect(lower).toHaveBeenCalledTimes(2)
+      expect(lower).toHaveBeenCalledTimes(3)
     } finally {
       lower.mockRestore()
       await db.close()
@@ -784,6 +791,39 @@ describe('db.migrate() runtime rollback: wraps executor errors, rolls back, and 
     expect(connector.runSql).toContain('rollback')
     expect(connector.runSql).not.toContain('commit')
     expect(connector.runSql.some((sql) => /pg_advisory_unlock/i.test(sql))).toBe(true)
+
+    await db.close()
+  })
+})
+
+describe('db.migrate() runtime rollback: restores observed catalog state', () => {
+  it('should restore fixture tables when a later statement fails and rolls back', async () => {
+    const connector = createMockConnector({
+      tables: destructiveCatalog(),
+      failRun: /^drop table/,
+    })
+
+    const db = createDatabase({
+      connector,
+      schemas: [Users],
+      migrationOwnership: [
+        {
+          kind: 'absentRelation',
+          relation: {
+            namespace: [{ role: 'schema', spelling: 'public' }],
+            relation: 'orphan',
+          },
+        },
+      ],
+    })
+
+    await expect(
+      db.migrate().allow('dangerouslyDropColumn', 'dropIndex', 'dropTable').execute(),
+    ).rejects.toMatchObject({ stage: 'ddl', outcome: 'rolledBack' })
+
+    expect(connector.runSql.some((sql) => /drop column "legacy"/i.test(sql))).toBe(true)
+    expect(connector.runSql).toContain('rollback')
+    expect(connector.liveTables).toEqual(destructiveCatalog())
 
     await db.close()
   })
@@ -1470,6 +1510,43 @@ function constraintCatalogStatement(liveTables: LiveTable[]) {
 }
 
 /**
+ * Reverts fixture DDL when its transaction rolls back, as PostgreSQL transactional DDL
+ * does.
+ *
+ * @param sql - Native SQL text being scanned, compiled, or observed.
+ * @param statement - The fixture statement whose execution marks transaction boundaries.
+ * @param liveTables - Observed table definitions supplied to reconciliation.
+ * @param checkpoints - Table definitions captured when each open transaction began.
+ *
+ * @returns The statement, restoring or discarding the checkpoint when it runs.
+ */
+function trackFixtureTransaction(
+  sql: string,
+  statement: Statement,
+  liveTables: LiveTable[],
+  checkpoints: LiveTable[][],
+): Statement {
+  const normalized = sql.replace(/\s+/g, ' ').trim().toLowerCase()
+  const run = statement.run.bind(statement)
+
+  statement.run = async (...args) => {
+    const result = await run(...args)
+
+    if (/^begin\b/.test(normalized)) checkpoints.push(structuredClone(liveTables))
+
+    if (normalized === 'commit') checkpoints.pop()
+
+    const restored = normalized === 'rollback' ? checkpoints.pop() : undefined
+
+    if (restored) liveTables.splice(0, liveTables.length, ...restored)
+
+    return result
+  }
+
+  return statement
+}
+
+/**
  * Records prepared SQL and dispatches lifecycle, catalog, or DDL fixture behavior.
  *
  * @param sql - Native SQL text being scanned, compiled, or observed.
@@ -1520,7 +1597,15 @@ function prepareMockQuery(
       ? new Error(`executor rejected: ${normalized}`)
       : undefined
 
-    return createMockStatement([], error)
+    const statement = createMockStatement([], error)
+    const run = statement.run.bind(statement)
+    statement.run = async (...args) => {
+      const result = await run(...args)
+      applyPostgresFixtureDdl(sql, liveTables)
+      return result
+    }
+
+    return statement
   }
 
   return createMockStatement()

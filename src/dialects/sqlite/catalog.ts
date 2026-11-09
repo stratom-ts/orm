@@ -1368,7 +1368,19 @@ async function introspectSqliteCatalog(
 ): Promise<CatalogSnapshot> {
   const queryErrors = new Set<unknown>()
   const trackedExecutor = trackSqliteExecutorErrors(executor, queryErrors)
+  const snapshot = await readSqliteCatalog(trackedExecutor, request, queryErrors)
 
+  return request.observeRenameDependencies
+    ? observeSqliteRenameDependencies(executor, snapshot)
+    : snapshot
+}
+
+/** Reads the requested catalog while retaining acquisition failures by identity. */
+async function readSqliteCatalog(
+  trackedExecutor: CatalogExecutor,
+  request: CatalogRequest,
+  queryErrors: Set<unknown>,
+): Promise<CatalogSnapshot> {
   const context = await readCatalogContext(trackedExecutor, request)
 
   if (context.versionError) return invalidSqliteCatalog(context, context.versionError)
@@ -1420,6 +1432,34 @@ async function introspectSqliteCatalog(
   }
 
   return buildSqliteSnapshot({ ...context, ...inventory, ...evidence, reservations })
+}
+
+/** Observes main dependencies without extending the requested migration ownership. */
+async function observeSqliteRenameDependencies(
+  executor: CatalogExecutor,
+  snapshot: CatalogSnapshot,
+): Promise<CatalogSnapshot> {
+  const dependency = await introspectSqliteCatalog(executor, {
+    relations: [],
+    absentRelations: [],
+    completeNamespaces: [mainNamespace],
+  })
+
+  return {
+    ...snapshot,
+    renameDependencies: {
+      items: dependency.namespaces.items.flatMap(
+        (namespace) => namespace.relations.items,
+      ),
+      coverage:
+        dependency.namespaces.coverage.state === 'complete' &&
+        dependency.namespaces.items.every(
+          (namespace) => namespace.relations.coverage.state === 'complete',
+        )
+          ? complete
+          : unknown('Incomplete SQLite rename dependency coverage'),
+    },
+  }
 }
 
 /** Records executor rejections so acquisition guards preserve their identity. */

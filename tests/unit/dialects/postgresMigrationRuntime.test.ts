@@ -982,3 +982,51 @@ describe('PostgreSQL migration runtime', () => {
   registerMigrationRuntimeGroup19()
   registerMigrationRuntimeGroup20()
 })
+
+it('rejects an authoritative rename target outside the provisional lock set before DDL', async () => {
+  const runtime = harness()
+  const first = {
+    kind: 'column_rename' as const,
+    target,
+    from: 'old_payload',
+    sourceStepIndexes: [0],
+  }
+
+  const second = {
+    ...first,
+    target: {
+      ...target,
+      relation: { ...relation, relation: { spelling: 'other', comparisonKey: 'other' } },
+    },
+    sourceStepIndexes: [1],
+  }
+
+  const renameActions = [
+    {
+      sourceStepIndexes: [0],
+      transaction: 'required' as const,
+      statements: [
+        { sql: 'alter table events rename column old_payload to payload', params: [] },
+      ] as const,
+    },
+  ]
+
+  runtime.prepare.mockResolvedValueOnce(
+    program({ preconditions: [first], actions: renameActions }),
+  )
+
+  runtime.prepare.mockResolvedValueOnce(
+    program({ preconditions: [first, second], actions: renameActions }),
+  )
+
+  const error = await runtime.execute().catch((cause: unknown) => cause)
+  expect(error).toMatchObject({
+    stage: 'precondition',
+    outcome: 'unchanged',
+    retryable: true,
+  })
+
+  expect(runtime.calls.some((sql) => /^alter table/i.test(sql))).toBe(false)
+  expect(runtime.calls).toContain('lock table "public"."events" in access exclusive mode')
+  expect(runtime.calls).toContain('rollback')
+})

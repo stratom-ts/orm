@@ -65,3 +65,35 @@ lowering, never carried by the plan.
 - The planning catalog carries canonical identities instead of `schema`/`name` strings,
   removing the projection that failed for dialects without a schema role.
 - The consequence in ADR 0001 that plan steps retain their previous shape is superseded.
+
+## Explicit physical column rename
+
+`rename_column` carries one structured destination column target and a canonical
+`from` identifier on that same relation. Its phase follows namespace/table creation
+and precedes residual column, index, and foreign-key changes. Targets retain existing
+structural comparison and spelling tie-breaks. Normalized independent intent sets
+produce equal plans regardless of declaration or registration order.
+
+The builder snapshots physical-name intent for each invocation. The pure planner
+resolves the entire set against the original catalog before projecting column,
+primary/unique key, index, local foreign-key, and inbound referenced-column members.
+The projection is immutable. Original evidence remains separate for diagnostics and
+pre-action guards. Native definitions, expressions, defaults, and object names are
+never rewritten. Lowering uses original addresses for guards and projected addresses
+for residual actions, including SQLite rebuild copies.
+
+Complete dependency evidence is separate from migration ownership. Observation may
+include relations outside ownership but grants no authority to modify them. Missing
+or opaque evidence rejects the entire plan. Generated dependent names match by
+unambiguous supported semantics, including subsequent runs without rename intent.
+Authored names retain their exact meaning.
+
+Source-only storage plans a native rename. Destination-only storage satisfies intent
+structurally and still reconciles residual drift. Fresh tables create normally.
+Both/neither names on existing storage, equal comparison keys, and overlapping
+mappings reject planning. No persistent lineage or migration ledger is introduced.
+
+Whole-plan lowering and Semantic Profile checks still precede every write. Rename
+preconditions retain source-step provenance. PostgreSQL includes rename targets in
+its provisional lock set before authoritative observation. Both runtimes validate
+final convergence before commit, retaining existing failure and cleanup contracts.

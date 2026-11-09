@@ -109,3 +109,5 @@ export type { SqlTag, SqlFragment } from './sql'
 export { after, before, type OrderTerm } from './query/keyset'
 
 export { add, type Addition, type UpdatePatch } from './query/arithmetic'
+
+export type { MigrationColumnRename } from './ddl/renameColumn'

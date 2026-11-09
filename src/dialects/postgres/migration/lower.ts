@@ -6,6 +6,7 @@ import type {
   MigrationLoweringResult,
   MigrationPrecondition,
 } from '@/ddl/migrationProgram'
+import { originalColumnName } from '@/ddl/renameColumn'
 import type {
   CanonicalIdentifier,
   CanonicalRelationIdentity,
@@ -314,16 +315,40 @@ function compileMigrationStep(
 
   drafts.push({ step, sourceStepIndex, statement: compiled.value })
 
-  if (step.kind === 'set_not_null') {
+  appendStepPreconditions(step, planned, preconditions, sourceStepIndex, input.policy)
+}
+
+/** Retains semantic provenance while guards use original physical addresses. */
+function appendStepPreconditions(
+  step: PlannedMigration['plan']['steps'][number],
+  planned: PlannedMigration,
+  preconditions: MigrationPrecondition[],
+  sourceStepIndex: number,
+  policy: MigrationLoweringPolicy,
+): void {
+  if (step.kind === 'rename_column') {
     preconditions.push({
-      kind: 'column_has_no_nulls',
-      relation: step.target.relation,
-      column: step.target.column.spelling,
+      kind: 'column_rename',
+      target: step.target,
+      from: step.from.spelling,
       sourceStepIndexes: [sourceStepIndex],
     })
   }
 
-  if (step.kind === 'drop_column' && input.policy.columnDrop === 'guarded') {
+  if (step.kind === 'set_not_null') {
+    preconditions.push({
+      kind: 'column_has_no_nulls',
+      relation: step.target.relation,
+      column: originalColumnName(
+        planned,
+        step.target.relation,
+        step.target.column.spelling,
+      ),
+      sourceStepIndexes: [sourceStepIndex],
+    })
+  }
+
+  if (step.kind === 'drop_column' && policy.columnDrop === 'guarded') {
     preconditions.push({
       kind: 'column_has_only_nulls',
       target: step.target,

@@ -286,6 +286,11 @@ function compilePostgresAlteration(node: PostgresAlteration): CompiledQuery {
  */
 function compilePostgresDdl(node: PostgresDdlAst): CompiledQuery {
   switch (node.kind) {
+    case 'rename_column':
+      return {
+        sql: `alter table ${qualifyPostgresTable(node.schema, node.table)} rename column ${quoteIdentifier(node.from)} to ${quoteIdentifier(node.column)}`,
+        params: [],
+      }
     case 'create_schema':
       return {
         sql: `create schema if not exists ${quoteIdentifier(node.schema)}`,
