@@ -999,10 +999,12 @@ historical lineage. Remove obsolete intent before reusing its old physical name.
 Rename itself requires no destructive permission. Residual drops retain their guards
 and permissions. Supported primary and unique keys, simple indexes, and foreign keys
 retain their semantics and historical names. Authored index names keep their exact
-meaning. Unknown dependencies, expressions, views, triggers, inheritance, partitioned
-tables, and unsupported storage features reject before DDL. Dependency observation
-includes inbound foreign keys outside migration ownership and does not expand it.
-SQLite remains `main`-only and conservatively rejects unresolved dependencies.
+meaning. Unknown dependencies, expressions, views that depend on a rename target,
+triggers, inheritance, partitioned tables, and unsupported storage features reject
+before DDL. PostgreSQL permits views unrelated to rename targets. Dependency
+observation includes inbound foreign keys outside migration ownership and does not
+expand it. SQLite remains `main`-only and conservatively rejects unresolved
+dependencies, including any view or trigger in `main`.
 
 Each public invocation snapshots its intent. Planning and preview perform no DDL.
 Execution reobserves on its pinned session, verifies names and data guards, and uses
