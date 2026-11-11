@@ -584,6 +584,59 @@ const request: CatalogRequest = {
   completeNamespaces: [],
 }
 
+it.each(['trigger', 'routine'])(
+  'should report unsupported rename coverage for database-wide %s evidence',
+  async (kind) => {
+    const delegate = executor()
+    const catalog = await postgresDialect.catalog.introspectCatalog(
+      {
+        execute(query) {
+          if (query.sql.includes("select 'trigger' as kind"))
+            return Promise.resolve([{ kind, object_id: '17000' }])
+
+          if (query.sql.includes('con.oid::text as constraint_id'))
+            return Promise.resolve([])
+
+          return delegate.execute(query)
+        },
+      },
+      { ...request, observeRenameDependencies: true },
+    )
+
+    expect(catalog.renameDependencies?.coverage).toMatchObject({
+      state: 'unsupported',
+      by: 'adapter',
+      reason:
+        'PostgreSQL user triggers and SQL/PLpgSQL routines prevent complete rename dependency observation',
+    })
+  },
+)
+
+it('should reject a changed database-wide routine inventory during rename observation', async () => {
+  const delegate = executor()
+  let inventories = 0
+  await expect(
+    postgresDialect.catalog.introspectCatalog(
+      {
+        execute(query) {
+          if (query.sql.includes("select 'trigger' as kind")) {
+            inventories++
+            return Promise.resolve(
+              inventories === 1 ? [] : [{ kind: 'routine', object_id: '17000' }],
+            )
+          }
+
+          if (query.sql.includes('con.oid::text as constraint_id'))
+            return Promise.resolve([])
+
+          return delegate.execute(query)
+        },
+      },
+      { ...request, observeRenameDependencies: true },
+    ),
+  ).rejects.toThrow(/rename untracked dependencies/)
+})
+
 /**
  * Builds native column observations with the selected schema variations.
  *

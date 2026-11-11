@@ -39,6 +39,8 @@ type SessionHooks = Readonly<{
 }>
 
 type PostgresDatabaseOptions = Readonly<{
+  /** Uses a separate database for scenarios with database-wide catalog guards. */
+  url?: string
   useRegistrationDefault?: boolean
   applicationId?: string
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -50,7 +52,7 @@ type PostgresDatabaseOptions = Readonly<{
 
 type PostgresClientOptions = Omit<
   PostgresDatabaseOptions,
-  'sessionSchema' | 'additionalCleanup'
+  'sessionSchema' | 'additionalCleanup' | 'url'
 >
 
 type CallbackSettlement<T> =
@@ -99,12 +101,12 @@ function newTestSchema(): string {
  *
  * @returns The connected administrative PostgreSQL client owned by the harness.
  */
-async function createAdminClient(): Promise<Client> {
-  if (!postgresUrl) {
+async function createAdminClient(url = postgresUrl): Promise<Client> {
+  if (!url) {
     throw new Error('POSTGRESQL_URL is required for PostgreSQL integration tests')
   }
 
-  const client = new Client({ connectionString: postgresUrl })
+  const client = new Client({ connectionString: url })
   await client.connect()
   return client
 }
@@ -203,18 +205,20 @@ async function withPostgresDatabase<
   callback: (context: PostgresDatabaseContext<TSchemas>) => Promise<TResult>,
   options: PostgresDatabaseOptions = {},
 ): Promise<TResult> {
-  if (!postgresUrl) {
+  const url = options.url ?? postgresUrl
+
+  if (!url) {
     throw new Error('POSTGRESQL_URL is required for PostgreSQL integration tests')
   }
 
   const schema = newTestSchema()
   const alternateSchema = newTestSchema()
-  const admin = await createAdminClient()
-  const connector = postgresql({ url: postgresUrl })
+  const admin = await createAdminClient(url)
+  const connector = postgresql({ url })
   const cleanup: (() => Promise<void>)[] = []
   const databaseState: PostgresTestDatabaseState<TSchemas> = { db: undefined }
   const callbackSettlement = await runPostgresCallback({
-    url: postgresUrl,
+    url,
     schemas,
     callback,
     options,
