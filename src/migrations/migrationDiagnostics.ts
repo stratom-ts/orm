@@ -65,6 +65,7 @@ function enrichMigrationError(
     ...sourceStepIndexes,
     ...capabilityIssues,
     ...preconditionDetails(error),
+    ...progressDetails(error),
     ...cleanupFailures,
   })
 }
@@ -76,6 +77,23 @@ function preconditionDetails(error: MigrationError) {
     : { preconditionFailure: error.preconditionFailure }
 }
 
+/** Progress survives every diagnostic and cleanup envelope. */
+function progressDetails(
+  error:
+    | Pick<MigrationError, 'completedActions' | 'rolledBackActions' | 'recovery'>
+    | undefined,
+) {
+  return {
+    ...(error?.completedActions === undefined
+      ? {}
+      : { completedActions: error.completedActions }),
+    ...(error?.rolledBackActions === undefined
+      ? {}
+      : { rolledBackActions: error.rolledBackActions }),
+    ...(error?.recovery === undefined ? {} : { recovery: error.recovery }),
+  }
+}
+
 type ExecutionFacts = Readonly<{
   stage: MigrationExecutionStage
   outcome: MigrationExecutionOutcome
@@ -84,6 +102,9 @@ type ExecutionFacts = Readonly<{
   message: (actionIndex: number | undefined) => string
   actionIndex?: number
   sourceStepIndexes?: readonly number[]
+  completedActions?: MigrationError['completedActions']
+  rolledBackActions?: MigrationError['rolledBackActions']
+  recovery?: MigrationError['recovery']
   capabilityIssues?: MigrationError['capabilityIssues']
   cleanupFailures?: readonly MigrationCleanupFailure[]
 }>
@@ -134,6 +155,8 @@ function migrationExecutionError(cause: unknown, facts: ExecutionFacts): Migrati
     retryable:
       facts.outcome === 'unknown' ? false : (structured?.retryable ?? facts.retryable),
     ...diagnostics.fields,
+    ...progressDetails(structured),
+    ...progressDetails(facts),
   })
 }
 

@@ -138,15 +138,26 @@ function createRuntimeFixtureRunner(
     migrationProgram = options.noWork
       ? postgresMigrationProgram({ actions: [] })
       : postgresMigrationProgram(),
-    runtimeOptions: { signal?: AbortSignal; lockTimeoutMs?: number } = {},
+    runtimeOptions: {
+      signal?: AbortSignal
+      lockTimeoutMs?: number
+      statementTimeoutMs?: number
+      allowPartialApplication?: boolean
+    } = {},
   ) =>
     executePostgresMigration({
       executor,
       databaseIdentity: 'test',
+      ...(runtimeOptions.allowPartialApplication
+        ? { allowPartialApplication: true }
+        : {}),
       ...(options.applicationId === undefined
         ? {}
         : { applicationId: options.applicationId }),
       lockTimeoutMs: runtimeOptions.lockTimeoutMs ?? 1000,
+      ...(runtimeOptions.statementTimeoutMs === undefined
+        ? {}
+        : { statementTimeoutMs: runtimeOptions.statementTimeoutMs }),
       ...(runtimeOptions.signal === undefined ? {} : { signal: runtimeOptions.signal }),
       discard,
       cancel,
@@ -196,7 +207,16 @@ function createMigrationRuntimeExecutor(
 
       if (/^begin\b/i.test(query.sql) && held !== undefined) await held
       if (options.hangRun?.test(query.sql)) await hang()
-      if (options.failRun?.test(query.sql)) throw new Error(`failed: ${query.sql}`)
+
+      if (options.failRun?.test(query.sql))
+        throw options.runError ?? new Error(`failed: ${query.sql}`)
+
+      if (
+        options.restoreError &&
+        query.sql.includes("set_config('statement_timeout'") &&
+        query.params[0] === '17s'
+      )
+        throw options.restoreError
     },
     /** Executes fixture SQL with the configured native observations. */
     execute: (query) =>
@@ -305,6 +325,9 @@ function classifyFixtureEvent(query: { sql: string }): CoordinationContractEvent
 type MigrationRuntimeFixtureOptions = {
   prepareFailure?: unknown
   failRun?: RegExp
+  runError?: unknown
+  restoreError?: unknown
+  inspectionFailure?: unknown
   failUnlock?: boolean
   unlockResults?: (boolean | Error)[]
   releaseResults?: (boolean | Error)[]
@@ -357,11 +380,16 @@ async function executeRuntimeFixture(
   calls.push(query.sql)
   queries.push(query)
 
+  if (options.inspectionFailure && query.sql.startsWith('select i.indisvalid'))
+    throw options.inspectionFailure
+
   if (options.hangQuery?.test(query.sql)) await hang()
 
   if (/pg_try_advisory_lock/i.test(query.sql)) return acquire(query)
   if (/pg_advisory_unlock/i.test(query.sql)) return release(query)
   if (/count\(\*\)/i.test(query.sql)) return [{ count: options.nullCount ?? 0 }]
+
+  if (query.sql === 'show statement_timeout') return [{ statement_timeout: '17s' }]
 
   if (/^show lock_timeout$/i.test(query.sql))
     return options.lockTimeoutRows ?? [{ lock_timeout: '0' }]

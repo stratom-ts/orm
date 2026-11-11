@@ -35,6 +35,7 @@ type PostgresDdlAst =
     })
   | (PostgresRelationAst & {
       readonly kind: 'create_index'
+      readonly concurrently?: boolean
       readonly name: string
       readonly columns: readonly string[]
       readonly unique: boolean
@@ -68,7 +69,11 @@ type PostgresDdlAst =
       readonly column: string
     })
   | (PostgresRelationAst & { readonly kind: 'drop_table' })
-  | (PostgresRelationAst & { readonly kind: 'drop_index'; readonly index: string })
+  | (PostgresRelationAst & {
+      readonly kind: 'drop_index'
+      readonly index: string
+      readonly concurrently?: boolean
+    })
   | { readonly kind: 'create_schema'; readonly schema: string }
   | PostgresCreateTableAst
 

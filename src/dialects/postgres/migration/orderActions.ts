@@ -252,8 +252,32 @@ function actionDependsOn(
     followsReferencedRelation(current, other, planned) ||
     followsIndexedColumn(current, other, planned) ||
     followsForeignKeyColumn(current, other, planned) ||
+    followsUniqueIndex(current, other, planned) ||
     followsDroppedIndex(current, other, planned) ||
     followsReferencingTable(current, other, planned)
+  )
+}
+
+/** A foreign key can depend on a concurrently built referenced unique index. */
+function followsUniqueIndex(
+  current: ActionDraft,
+  other: ActionDraft,
+  planned: PlannedMigration,
+): boolean {
+  if (
+    current.step.kind !== 'add_foreign_key' ||
+    other.step.kind !== 'create_index' ||
+    !other.step.unique
+  )
+    return false
+
+  return (
+    planned.identities.equals(
+      current.step.references.relation,
+      other.step.target.relation,
+    ) &&
+    other.step.columns.length === 1 &&
+    other.step.columns[0].comparisonKey === current.step.references.column.comparisonKey
   )
 }
 
@@ -284,6 +308,7 @@ function actionDependencies(
 function topologicalOrder(
   drafts: readonly ActionDraft[],
   dependencies: readonly Set<number>[],
+  forbidden: (draft: ActionDraft) => boolean,
 ): ActionDraft[] {
   const remaining = dependencies.map((edges) => new Set(edges))
 
@@ -301,7 +326,9 @@ function topologicalOrder(
 
   while (available.length > 0) {
     available.sort(
-      (left, right) => drafts[left].sourceStepIndex - drafts[right].sourceStepIndex,
+      (left, right) =>
+        Number(forbidden(drafts[left])) - Number(forbidden(drafts[right])) ||
+        drafts[left].sourceStepIndex - drafts[right].sourceStepIndex,
     )
 
     const next = available.shift()!
@@ -386,9 +413,10 @@ function cycleIssues(
 function orderActions(
   drafts: readonly ActionDraft[],
   planned: PlannedMigration,
+  forbidden: (draft: ActionDraft) => boolean = () => false,
 ): OrderedActions {
   const dependencies = actionDependencies(drafts, planned)
-  const ordered = topologicalOrder(drafts, dependencies)
+  const ordered = topologicalOrder(drafts, dependencies, forbidden)
 
   if (ordered.length === drafts.length) return { ordered, issues: [] }
 

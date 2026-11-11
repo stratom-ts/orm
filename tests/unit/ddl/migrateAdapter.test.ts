@@ -13,6 +13,7 @@ import { defineTable } from '@/index'
 import type { Executor } from '@/query'
 
 import { completePostgresCatalog } from '../dialects/postgresCatalogFixtures'
+import { columnTarget, indexTarget } from '../helpers/planTargets'
 
 const returnsGroupedPhysicalActionsWithStableRedactionAndNoExecutionData2: MigrationProgram['preconditions'] =
   [
@@ -694,3 +695,134 @@ function assertMigrationPreview(
     { columnDrop: 'guarded' },
   )
 }
+
+describe('migration execution policy contracts', () => {
+  it('should snapshot concurrent policy before asynchronous observation', async () => {
+    const member = createMigrationMember()
+    const builder = createMigrateBuilder({
+      schemas: [],
+      migration: member.migration,
+      runOperation: createOperationRunner().runOperation,
+    })
+
+    const earlier = builder.dryRun()
+    builder.concurrentIndexes()
+
+    await expect(earlier).resolves.toMatchObject({
+      atomicity: 'plan-atomic',
+      actions: [],
+    })
+
+    await expect(builder.plan()).resolves.toEqual({ steps: [] })
+
+    await expect(builder.dryRun()).resolves.toMatchObject({
+      atomicity: 'plan-atomic',
+      actions: [],
+    })
+
+    expect(member.lower.mock.calls[0][2]).toEqual({ columnDrop: 'guarded' })
+
+    expect(member.lower.mock.calls[1][2]).toEqual({
+      columnDrop: 'guarded',
+      concurrentIndexes: true,
+    })
+  })
+})
+
+describe('migration repair permission contracts', () => {
+  it('should reject a global repair grant and repair grants on non-index targets', () => {
+    const builder = createMigrateBuilder({
+      schemas: [],
+      migration: createMigrationMember().migration,
+      runOperation: createOperationRunner().runOperation,
+    })
+
+    // @ts-expect-error Recovery cleanup is never a global permission.
+    expect(() => builder.allow('repairInvalidIndex')).toThrow('requires allowFor')
+
+    expect(() =>
+      // @ts-expect-error Recovery cleanup requires an exact index target.
+      builder.allowFor(columnTarget('public', 'users', 'email'), 'repairInvalidIndex'),
+    ).toThrow('requires a index target')
+
+    expect(() =>
+      builder.allowFor(
+        indexTarget('public', 'users', 'users_email'),
+        'repairInvalidIndex',
+      ),
+    ).not.toThrow()
+  })
+})
+
+describe('migration partial application contracts', () => {
+  it('should require partial application consent even for a single forbidden action', async () => {
+    const member = createMigrationMember()
+    member.lower.mockReturnValue({
+      program: {
+        atomicity: 'non-atomic',
+        preconditions: [],
+        actions: [
+          {
+            transaction: 'forbidden',
+            sourceStepIndexes: [0],
+            statements: [
+              { sql: 'create index concurrently example on users (email)', params: [] },
+            ],
+          },
+        ],
+      },
+    })
+
+    const builder = createMigrateBuilder({
+      schemas: [],
+      migration: member.migration,
+      runOperation: createOperationRunner().runOperation,
+    })
+
+    await expect(builder.dryRun()).resolves.toMatchObject({ atomicity: 'non-atomic' })
+    const earlier = builder.execute()
+    builder.allowPartialApplication()
+
+    await expect(earlier).rejects.toMatchObject({
+      stage: 'permission',
+      outcome: 'unchanged',
+    })
+
+    await expect(builder.execute()).resolves.toBeUndefined()
+  })
+
+  it('should leave an ordinary program atomic when partial application is selected', async () => {
+    const member = createMigrationMember()
+
+    const builder = createMigrateBuilder({
+      schemas: [],
+      migration: member.migration,
+      runOperation: createOperationRunner().runOperation,
+    }).allowPartialApplication()
+
+    await expect(builder.dryRun()).resolves.toMatchObject({ atomicity: 'plan-atomic' })
+    await expect(builder.execute({ statementTimeoutMs: 0 })).resolves.toBeUndefined()
+    expect(member.execute.mock.calls[0][0].statementTimeoutMs).toBe(0)
+  })
+})
+
+describe('migration statement timeout contracts', () => {
+  it.each([-1, Infinity, NaN])(
+    'should reject invalid statement timeout %s before opening a session',
+    async (statementTimeoutMs) => {
+      const runner = createOperationRunner()
+      const builder = createMigrateBuilder({
+        schemas: [],
+        migration: createMigrationMember().migration,
+        runOperation: runner.runOperation,
+      })
+
+      await expect(builder.execute({ statementTimeoutMs })).rejects.toMatchObject({
+        outcome: 'unchanged',
+        retryable: false,
+      })
+
+      expect(runner.state.calls).toBe(0)
+    },
+  )
+})

@@ -562,7 +562,7 @@ function lowerSqliteMigrationPlan(
   expected: MigrationSemanticProfile,
   policy: MigrationLoweringPolicy = { columnDrop: 'guarded' },
 ): MigrationLoweringResult {
-  const issues = profileIssues(planned, expected)
+  const issues = profileIssues(planned, expected, policy)
 
   if (issues.length) return { issues }
 
@@ -776,9 +776,17 @@ function stepIssues(
 function profileIssues(
   planned: PlannedMigration,
   expected: MigrationSemanticProfile,
+  policy: MigrationLoweringPolicy,
 ): MigrationCapabilityIssue[] {
   try {
     checkProfile(planned, expected)
+
+    if (policy.concurrentIndexes)
+      throw new SqliteMigrationCapabilityError(
+        'invalid_target',
+        'SQLite does not support concurrent index execution',
+      )
+
     return []
   } catch (cause) {
     if (!(cause instanceof SqliteMigrationCapabilityError)) throw cause

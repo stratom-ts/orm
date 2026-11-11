@@ -1,4 +1,11 @@
-import type { MigrationProgram, MigrationRuntimeOptions } from '@/ddl/migrationProgram'
+import type {
+  MigrationAction,
+  MigrationPhase,
+  MigrationProgram,
+  MigrationRuntimeOptions,
+  MigrationRuntimeSuccess,
+} from '@/ddl/migrationProgram'
+import { migrationProgramPhases } from '@/ddl/migrationProgram'
 import type { CanonicalRelationIdentity } from '@/migrations/canonicalRelationIdentity'
 import { migrationExecutionError } from '@/migrations/migrationDiagnostics'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
@@ -53,10 +60,13 @@ function executionMessage(
 function executionError(options: {
   cause: unknown
   stage: MigrationExecutionStage
-  outcome: 'unchanged' | 'rolledBack' | 'applied' | 'unknown'
+  outcome: NonNullable<MigrationError['outcome']>
   retryable: boolean
   actionIndex?: number
   sourceStepIndexes?: readonly number[]
+  completedActions?: MigrationError['completedActions']
+  rolledBackActions?: MigrationError['rolledBackActions']
+  recovery?: MigrationError['recovery']
   capabilityIssues?: MigrationError['capabilityIssues']
   cleanupFailures?: readonly MigrationCleanupFailure[]
 }): MigrationError {
@@ -73,6 +83,11 @@ function executionError(options: {
       !isErrorTag(cause, 'SchemaError'),
     stage,
     outcome: options.outcome,
+    ...(options.completedActions ? { completedActions: options.completedActions } : {}),
+    ...(options.rolledBackActions
+      ? { rolledBackActions: options.rolledBackActions }
+      : {}),
+    ...(options.recovery ? { recovery: options.recovery } : {}),
     retryable: options.retryable,
     ...(options.actionIndex === undefined ? {} : { actionIndex: options.actionIndex }),
     ...(options.sourceStepIndexes === undefined
@@ -157,6 +172,32 @@ function assertPlanAtomicProgram(program: MigrationProgram): void {
       retryable: false,
     })
   }
+}
+
+/** The atomic contract is unchanged; mixed execution always needs explicit consent. */
+function assertExecutableProgram(
+  program: MigrationProgram,
+  options: PostgresMigrationRuntimeOptions,
+): void {
+  if (!program.actions.some((action) => action.transaction === 'forbidden'))
+    return assertPlanAtomicProgram(program)
+
+  if (program.atomicity !== 'non-atomic' || !options.allowPartialApplication)
+    throw new MigrationError({
+      message:
+        'Transaction-forbidden actions require a non-atomic program and allowPartialApplication()',
+      stage: 'permission',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+
+  if (program.actions.some((action) => action.transaction === 'allowed'))
+    throw new MigrationError({
+      message: 'Mixed PostgreSQL programs require explicit transaction requirements',
+      stage: 'lowering',
+      outcome: 'unchanged',
+      retryable: false,
+    })
 }
 
 /**
@@ -321,13 +362,14 @@ async function executeMigrationTransaction(
     rollbackAcknowledged: state.rollbackAcknowledged,
     committed: state.committed,
     primary: state.primary,
+    ...(state.progress ? { progress: state.progress } : {}),
   }
 }
 
 /**
- * Runs one PostgreSQL migration under coordination and an authoritative repeatable-read
- * transaction. Commit acknowledgement is a hard uncertainty boundary: it is never
- * followed by rollback or compensation.
+ * Runs one PostgreSQL migration under session advisory coordination. Atomic programs
+ * use an authoritative repeatable-read transaction; mixed programs commit explicit
+ * phases. Commit acknowledgment is never followed by compensation.
  *
  * @example
  *   const result = await executePostgresMigration(runtime)
@@ -336,7 +378,7 @@ async function executeMigrationTransaction(
  */
 async function executePostgresMigration(
   input: MigrationRuntimeOptions,
-): Promise<{ outcome: 'applied' | 'unchanged' }> {
+): Promise<MigrationRuntimeSuccess> {
   const options: PostgresMigrationRuntimeOptions = {
     ...input,
     lockTimeoutMs: input.lockTimeoutMs ?? DEFAULT_POSTGRES_MIGRATION_LOCK_TIMEOUT_MS,
@@ -378,6 +420,7 @@ type MigrationTransactionState = {
   rollbackAcknowledged: boolean
   committed: boolean
   primary: MigrationExecutionFailure | undefined
+  progress?: MixedProgress
 }
 
 /**
@@ -396,16 +439,18 @@ function migrationExecutionOutcome(
     rollbackAcknowledged: boolean
     committed: boolean
     primary: MigrationExecutionFailure | undefined
+    progress?: MixedProgress
   },
   cleanupFailures: Readonly<{
     stage: 'rollback' | 'unlock' | 'sessionCleanup'
     cause: unknown
   }>[],
 ) {
-  const { primary, ddlStarted, rollbackAcknowledged, committed } = result
+  const { primary, ddlStarted, rollbackAcknowledged, committed, progress } = result
 
   if (primary) {
-    const outcome = failureOutcome(primary.stage, ddlStarted, rollbackAcknowledged)
+    const outcome =
+      progress?.outcome ?? failureOutcome(primary.stage, ddlStarted, rollbackAcknowledged)
 
     if (
       isErrorTag(primary.cause, 'SchemaError') &&
@@ -416,6 +461,7 @@ function migrationExecutionOutcome(
 
     throw executionError({
       ...primary,
+      ...progressFacts(progress),
       outcome,
       retryable:
         outcome !== 'unknown' &&
@@ -428,17 +474,38 @@ function migrationExecutionOutcome(
   }
 
   if (cleanupFailures.length > 0) {
-    const cause = cleanupFailures[0].cause
     throw executionError({
-      cause,
+      cause: cleanupFailures[0].cause,
       stage: 'unlock',
+      ...progressFacts(progress),
       outcome: successfulOutcome(committed, ddlStarted),
       retryable: false,
       cleanupFailures,
     })
   }
 
-  return { outcome: successfulOutcome(committed, ddlStarted) }
+  return mixedSuccess(committed, ddlStarted, progress)
+}
+
+function mixedSuccess(
+  committed: boolean,
+  ddlStarted: boolean,
+  progress: MixedProgress | undefined,
+): MigrationRuntimeSuccess {
+  return {
+    outcome: successfulOutcome(committed, ddlStarted),
+    ...(progress ? { completedActions: progress.completedActions } : {}),
+  }
+}
+
+function progressFacts(progress: MixedProgress | undefined) {
+  return progress
+    ? {
+        completedActions: progress.completedActions,
+        rolledBackActions: progress.rolledBackActions,
+        ...(progress.recovery ? { recovery: progress.recovery } : {}),
+      }
+    : {}
 }
 
 /**
@@ -510,6 +577,11 @@ async function executeTransaction(
 
   if (!provisional) return
 
+  if (provisional.actions.some((action) => action.transaction === 'forbidden')) {
+    await executeMixedProgram(provisional, state, options, cancellation, cleanupFailures)
+    return
+  }
+
   await beginMigrationTransaction(options, cancellation, state, cleanupFailures)
 
   if (!state.primary)
@@ -545,7 +617,7 @@ function assertLockedTargets(
   program: MigrationProgram,
   provisional: MigrationProgram,
   state: MigrationTransactionState,
-): void {
+): boolean {
   const locked = guardedRelations(provisional)
 
   const unlocked = guardedRelations(program).find(
@@ -563,6 +635,8 @@ function assertLockedTargets(
       }),
       stage: 'precondition',
     }
+
+  return !unlocked
 }
 
 /** Runs final validation before committing, retaining failure and cleanup evidence. */
@@ -901,7 +975,7 @@ async function prepareMigrationProgram(
         stage: 'introspection',
         operation: options.prepare,
       })
-      assertPlanAtomicProgram(program)
+      assertExecutableProgram(program, options)
     } catch (cause) {
       state.primary = {
         cause,
@@ -959,6 +1033,502 @@ async function beginMigrationTransaction(
     }
 
     retainCancellationFailures(cleanupFailures, cause)
+  }
+}
+
+type CompletedAction = NonNullable<MigrationError['completedActions']>[number]
+
+type MixedProgress = {
+  completedActions: CompletedAction[]
+  rolledBackActions: CompletedAction[]
+  recovery?: MigrationError['recovery']
+  outcome?: NonNullable<MigrationError['outcome']>
+}
+
+/** Retains original program indexes even as subsequent observations produce smaller plans. */
+function actionEvidence(program: MigrationProgram, actionIndex: number): CompletedAction {
+  const action = program.actions[actionIndex]
+  return {
+    actionIndex,
+    sourceStepIndexes: action.sourceStepIndexes,
+    ...(action.target ? { target: action.target } : {}),
+  }
+}
+
+/** Compares executable intent, not transient source-step indexes or repair annotations. */
+function assertRemainingProgram(
+  current: MigrationProgram,
+  approved: MigrationProgram,
+  start: number,
+): void {
+  const signature = (actions: readonly MigrationAction[]) =>
+    JSON.stringify(
+      actions.map((action) => ({
+        transaction: action.transaction,
+        statements: action.statements,
+      })),
+    )
+
+  if (signature(current.actions) !== signature(approved.actions.slice(start)))
+    throw new MigrationError({
+      message:
+        'Migration catalog drift changed the approved physical program; inspect and replan',
+      stage: 'precondition',
+      retryable: false,
+    })
+}
+
+/** Takes only the current phase's guards; later phases must use their own fresh snapshots. */
+function transactionalPrefix(program: MigrationProgram, count: number): MigrationProgram {
+  const actions = program.actions.slice(0, count)
+  const sources = new Set(actions.flatMap((action) => action.sourceStepIndexes))
+  return {
+    atomicity: 'plan-atomic',
+    actions,
+    preconditions: program.preconditions.filter((condition) =>
+      condition.sourceStepIndexes.some((index) => sources.has(index)),
+    ),
+  }
+}
+
+/** Acknowledged phases survive later failures; no compensation or automatic replay occurs. */
+async function executeMixedProgram(
+  approved: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  state.progress = { completedActions: [], rolledBackActions: [] }
+
+  for (const phase of migrationProgramPhases(approved.actions)) {
+    await executeMixedPhase(phase, approved, state, options, cancellation, cleanup)
+
+    if (state.primary) break
+  }
+
+  if (!state.primary) await validateMigrationResult(state, options, cancellation, cleanup)
+
+  if (state.primary && state.progress.outcome === undefined)
+    state.progress.outcome = completedFailureOutcome(state, approved.actions.length)
+}
+
+/** Cleanup changes session safety, not an already acknowledged schema effect. */
+function completedFailureOutcome(
+  state: MigrationTransactionState,
+  actionCount: number,
+): 'applied' | 'partial' | 'unchanged' {
+  const completed = state.progress!.completedActions.length
+
+  if (state.primary?.stage === 'sessionCleanup' && completed === actionCount)
+    return 'applied'
+
+  return completed ? 'partial' : 'unchanged'
+}
+
+/** Reobserves under the same session advisory locks before each physical phase. */
+async function executeMixedPhase(
+  phase: MigrationPhase,
+  approved: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  try {
+    const current = await prepareMigrationProgram(state, options, cancellation, cleanup)
+
+    if (!current) return
+
+    assertRemainingProgram(current, approved, phase.actionIndexes[0])
+
+    if (phase.transaction === 'forbidden') {
+      await executeForbiddenAction(
+        phase.actionIndexes[0],
+        approved,
+        state,
+        options,
+        cancellation,
+        cleanup,
+      )
+
+      return
+    }
+
+    await executeMixedGroup(
+      phase,
+      current,
+      approved,
+      state,
+      options,
+      cancellation,
+      cleanup,
+    )
+  } catch (cause) {
+    state.primary ??= { cause, stage: reportedStage(cause, 'precondition') }
+    retainCancellationFailures(cleanup, cause)
+  }
+}
+
+/**
+ * Locks guards before the authoritative snapshot, then commits just this transactional
+ * group.
+ */
+async function executeMixedGroup(
+  phase: MigrationPhase,
+  provisional: MigrationProgram,
+  approved: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  state.rollbackAcknowledged = false
+  await beginMigrationTransaction(options, cancellation, state, cleanup)
+
+  await prepareMixedGroup(
+    phase,
+    provisional,
+    approved,
+    state,
+    options,
+    cancellation,
+    cleanup,
+  )
+
+  const attempted: CompletedAction[] = []
+
+  if (!state.primary)
+    await executeGroupActions(
+      phase,
+      approved,
+      state,
+      options,
+      cancellation,
+      cleanup,
+      attempted,
+    )
+
+  const last = phase.actionIndexes.at(-1) === approved.actions.length - 1
+
+  if (last && !state.primary)
+    await validateMigrationResult(state, options, cancellation, cleanup)
+
+  await completeMigrationTransaction(state, options, cancellation, cleanup)
+  recordGroupOutcome(state, attempted)
+}
+
+/** Whole-program preparation still precedes every write, including each later transaction. */
+async function prepareMixedGroup(
+  phase: MigrationPhase,
+  provisional: MigrationProgram,
+  approved: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  if (state.primary) return
+
+  const group = transactionalPrefix(provisional, phase.actionIndexes.length)
+  await lockGuardedRelations(
+    group,
+    state,
+    { ...options, lockDeadline: performance.now() + options.lockTimeoutMs },
+    cancellation,
+    cleanup,
+  )
+
+  const authoritative = await prepareMigrationProgram(
+    state,
+    options,
+    cancellation,
+    cleanup,
+  )
+
+  if (!authoritative) return
+
+  try {
+    assertRemainingProgram(authoritative, approved, phase.actionIndexes[0])
+    const current = transactionalPrefix(authoritative, phase.actionIndexes.length)
+
+    if (assertLockedTargets(current, group, state))
+      state.primary = await executePreconditions(current, options, cancellation, cleanup)
+  } catch (cause) {
+    state.primary = { cause, stage: reportedStage(cause, 'precondition') }
+  }
+}
+
+/** Executes the approved original actions and preserves their global provenance. */
+async function executeGroupActions(
+  phase: MigrationPhase,
+  approved: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+  attempted: CompletedAction[],
+): Promise<void> {
+  for (const index of phase.actionIndexes) {
+    attempted.push(actionEvidence(approved, index))
+    state.ddlStarted = true
+
+    try {
+      await executeActionStatements(approved.actions[index], options, cancellation)
+    } catch (cause) {
+      state.primary = {
+        cause,
+        stage: cancellationStage(cause, 'ddl'),
+        actionIndex: index,
+        sourceStepIndexes: approved.actions[index].sourceStepIndexes,
+      }
+      retainCancellationFailures(cleanup, cause)
+      return
+    }
+  }
+}
+
+/** Only commit acknowledgments add actions to committed progress. */
+function recordGroupOutcome(
+  state: MigrationTransactionState,
+  attempted: readonly CompletedAction[],
+): void {
+  const progress = state.progress!
+
+  if (!state.primary) {
+    progress.completedActions.push(...attempted)
+    return
+  }
+
+  if (
+    state.primary.stage === 'commit' ||
+    (attempted.length > 0 && !state.rollbackAcknowledged)
+  )
+    progress.outcome = 'unknown'
+  else if (state.rollbackAcknowledged) {
+    progress.rolledBackActions.push(...attempted)
+    progress.outcome = progress.completedActions.length
+      ? 'partial'
+      : attempted.length
+        ? 'rolledBack'
+        : 'unchanged'
+  }
+}
+
+/**
+ * PostgreSQL command errors acknowledge failure; connection loss and arbitrary failures
+ * do not.
+ */
+function acknowledgedCommandFailure(cause: unknown): boolean {
+  const seen = new Set<unknown>()
+  while (cause && !seen.has(cause)) {
+    seen.add(cause)
+
+    if (isErrorTag(cause, 'DriverError'))
+      return (
+        /^[0-9A-Z]{5}$/.test(cause.code ?? '') &&
+        !cause.code?.startsWith('08') &&
+        !['57P01', '57P02', '57P03'].includes(cause.code ?? '')
+      )
+
+    if (!isErrorTag(cause, 'QueryError') && !isErrorTag(cause, 'MigrationError'))
+      return false
+
+    cause = cause.cause
+  }
+
+  return false
+}
+
+/** Changes only an explicitly supplied statement timeout, never the lock deadline. */
+async function setStatementTimeout(
+  value: string,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+): Promise<void> {
+  await runCancellable({
+    runtime: options,
+    state: cancellation,
+    stage: 'precondition',
+    operation: () =>
+      options.executor.run(
+        { sql: "select set_config('statement_timeout', $1, false)", params: [value] },
+        { source: 'lifecycle' },
+      ),
+  })
+}
+
+async function saveStatementTimeout(
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+): Promise<string | undefined> {
+  if (options.statementTimeoutMs === undefined) return undefined
+
+  const [row] = await runCancellable({
+    runtime: options,
+    state: cancellation,
+    stage: 'precondition',
+    operation: () =>
+      options.executor.execute(
+        { sql: 'show statement_timeout', params: [] },
+        { source: 'lifecycle' },
+      ),
+  })
+
+  const value = (row as { statement_timeout?: unknown } | undefined)?.statement_timeout
+
+  if (typeof value !== 'string')
+    throw new InvariantError('PostgreSQL did not report the statement timeout')
+
+  return value
+}
+
+/**
+ * Runs a single concurrent statement outside any transaction, with bounded settings
+ * cleanup.
+ */
+async function executeForbiddenAction(
+  index: number,
+  approved: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  const action = approved.actions[index]
+  let prior: string | undefined
+  try {
+    prior = await saveStatementTimeout(options, cancellation)
+
+    if (options.statementTimeoutMs !== undefined)
+      await setStatementTimeout(`${options.statementTimeoutMs}ms`, options, cancellation)
+
+    await executeConcurrentCommand(index, approved, state, options, cancellation, cleanup)
+  } catch (cause) {
+    state.primary ??= {
+      cause,
+      stage: reportedStage(cause, 'precondition'),
+      actionIndex: index,
+      sourceStepIndexes: action.sourceStepIndexes,
+    }
+    options.discard()
+    cancellation.sessionUncertain = true
+    retainCancellationFailures(cleanup, cause)
+  } finally {
+    await restoreStatementTimeout(prior, state, options, cancellation, cleanup)
+  }
+}
+
+/** Settings failures cannot erase a primary error or any acknowledged index action. */
+async function restoreStatementTimeout(
+  prior: string | undefined,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  if (prior === undefined || cancellation.cancelled || cancellation.sessionUncertain)
+    return
+
+  try {
+    await setStatementTimeout(prior, options, cancellation)
+  } catch (cause) {
+    options.discard()
+    cancellation.sessionUncertain = true
+    cleanup.push({ stage: 'sessionCleanup', cause })
+    state.primary ??= { cause, stage: 'sessionCleanup' }
+    retainCancellationFailures(cleanup, cause)
+  }
+}
+
+async function executeConcurrentCommand(
+  index: number,
+  approved: MigrationProgram,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  const action = approved.actions[index]
+  state.ddlStarted = true
+
+  try {
+    await executeActionStatements(action, options, cancellation)
+    state.committed = true
+    state.progress!.completedActions.push(actionEvidence(approved, index))
+  } catch (cause) {
+    const known = acknowledgedCommandFailure(cause) && !cancellation.sessionUncertain
+    state.primary = {
+      cause,
+      stage: cancellationStage(cause, 'ddl'),
+      actionIndex: index,
+      sourceStepIndexes: action.sourceStepIndexes,
+    }
+    state.progress!.outcome = known ? 'partial' : 'unknown'
+    retainCancellationFailures(cleanup, cause)
+    await retainIndexRecovery(action, known, state, options, cancellation, cleanup)
+
+    if (!known) {
+      options.discard()
+      cancellation.sessionUncertain = true
+    }
+  }
+}
+
+/** Recovery evidence reports observation, never assumes residue is absent after failure. */
+async function retainIndexRecovery(
+  action: MigrationAction,
+  known: boolean,
+  state: MigrationTransactionState,
+  options: PostgresMigrationRuntimeOptions,
+  cancellation: CancellationState,
+  cleanup: MigrationCleanupFailure[],
+): Promise<void> {
+  if (action.target?.kind !== 'index') return
+
+  const target = action.target
+  const operation = action.statements[0].sql.startsWith('drop ') ? 'drop' : 'create'
+  state.progress!.recovery = {
+    target,
+    operation,
+    status: known ? 'possibleResidue' : 'unknown',
+    requires: 'inspectAndReplan',
+    repairPermission: 'repairInvalidIndex',
+  }
+
+  if (!known || cancellation.cancelled) return
+
+  try {
+    const rows = await runCancellable({
+      runtime: options,
+      state: cancellation,
+      stage: 'introspection',
+      operation: () =>
+        options.executor.execute(
+          {
+            sql: 'select i.indisvalid and i.indisready as valid from pg_catalog.pg_index i join pg_catalog.pg_class c on c.oid = i.indexrelid join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and c.relname = $2',
+            params: [
+              schemaFromNamespace(target.relation.namespace),
+              target.index.spelling,
+            ],
+          },
+          { source: 'catalog' },
+        ),
+    })
+
+    const validity = rows.length === 0 ? 'absent' : (rows[0] as { valid?: unknown }).valid
+
+    if (validity === 'absent' || typeof validity === 'boolean')
+      state.progress!.recovery = {
+        ...state.progress!.recovery,
+        observedValidity:
+          validity === 'absent' ? 'absent' : validity ? 'valid' : 'invalid',
+      }
+  } catch (cause) {
+    cleanup.push({ stage: 'sessionCleanup', cause })
+    retainCancellationFailures(cleanup, cause)
+    options.discard()
+    cancellation.sessionUncertain = true
   }
 }
 

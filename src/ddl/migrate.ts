@@ -2,6 +2,7 @@ import type {
   DialectMigrationAdapter,
   MigrationLoweringPolicy,
   MigrationProgram,
+  MigrationRuntimeSuccess,
 } from '@/ddl/migrationProgram'
 import { migrationTargetsEqual } from '@/ddl/migrationProgram'
 import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIdentity'
@@ -32,17 +33,23 @@ import type { MigrationColumnRename } from './renameColumn'
 
 /** Destructive migrate operations that require explicit execution permission. */
 type MigrationAllow = 'dangerouslyDropColumn' | 'dropTable' | 'dropIndex'
+type MigrationTargetAllow = MigrationAllow | 'repairInvalidIndex'
 type MigrationPolicyProfile = 'expand-only' | 'sync'
 
 type TargetGrant = Readonly<{
   target: MigrationTarget
-  operations: ReadonlySet<MigrationAllow>
+  operations: ReadonlySet<MigrationTargetAllow>
 }>
 
-/** Optional cancellation and finite coordination deadline for migration execution. */
+/** Cancellation, coordination deadline, and optional concurrent statement timeout. */
 type MigrationExecuteOptions = Readonly<{
   signal?: AbortSignal
   lockTimeoutMs?: number
+  /**
+   * Optional statement deadline; zero disables it, omission preserves the session
+   * setting.
+   */
+  statementTimeoutMs?: number
 }>
 
 /** Non-executable statement preview; every bound parameter is redacted. */
@@ -54,6 +61,8 @@ type MigrationDryRunStatement = Readonly<{
 
 /** Non-executable physical action projected from dialect whole-plan lowering. */
 type MigrationDryRunAction = Readonly<{
+  target?: MigrationTarget
+  repair?: 'drop' | 'create'
   sourceStepIndexes: readonly number[]
   transaction: 'required' | 'allowed' | 'forbidden'
   statements: readonly MigrationDryRunStatement[]
@@ -61,6 +70,7 @@ type MigrationDryRunAction = Readonly<{
 
 /** Ordered, non-executable physical preview of a complete Migration Plan. */
 type MigrationDryRun = Readonly<{
+  phases?: MigrationProgram['phases']
   atomicity: 'plan-atomic' | 'statement-atomic' | 'non-atomic'
   preconditions: MigrationProgram['preconditions']
   actions: readonly MigrationDryRunAction[]
@@ -76,7 +86,15 @@ type MigrateBuilder = {
    */
   allow(...ops: MigrationAllow[]): MigrateBuilder
   /** Grants destructive operations for one exact canonical Migration Target. */
+  allowFor(
+    target: Extract<MigrationTarget, { kind: 'index' }>,
+    ...ops: MigrationTargetAllow[]
+  ): MigrateBuilder
   allowFor(target: MigrationTarget, ...ops: MigrationAllow[]): MigrateBuilder
+  /** Selects concurrent standalone index execution on supported dialects. */
+  concurrentIndexes(): MigrateBuilder
+  /** Consents to committed phases surviving a later failure. */
+  allowPartialApplication(): MigrateBuilder
   /** Selects the named execution policy; the last selected profile applies. */
   policy(profile: MigrationPolicyProfile): MigrateBuilder
 
@@ -183,6 +201,37 @@ function lockTimeout(options: MigrationExecuteOptions | undefined): number | und
   return value
 }
 
+function statementTimeout(
+  options: MigrationExecuteOptions | undefined,
+): number | undefined {
+  const value = options?.statementTimeoutMs
+
+  if (
+    value !== undefined &&
+    (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+  )
+    throw new MigrationError({
+      message: 'Migration statementTimeoutMs must be a finite non-negative number',
+      stage: 'permission',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+
+  return value
+}
+
+/** Validates deadlines before acquiring an operation session. */
+function executionControls(options: MigrationExecuteOptions | undefined) {
+  const lockTimeoutMs = lockTimeout(options)
+  const statementTimeoutMs = statementTimeout(options)
+
+  return {
+    ...(lockTimeoutMs === undefined ? {} : { lockTimeoutMs }),
+    ...(statementTimeoutMs === undefined ? {} : { statementTimeoutMs }),
+    ...(options?.signal === undefined ? {} : { signal: options.signal }),
+  }
+}
+
 /**
  * Maps a destructive semantic step to its required permission.
  *
@@ -232,11 +281,21 @@ function snapshotTarget(target: MigrationTarget): MigrationTarget {
     : { kind: 'index', relation, index: { ...target.index } }
 }
 
-function validateTargetGrant(target: MigrationTarget, operation: MigrationAllow): void {
+function validateTargetGrant(
+  target: MigrationTarget,
+  operation: MigrationTargetAllow,
+): void {
+  if (
+    !['dangerouslyDropColumn', 'dropTable', 'dropIndex', 'repairInvalidIndex'].includes(
+      operation,
+    )
+  )
+    throw new SchemaError({ message: `Unknown migration permission '${operation}'` })
+
   const expectedKind =
     operation === 'dropTable'
       ? 'relation'
-      : operation === 'dropIndex'
+      : operation === 'dropIndex' || operation === 'repairInvalidIndex'
         ? 'index'
         : 'column'
 
@@ -275,6 +334,7 @@ function assertProfileAllows(
 function loweringPolicy(
   allowed: ReadonlySet<MigrationAllow>,
   grants: readonly TargetGrant[],
+  options: Pick<MigrateBuilderOptions, 'concurrentIndexes'>,
 ): MigrationLoweringPolicy {
   const dangerousTargets = grants
     .filter(
@@ -284,6 +344,7 @@ function loweringPolicy(
     .map((grant) => grant.target as Extract<MigrationTarget, { kind: 'column' }>)
 
   return {
+    ...(options.concurrentIndexes ? { concurrentIndexes: true } : {}),
     columnDrop: allowed.has('dangerouslyDropColumn') ? 'dangerous' : 'guarded',
     ...(dangerousTargets.length ? { dangerousColumnDropTargets: dangerousTargets } : {}),
   }
@@ -325,6 +386,14 @@ function lowerPlan(
 function dryRunProgram(program: MigrationProgram): MigrationDryRun {
   return {
     atomicity: program.atomicity,
+    ...(program.phases
+      ? {
+          phases: program.phases.map((phase) => ({
+            ...phase,
+            actionIndexes: [...phase.actionIndexes],
+          })),
+        }
+      : {}),
     preconditions: program.preconditions.map((precondition) => ({
       ...precondition,
       sourceStepIndexes: [...precondition.sourceStepIndexes],
@@ -353,6 +422,8 @@ function dryRunProgram(program: MigrationProgram): MigrationDryRun {
           }),
     })),
     actions: program.actions.map((action) => ({
+      ...(action.target ? { target: snapshotTarget(action.target) } : {}),
+      ...(action.repair ? { repair: action.repair } : {}),
       sourceStepIndexes: [...action.sourceStepIndexes],
       transaction: action.transaction,
       statements: action.statements.map((statement) => ({
@@ -363,6 +434,16 @@ function dryRunProgram(program: MigrationProgram): MigrationDryRun {
   }
 }
 
+type MigrationObservationOptions = Pick<
+  MigrateBuilderOptions,
+  | 'schemas'
+  | 'migration'
+  | 'migrationOwnership'
+  | 'defaultNamespace'
+  | 'renames'
+  | 'concurrentIndexes'
+>
+
 /**
  * Introspects the operation session and creates its canonical semantic plan.
  *
@@ -370,10 +451,7 @@ function dryRunProgram(program: MigrationProgram): MigrationDryRun {
  */
 async function observeMigrationPlan(
   executor: Executor,
-  options: Pick<
-    Parameters<typeof createMigrateBuilder>[0],
-    'schemas' | 'migration' | 'migrationOwnership' | 'defaultNamespace' | 'renames'
-  >,
+  options: MigrationObservationOptions,
   mode: 'preview' | 'execution' = 'execution',
 ) {
   const { schemas, migration, migrationOwnership, defaultNamespace } = options
@@ -463,11 +541,64 @@ async function prepareMigration(
     planned,
     expected,
     'execution',
-    loweringPolicy(allowed, grants),
+    loweringPolicy(allowed, grants, planningOptions),
   )
 }
 
+async function preparePermittedMigration(
+  executor: Executor,
+  planningOptions: MigrationObservationOptions,
+  allowed: ReadonlySet<MigrationAllow>,
+  grants: readonly TargetGrant[],
+  profile: MigrationPolicyProfile | undefined,
+  allowPartialApplication: boolean | undefined,
+) {
+  const program = await prepareMigration(
+    executor,
+    planningOptions,
+    allowed,
+    grants,
+    profile,
+  )
+
+  for (const action of program.actions) {
+    if (
+      action.repair === 'drop' &&
+      !grants.some(
+        (grant) =>
+          grant.operations.has('repairInvalidIndex') &&
+          action.target !== undefined &&
+          migrationTargetsEqual(grant.target, action.target),
+      )
+    )
+      throw new MigrationError({
+        message:
+          "Invalid index recovery requires allowFor(exactIndexTarget, 'repairInvalidIndex')",
+        stage: 'permission',
+        outcome: 'unchanged',
+        retryable: false,
+        sourceStepIndexes: action.sourceStepIndexes,
+      })
+  }
+
+  if (
+    program.actions.some((action) => action.transaction === 'forbidden') &&
+    !allowPartialApplication
+  )
+    throw new MigrationError({
+      message:
+        'Transaction-forbidden migration actions require allowPartialApplication()',
+      stage: 'permission',
+      outcome: 'unchanged',
+      retryable: false,
+    })
+
+  return program
+}
+
 type MigrateBuilderOptions = {
+  concurrentIndexes?: boolean
+  allowPartialApplication?: boolean
   renames?: readonly MigrationColumnRename[]
   schemas: readonly TableHandle[]
   migration: DialectMigrationAdapter
@@ -527,11 +658,15 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
 
   const allowed = new Set<MigrationAllow>()
   const grants: TargetGrant[] = []
+  let concurrentIndexes = options.concurrentIndexes ?? false
+  let allowPartialApplication = options.allowPartialApplication ?? false
   let profile: MigrationPolicyProfile | undefined
 
   const intents: MigrationColumnRename[] = []
   const snapshot = () => ({
     ...planningOptions,
+    concurrentIndexes,
+    allowPartialApplication,
     runOperation,
     applicationId,
     assertCanExecute,
@@ -549,7 +684,25 @@ function createMigrateBuilder(options: MigrateBuilderOptions): MigrateBuilder {
       intents.push({ table: intent.table, from: intent.from, to: intent.to })
       return builder
     },
+    concurrentIndexes() {
+      concurrentIndexes = true
+      return builder
+    },
+    allowPartialApplication() {
+      allowPartialApplication = true
+      return builder
+    },
     allow(...ops) {
+      if (
+        ops.some(
+          (op) => !['dangerouslyDropColumn', 'dropTable', 'dropIndex'].includes(op),
+        )
+      )
+        throw new SchemaError({
+          message:
+            'Global migration permission must be dangerouslyDropColumn, dropTable, or dropIndex; repairInvalidIndex requires allowFor an exact index target',
+        })
+
       for (const op of ops) allowed.add(op)
       return builder
     },
@@ -606,21 +759,14 @@ async function executeMigration(
   executeOptions: Parameters<MigrateBuilder['execute']>[0],
 ): Promise<void> {
   const { migration, runOperation, applicationId, assertCanExecute } = options
-  const { schemas, defaultNamespace, migrationOwnership, renames } = options
-  const planningOptions = {
-    schemas,
-    migration,
-    defaultNamespace,
-    migrationOwnership,
-    renames,
-  }
+  const planningOptions = options
 
-  const lockTimeoutMs = lockTimeout(executeOptions)
+  const controls = executionControls(executeOptions)
 
   assertMigrationPermission(assertCanExecute)
 
   const runtime = {
-    success: undefined as { outcome: 'applied' | 'unchanged' } | undefined,
+    success: undefined as MigrationRuntimeSuccess | undefined,
   }
 
   try {
@@ -631,14 +777,19 @@ async function executeMigration(
           databaseIdentity,
           discard,
           cancel,
-          ...(lockTimeoutMs === undefined ? {} : { lockTimeoutMs }),
+          ...controls,
+          ...(options.allowPartialApplication ? { allowPartialApplication: true } : {}),
           ...(applicationId === undefined ? {} : { applicationId }),
-          ...(executeOptions?.signal === undefined
-            ? {}
-            : { signal: executeOptions.signal }),
           /** Builds, validates, and lowers the plan inside the execution snapshot. */
           prepare: () =>
-            prepareMigration(executor, planningOptions, allowed, grants, profile),
+            preparePermittedMigration(
+              executor,
+              planningOptions,
+              allowed,
+              grants,
+              profile,
+              options.allowPartialApplication,
+            ),
           /** Checks the same desired schema against the final authoritative catalog. */
           validate: () =>
             validateMigrationResult(executor, planningOptions, allowed, grants),
@@ -685,7 +836,7 @@ async function validateMigrationConvergence(
     planned,
     expected,
     'execution',
-    loweringPolicy(allowed, grants),
+    loweringPolicy(allowed, grants, planningOptions),
   )
 
   if (planned.plan.steps.length || final.actions.length)
@@ -704,7 +855,7 @@ async function validateMigrationConvergence(
  */
 function throwExecutionCleanup(
   cause: unknown,
-  success: { outcome: 'applied' | 'unchanged' } | undefined,
+  success: MigrationRuntimeSuccess | undefined,
 ): never {
   if (isErrorTag(cause, 'MigrationError')) throw cause
 
@@ -725,6 +876,7 @@ function throwExecutionCleanup(
       ...(isDefect(cause) ? { defect: true as const } : {}),
       stage: 'sessionCleanup',
       outcome: success.outcome,
+      ...(success.completedActions ? { completedActions: success.completedActions } : {}),
       retryable: false,
       cleanupFailures: [{ stage: 'sessionCleanup', cause }, ...cleanupFailures],
     })
@@ -779,7 +931,7 @@ function createMigrationPreview(
 
     /** Builds and lowers the plan without executing physical actions. */
     async dryRun() {
-      const policy = loweringPolicy(allowed, grants)
+      const policy = loweringPolicy(allowed, grants, planningOptions)
 
       return runMigrationPreview(() =>
         runOperation(async (executor) => {

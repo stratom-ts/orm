@@ -1557,7 +1557,14 @@ function reserveCatalogIndexes(
   }
 }
 
+type IndexRepair = Readonly<{
+  target: MigrationIndexTarget
+  from: MigrationIndexTarget
+}>
+
 type PlannedMigration = {
+  /** Observed cleanup targets remain separate from desired index creation intent. */
+  indexRepairs?: readonly IndexRepair[]
   plan: MigrationPlan
   profile: MigrationSemanticProfile
   identities: CanonicalRelationIdentityModule
@@ -1589,6 +1596,7 @@ function namespaceNameKey(
 type DesiredIndex = ReturnType<typeof desiredIndexes>[number]
 
 type IndexReconciliation = Readonly<{
+  indexRepairs: IndexRepair[]
   live: CatalogTable
   desired: readonly DesiredIndex[]
   identity: CanonicalRelationIdentity
@@ -1666,7 +1674,11 @@ function registerCatalogIndexes(input: CatalogIndexRegistration) {
 
     indexes.set(key, liveIndex)
 
-    if (shape === 'complete' && !hasSupportedCatalogSemantics(liveIndex)) {
+    if (
+      shape === 'complete' &&
+      !hasSupportedCatalogSemantics(liveIndex) &&
+      !isRepairableIndex(liveIndex)
+    ) {
       unsupportedNames.add(key)
 
       issues.push({
@@ -1690,6 +1702,7 @@ function registerCatalogIndexes(input: CatalogIndexRegistration) {
  * localizes the opaque-object guard for destructive index changes.
  */
 function reconcileIndexes({
+  indexRepairs,
   live,
   desired,
   identity,
@@ -1707,6 +1720,7 @@ function reconcileIndexes({
   /** Compares one desired index and appends its required Migration Plan steps. */
   const reconcileIndex = (index: (typeof desired)[number]) =>
     reconcileDesiredIndex({
+      indexRepairs,
       index,
       liveIndexes,
       identities,
@@ -1730,6 +1744,27 @@ function reconcileIndexes({
     relationStepStart,
     issues,
   )
+}
+
+/** Unmatched invalid objects remain guarded; names alone never prove ownership. */
+function rejectUnclaimedInvalidIndexes(
+  live: CatalogTable,
+  claimed: Set<string>,
+  identities: CanonicalRelationIdentityModule,
+  identity: CanonicalRelationIdentity,
+  issues: PlanningIssue[],
+): void {
+  for (const index of live.indexes) {
+    const key = identities.member('index', index.name).comparisonKey
+
+    if (isRepairableIndex(index) && !claimed.has(key))
+      issues.push({
+        identity,
+        target: key,
+        property: 'unsupported_catalog_semantics',
+        message: `Unmatched invalid index ${identities.format(identity, { role: 'index', spelling: index.name })} requires inspection`,
+      })
+  }
 }
 
 /**
@@ -1757,6 +1792,8 @@ function reconcileUnclaimedIndexes(
   relationStepStart: number,
   issues: PlanningIssue[],
 ) {
+  rejectUnclaimedInvalidIndexes(live, claimedLiveIndexNames, identities, identity, issues)
+
   if (shape === 'complete') {
     const unclaimedIndexes = live.indexes.filter(
       (liveIndex) =>
@@ -2807,7 +2844,7 @@ function buildMigrationPlan(
   state.steps.push(...state.deferredForeignKeys)
   appendDroppedTables({ ...state, catalogTables: state.sortedCatalogTables })
   assertPlanningIssues(state.issues, state.identities)
-  return completeMigrationPlan(
+  const planned = completeMigrationPlan(
     state.steps,
     planning,
     catalog,
@@ -2816,6 +2853,8 @@ function buildMigrationPlan(
     state.desiredTables,
     state.planningCatalog,
   )
+
+  return { ...planned, indexRepairs: state.indexRepairs }
 }
 
 /** Sorts the completed Migration Plan and attaches its resolved Semantic Profile. */
@@ -2946,8 +2985,7 @@ function planMigration(
  * @param input - Desired index reconciliation inputs and shared accumulators.
  */
 function reconcileDesiredIndex(input: DesiredIndexReconciliation): void {
-  const { index, identities, identity, physicalNames, steps, claimedLiveIndexNames } =
-    input
+  const { index, identities, identity, steps, claimedLiveIndexNames } = input
 
   const matched = findDesiredIndex(input)
 
@@ -2956,13 +2994,7 @@ function reconcileDesiredIndex(input: DesiredIndexReconciliation): void {
   const current = matched.current
 
   if (!current) {
-    physicalNames.reserve({
-      kind: 'index',
-      owner: identity,
-      name: index.name.spelling,
-      token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
-      description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
-    })
+    reserveIndexCreationName(input)
 
     steps.push({
       kind: 'create_index',
@@ -2978,6 +3010,52 @@ function reconcileDesiredIndex(input: DesiredIndexReconciliation): void {
   claimedLiveIndexNames.add(currentKey)
 
   collectIndexDefinitionIssues({ ...input, current, currentKey })
+
+  if (
+    isRepairableIndex(current) &&
+    current.unique === index.unique &&
+    arraysEqual(
+      memberKeys('column', current.columns, identities),
+      index.columns.map((column) => column.comparisonKey),
+    )
+  ) {
+    if (currentKey !== index.name.comparisonKey) reserveIndexCreationName(input)
+
+    const target: MigrationIndexTarget = {
+      kind: 'index',
+      relation: identity,
+      index: index.name,
+    }
+
+    input.indexRepairs.push({
+      target,
+      from: indexTarget(identity, current.name, identities),
+    })
+
+    steps.push({
+      kind: 'create_index',
+      target,
+      columns: index.columns,
+      unique: index.unique,
+    })
+  }
+}
+
+/** Reserves the replacement name before any cleanup can remove the observed index. */
+function reserveIndexCreationName(input: DesiredIndexReconciliation): void {
+  const { physicalNames, index, identity, identities } = input
+  physicalNames.reserve({
+    kind: 'index',
+    owner: identity,
+    name: index.name.spelling,
+    token: `${index.origin}-index:${identities.format(identity)}:${JSON.stringify(index.columns.map((column) => column.comparisonKey))}:${index.unique}`,
+    description: `${index.origin} index ${JSON.stringify(index.name.spelling)}`,
+  })
+}
+
+/** An invalid index needs supported, known semantics before planning can propose recovery. */
+function isRepairableIndex(index: CatalogIndex): boolean {
+  return index.semanticCompleteness === 'supportedSimple' && index.isInvalid === true
 }
 
 /**
@@ -2998,6 +3076,7 @@ function collectIndexDefinitionIssues(input: IndexDefinitionValidation) {
 
   if (
     !hasSupportedCatalogSemantics(current) &&
+    !isRepairableIndex(current) &&
     !unsupportedLiveIndexNames.has(currentKey)
   ) {
     unsupportedLiveIndexNames.add(currentKey)
@@ -3014,7 +3093,7 @@ function collectIndexDefinitionIssues(input: IndexDefinitionValidation) {
   }
 
   if (
-    hasSupportedCatalogSemantics(current) &&
+    (hasSupportedCatalogSemantics(current) || isRepairableIndex(current)) &&
     (current.unique !== index.unique ||
       !arraysEqual(
         memberKeys('column', current.columns, identities),
@@ -3068,6 +3147,7 @@ function createDesiredNameReservations(
 }
 
 type DesiredTableReconciliation = {
+  indexRepairs: IndexRepair[]
   names: RankedNames
   sortedSchemas: TableHandle[]
   registered: CanonicalRelationRegistry<TableHandle>
@@ -3118,6 +3198,7 @@ type MissingColumnPlanning = {
 }
 
 type DesiredIndexReconciliation = {
+  indexRepairs: IndexRepair[]
   index: IndexReconciliation['desired'][number]
   liveIndexes: ReadonlyMap<string, CatalogIndex>
   identities: CanonicalRelationIdentityModule
@@ -3201,7 +3282,7 @@ function createPlanningState(
     desiredState.names,
   )
 
-  return { ...desiredState, ...catalogState, ...reservations, planning }
+  return { ...desiredState, ...catalogState, ...reservations, planning, indexRepairs: [] }
 }
 
 /** Validates catalog members even when reconciliation does not address them. */

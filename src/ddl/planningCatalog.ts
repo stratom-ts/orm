@@ -43,6 +43,8 @@ type PlanningCatalogForeignKey = PlanningCatalogKeyConstraint & {
 }
 
 type PlanningCatalogIndex = {
+  /** Only explicit catalog evidence can authorize recovery planning. */
+  isInvalid?: boolean
   name: string
   columns: string[]
   unique: boolean
@@ -318,6 +320,9 @@ function appendProjectedTable(input: PlanningTableProjection) {
       columns: [...index.columns],
       unique: index.unique,
       ...simpleSemantics(index),
+      ...(index.validity.state === 'present' && index.validity.value === 'invalid'
+        ? { isInvalid: true }
+        : {}),
     })),
     primaryKey,
     uniqueConstraints: uniqueConstraints.map((constraint) =>

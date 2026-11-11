@@ -6,7 +6,9 @@ import {
   migrationLockAcquisitionOrder,
 } from '@/migrations/coordinationScope'
 import { MigrationOwnershipSchemaError } from '@/migrations/migrationOwnership'
-import { MigrationError, QueryError } from '@/utils/error'
+import { DriverError, MigrationError, QueryError } from '@/utils/error'
+
+import { indexTarget } from '../helpers/planTargets'
 
 import {
   createPostgresMigrationRuntime as harness,
@@ -831,6 +833,29 @@ function registerMigrationRuntimeGroup1() {
 
 function registerMigrationRuntimeGroup2() {
   describe('PostgreSQL migration runtime', () => {
+    it.each([0, 3_600_000])(
+      'should leave atomic migration statement settings unchanged for timeout %s',
+      async (statementTimeoutMs) => {
+        const runtime = harness({ guardRows: [{ has_data: false }] })
+        await expect(runtime.execute(guarded, { statementTimeoutMs })).resolves.toEqual({
+          outcome: 'applied',
+        })
+
+        expect(
+          runtime.queries.some((query) => query.sql.includes('statement_timeout')),
+        ).toBe(false)
+      },
+    )
+
+    it('should preserve the configured statement timeout when omitted', async () => {
+      const runtime = harness()
+      await expect(runtime.execute()).resolves.toEqual({ outcome: 'applied' })
+
+      expect(
+        runtime.queries.some((query) => query.sql.includes('statement_timeout')),
+      ).toBe(false)
+    })
+
     registerMigrationRuntimeCases2()
   })
 }
@@ -981,6 +1006,11 @@ describe('PostgreSQL migration runtime', () => {
   registerMigrationRuntimeGroup18()
   registerMigrationRuntimeGroup19()
   registerMigrationRuntimeGroup20()
+  registerConcurrentSettingCases()
+  registerConcurrentOutcomeCases()
+  registerConcurrentDefectCases()
+  registerMixedOutcomeCases()
+  registerMixedLockCases()
 })
 
 it('should reject an authoritative rename target outside the provisional lock set before DDL', async () => {
@@ -1030,3 +1060,304 @@ it('should reject an authoritative rename target outside the provisional lock se
   expect(runtime.calls).toContain('lock table "public"."events" in access exclusive mode')
   expect(runtime.calls).toContain('rollback')
 })
+
+const concurrentTarget = indexTarget('public', 'events', 'events_payload_idx')
+const concurrentAction = {
+  transaction: 'forbidden' as const,
+  sourceStepIndexes: [4],
+  target: concurrentTarget,
+  statements: [
+    {
+      sql: 'create index concurrently events_payload_idx on events (payload)',
+      params: [],
+    },
+  ] as const,
+}
+
+const concurrentProgram = program({
+  atomicity: 'non-atomic',
+  actions: [concurrentAction],
+})
+
+const consent = { allowPartialApplication: true }
+
+function uniqueBuildFailure() {
+  return new DriverError({
+    message: 'duplicate',
+    dialect: 'postgresql',
+    code: '23505',
+    sql: concurrentAction.statements[0].sql,
+    cause: new Error('duplicate native value'),
+    kind: 'uniqueViolation',
+    retryable: false,
+  })
+}
+
+function registerConcurrentSettingCases() {
+  it.each([0, 3_600_000])(
+    'should bind concurrent timeout %s and restore its prior session value',
+    async (statementTimeoutMs) => {
+      const runtime = harness()
+      await expect(
+        runtime.execute(concurrentProgram, { ...consent, statementTimeoutMs }),
+      ).resolves.toMatchObject({ outcome: 'applied' })
+
+      expect(
+        runtime.queries.filter((query) =>
+          query.sql.includes("set_config('statement_timeout'"),
+        ),
+      ).toEqual([
+        {
+          sql: "select set_config('statement_timeout', $1, false)",
+          params: [`${statementTimeoutMs}ms`],
+        },
+        { sql: "select set_config('statement_timeout', $1, false)", params: ['17s'] },
+      ])
+
+      expect(runtime.calls.some((sql) => /^(begin|commit|rollback)/.test(sql))).toBe(
+        false,
+      )
+
+      expect(runtime.discard).not.toHaveBeenCalled()
+    },
+  )
+
+  it('should leave concurrent statement settings untouched on omission', async () => {
+    const runtime = harness()
+    await runtime.execute(concurrentProgram, consent)
+    expect(runtime.calls.some((sql) => sql.includes('statement_timeout'))).toBe(false)
+  })
+
+  it('should retain acknowledged work and discard the session after settings restoration fails', async () => {
+    const cause = new Error('restore acknowledgment lost')
+    const runtime = harness({ restoreError: cause })
+    const failure: unknown = await runtime
+      .execute(concurrentProgram, { ...consent, statementTimeoutMs: 0 })
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      stage: 'sessionCleanup',
+      outcome: 'applied',
+      completedActions: [{ actionIndex: 0 }],
+      cleanupFailures: [{ stage: 'sessionCleanup', cause }],
+    })
+
+    expect(runtime.discard).toHaveBeenCalled()
+  })
+}
+
+function registerConcurrentOutcomeCases() {
+  it('should retain the primary concurrent failure when restoring settings also fails', async () => {
+    const cause = uniqueBuildFailure()
+    const cleanup = new Error('restore failed')
+    const runtime = harness({
+      failRun: /^create index concurrently/,
+      runError: cause,
+      restoreError: cleanup,
+    })
+
+    const failure: unknown = await runtime
+      .execute(concurrentProgram, { ...consent, statementTimeoutMs: 0 })
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      outcome: 'partial',
+      cause,
+      actionIndex: 0,
+      recovery: { target: concurrentTarget, requires: 'inspectAndReplan' },
+      cleanupFailures: [{ cause: cleanup }],
+    })
+
+    expect(
+      runtime.calls.filter((sql) => sql.startsWith('create index concurrently')),
+    ).toHaveLength(1)
+
+    expect(runtime.calls).not.toContain('rollback')
+  })
+
+  it('should report possible residue even when the first concurrent action fails', async () => {
+    const cause = uniqueBuildFailure()
+    const runtime = harness({ failRun: /^create index concurrently/, runError: cause })
+    const failure: unknown = await runtime
+      .execute(concurrentProgram, consent)
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      outcome: 'partial',
+      actionIndex: 0,
+      sourceStepIndexes: [4],
+      completedActions: [],
+      recovery: { status: 'possibleResidue', target: concurrentTarget },
+    })
+
+    expect(runtime.discard).not.toHaveBeenCalled()
+  })
+}
+
+function registerConcurrentDefectCases() {
+  it('should retain a failed recovery inspection without losing the acknowledged command failure', async () => {
+    const cause = uniqueBuildFailure()
+    const inspection = new Error('catalog inspection failed')
+    const runtime = harness({
+      failRun: /^create index concurrently/,
+      runError: cause,
+      inspectionFailure: inspection,
+    })
+
+    const failure: unknown = await runtime
+      .execute(concurrentProgram, consent)
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      outcome: 'partial',
+      cause,
+      cleanupFailures: [{ stage: 'sessionCleanup', cause: inspection }],
+      recovery: { status: 'possibleResidue' },
+    })
+
+    expect((failure as MigrationError).recovery?.observedValidity).toBeUndefined()
+    expect(runtime.discard).toHaveBeenCalled()
+  })
+
+  it('should preserve an unexpected command defect by cause identity and mark uncertainty', async () => {
+    const cause = Object.freeze(new Error('lost response'))
+    const runtime = harness({ failRun: /^create index concurrently/, runError: cause })
+    const failure: unknown = await runtime
+      .execute(concurrentProgram, consent)
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      outcome: 'unknown',
+      defect: true,
+      retryable: false,
+      recovery: { status: 'unknown' },
+    })
+
+    expect((failure as MigrationError).cause).toBe(cause)
+    expect(runtime.discard).toHaveBeenCalled()
+  })
+}
+
+function mixedTail(runtime: ReturnType<typeof harness>) {
+  const tail = program()
+  const mixed = program({
+    atomicity: 'non-atomic',
+    actions: [concurrentAction, ...tail.actions],
+  })
+
+  runtime.prepare
+    .mockResolvedValueOnce(mixed)
+    .mockResolvedValueOnce(mixed)
+    .mockResolvedValueOnce(tail)
+    .mockResolvedValueOnce(tail)
+
+  return mixed
+}
+
+function registerMixedOutcomeCases() {
+  it('should distinguish rolled-back later work from acknowledged committed index work', async () => {
+    const runtime = harness({ failRun: /^create table/ })
+    const failure: unknown = await runtime
+      .execute(mixedTail(runtime), consent)
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      outcome: 'partial',
+      actionIndex: 1,
+      completedActions: [{ actionIndex: 0, target: concurrentTarget }],
+      rolledBackActions: [{ actionIndex: 1 }],
+    })
+
+    expect(runtime.calls).toContain('rollback')
+  })
+
+  it('should retain earlier progress when a later commit acknowledgment is lost', async () => {
+    const runtime = harness({ failRun: /^commit$/ })
+    const failure: unknown = await runtime
+      .execute(mixedTail(runtime), consent)
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      outcome: 'unknown',
+      stage: 'commit',
+      completedActions: [{ actionIndex: 0 }],
+      rolledBackActions: [],
+    })
+
+    expect(runtime.calls).not.toContain('rollback')
+    expect(runtime.discard).toHaveBeenCalled()
+  })
+
+  it('should reject drift in the remaining program instead of expanding the approved work', async () => {
+    const runtime = harness()
+    const mixed = program({
+      atomicity: 'non-atomic',
+      actions: [concurrentAction, ...program().actions],
+    })
+
+    runtime.prepare
+      .mockResolvedValueOnce(mixed)
+      .mockResolvedValueOnce(mixed)
+      .mockResolvedValueOnce(program({ actions: [] }))
+
+    const failure: unknown = await runtime
+      .execute(mixed, consent)
+      .catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({
+      stage: 'precondition',
+      outcome: 'partial',
+      completedActions: [{ actionIndex: 0 }],
+    })
+
+    expect(runtime.calls).not.toContain('create table events (id integer)')
+  })
+}
+
+function registerMixedLockCases() {
+  it.each([0, 1000])(
+    'should give a later guarded phase its own %s ms lock budget after a long concurrent action',
+    async (lockTimeoutMs) => {
+      let now = 0
+      const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+      const runtime = harness({ guardRows: [{ has_data: false }] })
+      const tail = program({
+        preconditions: guarded.preconditions,
+        actions: [
+          {
+            transaction: 'required',
+            sourceStepIndexes: [3],
+            statements: [{ sql: 'alter table events drop column payload', params: [] }],
+          },
+        ],
+      })
+
+      const mixed = program({
+        atomicity: 'non-atomic',
+        preconditions: tail.preconditions,
+        actions: [concurrentAction, ...tail.actions],
+      })
+
+      runtime.prepare.mockImplementation(async () => {
+        if (!runtime.calls.includes(concurrentAction.statements[0].sql)) return mixed
+
+        now = 60_000
+        return tail
+      })
+
+      try {
+        await expect(
+          runtime.execute(mixed, { ...consent, lockTimeoutMs }),
+        ).resolves.toMatchObject({ outcome: 'applied' })
+
+        expect(runtime.calls).toContain(
+          `lock table "public"."events" in access exclusive mode${lockTimeoutMs === 0 ? ' nowait' : ''}`,
+        )
+
+        expect(runtime.calls).toContain('alter table events drop column payload')
+      } finally {
+        clock.mockRestore()
+      }
+    },
+  )
+}
