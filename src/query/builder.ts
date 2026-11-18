@@ -19,6 +19,7 @@ import type {
 import { contextualOperationError } from '@/operations/errorContext'
 import type { RelationIdentityInput } from '@/schemas'
 import { getColumnMetadata } from '@/schemas'
+import { createReferenceResolver } from '@/schemas/actions/lazyReference'
 import type { ColumnRef, Prettify, TableHandle } from '@/types'
 import type {
   InferInsert,
@@ -103,6 +104,85 @@ function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): 
     relation: info.relation,
     on: resolveOn(on),
   }
+}
+
+type JoinCandidate = {
+  on: PredicateAst
+  reference: NonNullable<JoinAst['reference']>
+  description: string
+}
+
+/**
+ * Finds outgoing references to one target occurrence using the dialect's addressing
+ * rules.
+ */
+function referenceJoinCandidates(
+  query: DialectQueryResolution,
+  source: TableHandle,
+  target: TableHandle,
+  resolveReference: ReturnType<typeof createReferenceResolver>,
+): JoinCandidate[] {
+  const candidates: JoinCandidate[] = []
+  for (const [column, schema] of Object.entries(source.getSchema().entries)) {
+    const reference = resolveReference(schema)
+
+    if (
+      !reference ||
+      query.findRelationMatches(reference.target.relation, [baseTable(target)]).length ===
+        0
+    )
+      continue
+
+    const targetColumn = findColumn(
+      query,
+      target,
+      reference.target.column,
+      reference.target.relation,
+    )
+
+    const relation = source.getTableMetadata().relation
+    const targetRelation = target.getTableMetadata().relation
+    candidates.push({
+      reference: { relation: reference.target.relation, occurrence: targetRelation },
+      on: {
+        kind: 'cmp',
+        relation,
+        column,
+        op: 'eq',
+        right: { relation: targetRelation, column: targetColumn },
+      },
+      description: `${formatRelationInput(relation)} (${occurrenceAlias(relation) ?? 'unaliased'}).${JSON.stringify(column)} -> ${formatRelationInput(targetRelation)} (${occurrenceAlias(targetRelation) ?? 'unaliased'}).${JSON.stringify(targetColumn)}`,
+    })
+  }
+
+  return candidates
+}
+
+/** Infers one directed reference edge between the new occurrence and visible relations. */
+function inferJoin(
+  query: DialectQueryResolution,
+  visible: readonly TableHandle[],
+  table: TableHandle,
+): Pick<JoinAst, 'on' | 'reference'> {
+  const resolveReference = createReferenceResolver()
+  const candidates: JoinCandidate[] = []
+
+  for (const existing of visible) {
+    candidates.push(...referenceJoinCandidates(query, existing, table, resolveReference))
+    candidates.push(...referenceJoinCandidates(query, table, existing, resolveReference))
+  }
+
+  if (candidates.length === 1) {
+    const { on, reference } = candidates[0]
+    return { on, reference }
+  }
+
+  throw new QueryError({
+    message:
+      candidates.length === 0
+        ? `No direct reference joins ${formatRelationInput(table.getTableMetadata().relation)} to the visible relations. Supply an explicit on predicate.`
+        : `Ambiguous reference join: ${candidates.map(({ description }) => description).join('; ')}. Supply an explicit on predicate.`,
+  })
 }
 
 /**
@@ -1330,14 +1410,14 @@ type SelectBuilder<
    * Adds an inner join and its ON predicate to the current query.
    *
    * @param table - Table metadata or evidence used to resolve its members.
-   * @param on - Join predicate or factory that produces the ON expression.
+   * @param on - Explicit predicate, or omitted to infer one direct reference.
    *
    * @returns A fresh select builder with the inner join and its relation handle
    *   registered.
    */
   innerJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
+    on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
     MergeJoinStar<HasSelection, TResult, InferSelect<TSide>>,
@@ -1349,14 +1429,14 @@ type SelectBuilder<
    * Adds a left join and its ON predicate to the current query.
    *
    * @param table - Table metadata or evidence used to resolve its members.
-   * @param on - Join predicate or factory that produces the ON expression.
+   * @param on - Explicit predicate, or omitted to infer one direct reference.
    *
    * @returns A fresh select builder with the left join and its relation handle
    *   registered.
    */
   leftJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
+    on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
     MergeJoinStar<HasSelection, TResult, NullableFields<InferSelect<TSide>>>,
@@ -1368,14 +1448,14 @@ type SelectBuilder<
    * Adds a right join and its ON predicate to the current query.
    *
    * @param table - Table metadata or evidence used to resolve its members.
-   * @param on - Join predicate or factory that produces the ON expression.
+   * @param on - Explicit predicate, or omitted to infer one direct reference.
    *
    * @returns A fresh select builder with the right join and its relation handle
    *   registered.
    */
   rightJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
+    on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
     HasSelection extends true ? TResult : RightJoinStarResult<THandle, TResult, TSide>,
@@ -1490,9 +1570,18 @@ function patchSelectState(state: SelectState, patch: Partial<SelectState>): Sele
 
 /** Creates join clauses while retaining all previously joined handles. */
 function createSelectJoins<THandle extends TableHandle>(
+  handle: THandle,
+  query: DialectQueryResolution,
   state: SelectState,
   next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
 ): Pick<SelectBuilder<THandle, unknown>, 'innerJoin' | 'leftJoin' | 'rightJoin'> {
+  const join = (type: JoinAst['type'], table: TableHandle, on?: JoinOnInput): JoinAst => {
+    if (on !== undefined) return toJoinAst(type, table, on)
+
+    const inferred = inferJoin(query, [handle, ...state.joinedHandles], table)
+    return { ...toJoinAst(type, table, inferred.on), reference: inferred.reference }
+  }
+
   return {
     /**
      * Appends an inner join.
@@ -1502,7 +1591,7 @@ function createSelectJoins<THandle extends TableHandle>(
      */
     innerJoin(table, on) {
       return next({
-        joins: [...state.joins, toJoinAst('inner', table, on)],
+        joins: [...state.joins, join('inner', table, on)],
         joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
@@ -1514,7 +1603,7 @@ function createSelectJoins<THandle extends TableHandle>(
      */
     leftJoin(table, on) {
       return next({
-        joins: [...state.joins, toJoinAst('left', table, on)],
+        joins: [...state.joins, join('left', table, on)],
         joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
@@ -1526,7 +1615,7 @@ function createSelectJoins<THandle extends TableHandle>(
      */
     rightJoin(table, on) {
       return next({
-        joins: [...state.joins, toJoinAst('right', table, on)],
+        joins: [...state.joins, join('right', table, on)],
         joinedHandles: [...state.joinedHandles, table],
       }) as never
     },
@@ -1669,7 +1758,7 @@ function createSelectBuilder<THandle extends TableHandle>(
     ...createSelectBoundaries(state, next),
     ...createSelectPagination(state, next),
     ...createSelectGrouping(state, next),
-    ...createSelectJoins(state, next),
+    ...createSelectJoins(handle, query, state, next),
     compile,
     execute: execute as never,
     executeTakeFirst: executeTakeFirst as never,
@@ -1779,14 +1868,14 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    * Adds an inner join and its ON predicate to the current query.
    *
    * @param table - Table metadata or evidence used to resolve its members.
-   * @param on - Join predicate or factory that produces the ON expression.
+   * @param on - Explicit predicate, or omitted to infer one direct reference.
    *
    * @returns A fresh select builder with the inner join and its relation handle
    *   registered.
    */
   innerJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
+    on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
     InferSelect<THandle> & InferSelect<TSide>,
@@ -1798,14 +1887,14 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    * Adds a left join and its ON predicate to the current query.
    *
    * @param table - Table metadata or evidence used to resolve its members.
-   * @param on - Join predicate or factory that produces the ON expression.
+   * @param on - Explicit predicate, or omitted to infer one direct reference.
    *
    * @returns A fresh select builder with the left join and its relation handle
    *   registered.
    */
   leftJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
+    on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
     InferSelect<THandle> & NullableFields<InferSelect<TSide>>,
@@ -1817,14 +1906,14 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    * Adds a right join and its ON predicate to the current query.
    *
    * @param table - Table metadata or evidence used to resolve its members.
-   * @param on - Join predicate or factory that produces the ON expression.
+   * @param on - Explicit predicate, or omitted to infer one direct reference.
    *
    * @returns A fresh select builder with the right join and its relation handle
    *   registered.
    */
   rightJoin<TSide extends TableHandle>(
     table: TSide,
-    on: JoinOnInput,
+    on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
     NullableFields<InferSelect<THandle>> & InferSelect<TSide>,
@@ -3029,6 +3118,19 @@ class SelectPreparation {
               ...j,
               relation: this.scope[i + 1].relation,
               on: this.predicate(j.on, this.scope.slice(0, i + 2)),
+              ...(j.reference
+                ? {
+                    reference: {
+                      relation: j.reference.relation,
+                      occurrence:
+                        this.scope[
+                          this.handles.indexOf(
+                            findHandle(this.query, this.handles, j.reference.occurrence),
+                          )
+                        ].relation,
+                    },
+                  }
+                : {}),
             })),
           }
         : {}),
