@@ -1,6 +1,7 @@
 import { outputAliases, prepareSelectProjection } from '@/query/projection'
 import { queryRelationSource } from '@/query/sourceRelation'
 import type { RelationIdentityInput } from '@/schemas'
+import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
 import { physicalColumnName } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
 import { QueryError } from '@/utils/error'
@@ -29,9 +30,13 @@ import type {
  *
  * @returns Dialect SQL, parameters, and any output-name restoration metadata.
  */
-function compileColumnQuery(query: DialectQueryResolution, node: SqlAst): CompiledQuery {
+function compileColumnQuery(
+  query: DialectQueryResolution,
+  node: SqlAst,
+  columnNames?: ResolvedColumnNames,
+): CompiledQuery {
   const projection: { sqlName: string; outputName: string }[] = []
-  const lowered = new ColumnQuery(query).statement(node, projection)
+  const lowered = new ColumnQuery(query, columnNames).statement(node, projection)
   const compiled = query.compile(lowered)
   return projection.length ? { ...compiled, resultProjection: projection } : compiled
 }
@@ -45,7 +50,10 @@ class ColumnQuery {
    *
    * @param query - Resolved relation lookup and dialect compilation operations.
    */
-  constructor(readonly query: DialectQueryResolution) {}
+  constructor(
+    readonly query: DialectQueryResolution,
+    readonly columnNames?: ResolvedColumnNames,
+  ) {}
 
   /**
    * Resolves a prepared occurrence or registered relation to its source handle.
@@ -91,7 +99,7 @@ class ColumnQuery {
         message: `Unknown application column ${JSON.stringify(ref.column)}`,
       })
 
-    return { ...ref, column: physicalColumnName(handle, ref.column) }
+    return { ...ref, column: physicalColumnName(handle, ref.column, this.columnNames) }
   }
 
   /**

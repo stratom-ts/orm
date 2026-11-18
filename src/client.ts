@@ -12,6 +12,7 @@ import type {
 } from '@/migrations/canonicalRelationIdentity'
 import { validateApplicationId } from '@/migrations/coordinationScope'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
+import type { ColumnNamingFunction } from '@/naming'
 import type { OperationContext } from '@/operations/coordinator'
 import { OperationCoordinator } from '@/operations/coordinator'
 import {
@@ -41,7 +42,8 @@ import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 import { assertCompiledQuery, restoreResultNames } from '@/query/compiled'
 import type { QueryTracing, TracingOptions } from '@/query/observation'
 import { createQueryTracing } from '@/query/observation'
-import { validateColumnNames } from '@/schemas/physicalColumn'
+import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
+import { resolveColumnNames } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
@@ -166,6 +168,8 @@ type CreateDatabaseConfig<
 > = {
   /** Db0 connector (e.g. postgresql from `db0/connectors/postgresql`). */
   connector: Connector
+  /** Physical names for columns without an explicit column name. Resolved once per client. */
+  naming?: { columns?: ColumnNamingFunction }
   /** Registered table handles; may be empty. */
   schemas: TSchemas
   /** Explicit default namespace for migration registrations with omitted namespaces. */
@@ -654,11 +658,12 @@ function createClientMigration(
   ensureOpen: () => void,
   transactionScope?: TransactionScope,
   tracing?: QueryTracing,
+  columnNames?: ResolvedColumnNames,
 ): MigrateBuilder {
   ensureClientOpen()
   return createMigrateBuilder({
     schemas: config.schemas,
-    migration: clientMigrationAdapter(dialect, config.map),
+    migration: clientMigrationAdapter(dialect, config.map, columnNames),
     runOperation: createMigrationRunner(
       coordinator,
       clientExecutor,
@@ -691,12 +696,14 @@ function createClientMigration(
 function clientMigrationAdapter(
   dialect: ReturnType<typeof resolveDialect>,
   map?: ValueMapConfig,
+  columnNames?: ResolvedColumnNames,
 ) {
   const schema = dialect.migration.planning.schema
   return {
     ...dialect.migration,
     planning: {
       ...dialect.migration.planning,
+      columnNames,
       schema: {
         ...schema,
         lowerDesiredSchema: (graph: Parameters<typeof schema.lowerDesiredSchema>[0]) =>
@@ -964,14 +971,14 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
 
   const dialect = resolveDialect(config.connector.dialect)
   const schemas = config.schemas
-  validateColumnNames(schemas, dialect)
+  const columnNames = resolveColumnNames(schemas, dialect, config.naming?.columns)
   const isRegistered = createRegistrationCheck(schemas)
-  const query = dialect.query.resolve(
-    schemas,
-    config.defaultNamespace === undefined
-      ? undefined
-      : { registrationDefault: config.defaultNamespace },
-  )
+  const query = dialect.query.resolve(schemas, {
+    columnNames,
+    ...(config.defaultNamespace === undefined
+      ? {}
+      : { registrationDefault: config.defaultNamespace }),
+  })
 
   const mapper = createValueMapper(dialect, config.map, schemas, query)
   const operationSessionProvider =
@@ -989,6 +996,7 @@ function createDatabaseContext<TSchemas extends readonly TableHandle[]>(
     config,
     dialect,
     schemas,
+    columnNames,
     query,
     mapper,
     coordinator,
@@ -1539,6 +1547,7 @@ function createScopedMigration<TSchemas extends readonly TableHandle[]>(
     context.ensureOpen,
     transactionScope,
     context.tracing,
+    context.columnNames,
   )
 }
 

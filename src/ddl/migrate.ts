@@ -12,6 +12,7 @@ import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import { operationCleanupFailures, operationPrimaryFailure } from '@/operations/cleanup'
 import type { Executor } from '@/query'
 import { withQuerySource } from '@/query/executor'
+import { columnNamesFingerprint } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
 import type { MigrationExecutionStage } from '@/utils/error'
 import {
@@ -491,13 +492,40 @@ async function observeMigrationPlan(
     throw phaseError(cause, 'planning', mode)
   }
 
-  const expected: MigrationSemanticProfile = {
-    identityAdapter: migration.planning.identity.id,
+  const expected = expectedMigrationProfile(
+    schemas,
+    catalog,
+    migration.planning,
+    defaultNamespace,
+  )
+
+  return { planned, expected }
+}
+
+/** Resolves the executing profile independently from the planned registrations. */
+function expectedMigrationProfile(
+  schemas: readonly TableHandle[],
+  catalog: Parameters<typeof planMigration>[1],
+  planning: Parameters<typeof planMigration>[2],
+  defaultNamespace: readonly NamespaceIdentifierInput[] | undefined,
+): MigrationSemanticProfile {
+  return {
+    ...(planning.columnNames
+      ? {
+          columnNamesFingerprint: columnNamesFingerprint(
+            schemas,
+            planning.identity.create({
+              context: catalog.namespaceContext,
+              registrationDefault: defaultNamespace,
+            }),
+            planning.columnNames,
+          ),
+        }
+      : {}),
+    identityAdapter: planning.identity.id,
     namespaceContext: catalog.namespaceContext,
     ...(defaultNamespace === undefined ? {} : { registrationDefault: defaultNamespace }),
   }
-
-  return { planned, expected }
 }
 
 /** Checks permissions before lowering the authoritative Migration Plan. */

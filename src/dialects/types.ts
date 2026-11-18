@@ -16,6 +16,7 @@ import type {
   RelationIdentityInput,
   TableMetadata,
 } from '@/schemas/actions/types'
+import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
 import type { StorageFacts } from '@/storage/facts'
 import type { TableHandle } from '@/types'
 import type { DriverErrorClassifier } from '@/utils/error'
@@ -246,6 +247,7 @@ export type DialectQueryResolution = Readonly<{
 
 /** Client registration context consumed by one selected Query member. */
 export type DialectQueryResolveOptions = Readonly<{
+  columnNames?: ResolvedColumnNames
   /** Optional namespace applied to omitted authored relation registrations. */
   registrationDefault?: readonly NamespaceIdentifierInput[]
 }>

@@ -86,6 +86,12 @@ function checkProfile(
       'SQLite registration default does not match the executing configuration',
     )
 
+  if (planned.profile.columnNamesFingerprint !== expected.columnNamesFingerprint)
+    throw new SqliteMigrationCapabilityError(
+      'profile_mismatch',
+      'Resolved column names do not match the executing configuration',
+    )
+
   try {
     assertMain(planned.identities.resolve({ relation: 'profile_probe' }))
   } catch (cause) {

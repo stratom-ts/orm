@@ -27,7 +27,8 @@ import {
 } from '@/migrations/migrationOwnership'
 import type { PhysicalNameRegistry, PhysicalNameSeed } from '@/migrations/physicalNaming'
 import { getReferenceMetadata } from '@/schemas/actions/reference'
-import { physicalColumnName } from '@/schemas/physicalColumn'
+import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
+import { columnNamesFingerprint, physicalColumnName } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { MigrationError, isErrorTag } from '@/utils/error'
@@ -161,6 +162,8 @@ type MigrationPlan = Readonly<{
  * reject a plan whose profile does not match its own dialect and registration inputs.
  */
 type MigrationSemanticProfile = Readonly<{
+  /** Canonical effective-name map for a client with resolved column names. */
+  columnNamesFingerprint?: string
   /** Stable identity semantic key supplied by the selected Dialect member. */
   identityAdapter: string
   namespaceContext: NamespaceContext
@@ -174,6 +177,8 @@ type MigrationSemanticProfile = Readonly<{
  * and observed state. It does not select those policies from the complete Dialect.
  */
 type MigrationPlanningContext = Readonly<{
+  /** Client snapshot shared by desired-schema lowering, indexes and references. */
+  columnNames?: ResolvedColumnNames
   identity: DialectIdentity
   naming: DialectNaming
   schema: Readonly<{
@@ -1467,6 +1472,7 @@ function desiredIndexes(
   identity: CanonicalRelationIdentity,
   naming: DialectNaming,
   identities: CanonicalRelationIdentityModule,
+  columnNames?: ResolvedColumnNames,
 ): {
   name: CanonicalIdentifier
   columns: CanonicalIdentifier[]
@@ -1485,12 +1491,14 @@ function desiredIndexes(
             naming.generate({
               kind: 'index',
               owner: identity,
-              columns: index.columns.map((column) => physicalColumnName(handle, column)),
+              columns: index.columns.map((column) =>
+                physicalColumnName(handle, column, columnNames),
+              ),
               unique,
             }),
         ),
         columns: index.columns.map((column) =>
-          identities.member('column', physicalColumnName(handle, column)),
+          identities.member('column', physicalColumnName(handle, column, columnNames)),
         ),
         unique,
         origin: index.name === undefined ? ('generated' as const) : ('explicit' as const),
@@ -2165,6 +2173,7 @@ function appendCreatedTable({
 }
 
 type DesiredTablePreparation = Readonly<{
+  planning: MigrationPlanningContext
   handle: TableHandle
   registered: CanonicalRelationRegistry<TableHandle>
   existing: CanonicalRelationRegistry<CatalogTable>
@@ -2285,6 +2294,7 @@ function reserveCreatedPrimaryKey(
 
 /** Resolves and validates one desired relation before plan steps are produced. */
 function prepareDesiredTable({
+  planning,
   handle,
   registered,
   existing,
@@ -2312,7 +2322,13 @@ function prepareDesiredTable({
 
   validateDesiredColumnNames(desired, naming)
 
-  const indexes = desiredIndexes(handle, identity, naming, identities)
+  const indexes = desiredIndexes(
+    handle,
+    identity,
+    naming,
+    identities,
+    planning.columnNames,
+  )
 
   validateDesiredIndexes(indexes, identities, identity, naming)
 
@@ -2852,6 +2868,7 @@ function buildMigrationPlan(
     state.names.originalIdentity,
     state.desiredTables,
     state.planningCatalog,
+    schemas,
   )
 
   return { ...planned, indexRepairs: state.indexRepairs }
@@ -2866,10 +2883,20 @@ function completeMigrationPlan(
   identities: CanonicalRelationIdentityModule,
   desiredTables: CanonicalRelationRegistry<LoweredDesiredTable>,
   planningCatalog: PlanningCatalog,
+  schemas: readonly TableHandle[],
 ): PlannedMigration {
   return {
     plan: { steps: steps.sort(compareMigrationSteps) },
     profile: {
+      ...(planning.columnNames
+        ? {
+            columnNamesFingerprint: columnNamesFingerprint(
+              schemas,
+              identities,
+              planning.columnNames,
+            ),
+          }
+        : {}),
       identityAdapter: planning.identity.id,
       namespaceContext: catalog.namespaceContext,
       ...(registrationDefault === undefined ? {} : { registrationDefault }),
@@ -2900,7 +2927,13 @@ function registerLoweredTables(
 ) {
   let lowered: LoweredDesiredSchema
   try {
-    lowered = lowerDesiredSchema(sortedSchemas, identities, planning.schema, forRelation)
+    lowered = lowerDesiredSchema(
+      sortedSchemas,
+      identities,
+      planning.schema,
+      forRelation,
+      planning.columnNames,
+    )
   } catch (cause) {
     if (isErrorTag(cause, 'MigrationError') && !cause.defect)
       assertPlanningIssues(issues, identities)

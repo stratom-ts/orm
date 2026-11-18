@@ -60,8 +60,9 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: ['src/index.ts'],
-      fileName: 'stratom',
+      entry: { index: 'src/index.ts', naming: 'src/naming.ts' },
+      fileName: (_format, entryName) =>
+        `${entryName === 'index' ? 'stratom' : entryName}.js`,
       formats: ['es'],
     },
     rollupOptions: {

@@ -66,7 +66,13 @@ class RenameProjection {
       options.migrationOwnership ?? [],
       this.identities,
     )
-    this.desired = lowerDesiredSchema(schemas, this.identities, planning.schema)
+    this.desired = lowerDesiredSchema(
+      schemas,
+      this.identities,
+      planning.schema,
+      undefined,
+      planning.columnNames,
+    )
   }
 
   normalize(intent: MigrationColumnRename): RenameStep {

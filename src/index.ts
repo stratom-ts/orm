@@ -1,3 +1,4 @@
+export type { ColumnNamingContext, ColumnNamingFunction } from './naming'
 export * from './client'
 export * from '@/schemas'
 export * from '@/types'

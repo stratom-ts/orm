@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 
-import type { Db, MigrationOwnershipDeclaration, TableHandle } from '@/index'
+import type {
+  CreateDatabaseConfig,
+  Db,
+  MigrationOwnershipDeclaration,
+  TableHandle,
+} from '@/index'
 import { createDatabase } from '@/index'
 import type { ValueMapConfig } from '@/query'
 
@@ -13,6 +18,7 @@ import type { DialectIntegrationAdapter } from '../support/dialectIntegrationCon
 import { collectClosedSqliteStatements } from './sqliteNativeLifetime'
 
 type SqliteDatabaseOptions = Readonly<{
+  naming?: CreateDatabaseConfig['naming']
   library?: { createDatabase: typeof createDatabase }
   map?: ValueMapConfig
   file?: boolean
@@ -54,6 +60,7 @@ async function withSqliteDatabase<const TSchemas extends readonly TableHandle[],
       connector,
       schemas,
       map: options.map,
+      naming: options.naming,
       ...(options.migrationOwnership === undefined
         ? {}
         : { migrationOwnership: options.migrationOwnership }),

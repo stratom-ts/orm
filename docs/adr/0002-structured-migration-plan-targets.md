@@ -49,8 +49,9 @@ the plan's registrations rather than inside the public plan, because a plan a ca
 read is not a plan a caller can execute.
 
 Before any DDL runs, whole-plan lowering rejects a plan whose profile differs from the
-profile the executing run resolves in any of those three fields, and rejects a
-target-only `create_table` step with no registered desired table.
+profile the executing run resolves. Client profiles also carry a canonical fingerprint
+of the resolved table, application column and physical column map. Lowering rejects a
+different fingerprint before writes. It also rejects a target-only `create_table` step with no registered desired table.
 
 Physical SQL fields such as a PostgreSQL `schema` clause are produced by dialect
 lowering, never carried by the plan.
