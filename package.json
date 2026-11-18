@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/stratom.js"
+    },
+    "./naming": {
+      "types": "./dist/naming.d.ts",
+      "default": "./dist/naming.js"
     }
   },
   "scripts": {

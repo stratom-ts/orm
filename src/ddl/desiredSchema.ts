@@ -14,6 +14,7 @@ import type {
 import type { ReferenceMetadata } from '@/schemas'
 import { getColumnMetadata } from '@/schemas'
 import { createReferenceResolver } from '@/schemas/actions/lazyReference'
+import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
 import { physicalColumnName } from '@/schemas/physicalColumn'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { TableHandle } from '@/types'
@@ -112,26 +113,19 @@ function registerDesiredSchema(
   forRelation: (
     identity: CanonicalRelationIdentity,
   ) => CanonicalRelationIdentityModule = () => identities,
+  columnNames?: ResolvedColumnNames,
 ): AuthoredDesiredSchema {
   const registry = identities.createRegistry<AuthoredDesiredTable>()
   const resolveReference = createReferenceResolver((source, selected, reference) =>
     validateLazyReference(handles, identities, source, selected, reference),
   )
 
-  const orderedHandles = [...handles].sort((left, right) =>
-    identities.compare(
-      identities.resolve(left.getTableMetadata().relation),
-      identities.resolve(right.getTableMetadata().relation),
-    ),
-  )
-
-  const tables: AuthoredDesiredTable[] = orderedHandles.map((handle) =>
-    registerDesiredTable(
-      handle,
-      handles,
-      resolveReference,
-      forRelation(identities.resolve(handle.getTableMetadata().relation)),
-    ),
+  const tables = registerDesiredTables(
+    handles,
+    resolveReference,
+    identities,
+    forRelation,
+    columnNames,
   )
 
   validateRegisteredTables(tables, identities, registry)
@@ -161,6 +155,32 @@ function registerDesiredSchema(
       ),
     ),
   })
+}
+
+/** Registers ordered handles with their per-relation identifier rules. */
+function registerDesiredTables(
+  handles: readonly TableHandle[],
+  resolveReference: ReturnType<typeof createReferenceResolver>,
+  identities: CanonicalRelationIdentityModule,
+  forRelation: (identity: CanonicalRelationIdentity) => CanonicalRelationIdentityModule,
+  columnNames?: ResolvedColumnNames,
+): AuthoredDesiredTable[] {
+  const orderedHandles = [...handles].sort((left, right) =>
+    identities.compare(
+      identities.resolve(left.getTableMetadata().relation),
+      identities.resolve(right.getTableMetadata().relation),
+    ),
+  )
+
+  return orderedHandles.map((handle) =>
+    registerDesiredTable(
+      handle,
+      handles,
+      resolveReference,
+      forRelation(identities.resolve(handle.getTableMetadata().relation)),
+      columnNames,
+    ),
+  )
 }
 
 /** Rejects deferred targets that disagree with registered columns or local storage. */
@@ -253,9 +273,10 @@ function lowerDesiredSchema(
   identities: CanonicalRelationIdentityModule,
   lowerer: AuthoredDesiredSchemaLowerer,
   forRelation?: (identity: CanonicalRelationIdentity) => CanonicalRelationIdentityModule,
+  columnNames?: ResolvedColumnNames,
 ): LoweredDesiredSchema {
   try {
-    const graph = registerDesiredSchema(handles, identities, forRelation)
+    const graph = registerDesiredSchema(handles, identities, forRelation, columnNames)
     const lowered = lowerer.lowerDesiredSchema(graph)
     const registry = identities.createRegistry<TableHandle>()
     for (const handle of handles)
@@ -305,6 +326,7 @@ function registerDesiredTable(
   handles: readonly TableHandle[],
   resolveReference: ReturnType<typeof createReferenceResolver>,
   identities: CanonicalRelationIdentityModule,
+  columnNames?: ResolvedColumnNames,
 ): AuthoredDesiredTable {
   const metadata = handle.getTableMetadata()
   const identity = identities.resolve(metadata.relation)
@@ -321,7 +343,11 @@ function registerDesiredTable(
     const schema = value as AnySchema
     const reference = references.get(name)
     const columnMetadata = getColumnMetadata(schema)
-    const identifier = identities.member('column', physicalColumnName(handle, name))
+    const identifier = identities.member(
+      'column',
+      physicalColumnName(handle, name, columnNames),
+    )
+
     columns.push({
       name,
       identifier,
@@ -333,7 +359,12 @@ function registerDesiredTable(
             reference: {
               metadata: reference,
               targetRelation: identities.resolve(reference.target.relation),
-              targetColumn: resolveReferenceIdentifier(reference, handles, identities),
+              targetColumn: resolveReferenceIdentifier(
+                reference,
+                handles,
+                identities,
+                columnNames,
+              ),
             },
           }),
     })
@@ -435,6 +466,7 @@ function resolveReferenceIdentifier(
   reference: ReferenceMetadata,
   handles: readonly TableHandle[],
   identities: CanonicalRelationIdentityModule,
+  columnNames?: ResolvedColumnNames,
 ): CanonicalIdentifier {
   const relation = identities.resolve(reference.target.relation)
   const target = handles.find((handle) =>
@@ -451,7 +483,10 @@ function resolveReferenceIdentifier(
       message: `Reference targets missing application column ${JSON.stringify(reference.target.column)}`,
     })
 
-  return identities.member('column', physicalColumnName(target, reference.target.column))
+  return identities.member(
+    'column',
+    physicalColumnName(target, reference.target.column, columnNames),
+  )
 }
 
 export { registerDesiredSchema, lowerDesiredSchema }

@@ -34,7 +34,7 @@ export function defineDialect({
       resolve(handles, options) {
         const resolved = query.resolve(handles, options)
         return {
-          compile: (node) => compileColumnQuery(resolved, node),
+          compile: (node) => compileColumnQuery(resolved, node, options?.columnNames),
           findRelationMatches: resolved.findRelationMatches.bind(resolved),
           findColumnMatches: resolved.findColumnMatches.bind(resolved),
         }

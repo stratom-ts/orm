@@ -282,6 +282,7 @@ type MigrationCleanupFailure = Readonly<{
  */
 class SchemaError extends TaggedError('SchemaError')<{
   message: string
+  cause?: unknown
 }> {}
 
 /**

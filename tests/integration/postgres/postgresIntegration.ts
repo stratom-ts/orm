@@ -4,6 +4,7 @@ import { Client } from 'pg'
 
 import type { Db } from '@/client'
 import type {
+  CreateDatabaseConfig,
   MigrationOwnershipDeclaration,
   OperationSession,
   OperationSessionProvider,
@@ -39,6 +40,7 @@ type SessionHooks = Readonly<{
 }>
 
 type PostgresDatabaseOptions = Readonly<{
+  naming?: CreateDatabaseConfig['naming']
   useRegistrationDefault?: boolean
   applicationId?: string
   migrationOwnership?: readonly MigrationOwnershipDeclaration[]
@@ -181,6 +183,7 @@ function createPostgresDatabase<const TSchemas extends readonly TableHandle[]>(
   return createDatabase({
     connector,
     schemas,
+    naming: options.naming,
     operationSessionProvider,
     ...(options.useRegistrationDefault === false
       ? {}

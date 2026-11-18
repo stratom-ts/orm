@@ -14,7 +14,7 @@ only.
 - **Transactions** — callback API; nested calls use savepoints
 - **Tagged errors** — `SchemaError`, `ValidationError`, `QueryError`, `MigrationError`, `DriverError`, and `InvariantError`, with guards for caught values
 
-See [application and physical column names](docs/column-names.md) for `column({ name })`,
+See [application and physical column names](docs/column-names.md) for `column({ name })`, `naming: { columns: snakeCase }`,
 query output rules, and migration behavior.
 
 ## Installation

@@ -125,6 +125,9 @@ function profileIssues(
     add('Registration default does not match the executing configuration')
   }
 
+  if (planned.profile.columnNamesFingerprint !== expected.columnNamesFingerprint)
+    add('Resolved column names do not match the executing configuration')
+
   return issues
 }
 
