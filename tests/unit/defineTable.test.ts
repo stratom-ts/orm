@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   metadata,
   nullable,
   number,
@@ -9,6 +10,7 @@ import {
   pipe,
   string,
   title,
+  trim,
 } from 'valibot'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
@@ -80,6 +82,75 @@ const UserSchema = pipe(
     ],
   }),
 )
+
+describe('defineTable object schemas', () => {
+  it('should accept an object schema with the same column and relation types as entries', () => {
+    const FromSchema = defineTable('users', object(userColumns, 'Expected a user'), {
+      namespace: [{ role: 'schema', spelling: 'public' }],
+      primaryKey: 'id',
+      indexes: [
+        { columns: ['email'], unique: true },
+        { name: 'users_full_name_idx', columns: ['fullName'] },
+      ],
+    })
+
+    expect(isTableHandle(FromSchema)).toBe(true)
+    expect(FromSchema.getSchema().entries).toBe(userColumns)
+    expect(FromSchema.getTableMetadata()).toEqual(User.getTableMetadata())
+    expect(FromSchema.email).toEqual(User.email)
+    expectTypeOf(FromSchema).toEqualTypeOf<typeof User>()
+
+    expectTypeOf<InferSelect<typeof FromSchema>>().toEqualTypeOf<
+      InferSelect<typeof User>
+    >()
+  })
+
+  it('should use only entries from an object schema and retain column actions', () => {
+    const schema = pipe(
+      object({ id: number(), name: pipe(string(), trim()) }),
+      check(() => false, 'Object-level check'),
+    )
+
+    const People = defineTable('people', schema, { primaryKey: 'id' })
+
+    expect(parse(People.getSchema(), { id: 1, name: ' Alice ' })).toEqual({
+      id: 1,
+      name: 'Alice',
+    })
+  })
+})
+
+describe('defineTable object schema column names', () => {
+  it('should accept entries with column names used to identify object schemas', () => {
+    const Data = defineTable(
+      'data',
+      { id: number(), kind: string(), type: string(), entries: string() },
+      { primaryKey: 'id' },
+    )
+
+    expect(
+      parse(Data.getSchema(), { id: 1, kind: 'schema', type: 'object', entries: 'x' }),
+    ).toEqual({ id: 1, kind: 'schema', type: 'object', entries: 'x' })
+
+    expectTypeOf(Data.entries.column).toEqualTypeOf<'entries'>()
+  })
+
+  it('should constrain primary keys and indexes to object schema entries', () => {
+    const schema = object({ id: number() })
+    expect(() =>
+      // @ts-expect-error - the primary key must name a schema entry
+      defineTable('bad', schema, { primaryKey: 'missing' }),
+    ).toThrow(/primaryKey column "missing"/)
+
+    expect(() =>
+      defineTable('bad', schema, {
+        primaryKey: 'id',
+        // @ts-expect-error - an index must name schema entries
+        indexes: [{ columns: ['missing'] }],
+      }),
+    ).toThrow(/index column "missing"/)
+  })
+})
 
 describe('defineTable', () => {
   it('should return a table handle with getSchema and getTableMetadata', () => {

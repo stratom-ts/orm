@@ -530,11 +530,14 @@ function createColumnRefs<
 }
 
 /**
- * Defines a table from a name, column map, and table options.
+ * Defines a table from a name, object schema or entries, and table options.
  *
  * Column values are Valibot schemas carrying `column()` / `reference()`
  * metadata. `primaryKey` and index `columns` are constrained to the declared
  * column names, so referencing an unknown column is a compile error.
+ *
+ * Object schemas contribute their entries only. Object-level actions and error
+ * messages do not carry over to the table schema.
  *
  * @example
  *   const User = defineTable(
@@ -558,7 +561,7 @@ function createColumnRefs<
  *   User.email // column ref
  *
  * @param name - Database table name (also the logical name on column refs)
- * @param columns - Map of column name to Valibot column schema.
+ * @param columns - Valibot object schema or map of column names to column schemas.
  * @param options - Primary key, optional namespace intent, and indexes.
  *
  * @returns Table handle for registration, queries, and column references
@@ -572,13 +575,17 @@ function defineTable<
   const TNamespace extends readonly NamespaceIdentifierInput[] | undefined = undefined,
 >(
   name: TName,
-  columns: TCols,
+  columns: TCols | Pick<ObjectSchema<TCols, undefined>, 'kind' | 'type' | 'entries'>,
   options: TableOptions<TCols, TNamespace>,
 ): TableHandle<
   DefinedTableSchema<TName, TCols>,
   RelationForNamespace<TName, TNamespace>
 > {
-  const schema = pipe(object(columns), title(name), table({ name, ...options }))
+  const entries = (
+    columns.kind === 'schema' && columns.type === 'object' ? columns.entries : columns
+  ) as TCols
+
+  const schema = pipe(object(entries), title(name), table({ name, ...options }))
   return buildTableHandle<typeof schema, RelationForNamespace<TName, TNamespace>>(schema)
 }
 

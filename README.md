@@ -118,10 +118,20 @@ await db.close()
 ## Defining tables
 
 `defineTable(name, columns, options)` builds a table handle from a table name, a
-map of Valibot column schemas, and table-level options. The handle is what you
-register with `createDatabase` and pass to every query method; it also exposes a typed
+map of Valibot column schemas or a Valibot object schema, and table-level options.
+The handle is what you register with `createDatabase` and pass to every query method; it also exposes a typed
 column reference per property (`User.email`) for use in `where` / `select` /
 `orderBy` / joins.
+
+Pass an existing object schema directly, for example:
+
+```typescript
+const UserSchema = object({ id: number(), email: string() })
+const User = defineTable('users', UserSchema, { primaryKey: 'id' })
+```
+
+`defineTable` reads the object's `.entries`. Column validation and metadata carry
+over. Object-level actions and error messages do not carry over.
 
 ```typescript
 const Membership = defineTable(
