@@ -74,6 +74,7 @@ describe('client lifecycle: closes the client through asynchronous disposal', ()
     expect(() => db.update(Accounts)).toThrow(QueryError)
     expect(() => db.delete(Accounts)).toThrow(QueryError)
     expect(() => db.migrate()).toThrow(QueryError)
+    expect(() => db.runMigrations()).toThrow(QueryError)
     await expect(db.ping()).rejects.toMatchObject({ _tag: 'QueryError' })
 
     await expect(db.transaction(async () => undefined)).rejects.toMatchObject({

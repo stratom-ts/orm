@@ -79,6 +79,20 @@ const NotNullWithoutIndex = defineTable(
 
 beforeAll(waitForPostgres)
 
+it('should reconcile registered tables through runMigrations and keep the client usable', async () => {
+  await withPostgresDatabase([RollbackBefore], async ({ db }) => {
+    await db.runMigrations({ lockTimeoutMs: 5_000 })
+    await db.insert(RollbackBefore).values({ id: 'one', payload: 'retained' }).execute()
+    await db.runMigrations()
+
+    expect(await db.migrate().plan()).toEqual({ steps: [] })
+
+    expect(await db.from(RollbackBefore).execute()).toEqual([
+      { id: 'one', payload: 'retained' },
+    ])
+  })
+})
+
 /** Confirms fresh inferred columns and their foreign key exist in the native catalog. */
 async function assertInferredUuidCatalog(admin: Client, schema: string) {
   const types = await admin.query<{

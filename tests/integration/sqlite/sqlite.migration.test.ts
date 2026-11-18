@@ -364,16 +364,19 @@ it('should reject contradictory native column evidence before exposing a program
   }
 })
 
-it('should resolve the production member and create a desired FK graph through Client', async () => {
+it('should create a desired FK graph through runMigrations and keep the client usable', async () => {
   expect(resolveDialect('sqlite')).toBe(sqliteDialect)
 
   await withSqliteDatabase([Parent, Owner], async ({ db }) => {
     const preview = await db.migrate().dryRun()
     expect(preview.actions).toHaveLength(2)
     expect(preview.actions[0].statements[0].sql).toContain('"owners"')
-    await db.migrate().execute()
+    await db.runMigrations({ lockTimeoutMs: 5_000 })
     expect(await db.migrate().plan()).toEqual({ steps: [] })
     expect((await db.migrate().dryRun()).actions).toEqual([])
+    await db.insert(Owner).values({ id: 1 }).execute()
+    await db.runMigrations()
+    expect(await db.from(Owner).execute()).toEqual([{ id: 1 }])
   })
 })
 

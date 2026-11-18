@@ -23,7 +23,7 @@ function expectSafeDriverDiagnostics(
 }
 
 describe('driver migration classification', () => {
-  it('should retain a driver failure as the cause of a staged migration error', async () => {
+  it('should retain a driver failure through runMigrations as the cause of a staged migration error', async () => {
     const secret = 'sensitive-driver-detail'
     const native = Object.assign(new Error(`native DDL failure: ${secret}`), {
       code: '23505',
@@ -59,10 +59,7 @@ describe('driver migration classification', () => {
     })
 
     try {
-      const error = await db
-        .migrate()
-        .execute()
-        .catch((cause: unknown) => cause)
+      const error = await db.runMigrations().catch((cause: unknown) => cause)
 
       expect(error).toMatchObject({
         _tag: 'MigrationError',
@@ -80,7 +77,7 @@ describe('driver migration classification', () => {
 })
 
 describe('public migration execution and session cleanup', () => {
-  it('should exclude queries from complete migration DDL and cleanup', async () => {
+  it('should exclude queries from complete runMigrations DDL and cleanup', async () => {
     const ddlStarted = deferred()
     const finishDdl = deferred()
     const controls = createPostgresControllableProvider({
@@ -105,7 +102,7 @@ describe('public migration execution and session cleanup', () => {
       schemas: [Events],
     })
 
-    const migration = db.migrate().execute()
+    const migration = db.runMigrations()
     await ddlStarted.promise
     const query = db.ping()
     await Promise.resolve()
@@ -173,7 +170,7 @@ describe('public migration execution and session cleanup: discards a migration s
 })
 
 describe('public migration execution and session cleanup: keeps a DDL failure primary when rollback cancellation also fails', () => {
-  it('should keep a DDL failure primary when rollback cancellation also fails', async () => {
+  it('should forward runMigrations cancellation and keep a DDL failure primary when rollback cancellation also fails', async () => {
     const primary = new Error('primary DDL failure before rollback cancellation')
     const cancellationFailure = new Error('session cancellation cleanup failed')
     const controller = new AbortController()
@@ -207,7 +204,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
       schemas: [Events],
     })
 
-    const migration = db.migrate().execute({ signal: controller.signal })
+    const migration = db.runMigrations({ signal: controller.signal })
     await rollbackStarted.promise
     controller.abort()
     const error = await migration.catch((cause: unknown) => cause)

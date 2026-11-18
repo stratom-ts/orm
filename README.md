@@ -1033,6 +1033,22 @@ await db.migrate().execute()
 await db.migrate().allow('dangerouslyDropColumn', 'dropTable', 'dropIndex').execute()
 ```
 
+Scripts can use `db.runMigrations(options?)` with the same execution options as
+`execute()`. It calls `db.migrate().execute(options)` with the default permissions
+and policy. The client retains its configured migration ownership and dialect.
+The caller closes the client:
+
+```typescript
+try {
+  await db.runMigrations({ lockTimeoutMs: 5_000 })
+} finally {
+  await db.close()
+}
+```
+
+Use `db.migrate()` to select a policy, grant permissions, declare column renames,
+or configure concurrent indexes before execution.
+
 Use a Migration Plan to grant permission to one exact target. A relation grant does not
 cover another relation with the same name in a different namespace, and member grants
 match canonical comparison keys rather than dotted display names. `allowFor` does not
