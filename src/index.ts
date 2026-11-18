@@ -1,6 +1,5 @@
 export type { ColumnNamingContext, ColumnNamingFunction } from './naming'
 export * from './client'
-export { runMigrations } from './runMigrations'
 export * from '@/schemas'
 export * from '@/types'
 export {

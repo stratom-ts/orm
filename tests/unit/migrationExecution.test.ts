@@ -2,7 +2,7 @@ import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import type { MigrationError, OperationSessionProvider } from '@/index'
-import { DriverError, column, createDatabase, defineTable, runMigrations } from '@/index'
+import { DriverError, column, createDatabase, defineTable } from '@/index'
 
 import { deferred } from '../helpers/deferredPromise'
 
@@ -59,7 +59,7 @@ describe('driver migration classification', () => {
     })
 
     try {
-      const error = await runMigrations(db).catch((cause: unknown) => cause)
+      const error = await db.runMigrations().catch((cause: unknown) => cause)
 
       expect(error).toMatchObject({
         _tag: 'MigrationError',
@@ -102,7 +102,7 @@ describe('public migration execution and session cleanup', () => {
       schemas: [Events],
     })
 
-    const migration = runMigrations(db)
+    const migration = db.runMigrations()
     await ddlStarted.promise
     const query = db.ping()
     await Promise.resolve()
@@ -204,7 +204,7 @@ describe('public migration execution and session cleanup: keeps a DDL failure pr
       schemas: [Events],
     })
 
-    const migration = runMigrations(db, { signal: controller.signal })
+    const migration = db.runMigrations({ signal: controller.signal })
     await rollbackStarted.promise
     controller.abort()
     const error = await migration.catch((cause: unknown) => cause)

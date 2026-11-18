@@ -185,9 +185,11 @@ describe('db.transaction: should reject migrations inside a transaction before a
 
     await db.transaction(async (trx) => {
       await expect(trx.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
+      await expect(trx.runMigrations()).rejects.toBeInstanceOf(MigrationError)
 
       await trx.transaction(async (nested) => {
         await expect(nested.migrate().execute()).rejects.toBeInstanceOf(MigrationError)
+        await expect(nested.runMigrations()).rejects.toBeInstanceOf(MigrationError)
       })
     })
 

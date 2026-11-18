@@ -1,7 +1,7 @@
 import type { Connector } from 'db0'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
-import type { MigrateBuilder } from '@/ddl'
+import type { MigrateBuilder, MigrationExecuteOptions } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
 import type { DialectOperations, OperationCommand } from '@/dialects'
@@ -242,6 +242,13 @@ type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
   ): DeleteBuilder<THandle, InferSelect<THandle>>
   /** Desired-state migrations for registered table handles. */
   migrate(): MigrateBuilder
+  /**
+   * Executes migrations with the default permissions and policy.
+   * Equivalent to `migrate().execute(options)`. The caller still closes the client.
+   *
+   * @param options - Cancellation signal and execution deadlines passed to the builder.
+   */
+  runMigrations(options?: MigrationExecuteOptions): Promise<void>
   /**
    * Callback transaction: commits on success, rolls back on error.
    * Nested calls use SAVEPOINT / ROLLBACK TO / RELEASE.
@@ -939,8 +946,7 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
     insert,
     update,
     delete: delete_,
-    migrate: () =>
-      createScopedMigration(context, clientExecutor, ensureClientOpen, transactionScope),
+    ...createScopedMigrationMethods(queryContext, transactionScope),
     transaction: (fn, options) =>
       runClientTransaction(
         fn,
@@ -1525,30 +1531,33 @@ function transactionScopeOwnershipError(scope: TransactionScope): QueryError | u
 /**
  * Binds desired-state migration to the current client and transaction scope.
  *
- * @param context - Resolved client dependencies and desired schema.
- * @param clientExecutor - Executor bound to this client scope.
- * @param ensureClientOpen - Guard for client and transaction lifetime.
+ * @param context - Client dependencies, scoped executor, and lifecycle guard.
  * @param transactionScope - Active transaction scope, when present.
  *
- * @returns A migration builder using this scope's executor and lifecycle guards.
+ * @returns Migration methods using this scope's executor and lifecycle guards.
  */
-function createScopedMigration<TSchemas extends readonly TableHandle[]>(
-  context: DatabaseClientContext<TSchemas>,
-  clientExecutor: Executor,
-  ensureClientOpen: () => void,
+function createScopedMigrationMethods<TSchemas extends readonly TableHandle[]>(
+  context: DatabaseClientContext<TSchemas> & {
+    executor: Executor
+    ensureClientOpen: () => void
+  },
   transactionScope: TransactionScope | undefined,
-) {
-  return createClientMigration(
-    context.config,
-    context.dialect,
-    context.coordinator,
-    clientExecutor,
-    ensureClientOpen,
-    context.ensureOpen,
-    transactionScope,
-    context.tracing,
-    context.columnNames,
-  )
+): Pick<Db<TSchemas>, 'migrate' | 'runMigrations'> {
+  /** Creates a migration builder with this client's scope and lifecycle guards. */
+  const migrate = () =>
+    createClientMigration(
+      context.config,
+      context.dialect,
+      context.coordinator,
+      context.executor,
+      context.ensureClientOpen,
+      context.ensureOpen,
+      transactionScope,
+      context.tracing,
+      context.columnNames,
+    )
+
+  return { migrate, runMigrations: (options) => migrate().execute(options) }
 }
 
 export type { ValueMapConfig } from '@/query'

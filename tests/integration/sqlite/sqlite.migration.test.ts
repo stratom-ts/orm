@@ -5,14 +5,7 @@ import { expect, it, vi } from 'vitest'
 
 import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationProgram } from '@/ddl/migrationProgram'
-import {
-  column,
-  defineTable,
-  reference,
-  resolveDialect,
-  runMigrations,
-  sqliteDialect,
-} from '@/index'
+import { column, defineTable, reference, resolveDialect, sqliteDialect } from '@/index'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import type { Executor } from '@/query'
@@ -378,11 +371,11 @@ it('should create a desired FK graph through runMigrations and keep the client u
     const preview = await db.migrate().dryRun()
     expect(preview.actions).toHaveLength(2)
     expect(preview.actions[0].statements[0].sql).toContain('"owners"')
-    await runMigrations(db, { lockTimeoutMs: 5_000 })
+    await db.runMigrations({ lockTimeoutMs: 5_000 })
     expect(await db.migrate().plan()).toEqual({ steps: [] })
     expect((await db.migrate().dryRun()).actions).toEqual([])
     await db.insert(Owner).values({ id: 1 }).execute()
-    await runMigrations(db)
+    await db.runMigrations()
     expect(await db.from(Owner).execute()).toEqual([{ id: 1 }])
   })
 })
