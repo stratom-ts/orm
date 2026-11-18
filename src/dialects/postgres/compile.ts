@@ -1073,6 +1073,7 @@ function guardQuerySession(
      * requirements.
      */
     assertSession(identity) {
+      compiled.assertSession?.(identity)
       const namespace = identity.namespaceContext?.writableDefault
       const database =
         namespace?.find((segment) => segment.role === 'database')?.spelling ??
@@ -1144,6 +1145,33 @@ function collectSessionRequirements(
   return requirements
 }
 
+/** Preserves general and inferred-reference identity requirements for one select scope. */
+function guardSelectSession(
+  compiled: CompiledQuery,
+  node: SelectAst,
+  resolveRelation: PostgresQueryRelationResolver,
+): CompiledQuery {
+  let guarded = guardQuerySession(
+    compiled,
+    [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
+    selectRelationReferences(node),
+    resolveRelation,
+  )
+
+  for (const join of node.joins ?? []) {
+    if (!join.reference) continue
+
+    guarded = guardQuerySession(
+      guarded,
+      [join.reference.occurrence],
+      [join.reference.relation],
+      resolveRelation,
+    )
+  }
+
+  return guarded
+}
+
 /**
  * Compiles a PostgreSQL AST node to a parameterized SQL query.
  *
@@ -1165,10 +1193,9 @@ function compilePostgresQueryNode(
 ): CompiledQuery {
   switch (node.kind) {
     case 'select':
-      return guardQuerySession(
+      return guardSelectSession(
         compileSelect(node, resolveRelation),
-        [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
-        selectRelationReferences(node),
+        node,
         resolveRelation,
       )
     case 'insert':
@@ -1293,10 +1320,9 @@ function collectNestedGuards(
       child.kind === 'select'
     ) {
       const select = child as SelectAst
-      const guard = guardQuerySession(
+      const guard = guardSelectSession(
         { sql: '', params: [] },
-        [select.relation, ...(select.joins ?? []).map((j) => j.relation)],
-        selectRelationReferences(select),
+        select,
         resolveRelation,
       ).assertSession
 

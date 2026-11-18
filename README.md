@@ -693,6 +693,18 @@ const one = await db.from(User).where(User.id, 'eq', user.id).executeTakeFirstOr
 
 ### Joins and aggregates
 
+Omit `on` from `innerJoin(Table)`, `leftJoin(Table)`, or `rightJoin(Table)` to infer
+the predicate from `reference()` metadata. Inference checks direct references in
+both directions between the new table and every preceding relation in the query.
+Exactly one reference must match. Missing or multiple matches raise `QueryError`
+and require an explicit predicate. Inference does not search through other tables.
+
+Aliases created with `alias(Table, name)` retain reference metadata. Predicates
+use the actual alias occurrences. A self-reference matches both directions in a
+self-join, so supply `on` to choose the direction. An explicit predicate always
+bypasses inference. Both forms preserve outer-join nullability and flat results.
+SQLite still rejects right joins.
+
 ```typescript
 import { countAll, eq, gt, sum } from 'stratom'
 

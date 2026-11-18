@@ -442,11 +442,16 @@ export type OrderByAst = {
   readonly nulls?: 'first' | 'last'
 }
 
-/** Explicit join clause (no FK relation sugar). */
+/** Join clause with a resolved ON predicate. */
 export type JoinAst = {
   readonly type: 'inner' | 'left' | 'right'
   readonly relation: RelationIdentityInput
   readonly on: PredicateAst
+  /** Reference intent retained for occurrence-specific physical-session validation. */
+  readonly reference?: Readonly<{
+    relation: RelationIdentityInput
+    occurrence: RelationIdentityInput
+  }>
 }
 
 export type SelectAst = {
