@@ -1562,12 +1562,26 @@ async function introspectPostgresCatalog(
     : snapshot
 }
 
+// Bootstrap routines have OIDs below FirstNormalObjectId (16384). User routines,
+// including extensions and objects in pg_catalog, must remain in this inventory.
+const POSTGRES_UNTRACKED_RENAME_QUERY = {
+  sql: `select 'trigger' as kind, t.oid::text as object_id
+    from pg_trigger t where not t.tgisinternal
+    union all
+    select 'routine', p.oid::text
+    from pg_proc p join pg_language l on l.oid = p.prolang
+    where p.oid >= 16384 and l.lanname in ('sql', 'plpgsql')
+    order by 1, 2`,
+  params: [],
+}
+
 /** Observes all inbound sources without broadening migration ownership. */
 async function observePostgresRenameDependencies(
   executor: CatalogExecutor,
   snapshot: CatalogSnapshot,
   identities: CanonicalRelationIdentityModule,
 ): Promise<CatalogSnapshot> {
+  const untracked = await executor.execute(POSTGRES_UNTRACKED_RENAME_QUERY)
   const inboundQuery = renameInboundQuery(snapshot)
   const inbound = await executor.execute(inboundQuery)
   const sources = inbound.map((row, index) => renameDependencyInput(row, index))
@@ -1590,6 +1604,12 @@ async function observePostgresRenameDependencies(
     await executor.execute(inboundQuery),
   )
 
+  assertObservationUnchanged(
+    'rename untracked dependencies',
+    untracked,
+    await executor.execute(POSTGRES_UNTRACKED_RENAME_QUERY),
+  )
+
   return {
     ...snapshot,
     renameDependencies: {
@@ -1602,13 +1622,11 @@ async function observePostgresRenameDependencies(
             ? { ...relation, management: 'unmanaged' as const }
             : relation,
         ),
-      coverage:
-        dependency.namespaces.coverage.state === 'complete'
-          ? complete
-          : {
-              state: 'unknown',
-              reason: 'Incomplete PostgreSQL rename dependency coverage',
-            },
+      coverage: untracked.length
+        ? unsupported(
+            'PostgreSQL user triggers and SQL/PLpgSQL routines prevent complete rename dependency observation',
+          )
+        : dependency.namespaces.coverage,
     },
   }
 }

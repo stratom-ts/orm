@@ -1022,7 +1022,12 @@ and permissions. Supported primary and unique keys, simple indexes, and foreign 
 retain their semantics and historical names. Authored index names keep their exact
 meaning. Unknown dependencies, expressions, views that depend on a rename target,
 triggers, inheritance, partitioned tables, and unsupported storage features reject
-before DDL. PostgreSQL permits views unrelated to rename targets. Dependency
+before DDL. PostgreSQL permits views unrelated to rename targets. PostgreSQL rejects
+physical column renames if any user trigger or user SQL/PLpgSQL function or procedure
+exists anywhere in the database, including outside migration ownership. PostgreSQL
+does not track all references inside routine bodies, so dependency observation cannot
+prove these renames safe. Routine bodies are not scanned or rewritten. Fresh tables
+and already-satisfied rename intents do not require a physical rename. Dependency
 observation includes inbound foreign keys outside migration ownership and does not
 expand it. SQLite remains `main`-only and conservatively rejects unresolved
 dependencies, including any view or trigger in `main`.

@@ -1,17 +1,188 @@
+import { randomUUID } from 'node:crypto'
+import type { Client } from 'pg'
 import { nullable, pipe, string } from 'valibot'
-import { beforeAll, expect, it } from 'vitest'
+import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { column, defineTable, reference } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
-import { quoteIdentifier, withPostgresDatabase } from './postgresIntegration'
+import {
+  createAdminClient,
+  quoteIdentifier,
+  withPostgresDatabase as withDatabase,
+} from './postgresIntegration'
 
-beforeAll(waitForPostgres)
+let databaseAdmin: Client | undefined
+let databaseUrl: string
+const databaseName = `stratom_rename_${randomUUID().replaceAll('-', '')}`
+
+// Rename guards inspect the entire database, beyond each fixture's isolated schema.
+beforeAll(async () => {
+  await waitForPostgres()
+  databaseAdmin = await createAdminClient()
+  await databaseAdmin.query(`create database ${quoteIdentifier(databaseName)}`)
+  const url = new URL(process.env.POSTGRESQL_URL!)
+  url.pathname = `/${databaseName}`
+  databaseUrl = url.toString()
+})
+
+afterAll(async () => {
+  if (!databaseAdmin) return
+
+  try {
+    await databaseAdmin.query(
+      `drop database if exists ${quoteIdentifier(databaseName)} with (force)`,
+    )
+  } finally {
+    await databaseAdmin.end()
+  }
+})
+
+const withPostgresDatabase: typeof withDatabase = (schemas, callback, options) =>
+  withDatabase(schemas, callback, { ...options, url: databaseUrl })
+
 const User = defineTable(
   'rename_users',
   { id: string(), fullName: nullable(string()) },
   { primaryKey: 'id', indexes: [{ columns: ['fullName', 'id'] }] },
 )
+
+it('should preserve an unrelated trigger reading the original column by rejecting the rename', async () => {
+  await withPostgresDatabase([User], async ({ db, admin, schema, alternateSchema }) => {
+    const table = `${quoteIdentifier(schema)}.rename_users`
+    const other = quoteIdentifier(alternateSchema)
+    await admin.query(`
+      create table ${table}(id text primary key not null, "displayName" text);
+      insert into ${table} values ('1', 'kept');
+      create table ${other}.audit(value text);
+      create function ${other}.capture_name() returns trigger language plpgsql as $$
+      begin
+        select "displayName" into new.value from ${table} where id = '1';
+        return new;
+      end $$;
+      create trigger capture_name before insert on ${other}.audit
+        for each row execute function ${other}.capture_name();
+    `)
+
+    const migration = db
+      .migrate()
+      .renameColumn({ table: User, from: 'displayName', to: 'fullName' })
+
+    await expect(migration.plan()).rejects.toThrow(/complete dependency observation/)
+    await expect(migration.dryRun()).rejects.toThrow(/complete dependency observation/)
+
+    await expect(migration.execute()).rejects.toMatchObject({
+      stage: 'planning',
+      outcome: 'unchanged',
+    })
+
+    await admin.query(`insert into ${other}.audit values (null)`)
+
+    expect((await admin.query(`select value from ${other}.audit`)).rows).toEqual([
+      { value: 'kept' },
+    ])
+
+    expect((await admin.query(`select "displayName" from ${table}`)).rows).toEqual([
+      { displayName: 'kept' },
+    ])
+  })
+})
+
+it.each(['sql', 'plpgsql'] as const)(
+  'should reject renames with an unattached %s function outside migration ownership',
+  async (language) => {
+    await withPostgresDatabase([User], async ({ db, admin, schema, alternateSchema }) => {
+      const table = `${quoteIdentifier(schema)}.rename_users`
+      const routine = `${quoteIdentifier(alternateSchema)}.unrelated`
+
+      await admin.query(
+        `create table ${table}(id text primary key not null, "displayName" text)`,
+      )
+
+      const body = language === 'sql' ? 'select 1' : 'begin return 1; end'
+      await admin.query(
+        `create function ${routine}() returns int language ${language} as $$${body}$$`,
+      )
+
+      const migration = db
+        .migrate()
+        .renameColumn({ table: User, from: 'displayName', to: 'fullName' })
+
+      await expect(migration.execute()).rejects.toMatchObject({
+        stage: 'planning',
+        outcome: 'unchanged',
+      })
+
+      // Ordinary reconciliation and satisfied intent do not require rename safety.
+      await admin.query(
+        `alter table ${table} rename column "displayName" to "fullName"; create index historical_name on ${table}("fullName", id)`,
+      )
+
+      expect(await db.migrate().plan()).toEqual({ steps: [] })
+      expect(await migration.plan()).toEqual({ steps: [] })
+      await migration.execute()
+    })
+  },
+)
+
+it('should reject a user trigger backed by a builtin function', async () => {
+  await withPostgresDatabase([User], async ({ db, admin, schema, alternateSchema }) => {
+    const table = `${quoteIdentifier(schema)}.rename_users`
+    const other = quoteIdentifier(alternateSchema)
+    await admin.query(`
+      create table ${table}(id text primary key not null, "displayName" text);
+      create table ${other}.unrelated(value text);
+      create trigger skip_updates before update on ${other}.unrelated
+        for each row execute function pg_catalog.suppress_redundant_updates_trigger();
+    `)
+
+    await expect(
+      db
+        .migrate()
+        .renameColumn({ table: User, from: 'displayName', to: 'fullName' })
+        .execute(),
+    ).rejects.toMatchObject({ stage: 'planning', outcome: 'unchanged' })
+  })
+})
+
+it('should reject user SQL procedures even in pg_catalog', async () => {
+  await withPostgresDatabase([User], async ({ db, admin, schema }) => {
+    const table = `${quoteIdentifier(schema)}.rename_users`
+    await admin.query(
+      `create table ${table}(id text primary key not null, "displayName" text)`,
+    )
+
+    await admin.query(
+      'create procedure pg_catalog.stratom_rename_guard() language sql as $$select 1$$',
+    )
+
+    try {
+      await expect(
+        db
+          .migrate()
+          .renameColumn({ table: User, from: 'displayName', to: 'fullName' })
+          .execute(),
+      ).rejects.toMatchObject({ stage: 'planning', outcome: 'unchanged' })
+    } finally {
+      await admin.query('drop procedure pg_catalog.stratom_rename_guard()')
+    }
+  })
+})
+
+it('should create a fresh table despite an unrelated function and retained rename intent', async () => {
+  await withPostgresDatabase([User], async ({ db, admin, alternateSchema }) => {
+    await admin.query(
+      `create function ${quoteIdentifier(alternateSchema)}.unrelated() returns int language sql as $$select 1$$`,
+    )
+
+    const migration = db
+      .migrate()
+      .renameColumn({ table: User, from: 'displayName', to: 'fullName' })
+
+    await migration.execute()
+    expect(await migration.plan()).toEqual({ steps: [] })
+  })
+})
 
 it('should preserve native values and historical indexes and converge without retained intent', async () => {
   await withPostgresDatabase([User], async ({ db, admin, schema }) => {
