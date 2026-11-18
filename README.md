@@ -732,6 +732,45 @@ const stats = await db
   .execute()
 ```
 
+### Nested results
+
+Use `executeNested` to group joined rows into a typed result graph.
+
+```typescript
+const users = await db
+  .from(User)
+  .leftJoin(Post, eq(User.id, Post.authorId))
+  .orderBy(User.id)
+  .orderBy(Post.id)
+  .executeNested({
+    key: [User.id],
+    select: { id: User.id, email: User.email },
+    many: {
+      posts: { key: [Post.id], select: { title: Post.title } },
+    },
+  })
+```
+
+Each node selects fields from the table occurrence that owns its key. Use the
+table in `from(...)` for the root and the joined alias for an aliased table. A key
+must match the primary key or a declared non-null unique key. It can contain
+multiple columns. Key columns can be omitted from `select`. The driver must
+return key values as strings, numbers, bigints, booleans, or byte arrays. Use
+`satisfies NestedProjection` if you store the projection in a variable and want to
+keep its inferred result type.
+
+Each `many` field is an array. Each `one` field is an object or `null`. A left
+join with no match gives an empty array or `null`. A joined row can exist even if
+all of its selected fields are null. For each parent and relation field,
+`executeNested` emits a child once per key. It raises `QueryError` if a `one`
+field matches multiple distinct keys.
+
+The query runs one SQL statement. Sibling collections can multiply the rows it
+reads before they are grouped. Parent and child order follow the first occurrence
+in the SQL rows. Use `orderBy` to control that order. `executeNested` accepts
+filters and inner or left joins. It requires its own projection and rejects
+right joins, grouping, and row pagination such as `limit` and `after`.
+
 ### Inserting, updating, deleting
 
 ```typescript
