@@ -133,7 +133,12 @@ async function assertNestedResults(db: Db): Promise<void> {
       ],
       reviewed: [{ sequence: 2 }, { sequence: 1 }],
     },
-    { name: 'Grace', featured: null, posts: [], reviewed: [] },
+    {
+      name: 'Grace',
+      featured: null,
+      posts: [],
+      reviewed: [{ sequence: 2 }, { sequence: 1 }],
+    },
   ])
 }
 
@@ -147,7 +152,7 @@ function queryNestedResults(db: Db) {
       and(eq(Comments.author, Posts.author), eq(Comments.post, Posts.sequence)),
     )
     .leftJoin(featured, and(eq(Users.id, featured.author), eq(featured.sequence, 1)))
-    .leftJoin(reviewed, eq(Users.id, reviewed.author))
+    .leftJoin(reviewed, eq(reviewed.author, ada))
     .orderBy(Users.id)
     .orderBy(Posts.sequence)
     .orderBy(Comments.id)

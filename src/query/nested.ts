@@ -17,7 +17,7 @@ type NestedProjection = {
 }
 
 type ChildResults<T, K extends 'one' | 'many'> = {
-  -readonly [Name in keyof T]: K extends 'one'
+  -readonly [Name in keyof T as Name extends symbol ? never : Name]: K extends 'one'
     ? NestedResult<T[Name]> | null
     : NestedResult<T[Name]>[]
 }
@@ -29,19 +29,17 @@ type NestedChildren<T, K extends 'one' | 'many'> =
       ? Partial<ChildResults<NonNullable<T[K]>, K>>
       : unknown
 
+type FieldResult<T> = T extends ColumnRef<string, string, infer V> ? V : never
+
 /** Infers the fields and relation cardinalities from a nested projection. */
 type NestedResult<T> = T extends { readonly select: infer Fields }
   ? string extends keyof Fields
     ? Row
     : Prettify<
         {
-          -readonly [K in keyof Fields]: Fields[K] extends ColumnRef<
-            string,
-            string,
-            infer V
+          -readonly [K in keyof Fields as K extends symbol ? never : K]: FieldResult<
+            Fields[K]
           >
-            ? V
-            : never
         } & NestedChildren<T, 'one'> &
           NestedChildren<T, 'many'>
       >
