@@ -4,7 +4,7 @@ import type { QueryResult } from 'pg'
 import { boolean, nullable, pipe, string, uuid } from 'valibot'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { column, defineTable, reference } from '@/index'
+import { column, defineTable, reference, runMigrations } from '@/index'
 
 import { waitForPostgres } from './postgres.setup'
 import type { PostgresDatabaseContext, SessionEvent } from './postgresIntegration'
@@ -78,6 +78,20 @@ const NotNullWithoutIndex = defineTable(
 )
 
 beforeAll(waitForPostgres)
+
+it('should reconcile registered tables through runMigrations and keep the client usable', async () => {
+  await withPostgresDatabase([RollbackBefore], async ({ db }) => {
+    await runMigrations(db, { lockTimeoutMs: 5_000 })
+    await db.insert(RollbackBefore).values({ id: 'one', payload: 'retained' }).execute()
+    await runMigrations(db)
+
+    expect(await db.migrate().plan()).toEqual({ steps: [] })
+
+    expect(await db.from(RollbackBefore).execute()).toEqual([
+      { id: 'one', payload: 'retained' },
+    ])
+  })
+})
 
 /** Confirms fresh inferred columns and their foreign key exist in the native catalog. */
 async function assertInferredUuidCatalog(admin: Client, schema: string) {

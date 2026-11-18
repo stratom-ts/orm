@@ -5,7 +5,14 @@ import { expect, it, vi } from 'vitest'
 
 import { planMigration } from '@/ddl/migrationPlan'
 import type { MigrationProgram } from '@/ddl/migrationProgram'
-import { column, defineTable, reference, resolveDialect, sqliteDialect } from '@/index'
+import {
+  column,
+  defineTable,
+  reference,
+  resolveDialect,
+  runMigrations,
+  sqliteDialect,
+} from '@/index'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import { createCatalogRequest } from '@/migrations/migrationOwnership'
 import type { Executor } from '@/query'
@@ -364,16 +371,19 @@ it('should reject contradictory native column evidence before exposing a program
   }
 })
 
-it('should resolve the production member and create a desired FK graph through Client', async () => {
+it('should create a desired FK graph through runMigrations and keep the client usable', async () => {
   expect(resolveDialect('sqlite')).toBe(sqliteDialect)
 
   await withSqliteDatabase([Parent, Owner], async ({ db }) => {
     const preview = await db.migrate().dryRun()
     expect(preview.actions).toHaveLength(2)
     expect(preview.actions[0].statements[0].sql).toContain('"owners"')
-    await db.migrate().execute()
+    await runMigrations(db, { lockTimeoutMs: 5_000 })
     expect(await db.migrate().plan()).toEqual({ steps: [] })
     expect((await db.migrate().dryRun()).actions).toEqual([])
+    await db.insert(Owner).values({ id: 1 }).execute()
+    await runMigrations(db)
+    expect(await db.from(Owner).execute()).toEqual([{ id: 1 }])
   })
 })
 
