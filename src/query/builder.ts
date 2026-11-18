@@ -18,7 +18,6 @@ import type {
 } from '@/dialects'
 import { contextualOperationError } from '@/operations/errorContext'
 import type { RelationIdentityInput } from '@/schemas'
-import { getColumnMetadata } from '@/schemas'
 import { createReferenceResolver } from '@/schemas/actions/lazyReference'
 import type { ColumnRef, Prettify, TableHandle } from '@/types'
 import type {
@@ -37,6 +36,7 @@ import { InvariantError, QueryError } from '@/utils/error'
 
 import { isAddition } from './arithmetic'
 import type { UpdatePatch } from './arithmetic'
+import { candidateKeys } from './candidateKeys'
 import { markCompiledQuery, restoreResultNames } from './compiled'
 import type { CompiledQuery } from './compiled'
 import type { Executor } from './executor'
@@ -45,6 +45,8 @@ import { and, cmp, columnName, columnRelation, eb, toQualified } from './express
 import { after, before } from './keyset'
 import type { OrderTerm } from './keyset'
 import type { ValueMapper } from './mapping'
+import { prepareNestedProjection } from './nested'
+import type { NestedProjection, NestedResult } from './nested'
 import type { ProjectionUse } from './projection'
 import { prepareSelectProjection, projectionSource } from './projection'
 import { recordQueryRelation } from './sourceRelation'
@@ -758,22 +760,7 @@ function resolveConflictTarget<THandle extends TableHandle>(
     })
   }
 
-  const metadata = handle.getTableMetadata()
-  const primaryKey = Array.isArray(metadata.primaryKey)
-    ? metadata.primaryKey
-    : [metadata.primaryKey]
-
-  const uniqueTargets = [
-    primaryKey,
-    ...(metadata.indexes ?? [])
-      .filter((index) => index.unique === true)
-      .map((index) => index.columns),
-    ...Object.entries(handle.getSchema().entries)
-      .filter(([, schema]) => getColumnMetadata(schema)?.unique === true)
-      .map(([name]) => [name]),
-  ]
-
-  const matchesCandidateKey = uniqueTargets.some(
+  const matchesCandidateKey = candidateKeys(handle).some(
     (candidate) =>
       candidate.length === target.length &&
       candidate.every((name, index) => name === target[index]),
@@ -1480,6 +1467,17 @@ type SelectBuilder<
    */
   execute(): Promise<Prettify<TResult>[]>
   /**
+   * Executes one select and groups its rows by the keys in the nested projection.
+   * Key values must be native strings, numbers, bigints, booleans, or byte arrays.
+   *
+   * @param projection - Root fields and nested relation fields to return.
+   *
+   * @returns One result for each root key in the query.
+   */
+  executeNested<const T extends NestedProjection>(
+    projection: T,
+  ): Promise<NestedResult<T>[]>
+  /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
    * @returns The first result row, or undefined when no row exists.
@@ -1506,6 +1504,7 @@ type SelectState = {
   joins: JoinAst[]
   joinedHandles: TableHandle[]
   where?: PredicateAst
+  hasCursor?: boolean
   orderBy: OrderByAst[]
   limit?: number
   offset?: number
@@ -1560,6 +1559,7 @@ function patchSelectState(state: SelectState, patch: Partial<SelectState>): Sele
     joins: patch.joins ?? state.joins,
     joinedHandles: patch.joinedHandles ?? state.joinedHandles,
     where: 'where' in patch ? patch.where : state.where,
+    hasCursor: patch.hasCursor ?? state.hasCursor,
     orderBy: patch.orderBy ?? state.orderBy,
     limit: 'limit' in patch ? patch.limit : state.limit,
     offset: 'offset' in patch ? patch.offset : state.offset,
@@ -1761,9 +1761,10 @@ function createSelectBuilder<THandle extends TableHandle>(
     ...createSelectJoins(handle, query, state, next),
     compile,
     execute: execute as never,
+    executeNested: (projection) => executeNestedSelect(options, projection) as never,
     executeTakeFirst: executeTakeFirst as never,
     executeTakeFirstOrThrow: executeTakeFirstOrThrow as never,
-  }
+  } satisfies SelectBuilder<THandle, unknown>
 
   selectDefinitions.set(builder, {
     owner: executor,
@@ -1793,6 +1794,10 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = {
    * @throws {DriverError} The database, driver, or db0 rejects SQL execution.
    */
   execute(): Promise<InferSelect<THandle>[]>
+  /** Executes one select and groups its rows by the keys in the nested projection. */
+  executeNested<const T extends NestedProjection>(
+    projection: T,
+  ): Promise<NestedResult<T>[]>
   /**
    * Executes the query and returns its first row, or undefined when no row exists.
    *
@@ -2081,6 +2086,8 @@ function createTableBuilder<THandle extends TableHandle>(
     compile: () => defaultSelect.compile(),
     /** Executes the default select query. */
     execute: () => defaultSelect.execute() as Promise<InferSelect<THandle>[]>,
+    executeNested: <const T extends NestedProjection>(projection: T) =>
+      defaultSelect.executeNested(projection),
     /** Executes the default select and returns its first row. */
     executeTakeFirst: () =>
       defaultSelect.executeTakeFirst() as Promise<InferSelect<THandle> | undefined>,
@@ -2395,11 +2402,17 @@ function createSelectBoundaries<THandle extends TableHandle>(
   return {
     /** Adds a boundary after the cursor without changing the query order. */
     after(order, values) {
-      return next({ where: mergeWhere(state.where, after(order, values)) })
+      return next({
+        where: mergeWhere(state.where, after(order, values)),
+        hasCursor: true,
+      })
     },
     /** Adds a boundary before the cursor without changing the query order. */
     before(order, values) {
-      return next({ where: mergeWhere(state.where, before(order, values)) })
+      return next({
+        where: mergeWhere(state.where, before(order, values)),
+        hasCursor: true,
+      })
     },
   }
 }
@@ -3212,14 +3225,14 @@ function prepareWriteScope(
  * Executes a prepared select and restores output names before mapping source values.
  *
  * @example
- *   const rows = await executeSelect(options)
+ *   const { prepared, rows } = await executeSelectRows(options)
  *
  * @param options - Select state, owning executor, query operations, and optional value
  *   mapper.
  *
- * @returns Rows with application output names and mapped values when a mapper exists.
+ * @returns The prepared select and raw rows with their output names restored.
  */
-async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
+async function executeSelectRows(options: SelectBuilderOptions<TableHandle>) {
   const prepared = prepareStatement(buildSelectQuery(options), options.executor)
   const compiled = options.query.compile(prepared)
   const rows = restoreResultNames(
@@ -3227,9 +3240,51 @@ async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
     await executeQueryOperation(prepared, () => options.executor.execute(compiled)),
   )
 
+  return { prepared, rows }
+}
+
+/** Executes a flat select with the mapping supplied by its prepared projection. */
+async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
+  const { prepared, rows } = await executeSelectRows(options)
   return options.mapper
     ? prepareSelectProjection(prepared, options.query).mapRows(options.mapper, rows)
     : rows
+}
+
+/** Executes and shapes one select with identity taken from raw database values. */
+async function executeNestedSelect(
+  options: SelectBuilderOptions<TableHandle>,
+  projection: NestedProjection,
+) {
+  const { handle, query, state } = options
+
+  if (
+    state.selection.length > 0 ||
+    state.joins.some((join) => join.type === 'right') ||
+    state.groupBy.length > 0 ||
+    state.having ||
+    state.hasCursor ||
+    state.limit !== undefined ||
+    state.offset !== undefined
+  ) {
+    throw new QueryError({
+      message:
+        'executeNested cannot combine with an explicit selection, right join, grouping, or row pagination',
+    })
+  }
+
+  const handles = [handle, ...state.joinedHandles]
+  const nested = prepareNestedProjection(projection, handle, (ref) => {
+    const source = findHandle(query, handles, ref.relation)
+    return { handle: source, column: findColumn(query, source, ref.column, ref.relation) }
+  })
+
+  const { rows } = await executeSelectRows({
+    ...options,
+    state: { ...state, selection: nested.selection },
+  })
+
+  return nested.materialize(rows, options.mapper)
 }
 
 export type { CompiledQuery } from './compiled'

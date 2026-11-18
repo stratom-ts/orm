@@ -109,6 +109,7 @@ export type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 export type { SqlTag, SqlFragment } from './sql'
 
 export { after, before, type OrderTerm } from './query/keyset'
+export type { NestedProjection, NestedResult } from './query/nested'
 
 export { add, type Addition, type UpdatePatch } from './query/arithmetic'
 
