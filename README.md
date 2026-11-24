@@ -34,6 +34,10 @@ This pre-alpha release is experimental. APIs can change between releases.
 and injected-failure scenarios for both dialects. It opens no native database and
 needs no database service or experimental SQLite flag.
 
+`pnpm test:integration:browser` builds the package and checks browser schema consumption
+in Vite production and development modes. It checks dependency resolution, warnings,
+and validation without Node globals. It needs no database service.
+
 `pnpm test:integration:sqlite` runs native SQLite connector, query, migration,
 physical lifecycle, database-file, and writer-lock scenarios. It needs Node >=22.5
 and SQLite >=3.37, with no external service. Node 22.5 through 22.12 requires
@@ -72,10 +76,10 @@ docker compose down -v
 ```
 
 On PowerShell, use `Copy-Item .env.example .env` for the first command.
-`pnpm test:integration` runs both native profiles; `pnpm test` runs units followed
-by both native profiles. These aggregate commands require both profiles' native
+`pnpm test:integration` runs the browser and both native profiles; `pnpm test` runs units followed
+by these integration profiles. These aggregate commands require both native profiles'
 prerequisites and fail with a setup message when PostgreSQL is unavailable.
-`pnpm test:coverage` measures units and both native profiles in one report, with
+`pnpm test:coverage` measures units, browser checks, and both native profiles in one report, with
 the same native prerequisites as `pnpm test`. CI runs units and both native
 profiles on Node 24 and the minimum supported Node 22.5.0; only the
 SQLite integration job needs the experimental flag on the minimum runtime.
@@ -116,6 +120,30 @@ const user = await db
 
 await db.close()
 ```
+
+## Shared schemas in browser code
+
+Use `@stratom/orm/schema` in modules shared by the browser and server. This entry
+exports table and column authoring helpers, reference helpers (including lazy
+references), schema utilities, authoring types, and `SchemaError`. It has no Node
+runtime dependencies. Keep database connections, queries, and migrations in server
+modules that import `@stratom/orm`.
+
+```typescript
+// shared-schema.ts
+import { defineTable } from '@stratom/orm/schema'
+import { object, pick, string } from 'valibot'
+
+export const userSchema = object({ id: string(), name: string() })
+export const formSchema = pick(userSchema, ['name'])
+export const Users = defineTable('users', userSchema, { primaryKey: 'id' })
+```
+
+Browser code can import `formSchema` from this module. Server code registers `Users`
+with `createDatabase` from `@stratom/orm`. Both entries use the same table handles
+and authoring implementations. Existing root imports remain supported on the server.
+Use `/schema` for the supported browser authoring path, even when the browser consumes
+only a derived Valibot validator from the shared module.
 
 ## Defining tables
 

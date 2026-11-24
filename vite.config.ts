@@ -60,7 +60,7 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: { index: 'src/index.ts', naming: 'src/naming.ts' },
+      entry: { index: 'src/index.ts', naming: 'src/naming.ts', schema: 'src/schema.ts' },
       fileName: (_format, entryName) =>
         `${entryName === 'index' ? 'stratom' : entryName}.js`,
       formats: ['es'],
