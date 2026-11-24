@@ -115,6 +115,29 @@ function dynamic(query: object) {
 }
 
 for (const dialect of [postgresDialect, sqliteDialect]) {
+  it('should preserve case-distinct outputs and avoid reserved SQL alias collisions', async () => {
+    const { from, executor } = fixture(dialect)
+    const longName = 'x'.repeat(80)
+
+    const a = from(A).select((e) => [
+      e.as(A.id, 'x'),
+      e.as(A.text, 'X'),
+      e.as(A.email, '__STRATOM_C0'),
+      e.as(A.id, longName),
+    ])
+
+    const query = a.unionAll(a).orderBy('X')
+    expect(query.compile().sql).toContain('order by "__stratom_c1" asc')
+
+    executor.execute.mockResolvedValue([
+      { x: 1, __stratom_c1: 'text', __STRATOM_C0: 'email', __stratom_c2: 1 },
+    ])
+
+    expect(await query.execute()).toEqual([
+      { x: 1, X: 'text', __STRATOM_C0: 'email', [longName]: 1 },
+    ])
+  })
+
   it('should preserve operand clauses, nested trees, bindings and immutable snapshots', () => {
     const { from, executor } = fixture(dialect)
 
@@ -274,7 +297,13 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
     expect(await query.executeTakeFirst()).toBeUndefined()
     await expect(query.executeTakeFirstOrThrow()).rejects.toThrow(/No rows/)
 
-    for (const count of [-1, 1.5, NaN, Infinity]) {
+    for (const count of [
+      -1,
+      1.5,
+      NaN,
+      Infinity,
+      ...(dialect === sqliteDialect ? [Number.MAX_SAFE_INTEGER + 1] : []),
+    ]) {
       expect(() => query.limit(count).compile()).toThrow(QueryError)
       expect(() => query.offset(count).compile()).toThrow(QueryError)
     }

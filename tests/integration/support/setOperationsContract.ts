@@ -216,6 +216,17 @@ async function assertNativeTransactions(db: Db) {
 
 /** Distinct operators compare complete rows, including the second selected output. */
 async function assertDistinctRows(db: Db) {
+  const caseOutputs = db
+    .from(SetLeft)
+    .select((e) => [e.as(SetLeft.id, 'x'), e.as(SetLeft.value, 'X')])
+
+  const first = caseOutputs.where(SetLeft.id, 'eq', 1)
+  const fourth = caseOutputs.where(SetLeft.id, 'eq', 4)
+  expect(await first.unionAll(fourth).orderBy('X', 'desc').execute()).toEqual([
+    { x: 4, X: 2 },
+    { x: 1, X: 1 },
+  ])
+
   await db
     .update(SetRight)
     .set({ label: 'different' })

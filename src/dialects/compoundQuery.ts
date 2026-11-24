@@ -34,8 +34,13 @@ export function compileCompoundSelect(
 
     if (count === undefined) continue
 
-    if (!Number.isInteger(count) || count < 0)
-      throw new QueryError({ message: `${clause} must be a non-negative integer` })
+    if (
+      !(dialect === 'sqlite' ? Number.isSafeInteger(count) : Number.isInteger(count)) ||
+      count < 0
+    )
+      throw new QueryError({
+        message: `${clause} must be a non-negative ${dialect === 'sqlite' ? 'safe integer' : 'integer'}`,
+      })
 
     if (dialect === 'sqlite' && clause === 'offset' && node.limit === undefined)
       sql += ' limit -1'

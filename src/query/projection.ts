@@ -40,12 +40,16 @@ function outputAliases(names: readonly string[], discard = false): OutputName[] 
     })
   }
 
+  const folded = names.map((name) => name.replace(/[A-Z]/g, (char) => char.toLowerCase()))
+  const reservedSqlNames = new Set(folded)
+  const emitted = new Set<string>()
   let sequence = 0
-  return names.map((outputName) => {
+  return names.map((outputName, index) => {
     let sqlName = outputName
     const encoded = new TextEncoder().encode(outputName)
 
     if (
+      emitted.has(folded[index]) ||
       outputName.length === 0 ||
       encoded.length > 63 ||
       outputName.includes('\0') ||
@@ -53,11 +57,12 @@ function outputAliases(names: readonly string[], discard = false): OutputName[] 
     ) {
       do {
         sqlName = `__stratom_c${sequence++}`
-      } while (reserved.has(sqlName))
+      } while (reservedSqlNames.has(sqlName))
 
-      reserved.add(sqlName)
+      reservedSqlNames.add(sqlName)
     }
 
+    emitted.add(sqlName === outputName ? folded[index] : sqlName)
     return { sqlName, outputName }
   })
 }

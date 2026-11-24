@@ -418,10 +418,20 @@ function compoundResultContract(
       message: 'Set output has no known non-null result representation',
     })
 
+  const authoredFacts = context?.authoredFacts ?? facts
+
+  if (
+    facts.outputKind === 'json' &&
+    [facts, authoredFacts].some((output) => !output.jsonOutputFingerprint)
+  )
+    throw new QueryError({
+      message: 'Set JSON output has no proven structural result representation',
+    })
+
   return JSON.stringify({
     type: dataType.trim().toLowerCase().replace(/\s+/g, ' '),
     target: resultFacts(facts),
-    authored: resultFacts(context?.authoredFacts ?? facts),
+    authored: resultFacts(authoredFacts),
   })
 }
 
@@ -438,6 +448,7 @@ function resultFacts(facts: StorageFacts) {
     },
     json: facts.jsonShape,
     jsonCompatible: facts.jsonOutputCompatible,
+    jsonOutput: facts.jsonOutputFingerprint,
     finite: facts.finiteValues
       ?.filter((value) => value !== null)
       .map(

@@ -2,6 +2,8 @@ import type { StorageFacts, StorageOutputKind } from '@/storage/facts'
 import type { NumberConstraints, StringConstraints } from '@/types/constraints'
 import type { AnySchema } from '@/types/schema'
 
+import { jsonOutputFingerprint } from './jsonOutput'
+
 /** The Valibot wrappers whose runtime semantics affect a column. */
 const WRAPPER_TYPES = new Set([
   'optional',
@@ -1120,6 +1122,8 @@ export function extractStorageFacts(schema: AnySchema): StorageFacts {
   const result = analyzeNode(schema)
   return Object.freeze({
     ...result,
+    jsonOutputFingerprint:
+      result.outputKind === 'json' ? jsonOutputFingerprint(schema) : undefined,
     defaultJsonShape:
       result.outputKind === 'json' ? (result.defaultJsonShape ?? 'object') : undefined,
     finiteValues: result.finiteValues && Object.freeze(result.finiteValues),
