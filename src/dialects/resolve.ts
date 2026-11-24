@@ -7,7 +7,7 @@ import { sqliteDialect } from './sqlite'
 import type { Dialect } from './types'
 
 /** Complete production dialect members used to construct the resolver registry. */
-const productionDialects: readonly Dialect[] = Object.freeze([
+const productionDialects: readonly Dialect[] = /* @__PURE__ */ Object.freeze([
   postgresDialect,
   sqliteDialect,
 ])
@@ -19,7 +19,12 @@ function createDialectRegistry(dialects: readonly Dialect[]): Map<string, Dialec
   return registry
 }
 
-const DIALECTS = createDialectRegistry(productionDialects)
+let dialects: Map<string, Dialect> | undefined
+
+/** Builds the shared registry only when a server resolves a dialect. */
+function getDialects(): Map<string, Dialect> {
+  return (dialects ??= createDialectRegistry(productionDialects))
+}
 
 /**
  * Registers an isolated contract-test dialect and returns exact cleanup.
@@ -28,10 +33,11 @@ const DIALECTS = createDialectRegistry(productionDialects)
  * remains the static registration above.
  */
 function registerDialectForTest(dialect: Dialect): () => void {
-  insertDialect(DIALECTS, dialect)
+  const registry = getDialects()
+  insertDialect(registry, dialect)
 
   return () => {
-    if (DIALECTS.get(dialect.id) === dialect) DIALECTS.delete(dialect.id)
+    if (registry.get(dialect.id) === dialect) registry.delete(dialect.id)
   }
 }
 
@@ -66,11 +72,12 @@ function insertDialect(registry: Map<string, Dialect>, dialect: Dialect): void {
  * @throws SchemaError - When the connector dialect is not supported
  */
 function resolveDialect(id: SQLDialect): Dialect {
-  const dialect = DIALECTS.get(id)
+  const registry = getDialects()
+  const dialect = registry.get(id)
 
   if (!dialect) {
     throw new SchemaError({
-      message: `unsupported connector dialect "${id}"; supported: ${[...DIALECTS.keys()].sort().join(', ')}`,
+      message: `unsupported connector dialect "${id}"; supported: ${[...registry.keys()].sort().join(', ')}`,
     })
   }
 

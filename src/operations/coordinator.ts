@@ -30,7 +30,12 @@ type OperationFrame = {
   readonly parent: OperationFrame | undefined
 }
 
-const activeOperation = new AsyncLocalStorage<OperationFrame>()
+let activeOperation: AsyncLocalStorage<OperationFrame> | undefined
+
+/** Creates the shared async context only when server operations need it. */
+function getActiveOperation(): AsyncLocalStorage<OperationFrame> {
+  return (activeOperation ??= new AsyncLocalStorage<OperationFrame>())
+}
 
 /** Reads session cleanup causes from the failure itself. */
 function getOperationReleaseCleanupFailures(cause: unknown): readonly unknown[] {
@@ -266,7 +271,7 @@ class OperationCoordinator {
    *   const token = coordinator.currentToken()
    */
   currentToken(): OperationToken | undefined {
-    let frame = activeOperation.getStore()
+    let frame = getActiveOperation().getStore()
 
     while (frame) {
       if (this.isActiveToken(frame.token)) return frame.token
@@ -303,7 +308,7 @@ class OperationCoordinator {
     }
 
     const previous = this.tail
-    const parent = activeOperation.getStore()
+    const parent = getActiveOperation().getStore()
     let finish!: () => void
     this.tail = new Promise<void>((resolve) => {
       finish = resolve
@@ -340,7 +345,7 @@ class OperationCoordinator {
    */
   private async runSession<T>(
     previous: Promise<void>,
-    parent: ReturnType<typeof activeOperation.getStore>,
+    parent: OperationFrame | undefined,
     operation: (context: OperationContext) => Promise<T>,
     tracing?: QueryTracing,
   ): Promise<T> {
@@ -391,7 +396,7 @@ class OperationCoordinator {
   private async performOperation<T>(
     state: OperationState<T>,
     previous: Promise<void>,
-    parent: ReturnType<typeof activeOperation.getStore>,
+    parent: OperationFrame | undefined,
     operation: (context: OperationContext) => Promise<T>,
     tracing?: QueryTracing,
   ): Promise<void> {
@@ -413,7 +418,7 @@ class OperationCoordinator {
       },
     }
 
-    state.result = await activeOperation
+    state.result = await getActiveOperation()
       .run({ token, parent }, () =>
         operation({
           executor,

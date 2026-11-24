@@ -75,7 +75,12 @@ type TransactionScopeFrame = {
   readonly parent: TransactionScopeFrame | undefined
 }
 
-const activeTransactionScope = new AsyncLocalStorage<TransactionScopeFrame>()
+let activeTransactionScope: AsyncLocalStorage<TransactionScopeFrame> | undefined
+
+/** Creates the shared async context only when server operations need it. */
+function getActiveTransactionScope(): AsyncLocalStorage<TransactionScopeFrame> {
+  return (activeTransactionScope ??= new AsyncLocalStorage<TransactionScopeFrame>())
+}
 
 /**
  * Checks whether one transaction scope is nested beneath another.
@@ -363,7 +368,7 @@ async function runRootTransactionCallback<T>(
   fn: (scope: TransactionScope) => Promise<T>,
 ): Promise<T> {
   const callback = await attempt(() =>
-    activeTransactionScope.run({ scope, parent: inheritedTransactionFrame }, () =>
+    getActiveTransactionScope().run({ scope, parent: inheritedTransactionFrame }, () =>
       fn(scope),
     ),
   )
@@ -451,7 +456,7 @@ async function runNestedTransactionCallback<T>(
   let result: T | undefined
 
   try {
-    result = await activeTransactionScope.run(
+    result = await getActiveTransactionScope().run(
       { scope: nestedScope, parent: inheritedTransactionFrame },
       () => fn(nestedScope),
     )
@@ -1084,7 +1089,7 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
   }
 
   const resolvedOptions = resolveTransactionOptions(options)
-  const inheritedTransactionFrame = activeTransactionScope.getStore()
+  const inheritedTransactionFrame = getActiveTransactionScope().getStore()
 
   if (!transactionScope) {
     return runRootTransaction(
@@ -1509,7 +1514,7 @@ function createMigrationRunner(
  * @returns An error describing access outside the owning transaction scope.
  */
 function transactionScopeOwnershipError(scope: TransactionScope): QueryError | undefined {
-  let frame = activeTransactionScope.getStore()
+  let frame = getActiveTransactionScope().getStore()
   while (frame) {
     if (
       frame.scope.active &&
