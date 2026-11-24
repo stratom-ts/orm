@@ -24,7 +24,7 @@ import { postgresSchema } from './schema'
  *     selection: [{ kind: 'all' }],
  *   })
  */
-export const postgresDialect = defineDialect({
+export const postgresDialect = /* @__PURE__ */ defineDialect({
   id: 'postgresql',
   classifyDriverError: postgresClassifyDriverError,
   identity: postgresIdentity,

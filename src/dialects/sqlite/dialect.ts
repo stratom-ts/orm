@@ -10,7 +10,7 @@ import { sqliteQuery } from './query'
 import { sqliteSchema } from './schema'
 
 /** Complete SQLite >=3.37 member for the exact db0 0.4.0 node-sqlite connector. */
-export const sqliteDialect = defineDialect({
+export const sqliteDialect = /* @__PURE__ */ defineDialect({
   id: 'sqlite',
   classifyDriverError: sqliteClassifyDriverError,
   identity: sqliteIdentity,
