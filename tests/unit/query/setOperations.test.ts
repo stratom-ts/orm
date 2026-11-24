@@ -8,9 +8,12 @@ import {
   isoTime,
   isoTimeSecond,
   literal,
+  maxValue,
+  minValue,
   nullable,
   number,
   object,
+  picklist,
   pipe,
   string,
   transform,
@@ -465,4 +468,57 @@ it('should order nested scalar predicate bindings before branch and compound pag
 
   const b = from(B).select([B.id]).where(B.id, 'eq', 8).offset(3)
   expect(a.unionAll(b).limit(4).compile().params).toEqual([7, 1, 2, 8, 3, 4])
+})
+
+it('should accept equivalent finite choices and numeric constraints in either authoring order', () => {
+  const One = defineTable(
+    'set_choices_one',
+    { value: picklist(['first', 'second']) },
+    { primaryKey: 'value' },
+  )
+
+  const Two = defineTable(
+    'set_choices_two',
+    { value: picklist(['second', 'first']) },
+    { primaryKey: 'value' },
+  )
+
+  const MinMax = defineTable(
+    'set_min_max',
+    { value: pipe(number(), minValue(0), maxValue(10)) },
+    { primaryKey: 'value' },
+  )
+
+  const MaxMin = defineTable(
+    'set_max_min',
+    { value: pipe(number(), maxValue(10), minValue(0)) },
+    { primaryKey: 'value' },
+  )
+
+  const Literal = defineTable(
+    'set_nullable_literal',
+    { id: number(), value: literal('first') },
+    { primaryKey: 'id' },
+  )
+
+  const Nullable = defineTable(
+    'set_nullable_choice',
+    { id: number(), value: nullable(literal('first')) },
+    { primaryKey: 'id' },
+  )
+
+  const handles = [One, Two, MinMax, MaxMin, Literal, Nullable]
+  for (const dialect of [postgresDialect, sqliteDialect]) {
+    const query = dialect.query.resolve(handles)
+    const mapper = createValueMapper(dialect, undefined, handles, query)
+    const executor = { execute: async () => [], run: async () => 0 }
+    const from = <H extends TableHandle>(handle: H) =>
+      createTableBuilder({ handle, dialect, query, mapper, executor })
+
+    expect(() => from(One).union(from(Two)).compile()).not.toThrow()
+    expect(() => from(Two).union(from(One)).compile()).not.toThrow()
+    expect(() => from(MinMax).union(from(MaxMin)).compile()).not.toThrow()
+    expect(() => from(Literal).union(from(Nullable)).compile()).not.toThrow()
+    expect(() => from(Nullable).union(from(Literal)).compile()).not.toThrow()
+  }
 })

@@ -430,12 +430,21 @@ function resultFacts(facts: StorageFacts) {
   return {
     kind: facts.outputKind,
     formats: [...facts.stringFormats].sort(),
-    numbers: facts.numberConstraints,
+    numbers: {
+      minValue: facts.numberConstraints.minValue,
+      maxValue: facts.numberConstraints.maxValue,
+      isInteger: facts.numberConstraints.isInteger,
+      isSafeInteger: facts.numberConstraints.isSafeInteger,
+    },
     json: facts.jsonShape,
     jsonCompatible: facts.jsonOutputCompatible,
-    finite: facts.finiteValues?.map((value) =>
-      typeof value === 'bigint' ? `${value}n` : value,
-    ),
+    finite: facts.finiteValues
+      ?.filter((value) => value !== null)
+      .map(
+        (value) =>
+          `${typeof value}:${typeof value === 'bigint' ? value.toString() : JSON.stringify(value)}`,
+      )
+      .sort(),
   }
 }
 
