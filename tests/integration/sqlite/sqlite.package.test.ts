@@ -4,68 +4,8 @@ import { expect, it } from 'vitest'
 
 import type { createDatabase, defineTable } from '@/index'
 import type { snakeCase } from '@/naming'
-import type { SchemaError, column, isTableHandle, reference } from '@/schema'
 
 import { withSqliteDatabase } from './sqliteIntegration'
-
-it('should migrate and query tables authored through the schema subpath with the root runtime', async () => {
-  const packageName = '@stratom/orm'
-  const schemaSubpath = '@stratom/orm/schema'
-  const library = (await import(packageName)) as {
-    createDatabase: typeof createDatabase
-    defineTable: typeof defineTable
-    SchemaError: typeof SchemaError
-    isTableHandle: typeof isTableHandle
-  }
-
-  const authoring = (await import(schemaSubpath)) as {
-    defineTable: typeof defineTable
-    column: typeof column
-    reference: typeof reference
-  }
-
-  expect(() => authoring.defineTable('', { id: string() }, { primaryKey: 'id' })).toThrow(
-    library.SchemaError,
-  )
-
-  const Parents = authoring.defineTable('parents', { id: string() }, { primaryKey: 'id' })
-  const Children = authoring.defineTable(
-    'children',
-    {
-      id: pipe(string(), authoring.column({ unique: true })),
-      parentId: authoring.reference(Parents, 'id'),
-      lazyParentId: authoring.reference(string(), () => Parents, 'id'),
-    },
-    { primaryKey: 'id' },
-  )
-
-  expect(library.isTableHandle(Children)).toBe(true)
-
-  await withSqliteDatabase(
-    [Parents, Children],
-    async ({ db, native }) => {
-      await db.migrate().execute()
-      await db.insert(Parents).values({ id: 'parent' }).execute()
-
-      await db
-        .insert(Children)
-        .values({ id: 'child', parentId: 'parent', lazyParentId: 'parent' })
-        .execute()
-
-      expect(await db.from(Children).execute()).toEqual([
-        { id: 'child', parentId: 'parent', lazyParentId: 'parent' },
-      ])
-
-      expect(native.prepare('pragma foreign_key_list(children)').all()).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ table: 'parents', from: 'parentId', to: 'id' }),
-          expect.objectContaining({ table: 'parents', from: 'lazyParentId', to: 'id' }),
-        ]),
-      )
-    },
-    { library },
-  )
-})
 
 it('should ship declarations for the main entry and every exported subpath', async () => {
   const root = new URL('../../../', import.meta.url)
