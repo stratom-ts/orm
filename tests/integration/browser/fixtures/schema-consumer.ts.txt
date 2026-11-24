@@ -1,0 +1,26 @@
+import { createDatabase, type TableHandle } from '@stratom/orm'
+import { TABLE_HANDLE, column, defineTable, reference, type InferSelect } from '@stratom/orm/schema'
+import nodeSqliteConnector from 'db0/connectors/node-sqlite'
+import { pipe, string } from 'valibot'
+
+const Parents = defineTable('parents', { id: string() }, { primaryKey: 'id' })
+const Children = defineTable('children', {
+  id: pipe(string(), column({ unique: true })),
+  parentId: reference(Parents, 'id'),
+  lazyId: reference(string(), () => Parents, 'id'),
+}, { primaryKey: 'id' })
+
+const handle: TableHandle = Children
+const brand: true = Children[TABLE_HANDLE]
+const columnValue: string = Children.id.__type
+const selected: InferSelect<typeof Children> = { id: 'child', parentId: 'parent', lazyId: 'parent' }
+// @ts-expect-error Column inference must retain the string type.
+const wrongColumn: number = Children.id.__type
+
+const db = createDatabase({ connector: nodeSqliteConnector({ name: ':memory:' }), schemas: [Parents, Children] })
+const rows = await db.from(Children).select([Children.id]).execute()
+const row: { id: string } | undefined = rows[0]
+// @ts-expect-error Selecting only id must not expose parentId.
+rows[0]?.parentId
+
+void [handle, brand, columnValue, selected, wrongColumn, row]
