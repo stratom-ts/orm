@@ -1,6 +1,6 @@
 {
   "name": "@stratom/orm",
-  "version": "0.0.1-pre-alpha.1",
+  "version": "0.0.1-pre-alpha.2",
   "description": "A schema-first ORM with Valibot schemas, desired-state migrations, and typed PostgreSQL and SQLite queries.",
   "homepage": "https://github.com/stratom-ts/orm#readme",
   "bugs": "https://github.com/stratom-ts/orm/issues",
@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/stratom.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
     },
     "./naming": {
       "types": "./dist/naming.d.ts",

@@ -117,6 +117,30 @@ const user = await db
 await db.close()
 ```
 
+## Shared schemas in browser code
+
+Use `@stratom/orm/schema` in modules shared by the browser and server. This entry
+exports table and column authoring helpers, reference helpers (including lazy
+references), schema utilities, authoring types, and `SchemaError`. It has no Node
+runtime dependencies. Keep database connections, queries, and migrations in server
+modules that import `@stratom/orm`.
+
+```typescript
+// shared-schema.ts
+import { defineTable } from '@stratom/orm/schema'
+import { object, pick, string } from 'valibot'
+
+export const userSchema = object({ id: string(), name: string() })
+export const formSchema = pick(userSchema, ['name'])
+export const Users = defineTable('users', userSchema, { primaryKey: 'id' })
+```
+
+Browser code can import `formSchema` from this module. Server code registers `Users`
+with `createDatabase` from `@stratom/orm`. Both entries use the same table handles
+and authoring implementations. Existing root imports remain supported on the server.
+Use `/schema` for the supported browser authoring path, even when the browser consumes
+only a derived Valibot validator from the shared module.
+
 ## Defining tables
 
 `defineTable(name, columns, options)` builds a table handle from a table name, a
