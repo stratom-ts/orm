@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11
+      - name: Validate release metadata
+        id: package
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { appendFileSync, readFileSync } from 'node:fs'
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+          assert.equal(pkg.name, '@stratom/orm')
+          assert.match(pkg.version, /^0\.0\.1-pre-alpha\.(0|[1-9]\d*)$/)
+          appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${pkg.version}\n`)
+          NODE
+      - name: Check release tag is unused
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            echo 'The release tag already exists. Use a new package version.' >&2
+            exit 1
+          fi
+        env:
+          RELEASE_TAG: ${{ steps.package.outputs.tag }}
+      - name: Pack release
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+      - name: Publish to npm
+        run: npm publish "$RUNNER_TEMP"/stratom-orm-*.tgz --access public --tag pre-alpha --provenance
+      - name: Create GitHub prerelease
+        run: |
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/stratom-orm-*.tgz \
+            --target "$GITHUB_SHA" --title "$RELEASE_TAG" \
+            --prerelease --latest=false --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.package.outputs.tag }}

@@ -109,7 +109,7 @@ and composite branches. It does not choose physical storage. The member-owned
 the corresponding `mapping.ts` files map query parameters and results while preserving
 the proven JavaScript output. `postgresDialect.schema.inferColumnType()` and
 `sqliteDialect.schema.inferColumnType()` are the direct inference entry points. The
-public package exports both complete dialect constants from `stratom`; it does not
+public package exports both complete dialect constants from `@stratom/orm`; it does not
 export the implementation helpers. Keep `schema.ts` as the facet assembly point and
 `lowerDesiredSchema.ts` as each member's desired-graph lowering owner. The README
 inference reference and the PostgreSQL and SQLite production profiles below describe

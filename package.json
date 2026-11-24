@@ -1,7 +1,14 @@
 {
-  "name": "stratom",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@stratom/orm",
+  "version": "0.0.1-pre-alpha.0",
+  "description": "A schema-first ORM with Valibot schemas, desired-state migrations, and typed PostgreSQL and SQLite queries.",
+  "homepage": "https://github.com/stratom-ts/orm#readme",
+  "bugs": "https://github.com/stratom-ts/orm/issues",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stratom-ts/orm.git"
+  },
   "files": [
     "dist"
   ],
@@ -17,8 +24,14 @@
       "default": "./dist/naming.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "pre-alpha"
+  },
   "scripts": {
     "build": "vite build",
+    "prepack": "pnpm build",
     "dev": "vite",
     "test": "pnpm test:unit && pnpm test:integration",
     "test:unit": "vitest run --config vitest.unit.config.ts",

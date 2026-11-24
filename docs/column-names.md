@@ -94,8 +94,8 @@ reconciliation retains the add/drop behavior described above. See the public
 Use `naming.columns` to set a physical name for each column without an explicit name:
 
 ```ts
-import { createDatabase, column, defineTable } from 'stratom'
-import { snakeCase } from 'stratom/naming'
+import { createDatabase, column, defineTable } from '@stratom/orm'
+import { snakeCase } from '@stratom/orm/naming'
 
 const User = defineTable(
   'users',
@@ -172,7 +172,7 @@ It keeps existing underscores and does not use locale-dependent case conversion.
 Applying the function again to its output leaves the result unchanged. Acronym detection
 has limits: use `column({ name: 'user_ids' })` for `userIDs`. The output is a public storage
 contract. Changing this output requires a semver-major release. The function is available
-only from `stratom/naming`, so applications that do not import it do not bundle it.
+only from `@stratom/orm/naming`, so applications that do not import it do not bundle it.
 
 Enabling, disabling or changing a function can change physical names. This is desired
 storage change, with the same ownership and destructive-operation rules described above.

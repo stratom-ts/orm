@@ -1,4 +1,4 @@
-# stratom
+# @stratom/orm
 
 A schema-first ORM with dialect-neutral authoring and PostgreSQL and SQLite lowering:
 [Valibot](https://valibot.dev/) schemas, desired-state migrations, and a typed
@@ -20,11 +20,13 @@ query output rules, and migration behavior.
 ## Installation
 
 ```bash
-pnpm add stratom valibot db0
+pnpm add @stratom/orm@pre-alpha valibot db0
 # plus the driver required by your connector (e.g. pg for PostgreSQL)
 ```
 
 Stratom is ESM only and requires Node >=22.5.
+
+This pre-alpha release is experimental. APIs can change between releases.
 
 ## Test profiles
 
@@ -42,7 +44,7 @@ on Node 24 before switching to the minimum runtime and running Vitest directly:
 NODE_OPTIONS=--experimental-sqlite node node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts tests/integration/sqlite
 ```
 
-The integration and coverage Vitest configurations build `stratom` once before
+The integration and coverage Vitest configurations build `@stratom/orm` once before
 their workers run. Each native profile, including a direct Vitest invocation,
 imports that fresh build in its package smoke test. The unit profile does not
 build the package.
@@ -81,8 +83,8 @@ SQLite integration job needs the experimental flag on the minimum runtime.
 ## Quick start
 
 ```typescript
+import { createDatabase, defineTable, column } from '@stratom/orm'
 import postgresql from 'db0/connectors/postgresql'
-import { createDatabase, defineTable, column } from 'stratom'
 import { boolean, number, pipe, string } from 'valibot'
 
 const User = defineTable(
@@ -190,7 +192,7 @@ PostgreSQL and SQLite use their own type and mapping rules, including length and
 range refinements. This example shows PostgreSQL storage:
 
 ```typescript
-import { defineTable } from 'stratom'
+import { defineTable } from '@stratom/orm'
 import {
   boolean,
   date,
@@ -415,8 +417,8 @@ family, and update compatible bounds. Later validations apply to the clamped out
 This PostgreSQL example accepts a string on insert and returns a number on select:
 
 ```typescript
+import { createDatabase, defineTable } from '@stratom/orm'
 import postgresql from 'db0/connectors/postgresql'
-import { createDatabase, defineTable } from 'stratom'
 import { number, pipe, string, toNumber } from 'valibot'
 
 const Count = defineTable(
@@ -615,7 +617,7 @@ target first, so the reference inherits that target's selected-adapter physical
 type without copying a PostgreSQL type:
 
 ```typescript
-import { reference } from 'stratom'
+import { reference } from '@stratom/orm'
 
 const Post = defineTable(
   'posts',
@@ -631,7 +633,7 @@ const Post = defineTable(
 For circular declarations, pass a local Valibot schema and a deferred target:
 
 ```typescript
-import type { ReferenceTarget } from 'stratom'
+import type { ReferenceTarget } from '@stratom/orm'
 
 const idColumns = { id: string() }
 type IdTarget = ReferenceTarget<typeof idColumns>
@@ -716,7 +718,7 @@ bypasses inference. Both forms preserve outer-join nullability and flat results.
 SQLite still rejects right joins.
 
 ```typescript
-import { countAll, eq, gt, sum } from 'stratom'
+import { countAll, eq, gt, sum } from '@stratom/orm'
 
 const withAuthors = await db
   .from(Post)
@@ -774,7 +776,7 @@ right joins, grouping, and row pagination such as `limit` and `after`.
 ### Inserting, updating, deleting
 
 ```typescript
-import { excluded } from 'stratom'
+import { excluded } from '@stratom/orm'
 
 // bulk insert (returns all inserted rows by default)
 await db
@@ -895,7 +897,7 @@ write-builder full-table checks, or Migration Plan destructive-change policy.
 Use `add` in an update patch to allocate a project-local number atomically:
 
 ```ts
-import { add } from 'stratom'
+import { add } from '@stratom/orm'
 
 await db.transaction(async (tx) => {
   const project = await tx
@@ -1197,7 +1199,7 @@ to inspect the full union. Both guards work when two copies of Stratom are loade
 These examples use the live `db` and `User` from the quick start:
 
 ```typescript
-import { isErrorTag } from 'stratom'
+import { isErrorTag } from '@stratom/orm'
 import { flatten, getDotPath } from 'valibot'
 
 // A missing row can become a 404 without confusing it with another query failure.
@@ -1277,9 +1279,9 @@ literals or sensitive identifiers.
 Wrap a client to trace physical SQL attempts using Node diagnostics channels:
 
 ```ts
+import { createDatabase, withTracing, QUERY_CHANNEL } from '@stratom/orm'
+import type { QueryEvent } from '@stratom/orm'
 import { tracingChannel } from 'node:diagnostics_channel'
-import { createDatabase, withTracing, QUERY_CHANNEL } from 'stratom'
-import type { QueryEvent } from 'stratom'
 
 const original = createDatabase({ connector, schemas: [User] })
 const db = withTracing(original)
@@ -1369,7 +1371,7 @@ expression-builder methods. Subqueries are reusable select builders; compiled SQ
 snapshots are not accepted. Compilation executes no SQL.
 
 ```typescript
-import { alias, exists, inQuery, outer, scalar } from 'stratom'
+import { alias, exists, inQuery, outer, scalar } from '@stratom/orm'
 
 const titles = db
   .from(Posts)

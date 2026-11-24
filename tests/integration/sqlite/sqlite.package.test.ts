@@ -26,7 +26,7 @@ it('should ship declarations for the main entry and every exported subpath', asy
 
 it('should create a table and round-trip a row through the built package', async () => {
   // A variable specifier keeps typecheck independent of a prior build.
-  const packageName = 'stratom'
+  const packageName = '@stratom/orm'
   const library = (await import(packageName)) as {
     createDatabase: typeof createDatabase
     defineTable: typeof defineTable
@@ -53,8 +53,8 @@ it('should create a table and round-trip a row through the built package', async
 })
 
 it('should expose snakeCase only through the naming subpath and use it from the built package', async () => {
-  const packageName = 'stratom'
-  const namingSubpath = 'stratom/naming'
+  const packageName = '@stratom/orm'
+  const namingSubpath = '@stratom/orm/naming'
   const library = (await import(packageName)) as {
     createDatabase: typeof createDatabase
     defineTable: typeof defineTable
