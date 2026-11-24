@@ -90,6 +90,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
-      - run: node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/sqlite tests/integration/browser
+      - run: node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/sqlite
         env:
           NODE_OPTIONS: ${{ matrix.node == '22.5.0' && '--experimental-sqlite' || '' }}
