@@ -153,6 +153,7 @@ class SelectProjection {
   readonly outputs: OutputName[]
   readonly resultNames: OutputName[]
   readonly source: ResultColumn | undefined
+  readonly sources: readonly (ResultColumn | undefined)[]
   private readonly columns = new Map<string, ResultColumn>()
 
   /**
@@ -196,6 +197,7 @@ class SelectProjection {
           ),
     )
 
+    this.sources = sources
     this.source = sources[0]
 
     for (const [index, source] of sources.entries()) {
@@ -231,7 +233,7 @@ class SelectProjection {
           const source = this.columns.get(key)
           return [
             key,
-            source && !(source.scalar && value === null)
+            source && !((source.scalar || this.node.compound) && value === null)
               ? mapper.mapResultValue(baseTable(source.handle), source.column, value)
               : value,
           ]

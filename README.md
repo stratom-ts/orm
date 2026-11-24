@@ -1457,3 +1457,5 @@ one deterministic row is required.
 ## License
 
 MIT
+
+See [SQL set operations](docs/set-operations.md) for typed UNION, INTERSECT, and EXCEPT queries.

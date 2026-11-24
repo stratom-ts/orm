@@ -36,6 +36,7 @@ export type {
   InsertConflictBuilder,
   InsertValuesBuilder,
   QueryBuilder,
+  CompoundSelectBuilder,
   SelectBuilder,
   UpdateBuilder,
   UpdateSetBuilder,

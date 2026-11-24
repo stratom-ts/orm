@@ -2,6 +2,7 @@ import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIde
 import type { RelationIdentityInput } from '@/schemas'
 import { InvariantError, QueryError } from '@/utils/error'
 
+import { compileCompoundSelect } from '../compoundQuery'
 import type {
   ComparisonOp,
   CompiledQuery,
@@ -623,6 +624,14 @@ function compileSelect(
   resolveRelation: PostgresQueryRelationResolver,
   params: unknown[] = [],
 ): CompiledQuery {
+  if (node.compound)
+    return compileCompoundSelect(
+      node,
+      (operand) => compileSelect(operand, resolveRelation, params).sql,
+      params,
+      'postgresql',
+    )
+
   const tableSql = qualifyPostgresQueryRelation(node.relation, resolveRelation)
   const relations = createRelationContext(
     [node.relation, ...(node.joins ?? []).map((join) => join.relation)],
@@ -1151,6 +1160,14 @@ function guardSelectSession(
   node: SelectAst,
   resolveRelation: PostgresQueryRelationResolver,
 ): CompiledQuery {
+  if (node.compound) {
+    return guardSelectSession(
+      guardSelectSession(compiled, node.compound.left, resolveRelation),
+      node.compound.right,
+      resolveRelation,
+    )
+  }
+
   let guarded = guardQuerySession(
     compiled,
     [node.relation, ...(node.joins ?? []).map((join) => join.relation)],

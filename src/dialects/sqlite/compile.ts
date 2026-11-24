@@ -2,6 +2,7 @@ import type { NamespaceIdentifierInput } from '@/migrations/canonicalRelationIde
 import type { RelationIdentityInput } from '@/schemas'
 import { InvariantError, QueryError } from '@/utils/error'
 
+import { compileCompoundSelect } from '../compoundQuery'
 import type {
   ComparisonOp,
   CompiledQuery,
@@ -553,6 +554,14 @@ function compileSelect(
   resolveRelation: SqliteQueryRelationResolver,
   params: unknown[] = [],
 ): CompiledQuery {
+  if (node.compound)
+    return compileCompoundSelect(
+      node,
+      (operand) => compileSelect(operand, resolveRelation, params).sql,
+      params,
+      'sqlite',
+    )
+
   if (!Array.isArray(node.selection)) {
     throw new InvariantError('select items must be an array')
   }
