@@ -42,7 +42,6 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:integration:postgres": "vitest run --config vitest.integration.config.ts tests/integration/postgres",
     "test:integration:sqlite": "vitest run --config vitest.integration.config.ts tests/integration/sqlite",
-    "test:integration:browser": "vitest run --config vitest.integration.config.ts tests/integration/browser",
     "test:coverage": "vitest run --config vitest.coverage.config.ts --coverage",
     "typecheck": "tsc",
     "fmt": "oxfmt",

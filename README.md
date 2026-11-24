@@ -34,10 +34,6 @@ This pre-alpha release is experimental. APIs can change between releases.
 and injected-failure scenarios for both dialects. It opens no native database and
 needs no database service or experimental SQLite flag.
 
-`pnpm test:integration:browser` builds the package and checks browser schema consumption
-in Vite production and development modes. It checks dependency resolution, warnings,
-and validation without Node globals. It needs no database service.
-
 `pnpm test:integration:sqlite` runs native SQLite connector, query, migration,
 physical lifecycle, database-file, and writer-lock scenarios. It needs Node >=22.5
 and SQLite >=3.37, with no external service. Node 22.5 through 22.12 requires
@@ -76,10 +72,10 @@ docker compose down -v
 ```
 
 On PowerShell, use `Copy-Item .env.example .env` for the first command.
-`pnpm test:integration` runs the browser and both native profiles; `pnpm test` runs units followed
-by these integration profiles. These aggregate commands require both native profiles'
+`pnpm test:integration` runs both native profiles; `pnpm test` runs units followed
+by both native profiles. These aggregate commands require both profiles' native
 prerequisites and fail with a setup message when PostgreSQL is unavailable.
-`pnpm test:coverage` measures units, browser checks, and both native profiles in one report, with
+`pnpm test:coverage` measures units and both native profiles in one report, with
 the same native prerequisites as `pnpm test`. CI runs units and both native
 profiles on Node 24 and the minimum supported Node 22.5.0; only the
 SQLite integration job needs the experimental flag on the minimum runtime.
