@@ -116,6 +116,6 @@ it('should allocate unique numbers through overlapping independent worker client
 /** Starts an independent native client sharing the fixture database file. */
 function startAllocator(path: string, hold: boolean): Worker {
   return new Worker(new URL('./arithmeticWorker.mjs', import.meta.url), {
-    workerData: { path, library: import.meta.resolve('stratom'), hold },
+    workerData: { path, library: import.meta.resolve('@stratom/orm'), hold },
   })
 }

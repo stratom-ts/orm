@@ -75,7 +75,7 @@ it('should acquire write ownership before authorization reads and chain a compet
       try {
         await waitForRead(readGate.promise, first, 'first edit')
         worker = new Worker(new URL('./serializableWorker.mjs', import.meta.url), {
-          workerData: { path: filePath!, library: import.meta.resolve('stratom') },
+          workerData: { path: filePath!, library: import.meta.resolve('@stratom/orm') },
         })
 
         expect(
