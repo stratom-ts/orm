@@ -32,6 +32,9 @@ and add a GitHub Actions trusted publisher with these values:
 | Workflow filename    | `release.yml` |
 | Environment          | Leave empty   |
 
+Under allowed actions, enable direct publishing with `npm publish`.
+New trusted publishers otherwise allow only staged publishing.
+
 The action uses GitHub OIDC credentials. It needs no npm token in GitHub secrets.
 Run the next release within npm's two-day activation window for a new trusted
 publisher configuration.
