@@ -147,6 +147,13 @@ it('should reject opaque nested JSON transformations without invoking them', () 
   expect(convert).not.toHaveBeenCalled()
 })
 
+it('should ignore top-level write omission for nullable JSON columns', () => {
+  const schema = () => object({ value: string() })
+  expect(() =>
+    fixture(postgresDialect, schema(), optional(nullable(schema()))).compound.compile(),
+  ).not.toThrow()
+})
+
 it('should preserve structural JSON evidence through reference storage facts', () => {
   const parent = defineTable(
     'json_parent',

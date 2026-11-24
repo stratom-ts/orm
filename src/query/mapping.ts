@@ -408,12 +408,7 @@ function compoundResultContract(
   const context = contexts.get(handle)?.[column]
   const facts = context?.facts
 
-  if (
-    !dataType ||
-    facts?.outputState !== 'known' ||
-    !facts.outputKind ||
-    facts.outputMayBeUndefined
-  )
+  if (!dataType || facts?.outputState !== 'known' || !facts.outputKind)
     throw new QueryError({
       message: 'Set output has no known non-null result representation',
     })

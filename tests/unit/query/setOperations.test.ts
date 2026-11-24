@@ -4,6 +4,7 @@ import {
   boolean,
   brand,
   date,
+  exactOptional,
   integer,
   isoTime,
   isoTimeSecond,
@@ -11,12 +12,15 @@ import {
   maxValue,
   minValue,
   nullable,
+  nullish,
   number,
   object,
+  optional,
   picklist,
   pipe,
   string,
   transform,
+  undefinedable,
 } from 'valibot'
 import { expect, expectTypeOf, it, vi } from 'vitest'
 
@@ -90,7 +94,28 @@ const Renamed = defineTable(
   { primaryKey: 'id' },
 )
 
-const tables = [A, B, Integer, Hook, Mapped, Renamed]
+const Omitted = defineTable(
+  'set_omitted',
+  {
+    id: number(),
+    text: pipe(
+      optional(string()),
+      column({ databaseDefault: { kind: 'literal', value: '' } }),
+    ),
+    exact: pipe(
+      exactOptional(string()),
+      column({ databaseDefault: { kind: 'literal', value: '' } }),
+    ),
+    undefinedable: pipe(
+      undefinedable(string()),
+      column({ databaseDefault: { kind: 'literal', value: '' } }),
+    ),
+    nullish: nullish(string()),
+  },
+  { primaryKey: 'id' },
+)
+
+const tables = [A, B, Integer, Hook, Mapped, Renamed, Omitted]
 
 function fixture(dialect: Dialect, map?: ValueMapConfig) {
   const query = dialect.query.resolve(tables)
@@ -115,6 +140,23 @@ function dynamic(query: object) {
 }
 
 for (const dialect of [postgresDialect, sqliteDialect]) {
+  it('should compare SQL result types independently of write omission', () => {
+    const { from } = fixture(dialect)
+    const required = from(A).select([A.text])
+    const omitted = from(Omitted).select([Omitted.text])
+    expect(() => required.unionAll(omitted).compile()).not.toThrow()
+    expect(() => omitted.unionAll(required).compile()).not.toThrow()
+
+    expectTypeOf(required.unionAll(omitted).execute()).toEqualTypeOf<
+      Promise<{ text: string }[]>
+    >()
+
+    for (const column of [Omitted.exact, Omitted.undefinedable, Omitted.nullish]) {
+      const other = from(Omitted).select((e) => [e.as(column, 'text')])
+      expect(() => required.unionAll(other).compile()).not.toThrow()
+    }
+  })
+
   it('should preserve case-distinct outputs and avoid reserved SQL alias collisions', async () => {
     const { from, executor } = fixture(dialect)
     const longName = 'x'.repeat(80)
