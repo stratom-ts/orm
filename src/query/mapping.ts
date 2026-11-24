@@ -5,11 +5,13 @@ import type {
   DialectValueMappingContext,
   SqlAst,
 } from '@/dialects'
+import { productionDialects } from '@/dialects/resolve'
 import type { ColumnMetadata, ReferenceMetadata } from '@/schemas'
 import { getColumnMetadata } from '@/schemas'
 import { createReferenceResolver } from '@/schemas/actions/lazyReference'
 import type { RelationIdentityInput } from '@/schemas/actions/relation'
 import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
+import type { StorageFacts } from '@/storage/facts'
 import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { QueryError, SchemaError, isErrorTag } from '@/utils/error'
@@ -43,6 +45,9 @@ type ValueMapConfig = {
 }
 
 type ValueMapper = {
+  /** Proves a built-in result representation without invoking custom callbacks. */
+  compoundResultContract(handle: TableHandle, column: string): string
+
   /** Proves native numeric storage and standard mappings for an update operand. */
   numericAssignmentType(handle: TableHandle, column: string): 'integer' | 'float'
 
@@ -367,20 +372,85 @@ function createValueMapper(
   const mapResultRow = (handle: TableHandle, row: Record<string, unknown>) =>
     mapObjectRow(handle, row, mapResultValueForColumn)
 
-  /** Maps result objects while preserving result values that are not objects. */
-  const mapResultRows = (handle: TableHandle, rows: unknown[]) =>
-    mapRows(handle, rows, mapResultRow)
-
   for (const handle of registered) columnTypes(handle)
 
   return {
+    compoundResultContract: (handle, column) =>
+      compoundResultContract(handle, column, dialect, map, columnTypes, contexts),
     numericAssignmentType: (handle, column) =>
       numericAssignmentType(handle, column, dialect, map, columnTypes, contexts),
     columnTypes,
     mapParam: mapParamForColumn,
     mapResultValue: mapResultValueForColumn,
     mapResultRow,
-    mapResultRows,
+    mapResultRows: (handle, rows) => mapRows(handle, rows, mapResultRow),
+  }
+}
+
+/** Compares only facts that determine the native result representation. */
+function compoundResultContract(
+  handle: TableHandle,
+  column: string,
+  dialect: Dialect,
+  map: ValueMapConfig | undefined,
+  columnTypes: ValueMapper['columnTypes'],
+  contexts: MappingContexts,
+): string {
+  if (!productionDialects.includes(dialect))
+    throw new QueryError({
+      message: 'Set output requires a built-in dialect result contract',
+    })
+
+  if (columnMeta(handle, column)?.mapResult || map?.mapResultValue)
+    throw new QueryError({ message: 'Set output cannot use custom result mappings' })
+
+  const dataType = columnTypes(handle)[column]
+  const context = contexts.get(handle)?.[column]
+  const facts = context?.facts
+
+  if (!dataType || facts?.outputState !== 'known' || !facts.outputKind)
+    throw new QueryError({
+      message: 'Set output has no known non-null result representation',
+    })
+
+  const authoredFacts = context?.authoredFacts ?? facts
+
+  if (
+    facts.outputKind === 'json' &&
+    [facts, authoredFacts].some((output) => !output.jsonOutputFingerprint)
+  )
+    throw new QueryError({
+      message: 'Set JSON output has no proven structural result representation',
+    })
+
+  return JSON.stringify({
+    type: dataType.trim().toLowerCase().replace(/\s+/g, ' '),
+    target: resultFacts(facts),
+    authored: resultFacts(authoredFacts),
+  })
+}
+
+/** Excludes write omission, defaults, and nullability from result compatibility. */
+function resultFacts(facts: StorageFacts) {
+  return {
+    kind: facts.outputKind,
+    formats: [...facts.stringFormats].sort(),
+    numbers: {
+      minValue: facts.numberConstraints.minValue,
+      maxValue: facts.numberConstraints.maxValue,
+      isInteger: facts.numberConstraints.isInteger,
+      isSafeInteger: facts.numberConstraints.isSafeInteger,
+    },
+    json: facts.jsonShape,
+    jsonCompatible: facts.jsonOutputCompatible,
+    jsonOutput: facts.jsonOutputFingerprint,
+    finite: facts.finiteValues
+      ?.filter((value) => value !== null)
+      .map(
+        (value) =>
+          `${typeof value}:${typeof value === 'bigint' ? value.toString() : JSON.stringify(value)}`,
+      )
+      .sort(),
   }
 }
 

@@ -456,6 +456,12 @@ export type JoinAst = {
 
 export type SelectAst = {
   readonly kind: 'select'
+  /** A compound owns its operands and its own ordering and pagination. */
+  readonly compound?: Readonly<{
+    operator: 'union' | 'union all' | 'intersect' | 'except'
+    left: SelectAst
+    right: SelectAst
+  }>
   readonly relation: RelationIdentityInput
   /** Empty or `[{ kind: 'all' }]` → `select *`. */
   readonly selection: readonly SelectItemAst[]

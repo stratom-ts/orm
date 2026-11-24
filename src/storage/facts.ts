@@ -66,5 +66,7 @@ export interface StorageFacts {
   /** JSON shape used by database-default compatibility's existing base-schema policy. */
   defaultJsonShape?: 'object' | 'array'
   jsonOutputCompatible?: boolean
+  /** Canonical structural output proof for JSON set-operation compatibility. */
+  jsonOutputFingerprint?: string
   nullOnly: boolean
 }

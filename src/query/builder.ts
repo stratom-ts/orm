@@ -39,6 +39,7 @@ import type { UpdatePatch } from './arithmetic'
 import { candidateKeys } from './candidateKeys'
 import { markCompiledQuery, restoreResultNames } from './compiled'
 import type { CompiledQuery } from './compiled'
+import type { CompoundSelectBuilder, SetOperations } from './compound'
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
@@ -1212,7 +1213,7 @@ type SelectBuilder<
   TProjection extends readonly unknown[] = HasSelection extends true
     ? []
     : WildcardProjection<InferSelect<THandle>>,
-> = {
+> = SetOperations<TResult, TProjection> & {
   readonly [projectionShape]?: TProjection
   /**
    * Selects every column from the root or requested joined table.
@@ -1552,6 +1553,110 @@ function buildSelectQuery(options: {
   return ast
 }
 
+type CompoundContext = Pick<
+  SelectBuilderOptions<TableHandle>,
+  'query' | 'executor' | 'mapper'
+>
+
+type SetOperator = NonNullable<SelectAst['compound']>['operator']
+const authoredCompounds = new WeakMap<
+  SelectAst,
+  CompoundContext & {
+    operator: SetOperator
+    left: SelectAst
+    right: SelectAst
+  }
+>()
+
+/** Creates immutable set methods using the operands' private owner registrations. */
+function createSetOperations(
+  build: () => SelectAst,
+  context: CompoundContext,
+): SetOperations<unknown, readonly unknown[]> {
+  const combine = (operator: SetOperator, other: object) => {
+    const definition = selectDefinitions.get(other)
+
+    if (!definition)
+      throw new QueryError({ message: 'Set operand requires a select builder' })
+
+    if (definition.owner !== context.executor)
+      throw new QueryError({ message: 'Set operands must share the same client scope' })
+
+    return createCompoundBuilder(context, operator, build(), definition.build())
+  }
+
+  return {
+    union: (other) => combine('union', other) as never,
+    unionAll: (other) => combine('union all', other) as never,
+    intersect: (other) => combine('intersect', other) as never,
+    except: (other) => combine('except', other),
+  }
+}
+
+/** Retains operand clauses while assigning subsequent clauses to the new compound. */
+function createCompoundBuilder(
+  context: CompoundContext,
+  operator: SetOperator,
+  left: SelectAst,
+  right: SelectAst,
+  clauses: Pick<SelectAst, 'orderBy' | 'limit' | 'offset'> = {},
+): CompoundSelectBuilder<unknown> {
+  const build = (): SelectAst => {
+    const node: SelectAst = {
+      kind: 'select',
+      relation: left.relation,
+      selection: left.selection,
+      ...clauses,
+    }
+
+    authoredCompounds.set(node, { ...context, operator, left, right })
+    return node
+  }
+
+  const next = (patch: typeof clauses) =>
+    createCompoundBuilder(context, operator, left, right, { ...clauses, ...patch })
+
+  const compile = () =>
+    markCompiledQuery(context.query.compile(prepareStatement(build(), context.executor)))
+
+  const execute = () => executeCompound(context, build())
+
+  const builder: CompoundSelectBuilder<unknown> = {
+    ...createSetOperations(build, context),
+    orderBy(column, direction = 'asc', nulls) {
+      return next({
+        orderBy: [
+          ...(clauses.orderBy ?? []),
+          { column, direction, ...(nulls === undefined ? {} : { nulls }) },
+        ],
+      })
+    },
+    limit: (limit) => next({ limit }),
+    offset: (offset) => next({ offset }),
+    compile,
+    execute: execute as never,
+    executeTakeFirst: async () => (await execute())[0],
+    executeTakeFirstOrThrow: () => takeFirstSelectRow(execute),
+  }
+
+  selectDefinitions.set(builder, { owner: context.executor, build })
+  return builder
+}
+
+/** Executes one compound through the same owning operation path as ordinary selects. */
+async function executeCompound(context: CompoundContext, node: SelectAst) {
+  const prepared = prepareStatement(node, context.executor)
+  const compiled = context.query.compile(prepared)
+  const rows = restoreResultNames(
+    compiled,
+    await executeQueryOperation(prepared, () => context.executor.execute(compiled)),
+  )
+
+  return context.mapper
+    ? prepareSelectProjection(prepared, context.query).mapRows(context.mapper, rows)
+    : rows
+}
+
 /** Applies select state changes while preserving explicit clearing of optional clauses. */
 function patchSelectState(state: SelectState, patch: Partial<SelectState>): SelectState {
   return {
@@ -1753,6 +1858,7 @@ function createSelectBuilder<THandle extends TableHandle>(
   const executeTakeFirstOrThrow = () => takeFirstSelectRow(execute)
 
   const builder = {
+    ...createSetOperations(() => buildSelectQuery(options), options),
     ...createSelectSelection(state, next),
     ...createSelectFilters(state, next),
     ...createSelectBoundaries(state, next),
@@ -1782,7 +1888,10 @@ function createSelectBuilder<THandle extends TableHandle>(
  * Fluent query builder rooted on a registered table handle.
  * Default terminal path is `select *`; use insert/update/delete for writes.
  */
-type QueryBuilder<THandle extends TableHandle = TableHandle> = {
+type QueryBuilder<THandle extends TableHandle = TableHandle> = SetOperations<
+  InferSelect<THandle>,
+  WildcardProjection<InferSelect<THandle>>
+> & {
   readonly [projectionShape]?: WildcardProjection<InferSelect<THandle>>
 
   /** Compile `select * from table` (default read path). */
@@ -2082,6 +2191,10 @@ function createTableBuilder<THandle extends TableHandle>(
   })
 
   const builder = {
+    union: ((other: object) => defaultSelect.union(other as never)) as never,
+    unionAll: ((other: object) => defaultSelect.unionAll(other as never)) as never,
+    intersect: ((other: object) => defaultSelect.intersect(other as never)) as never,
+    except: ((other: object) => defaultSelect.except(other as never)) as never,
     /** Compiles the default select query. */
     compile: () => defaultSelect.compile(),
     /** Executes the default select query. */
@@ -2817,7 +2930,90 @@ class StatementPreparation {
     enclosing: readonly (readonly ScopeEntry[])[],
     use: ProjectionUse = 'rows',
   ): SelectAst {
+    const compound = authoredCompounds.get(node)
+
+    if (compound) return this.prepareCompound(node, compound, enclosing, use)
+
     return new SelectPreparation(this, node, enclosing).prepare(use)
+  }
+  /** Prepares sibling operands with the same permitted enclosing scopes. */
+  prepareCompound(
+    node: SelectAst,
+    compound: CompoundContext & {
+      operator: SetOperator
+      left: SelectAst
+      right: SelectAst
+    },
+    enclosing: readonly (readonly ScopeEntry[])[],
+    use: ProjectionUse,
+  ): SelectAst {
+    const left = this.prepare(compound.left, enclosing)
+    const right = this.prepare(compound.right, enclosing)
+    const leftProjection = prepareSelectProjection(left, compound.query)
+    const rightProjection = prepareSelectProjection(right, compound.query)
+    const names = leftProjection.outputs.map((output) => output.outputName)
+
+    if (!names.length || names.length !== rightProjection.outputs.length)
+      throw new QueryError({
+        message: 'Set operands require the same nonzero output count',
+      })
+
+    for (const [index, name] of names.entries())
+      validateSetOutput(compound, leftProjection, rightProjection, index, name)
+
+    for (const term of node.orderBy ?? []) {
+      if (typeof term.column !== 'string' || !names.includes(term.column))
+        throw new QueryError({
+          message: `Set orderBy requires a selected output name: ${term.column}`,
+        })
+    }
+
+    return prepareSelectProjection(
+      {
+        ...node,
+        relation: left.relation,
+        selection: left.selection,
+        compound: { operator: compound.operator, left, right },
+      },
+      compound.query,
+      use,
+    ).node
+  }
+}
+
+/** Rejects an incompatible output before compilation or native execution. */
+function validateSetOutput(
+  compound: CompoundContext,
+  left: ReturnType<typeof prepareSelectProjection>,
+  right: ReturnType<typeof prepareSelectProjection>,
+  index: number,
+  name: string,
+): void {
+  if (name !== right.outputs[index].outputName)
+    throw new QueryError({
+      message: `Set output ${index + 1} "${name}" must have the same name and order`,
+    })
+
+  const a = left.sources[index]
+  const b = right.sources[index]
+
+  if (!a || !b || !compound.mapper)
+    throw new QueryError({
+      message: `Set output ${index + 1} "${name}" has no proven storage representation`,
+    })
+
+  try {
+    if (
+      compound.mapper.compoundResultContract(baseTable(a.handle), a.column) !==
+      compound.mapper.compoundResultContract(baseTable(b.handle), b.column)
+    )
+      throw new QueryError({ message: 'Incompatible storage or result representation' })
+  } catch (error) {
+    if (!(error instanceof QueryError)) throw error
+
+    throw new QueryError({
+      message: `Set output ${index + 1} "${name}": ${error.message}`,
+    })
   }
 }
 
@@ -3307,3 +3503,5 @@ export {
   createDeleteBuilder,
   createTableBuilder,
 }
+
+export type { CompoundSelectBuilder } from './compound'

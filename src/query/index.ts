@@ -18,6 +18,7 @@ export {
   type InsertConflictBuilder,
   type InsertValuesBuilder,
   type QueryBuilder,
+  type CompoundSelectBuilder,
   type SelectBuilder,
   type UpdateBuilder,
   type UpdateSetBuilder,

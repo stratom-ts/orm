@@ -363,6 +363,8 @@ class ColumnQuery {
     projection?: { sqlName: string; outputName: string }[],
     discard = false,
   ): SelectAst {
+    if (node.compound) return this.compound(node, projection)
+
     const relation = node.relation
     const where = node.where ? this.predicate(node.where, relation) : undefined
     const prepared = prepareSelectProjection(
@@ -393,6 +395,27 @@ class ColumnQuery {
         ? { groupBy: node.groupBy.map((item) => this.column(item, relation)) }
         : {}),
       ...(node.having ? { having: this.predicate(node.having, relation) } : {}),
+    }
+  }
+  /** Lowers each branch independently and orders only by bounded output aliases. */
+  compound(
+    node: SelectAst,
+    projection?: { sqlName: string; outputName: string }[],
+  ): SelectAst {
+    const prepared = prepareSelectProjection(node, this.query)
+    projection?.push(...prepared.resultNames)
+    return {
+      ...node,
+      compound: {
+        ...node.compound!,
+        left: this.select(node.compound!.left),
+        right: this.select(node.compound!.right),
+      },
+      orderBy: node.orderBy?.map((item) => ({
+        ...item,
+        column: prepared.outputs.find((output) => output.outputName === item.column)!
+          .sqlName,
+      })),
     }
   }
 }

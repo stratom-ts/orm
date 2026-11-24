@@ -1451,7 +1451,7 @@ and references to relations unavailable at a JOIN ON position fail before execut
 
 Subquery predicates work in WHERE, HAVING, JOIN ON, and UPDATE/DELETE filters.
 Subqueries in FROM, insert values, update assignments, or RETURNING expressions,
-CTEs, set operations, lateral joins, and implicit correlation are not supported.
+CTEs, lateral joins, and implicit correlation are not supported.
 No relationship inference or nested result objects are added.
 
 Both builders must belong to the same client scope. Separate clients, root versus
@@ -1481,3 +1481,5 @@ one deterministic row is required.
 ## License
 
 MIT
+
+See [SQL set operations](docs/set-operations.md) for typed UNION, UNION ALL, INTERSECT, and EXCEPT queries.

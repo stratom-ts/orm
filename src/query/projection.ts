@@ -40,12 +40,16 @@ function outputAliases(names: readonly string[], discard = false): OutputName[] 
     })
   }
 
+  const folded = names.map((name) => name.replace(/[A-Z]/g, (char) => char.toLowerCase()))
+  const reservedSqlNames = new Set(folded)
+  const emitted = new Set<string>()
   let sequence = 0
-  return names.map((outputName) => {
+  return names.map((outputName, index) => {
     let sqlName = outputName
     const encoded = new TextEncoder().encode(outputName)
 
     if (
+      emitted.has(folded[index]) ||
       outputName.length === 0 ||
       encoded.length > 63 ||
       outputName.includes('\0') ||
@@ -53,11 +57,12 @@ function outputAliases(names: readonly string[], discard = false): OutputName[] 
     ) {
       do {
         sqlName = `__stratom_c${sequence++}`
-      } while (reserved.has(sqlName))
+      } while (reservedSqlNames.has(sqlName))
 
-      reserved.add(sqlName)
+      reservedSqlNames.add(sqlName)
     }
 
+    emitted.add(sqlName === outputName ? folded[index] : sqlName)
     return { sqlName, outputName }
   })
 }
@@ -153,6 +158,7 @@ class SelectProjection {
   readonly outputs: OutputName[]
   readonly resultNames: OutputName[]
   readonly source: ResultColumn | undefined
+  readonly sources: readonly (ResultColumn | undefined)[]
   private readonly columns = new Map<string, ResultColumn>()
 
   /**
@@ -196,6 +202,7 @@ class SelectProjection {
           ),
     )
 
+    this.sources = sources
     this.source = sources[0]
 
     for (const [index, source] of sources.entries()) {
@@ -231,7 +238,7 @@ class SelectProjection {
           const source = this.columns.get(key)
           return [
             key,
-            source && !(source.scalar && value === null)
+            source && !((source.scalar || this.node.compound) && value === null)
               ? mapper.mapResultValue(baseTable(source.handle), source.column, value)
               : value,
           ]
