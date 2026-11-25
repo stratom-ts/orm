@@ -80,18 +80,32 @@ function withConcurrentDatabase<const TSchemas extends readonly TableHandle[], T
 beforeAll(waitForPostgres)
 
 /** Waits for native progress, not just a hook that precedes the database command. */
-async function waitForBuild(admin: Client, schema: string): Promise<void> {
+async function waitForBuild(admin: Client, schema: string): Promise<number> {
   for (let attempt = 0; attempt < 1000; attempt++) {
     await admin.query('select pg_stat_clear_snapshot()')
-    const result = await admin.query(
-      'select 1 from pg_stat_progress_create_index p join pg_class c on c.oid = p.relid join pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and c.relname = $2 and p.command = $3',
+    const result = await admin.query<{ pid: number }>(
+      'select p.pid from pg_stat_progress_create_index p join pg_class c on c.oid = p.relid join pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and c.relname = $2 and p.command = $3',
       [schema, 'concurrent_records', 'CREATE INDEX CONCURRENTLY'],
     )
 
-    if (result.rowCount) return
+    if (result.rowCount) return result.rows[0].pid
   }
 
   throw new Error('Concurrent build never entered native progress')
+}
+
+/** Waits for server-side teardown after the client discards an uncertain command. */
+async function waitForBackendExit(admin: Client, pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    await admin.query('select pg_stat_clear_snapshot()')
+    const result = await admin.query('select 1 from pg_stat_activity where pid = $1', [
+      pid,
+    ])
+
+    if (!result.rowCount) return
+  }
+
+  throw new Error('Cancelled concurrent build backend did not exit')
 }
 
 function registerCreationCases() {
@@ -392,8 +406,9 @@ function registerInterruptionCases() {
 
       const running = migration.execute({ signal: controller.signal })
       const settled = running.catch((cause: unknown) => cause)
+      let backend: number
       try {
-        await waitForBuild(admin, schema)
+        backend = await waitForBuild(admin, schema)
       } finally {
         controller.abort()
         await settled
@@ -406,6 +421,7 @@ function registerInterruptionCases() {
       })
 
       await admin.query('rollback')
+      await waitForBackendExit(admin, backend)
       const plan = await migration.plan()
       const target = plan.steps.find((step) => step.kind === 'create_index')?.target
 
