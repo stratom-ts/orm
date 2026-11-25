@@ -134,6 +134,8 @@ function projectionSource(
     return prepareSelectProjection(authored ? authored.build() : expr.query, query).source
   }
 
+  if (expr.kind === 'outer') return projectionSource(expr.ref, query, relation)
+
   if (expr.kind !== 'column') return undefined
 
   const selected = expr.relation ?? relation

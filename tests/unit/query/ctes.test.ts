@@ -486,6 +486,29 @@ it('should retain distinct source and alias identities in selected column types'
   >()
 })
 
+it('should retain joined CTE column types when definition names are widened', () => {
+  const { db } = setup()
+  const numeric = (name: string) => db.cte(name, db.from(Rows).select([Rows.id]))
+  const text = (name: string) =>
+    db.cte(
+      name,
+      db.from(Rows).select((b) => [b.as(Rows.label, 'id')]),
+    )
+
+  const numbers = numeric('numbers')
+  const labels = text('labels')
+
+  const selected = db
+    .with(numbers, labels)
+    .from(numbers)
+    .innerJoin(labels, (b) => b.eq(numbers.id, numbers.id))
+    .select([labels.id])
+
+  expectTypeOf<ReturnType<typeof selected.execute>>().toEqualTypeOf<
+    Promise<{ id: string }[]>
+  >()
+})
+
 it('should reject recursive custom result mappings before execution', () => {
   const mapped: unknown[] = []
   const NullableRows = defineTable(

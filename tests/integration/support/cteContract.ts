@@ -128,6 +128,23 @@ async function assertCteOccurrences(db: Db): Promise<void> {
   expect(await db.with(scalarDependency).from(scalarDependency).execute()).toEqual([
     { flag: true },
   ])
+
+  const correlatedInner = db
+    .from(Details)
+    .select((b) => [b.as(b.outer(Nodes.flag), 'flag')])
+    .limit(1)
+
+  const correlatedQuery = db
+    .from(Nodes)
+    .select((b) => [b.as(b.scalar(correlatedInner), 'flag')])
+    .where(eq(Nodes.id, 1))
+
+  const correlatedCte = db.cte('correlated_flags', correlatedQuery)
+  expect(await correlatedQuery.execute()).toEqual([{ flag: true }])
+
+  expect(await db.with(correlatedCte).from(correlatedCte).execute()).toEqual([
+    { flag: true },
+  ])
 }
 
 async function assertCteNameCollisions(db: Db): Promise<void> {
@@ -187,10 +204,13 @@ async function assertRecursiveCtes(db: Db): Promise<void> {
         .select((b) => [b.as(Nodes.parent, 'value')]),
   )
 
-  expect(await db.with(nullableTree).from(nullableTree).execute()).toEqual([
-    { value: 1 },
-    { value: null },
-  ])
+  expect(
+    await db
+      .with(nullableTree)
+      .from(nullableTree)
+      .orderBy(nullableTree.value, 'asc', 'last')
+      .execute(),
+  ).toEqual([{ value: 1 }, { value: null }])
 }
 
 async function assertUnionModes(db: Db): Promise<void> {

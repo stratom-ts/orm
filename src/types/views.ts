@@ -334,11 +334,13 @@ type ColumnIdentity<C> =
 
 type SelectedColumnBaseValue<T, C> =
   C extends ColumnRef<string, infer N extends string, infer TType>
-    ? [TableIdentityOf<T>] extends [ColumnIdentity<C>]
-      ? N extends keyof InferSelect<T>
-        ? InferSelect<T>[N]
+    ? T extends { readonly [cteRow]: unknown }
+      ? Exclude<TType, undefined>
+      : [TableIdentityOf<T>] extends [ColumnIdentity<C>]
+        ? N extends keyof InferSelect<T>
+          ? InferSelect<T>[N]
+          : Exclude<TType, undefined>
         : Exclude<TType, undefined>
-      : Exclude<TType, undefined>
     : C extends string
       ? C extends keyof InferSelect<T>
         ? InferSelect<T>[C]
