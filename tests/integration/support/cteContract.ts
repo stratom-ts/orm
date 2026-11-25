@@ -17,7 +17,15 @@ const Nodes = defineTable(
   { primaryKey: 'id' },
 )
 
-const tables = [Nodes] as const
+const Details = defineTable(
+  'cte_details',
+  { nodeId: number(), note: string() },
+  {
+    primaryKey: 'nodeId',
+  },
+)
+
+const tables = [Nodes, Details] as const
 
 async function assertCtes(db: Db): Promise<void> {
   await db.migrate().execute()
@@ -59,6 +67,8 @@ async function assertCtes(db: Db): Promise<void> {
   await assertRecursiveCtes(db)
   await assertUnionModes(db)
   await assertOutputNames(db)
+  await assertJoinedCompoundCtes(db, { id: 1, parent: null, label: 'root', ...extra })
+  await assertCteOccurrences(db)
 
   await db.transaction(async (trx) => {
     const local = trx.cte(
@@ -68,6 +78,55 @@ async function assertCtes(db: Db): Promise<void> {
 
     expect(await trx.with(local).from(local).execute()).toEqual([{ id: 2 }])
   })
+}
+
+async function assertJoinedCompoundCtes(
+  db: Db,
+  root: Record<string, unknown>,
+): Promise<void> {
+  await db.insert(Details).values({ nodeId: 1, note: 'root details' }).execute()
+  const joined = db.from(Nodes).innerJoin(Details, (b) => b.eq(Nodes.id, Details.nodeId))
+  const joinedCte = db.cte('joined_compound', joined.unionAll(joined))
+  expect(await db.with(joinedCte).from(joinedCte).execute()).toEqual([
+    { ...root, nodeId: 1, note: 'root details' },
+    { ...root, nodeId: 1, note: 'root details' },
+  ])
+
+  expect(
+    await db.with(joinedCte).from(joinedCte).select([joinedCte.note]).execute(),
+  ).toEqual([{ note: 'root details' }, { note: 'root details' }])
+}
+
+async function assertCteOccurrences(db: Db): Promise<void> {
+  const allNodes = db.cte('all_nodes', db.from(Nodes).select([Nodes.id, Nodes.parent]))
+  const parent = alias(allNodes, 'parent')
+  const child = alias(allNodes, 'child')
+  expect(
+    await db
+      .with(allNodes)
+      .from(parent)
+      .leftJoin(child, (b) => b.eq(child.parent, parent.id))
+      .select((b) => [b.as(parent.id, 'parentId'), b.as(child.id, 'childId')])
+      .orderBy(parent.id)
+      .execute(),
+  ).toEqual([
+    { parentId: 1, childId: 2 },
+    { parentId: 2, childId: 3 },
+    { parentId: 3, childId: null },
+  ])
+
+  const first = db.cte('first', db.from(Nodes).where(eq(Nodes.id, 1)))
+  const scalarDependency = db.cte(
+    'scalar_dependency',
+    db
+      .from(Nodes)
+      .select((b) => [b.as(b.scalar(db.from(first).select([first.flag])), 'flag')])
+      .where(eq(Nodes.id, 1)),
+  )
+
+  expect(await db.with(scalarDependency).from(scalarDependency).execute()).toEqual([
+    { flag: true },
+  ])
 }
 
 async function assertRecursiveCtes(db: Db): Promise<void> {

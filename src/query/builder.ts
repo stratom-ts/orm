@@ -1223,7 +1223,7 @@ function createDeleteBuilder<THandle extends TableHandle>(
 // ---------------------------------------------------------------------------
 
 type SelectBuilder<
-  THandle extends ReadSource = ReadSource,
+  THandle extends ReadSource = TableHandle,
   TResult = InferSelect<THandle>,
   HasSelection extends boolean = false,
   /** Schema-and-table identities whose selected columns are outer-join nullable. */
@@ -1624,6 +1624,8 @@ function createCompoundBuilder(
       kind: 'select',
       relation: left.relation,
       selection: left.selection,
+      // Preserve the output scope when a consumer expands authored wildcards.
+      ...(left.joins?.length ? { joins: left.joins } : {}),
       ...clauses,
     }
 
@@ -1909,7 +1911,7 @@ function createSelectBuilder<THandle extends ReadSource>(
  * Fluent query builder rooted on a registered table handle.
  * Default terminal path is `select *`; use insert/update/delete for writes.
  */
-type QueryBuilder<THandle extends ReadSource = ReadSource> = SetOperations<
+type QueryBuilder<THandle extends ReadSource = TableHandle> = SetOperations<
   InferSelect<THandle>,
   WildcardProjection<InferSelect<THandle>>
 > & {

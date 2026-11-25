@@ -12,10 +12,12 @@ type CteHandle<
   getSchema(): ReturnType<ReadSource['getSchema']>
   getTableMetadata(): { name: N; relation: TRelation }
   readonly [cteRow]: R
-} & { readonly [K in keyof R & string]: ColumnRef<N, K, R[K], TRelation> }
+} & (string extends keyof R
+  ? unknown
+  : { readonly [K in keyof R & string]: ColumnRef<N, K, R[K], TRelation> })
 
 const cteAliases = new WeakMap<object, ReadSource>()
 const cteHandles = new WeakSet()
 
-export type { CteHandle }
-export { cteRow, cteAliases, cteHandles }
+export type { CteHandle, cteRow }
+export { cteAliases, cteHandles }

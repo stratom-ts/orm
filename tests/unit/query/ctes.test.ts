@@ -2,6 +2,7 @@ import { nullable, number, pipe, string } from 'valibot'
 import { expect, expectTypeOf, it } from 'vitest'
 
 import { alias, column, createDatabase, defineTable, eq, exists, outer } from '@/index'
+import type { QueryBuilder, SelectBuilder } from '@/query'
 import type { CteHandle } from '@/types/cte'
 
 import {
@@ -212,6 +213,14 @@ it('should retain root, nested and expired transaction ownership and closed-clie
 })
 
 it('should infer nullable recursive results and reject invalid static contracts', () => {
+  expectTypeOf<Awaited<ReturnType<QueryBuilder['execute']>>>().toEqualTypeOf<
+    Record<string, unknown>[]
+  >()
+
+  expectTypeOf<Awaited<ReturnType<SelectBuilder['execute']>>>().toEqualTypeOf<
+    Record<string, unknown>[]
+  >()
+
   const { db } = setup()
   const initial = db.from(Rows).select([Rows.id])
   const nullable = db.cte('nullable', initial, (self) => db.from(self).select([self.id]))
@@ -427,6 +436,8 @@ it('should share one binding stream across initial, recursive and consuming SELE
 it('should retain distinct source and alias identities in selected column types', () => {
   const { db } = setup()
   const numbers = db.cte('numbers', db.from(Rows).select([Rows.id]))
+  const erased: CteHandle = numbers
+  expectTypeOf(erased).toEqualTypeOf<CteHandle>()
   const strings = db.cte(
     'strings',
     db.from(Rows).select((b) => [b.as(Rows.label, 'id')]),
@@ -473,6 +484,43 @@ it('should retain distinct source and alias identities in selected column types'
   expectTypeOf<ReturnType<typeof renamedOptional.execute>>().toEqualTypeOf<
     Promise<{ id: number | null }[]>
   >()
+})
+
+it('should reject recursive custom result mappings before execution', () => {
+  const mapped: unknown[] = []
+  const NullableRows = defineTable(
+    'recursive_nullable_rows',
+    {
+      id: number(),
+      label: pipe(
+        nullable(string()),
+        column({
+          mapResult: (value) => {
+            mapped.push(value)
+            return value === null ? 'missing' : value
+          },
+        }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const controls = createControllableProvider()
+  const db = createDatabase({
+    connector: customConnector('postgresql'),
+    operationSessionProvider: controls.provider,
+    schemas: [NullableRows],
+  })
+
+  const cte = db.cte(
+    'unproven',
+    db.from(NullableRows).select([NullableRows.label]),
+    (self) => db.from(self).select([self.label]),
+  )
+
+  expect(() => db.with(cte).from(cte).compile()).toThrow(/custom result mappings/)
+  expect(mapped).toEqual([])
+  expect(controls.calls).toEqual([])
 })
 
 it('should preserve explicit outer references to CTE sources without correlating definitions', () => {

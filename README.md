@@ -1479,10 +1479,6 @@ rejects multiple scalar rows; SQLite uses the first row. No implicit limit or
 portable cardinality check is inserted. Use explicit ordering and `.limit(1)` when
 one deterministic row is required.
 
-## License
-
-MIT
-
 See [SQL set operations](docs/set-operations.md) for typed UNION, UNION ALL, INTERSECT, and EXCEPT queries.
 
 ### SELECT common table expressions
@@ -1537,6 +1533,10 @@ storage and result mappings. A nullable output in either branch makes the final
 column nullable. Recursive `self` columns are conservatively nullable, since later
 iterations can contain NULL even when the initial projection cannot.
 
+Recursive and compound CTE outputs require built-in result mappings. Custom column
+or client result converters are rejected because UNION rows do not retain branch
+provenance. Ordinary CTEs preserve custom result converters.
+
 The portable PostgreSQL/SQLite recursive subset permits exactly one direct self
 source in the recursive SELECT, with inner joins only. Self cannot escape its
 callback definition or occur inside a subquery. Recursive terms cannot use set
@@ -1555,3 +1555,7 @@ physical-source session guards. CTE definitions and consumers are SELECT-only,
 including indirect subquery consumers in writes. Ordinary table CRUD remains
 available separately. CTE names must be nonempty, contain no NUL, fit 63 UTF-8
 bytes, and be unique ignoring ASCII case within the statement.
+
+## License
+
+MIT
