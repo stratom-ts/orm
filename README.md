@@ -1451,7 +1451,8 @@ and references to relations unavailable at a JOIN ON position fail before execut
 
 Subquery predicates work in WHERE, HAVING, JOIN ON, and UPDATE/DELETE filters.
 Subqueries in FROM, insert values, update assignments, or RETURNING expressions,
-CTEs, lateral joins, and implicit correlation are not supported.
+lateral joins, and implicit correlation are not supported. SELECT CTEs are
+described below. CTE-consuming write statements remain unsupported.
 No relationship inference or nested result objects are added.
 
 Both builders must belong to the same client scope. Separate clients, root versus

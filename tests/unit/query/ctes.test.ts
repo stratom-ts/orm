@@ -84,6 +84,13 @@ it('should discover dependencies in nested queries and rejects cross-client owne
   expect(db.with(second).from(second).compile().sql).toMatch(/with "first".*"second"/)
   expect(() => setup().db.with(first).from(first).compile()).toThrow(/client scope/)
 
+  const write = db
+    .insert(Rows)
+    .values({ id: 1, parent: null, label: 'x' })
+    .returning([Rows.id])
+
+  expect(() => db.cte('write', write as never)).toThrow(/SELECT/)
+
   expect(() =>
     db
       .update(Rows)
@@ -183,7 +190,7 @@ it('should retain root, nested and expired transaction ownership and closed-clie
   const root = db.cte('root', db.from(Rows).select([Rows.id]))
   let expired: CteHandle<{ id: number }> = root
 
-  await db.transaction(async (trx) => {
+  const expiredQuery = await db.transaction(async (trx) => {
     const local = trx.cte('local', trx.from(Rows).select([Rows.id]))
     expired = local
     expect(() => trx.with(root).from(root)).toThrow(/scope/)
@@ -192,8 +199,11 @@ it('should retain root, nested and expired transaction ownership and closed-clie
     await trx.transaction(async (nested) => {
       expect(() => nested.with(local).from(local)).toThrow(/scope/)
     })
+
+    return trx.with(local).from(local)
   })
 
+  await expect(expiredQuery.execute()).rejects.toThrow(/no longer active/)
   expect(() => db.with(expired).from(expired)).toThrow(/scope/)
   const reusable = db.with(root).from(root)
   await db.close()
@@ -217,6 +227,17 @@ it('should infer nullable recursive results and reject invalid static contracts'
 
     // @ts-expect-error Duplicate names cannot define CTE columns.
     db.cte('duplicate', db.from(Rows).select([Rows.id, Rows.id]))
+
+    const write = db
+      .insert(Rows)
+      .values({ id: 1, parent: null, label: 'x' })
+      .returning([Rows.id])
+
+    // @ts-expect-error Returning rows does not make a write a SELECT definition.
+    db.cte('write', write)
+
+    // @ts-expect-error Recursive terms must also be SELECT builders.
+    db.cte('recursive_write', initial, () => write)
   }
 
   expectTypeOf(invalidTypes).toBeFunction()
@@ -312,13 +333,67 @@ it('should map parameters and results once through aliases and CTE chains', asyn
   const named = alias(second, 'named')
   expect(params).toEqual([])
 
-  expect(await db.with(second).from(named).where(eq(named.renamed, 2)).execute()).toEqual(
-    [{ renamed: 1 }],
-  )
+  const query = db.with(second).from(named).where(eq(named.renamed, 2))
+  expect(query.compile().params).toEqual([11, 12])
+  expect(params).toEqual([1, 2])
+  params.length = 0
+  expect(await query.execute()).toEqual([{ renamed: 1 }])
 
   expect(params).toEqual([1, 2])
   expect(results).toEqual([11])
   await db.close()
+})
+
+it('should preserve nullable column hooks while bypassing hooks for empty scalar results', async () => {
+  const mapped: unknown[] = []
+  const NullableRows = defineTable(
+    'nullable_rows',
+    {
+      id: number(),
+      label: pipe(
+        nullable(string()),
+        column({
+          mapResult: (value) => {
+            mapped.push(value)
+            return value === null ? 'missing' : value
+          },
+        }),
+      ),
+    },
+    { primaryKey: 'id' },
+  )
+
+  const controls = createControllableProvider({ queryRows: () => [{ label: null }] })
+  const db = createDatabase({
+    connector: customConnector('postgresql'),
+    operationSessionProvider: controls.provider,
+    schemas: [NullableRows],
+  })
+
+  try {
+    const query = db.from(NullableRows).select([NullableRows.label])
+    expect(await query.execute()).toEqual([{ label: 'missing' }])
+    const first = db.cte('nullable', query)
+    const second = db.cte('nullable_chain', db.from(first))
+    expect(await db.with(second).from(alias(second, 'named')).execute()).toEqual([
+      { label: 'missing' },
+    ])
+
+    expect(mapped).toEqual([null, null])
+
+    const scalarNull = db.cte(
+      'scalar_null',
+      db.from(NullableRows).select((b) => [b.as(b.scalar(query.limit(0)), 'label')]),
+    )
+
+    expect(await db.with(scalarNull).from(scalarNull).execute()).toEqual([
+      { label: null },
+    ])
+
+    expect(mapped).toEqual([null, null])
+  } finally {
+    await db.close()
+  }
 })
 
 it('should reject self hidden in another CTE definition', () => {
@@ -368,6 +443,11 @@ it('should retain distinct source and alias identities in selected column types'
   >()
 
   const other = alias(numbers, 'other')
+  const renamed = alias(other, 'renamed')
+  const renamedSelection = db.with(numbers).from(renamed).select([renamed.id])
+  expectTypeOf<ReturnType<typeof renamedSelection.execute>>().toEqualTypeOf<
+    Promise<{ id: number }[]>
+  >()
 
   const joined = db
     .with(numbers)
@@ -381,6 +461,16 @@ it('should retain distinct source and alias identities in selected column types'
 
   const optional = joined.select([other.id])
   expectTypeOf<ReturnType<typeof optional.execute>>().toEqualTypeOf<
+    Promise<{ id: number | null }[]>
+  >()
+
+  const renamedOptional = db
+    .with(numbers)
+    .from(numbers)
+    .leftJoin(renamed, (b) => b.eq(numbers.id, renamed.id))
+    .select([renamed.id])
+
+  expectTypeOf<ReturnType<typeof renamedOptional.execute>>().toEqualTypeOf<
     Promise<{ id: number | null }[]>
   >()
 })

@@ -110,28 +110,46 @@ async function assertRecursiveCtes(db: Db): Promise<void> {
 }
 
 async function assertUnionModes(db: Db): Promise<void> {
-  const seed = db.from(Nodes).select([Nodes.flag])
-  const all = db.cte('all_flags', seed, (self) =>
-    db.from(self).select([self.flag]).where(eq(self.flag, false)),
-  )
+  const seed = db
+    .from(Nodes)
+    .select([Nodes.id])
+    .where((b) => b.lt(Nodes.id, 3))
 
-  const distinct = db.cte(
-    'distinct_flags',
-    seed,
-    (self) => db.from(self).select([self.flag]).where(eq(self.flag, false)),
-    { union: 'distinct' },
-  )
+  for (const union of ['all', 'distinct'] as const) {
+    const tree = db.cte(
+      'overlapping_tree',
+      seed,
+      (self) =>
+        db
+          .from(Nodes)
+          .innerJoin(self, (b) => b.eq(Nodes.parent, self.id))
+          .select([Nodes.id]),
+      { union },
+    )
 
-  expect(await db.with(all).from(all).execute()).toEqual([
-    { flag: true },
-    { flag: true },
-    { flag: true },
-  ])
-
-  expect(await db.with(distinct).from(distinct).execute()).toEqual([{ flag: true }])
+    expect(await db.with(tree).from(tree).orderBy(tree.id).execute()).toEqual(
+      (union === 'all' ? [1, 2, 2, 3, 3] : [1, 2, 3]).map((id) => ({ id })),
+    )
+  }
 }
 
 async function assertOutputNames(db: Db): Promise<void> {
+  const numericNames = db.cte(
+    'numeric_names',
+    db
+      .from(Nodes)
+      .select((b) => [b.as(Nodes.label, '2'), b.as(Nodes.flag, '1')])
+      .where(eq(Nodes.id, 1)),
+  )
+
+  expect(
+    await db
+      .with(numericNames)
+      .from(numericNames)
+      .where(eq(numericNames['2'], 'root'))
+      .execute(),
+  ).toEqual([{ '1': true, '2': 'root' }])
+
   const name = 'column_name_that_exceeds_the_postgresql_sixty_three_byte_identifier_limit'
 
   const source = db

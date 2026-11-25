@@ -8,7 +8,7 @@ import { QueryError } from '@/utils/error'
 
 import type { Combined, Compatible, OutputName, Shape } from './compound'
 import { cteOutputNames, cteOutputSources, prepareSelectProjection } from './projection'
-import type { QueryRow, SelectQuery } from './subquery'
+import type { QueryRow, SelectQuery, projectionShape } from './subquery'
 import { selectDefinitions } from './subquery'
 
 type CteOptions = { union?: 'all' | 'distinct' }
@@ -43,10 +43,12 @@ type NamedOutputs<P extends readonly unknown[], Seen = never> = number extends P
         : never
     : unknown
 
+type SelectOnly<Q> = typeof projectionShape extends keyof Q ? unknown : never
+
 type CteMethods = {
   cte<const N extends string, Q extends SelectQuery<unknown>>(
     name: N,
-    initial: Q & NamedOutputs<Shape<Q>>,
+    initial: Q & SelectOnly<Q> & NamedOutputs<Shape<Q>>,
   ): CteHandle<QueryRow<Q>, N>
   cte<
     const N extends string,
@@ -54,10 +56,10 @@ type CteMethods = {
     R extends SelectQuery<unknown>,
   >(
     name: N,
-    initial: Q & NamedOutputs<Shape<Q>>,
+    initial: Q & SelectOnly<Q> & NamedOutputs<Shape<Q>>,
     recursive: (
       self: CteHandle<{ [K in keyof QueryRow<Q>]: QueryRow<Q>[K] | null }, N>,
-    ) => R & Compatible<QueryRow<Q>, Shape<Q>, R>,
+    ) => R & SelectOnly<R> & Compatible<QueryRow<Q>, Shape<Q>, R>,
     options?: CteOptions,
   ): CteHandle<Combined<QueryRow<Q>, QueryRow<R>>, N>
 }
@@ -107,7 +109,7 @@ function createCteMethods(
     )
       throw new QueryError({ message: 'CTE computed outputs require aliases' })
 
-    const source = outputHandle(name, projection)
+    const source = outputHandle(name, projection, recursive !== undefined)
     const definition: Definition = { name, owner, initial, union: options?.union }
 
     cteDefinitions.set(source, definition)
@@ -118,7 +120,7 @@ function createCteMethods(
       definition.recursive = recursive(source)
       authoredSelect(definition.recursive, owner)
 
-      const published = outputHandle(name, projection)
+      const published = outputHandle(name, projection, true)
       cteDefinitions.set(published, { ...definition, self: source })
       return published
     }
@@ -133,6 +135,7 @@ function createCteMethods(
 function outputHandle(
   name: string,
   projection: ReturnType<typeof prepareSelectProjection>,
+  recursive: boolean,
 ): CteHandle {
   const names = projection.outputs.map((o) => o.outputName)
   const relation = { relation: name, cte: true as const }
@@ -154,7 +157,17 @@ function outputHandle(
 
   cteOutputSources.set(
     handle,
-    projection.sources.map((s) => s && { ...s, scalar: true }),
+    new Map(
+      projection.outputs.map((output, index) => {
+        const source = projection.sources[index]
+        return [
+          output.outputName,
+          source && (recursive || projection.node.compound)
+            ? { ...source, scalar: true }
+            : source,
+        ]
+      }),
+    ),
   )
 
   cteOutputNames.set(relation, projection.outputs)

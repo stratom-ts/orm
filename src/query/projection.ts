@@ -16,21 +16,17 @@ import { queryRelationSource } from './sourceRelation'
 import { nestedDefinitions, selectDefinitions } from './subquery'
 
 const cteOutputNames = new WeakMap<object, readonly OutputName[]>()
-const cteOutputSources = new WeakMap<object, readonly (ResultColumn | undefined)[]>()
+const cteOutputSources = new WeakMap<
+  object,
+  ReadonlyMap<string, ResultColumn | undefined>
+>()
+
 function mappingSource(handle: ReadSource, column: string): ResultColumn | undefined {
   const alias = cteAliases.get(handle)
 
   if (alias) return mappingSource(alias, column)
 
-  const source =
-    cteOutputSources.get(handle)?.[
-      Object.keys(handle.getSchema().entries).indexOf(column)
-    ]
-
-  if (source) return source
-  if (isTableHandle(handle)) return { handle, column }
-
-  return undefined
+  return cteOutputSources.get(handle)?.get(column)
 }
 
 type ResultColumn = { handle: TableHandle; column: string; scalar?: boolean }
@@ -226,15 +222,19 @@ class SelectProjection {
     this.resultNames = this.outputs.filter(
       ({ sqlName, outputName }) => sqlName !== outputName,
     )
-    const sources = selection.map((item) =>
-      item.kind === 'all'
-        ? undefined
-        : projectionSource(
-            item.kind === 'column' ? item : item.expr,
-            query,
-            node.relation,
-          ),
-    )
+    const sources = selection.map((item) => {
+      if (item.kind === 'all') return undefined
+
+      const source = projectionSource(
+        item.kind === 'column' ? item : item.expr,
+        query,
+        node.relation,
+      )
+
+      return source && item.kind === 'expr' && item.expr.kind === 'scalar'
+        ? { ...source, scalar: true }
+        : source
+    })
 
     this.sources = sources
     this.source = sources[0]
@@ -242,13 +242,7 @@ class SelectProjection {
     for (const [index, source] of sources.entries()) {
       if (!source) continue
 
-      const item = selection[index]
-      this.columns.set(
-        this.outputs[index].outputName,
-        item.kind === 'expr' && item.expr.kind === 'scalar'
-          ? { ...source, scalar: true }
-          : source,
-      )
+      this.columns.set(this.outputs[index].outputName, source)
     }
   }
 
