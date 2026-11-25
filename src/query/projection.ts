@@ -79,6 +79,8 @@ function outputAliases(names: readonly string[], discard = false): OutputName[] 
  * @returns The registered source, or undefined for an unregistered relation.
  */
 function sourceHandle(query: DialectQueryResolution, relation: RelationIdentityInput) {
+  if ('cte' in relation && relation.cte === true) return undefined
+
   const source = queryRelationSource(relation)
 
   if (source) return source
@@ -138,7 +140,7 @@ function expandSelection(
       const selected = item.relation ? [item.relation] : relations
       const handles = selected.map((relation) => sourceHandle(query, relation))
 
-      if (handles.some((handle) => !handle)) return [item]
+      if (!handles.every((handle) => handle !== undefined)) return [item]
 
       return handles.flatMap((handle, index) =>
         Object.keys(handle.getSchema().entries).map((column) => ({

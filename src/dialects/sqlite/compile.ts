@@ -3,6 +3,7 @@ import type { RelationIdentityInput } from '@/schemas'
 import { InvariantError, QueryError } from '@/utils/error'
 
 import { compileCompoundSelect } from '../compoundQuery'
+import { compileWithSelect, isCteRelation } from '../cteQuery'
 import type {
   ComparisonOp,
   CompiledQuery,
@@ -150,6 +151,8 @@ function qualifySqliteQueryRelation(
   relation: RelationIdentityInput,
   resolveRelation: SqliteQueryRelationResolver,
 ): string {
+  if (isCteRelation(relation)) return quoteIdentifier(relation.relation)
+
   const resolved = resolveRelation(relation)
   return `${quoteIdentifier(resolved.database)}.${quoteIdentifier(resolved.table)}`
 }
@@ -554,6 +557,16 @@ function compileSelect(
   resolveRelation: SqliteQueryRelationResolver,
   params: unknown[] = [],
 ): CompiledQuery {
+  if (node.with?.length)
+    return {
+      sql: compileWithSelect(
+        node,
+        (query) => compileSelect(query, resolveRelation, params).sql,
+        quoteIdentifier,
+      ),
+      params,
+    }
+
   if (node.compound)
     return compileCompoundSelect(
       node,
