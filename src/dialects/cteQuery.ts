@@ -65,7 +65,12 @@ function avoidPhysicalShadowing(node: SelectAst): SelectAst {
     return false
   })
 
-  const reserved = new Set([...physical, ...node.with!.map((d) => d.name)])
+  const reserved = new Set(
+    [...physical, ...node.with!.map((d) => d.name)].map((name) =>
+      name.replace(/[A-Z]/g, (character) => character.toLowerCase()),
+    ),
+  )
+
   const names = new Map<string, string>()
   let sequence = 0
   for (const definition of node.with!) {

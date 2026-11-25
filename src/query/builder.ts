@@ -2997,11 +2997,6 @@ class StatementPreparation {
       throw new QueryError({
         message: 'CTE source is unavailable; attach it with db.with()',
       })
-
-    const definition = cteDefinitions.get(source)!
-
-    if (definition.owner !== this.owner)
-      throw new QueryError({ message: 'CTEs must share the same client scope' })
   }
   private sequence = 0
   /**

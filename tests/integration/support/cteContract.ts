@@ -69,6 +69,7 @@ async function assertCtes(db: Db): Promise<void> {
   await assertOutputNames(db)
   await assertJoinedCompoundCtes(db, { id: 1, parent: null, label: 'root', ...extra })
   await assertCteOccurrences(db)
+  await assertCteNameCollisions(db)
 
   await db.transaction(async (trx) => {
     const local = trx.cte(
@@ -127,6 +128,30 @@ async function assertCteOccurrences(db: Db): Promise<void> {
   expect(await db.with(scalarDependency).from(scalarDependency).execute()).toEqual([
     { flag: true },
   ])
+}
+
+async function assertCteNameCollisions(db: Db): Promise<void> {
+  const physicalName = db.cte(
+    'cte_nodes',
+    db.from(Nodes).select([Nodes.id]).where(eq(Nodes.id, 1)),
+  )
+
+  const reservedName = db.cte(
+    '__STRATOM_CTE0',
+    db
+      .from(Nodes)
+      .select((b) => [b.as(Nodes.id, 'otherId')])
+      .where(eq(Nodes.id, 2)),
+  )
+
+  expect(
+    await db
+      .with(physicalName, reservedName)
+      .from(physicalName)
+      .innerJoin(reservedName, (b) => b.eq(reservedName.otherId, 2))
+      .select([physicalName.id, reservedName.otherId])
+      .execute(),
+  ).toEqual([{ id: 1, otherId: 2 }])
 }
 
 async function assertRecursiveCtes(db: Db): Promise<void> {
