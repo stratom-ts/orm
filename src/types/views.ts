@@ -3,6 +3,7 @@ import type { InferInput, InferOutput } from 'valibot'
 import type { ColumnGeneration, TableSchema } from '@/schemas'
 import type { Prettify } from '@/types/prettify'
 
+import type { cteRow } from './cte'
 import type { AnySchema } from './schema'
 import type { ColumnRef } from './tableHandle'
 
@@ -265,9 +266,11 @@ type SchemaOf<T> = T extends {
     : never
 
 /** Select row type for a table handle or Valibot table schema. */
-type InferSelect<T> = [SchemaOf<T>] extends [never]
-  ? never
-  : Prettify<InferSelectFromSchema<SchemaOf<T>>>
+type InferSelect<T> = T extends { readonly [cteRow]: infer R }
+  ? R
+  : [SchemaOf<T>] extends [never]
+    ? never
+    : Prettify<InferSelectFromSchema<SchemaOf<T>>>
 
 /** Insert input type for a table handle or Valibot table schema. */
 type InferInsert<T> = [SchemaOf<T>] extends [never]
@@ -331,11 +334,13 @@ type ColumnIdentity<C> =
 
 type SelectedColumnBaseValue<T, C> =
   C extends ColumnRef<string, infer N extends string, infer TType>
-    ? [TableIdentityOf<T>] extends [ColumnIdentity<C>]
-      ? N extends keyof InferSelect<T>
-        ? InferSelect<T>[N]
+    ? T extends { readonly [cteRow]: unknown }
+      ? Exclude<TType, undefined>
+      : [TableIdentityOf<T>] extends [ColumnIdentity<C>]
+        ? N extends keyof InferSelect<T>
+          ? InferSelect<T>[N]
+          : Exclude<TType, undefined>
         : Exclude<TType, undefined>
-      : Exclude<TType, undefined>
     : C extends string
       ? C extends keyof InferSelect<T>
         ? InferSelect<T>[C]

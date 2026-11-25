@@ -4,7 +4,11 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MigrateBuilder, MigrationExecuteOptions } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
-import type { DialectOperations, OperationCommand } from '@/dialects'
+import type {
+  DialectOperations,
+  DialectQueryResolution,
+  OperationCommand,
+} from '@/dialects'
 import { resolveDialect } from '@/dialects'
 import type {
   NamespaceIdentifierInput,
@@ -40,11 +44,15 @@ import {
 } from '@/query'
 import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 import { assertCompiledQuery, restoreResultNames } from '@/query/compiled'
+import type { CteMethods } from '@/query/cte'
+import { createCteMethods, cteAttachments, cteBase, cteDefinitions } from '@/query/cte'
 import type { QueryTracing, TracingOptions } from '@/query/observation'
 import { createQueryTracing } from '@/query/observation'
 import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
 import { resolveColumnNames } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
+import type { CteHandle } from '@/types/cte'
+import type { ReadSource } from '@/types/tableHandle'
 import type { InferSelect } from '@/types/views'
 import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
 
@@ -196,7 +204,10 @@ type CreateDatabaseConfig<
  * Stratom client: owns the db0 database lifecycle and table registry.
  * Transaction clients (`trx`) share the same query and execution surface.
  */
-type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
+type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = CteMethods & {
+  with(...sources: readonly CteHandle<unknown>[]): {
+    from<T extends ReadSource>(source: T): QueryBuilder<T>
+  }
   /** Registered table handles from `createDatabase`. */
   readonly schemas: TSchemas
   /**
@@ -217,6 +228,7 @@ type Db<TSchemas extends readonly TableHandle[] = readonly TableHandle[]> = {
   /** Executes a SQL template immediately, binding each interpolated value. */
   readonly sql: SqlTag
   /** Start a query rooted on a registered table handle. */
+  from<THandle extends CteHandle<unknown>>(handle: THandle): QueryBuilder<THandle>
   from<THandle extends TableHandle>(handle: THandle): QueryBuilder<THandle>
   /**
    * Insert rows into a registered table.
@@ -535,15 +547,27 @@ async function runNestedTransaction<T>(
 }
 
 type ClientQueryContext = Omit<Parameters<typeof createTableBuilder>[0], 'handle'> & {
+  query: DialectQueryResolution
   ensureClientOpen: () => void
   isRegistered: (handle: TableHandle) => boolean
 }
 
 /** Creates the query and insert entry points for a database client. */
 function createReadInsertMethods(context: ClientQueryContext) {
+  const with_ = (...sources: readonly CteHandle<unknown>[]) => {
+    context.ensureClientOpen()
+    const query = { ...context.query }
+    cteAttachments.set(query, sources)
+    return {
+      from: <T extends ReadSource>(source: T) => queryFrom(source, { ...context, query }),
+    }
+  }
+
   return {
+    ...createCteMethods(context.executor, context.query, context.ensureClientOpen),
+    with: with_,
     /** Starts a read query for a registered table handle. */
-    from: <THandle extends TableHandle>(handle: THandle) => queryFrom(handle, context),
+    from: <THandle extends ReadSource>(handle: THandle) => queryFrom(handle, context),
     /** Starts an insert operation for a registered table handle. */
     insert: <THandle extends TableHandle>(handle: THandle) => insertInto(handle, context),
   }
@@ -934,7 +958,7 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
   }
 
   const queryContext = { ...context, executor: clientExecutor, ensureClientOpen }
-  const { from, insert } = createReadInsertMethods(queryContext)
+  const readMethods = createReadInsertMethods(queryContext)
 
   const { update, delete: delete_ } = createUpdateDeleteMethods(queryContext)
 
@@ -947,8 +971,7 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
       pingClient(clientExecutor, dialect.operations, dialect.id, ensureClientOpen),
     sql: createSqlTag(dialect.query.rawSql, execute),
     execute,
-    from,
-    insert,
+    ...readMethods,
     update,
     delete: delete_,
     ...createScopedMigrationMethods(queryContext, transactionScope),
@@ -1122,7 +1145,7 @@ async function runClientTransaction<TSchemas extends readonly TableHandle[], T>(
  *
  * @returns A table query builder with the client's execution and value-mapping context.
  */
-function queryFrom<THandle extends TableHandle>(
+function queryFrom<THandle extends ReadSource>(
   handle: THandle,
   context: ClientQueryContext,
 ): QueryBuilder<THandle> {
@@ -1136,6 +1159,21 @@ function queryFrom<THandle extends TableHandle>(
   } = context
 
   ensureClientOpen()
+
+  const cte = cteDefinitions.get(cteBase(handle))
+
+  if (cte) {
+    if (cte.owner !== clientExecutor)
+      throw new QueryError({ message: 'CTEs must share the same client scope' })
+
+    return createTableBuilder<THandle>({
+      handle,
+      dialect,
+      query,
+      executor: clientExecutor,
+      mapper,
+    })
+  }
 
   if (!isTableHandle(handle)) {
     throw new SchemaError({
@@ -1151,7 +1189,7 @@ function queryFrom<THandle extends TableHandle>(
     })
   }
 
-  return createTableBuilder({
+  return createTableBuilder<THandle>({
     handle,
     dialect,
     query,

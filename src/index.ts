@@ -115,3 +115,5 @@ export type { NestedProjection, NestedResult } from './query/nested'
 export { add, type Addition, type UpdatePatch } from './query/arithmetic'
 
 export type { MigrationColumnRename } from './ddl/renameColumn'
+
+export type { CteOptions } from './query/cte'

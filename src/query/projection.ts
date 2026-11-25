@@ -1,4 +1,4 @@
-import { baseTable } from '@/defineTable'
+import { baseTable, isTableHandle } from '@/defineTable'
 import type {
   DialectQueryResolution,
   SelectAst,
@@ -7,10 +7,27 @@ import type {
 } from '@/dialects'
 import type { RelationIdentityInput } from '@/schemas'
 import type { TableHandle } from '@/types'
+import { cteAliases } from '@/types/cte'
+import type { ReadSource } from '@/types/tableHandle'
 import { QueryError } from '@/utils/error'
 
 import type { ValueMapper } from './mapping'
 import { queryRelationSource } from './sourceRelation'
+import { nestedDefinitions, selectDefinitions } from './subquery'
+
+const cteOutputNames = new WeakMap<object, readonly OutputName[]>()
+const cteOutputSources = new WeakMap<
+  object,
+  ReadonlyMap<string, ResultColumn | undefined>
+>()
+
+function mappingSource(handle: ReadSource, column: string): ResultColumn | undefined {
+  const alias = cteAliases.get(handle)
+
+  if (alias) return mappingSource(alias, column)
+
+  return cteOutputSources.get(handle)?.get(column)
+}
 
 type ResultColumn = { handle: TableHandle; column: string; scalar?: boolean }
 type ProjectionUse = 'rows' | 'single' | 'discarded'
@@ -78,10 +95,14 @@ function outputAliases(names: readonly string[], discard = false): OutputName[] 
  *
  * @returns The registered source, or undefined for an unregistered relation.
  */
-function sourceHandle(query: DialectQueryResolution, relation: RelationIdentityInput) {
+function sourceHandle(
+  query: DialectQueryResolution,
+  relation: RelationIdentityInput,
+): ReadSource | undefined {
   const source = queryRelationSource(relation)
 
   if (source) return source
+  if ('cte' in relation && relation.cte === true) return undefined
 
   const matches = query.findRelationMatches(relation)
 
@@ -107,12 +128,23 @@ function projectionSource(
   query: DialectQueryResolution,
   relation?: RelationIdentityInput,
 ): ResultColumn | undefined {
-  if (expr.kind === 'scalar') return prepareSelectProjection(expr.query, query).source
+  if (expr.kind === 'scalar') {
+    const builder = nestedDefinitions.get(expr.query)
+    const authored = builder && selectDefinitions.get(builder)
+    return prepareSelectProjection(authored ? authored.build() : expr.query, query).source
+  }
+
+  if (expr.kind === 'outer') return projectionSource(expr.ref, query, relation)
+
   if (expr.kind !== 'column') return undefined
 
   const selected = expr.relation ?? relation
   const handle = selected && sourceHandle(query, selected)
-  return handle ? { handle, column: expr.column } : undefined
+
+  if (!handle) return undefined
+  if (!isTableHandle(handle)) return mappingSource(handle, expr.column)
+
+  return { handle, column: expr.column }
 }
 
 /**
@@ -138,7 +170,7 @@ function expandSelection(
       const selected = item.relation ? [item.relation] : relations
       const handles = selected.map((relation) => sourceHandle(query, relation))
 
-      if (handles.some((handle) => !handle)) return [item]
+      if (!handles.every((handle) => handle !== undefined)) return [item]
 
       return handles.flatMap((handle, index) =>
         Object.keys(handle.getSchema().entries).map((column) => ({
@@ -192,15 +224,19 @@ class SelectProjection {
     this.resultNames = this.outputs.filter(
       ({ sqlName, outputName }) => sqlName !== outputName,
     )
-    const sources = selection.map((item) =>
-      item.kind === 'all'
-        ? undefined
-        : projectionSource(
-            item.kind === 'column' ? item : item.expr,
-            query,
-            node.relation,
-          ),
-    )
+    const sources = selection.map((item) => {
+      if (item.kind === 'all') return undefined
+
+      const source = projectionSource(
+        item.kind === 'column' ? item : item.expr,
+        query,
+        node.relation,
+      )
+
+      return source && item.kind === 'expr' && item.expr.kind === 'scalar'
+        ? { ...source, scalar: true }
+        : source
+    })
 
     this.sources = sources
     this.source = sources[0]
@@ -208,13 +244,7 @@ class SelectProjection {
     for (const [index, source] of sources.entries()) {
       if (!source) continue
 
-      const item = selection[index]
-      this.columns.set(
-        this.outputs[index].outputName,
-        item.kind === 'expr' && item.expr.kind === 'scalar'
-          ? { ...source, scalar: true }
-          : source,
-      )
+      this.columns.set(this.outputs[index].outputName, source)
     }
   }
 
@@ -278,4 +308,10 @@ function prepareSelectProjection(
 
 export type { ProjectionUse }
 
-export { outputAliases, prepareSelectProjection, projectionSource }
+export {
+  outputAliases,
+  prepareSelectProjection,
+  projectionSource,
+  cteOutputNames,
+  cteOutputSources,
+}

@@ -1,4 +1,4 @@
-import { baseTable, occurrenceAlias } from '@/defineTable'
+import { baseTable, isTableHandle, occurrenceAlias } from '@/defineTable'
 import type {
   ComparisonOp,
   DeleteAst,
@@ -16,10 +16,12 @@ import type {
   SqlExprAst,
   UpdateAst,
 } from '@/dialects'
+import type { SelectCteAst } from '@/dialects/types'
 import { contextualOperationError } from '@/operations/errorContext'
 import type { RelationIdentityInput } from '@/schemas'
 import { createReferenceResolver } from '@/schemas/actions/lazyReference'
 import type { ColumnRef, Prettify, TableHandle } from '@/types'
+import type { ReadSource } from '@/types/tableHandle'
 import type {
   InferInsert,
   InferSelect,
@@ -40,6 +42,13 @@ import { candidateKeys } from './candidateKeys'
 import { markCompiledQuery, restoreResultNames } from './compiled'
 import type { CompiledQuery } from './compiled'
 import type { CompoundSelectBuilder, SetOperations } from './compound'
+import {
+  authoredSelect,
+  cteAttachments,
+  cteBase,
+  cteDefinitions,
+  recursiveSelfHandles,
+} from './cte'
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
@@ -99,7 +108,7 @@ function resolveOn(on: JoinOnInput): PredicateAst {
  *
  * @returns Join AST node
  */
-function toJoinAst(type: JoinAst['type'], table: TableHandle, on: JoinOnInput): JoinAst {
+function toJoinAst(type: JoinAst['type'], table: ReadSource, on: JoinOnInput): JoinAst {
   const info = table.getTableMetadata()
   recordQueryRelation(info.relation, table)
   return {
@@ -121,11 +130,14 @@ type JoinCandidate = {
  */
 function referenceJoinCandidates(
   query: DialectQueryResolution,
-  source: TableHandle,
-  target: TableHandle,
+  source: ReadSource,
+  target: ReadSource,
   resolveReference: ReturnType<typeof createReferenceResolver>,
 ): JoinCandidate[] {
   const candidates: JoinCandidate[] = []
+
+  if (!isTableHandle(source) || !isTableHandle(target)) return candidates
+
   for (const [column, schema] of Object.entries(source.getSchema().entries)) {
     const reference = resolveReference(schema)
 
@@ -164,8 +176,8 @@ function referenceJoinCandidates(
 /** Infers one directed reference edge between the new occurrence and visible relations. */
 function inferJoin(
   query: DialectQueryResolution,
-  visible: readonly TableHandle[],
-  table: TableHandle,
+  visible: readonly ReadSource[],
+  table: ReadSource,
 ): Pick<JoinAst, 'on' | 'reference'> {
   const resolveReference = createReferenceResolver()
   const candidates: JoinCandidate[] = []
@@ -385,17 +397,20 @@ function formatRelationInput(relation: RelationIdentityInput): string {
  */
 function findHandle(
   query: DialectQueryResolution,
-  handles: readonly TableHandle[],
+  handles: readonly ReadSource[],
   relation: RelationIdentityInput | undefined,
-): TableHandle {
+): ReadSource {
   if (!relation) return handles[0]
 
-  const matches = occurrenceAlias(relation)
-    ? handles.filter((h) => h.getTableMetadata().relation === relation)
-    : query.findRelationMatches(
-        relation,
-        handles.filter((h) => !occurrenceAlias(h.getTableMetadata().relation)),
-      )
+  const matches =
+    'cte' in relation || occurrenceAlias(relation)
+      ? handles.filter((h) => h.getTableMetadata().relation === relation)
+      : query.findRelationMatches(
+          relation,
+          handles
+            .filter(isTableHandle)
+            .filter((h) => !occurrenceAlias(h.getTableMetadata().relation)),
+        )
 
   if (matches.length === 1) return matches[0]
 
@@ -422,11 +437,14 @@ function findHandle(
  */
 function findColumn(
   query: DialectQueryResolution,
-  handle: TableHandle,
+  handle: ReadSource,
   column: string,
   relation: RelationIdentityInput | undefined,
 ): string {
-  const matches = query.findColumnMatches(handle, column)
+  const matches = isTableHandle(handle)
+    ? query.findColumnMatches(handle, column)
+    : Object.keys(handle.getSchema().entries).filter((name) => name === column)
+
   const target = relation
     ? `${formatRelationInput(relation)}.${column}`
     : `${handle.getTableMetadata().name}.${column}`
@@ -1205,7 +1223,7 @@ function createDeleteBuilder<THandle extends TableHandle>(
 // ---------------------------------------------------------------------------
 
 type SelectBuilder<
-  THandle extends TableHandle = TableHandle,
+  THandle extends ReadSource = TableHandle,
   TResult = InferSelect<THandle>,
   HasSelection extends boolean = false,
   /** Schema-and-table identities whose selected columns are outer-join nullable. */
@@ -1236,7 +1254,7 @@ type SelectBuilder<
    *
    * @returns A fresh select builder including all columns of the selected table.
    */
-  selectAll<TSide extends TableHandle>(
+  selectAll<TSide extends ReadSource>(
     handle: TSide,
   ): SelectBuilder<
     THandle,
@@ -1403,7 +1421,7 @@ type SelectBuilder<
    * @returns A fresh select builder with the inner join and its relation handle
    *   registered.
    */
-  innerJoin<TSide extends TableHandle>(
+  innerJoin<TSide extends ReadSource>(
     table: TSide,
     on?: JoinOnInput,
   ): SelectBuilder<
@@ -1422,7 +1440,7 @@ type SelectBuilder<
    * @returns A fresh select builder with the left join and its relation handle
    *   registered.
    */
-  leftJoin<TSide extends TableHandle>(
+  leftJoin<TSide extends ReadSource>(
     table: TSide,
     on?: JoinOnInput,
   ): SelectBuilder<
@@ -1441,7 +1459,7 @@ type SelectBuilder<
    * @returns A fresh select builder with the right join and its relation handle
    *   registered.
    */
-  rightJoin<TSide extends TableHandle>(
+  rightJoin<TSide extends ReadSource>(
     table: TSide,
     on?: JoinOnInput,
   ): SelectBuilder<
@@ -1503,7 +1521,7 @@ type SelectBuilder<
 type SelectState = {
   selection: SelectItemAst[]
   joins: JoinAst[]
-  joinedHandles: TableHandle[]
+  joinedHandles: ReadSource[]
   where?: PredicateAst
   hasCursor?: boolean
   orderBy: OrderByAst[]
@@ -1524,7 +1542,7 @@ type SelectState = {
  * @returns An authored AST whose projection has not yet been prepared.
  */
 function buildSelectQuery(options: {
-  handle: TableHandle
+  handle: ReadSource
   query: DialectQueryResolution
   mapper?: ValueMapper
   state: SelectState
@@ -1554,7 +1572,7 @@ function buildSelectQuery(options: {
 }
 
 type CompoundContext = Pick<
-  SelectBuilderOptions<TableHandle>,
+  SelectBuilderOptions<ReadSource>,
   'query' | 'executor' | 'mapper'
 >
 
@@ -1606,6 +1624,8 @@ function createCompoundBuilder(
       kind: 'select',
       relation: left.relation,
       selection: left.selection,
+      // Preserve the output scope when a consumer expands authored wildcards.
+      ...(left.joins?.length ? { joins: left.joins } : {}),
       ...clauses,
     }
 
@@ -1674,13 +1694,13 @@ function patchSelectState(state: SelectState, patch: Partial<SelectState>): Sele
 }
 
 /** Creates join clauses while retaining all previously joined handles. */
-function createSelectJoins<THandle extends TableHandle>(
+function createSelectJoins<THandle extends ReadSource>(
   handle: THandle,
   query: DialectQueryResolution,
   state: SelectState,
   next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
 ): Pick<SelectBuilder<THandle, unknown>, 'innerJoin' | 'leftJoin' | 'rightJoin'> {
-  const join = (type: JoinAst['type'], table: TableHandle, on?: JoinOnInput): JoinAst => {
+  const join = (type: JoinAst['type'], table: ReadSource, on?: JoinOnInput): JoinAst => {
     if (on !== undefined) return toJoinAst(type, table, on)
 
     const inferred = inferJoin(query, [handle, ...state.joinedHandles], table)
@@ -1728,7 +1748,7 @@ function createSelectJoins<THandle extends TableHandle>(
 }
 
 /** Creates ordering and pagination clauses for a select query. */
-function createSelectPagination<THandle extends TableHandle>(
+function createSelectPagination<THandle extends ReadSource>(
   state: SelectState,
   next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
 ): Pick<SelectBuilder<THandle, unknown>, 'orderBy' | 'limit' | 'offset'> {
@@ -1784,7 +1804,7 @@ function createSelectPagination<THandle extends TableHandle>(
  * @returns Select builder with chaining methods and execution
  */
 // oxlint-disable-next-line max-lines-per-function -- JSDoc examples increase the line count without adding executable statements.
-function createSelectBuilder<THandle extends TableHandle>(
+function createSelectBuilder<THandle extends ReadSource>(
   options: SelectBuilderOptions<THandle>,
 ): SelectBuilder<THandle, unknown> {
   const { handle, dialect, query, executor, mapper, state } = options
@@ -1858,7 +1878,10 @@ function createSelectBuilder<THandle extends TableHandle>(
   const executeTakeFirstOrThrow = () => takeFirstSelectRow(execute)
 
   const builder = {
-    ...createSetOperations(() => buildSelectQuery(options), options),
+    ...(createSetOperations(() => buildSelectQuery(options), options) as SetOperations<
+      unknown,
+      WildcardProjection<InferSelect<THandle>>
+    >),
     ...createSelectSelection(state, next),
     ...createSelectFilters(state, next),
     ...createSelectBoundaries(state, next),
@@ -1888,7 +1911,7 @@ function createSelectBuilder<THandle extends TableHandle>(
  * Fluent query builder rooted on a registered table handle.
  * Default terminal path is `select *`; use insert/update/delete for writes.
  */
-type QueryBuilder<THandle extends TableHandle = TableHandle> = SetOperations<
+type QueryBuilder<THandle extends ReadSource = TableHandle> = SetOperations<
   InferSelect<THandle>,
   WildcardProjection<InferSelect<THandle>>
 > & {
@@ -1942,7 +1965,7 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = SetOperations<
    *
    * @returns A fresh select builder including all columns of the selected table.
    */
-  selectAll<TSide extends TableHandle>(
+  selectAll<TSide extends ReadSource>(
     handle: TSide,
   ): SelectBuilder<
     THandle,
@@ -1987,7 +2010,7 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = SetOperations<
    * @returns A fresh select builder with the inner join and its relation handle
    *   registered.
    */
-  innerJoin<TSide extends TableHandle>(
+  innerJoin<TSide extends ReadSource>(
     table: TSide,
     on?: JoinOnInput,
   ): SelectBuilder<
@@ -2006,7 +2029,7 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = SetOperations<
    * @returns A fresh select builder with the left join and its relation handle
    *   registered.
    */
-  leftJoin<TSide extends TableHandle>(
+  leftJoin<TSide extends ReadSource>(
     table: TSide,
     on?: JoinOnInput,
   ): SelectBuilder<
@@ -2025,7 +2048,7 @@ type QueryBuilder<THandle extends TableHandle = TableHandle> = SetOperations<
    * @returns A fresh select builder with the right join and its relation handle
    *   registered.
    */
-  rightJoin<TSide extends TableHandle>(
+  rightJoin<TSide extends ReadSource>(
     table: TSide,
     on?: JoinOnInput,
   ): SelectBuilder<
@@ -2163,11 +2186,12 @@ function emptySelectState(): SelectState {
  * @returns Query builder with `selectAll`, `select`, `where`, `compile`, and `execute`
  *   methods.
  */
-function createTableBuilder<THandle extends TableHandle>(
+function createTableBuilder<THandle extends ReadSource>(
   options: TableBuilderOptions<THandle>,
 ): QueryBuilder<THandle> {
   const { handle, dialect, executor, mapper } = options
-  const query = options.query ?? dialect.query.resolve([handle])
+  const query =
+    options.query ?? dialect.query.resolve(isTableHandle(handle) ? [handle] : [])
 
   /** Creates a select builder rooted at the table. */
   const rootSelect = () =>
@@ -2375,7 +2399,7 @@ function buildDeleteAst<THandle extends TableHandle>(
   }
 }
 
-type SelectBuilderOptions<THandle extends TableHandle> = {
+type SelectBuilderOptions<THandle extends ReadSource> = {
   handle: THandle
   dialect: Dialect
   query: DialectQueryResolution
@@ -2384,7 +2408,7 @@ type SelectBuilderOptions<THandle extends TableHandle> = {
   state: SelectState
 }
 
-type TableBuilderOptions<THandle extends TableHandle> = {
+type TableBuilderOptions<THandle extends ReadSource> = {
   handle: THandle
   dialect: Dialect
   query?: DialectQueryResolution
@@ -2433,7 +2457,7 @@ function writeResultTerminals(
  *
  * @returns Immutable selectAll and select operations preserving prior clauses.
  */
-function createSelectSelection<THandle extends TableHandle>(
+function createSelectSelection<THandle extends ReadSource>(
   state: SelectState,
   next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
 ): Pick<SelectBuilder<THandle, unknown>, 'selectAll' | 'select'> {
@@ -2443,7 +2467,7 @@ function createSelectSelection<THandle extends TableHandle>(
      *
      * @param side - Optional joined table to select from.
      */
-    selectAll(side?: TableHandle) {
+    selectAll(side?: ReadSource) {
       const metadata = side?.getTableMetadata()
       const item: SelectItemAst = metadata
         ? {
@@ -2477,7 +2501,7 @@ function createSelectSelection<THandle extends TableHandle>(
  *
  * @returns An immutable where operation that combines predicates using AND.
  */
-function createSelectFilters<THandle extends TableHandle>(
+function createSelectFilters<THandle extends ReadSource>(
   state: SelectState,
   next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
 ): Pick<SelectBuilder<THandle, unknown>, 'where'> {
@@ -2508,7 +2532,7 @@ function createSelectFilters<THandle extends TableHandle>(
 }
 
 /** Adds cursor boundaries through the same immutable predicate state as WHERE. */
-function createSelectBoundaries<THandle extends TableHandle>(
+function createSelectBoundaries<THandle extends ReadSource>(
   state: SelectState,
   next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
 ): Pick<SelectBuilder<THandle, unknown>, 'after' | 'before'> {
@@ -2539,7 +2563,7 @@ function createSelectBoundaries<THandle extends TableHandle>(
  *
  * @returns Immutable grouping and HAVING operations preserving prior clauses.
  */
-function createSelectGrouping<THandle extends TableHandle>(
+function createSelectGrouping<THandle extends ReadSource>(
   state: SelectState,
   next: (patch: Partial<SelectState>) => SelectBuilder<THandle, unknown>,
 ): Pick<SelectBuilder<THandle, unknown>, 'groupBy' | 'having'> {
@@ -2580,7 +2604,7 @@ function createSelectGrouping<THandle extends TableHandle>(
  *
  * @returns Root-table selection and filtering entry points.
  */
-function createTableSelection<THandle extends TableHandle>(
+function createTableSelection<THandle extends ReadSource>(
   rootSelect: () => SelectBuilder<THandle, unknown>,
 ): Pick<QueryBuilder<THandle>, 'selectAll' | 'select' | 'where' | 'after' | 'before'> {
   return {
@@ -2589,7 +2613,7 @@ function createTableSelection<THandle extends TableHandle>(
      *
      * @param tableHandle - Optional table to select from.
      */
-    selectAll(tableHandle?: TableHandle) {
+    selectAll(tableHandle?: ReadSource) {
       return rootSelect().selectAll(tableHandle as never) as never
     },
 
@@ -2630,7 +2654,7 @@ function createTableSelection<THandle extends TableHandle>(
  *
  * @returns Root-table inner, left, and right join entry points.
  */
-function createTableJoins<THandle extends TableHandle>(
+function createTableJoins<THandle extends ReadSource>(
   rootSelect: () => SelectBuilder<THandle, unknown>,
 ): Pick<QueryBuilder<THandle>, 'innerJoin' | 'leftJoin' | 'rightJoin'> {
   return {
@@ -2673,7 +2697,7 @@ function createTableJoins<THandle extends TableHandle>(
  *
  * @returns Root-table ordering, limit, and offset entry points.
  */
-function createTablePagination<THandle extends TableHandle>(
+function createTablePagination<THandle extends ReadSource>(
   rootSelect: () => SelectBuilder<THandle, unknown>,
 ): Pick<QueryBuilder<THandle>, 'orderBy' | 'limit' | 'offset' | 'groupBy' | 'having'> {
   return {
@@ -2793,7 +2817,7 @@ async function takeFirstSelectRow(execute: () => Promise<unknown>) {
  *
  * @returns Root-table grouping and HAVING entry points.
  */
-function createTableGrouping<THandle extends TableHandle>(
+function createTableGrouping<THandle extends ReadSource>(
   rootSelect: () => SelectBuilder<THandle, unknown>,
 ): Pick<QueryBuilder<THandle>, 'groupBy' | 'having'> {
   return {
@@ -2861,11 +2885,11 @@ type InferCallbackSelection<H, I extends readonly SelectionItem[], N> = {
 
 const authoredSelects = new WeakMap<
   SelectAst,
-  { handles: readonly TableHandle[]; query: DialectQueryResolution; mapper?: ValueMapper }
+  { handles: readonly ReadSource[]; query: DialectQueryResolution; mapper?: ValueMapper }
 >()
 
 type PreparedRelation = RelationIdentityInput & { queryAlias?: string }
-type ScopeEntry = { handle: TableHandle; relation: PreparedRelation }
+type ScopeEntry = { handle: ReadSource; relation: PreparedRelation }
 
 /**
  * Resolves a complete select under its owning client and enclosing query scopes.
@@ -2879,10 +2903,101 @@ type ScopeEntry = { handle: TableHandle; relation: PreparedRelation }
  * @returns A scope-resolved select with shared projection decisions.
  */
 function prepareStatement(root: SelectAst, owner: object): SelectAst {
-  return new StatementPreparation(owner).prepare(root, [])
+  const preparation = new StatementPreparation(owner)
+  const prepared = preparation.prepare(root, [])
+  return preparation.definitions.length
+    ? { ...prepared, with: preparation.definitions }
+    : prepared
 }
 
 class StatementPreparation {
+  readonly definitions: SelectCteAst[] = []
+  readonly included = new Set<ReadSource>()
+  private readonly visiting = new Set<ReadSource>()
+  private readonly names = new Map<string, ReadSource>()
+  private activeSelf: ReadSource | undefined
+  private inDefinition = false
+  include(source: ReadSource): void {
+    source = cteBase(source)
+
+    if (recursiveSelfHandles.has(source))
+      throw new QueryError({ message: 'Recursive self escaped its definition' })
+
+    if (this.included.has(source)) return
+
+    if (this.visiting.has(source))
+      throw new QueryError({ message: 'Invalid CTE dependency cycle' })
+
+    const definition = cteDefinitions.get(source)
+
+    if (!definition || definition.owner !== this.owner)
+      throw new QueryError({ message: 'CTEs must share the same client scope' })
+
+    const key = definition.name.replace(/[A-Z]/g, (character) => character.toLowerCase())
+    const existing = this.names.get(key)
+
+    if (existing && existing !== source)
+      throw new QueryError({ message: 'Duplicate CTE definition name' })
+
+    this.names.set(key, source)
+    this.visiting.add(source)
+    const previous = this.inDefinition
+    const enclosingSelf = this.activeSelf
+    this.activeSelf = undefined
+    this.inDefinition = true
+    const initialNode = authoredSelect(definition.initial, this.owner)
+    const context = authoredSelects.get(initialNode) ?? authoredCompounds.get(initialNode)
+    const initial = this.prepare(initialNode, [])
+
+    if (!context) throw new InvariantError('Missing CTE SELECT context')
+
+    const left = prepareSelectProjection(initial, context.query)
+    let recursive: SelectCteAst['recursive']
+
+    if (definition.recursive) {
+      const previousSelf = this.activeSelf
+      this.activeSelf = definition.self
+      const rightNode = this.prepare(authoredSelect(definition.recursive, this.owner), [])
+      this.activeSelf = previousSelf
+      const right = prepareSelectProjection(rightNode, context.query)
+
+      if (left.outputs.length !== right.outputs.length)
+        throw new QueryError({ message: 'Recursive CTE output count must match' })
+
+      left.outputs.forEach((output, index) =>
+        validateSetOutput(context, left, right, index, output.outputName),
+      )
+
+      recursive = { query: rightNode, union: definition.union ?? 'all' }
+    }
+
+    this.inDefinition = previous
+    this.activeSelf = enclosingSelf
+    this.visiting.delete(source)
+    this.included.add(source)
+
+    this.definitions.push({
+      name: definition.name,
+      columns: left.outputs.map((o) => o.sqlName),
+      initial,
+      ...(recursive ? { recursive } : {}),
+    })
+  }
+  source(handle: ReadSource): void {
+    const source = cteBase(handle)
+
+    if (!cteDefinitions.has(source)) return
+    if (source === this.activeSelf) return
+
+    if (recursiveSelfHandles.has(source))
+      throw new QueryError({ message: 'Recursive self escaped its definition' })
+
+    if (this.inDefinition) this.include(source)
+    else if (!this.included.has(source))
+      throw new QueryError({
+        message: 'CTE source is unavailable; attach it with db.with()',
+      })
+  }
   private sequence = 0
   /**
    * Starts statement-wide relation aliases for one client scope.
@@ -2903,7 +3018,7 @@ class StatementPreparation {
    *
    * @returns A relation occurrence with source provenance and a fresh query alias.
    */
-  relation(handle: TableHandle): PreparedRelation {
+  relation(handle: ReadSource): PreparedRelation {
     const relation = {
       ...handle.getTableMetadata().relation,
       queryAlias: `__stratom_q${this.sequence++}`,
@@ -2930,6 +3045,9 @@ class StatementPreparation {
     enclosing: readonly (readonly ScopeEntry[])[],
     use: ProjectionUse = 'rows',
   ): SelectAst {
+    const context = authoredSelects.get(node) ?? authoredCompounds.get(node)
+    for (const source of (context && cteAttachments.get(context.query)) || [])
+      this.include(source)
     const compound = authoredCompounds.get(node)
 
     if (compound) return this.prepareCompound(node, compound, enclosing, use)
@@ -2983,7 +3101,7 @@ class StatementPreparation {
 
 /** Rejects an incompatible output before compilation or native execution. */
 function validateSetOutput(
-  compound: CompoundContext,
+  compound: Pick<CompoundContext, 'mapper'>,
   left: ReturnType<typeof prepareSelectProjection>,
   right: ReturnType<typeof prepareSelectProjection>,
   index: number,
@@ -3018,7 +3136,7 @@ function validateSetOutput(
 }
 
 class SelectPreparation {
-  readonly handles: readonly TableHandle[]
+  readonly handles: readonly ReadSource[]
   readonly query: DialectQueryResolution
   readonly mapper: ValueMapper | undefined
   readonly scope: readonly ScopeEntry[]
@@ -3042,6 +3160,7 @@ class SelectPreparation {
 
     if (!context) throw new InvariantError('Missing authored select context')
 
+    for (const handle of context.handles) statement.source(handle)
     this.handles = context.handles
     this.query = context.query
     this.mapper = context.mapper
@@ -3053,7 +3172,12 @@ class SelectPreparation {
     if (new Set(names).size !== names.length)
       throw new QueryError({ message: 'Duplicate relation aliases in query' })
 
-    const nested = enclosing.length > 0 || hasNested(node) || names.length > 0
+    const nested =
+      enclosing.length > 0 ||
+      hasNested(node) ||
+      names.length > 0 ||
+      this.handles.some((h) => !isTableHandle(h))
+
     this.scope = this.handles.map((handle) => ({
       handle,
       relation: nested ? statement.relation(handle) : handle.getTableMetadata().relation,
@@ -3150,12 +3274,13 @@ class SelectPreparation {
   outer(ref: QualifiedColumnAst): SqlExprAst {
     for (const parent of this.enclosing) {
       const matches =
-        ref.relation && occurrenceAlias(ref.relation)
+        ref.relation && ('cte' in ref.relation || occurrenceAlias(ref.relation))
           ? parent.filter((e) => e.handle.getTableMetadata().relation === ref.relation)
           : this.query.findRelationMatches(
               ref.relation!,
               parent
                 .map((e) => e.handle)
+                .filter(isTableHandle)
                 .filter((h) => !occurrenceAlias(h.getTableMetadata().relation)),
             )
 
@@ -3256,6 +3381,11 @@ class SelectPreparation {
       return { kind: 'not', pred: this.predicate(pred.pred, available) }
 
     const left = this.resolve(pred, available)
+    const source = projectionSource(
+      { kind: 'column', relation: left.entry.relation, column: left.column },
+      this.query,
+    )
+
     return {
       ...pred,
       column: left.column,
@@ -3264,11 +3394,11 @@ class SelectPreparation {
         ? { right: this.column(pred.right, available) }
         : {
             value:
-              pred.value === null || !this.mapper
+              pred.value === null || !this.mapper || !source
                 ? pred.value
                 : this.mapper.mapParam(
-                    baseTable(left.entry.handle),
-                    left.column,
+                    baseTable(source.handle),
+                    source.column,
                     pred.value,
                   ),
           }),
@@ -3414,6 +3544,9 @@ function prepareWriteScope(
   authoredSelects.set(node, { handles: [handle], query, mapper })
   const prepared = prepareStatement(node, owner)
 
+  if (prepared.with?.length)
+    throw new QueryError({ message: 'CTE-consuming writes are not supported' })
+
   return { relation: prepared.relation, where: prepared.where! }
 }
 
@@ -3428,7 +3561,7 @@ function prepareWriteScope(
  *
  * @returns The prepared select and raw rows with their output names restored.
  */
-async function executeSelectRows(options: SelectBuilderOptions<TableHandle>) {
+async function executeSelectRows(options: SelectBuilderOptions<ReadSource>) {
   const prepared = prepareStatement(buildSelectQuery(options), options.executor)
   const compiled = options.query.compile(prepared)
   const rows = restoreResultNames(
@@ -3440,7 +3573,7 @@ async function executeSelectRows(options: SelectBuilderOptions<TableHandle>) {
 }
 
 /** Executes a flat select with the mapping supplied by its prepared projection. */
-async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
+async function executeSelect(options: SelectBuilderOptions<ReadSource>) {
   const { prepared, rows } = await executeSelectRows(options)
   return options.mapper
     ? prepareSelectProjection(prepared, options.query).mapRows(options.mapper, rows)
@@ -3449,7 +3582,7 @@ async function executeSelect(options: SelectBuilderOptions<TableHandle>) {
 
 /** Executes and shapes one select with identity taken from raw database values. */
 async function executeNestedSelect(
-  options: SelectBuilderOptions<TableHandle>,
+  options: SelectBuilderOptions<ReadSource>,
   projection: NestedProjection,
 ) {
   const { handle, query, state } = options
@@ -3470,8 +3603,16 @@ async function executeNestedSelect(
   }
 
   const handles = [handle, ...state.joinedHandles]
+
+  if (!isTableHandle(handle) || handles.some((h) => !isTableHandle(h)))
+    throw new QueryError({ message: 'CTEs do not support executeNested' })
+
   const nested = prepareNestedProjection(projection, handle, (ref) => {
     const source = findHandle(query, handles, ref.relation)
+
+    if (!isTableHandle(source))
+      throw new QueryError({ message: 'CTEs do not support executeNested' })
+
     return { handle: source, column: findColumn(query, source, ref.column, ref.relation) }
   })
 

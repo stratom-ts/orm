@@ -29,7 +29,10 @@ import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageDefault } from '@/storage/facts'
 import type { ColumnRef, ColumnRefsOf, SchemaNameOf, TableHandle } from '@/types'
 import { TABLE_HANDLE } from '@/types'
+import type { CteHandle } from '@/types/cte'
+import { cteAliases, cteHandles } from '@/types/cte'
 import type { AnySchema } from '@/types/schema'
+import type { ReadSource } from '@/types/tableHandle'
 import { assertNonEmptyString } from '@/utils/assertNonEmptyString'
 import { SchemaError } from '@/utils/error'
 
@@ -629,6 +632,45 @@ function isTableHandle(value: unknown): value is TableHandle {
 
 /** A distinct occurrence of a registered table in a query. */
 function alias<
+  R,
+  TName extends string,
+  TRelation extends RelationIdentityInput,
+  const N extends string,
+>(
+  table: CteHandle<R, TName, TRelation>,
+  name: N,
+): CteHandle<R, TName, Omit<TRelation, 'alias'> & { readonly alias: N }>
+function alias<
+  S extends TableSchema,
+  R extends RelationIdentityInput,
+  const N extends string,
+>(table: TableHandle<S, R>, name: N): TableHandle<S, R & { readonly alias: N }>
+
+function alias(table: unknown, name: string): unknown {
+  if (typeof table === 'object' && table !== null && cteHandles.has(table)) {
+    const source = table as ReadSource
+    assertNonEmptyString(name, 'query alias')
+    const relation = { ...source.getTableMetadata().relation, alias: name }
+    const handle = {
+      getSchema: () => source.getSchema(),
+      getTableMetadata: () => ({ ...source.getTableMetadata(), relation }),
+    }
+
+    for (const column of Object.keys(source.getSchema().entries))
+      Object.defineProperty(handle, column, {
+        value: { relation, column, __type: undefined },
+        enumerable: true,
+      })
+    cteHandles.add(handle)
+    cteAliases.set(handle, source)
+    aliasOccurrences.set(relation, name)
+    return handle
+  }
+
+  return aliasTable(table as TableHandle, name)
+}
+
+function aliasTable<
   S extends TableSchema,
   R extends RelationIdentityInput,
   const N extends string,

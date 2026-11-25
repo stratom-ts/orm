@@ -2,6 +2,7 @@ import { pipe, string } from 'valibot'
 import { describe, expect, it } from 'vitest'
 
 import { column, createDatabase, defineTable } from '@/index'
+import type { QueryBuilder } from '@/query/builder'
 
 import { createMockPostgresConnector } from './dialects/postgresNativeClientFixtures'
 
@@ -16,7 +17,7 @@ describe('transaction client lifecycle', () => {
     const connector = createMockPostgresConnector()
     const db = createDatabase({ connector, schemas: [Accounts] })
     let scopedClient: typeof db | undefined
-    let scopedQuery: ReturnType<typeof db.from> | undefined
+    let scopedQuery: QueryBuilder<typeof Accounts> | undefined
 
     await db.transaction(async (trx) => {
       scopedClient = trx

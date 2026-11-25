@@ -1,11 +1,18 @@
-import { outputAliases, prepareSelectProjection } from '@/query/projection'
+import { isTableHandle } from '@/defineTable'
+import {
+  cteOutputNames,
+  outputAliases,
+  prepareSelectProjection,
+} from '@/query/projection'
 import { queryRelationSource } from '@/query/sourceRelation'
 import type { RelationIdentityInput } from '@/schemas'
 import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
 import { physicalColumnName } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
+import { cteAliases } from '@/types/cte'
 import { QueryError } from '@/utils/error'
 
+import { isCteRelation } from './cteQuery'
 import type {
   CompiledQuery,
   DialectQueryResolution,
@@ -66,9 +73,11 @@ class ColumnQuery {
    * @returns The registered handle, or undefined when the relation is unknown.
    */
   handle(relation: RelationIdentityInput): TableHandle | undefined {
+    if (isCteRelation(relation)) return undefined
+
     const source = queryRelationSource(relation)
 
-    if (source) return source
+    if (source && isTableHandle(source)) return source
 
     const matches = this.query.findRelationMatches(relation)
 
@@ -92,7 +101,14 @@ class ColumnQuery {
   column<T extends QualifiedColumnAst>(ref: T, relation: RelationIdentityInput): T {
     const handle = this.handle(ref.relation ?? relation)
 
-    if (!handle) return ref
+    if (!handle) {
+      const selected = ref.relation ?? relation
+      let source = queryRelationSource(selected)
+      while (source && cteAliases.has(source)) source = cteAliases.get(source)
+      const outputs = cteOutputNames.get(source?.getTableMetadata().relation ?? selected)
+      const output = outputs?.find((o) => o.outputName === ref.column)
+      return output ? { ...ref, column: output.sqlName } : ref
+    }
 
     if (!Object.hasOwn(handle.getSchema().entries, ref.column))
       throw new QueryError({
@@ -363,6 +379,8 @@ class ColumnQuery {
     projection?: { sqlName: string; outputName: string }[],
     discard = false,
   ): SelectAst {
+    if (node.with?.length) return this.withSelect(node, projection, discard)
+
     if (node.compound) return this.compound(node, projection)
 
     const relation = node.relation
@@ -397,6 +415,30 @@ class ColumnQuery {
       ...(node.having ? { having: this.predicate(node.having, relation) } : {}),
     }
   }
+  /** Lowers each CTE body without collecting its outputs as statement results. */
+  withSelect(
+    node: SelectAst,
+    projection: { sqlName: string; outputName: string }[] | undefined,
+    discard: boolean,
+  ): SelectAst {
+    const { with: definitions = [], ...body } = node
+    return {
+      ...this.select(body, projection, discard),
+      with: definitions.map((definition) => ({
+        ...definition,
+        initial: this.select(definition.initial),
+        ...(definition.recursive
+          ? {
+              recursive: {
+                ...definition.recursive,
+                query: this.select(definition.recursive.query),
+              },
+            }
+          : {}),
+      })),
+    }
+  }
+
   /** Lowers each branch independently and orders only by bounded output aliases. */
   compound(
     node: SelectAst,

@@ -456,6 +456,8 @@ export type JoinAst = {
 
 export type SelectAst = {
   readonly kind: 'select'
+  /** Ordered, statement-local SELECT definitions, prepared before dialect lowering. */
+  readonly with?: readonly SelectCteAst[]
   /** A compound owns its operands and its own ordering and pagination. */
   readonly compound?: Readonly<{
     operator: 'union' | 'union all' | 'intersect' | 'except'
@@ -473,6 +475,20 @@ export type SelectAst = {
   readonly groupBy?: readonly QualifiedColumnAst[]
   readonly having?: PredicateAst
 }
+
+/** A SELECT-only definition. Recursive terms compile directly, without derived tables. */
+export type SelectCteAst = Readonly<{
+  name: string
+  columns: readonly string[]
+  initial: SelectAst
+  recursive?: Readonly<{
+    query: SelectAst
+    union: 'all' | 'distinct'
+  }>
+}>
+
+/** Distinguishes a statement-local source from a physical registered relation. */
+export type CteRelationAst = RelationIdentityInput & Readonly<{ cte: true }>
 
 /** Returning projection for insert/update/delete. */
 export type ReturningAst =
