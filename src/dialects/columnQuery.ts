@@ -1,9 +1,15 @@
-import { outputAliases, prepareSelectProjection } from '@/query/projection'
+import { isTableHandle } from '@/defineTable'
+import {
+  cteOutputNames,
+  outputAliases,
+  prepareSelectProjection,
+} from '@/query/projection'
 import { queryRelationSource } from '@/query/sourceRelation'
 import type { RelationIdentityInput } from '@/schemas'
 import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
 import { physicalColumnName } from '@/schemas/physicalColumn'
 import type { TableHandle } from '@/types'
+import { cteAliases } from '@/types/cte'
 import { QueryError } from '@/utils/error'
 
 import { isCteRelation } from './cteQuery'
@@ -71,7 +77,7 @@ class ColumnQuery {
 
     const source = queryRelationSource(relation)
 
-    if (source) return source
+    if (source && isTableHandle(source)) return source
 
     const matches = this.query.findRelationMatches(relation)
 
@@ -95,7 +101,14 @@ class ColumnQuery {
   column<T extends QualifiedColumnAst>(ref: T, relation: RelationIdentityInput): T {
     const handle = this.handle(ref.relation ?? relation)
 
-    if (!handle) return ref
+    if (!handle) {
+      const selected = ref.relation ?? relation
+      let source = queryRelationSource(selected)
+      while (source && cteAliases.has(source)) source = cteAliases.get(source)
+      const outputs = cteOutputNames.get(source?.getTableMetadata().relation ?? selected)
+      const output = outputs?.find((o) => o.outputName === ref.column)
+      return output ? { ...ref, column: output.sqlName } : ref
+    }
 
     if (!Object.hasOwn(handle.getSchema().entries, ref.column))
       throw new QueryError({

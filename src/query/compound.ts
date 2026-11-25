@@ -94,3 +94,5 @@ export type CompoundSelectBuilder<
   executeTakeFirst(): Promise<TResult | undefined>
   executeTakeFirstOrThrow(): Promise<TResult>
 }
+
+export type { Combined, Compatible, Shape, OutputName }

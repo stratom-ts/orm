@@ -252,6 +252,6 @@ it.each([postgresDialect, sqliteDialect])(
 
     const compiled = dialect.query.resolve([Physical]).compile(ast)
     expect(compiled.sql.match(/"physical_id"/g)).toEqual(['"physical_id"'])
-    expect(compiled.sql).toContain('from "team" as ')
+    expect(compiled.sql).toContain('from "__stratom_cte0" as ')
   },
 )

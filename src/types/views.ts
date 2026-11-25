@@ -3,6 +3,7 @@ import type { InferInput, InferOutput } from 'valibot'
 import type { ColumnGeneration, TableSchema } from '@/schemas'
 import type { Prettify } from '@/types/prettify'
 
+import type { cteRow } from './cte'
 import type { AnySchema } from './schema'
 import type { ColumnRef } from './tableHandle'
 
@@ -265,9 +266,11 @@ type SchemaOf<T> = T extends {
     : never
 
 /** Select row type for a table handle or Valibot table schema. */
-type InferSelect<T> = [SchemaOf<T>] extends [never]
-  ? never
-  : Prettify<InferSelectFromSchema<SchemaOf<T>>>
+type InferSelect<T> = T extends { readonly [cteRow]: infer R }
+  ? R
+  : [SchemaOf<T>] extends [never]
+    ? never
+    : Prettify<InferSelectFromSchema<SchemaOf<T>>>
 
 /** Insert input type for a table handle or Valibot table schema. */
 type InferInsert<T> = [SchemaOf<T>] extends [never]

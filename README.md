@@ -1483,3 +1483,74 @@ one deterministic row is required.
 MIT
 
 See [SQL set operations](docs/set-operations.md) for typed UNION, UNION ALL, INTERSECT, and EXCEPT queries.
+
+### SELECT common table expressions
+
+Use `db.cte(name, selectQuery)` to name a SELECT result. Output names become typed
+column references. Selected column aliases become CTE column names. Wildcards are
+expanded; duplicate output names are rejected, and computed outputs need aliases.
+
+```ts
+const activeUsers = db.cte(
+  'active_users',
+  db
+    .from(Users)
+    .select([Users.id, Users.name])
+    .where((b) => b.eq(Users.active, true)),
+)
+const names = db.cte('names', db.from(activeUsers).select([activeUsers.name]))
+const rows = await db.with(names).from(names).execute()
+```
+
+Attachment is explicit. `db.from(activeUsers)` can author a dependent definition,
+but a consuming statement must attach its CTE with `db.with(...)`. Transitive
+dependencies, including joins and scalar/IN/EXISTS subqueries, are included once
+in dependency order. `alias(handle, name)` supports multiple CTE occurrences.
+CTE handles are read sources, separate from registered physical tables. Joins to
+CTEs need explicit ON predicates. Use flat SELECT results: `executeNested` needs
+physical table identity metadata.
+
+For recursion, supply an initial SELECT and a callback that receives typed `self`:
+
+```ts
+const team = db.cte(
+  'team',
+  db
+    .from(Employees)
+    .select([Employees.id, Employees.name])
+    .where((b) => b.eq(Employees.id, 42)),
+  (self) =>
+    db
+      .from(Employees)
+      .innerJoin(self, (b) => b.eq(Employees.managerId, self.id))
+      .select([Employees.id, Employees.name]),
+  { union: 'all' },
+)
+const people = await db.with(team).from(team).execute()
+```
+
+The optional fourth argument is `{ union?: 'all' | 'distinct' }`. The default
+emits `UNION ALL`; `'distinct'` emits `UNION`. Branch outputs must have identical
+names and positional order, compatible non-null value types, and proven compatible
+storage and result mappings. A nullable output in either branch makes the final
+column nullable. Recursive `self` columns are conservatively nullable, since later
+iterations can contain NULL even when the initial projection cannot.
+
+The portable PostgreSQL/SQLite recursive subset permits exactly one direct self
+source in the recursive SELECT, with inner joins only. Self cannot escape its
+callback definition or occur inside a subquery. Recursive terms cannot use set
+operations, nested WITH, ordering, pagination, grouping, or aggregates. Mutual
+recursion, materialization hints, SEARCH/CYCLE, and implicit lateral/correlation
+are unsupported. Existing explicit `outer(...)` rules still apply to subqueries;
+CTE definitions cannot correlate to a consumer.
+
+Callers must ensure recursion terminates. `UNION` removes duplicate complete rows;
+it does not prevent cycles when projected values such as depth keep changing.
+
+Definitions, dependencies, aliases, and consumers must share the same client or
+transaction owner. Root, separate transaction, and nested transaction scopes cannot
+be mixed. Execution retains closed-client, expired-transaction, and underlying
+physical-source session guards. CTE definitions and consumers are SELECT-only,
+including indirect subquery consumers in writes. Ordinary table CRUD remains
+available separately. CTE names must be nonempty, contain no NUL, fit 63 UTF-8
+bytes, and be unique ignoring ASCII case within the statement.

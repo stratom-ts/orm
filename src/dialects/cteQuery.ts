@@ -15,6 +15,10 @@ function compileWithSelect(
   compile: (query: SelectAst) => string,
   quote: (name: string) => string,
 ): string {
+  const safe = avoidPhysicalShadowing(node)
+
+  if (safe !== node) return compile(safe)
+
   const definitions = node.with!
   const names = new Set<string>()
   const clauses = definitions.map((definition) => {
@@ -43,6 +47,61 @@ function compileWithSelect(
   const recursive = definitions.some((definition) => definition.recursive)
   const { with: _, ...body } = node
   return `with${recursive ? ' recursive' : ''} ${clauses.join(', ')} ${compile(body)}`
+}
+
+/** Keeps statement-local names from hiding an unqualified physical source. */
+function avoidPhysicalShadowing(node: SelectAst): SelectAst {
+  const physical = new Set<string>()
+  contains(node, (value) => {
+    if (
+      value &&
+      typeof value === 'object' &&
+      'relation' in value &&
+      typeof value.relation === 'string' &&
+      !isCteRelation(value)
+    )
+      physical.add(value.relation)
+
+    return false
+  })
+
+  const reserved = new Set([...physical, ...node.with!.map((d) => d.name)])
+  const names = new Map<string, string>()
+  let sequence = 0
+  for (const definition of node.with!) {
+    if (!physical.has(definition.name)) continue
+
+    let name: string
+    do {
+      name = `__stratom_cte${sequence++}`
+    } while (reserved.has(name))
+
+    reserved.add(name)
+    names.set(definition.name, name)
+  }
+
+  if (!names.size) return node
+
+  const rewrite = (value: unknown): unknown => {
+    if (!value || typeof value !== 'object') return value
+    if (Array.isArray(value)) return value.map(rewrite)
+
+    if (isCteRelation(value))
+      return { ...value, relation: names.get(value.relation) ?? value.relation }
+
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        key === 'value' || key === 'values' ? child : rewrite(child),
+      ]),
+    )
+  }
+
+  const result = rewrite(node) as SelectAst
+  return {
+    ...result,
+    with: result.with!.map((d) => ({ ...d, name: names.get(d.name) ?? d.name })),
+  }
 }
 
 /** Rejects recursive shapes outside the shared PostgreSQL/SQLite SELECT subset. */

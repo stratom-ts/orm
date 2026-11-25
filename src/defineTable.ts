@@ -29,6 +29,8 @@ import { extractStorageFacts } from '@/schemas/valibot/storageFacts'
 import type { StorageDefault } from '@/storage/facts'
 import type { ColumnRef, ColumnRefsOf, SchemaNameOf, TableHandle } from '@/types'
 import { TABLE_HANDLE } from '@/types'
+import type { CteHandle } from '@/types/cte'
+import { cteAliases, cteHandles } from '@/types/cte'
 import type { AnySchema } from '@/types/schema'
 import { assertNonEmptyString } from '@/utils/assertNonEmptyString'
 import { SchemaError } from '@/utils/error'
@@ -629,6 +631,44 @@ function isTableHandle(value: unknown): value is TableHandle {
 
 /** A distinct occurrence of a registered table in a query. */
 function alias<
+  R,
+  TName extends string,
+  TRelation extends RelationIdentityInput,
+  const N extends string,
+>(
+  table: CteHandle<R, TName, TRelation>,
+  name: N,
+): CteHandle<R, TName, TRelation & { readonly alias: N }>
+function alias<
+  S extends TableSchema,
+  R extends RelationIdentityInput,
+  const N extends string,
+>(table: TableHandle<S, R>, name: N): TableHandle<S, R & { readonly alias: N }>
+
+function alias(table: TableHandle | CteHandle, name: string): TableHandle | CteHandle {
+  if (cteHandles.has(table)) {
+    assertNonEmptyString(name, 'query alias')
+    const relation = { ...table.getTableMetadata().relation, alias: name }
+    const handle = {
+      getSchema: table.getSchema,
+      getTableMetadata: () => ({ ...table.getTableMetadata(), relation }),
+    }
+
+    for (const column of Object.keys(table.getSchema().entries))
+      Object.defineProperty(handle, column, {
+        value: { relation, column, __type: undefined },
+        enumerable: true,
+      })
+    cteHandles.add(handle)
+    cteAliases.set(handle, table)
+    aliasOccurrences.set(relation, name)
+    return handle as unknown as CteHandle
+  }
+
+  return aliasTable(table as TableHandle, name)
+}
+
+function aliasTable<
   S extends TableSchema,
   R extends RelationIdentityInput,
   const N extends string,

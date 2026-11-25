@@ -1,12 +1,12 @@
 import type { RelationIdentityInput } from '@/schemas'
-import type { TableHandle } from '@/types'
+import type { ReadSource } from '@/types/tableHandle'
 
-const sources = new WeakMap<RelationIdentityInput, TableHandle>()
+const sources = new WeakMap<RelationIdentityInput, ReadSource>()
 
 /** Retains the exact table selected before SQL occurrence aliases are assigned. */
 export function recordQueryRelation(
   relation: RelationIdentityInput,
-  handle: TableHandle,
+  handle: ReadSource,
 ): void {
   sources.set(relation, handle)
 }
@@ -14,6 +14,6 @@ export function recordQueryRelation(
 /** Reads source provenance without resolving the occurrence against another scope. */
 export function queryRelationSource(
   relation: RelationIdentityInput,
-): TableHandle | undefined {
+): ReadSource | undefined {
   return sources.get(relation)
 }

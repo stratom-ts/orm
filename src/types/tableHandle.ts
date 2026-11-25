@@ -56,6 +56,13 @@ type TableHandle<
   getTableMetadata(): HandleTableMetadata<SchemaNameOf<S>, TRelation>
 } & (string extends keyof ColumnEntries<S> ? unknown : ColumnRefsOf<S, TRelation>)
 
-export type { ColumnRef, SchemaNameOf, ColumnRefsOf, TableHandle }
+/** Internal read-source interface; it does not grant physical-table authority. */
+type ReadSource = {
+  getSchema(): Pick<TableSchema, 'entries'>
+  getTableMetadata(): Pick<TableMetadata, 'name' | 'relation'>
+}
 
+export type { ReadSource }
+
+export type { ColumnRef, SchemaNameOf, ColumnRefsOf, TableHandle }
 export { TABLE_HANDLE }
