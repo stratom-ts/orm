@@ -3,7 +3,7 @@ import { QueryError } from '@/utils/error'
 import type { DialectExpressionResult } from './types'
 
 /** Rejects native results that cannot satisfy a declared helper result. */
-export function expressionMappingError(): never {
+function expressionMappingError(): never {
   throw new QueryError({ message: 'SQL expression result cannot be represented safely' })
 }
 

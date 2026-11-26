@@ -1,7 +1,7 @@
 import { date, integer, number, pipe } from 'valibot'
 import { expect, it } from 'vitest'
 
-import { column, defineTable, eq } from '@/index'
+import { column, defineTable, eq, scalar } from '@/index'
 
 import {
   NumericValues,
@@ -21,6 +21,56 @@ it('should returns typed native PostgreSQL expression values through query compo
         .select((b) => [b.as(b.sum(NumericValues.big), 'sum')])
         .execute(),
     ).toEqual([{ sum: 18_000_000_000_000_000_000n }])
+  })
+})
+
+it('should support PostgreSQL physical type aliases in helpers and widened comparisons', async () => {
+  const Aliases = defineTable(
+    'expression_aliases',
+    {
+      id: pipe(number(), integer(), column({ physicalType: { postgresql: 'int4' } })),
+      small: pipe(number(), integer(), column({ physicalType: { postgresql: 'int2' } })),
+      wide: pipe(number(), integer(), column({ physicalType: { postgresql: 'int8' } })),
+      real: pipe(number(), column({ physicalType: { postgresql: 'float4' } })),
+      double: pipe(number(), column({ physicalType: { postgresql: 'float8' } })),
+    },
+    { primaryKey: 'id' },
+  )
+
+  await withPostgresDatabase([Aliases], async ({ db }) => {
+    await db.migrate().execute()
+
+    await db
+      .insert(Aliases)
+      .values([
+        { id: 1, small: 2, wide: 3, real: 1.5, double: 2.5 },
+        { id: 2, small: 4, wide: 5, real: 2.5, double: 3.5 },
+      ])
+      .execute()
+
+    expect(
+      await db
+        .from(Aliases)
+        .select((b) => [
+          b.as(b.sum(Aliases.id), 'id'),
+          b.as(b.sum(Aliases.small), 'small'),
+          b.as(b.sum(Aliases.wide), 'wide'),
+          b.as(b.sum(Aliases.real), 'real'),
+          b.as(b.sum(Aliases.double), 'double'),
+          b.as(b.min(Aliases.small), 'min'),
+          b.as(b.max(Aliases.wide), 'max'),
+        ])
+        .execute(),
+    ).toEqual([{ id: 3, small: 6, wide: 8, real: 4, double: 6, min: 2, max: 5 }])
+
+    const counts = db.from(Aliases).select((b) => [b.as(b.countAll(), 'n')])
+    expect(
+      await db
+        .from(Aliases)
+        .where(eq(Aliases.id, scalar(counts)))
+        .select([Aliases.id])
+        .execute(),
+    ).toEqual([{ id: 2 }])
   })
 })
 

@@ -398,6 +398,52 @@ for (const dialect of ['postgresql', 'sqlite'] as const) {
   })
 }
 
+for (const dialect of ['postgresql', 'sqlite'] as const) {
+  it.each(['parameter', 'result'] as const)(
+    `should reject ${dialect} transformed client %s mappings while counts bypass hooks`,
+    async (direction) => {
+      const hook = vi.fn<(type: string, value: unknown) => unknown>(
+        (_type, value) => value,
+      )
+
+      const controls = createControllableProvider({
+        queryRows: () => [{ n: dialect === 'postgresql' ? '2' : 2n }],
+      })
+
+      const db = createDatabase({
+        connector: customConnector(dialect),
+        schemas: [Rows],
+        operationSessionProvider: controls.provider,
+        map:
+          direction === 'parameter' ? { mapParamValue: hook } : { mapResultValue: hook },
+      })
+
+      expect(() =>
+        db
+          .from(Rows)
+          .select((b) => [b.as(b.sum(Rows.id), 'sum')])
+          .compile(),
+      ).toThrow(/standard mappings/)
+
+      expect(() =>
+        db
+          .from(Rows)
+          .select((b) => [b.as(b.lower(Rows.label), 'name')])
+          .compile(),
+      ).toThrow(/standard mappings/)
+
+      expect(hook).not.toHaveBeenCalled()
+      expect(controls.calls).toEqual([])
+
+      const counts = db.from(Rows).select((b) => [b.as(b.countAll(), 'n')])
+      counts.compile()
+      expect(await counts.execute()).toEqual([{ n: 2 }])
+      expect(hook).not.toHaveBeenCalled()
+      await db.close()
+    },
+  )
+}
+
 it('should require a selected dialect proof even when an extension copies a built-in dialect id', () => {
   const extension: Dialect = {
     ...postgresDialect,

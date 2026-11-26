@@ -150,6 +150,14 @@ async function assertLimits(db: Db): Promise<void> {
     ])
     .execute()
 
+  expect(
+    await db
+      .from(NumericValues)
+      .where(eq(NumericValues.id, 1))
+      .select((b) => [b.as(b.sum(NumericValues.whole), 'sum')])
+      .execute(),
+  ).toEqual([{ sum: Number.MAX_SAFE_INTEGER }])
+
   await expect(
     db
       .from(NumericValues)

@@ -17,6 +17,7 @@ import type {
 } from '../types'
 
 import { mapPostgresResultValue } from './mapping'
+import { extractPostgresBaseType } from './normalize'
 
 const INTEGER = ['smallint', 'integer', 'bigint', 'smallserial', 'serial', 'bigserial']
 const FLOAT = ['real', 'double precision']
@@ -34,11 +35,7 @@ const DATE = [
  * alone.
  */
 function storage(dataType: string) {
-  const type = dataType
-    .trim()
-    .toLowerCase()
-    .replace(/\(.*\)/, '')
-    .replace(/\s+/g, ' ')
+  const type = extractPostgresBaseType(dataType)
 
   const family = INTEGER.includes(type)
     ? 'integer'
