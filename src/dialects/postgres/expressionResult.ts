@@ -54,12 +54,21 @@ function sumResult(operand: DialectExpressionOperand): DialectExpressionResult {
   const { type, family } = storage(operand.dataType)
 
   if (operand.outputKind === 'number') {
-    if (family === 'integer')
-      return expressionResult(
-        type === 'bigint' || type === 'bigserial' ? 'numeric' : 'bigint',
-        'number',
-        expressionInteger,
-      )
+    // PostgreSQL widens integer sums to numeric. Retain that proof through CTE outputs.
+    if (
+      family === 'integer' ||
+      (family === 'numeric' && operand.encoding === 'safe-integer')
+    )
+      return {
+        ...expressionResult(
+          type === 'bigint' || type === 'bigserial' || family === 'numeric'
+            ? 'numeric'
+            : 'bigint',
+          'number',
+          expressionInteger,
+        ),
+        encoding: 'safe-integer',
+      }
 
     if (family === 'float') return expressionResult(type, 'number', expressionFloat)
   }

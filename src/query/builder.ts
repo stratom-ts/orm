@@ -2892,15 +2892,13 @@ type ComputedValue<H, E, N> = E extends { readonly __operand?: infer C }
     : unknown
   : unknown
 
+/** Filter tuple slots before unioning, so wildcard unknowns do not erase expressions. */
+type ComputedProjectionItems<P extends readonly unknown[]> = {
+  [K in keyof P]: Extract<P[K], { alias: string; expr: { readonly __operand?: unknown } }>
+}[number]
+
 type RecomputedExpressions<H, P extends readonly unknown[], N> = {
-  [
-    I in P[number] as I extends {
-      alias: infer A extends string
-      expr: { readonly __operand?: unknown }
-    }
-      ? A
-      : never
-  ]: I extends { expr: infer E } ? ComputedValue<H, E, N> : never
+  [I in ComputedProjectionItems<P> as I['alias']]: ComputedValue<H, I['expr'], N>
 }
 
 type JoinExpressionResult<H, R, P extends readonly unknown[], N> = Omit<

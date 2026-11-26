@@ -227,6 +227,21 @@ it('should track nullable outer-join operands before and after selection, includ
   >()
 })
 
+it('should preserve computed nullability after wildcard selections and a later right join', () => {
+  const { db } = setup('postgresql')
+  const other = alias(Rows, 'wildcard_other')
+
+  const query = db
+    .from(Rows)
+    .selectAll()
+    .select((b) => [b.as(b.lower(Rows.label), 'normalized')])
+    .rightJoin(other, eq(Rows.id, other.id))
+
+  expectTypeOf<
+    Awaited<ReturnType<typeof query.execute>>[number]['normalized']
+  >().toEqualTypeOf<string | null>()
+})
+
 for (const dialect of ['postgresql', 'sqlite'] as const) {
   it(`should ${dialect}: adapts built-in driver values once through set, CTE, alias and scalar composition`, async () => {
     const { db, controls } = setup(dialect, () => [

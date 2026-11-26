@@ -158,6 +158,39 @@ async function assertLimits(db: Db): Promise<void> {
       .execute(),
   ).toEqual([{ sum: Number.MAX_SAFE_INTEGER }])
 
+  const firstTotal = db.cte(
+    'first_total',
+    db
+      .from(NumericValues)
+      .where(eq(NumericValues.id, 1))
+      .select((b) => [b.as(b.sum(NumericValues.whole), 'total')]),
+  )
+
+  const secondTotal = db.cte(
+    'second_total',
+    db.from(firstTotal).select((b) => [b.as(b.sum(firstTotal.total), 'total')]),
+  )
+
+  expect(await db.with(secondTotal).from(secondTotal).execute()).toEqual([
+    { total: Number.MAX_SAFE_INTEGER },
+  ])
+
+  const subtotals = db.cte(
+    'subtotals',
+    db
+      .from(NumericValues)
+      .groupBy(NumericValues.id)
+      .select((b) => [b.as(b.sum(NumericValues.whole), 'total')]),
+  )
+
+  await expect(
+    db
+      .with(subtotals)
+      .from(subtotals)
+      .select((b) => [b.as(b.sum(subtotals.total), 'total')])
+      .execute(),
+  ).rejects.toThrow(/safely/)
+
   await expect(
     db
       .from(NumericValues)
