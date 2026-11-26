@@ -283,7 +283,7 @@ export type DialectExpressionOperand = Readonly<{
   standard: boolean
 }>
 
-/** Conversion for one computed SQL output, independent of its source column. */
+/** Computed output conversion. Min and max retain their source operand codecs. */
 export type DialectExpressionResult = Readonly<{
   dataType: string
   encoding?: string

@@ -1,5 +1,5 @@
 import { date } from 'valibot'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
 import { defineTable, eq } from '@/index'
 
@@ -51,14 +51,20 @@ it('should filters a native SQLite current timestamp CTE with its decoded Date p
       .values({ created: new Date('2026-06-15T03:04:05Z') })
       .execute()
 
-    // Fix the clock to test native timestamp spelling without a second-boundary race.
-    native.function('current_timestamp', () => '2026-06-15 03:04:05')
+    // Freeze the SQL clock without function registration, which Node 22.5 does not support.
+    const prepare = native.prepare.bind(native)
+    vi.spyOn(native, 'prepare').mockImplementation((sql) =>
+      prepare(sql.replaceAll('CURRENT_TIMESTAMP', "'2026-06-15 03:04:05'")),
+    )
+
     const clock = db.cte(
       'clock',
       db.from(Dates).select((b) => [b.as(b.now(), 'now')]),
     )
 
     const row = await db.with(clock).from(clock).executeTakeFirstOrThrow()
+    expect(row.now).toEqual(new Date('2026-06-15T03:04:05.000Z'))
+
     expect(
       await db.with(clock).from(clock).where(eq(clock.now, row.now)).execute(),
     ).toEqual([row])

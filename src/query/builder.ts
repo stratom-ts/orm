@@ -3553,7 +3553,7 @@ class SelectPreparation {
 
     const projection = prepareSelectProjection(result, this.query, use)
 
-    if (this.mapper) projection.validate(this.mapper)
+    if (this.mapper && use !== 'discarded') projection.validate(this.mapper)
 
     return projection.node
   }

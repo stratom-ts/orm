@@ -247,7 +247,12 @@ for (const dialect of ['postgresql', 'sqlite'] as const) {
       Promise<{ n: number | null }[]>
     >()
 
-    expect(selected.compile()).toEqual(selected.compile())
+    for (const compiled of [selected.compile(), selected.compile()]) {
+      expect(compiled.params).toEqual([1, 0])
+      expect(compiled.sql).toContain('union all')
+      expect(compiled.sql).toContain('count(*)')
+    }
+
     expect(controls.calls).toEqual([])
     expect(await selected.execute()).toEqual([{ n: 2 }])
     expect(await selected.execute()).toEqual([{ n: 2 }])
@@ -289,6 +294,15 @@ for (const dialect of ['postgresql', 'sqlite'] as const) {
     expect(await big.execute()).toEqual([{ value: 9007199254740993n }])
     native = null
     expect(await sums.execute()).toEqual([{ value: null }])
+    native = 1e20
+
+    await expect(
+      db
+        .from(Rows)
+        .select((b) => [b.as(b.sum(Rows.id), 'value')])
+        .execute(),
+    ).rejects.toThrow(/safely/)
+
     native = Number.POSITIVE_INFINITY
 
     await expect(
@@ -393,6 +407,35 @@ for (const dialect of ['postgresql', 'sqlite'] as const) {
 
     const maximum = db.from(Encoded).select((b) => [b.as(b.max(Encoded.id), 'id')])
     expect(() => maximum.unionAll(maximum).compile()).toThrow(/custom result mappings/)
+    expect(hook).not.toHaveBeenCalled()
+    expect(controls.calls).toEqual([])
+  })
+
+  it(`should allow discarded custom-mapped expression outputs in ${dialect} EXISTS`, () => {
+    const hook = vi.fn<(value: unknown) => unknown>((value) => value)
+    const Encoded = defineTable(
+      'discarded_expressions',
+      { id: pipe(number(), column({ mapParam: hook, mapResult: hook })) },
+      { primaryKey: 'id' },
+    )
+
+    const controls = createControllableProvider()
+    const db = createDatabase({
+      connector: customConnector(dialect),
+      schemas: [Encoded],
+      operationSessionProvider: controls.provider,
+    })
+
+    const inner = db.from(Encoded).select((b) => [b.as(b.sum(Encoded.id), 'sum')])
+    expect(() => inner.compile()).toThrow(/standard mappings/)
+
+    const compiled = db
+      .from(Encoded)
+      .where((b) => b.exists(inner))
+      .compile()
+
+    expect(compiled.sql).toContain('exists (select sum(')
+    expect(compiled.params).toEqual([])
     expect(hook).not.toHaveBeenCalled()
     expect(controls.calls).toEqual([])
   })
