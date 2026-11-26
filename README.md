@@ -1430,8 +1430,9 @@ await db.from(employee).where(exists(managers)).execute()
 
 Scalar projections retain the selected column's value type and result mapping,
 with `null` added for an empty result. An empty scalar result bypasses non-null
-column conversions. Aggregate and function outputs remain `unknown`; they receive
-no inferred conversion and cannot satisfy typed scalar comparisons or IN operands.
+column conversions. Supported built-in aggregate and function outputs retain their
+inferred result types and adapters through scalar comparisons and IN operands.
+Untyped expressions retain `unknown` without an inferred conversion.
 Column aliases and scalar aliases retain their literal output names.
 
 Scalar and IN queries must project exactly one value. Known invalid tuples fail
@@ -1556,10 +1557,6 @@ including indirect subquery consumers in writes. Ordinary table CRUD remains
 available separately. CTE names must be nonempty, contain no NUL, fit 63 UTF-8
 bytes, and be unique ignoring ASCII case within the statement.
 
-## License
-
-MIT
-
 ## Built-in expression results
 
 Built-in helpers infer the result of an aliased computed selection. The same
@@ -1607,6 +1604,11 @@ count can compare with an ordinary numeric ID.
 
 `now()` decodes SQLite's timezone-free UTC timestamp explicitly. PostgreSQL date
 truncation preserves native timestamp and session-timezone semantics. JavaScript
-Date precision is milliseconds. SQLite `dateTrunc` remains unsupported. Physical
+Date precision is milliseconds. SQLite `dateTrunc` remains unsupported. Compiling a literal still applies its parameter encoder. Compilation and capability
+checks do not invoke result decoders. Physical
 storage and mapping support are checked during query preparation, so an accepted
 TypeScript operand can still fail with a `QueryError` for unsupported storage.
+
+## License
+
+MIT

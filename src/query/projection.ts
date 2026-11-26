@@ -6,22 +6,22 @@ import type {
   SqlExprAst,
 } from '@/dialects'
 import type { RelationIdentityInput } from '@/schemas'
-import type { TableHandle } from '@/types'
 import { cteAliases } from '@/types/cte'
 import type { ReadSource } from '@/types/tableHandle'
 import { QueryError } from '@/utils/error'
 
 import type { ValueMapper } from './mapping'
+import type { ResultValue } from './result'
 import { queryRelationSource } from './sourceRelation'
 import { nestedDefinitions, selectDefinitions } from './subquery'
 
 const cteOutputNames = new WeakMap<object, readonly OutputName[]>()
 const cteOutputSources = new WeakMap<
   object,
-  ReadonlyMap<string, ResultColumn | undefined>
+  ReadonlyMap<string, ResultValue | undefined>
 >()
 
-function mappingSource(handle: ReadSource, column: string): ResultColumn | undefined {
+function mappingSource(handle: ReadSource, column: string): ResultValue | undefined {
   const alias = cteAliases.get(handle)
 
   if (alias) return mappingSource(alias, column)
@@ -29,7 +29,6 @@ function mappingSource(handle: ReadSource, column: string): ResultColumn | undef
   return cteOutputSources.get(handle)?.get(column)
 }
 
-type ResultColumn = { handle: TableHandle; column: string; scalar?: boolean }
 type ProjectionUse = 'rows' | 'single' | 'discarded'
 
 type OutputName = { sqlName: string; outputName: string }
@@ -112,31 +111,37 @@ function sourceHandle(
 }
 
 /**
- * Follows column and nested scalar outputs to their original source column.
+ * Follows output provenance through columns, built-in expressions, and nested scalars.
  *
  * @example
- *   projectionSource({ kind: 'scalar', query: inner }, query)
+ *   projectionValue({ kind: 'scalar', query: inner }, query)
  *
  * @param expr - Resolved expression whose value may need source-column mapping.
  * @param query - Resolved relation lookup and dialect compilation operations.
  * @param relation - Fallback relation for an unqualified column expression.
  *
- * @returns Source metadata, or undefined for expressions without a column source.
+ * @returns Private output metadata, or undefined when no result contract is known.
  */
-function projectionSource(
+function projectionValue(
   expr: SqlExprAst,
   query: DialectQueryResolution,
   relation?: RelationIdentityInput,
-): ResultColumn | undefined {
+): ResultValue | undefined {
   if (expr.kind === 'scalar') {
     const builder = nestedDefinitions.get(expr.query)
     const authored = builder && selectDefinitions.get(builder)
     return prepareSelectProjection(authored ? authored.build() : expr.query, query).source
   }
 
-  if (expr.kind === 'outer') return projectionSource(expr.ref, query, relation)
+  if (expr.kind === 'outer') return projectionValue(expr.ref, query, relation)
 
-  if (expr.kind !== 'column') return undefined
+  if (expr.kind !== 'column') {
+    return {
+      kind: expr.kind,
+      ...('arg' in expr ? { operand: projectionValue(expr.arg, query, relation) } : {}),
+      bypassNull: true,
+    }
+  }
 
   const selected = expr.relation ?? relation
   const handle = selected && sourceHandle(query, selected)
@@ -144,7 +149,7 @@ function projectionSource(
   if (!handle) return undefined
   if (!isTableHandle(handle)) return mappingSource(handle, expr.column)
 
-  return { handle, column: expr.column }
+  return { kind: 'column', handle: baseTable(handle), column: expr.column }
 }
 
 /**
@@ -189,9 +194,9 @@ class SelectProjection {
   readonly node: SelectAst
   readonly outputs: OutputName[]
   readonly resultNames: OutputName[]
-  readonly source: ResultColumn | undefined
-  readonly sources: readonly (ResultColumn | undefined)[]
-  private readonly columns = new Map<string, ResultColumn>()
+  readonly source: ResultValue | undefined
+  readonly sources: readonly (ResultValue | undefined)[]
+  private readonly columns = new Map<string, ResultValue>()
 
   /**
    * Prepares output names and source mappings together for one select.
@@ -227,14 +232,14 @@ class SelectProjection {
     const sources = selection.map((item) => {
       if (item.kind === 'all') return undefined
 
-      const source = projectionSource(
+      const source = projectionValue(
         item.kind === 'column' ? item : item.expr,
         query,
         node.relation,
       )
 
       return source && item.kind === 'expr' && item.expr.kind === 'scalar'
-        ? { ...source, scalar: true }
+        ? { ...source, bypassNull: true }
         : source
     })
 
@@ -246,6 +251,10 @@ class SelectProjection {
 
       this.columns.set(this.outputs[index].outputName, source)
     }
+  }
+
+  validate(mapper: ValueMapper): void {
+    for (const value of this.sources) if (value) mapper.resultContract(value)
   }
 
   /**
@@ -260,16 +269,23 @@ class SelectProjection {
    * @returns Mapped rows, with scalar NULLs and non-object values preserved.
    */
   mapRows(mapper: ValueMapper, rows: unknown[]): unknown[] {
+    const contracts = new Map(
+      [...this.columns].map(([name, value]) => [name, mapper.resultContract(value)]),
+    )
+
     return rows.map((row) => {
       if (row === null || typeof row !== 'object' || Array.isArray(row)) return row
 
       return Object.fromEntries(
         Object.entries(row).map(([key, value]) => {
           const source = this.columns.get(key)
+          const contract = contracts.get(key)
           return [
             key,
-            source && !((source.scalar || this.node.compound) && value === null)
-              ? mapper.mapResultValue(baseTable(source.handle), source.column, value)
+            source &&
+            contract &&
+            !((source.bypassNull || this.node.compound) && value === null)
+              ? contract.mapResult(value)
               : value,
           ]
         }),
@@ -311,7 +327,7 @@ export type { ProjectionUse }
 export {
   outputAliases,
   prepareSelectProjection,
-  projectionSource,
+  projectionValue,
   cteOutputNames,
   cteOutputSources,
 }

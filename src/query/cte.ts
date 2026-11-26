@@ -163,7 +163,7 @@ function outputHandle(
         return [
           output.outputName,
           source && (recursive || projection.node.compound)
-            ? { ...source, scalar: true }
+            ? { ...source, bypassNull: true }
             : source,
         ]
       }),

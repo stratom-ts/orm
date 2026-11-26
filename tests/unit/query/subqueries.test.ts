@@ -132,7 +132,6 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
       // @ts-expect-error incompatible IN operands
       inQuery(Users.name, from(Posts).select([Posts.id]))
 
-      // @ts-expect-error unknown aggregate results cannot compare with typed operands
       eq(Users.id, scalar(from(Posts).select((b) => [b.as(b.countAll(), 'count')])))
     })
   })

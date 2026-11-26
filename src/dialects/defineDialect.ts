@@ -27,6 +27,8 @@ export function defineDialect({
     schema,
     query: {
       rawSql: query.rawSql,
+      expressionResult: query.expressionResult?.bind(query),
+      expressionComparable: query.expressionComparable?.bind(query),
       numericAssignmentType: query.numericAssignmentType?.bind(query),
       validateValueMapping: query.validateValueMapping?.bind(query),
       mapParamValue: query.mapParamValue?.bind(query),

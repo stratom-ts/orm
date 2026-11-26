@@ -1,5 +1,9 @@
 import { quoteIdentifier } from './compile'
 import {
+  postgresExpressionComparable,
+  postgresExpressionResult,
+} from './expressionResult'
+import {
   mapPostgresParamValue,
   mapPostgresResultValue,
   validatePostgresValueMapping,
@@ -9,6 +13,8 @@ import { resolvePostgresNumericAssignment } from './storage'
 
 /** PostgreSQL query addressing and value mapping. */
 export const postgresQuery = {
+  expressionResult: postgresExpressionResult,
+  expressionComparable: postgresExpressionComparable,
   rawSql: {
     quoteIdentifier,
     placeholder: (position: number): string => `$${position}`,
