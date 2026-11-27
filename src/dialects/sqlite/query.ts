@@ -1,4 +1,5 @@
 import { quoteIdentifier } from './compile'
+import { sqliteExpressionComparable, sqliteExpressionResult } from './expressionResult'
 import {
   mapSqliteParamValue,
   mapSqliteResultValue,
@@ -9,6 +10,8 @@ import { resolveSqliteNumericAssignment } from './storage'
 
 /** SQLite query addressing and value mapping. */
 export const sqliteQuery = {
+  expressionResult: sqliteExpressionResult,
+  expressionComparable: sqliteExpressionComparable,
   rawSql: {
     quoteIdentifier,
     placeholder: (_position: number): string => '?',

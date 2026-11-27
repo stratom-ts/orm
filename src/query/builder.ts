@@ -58,7 +58,7 @@ import type { ValueMapper } from './mapping'
 import { prepareNestedProjection } from './nested'
 import type { NestedProjection, NestedResult } from './nested'
 import type { ProjectionUse } from './projection'
-import { prepareSelectProjection, projectionSource } from './projection'
+import { prepareSelectProjection, projectionValue } from './projection'
 import { recordQueryRelation } from './sourceRelation'
 import type { WildcardProjection, projectionShape } from './subquery'
 import { nestedDefinitions, selectDefinitions } from './subquery'
@@ -1222,6 +1222,10 @@ function createDeleteBuilder<THandle extends TableHandle>(
 // Select builder
 // ---------------------------------------------------------------------------
 
+/** Retains prior join identities without changing projection or SQL join behavior. */
+type JoinedSide<T> = { readonly joinedSide: TableIdentityOf<T> }
+type PriorJoinedSides<N> = N extends { readonly joinedSide: infer I } ? I : never
+
 type SelectBuilder<
   THandle extends ReadSource = TableHandle,
   TResult = InferSelect<THandle>,
@@ -1428,7 +1432,7 @@ type SelectBuilder<
     THandle,
     MergeJoinStar<HasSelection, TResult, InferSelect<TSide>>,
     HasSelection,
-    TNullable,
+    TNullable | JoinedSide<TSide>,
     HasSelection extends true ? TProjection : readonly [unknown, unknown]
   >
   /**
@@ -1445,9 +1449,18 @@ type SelectBuilder<
     on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
-    MergeJoinStar<HasSelection, TResult, NullableFields<InferSelect<TSide>>>,
+    MergeJoinStar<
+      HasSelection,
+      JoinExpressionResult<
+        THandle,
+        TResult,
+        TProjection,
+        TNullable | TableIdentityOf<TSide>
+      >,
+      NullableFields<InferSelect<TSide>>
+    >,
     HasSelection,
-    TNullable | TableIdentityOf<TSide>,
+    TNullable | TableIdentityOf<TSide> | JoinedSide<TSide>,
     HasSelection extends true ? TProjection : readonly [unknown, unknown]
   >
   /**
@@ -1464,9 +1477,19 @@ type SelectBuilder<
     on?: JoinOnInput,
   ): SelectBuilder<
     THandle,
-    HasSelection extends true ? TResult : RightJoinStarResult<THandle, TResult, TSide>,
+    HasSelection extends true
+      ? JoinExpressionResult<
+          THandle,
+          TResult,
+          TProjection,
+          TNullable | TableIdentityOf<THandle> | PriorJoinedSides<TNullable>
+        >
+      : RightJoinStarResult<THandle, TResult, TSide>,
     HasSelection,
-    TNullable | TableIdentityOf<THandle>,
+    | TNullable
+    | TableIdentityOf<THandle>
+    | PriorJoinedSides<TNullable>
+    | JoinedSide<TSide>,
     HasSelection extends true ? TProjection : readonly [unknown, unknown]
   >
   /**
@@ -2017,7 +2040,7 @@ type QueryBuilder<THandle extends ReadSource = TableHandle> = SetOperations<
     THandle,
     InferSelect<THandle> & InferSelect<TSide>,
     false,
-    never,
+    JoinedSide<TSide>,
     readonly [unknown, unknown]
   >
   /**
@@ -2036,7 +2059,7 @@ type QueryBuilder<THandle extends ReadSource = TableHandle> = SetOperations<
     THandle,
     InferSelect<THandle> & NullableFields<InferSelect<TSide>>,
     false,
-    TableIdentityOf<TSide>,
+    TableIdentityOf<TSide> | JoinedSide<TSide>,
     readonly [unknown, unknown]
   >
   /**
@@ -2055,7 +2078,7 @@ type QueryBuilder<THandle extends ReadSource = TableHandle> = SetOperations<
     THandle,
     NullableFields<InferSelect<THandle>> & InferSelect<TSide>,
     false,
-    TableIdentityOf<THandle>,
+    TableIdentityOf<THandle> | JoinedSide<TSide>,
     readonly [unknown, unknown]
   >
   /**
@@ -2847,6 +2870,43 @@ type SelectionItem =
   | { expr: SqlExprAst; alias: string }
   | SelectItemAst
 
+type ComputedValue<H, E, N> = E extends { readonly __operand?: infer C }
+  ? C extends ColumnRef
+    ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
+        H,
+        readonly [C],
+        N
+      >] extends infer V
+      ? E extends { kind: 'min' | 'max' }
+        ? NonNullable<V> | null
+        : E extends { kind: 'sum' }
+          ? (NonNullable<V> extends bigint ? bigint : number) | null
+          : E extends { kind: 'lower' | 'upper' }
+            ? string | (null extends V ? null : never)
+            : E extends { kind: 'length' }
+              ? number | (null extends V ? null : never)
+              : E extends { kind: 'date_trunc' }
+                ? Date | (null extends V ? null : never)
+                : unknown
+      : never
+    : unknown
+  : unknown
+
+/** Filter tuple slots before unioning, so wildcard unknowns do not erase expressions. */
+type ComputedProjectionItems<P extends readonly unknown[]> = {
+  [K in keyof P]: Extract<P[K], { alias: string; expr: { readonly __operand?: unknown } }>
+}[number]
+
+type RecomputedExpressions<H, P extends readonly unknown[], N> = {
+  [I in ComputedProjectionItems<P> as I['alias']]: ComputedValue<H, I['expr'], N>
+}
+
+type JoinExpressionResult<H, R, P extends readonly unknown[], N> = Omit<
+  R,
+  keyof RecomputedExpressions<H, P, N>
+> &
+  RecomputedExpressions<H, P, N>
+
 type InferCallbackSelection<H, I extends readonly SelectionItem[], N> = {
   [
     K in I[number] as K extends { alias: infer A extends string }
@@ -2859,15 +2919,17 @@ type InferCallbackSelection<H, I extends readonly SelectionItem[], N> = {
             ? C
             : never
   ]: K extends { expr: infer E }
-    ? E extends { readonly __source?: infer C extends ColumnRef }
-      ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
-          H,
-          readonly [C],
-          N
-        >]
-      : E extends { readonly __value?: infer V }
-        ? V
-        : unknown
+    ? E extends { readonly __operand?: unknown }
+      ? ComputedValue<H, E, N>
+      : E extends { readonly __source?: infer C extends ColumnRef }
+        ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
+            H,
+            readonly [C],
+            N
+          >]
+        : E extends { readonly __value?: infer V }
+          ? V
+          : unknown
     : K extends { readonly __source?: infer C extends ColumnRef }
       ? InferSelectedColumns<H, readonly [C], N>[keyof InferSelectedColumns<
           H,
@@ -3122,8 +3184,8 @@ function validateSetOutput(
 
   try {
     if (
-      compound.mapper.compoundResultContract(baseTable(a.handle), a.column) !==
-      compound.mapper.compoundResultContract(baseTable(b.handle), b.column)
+      compound.mapper.resultContract(a).setContract() !==
+      compound.mapper.resultContract(b).setContract()
     )
       throw new QueryError({ message: 'Incompatible storage or result representation' })
   } catch (error) {
@@ -3335,12 +3397,18 @@ class SelectPreparation {
     const left = this.expression(pred.left, available)
     let right =
       pred.right.kind === 'value' ? pred.right : this.expression(pred.right, available)
-    const source = projectionSource(left, this.query)
+    const source = projectionValue(left, this.query)
+
+    if (right.kind !== 'value' && this.mapper && source) {
+      const other = projectionValue(right, this.query)
+
+      if (other) this.mapper.assertComparable(source, other)
+    }
 
     if (right.kind === 'value' && right.value !== null && this.mapper && source) {
       right = {
         kind: 'value',
-        value: this.mapper.mapParam(baseTable(source.handle), source.column, right.value),
+        value: this.mapper.resultContract(source).mapParam(right.value),
       }
     }
 
@@ -3365,12 +3433,16 @@ class SelectPreparation {
     if (pred.kind === 'exists')
       return { kind: 'exists', query: this.inner(pred.query, false, available) }
 
-    if (pred.kind === 'inQuery')
-      return {
-        kind: 'inQuery',
-        left: this.expression(pred.left, available),
-        query: this.inner(pred.query, true, available),
-      }
+    if (pred.kind === 'inQuery') {
+      const left = this.expression(pred.left, available)
+      const query = this.inner(pred.query, true, available)
+      const source = projectionValue(left, this.query)
+      const result = prepareSelectProjection(query, this.query).source
+
+      if (this.mapper && source && result) this.mapper.assertComparable(source, result)
+
+      return { kind: 'inQuery', left, query }
+    }
 
     if (pred.kind === 'exprCmp') return this.comparison(pred, available)
 
@@ -3381,7 +3453,7 @@ class SelectPreparation {
       return { kind: 'not', pred: this.predicate(pred.pred, available) }
 
     const left = this.resolve(pred, available)
-    const source = projectionSource(
+    const source = projectionValue(
       { kind: 'column', relation: left.entry.relation, column: left.column },
       this.query,
     )
@@ -3396,11 +3468,7 @@ class SelectPreparation {
             value:
               pred.value === null || !this.mapper || !source
                 ? pred.value
-                : this.mapper.mapParam(
-                    baseTable(source.handle),
-                    source.column,
-                    pred.value,
-                  ),
+                : this.mapper.resultContract(source).mapParam(pred.value),
           }),
     }
   }
@@ -3481,7 +3549,11 @@ class SelectPreparation {
       ...(node.groupBy ? { groupBy: node.groupBy.map((c) => this.column(c)) } : {}),
     }
 
-    return prepareSelectProjection(result, this.query, use).node
+    const projection = prepareSelectProjection(result, this.query, use)
+
+    if (this.mapper && use !== 'discarded') projection.validate(this.mapper)
+
+    return projection.node
   }
 }
 

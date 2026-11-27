@@ -263,8 +263,52 @@ export type DialectValueMappingContext = Readonly<{
   authoredFacts?: StorageFacts
 }>
 
+/** Existing SQL helpers whose result representation the selected dialect can prove. */
+export type DialectExpressionKind =
+  | 'count_all'
+  | 'count'
+  | 'min'
+  | 'max'
+  | 'sum'
+  | 'lower'
+  | 'upper'
+  | 'length'
+  | 'now'
+  | 'date_trunc'
+
+export type DialectExpressionOperand = Readonly<{
+  dataType: string
+  encoding?: string
+  outputKind: StorageFacts['outputKind']
+  standard: boolean
+}>
+
+/** Computed output conversion. Min and max retain their source operand codecs. */
+export type DialectExpressionResult = Readonly<{
+  dataType: string
+  encoding?: string
+  outputKind: StorageFacts['outputKind']
+  mapResult(value: unknown): unknown
+  mapParam(value: unknown): unknown
+}>
+
 /** SQL resolution, compilation, and optional dialect value conversion behavior. */
 export type DialectQuery = Readonly<{
+  /** SQL comparability is broader than a shared set-output decoder contract. */
+  expressionComparable?: (
+    left: DialectExpressionOperand,
+    right: DialectExpressionOperand,
+  ) => boolean
+
+  /**
+   * Proves supported storage and supplies result-specific conversions without running
+   * hooks.
+   */
+  expressionResult?: (
+    kind: DialectExpressionKind,
+    operand?: DialectExpressionOperand,
+  ) => DialectExpressionResult
+
   /** SQL syntax used by the scoped template tag; omitted by members without raw SQL. */
   rawSql?: Readonly<{
     quoteIdentifier(identifier: string): string

@@ -16,6 +16,8 @@ import type { TableHandle } from '@/types'
 import type { AnySchema } from '@/types/schema'
 import { QueryError, SchemaError, isErrorTag } from '@/utils/error'
 
+import type { ResultContract, ResultValue } from './result'
+
 type ColumnValueMapping = { dataType: string; context: DialectValueMappingContext }
 type MappingContexts = WeakMap<TableHandle, Record<string, DialectValueMappingContext>>
 
@@ -45,8 +47,8 @@ type ValueMapConfig = {
 }
 
 type ValueMapper = {
-  /** Proves a built-in result representation without invoking custom callbacks. */
-  compoundResultContract(handle: TableHandle, column: string): string
+  resultContract(value: ResultValue): ResultContract
+  assertComparable(left: ResultValue, right: ResultValue): void
 
   /** Proves native numeric storage and standard mappings for an update operand. */
   numericAssignmentType(handle: TableHandle, column: string): 'integer' | 'float'
@@ -354,10 +356,6 @@ function createValueMapper(
       resolveReference,
     )
 
-  /** Maps a parameter with the client graph's resolved storage context. */
-  const mapParamForColumn = (handle: TableHandle, column: string, value: unknown) =>
-    mapParam(handle, column, value, dialect, map, columnTypes, contexts)
-
   /**
    * Maps a SQL result value for a table column.
    *
@@ -374,17 +372,128 @@ function createValueMapper(
 
   for (const handle of registered) columnTypes(handle)
 
-  return {
-    compoundResultContract: (handle, column) =>
-      compoundResultContract(handle, column, dialect, map, columnTypes, contexts),
+  const mapper: ValueMapper = {
+    resultContract: (value) =>
+      resolveResultContract(value, mapper, dialect, map, contexts),
+    assertComparable: (left, right) =>
+      assertComparableResults(left, right, mapper, dialect),
     numericAssignmentType: (handle, column) =>
       numericAssignmentType(handle, column, dialect, map, columnTypes, contexts),
     columnTypes,
-    mapParam: mapParamForColumn,
+    mapParam: (handle, column, value) =>
+      mapParam(handle, column, value, dialect, map, columnTypes, contexts),
     mapResultValue: mapResultValueForColumn,
     mapResultRow,
     mapResultRows: (handle, rows) => mapRows(handle, rows, mapResultRow),
   }
+
+  return mapper
+}
+
+/**
+ * Preserves existing source hooks while making their storage evidence available to
+ * expressions.
+ */
+function columnResultContract(
+  value: Extract<ResultValue, { kind: 'column' }>,
+  mapper: ValueMapper,
+  dialect: Dialect,
+  map: ValueMapConfig | undefined,
+  contexts: MappingContexts,
+): ResultContract {
+  const { handle, column } = value
+  const dataType = mapper.columnTypes(handle)[column]
+  const context = contexts.get(handle)?.[column]
+  const meta = columnMeta(handle, column)
+  return {
+    dataType,
+    outputKind: (context?.authoredFacts ?? context?.facts)?.outputKind,
+    standard: !(
+      meta?.mapParam ||
+      meta?.mapResult ||
+      map?.mapParamValue ||
+      map?.mapResultValue
+    ),
+    mapResult: (input) => mapper.mapResultValue(handle, column, input),
+    mapParam: (input) => mapper.mapParam(handle, column, input),
+    setContract: () =>
+      compoundResultContract(
+        handle,
+        column,
+        dialect,
+        map,
+        (handle) => mapper.columnTypes(handle),
+        contexts,
+      ),
+  }
+}
+
+/**
+ * Resolves metadata without executing converters; only returned values and authored
+ * literals use them.
+ */
+function resolveResultContract(
+  value: ResultValue,
+  mapper: ValueMapper,
+  dialect: Dialect,
+  map: ValueMapConfig | undefined,
+  contexts: MappingContexts,
+): ResultContract {
+  if (value.kind === 'column')
+    return columnResultContract(value, mapper, dialect, map, contexts)
+
+  const operand =
+    value.kind === 'count'
+      ? undefined
+      : value.operand && mapper.resultContract(value.operand)
+
+  const resolve = dialect.query.expressionResult
+
+  if (!resolve)
+    throw new QueryError({
+      message: 'Selected dialect does not provide SQL expression result contracts',
+    })
+
+  const resolved = resolve(value.kind, operand)
+
+  if ((value.kind === 'min' || value.kind === 'max') && operand)
+    return { ...operand, dataType: resolved.dataType }
+
+  return {
+    ...resolved,
+    standard: true,
+    setContract: () =>
+      JSON.stringify({
+        type: resolved.dataType.trim().toLowerCase(),
+        output: resolved.outputKind,
+        encoding: resolved.encoding,
+        expression: ['count', 'count_all', 'length'].includes(value.kind)
+          ? 'count'
+          : resolved.outputKind,
+      }),
+  }
+}
+
+function assertComparableResults(
+  left: ResultValue,
+  right: ResultValue,
+  mapper: ValueMapper,
+  dialect: Dialect,
+): void {
+  if (left.kind === 'column' && right.kind === 'column') return
+
+  const a = mapper.resultContract(left)
+  const b = mapper.resultContract(right)
+  const customSource =
+    !a.standard &&
+    !b.standard &&
+    a.dataType === b.dataType &&
+    a.outputKind === b.outputKind
+
+  if (!customSource && !dialect.query.expressionComparable?.(a, b))
+    throw new QueryError({
+      message: 'SQL expression operands have incompatible storage representations',
+    })
 }
 
 /** Compares only facts that determine the native result representation. */

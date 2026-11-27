@@ -1430,8 +1430,9 @@ await db.from(employee).where(exists(managers)).execute()
 
 Scalar projections retain the selected column's value type and result mapping,
 with `null` added for an empty result. An empty scalar result bypasses non-null
-column conversions. Aggregate and function outputs remain `unknown`; they receive
-no inferred conversion and cannot satisfy typed scalar comparisons or IN operands.
+column conversions. Supported built-in aggregate and function outputs retain their
+inferred result types and adapters through scalar comparisons and IN operands.
+Untyped expressions retain `unknown` without an inferred conversion.
 Column aliases and scalar aliases retain their literal output names.
 
 Scalar and IN queries must project exactly one value. Known invalid tuples fail
@@ -1555,6 +1556,58 @@ physical-source session guards. CTE definitions and consumers are SELECT-only,
 including indirect subquery consumers in writes. Ordinary table CRUD remains
 available separately. CTE names must be nonempty, contain no NUL, fit 63 UTF-8
 bytes, and be unique ignoring ASCII case within the statement.
+
+## Built-in expression results
+
+Built-in helpers infer the result of an aliased computed selection. The same
+result type and runtime conversion follow the value through scalar subqueries,
+set operations, and exported CTE columns.
+
+| Helper                           | Typed operands                                     | Result                                                         |
+| -------------------------------- | -------------------------------------------------- | -------------------------------------------------------------- |
+| `countAll()`, `count(column)`    | None / any column                                  | Nonnegative safe `number`                                      |
+| `min(column)`, `max(column)`     | Ordered number, bigint, string, or Date columns    | Source value type, plus `null`                                 |
+| `sum(column)`                    | Supported native number or integral bigint columns | Widened `number \| null` or `bigint \| null`                   |
+| `lower(column)`, `upper(column)` | String columns                                     | Widened `string`, nullable when the scoped operand is nullable |
+| `length(column)`                 | String columns                                     | `number`, nullable when the scoped operand is nullable         |
+| `now()`                          | None                                               | `Date`                                                         |
+| `dateTrunc(unit, column)`        | Supported native Date columns on PostgreSQL        | `Date`, nullable when the scoped operand is nullable           |
+
+`min` and `max` select a stored value and then decode it. They preserve source
+literal types and brands. Their ordering is SQL ordering over stored values,
+which can differ from application ordering for custom encodings. String
+transforms, sums, and date truncation discard source literals, brands, and bounds.
+Bare string-name operands retain an `unknown` result, except for `count`.
+Untyped expressions retain `unknown`. Typed `dateTrunc` accepts Date columns,
+rather than arbitrary string columns. Its unit remains a database-validated string.
+
+Counts return zero for empty ungrouped input. `min`, `max`, and `sum` return
+`null` when no non-null inputs exist. A grouped query with no groups returns no
+rows. A scalar subquery conservatively adds `null`, including a scalar count.
+String and date transforms also inherit outer-join nullability. SQL NULL bypasses
+the result adapters for these computed values.
+
+Count and integer-backed number sums require exact safe-integer results. The ORM
+checks native text or bigint values before conversion and rejects unsafe values.
+Floating sums use approximate finite JavaScript numbers. They reject non-finite
+and unsafe integer-valued results, but do not promise exact decimal arithmetic.
+Bigint sums decode integral results exactly. PostgreSQL can widen bigint sums to
+`numeric`; SQLite retains signed 64-bit arithmetic and native overflow failures.
+Unsupported exact decimal and custom numeric encodings fail during preparation.
+
+Result and parameter adapters belong to the computed result. Counts do not invoke
+source mappings. Supported extrema can reuse source mappings exactly once.
+Transformed string, sum, and date operands require supported native storage and
+standard mappings. Set operations retain their conservative representation checks
+and reject custom result hooks. Comparison compatibility is separate: a widened
+count can compare with an ordinary numeric ID.
+
+`now()` decodes SQLite's timezone-free UTC timestamp explicitly. PostgreSQL date
+truncation preserves native timestamp and session-timezone semantics. JavaScript
+Date precision is milliseconds. SQLite `dateTrunc` remains unsupported. Compiling a literal still applies its parameter encoder. Compilation and capability
+checks do not invoke result decoders. Physical
+storage and mapping support are checked during query preparation, so an accepted
+TypeScript operand can still fail with a `QueryError` for unsupported storage.
 
 ## License
 

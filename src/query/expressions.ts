@@ -1,12 +1,9 @@
 import type {
-  AggregateExprAst,
   ColumnExprAst,
   ComparisonOp,
-  DateFnExprAst,
   PredicateAst,
   QualifiedColumnAst,
   SqlExprAst,
-  StringFnExprAst,
 } from '@/dialects'
 import type { ColumnRef } from '@/types'
 import { QueryError } from '@/utils/error'
@@ -315,6 +312,31 @@ function not(pred: PredicateAst): PredicateAst {
   return { kind: 'not', pred }
 }
 
+type OrderedValue = number | bigint | string | Date
+
+type AcceptedColumn<C, V> = [C] extends [string]
+  ? unknown
+  : [C] extends [ColumnRef]
+    ? 0 extends 1 & OperandValue<C>
+      ? never
+      : [NonNullable<OperandValue<C>>] extends [V]
+        ? unknown
+        : never
+    : never
+
+type AcceptedSum<C> = [C] extends [string]
+  ? unknown
+  : [NonNullable<OperandValue<C>>] extends [number]
+    ? AcceptedColumn<C, number>
+    : AcceptedColumn<C, bigint>
+
+/** Operand identity is separate from source-result identity for scoped inference. */
+type BuiltinExpression<K extends string, C = never> = {
+  readonly kind: K
+  readonly arg: ColumnExprAst
+  readonly __operand?: C
+}
+
 /**
  * `count(*)` aggregate.
  *
@@ -323,7 +345,7 @@ function not(pred: PredicateAst): PredicateAst {
  *
  * @returns Count-all aggregate expression AST node
  */
-function countAll(): AggregateExprAst {
+function countAll(): { readonly kind: 'count_all'; readonly __value?: number } {
   return { kind: 'count_all' }
 }
 
@@ -337,7 +359,11 @@ function countAll(): AggregateExprAst {
  *
  * @returns Count aggregate expression AST node
  */
-function count(column: ColumnRef | string): AggregateExprAst {
+function count(column: ColumnRef | string): {
+  readonly kind: 'count'
+  readonly arg: ColumnExprAst
+  readonly __value?: number
+} {
   return { kind: 'count', arg: colRef(column) }
 }
 
@@ -351,7 +377,9 @@ function count(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Min aggregate expression AST node
  */
-function min(column: ColumnRef | string): AggregateExprAst {
+function min<C extends ColumnRef | string>(
+  column: C & AcceptedColumn<C, OrderedValue>,
+): BuiltinExpression<'min', C> {
   return { kind: 'min', arg: colRef(column) }
 }
 
@@ -365,7 +393,9 @@ function min(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Max aggregate expression AST node
  */
-function max(column: ColumnRef | string): AggregateExprAst {
+function max<C extends ColumnRef | string>(
+  column: C & AcceptedColumn<C, OrderedValue>,
+): BuiltinExpression<'max', C> {
   return { kind: 'max', arg: colRef(column) }
 }
 
@@ -379,7 +409,9 @@ function max(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Sum aggregate expression AST node
  */
-function sum(column: ColumnRef | string): AggregateExprAst {
+function sum<C extends ColumnRef | string>(
+  column: C & AcceptedSum<C>,
+): BuiltinExpression<'sum', C> {
   return { kind: 'sum', arg: colRef(column) }
 }
 
@@ -393,7 +425,9 @@ function sum(column: ColumnRef | string): AggregateExprAst {
  *
  * @returns Lower-case string function expression AST node
  */
-function lower(column: ColumnRef | string): StringFnExprAst {
+function lower<C extends ColumnRef | string>(
+  column: C & AcceptedColumn<C, string>,
+): BuiltinExpression<'lower', C> {
   return { kind: 'lower', arg: colRef(column) }
 }
 
@@ -407,7 +441,9 @@ function lower(column: ColumnRef | string): StringFnExprAst {
  *
  * @returns Upper-case string function expression AST node
  */
-function upper(column: ColumnRef | string): StringFnExprAst {
+function upper<C extends ColumnRef | string>(
+  column: C & AcceptedColumn<C, string>,
+): BuiltinExpression<'upper', C> {
   return { kind: 'upper', arg: colRef(column) }
 }
 
@@ -421,7 +457,9 @@ function upper(column: ColumnRef | string): StringFnExprAst {
  *
  * @returns Length string function expression AST node
  */
-function length(column: ColumnRef | string): StringFnExprAst {
+function length<C extends ColumnRef | string>(
+  column: C & AcceptedColumn<C, string>,
+): BuiltinExpression<'length', C> {
   return { kind: 'length', arg: colRef(column) }
 }
 
@@ -433,7 +471,7 @@ function length(column: ColumnRef | string): StringFnExprAst {
  *
  * @returns Current timestamp expression AST node
  */
-function now(): DateFnExprAst {
+function now(): { readonly kind: 'now'; readonly __value?: Date } {
   return { kind: 'now' }
 }
 
@@ -448,7 +486,10 @@ function now(): DateFnExprAst {
  *
  * @returns Date truncation expression AST node
  */
-function dateTrunc(unit: string, column: ColumnRef | string): DateFnExprAst {
+function dateTrunc<C extends ColumnRef | string>(
+  unit: string,
+  column: C & AcceptedColumn<C, Date>,
+): BuiltinExpression<'date_trunc', C> & { readonly unit: string } {
   return { kind: 'date_trunc', unit, arg: colRef(column) }
 }
 
