@@ -5,7 +5,7 @@ The npm package is `@stratom/orm`. Source lives at
 
 The **Release** GitHub Actions workflow stages `0.0.1-pre-alpha.N` versions
 with the `pre-alpha` npm tag. It runs the full CI suite, builds the package,
-stages it on npm with provenance, and creates a draft GitHub prerelease with the
+stages it on npm, and creates a draft GitHub prerelease with the
 same package archive attached. It uses the commit selected when the workflow starts.
 A maintainer approves the package on npm before publishing the GitHub prerelease.
 
@@ -37,7 +37,9 @@ Leave direct publishing with `npm publish` disabled under allowed actions.
 Trusted publishers allow `npm stage publish` by default.
 
 The action uses GitHub OIDC credentials and npm >=11.15.0 for staged publishing.
-It needs no npm token in GitHub secrets.
+It needs no npm token in GitHub secrets. Provenance is generated automatically for
+public source repositories. npm does not support provenance for private source
+repositories, so the workflow does not request it explicitly.
 Run the next release within npm's two-day activation window for a new trusted
 publisher configuration.
 

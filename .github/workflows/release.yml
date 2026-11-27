@@ -55,7 +55,7 @@ jobs:
       - name: Pack release
         run: npm pack --pack-destination "$RUNNER_TEMP"
       - name: Stage package on npm
-        run: npm stage publish "$RUNNER_TEMP"/stratom-orm-*.tgz --access public --tag pre-alpha --provenance
+        run: npm stage publish "$RUNNER_TEMP"/stratom-orm-*.tgz --access public --tag pre-alpha
       - name: Create draft GitHub prerelease
         run: |
           gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/stratom-orm-*.tgz \
