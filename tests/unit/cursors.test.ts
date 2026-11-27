@@ -158,6 +158,8 @@ it('should close child cursors on success, invalidates on rollback, and guards a
   const sql = controls.calls.map((call) => call.sql)
   expect(sql.filter((sql) => sql.startsWith('CLOSE'))).toHaveLength(2)
 
+  expect(sql).toContain('CLOSE "stratom_cursor_2"')
+
   expect(sql.indexOf('CLOSE "stratom_cursor_2"')).toBeLessThan(
     sql.indexOf('release savepoint sp_1'),
   )
