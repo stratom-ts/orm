@@ -25,4 +25,15 @@ export function compilePostgresOperationCommand(
 export const postgresOperations = {
   createSessionProvider: createDb0PostgresOperationSessionProvider,
   compile: compilePostgresOperationCommand,
+  cursor: {
+    declare: (name: string, query: CompiledQuery): CompiledQuery => ({
+      ...query,
+      sql: `DECLARE "${name}" NO SCROLL CURSOR WITHOUT HOLD FOR ${query.sql}`,
+    }),
+    fetch: (name: string, count: number): CompiledQuery => ({
+      sql: `FETCH FORWARD ${count} FROM "${name}"`,
+      params: [],
+    }),
+    close: (name: string): CompiledQuery => ({ sql: `CLOSE "${name}"`, params: [] }),
+  },
 }

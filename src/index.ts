@@ -117,3 +117,5 @@ export { add, type Addition, type UpdatePatch } from './query/arithmetic'
 export type { MigrationColumnRename } from './ddl/renameColumn'
 
 export type { CteOptions } from './query/cte'
+
+export type { Cursor, BatchOptions, CursorOptions } from './query/cursor'

@@ -19,6 +19,10 @@
     "./config/oxlint/vitest.json"
   ],
   "rules": {
+    "typescript/no-unnecessary-condition": [
+      "error",
+      { "allowConstantLoopConditions": true }
+    ],
     "stratom/whitespace": "error",
     "array-callback-return": "error",
     "complexity": ["error", 20],

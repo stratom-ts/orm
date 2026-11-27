@@ -363,6 +363,11 @@ export type OperationCommand =
 
 /** Adapts a selected connector and compiles its operation lifecycle commands. */
 export type DialectOperations = Readonly<{
+  cursor?: {
+    declare(name: string, query: CompiledQuery): CompiledQuery
+    fetch(name: string, count: number): CompiledQuery
+    close(name: string): CompiledQuery
+  }
   /**
    * Creates the connector's provider for exclusive native operation sessions.
    *

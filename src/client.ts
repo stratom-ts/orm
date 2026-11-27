@@ -5,6 +5,7 @@ import type { MigrateBuilder, MigrationExecuteOptions } from '@/ddl'
 import { createMigrateBuilder } from '@/ddl'
 import { isTableHandle } from '@/defineTable'
 import type {
+  CompiledQuery as DialectCompiledQuery,
   DialectOperations,
   DialectQueryResolution,
   OperationCommand,
@@ -17,6 +18,7 @@ import type {
 import { validateApplicationId } from '@/migrations/coordinationScope'
 import type { MigrationOwnershipDeclaration } from '@/migrations/migrationOwnership'
 import type { ColumnNamingFunction } from '@/naming'
+import { withOperationCleanupFailure } from '@/operations/cleanup'
 import type { OperationContext } from '@/operations/coordinator'
 import { OperationCoordinator } from '@/operations/coordinator'
 import {
@@ -46,6 +48,8 @@ import type { CompiledQuery as ExecutableQuery } from '@/query/compiled'
 import { assertCompiledQuery, restoreResultNames } from '@/query/compiled'
 import type { CteMethods } from '@/query/cte'
 import { createCteMethods, cteAttachments, cteBase, cteDefinitions } from '@/query/cte'
+import { assertFetchCount, withCursorCleanupFailure } from '@/query/cursor'
+import type { Cursor } from '@/query/cursor'
 import type { QueryTracing, TracingOptions } from '@/query/observation'
 import { createQueryTracing } from '@/query/observation'
 import type { ResolvedColumnNames } from '@/schemas/physicalColumn'
@@ -54,7 +58,14 @@ import type { TableHandle } from '@/types'
 import type { CteHandle } from '@/types/cte'
 import type { ReadSource } from '@/types/tableHandle'
 import type { InferSelect } from '@/types/views'
-import { MigrationError, QueryError, SchemaError, attempt } from '@/utils/error'
+import type { Attempt } from '@/utils/error'
+import {
+  MigrationError,
+  QueryError,
+  SchemaError,
+  attempt,
+  isErrorTag,
+} from '@/utils/error'
 
 import { prepareUpdatePatch } from './query/arithmetic'
 import type { SqlTag } from './sql'
@@ -66,6 +77,7 @@ type TransactionOptions =
   | Readonly<{ behavior: 'immediate'; isolationLevel?: never }>
 
 type TransactionContext = {
+  nextCursorId: number
   nextSavepointId: number
   poisoned: boolean
 }
@@ -75,6 +87,9 @@ type TransactionScope = {
   context: TransactionContext
   operation: OperationContext
   parent: TransactionScope | undefined
+  cursors: Set<ScopeCursor>
+  cursorCleanupFailures: unknown[]
+  sqlFailure?: { cause: unknown }
   queue: Promise<void>
 }
 
@@ -373,6 +388,18 @@ async function runOperationCommand(
   }
 }
 
+function createRootTransactionScope(operation: OperationContext): TransactionScope {
+  return {
+    active: true,
+    context: { nextCursorId: 1, nextSavepointId: 1, poisoned: false },
+    operation,
+    parent: undefined,
+    cursors: new Set(),
+    cursorCleanupFailures: [],
+    queue: Promise.resolve(),
+  }
+}
+
 /** Runs a root transaction and retains the callback failure during rollback. */
 async function runRootTransactionCallback<T>(
   scope: TransactionScope,
@@ -385,13 +412,7 @@ async function runRootTransactionCallback<T>(
     ),
   )
 
-  await drainTransactionScope(scope)
-  scope.active = false
-
-  if (!callback.ok) throw callback.error
-  if (scope.context.poisoned) throw transactionPoisonedError()
-
-  return callback.value
+  return finishTransactionScope(scope, callback)
 }
 
 /** Runs a root transaction and retains the callback failure during rollback. */
@@ -412,13 +433,7 @@ async function runRootTransaction<T>(
       dialectId,
     )
 
-    const scope: TransactionScope = {
-      active: true,
-      context: { nextSavepointId: 1, poisoned: false },
-      operation,
-      parent: undefined,
-      queue: Promise.resolve(),
-    }
+    const scope = createRootTransactionScope(operation)
 
     try {
       const result = await runRootTransactionCallback(
@@ -463,34 +478,24 @@ async function runNestedTransactionCallback<T>(
   fn: (scope: TransactionScope) => Promise<T>,
   tracing?: QueryTracing,
 ): Promise<T> {
-  let callbackFailed = false
-  let callbackError: unknown
-  let result: T | undefined
-
-  try {
-    result = await getActiveTransactionScope().run(
+  const callback = await attempt(() =>
+    getActiveTransactionScope().run(
       { scope: nestedScope, parent: inheritedTransactionFrame },
       () => fn(nestedScope),
-    )
-  } catch (cause) {
-    callbackFailed = true
-    callbackError = cause
-  }
+    ),
+  )
 
-  await drainTransactionScope(nestedScope)
-  nestedScope.active = false
+  const finalized = await attempt(() => finishTransactionScope(nestedScope, callback))
 
-  if (callbackFailed)
-    await rollbackNestedTransaction(
+  if (!finalized.ok)
+    return rollbackNestedTransaction(
       transactionScope,
       dialectId,
       operations,
       savepointId,
-      callbackError,
+      finalized.error,
       tracing,
     )
-
-  if (transactionScope.context.poisoned) throw transactionPoisonedError()
 
   await executeSavepoint(
     transactionScope,
@@ -501,7 +506,7 @@ async function runNestedTransactionCallback<T>(
     tracing,
   )
 
-  return result as T
+  return finalized.value
 }
 
 /** Runs a nested transaction with savepoint cleanup and queue ownership. */
@@ -530,6 +535,8 @@ async function runNestedTransaction<T>(
       context: transactionScope.context,
       operation: transactionScope.operation,
       parent: transactionScope,
+      cursors: new Set(),
+      cursorCleanupFailures: [],
       queue: Promise.resolve(),
     }
 
@@ -587,11 +594,14 @@ function createUpdateDeleteMethods(context: ClientQueryContext) {
 /** Binds executor calls to the transaction queue when the client owns a scope. */
 function createClientExecutor(
   executor: Executor,
-  transactionScope: TransactionScope | undefined,
+  scope: TransactionScope | undefined,
   ensureClientOpen: () => void,
+  operations: DialectOperations,
 ): Executor {
-  return transactionScope
+  return scope
     ? {
+        openCursor: (query, signal) =>
+          openTransactionCursor(scope, executor, operations, query, signal),
         /**
          * Executes a row-returning query in the transaction queue.
          *
@@ -600,9 +610,9 @@ function createClientExecutor(
          */
         execute(compiled, options) {
           ensureClientOpen()
-          return scheduleTransactionScope(transactionScope, () => {
-            compiled.assertSession?.(transactionScope.operation.identity)
-            return executor.execute(compiled, options)
+          return scheduleTransactionScope(scope, () => {
+            compiled.assertSession?.(scope.operation.identity)
+            return runCursorScopeSql(scope, () => executor.execute(compiled, options))
           })
         },
         /**
@@ -613,9 +623,9 @@ function createClientExecutor(
          */
         run(compiled, options) {
           ensureClientOpen()
-          return scheduleTransactionScope(transactionScope, () => {
-            compiled.assertSession?.(transactionScope.operation.identity)
-            return executor.run(compiled, options)
+          return scheduleTransactionScope(scope, () => {
+            compiled.assertSession?.(scope.operation.identity)
+            return runCursorScopeSql(scope, () => executor.run(compiled, options))
           })
         },
       }
@@ -867,6 +877,7 @@ function createTracedClient<TSchemas extends readonly TableHandle[]>(
   const tracedContext = { ...context, tracing }
   const createClient = (executor: Executor, scope?: TransactionScope): Db<TSchemas> => {
     const tracedExecutor: Executor = {
+      openCursor: executor.openCursor?.bind(executor),
       execute: (query, options) =>
         executor.execute(query, { source: 'query', ...options, tracing }),
       run: (query, options) =>
@@ -948,6 +959,7 @@ function createScopedClient<TSchemas extends readonly TableHandle[]>(
     executor,
     transactionScope,
     ensureClientOpen,
+    dialect.operations,
   )
 
   /** Executes SQL through the current scope without repeating value mapping. */
@@ -1601,6 +1613,241 @@ function createScopedMigrationMethods<TSchemas extends readonly TableHandle[]>(
     )
 
   return { migrate, runMigrations: (options) => migrate().execute(options) }
+}
+
+type ScopeCursor = { finish(success: boolean): Promise<void> }
+
+/** Native failures with open cursors require rollback instead of CLOSE. */
+async function runCursorScopeSql<T>(
+  scope: TransactionScope,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    if (scope.cursors.size && isErrorTag(error, 'DriverError'))
+      scope.sqlFailure ??= { cause: error }
+
+    throw error
+  }
+}
+
+/** Combines callback and owned cleanup failures once, before commit or savepoint release. */
+async function finishTransactionScope<T>(
+  scope: TransactionScope,
+  callback: Attempt<T>,
+): Promise<T> {
+  await drainTransactionScope(scope)
+  scope.active = false
+  let outcome = callback
+
+  if (outcome.ok && scope.sqlFailure)
+    outcome = { ok: false, error: scope.sqlFailure.cause }
+
+  for (const cursor of scope.cursors) {
+    const cleanup = await attempt(() =>
+      cursor.finish(outcome.ok && !scope.context.poisoned),
+    )
+
+    if (!cleanup.ok && !scope.cursorCleanupFailures.includes(cleanup.error))
+      scope.cursorCleanupFailures.push(cleanup.error)
+  }
+
+  for (const failure of scope.cursorCleanupFailures) {
+    outcome = {
+      ok: false,
+      error: outcome.ok ? failure : withCursorCleanupFailure(outcome.error, failure),
+    }
+  }
+
+  if (!outcome.ok) throw outcome.error
+  if (scope.context.poisoned) throw transactionPoisonedError()
+
+  return outcome.value
+}
+
+/** Owns one server cursor; only physical calls occupy a transaction queue slot. */
+class TransactionCursor implements Cursor<unknown>, ScopeCursor {
+  private closed = false
+  private exhausted = false
+  private physicalOpen = false
+  private activeCall = false
+  private cancellation: Promise<void> | undefined
+  private cancellationFailure: { cause: unknown } | undefined
+  private closePromise: Promise<void> | undefined
+
+  constructor(
+    private readonly scope: TransactionScope,
+    private readonly executor: Executor,
+    private readonly commands: NonNullable<DialectOperations['cursor']>,
+    private readonly name: string,
+    private readonly signal?: AbortSignal,
+  ) {}
+
+  private readonly abort = () => {
+    if (!this.activeCall) return
+
+    this.scope.context.poisoned = true
+    this.scope.operation.discard()
+    this.cancellation = this.scope.operation.cancel().catch((cause: unknown) => {
+      this.cancellationFailure = { cause }
+      this.scope.operation.discard()
+    })
+  }
+
+  private async physical<T>(call: () => Promise<T>): Promise<T> {
+    this.signal?.throwIfAborted()
+    this.activeCall = true
+
+    try {
+      const value = await call()
+      this.signal?.throwIfAborted()
+      return value
+    } catch (error) {
+      this.signal?.throwIfAborted()
+      throw error
+    } finally {
+      this.activeCall = false
+      await this.finishCancellation()
+    }
+  }
+
+  private async finishCancellation(): Promise<void> {
+    await this.cancellation
+
+    if (this.cancellationFailure)
+      throw withOperationCleanupFailure(
+        this.signal?.reason,
+        this.cancellationFailure.cause,
+      )
+  }
+
+  async open(query: DialectCompiledQuery): Promise<this> {
+    this.signal?.addEventListener('abort', this.abort, { once: true })
+
+    try {
+      await scheduleTransactionScope(this.scope, () =>
+        this.physical(async () => {
+          query.assertSession?.(this.scope.operation.identity)
+
+          await runCursorScopeSql(this.scope, () =>
+            this.executor.run(this.commands.declare(this.name, query)),
+          )
+
+          this.physicalOpen = true
+          this.scope.cursors.add(this)
+        }),
+      )
+
+      return this
+    } catch (error) {
+      this.signal?.removeEventListener('abort', this.abort)
+
+      if (isErrorTag(error, 'DriverError')) this.scope.sqlFailure ??= { cause: error }
+
+      throw error
+    }
+  }
+
+  private async closePhysical(): Promise<void> {
+    if (!this.physicalOpen) return
+
+    this.physicalOpen = false
+
+    if (this.scope.sqlFailure) return
+
+    try {
+      await this.executor.run(this.commands.close(this.name))
+    } catch (error) {
+      this.scope.cursorCleanupFailures.push(error)
+      this.scope.context.poisoned = true
+      this.scope.operation.discard()
+      throw error
+    }
+  }
+
+  async finish(success: boolean): Promise<void> {
+    this.closed = true
+    this.signal?.removeEventListener('abort', this.abort)
+    this.scope.cursors.delete(this)
+
+    if (success) await this.closePhysical()
+  }
+
+  fetch(count: number): Promise<unknown[]> {
+    try {
+      assertFetchCount(count)
+      this.signal?.throwIfAborted()
+    } catch (error) {
+      return Promise.reject(error)
+    }
+
+    if (this.closed)
+      return Promise.reject(new QueryError({ message: 'Cursor is closed' }))
+
+    return scheduleTransactionScope(this.scope, () => this.fetchRows(count))
+  }
+
+  private async fetchRows(count: number): Promise<unknown[]> {
+    this.signal?.throwIfAborted()
+
+    if (this.exhausted) return []
+
+    const rows = await this.physical(() =>
+      runCursorScopeSql(this.scope, () =>
+        this.executor.execute(this.commands.fetch(this.name, count)),
+      ),
+    )
+
+    if (rows.length < count) {
+      this.exhausted = true
+      await this.closePhysical()
+      this.signal?.removeEventListener('abort', this.abort)
+    }
+
+    return rows
+  }
+
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise
+    if (this.closed) return Promise.resolve()
+
+    const ownership = transactionScopeOwnershipError(this.scope)
+
+    if (ownership) return Promise.reject(ownership)
+
+    this.closed = true
+
+    if (this.scope.context.poisoned)
+      return (this.closePromise = this.scope.queue.then(() => this.finish(false)))
+
+    let started = false
+    this.closePromise = scheduleTransactionScope(this.scope, () => {
+      started = true
+      return this.finish(!this.scope.context.poisoned)
+    }).catch(async (error: unknown) => {
+      if (started || !this.scope.context.poisoned) throw error
+
+      await this.finish(false)
+    })
+    return this.closePromise
+  }
+}
+
+async function openTransactionCursor(
+  scope: TransactionScope,
+  executor: Executor,
+  operations: DialectOperations,
+  query: DialectCompiledQuery,
+  signal?: AbortSignal,
+): Promise<Cursor<unknown>> {
+  if (!operations.cursor)
+    throw new QueryError({ message: 'This dialect does not support PostgreSQL cursors' })
+
+  const name = `stratom_cursor_${scope.context.nextCursorId++}`
+  return new TransactionCursor(scope, executor, operations.cursor, name, signal).open(
+    query,
+  )
 }
 
 export type { ValueMapConfig } from '@/query'
