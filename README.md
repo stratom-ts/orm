@@ -971,6 +971,45 @@ await db.transaction(async (trx) => {
 })
 ```
 
+### PostgreSQL batch reads
+
+Use an active transaction client to read a SELECT in bounded batches. The default
+batch size is 100. Each iterator is lazy and single-use. Other transaction queries
+can run between batches. A break, error, or transaction exit closes the cursor.
+
+```ts
+await db.transaction(async (tx) => {
+  for await (const users of tx.from(User).orderBy(User.id).batches({ batchSize: 500 })) {
+    await processBatch(users)
+  }
+})
+
+const result = await db.transaction((tx) =>
+  tx
+    .from(User)
+    .orderBy(User.id)
+    .withCursor(async (cursor) => {
+      while (true) {
+        const users = await cursor.fetch(100)
+        if (users.length === 0) break
+        await processBatch(users)
+      }
+      return 'complete'
+    }),
+)
+```
+
+`withCursor` returns the callback result after cleanup. `fetch(count)` requires a
+positive safe integer; empty arrays indicate exhaustion. `close()` releases early
+and is idempotent. Handles cannot be used after the callback or transaction scope
+ends. Child transaction cursors end before their savepoint is released.
+
+Both terminals accept an optional `signal: AbortSignal`; `batches` also accepts
+`batchSize`. Cancellation during SQL discards the session and invalidates the
+transaction. Root clients, SQLite, raw SQL and write builders do not support these
+terminals. Memory bounds apply to library batches, not arrays retained by callers
+or PostgreSQL query-plan memory. Queries must use a pinned PostgreSQL session.
+
 ### Serializable read/diff/write workflows
 
 Use a root transaction option when history must record the actual stored predecessor:

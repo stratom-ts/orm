@@ -1,8 +1,11 @@
 import type { CompiledQuery } from '@/dialects'
 
+import type { Cursor } from './cursor'
 import type { ExecutionOptions, QuerySource } from './observation'
 
 export type Executor = {
+  openCursor?(query: CompiledQuery, signal?: AbortSignal): Promise<Cursor<unknown>>
+
   /**
    * Run a query and return result rows (SELECT).
    *
@@ -23,6 +26,7 @@ export type Executor = {
 /** Supplies a source while preserving explicit metadata from composed executors. */
 export function withQuerySource(executor: Executor, source: QuerySource): Executor {
   return {
+    openCursor: executor.openCursor?.bind(executor),
     execute: (query, options) => executor.execute(query, options ?? { source }),
     run: (query, options) => executor.run(query, options ?? { source }),
   }

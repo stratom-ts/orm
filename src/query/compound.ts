@@ -2,6 +2,7 @@ import type { ColumnRef, Prettify } from '@/types'
 import type { Equals as Equal } from '@/types/equals'
 
 import type { CompiledQuery } from './compiled'
+import type { CursorTerminals } from './cursor'
 import type { QueryRow, SelectQuery, projectionShape } from './subquery'
 
 type Known<T> = 0 extends 1 & T ? false : unknown extends T ? false : true
@@ -81,6 +82,8 @@ export type CompoundSelectBuilder<
   TResult,
   P extends readonly unknown[] = readonly unknown[],
 > = SetOperations<TResult, P> & {
+  batches: CursorTerminals<TResult>['batches']
+  withCursor: CursorTerminals<TResult>['withCursor']
   readonly [projectionShape]?: P
   orderBy(
     outputName: Extract<keyof TResult, string>,

@@ -49,6 +49,8 @@ import {
   cteDefinitions,
   recursiveSelfHandles,
 } from './cte'
+import { cursorTerminals, withCursorCleanupFailure } from './cursor'
+import type { CursorTerminals } from './cursor'
 import type { Executor } from './executor'
 import type { ExpressionBuilder } from './expressions'
 import { and, cmp, columnName, columnRelation, eb, toQualified } from './expressions'
@@ -1236,6 +1238,8 @@ type SelectBuilder<
     ? []
     : WildcardProjection<InferSelect<THandle>>,
 > = SetOperations<TResult, TProjection> & {
+  batches: CursorTerminals<TResult>['batches']
+  withCursor: CursorTerminals<TResult>['withCursor']
   readonly [projectionShape]?: TProjection
   /**
    * Selects every column from the root or requested joined table.
@@ -1351,8 +1355,8 @@ type SelectBuilder<
     values: readonly unknown[],
   ): SelectBuilder<THandle, TResult, HasSelection, TNullable, TProjection>
   /**
-   * Adds an exclusive cursor boundary before the supplied values, combined with existing
-   * filters.
+   * Adds an exclusive cursor boundary before the supplied values, combined with
+   * existing filters.
    *
    * @param order - Sort terms matching ORDER BY, including a unique tie-breaker.
    * @param values - Application cursor values in sort-term order.
@@ -1666,6 +1670,7 @@ function createCompoundBuilder(
 
   const builder: CompoundSelectBuilder<unknown> = {
     ...createSetOperations(build, context),
+    ...selectCursorTerminals(context, build),
     orderBy(column, direction = 'asc', nulls) {
       return next({
         orderBy: [
@@ -1901,6 +1906,7 @@ function createSelectBuilder<THandle extends ReadSource>(
   const executeTakeFirstOrThrow = () => takeFirstSelectRow(execute)
 
   const builder = {
+    ...selectCursorTerminals(options, () => buildSelectQuery(options)),
     ...(createSetOperations(() => buildSelectQuery(options), options) as SetOperations<
       unknown,
       WildcardProjection<InferSelect<THandle>>
@@ -1938,6 +1944,8 @@ type QueryBuilder<THandle extends ReadSource = TableHandle> = SetOperations<
   InferSelect<THandle>,
   WildcardProjection<InferSelect<THandle>>
 > & {
+  batches: CursorTerminals<InferSelect<THandle>>['batches']
+  withCursor: CursorTerminals<InferSelect<THandle>>['withCursor']
   readonly [projectionShape]?: WildcardProjection<InferSelect<THandle>>
 
   /** Compile `select * from table` (default read path). */
@@ -2122,8 +2130,8 @@ type QueryBuilder<THandle extends ReadSource = TableHandle> = SetOperations<
     values: readonly unknown[],
   ): SelectBuilder<THandle, InferSelect<THandle>>
   /**
-   * Adds an exclusive cursor boundary before the supplied values, combined with existing
-   * filters.
+   * Adds an exclusive cursor boundary before the supplied values, combined with
+   * existing filters.
    *
    * @param order - Sort terms matching ORDER BY, including a unique tie-breaker.
    * @param values - Application cursor values in sort-term order.
@@ -2228,14 +2236,7 @@ function createTableBuilder<THandle extends ReadSource>(
     })
 
   // Default path: select * with no filters (terminals on QueryBuilder)
-  const defaultSelect = createSelectBuilder({
-    handle,
-    dialect,
-    query,
-    executor,
-    mapper,
-    state: emptySelectState(),
-  })
+  const defaultSelect = rootSelect() as SelectBuilder<THandle, InferSelect<THandle>>
 
   const builder = {
     union: ((other: object) => defaultSelect.union(other as never)) as never,
@@ -2244,16 +2245,16 @@ function createTableBuilder<THandle extends ReadSource>(
     except: ((other: object) => defaultSelect.except(other as never)) as never,
     /** Compiles the default select query. */
     compile: () => defaultSelect.compile(),
+    batches: defaultSelect.batches.bind(defaultSelect),
+    withCursor: defaultSelect.withCursor.bind(defaultSelect),
     /** Executes the default select query. */
     execute: () => defaultSelect.execute() as Promise<InferSelect<THandle>[]>,
     executeNested: <const T extends NestedProjection>(projection: T) =>
       defaultSelect.executeNested(projection),
     /** Executes the default select and returns its first row. */
-    executeTakeFirst: () =>
-      defaultSelect.executeTakeFirst() as Promise<InferSelect<THandle> | undefined>,
+    executeTakeFirst: () => defaultSelect.executeTakeFirst(),
     /** Executes the default select and requires a row. */
-    executeTakeFirstOrThrow: () =>
-      defaultSelect.executeTakeFirstOrThrow() as Promise<InferSelect<THandle>>,
+    executeTakeFirstOrThrow: () => defaultSelect.executeTakeFirstOrThrow(),
     ...createTableSelection(rootSelect),
     ...createTableJoins(rootSelect),
     ...createTablePagination(rootSelect),
@@ -3694,6 +3695,50 @@ async function executeNestedSelect(
   })
 
   return nested.materialize(rows, options.mapper)
+}
+
+/** Prepares once and applies the ordinary SELECT projection to each fetched batch. */
+function selectCursorTerminals(context: CompoundContext, build: () => SelectAst) {
+  return cursorTerminals(async (signal) => {
+    if (!context.executor.openCursor)
+      throw new QueryError({
+        message: 'Cursors require an active PostgreSQL transaction client',
+      })
+
+    const prepared = prepareStatement(build(), context.executor)
+    const compiled = context.query.compile(prepared)
+    const projection = context.mapper
+      ? prepareSelectProjection(prepared, context.query)
+      : undefined
+
+    const cursor = await executeQueryOperation(prepared, () =>
+      context.executor.openCursor!(compiled, signal),
+    )
+
+    return {
+      close: () => cursor.close(),
+      async fetch(count: number) {
+        const rows = restoreResultNames(
+          compiled,
+          await executeQueryOperation(prepared, () => cursor.fetch(count)),
+        )
+
+        try {
+          return context.mapper && projection
+            ? projection.mapRows(context.mapper, rows)
+            : rows
+        } catch (error) {
+          try {
+            await cursor.close()
+          } catch (cleanup) {
+            throw withCursorCleanupFailure(error, cleanup)
+          }
+
+          throw error
+        }
+      },
+    }
+  })
 }
 
 export type { CompiledQuery } from './compiled'

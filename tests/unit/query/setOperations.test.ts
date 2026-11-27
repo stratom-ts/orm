@@ -213,6 +213,8 @@ for (const dialect of [postgresDialect, sqliteDialect]) {
         'limit',
         'offset',
         'compile',
+        'batches',
+        'withCursor',
         'execute',
         'executeTakeFirst',
         'executeTakeFirstOrThrow',
